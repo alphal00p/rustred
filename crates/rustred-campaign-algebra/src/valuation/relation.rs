@@ -12,6 +12,7 @@
 //!   `c_0 I(key) = sum_j c_j I(k_j)` (UNNORMALISED; TRICKS 12(a): the target coefficient is tested too);
 //! - `key` = the key the relation is applied at (must equal the record's `key` when it has one);
 //! - exact (Symbolica, [`super::Coefficient`]); cost = parsing the coefficient texts once.
+//!
 //! The verdict is made on the NORMALISED orders `v(c_j) - v(c_0)` (`v(c_0) = 0` for normalised records), so a zero of
 //! the target coefficient at d0 and the equivalent rhs poles of the normalised form give the SAME verdict.
 //! A rule record is assumed to APPLY at the key (domain and exceptions are the caller's: this call judges coefficients).
@@ -180,7 +181,11 @@ fn short(t: &str) -> String {
     if t.len() <= 80 {
         t.to_string()
     } else {
-        format!("{}.. ({} bytes)", &t[..t.floor_char_boundary(80)], t.len())
+        let mut e = 80;
+        while !t.is_char_boundary(e) {
+            e -= 1;
+        }
+        format!("{}.. ({} bytes)", &t[..e], t.len())
     }
 }
 
@@ -431,7 +436,7 @@ pub fn rule_record(
 /// ([`Prepared::at_key`]).
 #[derive(Debug, Clone)]
 pub struct PreparedRule {
-    terms: Vec<(String, Prepared)>,
+    terms: Vec<(String, Prepared, Option<String>)>,
     target: Option<Prepared>,
 }
 
@@ -440,10 +445,10 @@ impl PreparedRule {
     pub fn of_record(record: &Value, arity: usize, d0: &D0) -> Result<PreparedRule, String> {
         let rel = RelationText::of_record(record)?;
         let mut terms = Vec::with_capacity(rel.terms.len());
-        for (k, c, _) in &rel.terms {
+        for (k, c, part) in &rel.terms {
             let co =
                 Coefficient::parse(c, arity).map_err(|e| format!("coefficient of {k}: {e}"))?;
-            terms.push((k.clone(), Prepared::new(co, d0)));
+            terms.push((k.clone(), Prepared::new(co, d0), part.clone()));
         }
         let target = match &rel.target_coefficient {
             Some(t) => Some(Prepared::new(
@@ -461,54 +466,54 @@ impl PreparedRule {
 
     /// The verdict of THIS record at `key` and the number of terms with a pole there.
     pub fn at_key(&self, key: &[i64]) -> (RegularAt, usize) {
+        let (v, with, _) = self.at_key_parts(key);
+        (v, with)
+    }
+
+    /// As [`Self::at_key`], plus the largest pole order over TOP-sector terms (`part` given by the record, else the
+    /// term's key pattern evaluated at `key`; `None` when a singular term's sector cannot be told).
+    pub fn at_key_parts(&self, key: &[i64]) -> (RegularAt, usize, Option<u64>) {
+        use rustred_campaign_core::poles::census::{eval_key_pattern, in_top_sector};
+        let undecided = |reason: String| (RegularAt::Undecided { reason }, 0, None);
         let v0 = match &self.target {
             None => 0,
             Some(t) => match t.at_key(key) {
                 Ok(Valuation::Order(v)) => v,
                 Ok(Valuation::Zero) => {
-                    return (
-                        RegularAt::Undecided {
-                            reason: "the target coefficient vanishes at the key".into(),
-                        },
-                        0,
-                    );
+                    return undecided("the target coefficient vanishes at the key".into());
                 }
-                Err(e) => {
-                    return (
-                        RegularAt::Undecided {
-                            reason: format!("target coefficient: {e}"),
-                        },
-                        0,
-                    );
-                }
+                Err(e) => return undecided(format!("target coefficient: {e}")),
             },
         };
         let mut worst = 0u64;
+        let mut worst_top = Some(0u64);
         let mut with = 0usize;
-        for (k, p) in &self.terms {
+        for (k, p, part) in &self.terms {
             match p.at_key(key) {
                 Ok(Valuation::Order(v)) if v - v0 < 0 => {
                     with += 1;
-                    worst = worst.max((v - v0).unsigned_abs());
+                    let o = (v - v0).unsigned_abs();
+                    worst = worst.max(o);
+                    let top = match part.as_deref() {
+                        Some("top") => Some(true),
+                        Some("sub") => Some(false),
+                        _ => eval_key_pattern(k, key).map(|r| in_top_sector(key, &r)),
+                    };
+                    worst_top = match (worst_top, top) {
+                        (Some(w), Some(true)) => Some(w.max(o)),
+                        (w, Some(false)) => w,
+                        (None, _) | (_, None) => None,
+                    };
                 }
                 Ok(_) => {}
-                Err(e) => {
-                    return (
-                        RegularAt::Undecided {
-                            reason: format!("coefficient of {k}: {e}"),
-                        },
-                        0,
-                    );
-                }
+                Err(e) => return undecided(format!("coefficient of {k}: {e}")),
             }
         }
-        (
-            if worst == 0 {
-                RegularAt::Regular
-            } else {
-                RegularAt::Singular { order: worst }
-            },
-            with,
-        )
+        let v = if worst == 0 {
+            RegularAt::Regular
+        } else {
+            RegularAt::Singular { order: worst }
+        };
+        (v, with, worst_top)
     }
 }

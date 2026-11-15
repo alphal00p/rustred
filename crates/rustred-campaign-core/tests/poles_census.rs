@@ -13,6 +13,7 @@ fn row(k: i64, label: Option<&str>, in_box: bool, order: Option<u64>) -> CensusR
         in_box,
         order,
         terms_with_pole: 0,
+        order_top: order,
     }
 }
 
@@ -76,4 +77,24 @@ fn terminal_set_record_digest_binds_the_set() {
         terminal_set_digest(&t),
         terminal_set_digest(&["I(2,1)".to_string(), "I(1,1)".to_string()])
     );
+}
+
+#[test]
+fn key_patterns_and_sectors() {
+    use rustred_campaign_core::poles::census::{dots_rank, eval_key_pattern, in_top_sector};
+    let k = [2, 1, 3, 0, -1];
+    assert_eq!(
+        eval_key_pattern("I(n0-1,n1,1,n3+1,-2)", &k),
+        Some(vec![1, 1, 1, 1, -2])
+    );
+    assert_eq!(
+        eval_key_pattern("I(1,2,3,0,0)", &k),
+        Some(vec![1, 2, 3, 0, 0])
+    );
+    assert_eq!(eval_key_pattern("I(n9,1,1,0,0)", &k), None);
+    assert_eq!(eval_key_pattern("I(2*n0,1,1,0,0)", &k), None);
+    assert!(in_top_sector(&k, &[1, 1, 1, 0, 0]));
+    assert!(!in_top_sector(&k, &[0, 1, 1, 0, 0]));
+    assert!(in_top_sector(&k, &[1, 2, 1, -3, 0]));
+    assert_eq!(dots_rank(&k), (3, 1));
 }
