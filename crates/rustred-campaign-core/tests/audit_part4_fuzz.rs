@@ -538,9 +538,13 @@ impl Gen<'_> {
 }
 
 fn gen_set(seed: u64) -> Set {
+    gen_set_n(seed, None)
+}
+
+fn gen_set_n(seed: u64, arity: Option<usize>) -> Set {
     let mut rng = Rng(seed | 1);
     let r = &mut rng;
-    let n = [2usize, 2, 3, 3, 3, 4][r.below(6) as usize];
+    let n = arity.unwrap_or_else(|| [2usize, 2, 3, 3, 3, 4][r.below(6) as usize]);
     let e = r.range(1, n as i64) as usize;
     let mut g = Gen { r, n, e };
     let ca = g.record(true);
@@ -1010,7 +1014,7 @@ fn run_one(seed: u64, bx: i64, t: &Tally, engine_dir: Option<&std::path::Path>) 
                 }
             }
         }
-        Err(_) => {
+        Err(why) => {
             t.refused.fetch_add(1, Ordering::Relaxed);
             // usefulness probe: is some oracle key actually open? (counted only)
             if rng.chance(100) {
@@ -1020,6 +1024,10 @@ fn run_one(seed: u64, bx: i64, t: &Tally, engine_dir: Option<&std::path::Path>) 
                     .all(|k| matches!(disp.first_match(k).unwrap(), Dispatch::Covered(_)))
                 {
                     t.refused_but_covered_on_oracle.fetch_add(1, Ordering::Relaxed);
+                    if std::env::var_os("AUDIT_P4_WHY").is_some() {
+                        let w: String = why.chars().take(240).collect();
+                        eprintln!("REFUSED-BUT-ORACLE-COVERED seed {seed:#x}: {w}");
+                    }
                 }
             }
         }
@@ -1085,4 +1093,70 @@ fn p4_fuzz_replay_seed() {
         t.minted.load(Ordering::Relaxed),
         t.false_proofs.load(Ordering::Relaxed)
     );
+}
+
+/// Q2 liveness at large arity (env AUDIT_P4_A20_SETS, default 0 = skipped): the generator's near-cover chains at arity
+/// 12 / 16 / 20 (literals on random slots, late slots included), each minted with `ProofWork::default()` (20,000,000
+/// units, no wall); reports the slowest call, the outcome counts and the peak RSS; a minted proof is checked on 20,000
+/// random keys (floor-heavy and far) against the dispatcher.
+#[test]
+fn p4_q2_large_arity_liveness_default_budget() {
+    let n_sets = env_u64("AUDIT_P4_A20_SETS", 0);
+    if n_sets == 0 {
+        return;
+    }
+    let seed0 = env_u64("AUDIT_P4_SEED", 0xA4D1_7020_0000_0001);
+    let (mut minted, mut refused, mut skipped, mut false_proofs) = (0u64, 0u64, 0u64, 0u64);
+    let mut slowest = (0.0f64, 0u64, String::new());
+    for i in 0..n_sets {
+        let seed = seed0.wrapping_add(i.wrapping_mul(0x1000_0000_01B3));
+        let arity = [12usize, 16, 20][(i % 3) as usize];
+        let s = gen_set_n(seed, Some(arity));
+        let Some(disp) = dispatcher(&s) else {
+            skipped += 1;
+            continue;
+        };
+        let frame = NodeFrame::without_header_lines_first(s.n, s.e);
+        let src = DispatcherSource::new(&disp);
+        let t0 = std::time::Instant::now();
+        let r = prove_coverage_preserved(&src, &src, &frame, &ProofWork::default(), &DispatchOrderStatement::SameOrder);
+        let secs = t0.elapsed().as_secs_f64();
+        let what = match &r {
+            Ok(_) => "minted".to_string(),
+            Err(e) => e.chars().take(160).collect(),
+        };
+        if secs > slowest.0 {
+            slowest = (secs, seed, format!("arity {arity}: {what}"));
+        }
+        match r {
+            Ok(_) => {
+                minted += 1;
+                let mut rng = Rng(seed ^ 0x5555);
+                for _ in 0..20_000 {
+                    let k: Vec<i32> = (0..s.n)
+                        .map(|j| {
+                            let m = *[2i64, 4, 10, 1000].get(rng.below(4) as usize).unwrap();
+                            let v = rng.range(0, m) as i32;
+                            if j < s.e { 1 + v } else { -v }
+                        })
+                        .collect();
+                    if !matches!(disp.first_match(&k).unwrap(), Dispatch::Covered(_)) {
+                        false_proofs += 1;
+                        eprintln!("FALSE PROOF (large arity) seed {seed:#x} key {k:?}");
+                        break;
+                    }
+                }
+            }
+            Err(_) => refused += 1,
+        }
+    }
+    let hwm = std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|t| t.lines().find(|l| l.starts_with("VmHWM:")).map(str::to_string))
+        .unwrap_or_default();
+    eprintln!(
+        "P4 LARGE ARITY: sets {n_sets} minted {minted} refused {refused} unbuildable {skipped} false {false_proofs}; slowest {:.1} s (seed {:#x}, {}); {hwm}",
+        slowest.0, slowest.1, slowest.2
+    );
+    assert_eq!(false_proofs, 0);
 }
