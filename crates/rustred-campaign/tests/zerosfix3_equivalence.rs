@@ -298,11 +298,26 @@ fn generate(seed: u64, cmp: &Cmp, root: &Path) -> Inst {
                 "witness_loci":[]})
             .to_string();
             std::fs::write(dir.join("R.table.jsonl"), table_text(&[rel])).unwrap();
-            std::fs::write(dir.join("verify.json"), "{\"proved\":true}\n").unwrap();
+            // int7 (symfix x zerosfix3): a supplied relation is served only when VERIFIED at load (import.md 21): the
+            // relation comes with a (test-data) kernel certificate bound to the frame's family text and to the relation
+            // itself (as symfix's closeloop4_zeros does); a junk `verification` file no longer serves anything
+            let kernel = "ab".repeat(32);
+            let cert = json!({"schema": "rustred.campaign.symrows-certificate.v1",
+                "relation_sha256": rustred_campaign_core::import::supplied_verify::relation_sha256(
+                    &x, &[(to.to_vec(), "1".to_string())]).unwrap(),
+                "key": x, "class": "certified", "verdict": "EXACT_IN_SPAN_AT_KEY",
+                "family_sha256": rustred_campaign_core::import::supplied_verify::family_sha256(FAMILY),
+                "kernel_sha256": kernel, "group_digest": null});
+            let cert_text = format!(
+                "{cert}\n{}\n",
+                json!({"type": "end", "records": 1, "request_blake3": "0".repeat(64)})
+            );
+            std::fs::write(dir.join("certificates.jsonl"), &cert_text).unwrap();
             sources.push(
                 json!({"id":"rel","kind":"supplied_relations","class":"symmetry",
                 "path": dir.join("R.table.jsonl").display().to_string(),
-                "verification":{"path": dir.join("verify.json").display().to_string()}}),
+                "kernel_certificates":{"files":[{"path": dir.join("certificates.jsonl").display().to_string(),
+                    "sha256": sha(cert_text.as_bytes())}], "kernels":[kernel]}}),
             );
             start.push(x);
             relation_set = true;
