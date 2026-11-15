@@ -393,7 +393,19 @@ pub fn load_with(
     base: &Path,
     lopts: &LoadOptions,
 ) -> Result<ImportedSet, ImportError> {
-    load_inner(spec, base, lopts, false)
+    load_inner(spec, base, lopts, false, false)
+}
+
+/// [`load_with`] for callers audited for eps-shifted (two-sided) families (lane epsframe): the frame is read with
+/// `NodeFrame::from_header_eps_aware`; on an integer family identical to [`load_with`]. The consumers audited so far:
+/// the import's own load, the closure walk ([`crate::import::check`] through `closure`), the fact pass and the
+/// evidence lookups (offset + record_sha256). Every other consumer of the set must check `set.frame.has_eps_axes()`.
+pub fn load_with_eps(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+) -> Result<ImportedSet, ImportError> {
+    load_inner(spec, base, lopts, false, true)
 }
 
 /// [`load_with`]; `validate_bodies_only` (the classify-only sweep, `import::sweep`): the body pass streams every
@@ -404,6 +416,7 @@ pub(crate) fn load_inner(
     base: &Path,
     lopts: &LoadOptions,
     validate_bodies_only: bool,
+    eps_aware: bool,
 ) -> Result<ImportedSet, ImportError> {
     let spec_digest = spec.digest();
     // open table indexes by file (kept for the body pass)
@@ -424,7 +437,7 @@ pub(crate) fn load_inner(
     // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load only (frame, charts, domains,
     // labels (chart, index), dispatcher, bodies parsed); a campaign load refuses it, typed: the closure, check,
     // partition, loci and termmin read line signs (integer-only; interfaces/campaign-core-domain.md "Eps")
-    let frame = if validate_bodies_only {
+    let frame = if validate_bodies_only || eps_aware {
         NodeFrame::from_header_eps_aware(&fhead)
     } else {
         NodeFrame::from_header(&fhead).map_err(|e| {
@@ -1026,6 +1039,13 @@ pub(crate) fn load_inner(
                 });
             }
         }
+    }
+    if frame.has_eps_axes() && spec.start.format == StartFormat::Box {
+        // the box enumerates line powers >= 1 only (boxdef is integer-only; the eps box, BOXDEF B, is spec data not
+        // implemented): a box start on an eps family would silently miss every key with an eps axis <= 0
+        return Err(ImportError::Unsupported(
+            "start format box on an eps-shifted family (boxdef is integer-only; give the start keys)".into(),
+        ));
     }
     let start = read_start(spec, base, codec)?;
     let records = rules.iter().map(Vec::len).sum();

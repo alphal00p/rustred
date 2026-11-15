@@ -131,6 +131,7 @@ fn classify_inner(
                 index_dir: opts.index_dir.clone(),
             },
             true,
+            true,
         )?;
         let rep = &set.report().sources[0];
         out.kinds = rep.line_kinds.clone();

@@ -692,3 +692,165 @@ fn closure_walk_on_eps_tables() {
         );
     }
 }
+
+/// Small start sets for the import checks: every integer line at 1 or one of them at 2, the eps axes in -1..=2,
+/// numerators at 0 or one of them at -1.
+fn small_start(frame: &NodeFrame) -> Vec<Vec<i32>> {
+    let n = frame.arity();
+    let eps = frame.eps_axes();
+    let lines: Vec<usize> = (0..n)
+        .filter(|&i| frame.is_line(i) && !frame.is_eps_axis(i))
+        .collect();
+    let nums: Vec<usize> = (0..n).filter(|&i| !frame.is_line(i)).collect();
+    let mut base = vec![0i32; n];
+    for &l in &lines {
+        base[l] = 1;
+    }
+    let mut out = vec![];
+    let line_vars: Vec<Option<usize>> = std::iter::once(None)
+        .chain(lines.iter().map(|&l| Some(l)))
+        .collect();
+    let num_vars: Vec<Option<usize>> = std::iter::once(None)
+        .chain(nums.iter().map(|&l| Some(l)))
+        .collect();
+    let combos = 4usize.pow(eps.len() as u32);
+    for lv in &line_vars {
+        for nv in &num_vars {
+            for c in 0..combos {
+                let mut k = base.clone();
+                if let Some(l) = lv {
+                    k[*l] = 2;
+                }
+                if let Some(m) = nv {
+                    k[*m] = -1;
+                }
+                let mut c = c;
+                for &a in &eps {
+                    k[a] = (c % 4) as i32 - 1;
+                    c /= 4;
+                }
+                out.push(k);
+            }
+        }
+    }
+    out
+}
+
+const EPS_CHECK_TABLES: &[&str] = &[
+    "T012_a0-td-e.table.jsonl",
+    "T041_min.table.jsonl",
+    "T047_min.table.jsonl",
+];
+
+/// The import spec of a one-table eps node: start = [`small_start`], table residuals as declared terminals, facts =
+/// `facts` (rr_proof instantiate answers, byte offsets, bound by record_sha256).
+fn eps_check(
+    file: &str,
+    facts: Option<&std::path::Path>,
+    dir: &std::path::Path,
+) -> rustred_campaign_core::import::CheckResult {
+    use rustred_campaign_core::import::load::load_with_eps;
+    use rustred_campaign_core::import::{CheckOptions, Evidence, LoadOptions, TableSetSpec, check};
+    let tf = read_table_file(data(file), ReadOptions::default()).unwrap();
+    let frame = NodeFrame::from_header_eps_aware(tf.header.as_ref().unwrap()).unwrap();
+    std::fs::create_dir_all(dir).unwrap();
+    let start = dir.join(format!("{file}.start.jsonl"));
+    let text: String = small_start(&frame)
+        .iter()
+        .map(|k| format!("{}\n", serde_json::to_string(k).unwrap()))
+        .collect();
+    std::fs::write(&start, text).unwrap();
+    let mut spec = serde_json::json!({
+        "schema": rustred_campaign_core::import::spec::SPEC_SCHEMA,
+        "frame_from": "table",
+        "start": {"path": start.display().to_string(), "format": "keys_jsonl"},
+        "sources": [{"id": "table", "kind": "engine_table", "path": data(file).display().to_string(),
+                     "table_terminals": "ledger_and_residuals"}],
+    });
+    if let Some(f) = facts {
+        spec["evidence"] = serde_json::json!({"facts": [{"path": f.display().to_string()}]});
+    }
+    let spec = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let set = load_with_eps(&spec, dir, &LoadOptions::default()).unwrap();
+    assert!(set.frame.has_eps_axes());
+    let ev = Evidence::from_spec(&set, dir).unwrap();
+    check(&set, &ev, &CheckOptions::default()).unwrap()
+}
+
+/// Writes the fact requests of the eps import checks (one JSONL per table) to EPSFRAME_REQ_DIR: the input of the
+/// rr_proof run that produced `tests/data/eps/*.check_facts.jsonl` (see MANIFEST.sha256).
+#[test]
+#[ignore = "test-data producer: EPSFRAME_REQ_DIR=<dir>"]
+fn eps_check_write_fact_requests() {
+    let dir =
+        std::path::PathBuf::from(std::env::var("EPSFRAME_REQ_DIR").expect("EPSFRAME_REQ_DIR"));
+    for file in EPS_CHECK_TABLES {
+        // iterate: facts answered so far (EPSFRAME_REQ_DIR/<file>.check_facts.jsonl) unlock further keys
+        let facts = dir.join(format!("{file}.check_facts.jsonl"));
+        let r = eps_check(file, facts.exists().then_some(facts.as_path()), &dir);
+        let text: String = r
+            .fact_requests
+            .iter()
+            .map(|q| format!("{}\n", serde_json::to_string(q).unwrap()))
+            .collect();
+        std::fs::write(dir.join(format!("{file}.fact_requests.jsonl")), text).unwrap();
+        eprintln!(
+            "{file}: {} records requested, verdict {:?}",
+            r.fact_requests.len(),
+            r.summary.verdict
+        );
+    }
+}
+
+/// A REAL CLOSURE CHECK of three small eps nodes through the import (load_with_eps -> check, Tier C): T012 (shift
+/// 3 eps, 2L_eps, P5L_STATUS: certified by 18 certificates, 1 residual master), T041 / T047 (shift 1 / 2 eps, 3L_eps,
+/// certified, 0 residuals). Facts = the engine's rr_proof instantiate answers to the check's own fact requests (byte
+/// offsets, one job per chart, every answer bound by record_sha256: `split_req.py`, `iterate.sh`). Expected: Closed,
+/// nothing open, the walk on both sides of the eps axes, the residual terminals = P5L_STATUS's residual masters.
+#[test]
+fn eps_import_check_closes_with_engine_facts() {
+    use rustred_campaign_core::closure::Verdict;
+    let dir = std::env::temp_dir().join(format!("eps_check_{}", std::process::id()));
+    for (file, residual_masters) in [
+        ("T012_a0-td-e.table.jsonl", 1u64),
+        ("T041_min.table.jsonl", 0),
+        ("T047_min.table.jsonl", 0),
+    ] {
+        let stem = file.trim_end_matches(".table.jsonl");
+        // without facts: open (witness-absent records wait for their regular facts), with requests
+        let r0 = eps_check(file, None, &dir);
+        assert_eq!(r0.summary.verdict, Verdict::Open, "{file}");
+        assert!(!r0.fact_requests.is_empty(), "{file}");
+        // with the engine's facts: closed
+        let facts = data(&format!("{stem}.check_facts.jsonl"));
+        let r = eps_check(file, Some(&facts), &dir);
+        let s = &r.summary;
+        assert_eq!(s.verdict, Verdict::Closed, "{file}: {s:?}");
+        assert_eq!(s.open_total, 0, "{file}");
+        assert_eq!(s.descent_violations, 0, "{file}");
+        assert!(r.fact_requests.is_empty(), "{file}");
+        assert_eq!(
+            s.terminals_other + s.terminals_preferred,
+            residual_masters,
+            "{file}"
+        );
+        let tf = read_table_file(data(file), ReadOptions::default()).unwrap();
+        let frame = NodeFrame::from_header_eps_aware(tf.header.as_ref().unwrap()).unwrap();
+        let eps = frame.eps_axes();
+        assert_eq!(r.rows.len() as u64, s.keys_total, "{file}");
+        let nonpos = r
+            .rows
+            .iter()
+            .filter(|row| eps.iter().any(|&a| row.key[a] <= 0))
+            .count();
+        assert!(nonpos > 0, "{file}");
+        eprintln!(
+            "{file}: CLOSED, keys {} (eps <= 0: {nonpos}), edges {}, terminals {}, facts {} lines",
+            s.keys_total,
+            s.edges,
+            s.terminals_other + s.terminals_preferred,
+            std::fs::read_to_string(&facts).unwrap().lines().count()
+        );
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}

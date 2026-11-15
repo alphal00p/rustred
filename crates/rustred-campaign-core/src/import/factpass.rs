@@ -178,7 +178,9 @@ pub fn fact_pass(
         let t = offsets.partition_point(|&o| o <= g) - 1;
         (t, g - offsets[t])
     };
-    let sectors = Sectors::new(set.frame.mask().to_vec());
+    let mut sectors = Sectors::new(set.frame.mask().to_vec());
+    // eps families: the eps axes are forced (in every sector), never dropped lines
+    sectors.forced = set.frame.eps_axes().iter().fold(0u64, |m, &a| m | 1 << a);
     let mut rep = FactPassReport {
         keys: len as u64,
         served_by_rule: winner.iter().filter(|&&w| w != 0).count() as u64,

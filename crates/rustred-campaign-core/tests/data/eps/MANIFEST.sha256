@@ -1,10 +1,14 @@
 # sources: SCRATCHPAD/p5l/runs/T012/a0-td-e/F.table.jsonl; /common/build-cache/vhirschi/p_integral_dev/simplify-tables/min/<T>/F.table.jsonl (header = first line)
 # *.engine_first.jsonl: rr_proof instantiate (frozen 20261114T2332Z-engine-line7a, git 6c2fb15c) facts per chart via mkreq.py + condense.py
+# *.check_facts.jsonl: rr_proof instantiate (frozen 20261114T2332Z-engine-line7a) answers to the import check's fact requests (split_req.py: byte offsets, one job per chart; iterate.sh)
+16adb44cc95f0a38f5e31458c1f0b68a81596f4ab1d88cd4f51f2bdd2caf98c6  T012_a0-td-e.check_facts.jsonl
 3b5971648ffe02196bc1d3dff613487ad0fe1664f3190bb5beae60713f539ec8  T012_a0-td-e.table.jsonl
 1fec621d497e09b91f23d987bfb2d282ab50af1d830af8570bdd04fd211c2027  T012.engine_first.jsonl
 92d06cb8561ed5ff82991036700ad0910cc39e1f32dcac406efe74fb6744fa5f  T041.engine_first.jsonl
+d23448a0aa20511566b8712d3377768e60a3bd1fe3cb4ec150ed520040102b3a  T041_min.check_facts.jsonl
 5a5915e26669d1a6346fdc847b32dfe8f541d21639466879a516d4adeba30fb1  T041_min.table.jsonl
 92d06cb8561ed5ff82991036700ad0910cc39e1f32dcac406efe74fb6744fa5f  T047.engine_first.jsonl
+1f1cede2378964b85cbf4a5b7fffd5e21c0f5cf78543822a5b1740a83ef29f6d  T047_min.check_facts.jsonl
 e193416da9e13015419831ccebc945d7df3d407851faace71b78f547ea150c05  T047_min.table.jsonl
 295751a803256707131369c788e617737fb5a35f7e6f2ec7cf23a4633ce066e7  T002_min.header.json
 e6e0a2b4c2985ac74d7e32a7ca25b3159c468b67ba8aa4f8aa15ef8ed8952128  T003_min.header.json
@@ -13,3 +17,5 @@ c66ae1b7431e7c48a2df53ed227f1972bca5b472de5d702ed33fafab7a37e734  T064_min.heade
 2070eb2211cd74171fad0fdd7b9d6e6a65782266132f038469b0fd4b28b6078f  T082_min.header.json
 9ef6d7d904a5d2190e8d0b6ad2a754995c9b3bbf3896df5d42198372b82274fc  condense.py
 fe282557b92ebe731f8172686b814b52bce910b3e1b6f909d01466cddde4aeec  mkreq.py
+17dc04b0d2f29786b1e61dd1f078e4da7145a60f9e98d99c01324184d37f1914  split_req.py
+93595504ed0598d9419fcedcba6f76fd2c3f7ce58849c2e52b4c792359e916fd  iterate.sh
