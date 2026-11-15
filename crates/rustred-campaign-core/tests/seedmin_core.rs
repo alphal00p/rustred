@@ -1060,3 +1060,70 @@ fn augmentation_never_minimises_the_same_key_twice() {
     let covered: usize = jm.pieces.iter().map(|p| p.keys.len()).sum();
     assert_eq!(covered, 2);
 }
+
+#[test]
+fn shell_subsets_are_alternatives_ranked_by_coverage_poles_and_size() {
+    use rustred_campaign_core::seedmin::{ShellSubsetSpec, minimise_shell_subsets};
+    let lines = vec![true, true, false];
+    let k: Key = vec![2, 2, -1];
+    let mut o = Oracle::default();
+    // with an S2 seed present the first match is SINGULAR; with only the Sm1 seed the relation is REGULAR
+    let mut sing = alt(&[[0, 0, 0], [2, 0, 0]], 5);
+    sing.pole = PoleOrder::Order { order: 1 };
+    o.alts
+        .insert(k.clone(), vec![sing, alt(&[[0, 0, 0], [-1, 0, 0]], 10)]);
+    let spec = ShellSubsetSpec {
+        base: vec!["S0".into(), "S1".into()],
+        escalation: vec!["S2".into(), "Sm1".into()],
+        order: "smallest_first".into(),
+        rank: vec![
+            "unserved".into(),
+            "pieces".into(),
+            "max_pole".into(),
+            "singular_keys".into(),
+            "seeds".into(),
+            "max_terms".into(),
+        ],
+    };
+    assert_eq!(
+        spec.subsets(),
+        vec![
+            vec!["S2".to_string()],
+            vec!["Sm1".to_string()],
+            vec!["S2".to_string(), "Sm1".to_string()]
+        ]
+    );
+    let alts = minimise_shell_subsets(
+        std::slice::from_ref(&k),
+        &C0,
+        &lines,
+        &spec,
+        &SeedMinPolicy::default(),
+        &mut o,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert_eq!(alts.len(), 3);
+    // best: base + Sm1 (regular); the two lists containing S2 deliver the singular relation
+    assert_eq!(alts[0].shells, vec!["S0", "S1", "Sm1"]);
+    assert_eq!(alts[0].measures["max_pole"], 0);
+    assert_eq!(
+        alts[0].joint.pieces[0].list,
+        vec![vec![0, 0, 0], vec![-1, 0, 0]]
+    );
+    assert!(alts[1..].iter().all(|a| a.measures["max_pole"] == 1));
+    let mut bad = spec.clone();
+    bad.rank = vec!["beauty".into()];
+    assert!(
+        minimise_shell_subsets(
+            std::slice::from_ref(&k),
+            &C0,
+            &lines,
+            &bad,
+            &SeedMinPolicy::default(),
+            &mut o,
+            &mut StubSystemPoles
+        )
+        .is_err()
+    );
+}
