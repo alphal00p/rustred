@@ -431,12 +431,39 @@ pub fn slice_descends(
                         *coeff_var.entry(v).or_insert(0) -= wk;
                     }
                 }
-                if coeff_var.values().any(|c| *c != 0) {
+                // the difference f = constant + sum_v a_v n_v over the face's domain (numerators n_v <= -1, dotted
+                // lines n_v >= 2): its sign is decided when it is uniform on the whole domain (f is monotone in every
+                // n_v; the extreme value is at the corner n_v = -1 / 2 and the other end is unbounded)
+                let mut corner = constant;
+                let (mut can_grow, mut can_fall) = (false, false);
+                for (&v, &a) in &coeff_var {
+                    if a == 0 {
+                        continue;
+                    }
+                    let (start, up) = if face.dotted.contains(&v) { (2i128, true) } else { (-1i128, false) };
+                    corner += a * start;
+                    // moving away from the corner: n_v increases (dotted) or decreases (numerator)
+                    let grows = if up { a > 0 } else { a < 0 };
+                    if grows { can_grow = true } else { can_fall = true }
+                }
+                let sign: i8 = if can_grow && can_fall {
                     return Err(format!(
-                        "term {}: order form depends on the free slots (undecided)",
+                        "term {}: order form changes sign on the face (undecided)",
                         pattern_text(p)
                     ));
-                }
+                } else if can_grow {
+                    // f >= corner everywhere, unbounded above
+                    if corner > 0 { 1 } else {
+                        return Err(format!("term {}: order form not of one sign on the face (undecided)", pattern_text(p)));
+                    }
+                } else if can_fall {
+                    if corner < 0 { -1 } else {
+                        return Err(format!("term {}: order form not of one sign on the face (undecided)", pattern_text(p)));
+                    }
+                } else {
+                    constant.signum() as i8
+                };
+                let constant = i128::from(sign);
                 let c = if *reversed { 0.cmp(&constant) } else { constant.cmp(&0) };
                 match c {
                     std::cmp::Ordering::Equal => continue,
@@ -738,6 +765,11 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
     }
     let n = o.face.chart.len();
     let fam = super::driver::compile_family(&o.family_text)?;
+    // eps (two-sided) families: refused (interface eps-families.md: charts per eps sign, two-sided order, kshift-equal
+    // elements only; none of that is modelled here)
+    if fam.power_shifts().iter().any(|s| s.to_string().trim() != "0") {
+        return Err("eps (two-sided) families are not supported by symface (interfaces/eps-families.md)".into());
+    }
     if fam.denominator_count() != n {
         return Err(format!("chart arity {n} != family arity {}", fam.denominator_count()));
     }
