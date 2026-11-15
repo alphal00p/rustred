@@ -978,10 +978,14 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     let record_path =
         PathBuf::from(next_value(&mut arguments, "--check").map_err(CliError::Usage)?);
     let mut force = false;
+    // vk5l WP6: --load-only measures the owner build (load memory and time)
+    // and writes the check record without stepping any key.
+    let mut load_only = false;
     let (mut cache, mut prefilled, mut workers) = (None, None, None);
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("--force") if !force => force = true,
+            Some("--load-only") if !load_only => load_only = true,
             Some("--recipe-cache") if cache.is_none() => {
                 cache = Some(PathBuf::from(
                     next_value(&mut arguments, "--recipe-cache").map_err(CliError::Usage)?,
@@ -1030,6 +1034,43 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     // chart prepared, certified set decoded), before the check steps keys.
     let built = custom_payload_load(presentation, payload, meta).map_err(failed)?;
     let (rss_built, peak_built) = rss_bytes();
+    if load_only {
+        let gb = |bytes: u64| bytes as f64 / 1e9;
+        let out = serde_json::json!({
+            "schema": "rustred.p-imported-owner-load.v1",
+            "label": label,
+            "payload": payload_path.display().to_string(),
+            "payload_bytes": payload.len(),
+            "load": {
+                "payload_bytes": payload.len(),
+                "read_seconds": read_seconds,
+                "build_seconds": built.build_seconds,
+                "node": built.node,
+                "certified_keys": built.certified_keys,
+                "certified_heap_bytes": built.certified_heap_bytes,
+                "rss_start_gb": gb(rss_start),
+                "rss_after_read_gb": gb(rss_read),
+                "rss_after_build_gb": gb(rss_built),
+                "peak_after_build_gb": gb(peak_built),
+                "note": "the payload bytes are held (eager read); the owner program is built, no key is stepped",
+            },
+        });
+        let text = serde_json::to_string_pretty(&out).map_err(json_error)?;
+        write_output(
+            &StreamPath::File(record_path.with_file_name(format!("{label}.load.json"))),
+            format!("{text}\n").as_bytes(),
+            force,
+        )?;
+        return writeln!(
+            std::io::stdout().lock(),
+            "{label}: load of {} bytes: read {read_seconds:.3} s, build {:.3} s, RSS after build {:.2} GB (peak {:.2} GB)",
+            payload.len(),
+            built.build_seconds,
+            gb(rss_built),
+            gb(peak_built)
+        )
+        .map_err(|error| CliError::OutputIo(error.to_string()));
+    }
     let started = Instant::now();
     let failure_path = record_path.with_file_name(format!("{label}.recipe-failure.json"));
     let check = verify_custom_payload(presentation, payload, meta)
