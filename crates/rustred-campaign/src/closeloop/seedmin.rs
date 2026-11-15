@@ -10,6 +10,7 @@
 //! namespace (L10). Generic: node, paths, order, chart and CPUs are configuration.
 
 use crate::adapters::job::{InputFile, JobAdapter, Program, RunOptions, run_attempt};
+use crate::adapters::poleat::{PoleAdapter, PoleRequest};
 use crate::adapters::solve_recipe::{
     BatchPolicy, RecipeInput, SolveRecipeAdapter, SolveRecipeConfig, SolveRequest as AdReq,
 };
@@ -21,7 +22,7 @@ use rustred_campaign_contract::layout::RunLayout;
 use rustred_campaign_contract::seal::verify_stream_handle;
 use rustred_campaign_core::seedmin::journal::JournalLine;
 use rustred_campaign_core::seedmin::{
-    EngineCaps, Key, Offset, RelationPoles, Trial, TrialAnswer, TrialMode, TrialSolver,
+    EngineCaps, Key, Offset, PoleOrder, RelationPoles, Trial, TrialAnswer, TrialMode, TrialSolver,
     facts_from_record, sha256_hex,
 };
 use serde::{Deserialize, Serialize};
@@ -122,6 +123,10 @@ pub struct ChildConfig {
     pub records_cap_bytes: u64,
     /// Fake children (tests): the oracle writes the script per job.
     pub fake: Option<FakeOracle>,
+    /// Pole orders the in-process judge leaves UNDECIDED: ONE child job of the contract kind `pole-regular-at` (lane
+    /// coreseed's PolesCfg: program rr_poles, Invocation::Legacy) per batch, through the process layer; None = they stay
+    /// undecided (the policy's on_undecided_regularity decides).
+    pub poles: Option<crate::closeloop::coreseed::PolesCfg>,
     pub verbose: bool,
 }
 
@@ -137,6 +142,7 @@ pub struct Stats {
     pub max_vmhwm_kb: u64,
     pub records_written: u64,
     pub records_bytes: u64,
+    pub pole_jobs: u64,
 }
 
 /// The child solver.
@@ -481,6 +487,96 @@ impl ChildTrialSolver {
         Ok(())
     }
 
+    /// The answer, and the record when its pole order is undecided (for the pole job).
+    fn answer_and_record(
+        &mut self,
+        raw: Raw,
+        key: &Key,
+        centre: &[i32],
+    ) -> (TrialAnswer, Option<Value>) {
+        let rec = match &raw {
+            Raw::Record { record, .. } => Some(record.clone()),
+            Raw::Missing(_) => None,
+        };
+        let a = self.answer_of(raw, key, centre);
+        let undecided_pole =
+            matches!(&a, TrialAnswer::Relation(f) if f.pole == PoleOrder::Undecided);
+        (a, rec.filter(|_| undecided_pole))
+    }
+
+    /// ONE pole-regular-at job for `pairs` (key, record); per pair Some(order) or None (undecided / job not read).
+    fn pole_job(&mut self, pairs: &[(Key, Value)]) -> Vec<Option<PoleOrder>> {
+        let none = || vec![None; pairs.len()];
+        let Some(pc) = self.cfg.poles.clone() else {
+            return none();
+        };
+        let reqs: Vec<PoleRequest> = pairs
+            .iter()
+            .enumerate()
+            .map(|(i, (k, rec))| PoleRequest {
+                id: format!("p{i}"),
+                key: k.clone(),
+                record: rec.clone(),
+            })
+            .collect();
+        let ad = PoleAdapter {
+            program: pc.program.clone(),
+            d0: self.cfg.d0.clone(),
+            threads: pc.threads,
+            licence_env: self.cfg.licence_env.clone(),
+            fake: pc.fake.clone(),
+        };
+        let Ok(plans) = ad.plan(&reqs) else {
+            return none();
+        };
+        let Some(plan) = plans.first() else {
+            return none();
+        };
+        self.stats.pole_jobs += 1;
+        let work = self
+            .cfg
+            .work_root
+            .join("poles")
+            .join(format!("{:06}", self.stats.pole_jobs));
+        let opts = RunOptions {
+            cpus: vec![],
+            memory_cap_bytes: Some(pc.cap_bytes),
+            licence_env: self.cfg.licence_env.clone(),
+            wall_cap: Some(Duration::from_secs(pc.wall_cap_s)),
+            grace: Some(Duration::from_secs(10)),
+        };
+        for attempt in 1..=2u32 {
+            let mut l = RealLauncher::new(self.sampler.clone());
+            match run_attempt(&mut l, &ad, &reqs, plan, &work, attempt, &opts) {
+                Ok((b, _)) if b.unread.is_none() => {
+                    let by_id: BTreeMap<String, (String, Option<u64>)> = b
+                        .answers
+                        .iter()
+                        .filter_map(|a| {
+                            a.id.as_str()
+                                .map(|s| (s.to_string(), (a.verdict.clone(), a.pole_order)))
+                        })
+                        .collect();
+                    return reqs
+                        .iter()
+                        .map(|q| match by_id.get(&q.id) {
+                            Some((v, _)) if v == "regular" => Some(PoleOrder::regular()),
+                            Some((v, Some(p))) if v == "pole" => {
+                                Some(PoleOrder::Order { order: *p as u32 })
+                            }
+                            Some((v, None)) if v == "pole" => Some(PoleOrder::Singular),
+                            _ => None,
+                        })
+                        .collect();
+                }
+                // a host resource failure (row 15b) is retried once; anything else leaves the poles undecided
+                Ok((b, _)) if b.classification.row == 15 && b.classification.sub == "b" => continue,
+                _ => return none(),
+            }
+        }
+        none()
+    }
+
     fn answer_of(&mut self, raw: Raw, key: &Key, centre: &[i32]) -> TrialAnswer {
         match raw {
             Raw::Missing(why) => TrialAnswer::Undecided {
@@ -564,6 +660,7 @@ impl TrialSolver for ChildTrialSolver {
         }
         // schedule: each job takes min(threads_per_job, keys) CPUs from the free pool
         let mut transient: BTreeMap<String, Vec<TrialAnswer>> = BTreeMap::new();
+        let mut pending: Vec<(usize, usize, Key, Value)> = vec![];
         let (tx, rx) = mpsc::channel::<Done>();
         let mut free: Vec<usize> = self.cfg.cpus.clone();
         let mut held: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
@@ -607,8 +704,14 @@ impl TrialSolver for ChildTrialSolver {
                     .collect(),
                 Ok(raws) => {
                     let mut v = vec![];
-                    for (raw, k) in raws.into_iter().zip(&t.keys) {
-                        v.push(self.answer_of(raw, k, &t.centre));
+                    for (ki, (raw, k)) in raws.into_iter().zip(&t.keys).enumerate() {
+                        let (a, rec) = self.answer_and_record(raw, k, &t.centre);
+                        if let Some(r) = rec
+                            && self.cfg.poles.is_some()
+                        {
+                            pending.push((d.idx, ki, k.clone(), r));
+                        }
+                        v.push(a);
                     }
                     v
                 }
@@ -622,7 +725,8 @@ impl TrialSolver for ChildTrialSolver {
                 d.cpu_s,
                 d.wall_s
             ));
-            if answers.iter().all(decided) {
+            let waits_for_poles = pending.iter().any(|p| p.0 == d.idx);
+            if answers.iter().all(decided) && !waits_for_poles {
                 let line = JournalLine {
                     digest: digests[d.idx].clone(),
                     label: t.label.clone(),
@@ -632,6 +736,36 @@ impl TrialSolver for ChildTrialSolver {
             }
             transient.insert(digests[d.idx].clone(), answers.clone());
             self.journal.insert(digests[d.idx].clone(), answers);
+        }
+        // the pole orders the in-process judge left undecided: ONE pole-regular-at job, then the waiting trials are
+        // journaled (a job that answered nothing leaves them undecided and unjournaled: a resumed run asks again)
+        if !pending.is_empty() {
+            let pairs: Vec<(Key, Value)> =
+                pending.iter().map(|p| (p.2.clone(), p.3.clone())).collect();
+            let got = self.pole_job(&pairs);
+            let answered = got.iter().all(Option::is_some);
+            for ((ti, ki, _, _), g) in pending.iter().zip(&got) {
+                if let (Some(o), Some(ans)) = (g, self.journal.get_mut(&digests[*ti]))
+                    && let TrialAnswer::Relation(f) = &mut ans[*ki]
+                {
+                    f.pole = *o;
+                }
+            }
+            let mut done: BTreeSet<usize> = BTreeSet::new();
+            for (ti, _, _, _) in &pending {
+                if !answered || !done.insert(*ti) {
+                    continue;
+                }
+                let answers = self.journal[&digests[*ti]].clone();
+                if answers.iter().all(decided) {
+                    let line = JournalLine {
+                        digest: digests[*ti].clone(),
+                        label: trials[*ti].label.clone(),
+                        answers,
+                    };
+                    self.append_journal(&line)?;
+                }
+            }
         }
         let out = digests.iter().map(|d| self.journal[d].clone()).collect();
         // undecided answers serve this call only: a later call (or a resumed run) solves the trial again

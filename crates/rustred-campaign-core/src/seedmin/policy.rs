@@ -71,6 +71,15 @@ pub struct JointPolicy {
     /// Every piece list also solved at the other pieces' keys (complete choice sets for lane regions).
     #[serde(default = "yes")]
     pub choice_sets_complete: bool,
+    /// The JOINT greedy's drop strategy (the per-key one is `drop_chunks`): `single` | `halving` | `auto` (default:
+    /// halving when the piece has more than `halving_above_keys` keys, else single: a kept single drop costs one
+    /// every-key confirmation, i.e. work ~ domain size per seed).
+    #[serde(default = "d_joint_chunks")]
+    pub drop_chunks: String,
+    /// MEASURED (T162): 31-44 keys with single drops: 67-129 joint solves, under 40 min at 4 CPUs; 86 keys: ~4 min per
+    /// kept drop (86-key confirmation) from a 185-seed repaired candidate, > 8 h projected: the threshold lies between.
+    #[serde(default = "d_halving_above")]
+    pub halving_above_keys: usize,
 }
 
 impl Default for JointPolicy {
@@ -82,8 +91,17 @@ impl Default for JointPolicy {
             max_solves: d_joint_max_solves(),
             max_pieces: d_max_pieces(),
             choice_sets_complete: true,
+            drop_chunks: d_joint_chunks(),
+            halving_above_keys: d_halving_above(),
         }
     }
+}
+
+fn d_joint_chunks() -> String {
+    "auto".into()
+}
+fn d_halving_above() -> usize {
+    50
 }
 
 fn d_on_failure() -> String {
@@ -279,6 +297,11 @@ impl SeedMinPolicy {
         pick(&self.terms_aggregate, &["max", "sum"], "terms_aggregate")?;
         pick(&self.pole_objective, &["on", "off"], "pole_objective")?;
         pick(&self.drop_chunks, &["single", "halving"], "drop_chunks")?;
+        pick(
+            &self.joint.drop_chunks,
+            &["single", "halving", "auto"],
+            "joint.drop_chunks",
+        )?;
         pick(&self.system_regularity, &["off", "on"], "system_regularity")?;
         pick(
             &self.shell_subsets,

@@ -59,6 +59,7 @@ fn config(dir: &Path, oracle: FakeOracle) -> ChildConfig {
         records_out: Some(dir.join("relations.jsonl")),
         records_cap_bytes: 1 << 20,
         fake: Some(oracle),
+        poles: None,
         verbose: false,
     }
 }
@@ -255,5 +256,84 @@ fn engine_capabilities_come_from_the_manifest_without_a_process() {
     assert!(c.probe_d && !c.minimise && !c.discovery_d);
     let none = engine_caps_from_manifest(&dir.join("absent.json"));
     assert!(!none.probe_d && none.features.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Pole orders the in-process judge leaves undecided come from ONE `pole-regular-at` child job per batch (lane
+/// coreseed's kind; the fake child's test rule: order = number of rhs keys `I(9,..`), before the answers are journaled.
+#[test]
+fn undecided_pole_orders_come_from_the_pole_regular_at_child_job() {
+    use rustred_campaign::closeloop::coreseed::PolesCfg;
+    use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
+    use rustred_campaign_core::seedmin::StubRelationPoles;
+    assert!(
+        rustred_campaign::launch::in_private_namespace(),
+        "run under LIGHT_PIDNS=1 (private pid namespace, rule L10)"
+    );
+    let dir = root("poles");
+    let ka = vec![3, 2, -1];
+    let kb = vec![2, 3, -1];
+    let mut oracle = FakeOracle {
+        ms: 5,
+        ..Default::default()
+    };
+    oracle.alts.insert(
+        ka.clone(),
+        vec![FakeAlt {
+            needs: vec![vec![0, 0, 0]],
+            rhs: vec![vec![9, 1, -1]],
+        }],
+    );
+    oracle.alts.insert(
+        kb.clone(),
+        vec![FakeAlt {
+            needs: vec![vec![0, 0, 0]],
+            rhs: vec![vec![2, 2, -1]],
+        }],
+    );
+    let mut cfg = config(&dir, oracle);
+    let mut program =
+        Program::from_file("rr_fake_child", Path::new(FAKE), Invocation::Contract).unwrap();
+    program.features_required = vec!["fake".into()];
+    cfg.poles = Some(PolesCfg {
+        program,
+        threads: 1,
+        cap_bytes: 256 << 20,
+        wall_cap_s: 60,
+        fake: Some(FakeScript {
+            script: vec![FakeOp::Prepare { ms: 1 }],
+            on_sigterm: OnSigterm::Graceful,
+            slow_ms: 0,
+            start_delay_ms: 0,
+            rss: RssPlan::default(),
+            helpers: vec![],
+            faults: vec![],
+            time_scale: 1.0,
+            volatile_jitter: false,
+        }),
+    });
+    let mut solver = ChildTrialSolver::new(
+        cfg,
+        sampler(),
+        Box::new(StubRelationPoles),
+        EngineCaps::default(),
+    )
+    .unwrap();
+    let policy = SeedMinPolicy::default();
+    let list = vec![vec![0, 0, 0], vec![1, 0, 0]];
+    let jm = minimise_joint(
+        &[ka.clone(), kb.clone()],
+        &[0, 0, 0],
+        &list,
+        &policy,
+        &mut solver,
+        &mut StubSystemPoles,
+    )
+    .unwrap();
+    assert!(solver.stats.pole_jobs >= 1);
+    let p = &jm.pieces[0];
+    let pole_of = |k: &Vec<i32>| p.per_key[p.keys.iter().position(|x| x == k).unwrap()].pole;
+    assert_eq!(pole_of(&ka), PoleOrder::Order { order: 1 });
+    assert_eq!(pole_of(&kb), PoleOrder::Order { order: 0 });
     let _ = std::fs::remove_dir_all(&dir);
 }
