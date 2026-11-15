@@ -788,6 +788,7 @@ pub fn point_rule(
     concrete: &dyn Fn(&[i64], &[i64]) -> std::cmp::Ordering,
     max_expansion: u128,
     pair: Option<&PairShift>,
+    only: Option<usize>,
 ) -> (Option<(usize, SliceRule)>, Vec<(usize, String)>) {
     let n = chart.len();
     let face_of = |k: &[i64]| Face {
@@ -799,6 +800,9 @@ pub fn point_rule(
     let mut best: Option<(usize, SliceRule)> = None;
     let mut refused = Vec::new();
     for (k, e) in group.elements.iter().enumerate() {
+        if only.is_some_and(|o| o != k) {
+            continue;
+        }
         let subs = match face_action(ff, e, &face) {
             Ok(s) => s,
             Err(m) => { refused.push((k, m)); continue; }
@@ -1048,7 +1052,7 @@ fn run_points(
             if key.len() != n {
                 return Err(format!("point key of arity {} (family {n})", key.len()));
             }
-            let (best, refused) = point_rule(ff, group, &o.face.chart, key, zero_fn, &concrete, o.max_expansion, o.pair.as_ref());
+            let (best, refused) = point_rule(ff, group, &o.face.chart, key, zero_fn, &concrete, o.max_expansion, o.pair.as_ref(), o.element);
             match best {
                 Some((k, r)) => {
                     served += 1;
