@@ -5,8 +5,8 @@
 use rustred_campaign_algebra::epsdepth::{SymbolicaLaurent, TextReduction};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::epsdepth::{
-    ComposeParams, EpsDepthSpec, Order, PairVerdict, TerminalSetStatus, compose, node_report, onto_terminals,
-    verdict,
+    ComposeParams, EpsDepthSpec, Order, PairVerdict, TerminalSetStatus, compose, node_report,
+    onto_terminals, verdict,
 };
 use serde_json::json;
 use symbolica::domains::rational::Rational;
@@ -27,7 +27,11 @@ const A: &[i32] = &[3, 0];
 const B: &[i32] = &[2, 0];
 const C: &[i32] = &[4, 0];
 
-fn run(src: &mut TextReduction, keys: &[&[i32]], p: &ComposeParams) -> rustred_campaign_core::epsdepth::Composition {
+fn run(
+    src: &mut TextReduction,
+    keys: &[&[i32]],
+    p: &ComposeParams,
+) -> rustred_campaign_core::epsdepth::Composition {
     let mut lau = SymbolicaLaurent::new("4").unwrap();
     let sel: Vec<usize> = keys.iter().map(|k| src.index_of(k).unwrap()).collect();
     let n = src.n_terminals();
@@ -46,13 +50,31 @@ fn a_local_pole_that_cancels_is_spurious() {
     assert_eq!(r.pairs[0].order, Order::Pole(0));
     assert_eq!(r.local_pole, 1);
     assert!(r.local_pole_in_cone);
-    assert_eq!(r.pairs[0].bound, Some(1), "path bound = 1, composed 0: cancelled");
+    assert_eq!(
+        r.pairs[0].bound,
+        Some(1),
+        "path bound = 1, composed 0: cancelled"
+    );
     // target 0 decides every negative power: the coefficient is known zero below t^0, its t^0 term is not asked for
     assert_eq!(r.pairs[0].leading, None);
     assert_eq!(r.pairs[0].precision, Some(0));
-    assert_eq!(verdict(&r.pairs[0], r.local_pole_in_cone, TerminalSetStatus::NotCertified), PairVerdict::Spurious);
+    assert_eq!(
+        verdict(
+            &r.pairs[0],
+            r.local_pole_in_cone,
+            TerminalSetStatus::NotCertified
+        ),
+        PairVerdict::Spurious
+    );
     // depth control: target 2 gives the exact coefficient to t^1: exactly 1
-    let c2 = run(&mut s, &[A], &ComposeParams { target: 2, ..Default::default() });
+    let c2 = run(
+        &mut s,
+        &[A],
+        &ComposeParams {
+            target: 2,
+            ..Default::default()
+        },
+    );
     assert_eq!(c2.results[0].pairs[0].leading.as_deref(), Some("1"));
     assert_eq!(c2.results[0].pairs[0].valuation, Some(0));
     assert_eq!(c2.results[0].pairs[0].precision, Some(2));
@@ -69,10 +91,25 @@ fn a_pole_that_survives_is_on_t_only_unless_the_set_is_certified() {
     let c = run(&mut s, &[A, C], &ComposeParams::default());
     for r in &c.results {
         assert_eq!(r.pairs[0].order, Order::Pole(1));
-        assert_eq!(r.pairs[0].blame_server.as_deref(), Some("rule-A"), "the pole enters at A's relation");
-        assert_eq!(verdict(&r.pairs[0], r.local_pole_in_cone, TerminalSetStatus::NotCertified), PairVerdict::OnTOnly(1));
         assert_eq!(
-            verdict(&r.pairs[0], r.local_pole_in_cone, TerminalSetStatus::CertifiedRegular),
+            r.pairs[0].blame_server.as_deref(),
+            Some("rule-A"),
+            "the pole enters at A's relation"
+        );
+        assert_eq!(
+            verdict(
+                &r.pairs[0],
+                r.local_pole_in_cone,
+                TerminalSetStatus::NotCertified
+            ),
+            PairVerdict::OnTOnly(1)
+        );
+        assert_eq!(
+            verdict(
+                &r.pairs[0],
+                r.local_pole_in_cone,
+                TerminalSetStatus::CertifiedRegular
+            ),
             PairVerdict::Inherent(1)
         );
     }
@@ -80,14 +117,33 @@ fn a_pole_that_survives_is_on_t_only_unless_the_set_is_certified() {
     // the API for other lanes: the exact vector of C on the terminals, to t^1 (target 2)
     let mut lau = SymbolicaLaurent::new("4").unwrap();
     let ci = s.index_of(C).unwrap();
-    let v = onto_terminals(&mut s, &mut lau, ci, 1, &ComposeParams { target: 2, ..Default::default() })
-        .unwrap()
-        .unwrap();
+    let v = onto_terminals(
+        &mut s,
+        &mut lau,
+        ci,
+        1,
+        &ComposeParams {
+            target: 2,
+            ..Default::default()
+        },
+    )
+    .unwrap()
+    .unwrap();
     let s0 = v[0].as_ref().unwrap();
     assert_eq!(SymbolicaLaurent::series_order(s0), (Some(-1), 2));
-    assert_eq!(SymbolicaLaurent::series_coefficient(s0, -1), Some(Rational::from(2)));
-    assert_eq!(SymbolicaLaurent::series_coefficient(s0, 0), Some(Rational::from(0)));
-    assert_eq!(SymbolicaLaurent::series_coefficient(s0, 2), None, "beyond the precision");
+    assert_eq!(
+        SymbolicaLaurent::series_coefficient(s0, -1),
+        Some(Rational::from(2))
+    );
+    assert_eq!(
+        SymbolicaLaurent::series_coefficient(s0, 0),
+        Some(Rational::from(0))
+    );
+    assert_eq!(
+        SymbolicaLaurent::series_coefficient(s0, 2),
+        None,
+        "beyond the precision"
+    );
 }
 
 #[test]
@@ -98,8 +154,16 @@ fn index_dependent_poles_are_decided_at_the_key() {
     s.relation(B, "rule-R", &[(T1, "1/(d-2*n0)")]);
     s.relation(A, "rule-R", &[(T1, "1/(d-2*n0)")]);
     let c = run(&mut s, &[A, B], &ComposeParams::default());
-    assert_eq!(c.results[0].pairs[0].order, Order::Pole(0), "n0 = 3: 1/(d-6) regular at 4");
-    assert_eq!(c.results[1].pairs[0].order, Order::Pole(1), "n0 = 2: 1/(d-4)");
+    assert_eq!(
+        c.results[0].pairs[0].order,
+        Order::Pole(0),
+        "n0 = 3: 1/(d-6) regular at 4"
+    );
+    assert_eq!(
+        c.results[1].pairs[0].order,
+        Order::Pole(1),
+        "n0 = 2: 1/(d-4)"
+    );
     assert_eq!(c.results[0].local_pole, 0);
     assert_eq!(c.results[1].local_pole, 1);
 }
@@ -110,18 +174,36 @@ fn order_two_poles_cancel_only_with_enough_depth_and_a_rerun_decides() {
     s.terminal(T1);
     // B = (1 + t + t^2) T1 ; A = B/t^2 - T1/t^2 - T1/t = T1: needs vec(B) to t^1 exactly (R(B) = 2)
     s.relation(B, "rule-B", &[(T1, "1 + (d-4) + (d-4)^2")]);
-    s.relation(A, "rule-A", &[(B, "1/(d-4)^2"), (T1, "-1/(d-4)^2 - 1/(d-4)")]);
+    s.relation(
+        A,
+        "rule-A",
+        &[(B, "1/(d-4)^2"), (T1, "-1/(d-4)^2 - 1/(d-4)")],
+    );
     let c = run(&mut s, &[A], &ComposeParams::default());
     assert_eq!(c.results[0].pairs[0].order, Order::Pole(0));
     assert_eq!(c.results[0].local_pole, 2);
     assert_eq!(c.stats.max_required, 2);
     // a depth budget of 1 cannot decide it: undecided (never a wrong order) ...
-    let capped = ComposeParams { max_depth: 1, ..Default::default() };
+    let capped = ComposeParams {
+        max_depth: 1,
+        ..Default::default()
+    };
     let c = run(&mut s, &[A], &capped);
-    assert!(matches!(&c.results[0].pairs[0].order, Order::Undecided(r) if r.contains("depth")), "{:?}", c.results[0]);
+    assert!(
+        matches!(&c.results[0].pairs[0].order, Order::Undecided(r) if r.contains("depth")),
+        "{:?}",
+        c.results[0]
+    );
     assert_eq!(c.stats.capped_keys, 1);
     // ... and the rerun with the budget raised decides it
-    let c = run(&mut s, &[A], &ComposeParams { max_depth: 2, ..Default::default() });
+    let c = run(
+        &mut s,
+        &[A],
+        &ComposeParams {
+            max_depth: 2,
+            ..Default::default()
+        },
+    );
     assert_eq!(c.results[0].pairs[0].order, Order::Pole(0));
     // a surviving order-2 pole
     s.relation(C, "rule-C", &[(T1, "(d-1)/(d-4)^2")]);
@@ -149,11 +231,15 @@ fn open_keys_cycles_zero_coefficients_and_other_d0() {
     s.relation(A, "rule-A", &[(B, "1")]);
     let mut lau = SymbolicaLaurent::new("4").unwrap();
     let a = s.index_of(A).unwrap();
-    assert!(compose(&mut s, &mut lau, &[a], 1, &ComposeParams::default()).unwrap_err().contains("cycle"));
+    assert!(
+        compose(&mut s, &mut lau, &[a], 1, &ComposeParams::default())
+            .unwrap_err()
+            .contains("cycle")
+    );
     // d0 = 17/7: the pole moves
     let Some(mut s) = setup("17/7") else { return };
     s.terminal(T1);
-    s.relation(A, "rule-A", &[(T1, "1/(7*d-17)"), ]);
+    s.relation(A, "rule-A", &[(T1, "1/(7*d-17)")]);
     let mut lau = SymbolicaLaurent::new("17/7").unwrap();
     let a = s.index_of(A).unwrap();
     let c = compose(&mut s, &mut lau, &[a], 1, &ComposeParams::default()).unwrap();
@@ -174,7 +260,15 @@ fn eps_box_within_and_exceeds_and_the_node_report() {
     .unwrap();
     let c = run(&mut s, &[A, B], &ComposeParams::default());
     let keys = s.keys.clone();
-    let (h, rows) = node_report(&c, &spec, &s.terminal_keys(), &|i| keys[i].clone(), &[true, false], "toy").unwrap();
+    let (h, rows) = node_report(
+        &c,
+        &spec,
+        &s.terminal_keys(),
+        &|i| keys[i].clone(),
+        &[true, false],
+        "toy",
+    )
+    .unwrap();
     // A: T1 order 2 (needs 2 > 1: exceeds by 1), T2 order 1 (needs 1 > 0: exceeds by 1); B: T1 order 2, T2 regular
     let ra = rows.iter().find(|r| r["key"] == json!(A)).unwrap();
     assert_eq!(ra["orders"], json!([2, 1]));
@@ -189,8 +283,21 @@ fn eps_box_within_and_exceeds_and_the_node_report() {
     assert_eq!(h["per_terminal"][1]["eps_box"]["max_required"], json!(1));
     assert_eq!(h["verdicts"]["on_t_only"], json!(3));
     // a terminal the box does not cover is a typed error, never a default
-    let spec2 = EpsDepthSpec::from_value(&json!({"eps_box": {"available": {"keys": [{"key": [1, 0], "order": 3}]}}})).unwrap();
-    assert!(node_report(&c, &spec2, &s.terminal_keys(), &|i| keys[i].clone(), &[true, false], "toy").is_err());
+    let spec2 = EpsDepthSpec::from_value(
+        &json!({"eps_box": {"available": {"keys": [{"key": [1, 0], "order": 3}]}}}),
+    )
+    .unwrap();
+    assert!(
+        node_report(
+            &c,
+            &spec2,
+            &s.terminal_keys(),
+            &|i| keys[i].clone(),
+            &[true, false],
+            "toy"
+        )
+        .is_err()
+    );
 }
 
 #[test]
@@ -205,7 +312,15 @@ fn deterministic_report_and_streaming_equals_memoised() {
     let keys = s.keys.clone();
     let one = |s: &mut TextReduction, order: &[&[i32]]| {
         let c = run(s, order, &ComposeParams::default());
-        let (h, mut rows) = node_report(&c, &spec, &s.terminal_keys(), &|i| keys[i].clone(), &[true, false], "toy").unwrap();
+        let (h, mut rows) = node_report(
+            &c,
+            &spec,
+            &s.terminal_keys(),
+            &|i| keys[i].clone(),
+            &[true, false],
+            "toy",
+        )
+        .unwrap();
         rows.sort_by_key(|r| r["key"].to_string());
         let mut h = h;
         h["seconds"] = json!(null);

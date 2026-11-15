@@ -146,8 +146,13 @@ fn ratio_text(size: u64, smallest: u64) -> String {
 /// Choose among `cands`. `None` iff no candidate is admissible. THE SPECIAL CASE of [`pole_objective`] with the
 /// measures of [`PoleObjective::from_criteria`] (lane epsdepth generalised it; behaviour unchanged).
 pub fn select(cands: &[Candidate], ratio: MaxSizeRatio, criteria: CriteriaOrder) -> Option<Choice> {
-    pole_objective(cands, &[], &PoleObjective::from_criteria(ratio, criteria), None)
-        .expect("no eps box, no composed profile: the special case cannot fail")
+    pole_objective(
+        cands,
+        &[],
+        &PoleObjective::from_criteria(ratio, criteria),
+        None,
+    )
+    .expect("no eps box, no composed profile: the special case cannot fail")
 }
 
 /// One measure of the lexicographic pole objective (addendum 8.1; interfaces/epsdepth.md 6). Lower is better.
@@ -227,16 +232,26 @@ impl PoleObjective {
     /// class only), `economy_first` = [size, regular, max_pole_order].
     pub fn from_criteria(ratio: MaxSizeRatio, criteria: CriteriaOrder) -> PoleObjective {
         let measures = match criteria {
-            CriteriaOrder::RegularFirst => vec![Measure::Regular, Measure::MaxPoleOrder, Measure::Size],
-            CriteriaOrder::EconomyFirst => vec![Measure::Size, Measure::Regular, Measure::MaxPoleOrder],
+            CriteriaOrder::RegularFirst => {
+                vec![Measure::Regular, Measure::MaxPoleOrder, Measure::Size]
+            }
+            CriteriaOrder::EconomyFirst => {
+                vec![Measure::Size, Measure::Regular, Measure::MaxPoleOrder]
+            }
         };
-        PoleObjective { measures, max_size_ratio: ratio }
+        PoleObjective {
+            measures,
+            max_size_ratio: ratio,
+        }
     }
 
     /// Parse `{"measures": [words], "max_size_ratio": ..}` (both optional; unknown members refused; an empty or repeated
     /// measure list refused). `inherited_ratio`: the guard of the policy that carries this objective
     /// (`repair_policy.prefer_regular.max_size_ratio`) when the object names none.
-    pub fn from_value(v: &Value, inherited_ratio: MaxSizeRatio) -> Result<PoleObjective, PolicyError> {
+    pub fn from_value(
+        v: &Value,
+        inherited_ratio: MaxSizeRatio,
+    ) -> Result<PoleObjective, PolicyError> {
         let o = v
             .as_object()
             .ok_or_else(|| PolicyError("pole_objective must be an object".into()))?;
@@ -247,19 +262,24 @@ impl PoleObjective {
                 )));
             }
         }
-        let mut obj = PoleObjective { max_size_ratio: inherited_ratio, ..PoleObjective::default() };
+        let mut obj = PoleObjective {
+            max_size_ratio: inherited_ratio,
+            ..PoleObjective::default()
+        };
         if let Some(m) = o.get("measures") {
-            let a = m
-                .as_array()
-                .ok_or_else(|| PolicyError("pole_objective.measures must be a list of words".into()))?;
+            let a = m.as_array().ok_or_else(|| {
+                PolicyError("pole_objective.measures must be a list of words".into())
+            })?;
             let mut out = vec![];
             for w in a {
-                let w = w
-                    .as_str()
-                    .ok_or_else(|| PolicyError("pole_objective.measures must be a list of words".into()))?;
+                let w = w.as_str().ok_or_else(|| {
+                    PolicyError("pole_objective.measures must be a list of words".into())
+                })?;
                 let m = Measure::parse(w)?;
                 if out.contains(&m) {
-                    return Err(PolicyError(format!("pole_objective.measures: {w:?} listed twice")));
+                    return Err(PolicyError(format!(
+                        "pole_objective.measures: {w:?} listed twice"
+                    )));
                 }
                 out.push(m);
             }
@@ -301,6 +321,9 @@ impl PoleProfile {
 
 const UNKNOWN: u64 = u64::MAX;
 
+/// A fully decided composed profile: (terminal, pole order) per terminal.
+type DecidedComposed<'a> = Vec<(&'a [i32], u32)>;
+
 /// The values of every (evaluated) measure for one candidate. `orders`: the pole orders the measures read (terminals or rhs terms),
 /// `None` = unknown.
 fn measure_values(
@@ -318,7 +341,10 @@ fn measure_values(
                 (Some(b), Some(ts)) => {
                     let mut n = 0u64;
                     for (t, &p) in ts.iter().zip(o) {
-                        if matches!(b.status(t, p)?, crate::epsdepth::epsbox::BoxStatus::Exceeds(_)) {
+                        if matches!(
+                            b.status(t, p)?,
+                            crate::epsdepth::epsbox::BoxStatus::Exceeds(_)
+                        ) {
                             n += 1;
                         }
                     }
@@ -358,7 +384,11 @@ pub fn pole_objective(
     eps_box: Option<&crate::epsdepth::epsbox::EpsBoxChecked>,
 ) -> Result<Option<Choice>, String> {
     if !profiles.is_empty() && profiles.len() != cands.len() {
-        return Err(format!("pole_objective: {} profiles for {} candidates", profiles.len(), cands.len()));
+        return Err(format!(
+            "pole_objective: {} profiles for {} candidates",
+            profiles.len(),
+            cands.len()
+        ));
     }
     let adm: Vec<usize> = (0..cands.len()).filter(|&i| cands[i].admissible).collect();
     let Some(top_level) = adm.iter().map(|&i| cands[i].evidence_level).max() else {
@@ -369,12 +399,18 @@ pub fn pole_objective(
         .filter(|&i| cands[i].evidence_level == top_level)
         .collect();
     let smallest = pool.iter().map(|&i| cands[i].size).min().unwrap_or(0);
-    let composed: Option<Vec<Vec<(&[i32], u32)>>> = if profiles.is_empty() {
+    let composed: Option<Vec<DecidedComposed<'_>>> = if profiles.is_empty() {
         None
     } else {
-        pool.iter().map(|&i| profiles[i].composed_decided()).collect()
+        pool.iter()
+            .map(|&i| profiles[i].composed_decided())
+            .collect()
     };
-    let profile_used = if composed.is_some() { "composed" } else { "local" };
+    let profile_used = if composed.is_some() {
+        "composed"
+    } else {
+        "local"
+    };
     // pooled candidates without a fully decided composed profile (the caller may ask for them)
     let lacking_composed: Vec<String> = if profiles.is_empty() || composed.is_some() {
         vec![]
@@ -405,14 +441,23 @@ pub fn pole_objective(
                 measure_values(obj, c, Some(&os), Some(&ts), eps_box)?
             }
             None => {
-                let local = profiles.get(i).filter(|p| !p.local.is_empty()).map(|p| p.local.clone());
-                let local = local.or_else(|| c.pole_order.map(|p| vec![u32::try_from(p).unwrap_or(u32::MAX)]));
+                let local = profiles
+                    .get(i)
+                    .filter(|p| !p.local.is_empty())
+                    .map(|p| p.local.clone());
+                let local = local.or_else(|| {
+                    c.pole_order
+                        .map(|p| vec![u32::try_from(p).unwrap_or(u32::MAX)])
+                });
                 measure_values(obj, c, local.as_deref(), None, eps_box)?
             }
         };
         keys.push((vals, i));
     }
-    keys.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| cands[a.1].id.cmp(&cands[b.1].id)));
+    keys.sort_by(|a, b| {
+        a.0.cmp(&b.0)
+            .then_with(|| cands[a.1].id.cmp(&cands[b.1].id))
+    });
     // the size guard on the best class of the first discriminating measure
     let first_disc = (0..obj.measures.len()).find(|&m| keys.iter().any(|k| k.0[m] != keys[0].0[m]));
     let mut rejected: Vec<usize> = vec![];
@@ -420,8 +465,15 @@ pub fn pole_objective(
         && obj.measures[m] != Measure::Size
     {
         let best = keys[0].0[m];
-        let class: Vec<usize> = keys.iter().filter(|k| k.0[m] == best).map(|k| k.1).collect();
-        if class.iter().all(|&i| !obj.max_size_ratio.admits(cands[i].size, smallest)) {
+        let class: Vec<usize> = keys
+            .iter()
+            .filter(|k| k.0[m] == best)
+            .map(|k| k.1)
+            .collect();
+        if class
+            .iter()
+            .all(|&i| !obj.max_size_ratio.admits(cands[i].size, smallest))
+        {
             rejected = class;
         }
     }
@@ -431,13 +483,19 @@ pub fn pole_objective(
         .find(|i| !rejected.contains(i))
         .expect("the smallest pooled candidate is never rejected");
     let chosen = &cands[index];
-    let chosen_values = keys.iter().find(|k| k.1 == index).map(|k| k.0.clone()).unwrap_or_default();
+    let chosen_values = keys
+        .iter()
+        .find(|k| k.1 == index)
+        .map(|k| k.0.clone())
+        .unwrap_or_default();
 
     let best_regular = pool
         .iter()
         .copied()
         .filter(|&i| cands[i].is_regular())
-        .min_by(|&a, &b| (cands[a].size, cands[a].id.as_str()).cmp(&(cands[b].size, cands[b].id.as_str())));
+        .min_by(|&a, &b| {
+            (cands[a].size, cands[a].id.as_str()).cmp(&(cands[b].size, cands[b].id.as_str()))
+        });
     let over_cap = cands
         .iter()
         .filter(|c| !c.admissible && c.is_regular() && c.excluded_by.is_some())
@@ -458,7 +516,11 @@ pub fn pole_objective(
     } else {
         ChoiceReason::LowestPole
     };
-    let reason = if pool.len() == 1 && reason != ChoiceReason::SizeGuard { ChoiceReason::Only } else { reason };
+    let reason = if pool.len() == 1 && reason != ChoiceReason::SizeGuard {
+        ChoiceReason::Only
+    } else {
+        reason
+    };
     let regular_alternative = if chosen.is_regular() {
         RegularAlternative::Chosen
     } else if let Some(r) = best_regular {
@@ -468,7 +530,11 @@ pub fn pole_objective(
             ratio: ratio_text(cands[r].size, smallest),
         }
     } else if let Some(c) = over_cap {
-        RegularAlternative::OverCap { id: c.id.clone(), cap: c.excluded_by.clone().unwrap_or_default(), size: c.size }
+        RegularAlternative::OverCap {
+            id: c.id.clone(),
+            cap: c.excluded_by.clone().unwrap_or_default(),
+            size: c.size,
+        }
     } else {
         RegularAlternative::None
     };

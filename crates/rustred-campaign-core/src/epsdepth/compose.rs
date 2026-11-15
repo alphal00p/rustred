@@ -124,7 +124,12 @@ pub struct ComposeParams {
 
 impl Default for ComposeParams {
     fn default() -> Self {
-        ComposeParams { target: 0, max_depth: 32, max_keys: None, max_seconds: None }
+        ComposeParams {
+            target: 0,
+            max_depth: 32,
+            max_keys: None,
+            max_seconds: None,
+        }
     }
 }
 
@@ -203,9 +208,16 @@ where
     L: Laurent<Coeff = S::Coeff>,
 {
     let mut out: Option<Result<Vec<Option<L::Series>>, String>> = None;
-    compose_streaming(src, lau, &[key], nterm, params, Some(&mut |_, v| {
-        out = Some(v.map(|v| v.to_vec()).map_err(|e| e.to_string()));
-    }))?;
+    compose_streaming(
+        src,
+        lau,
+        &[key],
+        nterm,
+        params,
+        Some(&mut |_, v| {
+            out = Some(v.map(|v| v.to_vec()).map_err(|e| e.to_string()));
+        }),
+    )?;
     Ok(out.unwrap_or_else(|| Err("not computed".into())))
 }
 
@@ -224,8 +236,15 @@ where
     L: Laurent<Coeff = S::Coeff>,
 {
     let t0 = Instant::now();
-    let over_time = |t: &Instant| params.max_seconds.is_some_and(|m| t.elapsed().as_secs_f64() > m);
-    let mut stats = ComposeStats { selected: selected.len(), ..Default::default() };
+    let over_time = |t: &Instant| {
+        params
+            .max_seconds
+            .is_some_and(|m| t.elapsed().as_secs_f64() > m)
+    };
+    let mut stats = ComposeStats {
+        selected: selected.len(),
+        ..Default::default()
+    };
     // ---- phase 1: cone discovery with exact edge valuations
     let mut lid: HashMap<usize, u32> = HashMap::new();
     let mut glob: Vec<usize> = vec![];
@@ -255,7 +274,15 @@ where
         l
     };
     for &g in selected {
-        intern(g, &mut lid, &mut glob, &mut kind, &mut term_of, &mut edges, &mut frontier);
+        intern(
+            g,
+            &mut lid,
+            &mut glob,
+            &mut kind,
+            &mut term_of,
+            &mut edges,
+            &mut frontier,
+        );
     }
     let mut stopped_time = false;
     while !frontier.is_empty() {
@@ -316,7 +343,10 @@ where
                                 Ok(Val::Zero) => {}
                                 Ok(Val::Order(v)) => {
                                     let cl = intern(cg, lid, glob, kind, term_of, edges, next);
-                                    out.push((cl, v.clamp(i32::MIN as i64 / 2, i32::MAX as i64 / 2) as i32));
+                                    out.push((
+                                        cl,
+                                        v.clamp(i32::MIN as i64 / 2, i32::MAX as i64 / 2) as i32,
+                                    ));
                                 }
                                 Err(e) => {
                                     failures.push((l, format!("source: valuation: {e}")));
@@ -339,8 +369,8 @@ where
     }
     let m = glob.len();
     stats.cone_keys = m;
-    for l in 0..m {
-        match kind[l] {
+    for k in &kind {
+        match *k {
             K_OPEN => stats.open_keys += 1,
             K_FAILED => stats.failed_keys += 1,
             K_TRUNCATED => stats.truncated_keys += 1,
@@ -396,7 +426,11 @@ where
                     _ => {}
                 }
             } else {
-                let h = es.iter().map(|&(c, _)| height[c as usize] + 1).max().unwrap_or(0);
+                let h = es
+                    .iter()
+                    .map(|&(c, _)| height[c as usize] + 1)
+                    .max()
+                    .unwrap_or(0);
                 height[l as usize] = h;
                 state[l as usize] = 2;
                 stack.pop();
@@ -460,7 +494,12 @@ where
         }
         if is_sel[lu] {
             if kind[lu] != K_TERMINAL {
-                sel_res.insert(l, key_result(lu, &vecs, &pole, &origin, &bound, &lp, &edges, nterm, &*lau, &glob, src));
+                sel_res.insert(
+                    l,
+                    key_result(
+                        lu, &vecs, &pole, &origin, &bound, &lp, &edges, nterm, &*lau, &glob, src,
+                    ),
+                );
             }
             if let Some(f) = sink.as_mut() {
                 match &vecs[lu] {
@@ -468,8 +507,9 @@ where
                     Some(VecR::Unknown(r)) => f(glob[lu], Err(r)),
                     None => {
                         let j = term_of[lu] as usize;
-                        let v: Vec<Option<L::Series>> =
-                            (0..nterm).map(|i| (i == j).then(|| lau.one(params.target))).collect();
+                        let v: Vec<Option<L::Series>> = (0..nterm)
+                            .map(|i| (i == j).then(|| lau.one(params.target)))
+                            .collect();
                         f(glob[lu], Ok(&v));
                     }
                 }
@@ -567,7 +607,9 @@ where
                     }
                     match &vecs_r[clu] {
                         None => {
-                            errors.push(format!("key {cg} needed after it was freed (height order broken)"));
+                            errors.push(format!(
+                                "key {cg} needed after it was freed (height order broken)"
+                            ));
                             return;
                         }
                         Some(VecR::Unknown(r)) => {
@@ -642,7 +684,12 @@ where
         for &k in &done {
             let ku = k as usize;
             if is_sel[ku] {
-                sel_res.insert(k, key_result(ku, &vecs, &pole, &origin, &bound, &lp, &edges, nterm, &*lau, &glob, src));
+                sel_res.insert(
+                    k,
+                    key_result(
+                        ku, &vecs, &pole, &origin, &bound, &lp, &edges, nterm, &*lau, &glob, src,
+                    ),
+                );
                 if let Some(f) = sink.as_mut() {
                     match &vecs[ku] {
                         Some(VecR::Comps(c)) => f(glob[ku], Ok(c)),
@@ -696,16 +743,24 @@ where
                 }
             }
             _ => {
-                let why = reason
-                    .get(&l)
-                    .cloned()
-                    .unwrap_or_else(|| if stats.time_decided { "budget:time".into() } else { "not computed".into() });
+                let why = reason.get(&l).cloned().unwrap_or_else(|| {
+                    if stats.time_decided {
+                        "budget:time".into()
+                    } else {
+                        "not computed".into()
+                    }
+                });
                 undecided_result(g, nterm, &why)
             }
         };
         results.push(r);
     }
-    Ok(Composition { terminals: nterm, results, stats, singular_relations })
+    Ok(Composition {
+        terminals: nterm,
+        results,
+        stats,
+        singular_relations,
+    })
 }
 
 fn undecided_result(g: usize, nterm: usize, why: &str) -> KeyResult {
@@ -744,7 +799,11 @@ fn key_result<L: Laurent, S: ReductionSource>(
 ) -> KeyResult {
     let g = glob[ku];
     let (local_pole, local_singular) = edges[ku].iter().fold((0u32, 0u32), |(m, n), &(_, v)| {
-        if v < 0 { (m.max(v.unsigned_abs()), n + 1) } else { (m, n) }
+        if v < 0 {
+            (m.max(v.unsigned_abs()), n + 1)
+        } else {
+            (m, n)
+        }
     });
     let comps = match &vecs[ku] {
         Some(VecR::Comps(c)) => c,
@@ -773,7 +832,11 @@ fn key_result<L: Laurent, S: ReductionSource>(
                 Some(s) => {
                     let (o, p) = lau.order(s);
                     let pj = pole[ku * nterm + j];
-                    let order = if pj < 0 { Order::Undecided("budget:depth".into()) } else { Order::Pole(pj as u32) };
+                    let order = if pj < 0 {
+                        Order::Undecided("budget:depth".into())
+                    } else {
+                        Order::Pole(pj as u32)
+                    };
                     let oi = origin[ku * nterm + j];
                     let blame = (oi != NONE).then(|| glob[oi as usize]);
                     PairResult {
@@ -789,5 +852,11 @@ fn key_result<L: Laurent, S: ReductionSource>(
             }
         })
         .collect();
-    KeyResult { key: g, pairs, local_pole_in_cone: lp[ku], local_pole, local_singular }
+    KeyResult {
+        key: g,
+        pairs,
+        local_pole_in_cone: lp[ku],
+        local_pole,
+        local_singular,
+    }
 }

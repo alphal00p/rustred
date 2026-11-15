@@ -33,7 +33,13 @@ impl Val {
 /// An exact valuation of a coefficient TEXT at a KEY (the key's index values are put in first: TRICKS 9).
 /// `arity` = number of index variables `n0 .. n{arity-1}` the text may use (0: a coefficient of d alone).
 pub trait Valuation {
-    fn pole_order(&mut self, coeff: &str, arity: usize, key: &[i32], d0: &str) -> Result<Val, String>;
+    fn pole_order(
+        &mut self,
+        coeff: &str,
+        arity: usize,
+        key: &[i32],
+        d0: &str,
+    ) -> Result<Val, String>;
 }
 
 /// Class of a right-hand-side term of a relation (modulo subsectors only top terms are composed).
