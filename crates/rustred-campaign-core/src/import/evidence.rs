@@ -2,7 +2,7 @@
 //! bound EXACTLY to (record_sha256 | recipe source, key). Lines that name no imported record are counted `foreign`,
 //! lines without a record digest `unbound`; neither is ever used. Conflicting answers are an error (fail closed).
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
@@ -276,7 +276,8 @@ pub struct EvidenceCounts {
     pub proofs_foreign: usize,
     pub proofs_unbound: usize,
     pub proof_refusals: usize,
-    /// lane closeloop4 (audit-closeloop m1): (record, key) pairs with contradicting proof verdicts (no per-key level).
+    /// lane closeloop4 (audit-closeloop m1): (record, key) pairs with contradicting proof verdicts (no per-key level),
+    /// in memory (lane t266run: the stores count their own, `stores[].counts.proof_conflicts`).
     pub proof_conflicts: usize,
     /// Compact proof verdict lines (`record_sha256`, `key`, `verdict`; no `schema`) read.
     pub proof_verdict_lines: usize,
@@ -330,6 +331,9 @@ pub struct Evidence {
     stores: Vec<AttachedStore>,
     /// rule index -> record_sha256.
     rule_sha: Vec<String>,
+    /// lane t266run: the conflicted (rule, key) pairs a check ASKED for a per-key level (each denied it): the
+    /// node's verdict names them (`contradicting_proofs`).
+    conflicts_used: std::sync::Mutex<BTreeSet<(u32, Vec<i32>)>>,
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -1330,15 +1334,122 @@ impl Evidence {
         else {
             return false;
         };
+        let pk = self
+            .proof_index(ri, key)
+            .is_some_and(|i| self.statuses[i as usize].per_key);
+        // closeloop4 m1 in every mode: a per-key proof contradicted by a decided verdict (in memory, inside one store,
+        // or across memory / stores) gives no per-key level; the pair is recorded for the verdict's blocker
+        pk && !self.conflicted(ri, key)
+    }
+
+    /// lane t266run: (rule, key) has a proof conflict ([`Self::proof_conflict`]); a conflicted pair is recorded in
+    /// `conflicts_used` (the closing loop's blocker names it).
+    fn conflicted(&self, ri: u32, key: &[i32]) -> bool {
+        if self.proof_conflict(ri, key) {
+            self.conflicts_used
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert((ri, key.to_vec()));
+            return true;
+        }
+        false
+    }
+
+    /// [`Self::conflicted`] for a rule id of the closure.
+    fn rule_conflicted(&self, rule: &RuleId, key: &[i32]) -> bool {
+        self.rule_index2
+            .get(rule.table)
+            .and_then(|m| m.get(&rule.label))
+            .is_some_and(|ri| self.conflicted(*ri, key))
+    }
+
+    /// Whether any proof conflict can exist: a conflict in memory or inside a store, or proofs from two sources or more.
+    fn conflicts_possible(&self) -> bool {
+        !self.proof_conflicts.is_empty()
+            || self
+                .stores
+                .iter()
+                .any(|a| a.store.meta().counts.proof_conflicts > 0)
+            || usize::from(!self.proofs.is_empty())
+                + self
+                    .stores
+                    .iter()
+                    .filter(|a| a.store.meta().counts.proofs_stored > 0)
+                    .count()
+                >= 2
+    }
+
+    /// Whether (table, record) at `key` has an exact per-key proof that no decided verdict contradicts (lane t266run:
+    /// the import's own row levels; a contradicted pair is recorded for the blocker).
+    pub fn per_key_at(&self, set: &ImportedSet, table: usize, record: usize, key: &[i32]) -> bool {
+        let sha = &set.rules[table][record].record_sha256;
+        let Some(&ri) = self.sha_index.get(sha) else {
+            return false;
+        };
+        self.proof_index(ri, key)
+            .is_some_and(|i| self.statuses[i as usize].per_key)
+            && !self.conflicted(ri, key)
+    }
+
+    /// lane t266run (closeloop4 m1 in store mode): (rule, key) has a per-key proof AND a decided contrary verdict:
+    /// in memory, inside one store (its entry's conflict flag), or across memory and the stores.
+    fn proof_conflict(&self, ri: u32, key: &[i32]) -> bool {
+        if !self.conflicts_possible() {
+            return false;
+        }
         if !self.proof_conflicts.is_empty()
             && self
                 .proof_conflicts
                 .contains(&(ri, Box::<[i32]>::from(key)))
         {
+            return true;
+        }
+        if self.stores.is_empty() {
             return false;
         }
-        self.proof_index(ri, key)
-            .is_some_and(|i| self.statuses[i as usize].per_key)
+        let (mut per, mut contra) = (false, false);
+        let mut see = |si: u32| {
+            let s = &self.statuses[si as usize];
+            if s.per_key {
+                per = true;
+            } else if is_decided_status(&s.status) {
+                contra = true;
+            }
+        };
+        if !self.proofs.is_empty()
+            && let Some(&m) = self.proofs.get(&(ri, Box::<[i32]>::from(key)))
+        {
+            see(m);
+        }
+        for a in &self.stores {
+            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
+                && let Some(e) = a.store.get_rec(rec, key)
+            {
+                if e.proof_conflict {
+                    return true;
+                }
+                if let Some(s) = e.proof {
+                    see(a.status_map[s as usize]);
+                }
+            }
+        }
+        per && contra
+    }
+
+    /// lane t266run: the contradicted (record_sha256, key) pairs a check asked for a per-key level (each was denied
+    /// it), sorted.
+    pub fn conflicts_used(&self) -> Vec<(String, Vec<i32>)> {
+        self.conflicts_used
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(ri, k)| {
+                (
+                    self.rule_sha.get(*ri as usize).cloned().unwrap_or_default(),
+                    k.clone(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -1371,11 +1482,17 @@ impl FactSource for Evidence {
     fn regularity(&self, rule: &RuleId, key: &[i32]) -> RegFact {
         // a regularity fact first; else an exact per-key proof at the key implies the rule is regular there (the proof
         // evaluates the rule at the key; a pole is the different status IRREGULAR_KEY)
-        match self.rec(rule, key).map(|f| f.regular()) {
+        let r = match self.rec(rule, key).map(|f| f.regular()) {
             Some(RegFact::Unknown) | None if self.per_key(rule, key) => RegFact::Regular,
             Some(f) => f,
             None => RegFact::Unknown,
+        };
+        // lane t266run (closeloop4 m1): a regularity fact does not make a pair regular whose proofs contradict each
+        // other (a decided contrary verdict beside a per-key proof): unknown, recorded for the blocker
+        if r == RegFact::Regular && self.rule_conflicted(rule, key) {
+            return RegFact::Unknown;
         }
+        r
     }
     fn per_key_proof(&self, rule: &RuleId, key: &[i32]) -> bool {
         // a Pole fact for the same (rule, key) contradicts the proof: fail closed (no lift)
@@ -1389,6 +1506,8 @@ impl FactSource for Evidence {
     }
     fn witness_lift(&self, rule: &RuleId, key: &[i32]) -> RegFact {
         match self.rec(rule, key) {
+            // lane t266run (closeloop4 m1): no lift through a fact for a pair whose proofs contradict each other
+            Some(f) if f.lift() && self.rule_conflicted(rule, key) => RegFact::Unknown,
             Some(f) if f.lift() => RegFact::Regular,
             Some(f) if f.regular() == RegFact::Pole => RegFact::Pole,
             _ => RegFact::Unknown,

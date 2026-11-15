@@ -13,6 +13,12 @@
 //!    wait for the stop fails (gate-A m-2); a stopped process cannot fork. The round repeats until a complete scan finds
 //!    no member that is not yet stopped and nothing unreadable.
 //! 2. SIGKILL every member through the same pidfd (the guard re-checks the identity at the send) and wait for the exits.
+//!    procfix6 (gate5 m1): a member the marker check refuses at this point (it exec'd into an unmarked image between the
+//!    batch's environ read and its SIGSTOP) is killed by the identity HELD AT ITS STOP (`guard::StopHold`: the same
+//!    pidfd, the exact start time re-read, our uid); if that is impossible it is CONTINUED (SIGCONT through the same
+//!    hold) and reported in `continued`; if neither can be sent it is `stranded`: reported in `left` (the caller ends
+//!    with exit 8 and the exact pids), kept with its pidfd and retried by every later sweep of this process. A process
+//!    this sweep stopped is never silently left stopped.
 //! 3. TWO consecutive CONCLUSIVE scans (`pass_gap` apart) that find no marked process (other than the ones the narrowing
 //!    forbids signalling, reported as `left`). A scan with an unreadable candidate or a failed listing is inconclusive.
 //!    A survivor sends the sweep back to 1 while the budget lasts.
@@ -78,6 +84,11 @@ pub struct LeftMarked {
 pub struct SweepReport {
     /// SIGKILL delivered through the guard (each process once).
     pub killed: Vec<MarkedProcess>,
+    /// procfix6 (gate5 m1): of `killed`, those killed by the identity held at their stop (the marker was gone).
+    pub killed_by_hold: Vec<MarkedProcess>,
+    /// procfix6 (gate5 m1): stopped by a sweep, marker gone, could not be killed by the held identity: SIGCONT sent
+    /// (no longer stopped); reported, never silently dropped.
+    pub continued: Vec<LeftMarked>,
     /// Alive and marked in the last scan, but not signalled (narrowing refused, or the guard could not verify).
     pub left: Vec<LeftMarked>,
     /// Two consecutive conclusive scans found no marked process other than those in `left`.
@@ -91,18 +102,35 @@ pub struct SweepReport {
 }
 
 impl SweepReport {
-    /// Proven AND nothing left alive: no live process carries the swept marker.
+    /// Proven AND nothing left alive: no live process carries the swept marker, and no process a sweep stopped is left
+    /// stopped (those are in `left`, see `stranded`).
     pub fn empty(&self) -> bool {
         self.proven && self.left.is_empty()
     }
+
+    /// procfix6 (gate5 m1): the processes a sweep of this process STOPPED and could neither kill nor continue (also in
+    /// `left`, with a reason starting with [`STRANDED_WHY`]).
+    pub fn stranded(&self) -> impl Iterator<Item = &LeftMarked> {
+        self.left.iter().filter(|l| l.why.starts_with(STRANDED_WHY))
+    }
 }
+
+/// Prefix of the `why` of a stranded process (stopped by a sweep, neither killed nor continued).
+pub const STRANDED_WHY: &str = "STOPPED by the sweep and left stopped";
 
 type Key = (u32, u64);
 
 struct Member {
     fd: OwnedFd,
     process: MarkedProcess,
+    /// The identity held at the stop (procfix6 m1); None only when the stop was not delivered by this sweep.
+    hold: Option<guard::StopHold>,
 }
+
+/// procfix6 (gate5 m1): processes a sweep of THIS process stopped and could neither kill nor continue, kept with their
+/// pidfd and hold: every later sweep retries them first and reports them in `left` while they stay stranded.
+/// Each entry: (campaign id, member); a sweep takes only the entries of its own campaign and attempt narrowing.
+static STRANDED: std::sync::Mutex<Vec<(String, Member)>> = std::sync::Mutex::new(Vec::new());
 
 struct Sweep<'a> {
     s: &'a SweepSpec,
@@ -114,6 +142,9 @@ struct Sweep<'a> {
     left: BTreeMap<Key, LeftMarked>,
     seen: BTreeMap<Key, ()>,
     killed: BTreeMap<Key, MarkedProcess>,
+    killed_by_hold: BTreeMap<Key, MarkedProcess>,
+    continued: BTreeMap<Key, LeftMarked>,
+    stranded: BTreeMap<Key, (Member, String)>,
     rounds: u32,
 }
 
@@ -226,16 +257,23 @@ impl Sweep<'_> {
         }
         let items: Vec<(&OwnedFd, ProcessTarget)> =
             cands.iter().map(|(fd, p)| (fd, self.target(p))).collect();
-        let verdicts = guard::signal_with_pidfds(&items, libc::SIGSTOP, None);
+        let verdicts = guard::stop_with_pidfds(&items, None);
         drop(items);
-        for ((fd, p), v) in cands.into_iter().zip(verdicts) {
+        for ((fd, p), (v, hold)) in cands.into_iter().zip(verdicts) {
             let k = key(&p);
             out.push(match v {
                 Verdict::Delivered => {
                     // Kept as a member whatever the wait says (gate-A m-2): it will get the SIGKILL.
                     let w = self.wait_stopped(p.pid, &fd);
                     self.left.remove(&k);
-                    self.members.insert(k, Member { fd, process: p });
+                    self.members.insert(
+                        k,
+                        Member {
+                            fd,
+                            process: p,
+                            hold,
+                        },
+                    );
                     w.map(|()| true)
                 }
                 Verdict::Gone | Verdict::NotOurs(_) => Ok(false),
@@ -311,12 +349,13 @@ impl Sweep<'_> {
                 match read_proc_facts(k.0, false) {
                     FactRead::Facts(f) if f.all_stopped || f.dead => {}
                     FactRead::Facts(_) => {
-                        new = true;
+                        // procfix6 m1: a member that runs again WITHOUT the marker is refused here; it is not a reason
+                        // for another round (it cannot hand the marker on); the kill round takes it by its stop hold.
                         let t = self.target(&m.process);
-                        if let Verdict::Unverified(e) =
-                            guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None)
-                        {
-                            inconclusive = Some(e);
+                        match guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None) {
+                            Verdict::Delivered => new = true,
+                            Verdict::Unverified(e) => inconclusive = Some(e),
+                            Verdict::Gone | Verdict::NotOurs(_) => {}
                         }
                     }
                     FactRead::Gone => {}
@@ -347,6 +386,7 @@ impl Sweep<'_> {
             .collect();
         let verdicts = guard::signal_with_pidfds(&items, libc::SIGKILL, None);
         drop(items);
+        let mut refused: Vec<(Key, Member, String)> = Vec::new();
         for ((k, m), v) in members.into_iter().zip(verdicts) {
             match v {
                 Verdict::Delivered => {
@@ -354,6 +394,15 @@ impl Sweep<'_> {
                     pending.push(m);
                 }
                 Verdict::Gone => {}
+                // procfix6 (gate5 m1): never dropped silently: a member this sweep STOPPED goes through its stop hold.
+                Verdict::NotOurs(r) if m.hold.is_some() => refused.push((
+                    k,
+                    m,
+                    format!("marker check refused at the kill round: {r:?}"),
+                )),
+                Verdict::Unverified(e) if m.hold.is_some() => {
+                    refused.push((k, m, format!("SIGKILL not verified: {e}")))
+                }
                 Verdict::NotOurs(_) => {}
                 Verdict::Unverified(e) => {
                     self.left.insert(
@@ -366,6 +415,7 @@ impl Sweep<'_> {
                 }
             }
         }
+        pending.extend(self.settle_held(refused));
         let t0 = Instant::now();
         for m in pending {
             while guard::pidfd_exited(&m.fd) != Some(true) && t0.elapsed() < Duration::from_secs(2)
@@ -374,6 +424,111 @@ impl Sweep<'_> {
             }
         }
         request_reap();
+    }
+
+    /// procfix6 (gate5 m1): members STOPPED by a sweep that the marker path did not kill: SIGKILL by the identity held
+    /// at the stop; else SIGCONT through the same hold (reported in `continued`); else stranded (reported in `left`, kept
+    /// for the next sweep). Returns the members to wait for (killed).
+    fn settle_held(&mut self, refused: Vec<(Key, Member, String)>) -> Vec<Member> {
+        let mut pending = Vec::new();
+        if refused.is_empty() {
+            return pending;
+        }
+        let kill: Vec<(&OwnedFd, &guard::StopHold)> = refused
+            .iter()
+            .filter_map(|(_, m, _)| m.hold.as_ref().map(|h| (&m.fd, h)))
+            .collect();
+        let kv = guard::kill_held(&kill);
+        drop(kill);
+        let mut cont: Vec<(Key, Member, String)> = Vec::new();
+        for ((k, m, why), v) in refused.into_iter().zip(kv) {
+            match v {
+                Verdict::Delivered => {
+                    self.killed.insert(k, m.process.clone());
+                    self.killed_by_hold.insert(k, m.process.clone());
+                    self.left.remove(&k);
+                    pending.push(m);
+                }
+                Verdict::Gone => {
+                    self.left.remove(&k);
+                }
+                Verdict::NotOurs(r) => {
+                    cont.push((k, m, format!("{why}; held SIGKILL refused: {r:?}")))
+                }
+                Verdict::Unverified(e) => {
+                    cont.push((k, m, format!("{why}; held SIGKILL not sent: {e}")))
+                }
+            }
+        }
+        if cont.is_empty() {
+            return pending;
+        }
+        let items: Vec<(&OwnedFd, &guard::StopHold)> = cont
+            .iter()
+            .filter_map(|(_, m, _)| m.hold.as_ref().map(|h| (&m.fd, h)))
+            .collect();
+        let cv = guard::continue_held(&items);
+        drop(items);
+        for ((k, m, why), v) in cont.into_iter().zip(cv) {
+            match v {
+                Verdict::Delivered => {
+                    self.left.remove(&k);
+                    self.continued.insert(
+                        k,
+                        LeftMarked {
+                            process: m.process.clone(),
+                            why: format!("{why}; CONTINUED (continue signal through the stop hold): alive, not stopped"),
+                        },
+                    );
+                }
+                Verdict::Gone => {
+                    self.left.remove(&k);
+                }
+                Verdict::NotOurs(r) => {
+                    let w = format!("{STRANDED_WHY}: {why}; continue refused: {r:?}");
+                    self.stranded.insert(k, (m, w));
+                }
+                Verdict::Unverified(e) => {
+                    let w = format!("{STRANDED_WHY}: {why}; continue not sent: {e}");
+                    self.stranded.insert(k, (m, w));
+                }
+            }
+        }
+        pending
+    }
+
+    /// procfix6 (gate5 m1): the processes earlier sweeps of this process left stranded: tried again first (kill by the
+    /// hold, else continue).
+    fn retry_stranded(&mut self) {
+        let old: Vec<Member> = {
+            let mut g = STRANDED.lock().unwrap_or_else(|p| p.into_inner());
+            let (mine, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut *g)
+                .into_iter()
+                .partition(|(c, m)| *c == self.s.campaign_id && self.wanted(&m.process.attempt_id));
+            *g = rest;
+            mine.into_iter().map(|(_, m)| m).collect()
+        };
+        if old.is_empty() {
+            return;
+        }
+        let refused: Vec<(Key, Member, String)> = old
+            .into_iter()
+            .map(|m| {
+                (
+                    key(&m.process),
+                    m,
+                    "stranded by an earlier sweep of this process".to_string(),
+                )
+            })
+            .collect();
+        let pending = self.settle_held(refused);
+        let t0 = Instant::now();
+        for m in pending {
+            while guard::pidfd_exited(&m.fd) != Some(true) && t0.elapsed() < Duration::from_secs(2)
+            {
+                std::thread::sleep(Duration::from_micros(500));
+            }
+        }
     }
 
     /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive.
@@ -455,8 +610,12 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         left: BTreeMap::new(),
         seen: BTreeMap::new(),
         killed: BTreeMap::new(),
+        killed_by_hold: BTreeMap::new(),
+        continued: BTreeMap::new(),
+        stranded: BTreeMap::new(),
         rounds: 0,
     };
+    w.retry_stranded();
     let reason = loop {
         // A freeze that hit the bound still ends in the SIGKILL of every member; the proof below decides.
         let _ = w.freeze();
@@ -476,12 +635,133 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
             }
         }
     };
+    // procfix6 (gate5 m1): stranded processes are reported in `left` (the caller's exit-8 rule names their pids) and
+    // kept, with their pidfd and hold, for the next sweep of this process.
+    let mut left = w.left;
+    let mut keep = Vec::new();
+    for (k, (m, why)) in std::mem::take(&mut w.stranded) {
+        left.insert(
+            k,
+            LeftMarked {
+                process: m.process.clone(),
+                why,
+            },
+        );
+        keep.push((spec.campaign_id.clone(), m));
+    }
+    STRANDED
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .extend(keep);
     SweepReport {
         killed: w.killed.into_values().collect(),
-        left: w.left.into_values().collect(),
+        killed_by_hold: w.killed_by_hold.into_values().collect(),
+        continued: w.continued.into_values().collect(),
+        left: left.into_values().collect(),
         proven: reason.is_none(),
         reason,
         rounds: w.rounds,
         seen: w.seen.len(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// procfix6 (gate5 m1): a member STOPPED by a sweep whose hold cannot be used (here: another boot) can neither be
+    /// killed nor continued: it is STRANDED: reported in `left` with the stranded reason (the supervisor's exit-8 rule
+    /// names its pid), kept in the registry, retried first by the next sweep of the SAME campaign (and reported again),
+    /// never taken by a sweep of another campaign.
+    #[test]
+    fn m1_stranded_members_are_reported_kept_and_retried() {
+        if !crate::launch::in_private_namespace() {
+            eprintln!(
+                "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+            );
+            return;
+        }
+        let mut c = std::process::Command::new("sleep")
+            .arg("30")
+            .env_clear()
+            .spawn()
+            .unwrap();
+        let pid = c.id();
+        // test code; our own direct child (the shell's `kill` builtin: no `kill` call outside the guard's `sys` module).
+        let st = std::process::Command::new("sh")
+            .args(["-c", &format!("kill -STOP {pid}")])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .status()
+            .unwrap();
+        assert!(st.success());
+        let t0 = Instant::now();
+        while crate::resources::read_stat(pid).unwrap().unwrap().state != 'T' {
+            assert!(t0.elapsed() < Duration::from_secs(10));
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let id = "pf6strand.0123456789abcdef";
+        let spec = SweepSpec {
+            campaign_id: id.into(),
+            only_attempt: None,
+            not_before_ticks: 0,
+            budget: Duration::from_secs(2),
+            pass_gap: Duration::from_millis(20),
+            narrowing: None,
+        };
+        let cancel = AtomicBool::new(false);
+        let mut w = Sweep {
+            s: &spec,
+            cancel: &cancel,
+            deadline: Instant::now() + spec.budget,
+            boot: boot_id().unwrap(),
+            uid: our_uid(),
+            members: BTreeMap::new(),
+            left: BTreeMap::new(),
+            seen: BTreeMap::new(),
+            killed: BTreeMap::new(),
+            killed_by_hold: BTreeMap::new(),
+            continued: BTreeMap::new(),
+            stranded: BTreeMap::new(),
+            rounds: 0,
+        };
+        let process = MarkedProcess::from_stat(&st, "j1:a1".into());
+        let m = Member {
+            fd: guard::open_pidfd(pid).unwrap(),
+            process,
+            hold: Some(guard::StopHold::for_test(
+                pid,
+                st.start_ticks,
+                "00000000-0000-0000-0000-000000000000",
+            )),
+        };
+        let k = (pid, st.start_ticks);
+        let pending = w.settle_held(vec![(k, m, "test".into())]);
+        assert!(pending.is_empty());
+        assert!(w.killed.is_empty() && w.continued.is_empty());
+        let (m, why) = w.stranded.remove(&k).expect("stranded");
+        assert!(why.starts_with(STRANDED_WHY), "{why}");
+        STRANDED.lock().unwrap().push((id.to_string(), m));
+        // Another campaign's sweep never takes it.
+        let other = SweepSpec {
+            campaign_id: "pf6other.0123456789abcdef".into(),
+            ..spec.clone()
+        };
+        let r = sweep(&other, &cancel);
+        assert_eq!(r.stranded().count(), 0);
+        // The same campaign's next sweep retries it first and reports it again (not empty: exit 8 for the caller).
+        let r = sweep(&spec, &cancel);
+        let s: Vec<&LeftMarked> = r.stranded().collect();
+        assert_eq!(s.len(), 1, "{r:?}");
+        assert_eq!(s[0].process.pid, pid);
+        assert!(!r.empty());
+        assert_eq!(
+            crate::resources::read_stat(pid).unwrap().unwrap().state,
+            'T',
+            "neither killed nor continued (the hold is unusable)"
+        );
+        STRANDED.lock().unwrap().retain(|(c, _)| c != id);
+        let _ = c.kill();
+        let _ = c.wait();
     }
 }

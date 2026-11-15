@@ -371,6 +371,23 @@ impl<'a> Scan<'a> {
             if c.member("target").is_some() && !self.targets.insert((chart, key)) {
                 return Err(UnsealReason::DuplicateRuleTarget { line: line_no });
             }
+            // line 7 (seed minimisation, coord-seed-minimise.md 5 / 6): the rule's `minimise` / `centre_scan` members,
+            // checked when present (deterministic, part of the canonical record)
+            for m in ["minimise", "centre_scan"] {
+                if let Some(b) = c.member(m) {
+                    let v: serde_json::Value =
+                        serde_json::from_slice(b).map_err(|e| UnsealReason::BadRecord {
+                            line: line_no,
+                            why: format!("{m}: {e}"),
+                        })?;
+                    let checked = if m == "minimise" {
+                        crate::recipe::check_minimise(&v)
+                    } else {
+                        crate::recipe::check_centre_scan(&v, None)
+                    };
+                    checked.map_err(|why| UnsealReason::BadRecord { line: line_no, why })?;
+                }
+            }
             self.rules += 1;
         }
         if let Some(l) = c.member("witness_loci") {

@@ -40,6 +40,10 @@ pub enum JobKind {
     /// their own coefficient text (Symbolica), for the records `rr_proof instantiate` refuses (elided witness loci). A
     /// LEGACY child like `proof-instantiate` (same request form (A)); the supervisor-side wrapper seals its answers.
     CoefficientFacts,
+    /// `rr_node job` kind `node-basis` (line 7, coord-pole-engine.md 4 / 8; child-job.md "Line 7"): the node-local
+    /// elimination with the given terminals lowest, at fixed dimensions and primes, L1. A DIAGNOSTIC kind: its sealed
+    /// records are never rule or relation evidence (accept mode `diagnostic_records`).
+    NodeBasis,
 }
 
 /// Compliance level (1.1).
@@ -55,7 +59,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 15] = [
+    pub const ALL: [JobKind; 16] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -71,6 +75,7 @@ impl JobKind {
         JobKind::ProofInstantiate,
         JobKind::ProofInstanceSpan,
         JobKind::CoefficientFacts,
+        JobKind::NodeBasis,
     ];
 
     pub const fn level(self) -> Level {
@@ -93,7 +98,8 @@ impl JobKind {
             | JobKind::Replay
             | JobKind::Witness
             | JobKind::Laporta
-            | JobKind::SolveRecipe => "rr_node",
+            | JobKind::SolveRecipe
+            | JobKind::NodeBasis => "rr_node",
             JobKind::ProofSpan
             | JobKind::ProofExact
             | JobKind::ProofStream
@@ -132,7 +138,8 @@ impl JobKind {
             | JobKind::SolveRecipe
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
-            | JobKind::CoefficientFacts => Some(&RESULT_OUTPUTS),
+            | JobKind::CoefficientFacts
+            | JobKind::NodeBasis => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -149,6 +156,7 @@ impl JobKind {
             JobKind::TableDump => &TABLE_DUMP_ARGS,
             JobKind::Fake => &[],
             JobKind::SolveRecipe => &SOLVE_RECIPE_ARGS,
+            JobKind::NodeBasis => &NODE_BASIS_ARGS,
             // the wrapper builds the legacy argv itself (`instantiate --requests in/requests.jsonl --out ...`); line 7:
             // it passes `--elided-loci refuse|facts` through (coord-ec2-instantiate.md 2d)
             JobKind::ProofInstantiate => &PROOF_INSTANTIATE_ARGS,
@@ -172,6 +180,11 @@ impl JobKind {
             // lane closeloop3: the same request form (A) and one table per job
             JobKind::CoefficientFacts => Some(InputRoles {
                 required: &["requests", "table"],
+                optional: &[],
+            }),
+            // line 7: the presented family and the terminal keys (JSONL, put lowest)
+            JobKind::NodeBasis => Some(InputRoles {
+                required: &["family", "terminals"],
                 optional: &[],
             }),
             // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
@@ -296,9 +309,47 @@ pub enum ArgShape {
     Range,
     /// One of the listed words.
     Choice(&'static [&'static str]),
+    /// (line 7) An exact rational in the CANONICAL text ([`crate::arith::Rational::parse_canonical`]): `4`, `-3/2`;
+    /// lowest terms, denominator > 1 when written; no float, exponent, `+` or leading zero.
+    Rational,
+    /// (line 7) A comma-separated list of pairwise distinct canonical rationals (`--dims`).
+    RationalList,
+    /// (line 7) A comma-separated list of pairwise distinct unsigned integers in canonical decimal, with an element rule.
+    UIntList(UIntElems),
+    /// (line 7, seed minimisation) A centre scan ([`crate::arith::parse_centre_scan`]): comma-separated entries, each
+    /// `recipe`, `floor_of_free`, `each_free_slot` or an explicit offset vector `(a;b;..)` of canonical integers.
+    CentreScan,
+    /// (line 7, seed minimisation target) A case domain as compact JSON ([`crate::arith::parse_case_domain`]):
+    /// `{"fixed": [..], "equations": [..], "bounds": {"min": [..], "max": [..]}}`, at least one member.
+    CaseDomain,
+}
+
+/// The element rule of an [`ArgShape::UIntList`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UIntElems {
+    /// Any `u64`.
+    Any,
+    /// Every element in [2^40, 2^62) and PRIME ([`crate::arith::check_line7_prime`]): `--probe-primes`, node-basis
+    /// `--primes`.
+    Line7Primes,
 }
 
 impl ArgShape {
+    /// Whether `v` has this shape, with the reason when not.
+    pub fn check(self, v: &str) -> Result<(), String> {
+        use crate::arith;
+        match self {
+            ArgShape::Rational => arith::Rational::parse_canonical(v).map(|_| ()),
+            ArgShape::RationalList => arith::parse_rational_list(v).map(|_| ()),
+            ArgShape::UIntList(UIntElems::Any) => arith::parse_uint_list(v).map(|_| ()),
+            ArgShape::UIntList(UIntElems::Line7Primes) => arith::parse_prime_list(v).map(|_| ()),
+            ArgShape::CentreScan => arith::parse_centre_scan(v).map(|_| ()),
+            ArgShape::CaseDomain => arith::parse_case_domain(v).map(|_| ()),
+            other if other.accepts(v) => Ok(()),
+            other => Err(format!("value {v:?} is not of shape {other:?}")),
+        }
+    }
+
     /// Whether `v` has this shape.
     pub fn accepts(self, v: &str) -> bool {
         let all = |f: fn(u8) -> bool| !v.is_empty() && v.bytes().all(f);
@@ -344,6 +395,11 @@ impl ArgShape {
             }
             ArgShape::Range => all(|b| b.is_ascii_digit() || b == b',' || b == b'-'),
             ArgShape::Choice(c) => c.contains(&v),
+            ArgShape::Rational
+            | ArgShape::RationalList
+            | ArgShape::UIntList(_)
+            | ArgShape::CentreScan
+            | ArgShape::CaseDomain => self.check(v).is_ok(),
         }
     }
 }
@@ -375,7 +431,7 @@ pub const ON_HEAVY: ArgRule = ArgRule {
     strict_values: Some(&["refuse", "proceed"]),
 };
 
-const GENERATE_ARGS: [ArgRule; 39] = [
+const GENERATE_ARGS: [ArgRule; 43] = [
     a("--order", ArgShape::JsonOrName),
     // lane eng2: return the sub-cases instead of descending into them (node-loop.md 5.2)
     a("--descend", ArgShape::Choice(&["open"])),
@@ -418,16 +474,37 @@ const GENERATE_ARGS: [ArgRule; 39] = [
     a("--case-seed-schedule", ArgShape::Spec),
     a("--case-seed-rung", ArgShape::Spec),
     a("--backend", ArgShape::Name),
+    // line 7, seed minimisation (coord-seed-minimise.md 6 / 7, replacing section 5's `--seed-centre floor_of_free`):
+    // the deterministic centre scan; the minimisation mode; its WORK budget (a count of re-solves, never a clock)
+    a("--centre-scan", ArgShape::CentreScan),
+    a("--minimise-rules", ArgShape::Choice(&["support", "greedy"])),
+    a("--minimise-max-solves", ArgShape::UInt),
+    // coord-seed-minimise.md 7: the target domain a candidate's exception branches must not intersect
+    a("--minimise-target", ArgShape::CaseDomain),
 ];
 const DESCENT_ARGS: [ArgRule; 1] = [a("--order", ArgShape::JsonOrName)];
 /// `solve-recipe` (lane adapters; coord-recipe-solve.md v1.1 job mode): the node order (required), worker threads
 /// (results do not depend on them), the deterministic per-key trace-row limit (verdict BUDGET_WORK) and the per-key
 /// wall budget in seconds (verdict BUDGET_WALL, time-decided). Files (family, recipe, keys, expect) are inputs.
-pub const SOLVE_RECIPE_ARGS: [ArgRule; 4] = [
+pub const SOLVE_RECIPE_ARGS: [ArgRule; 7] = [
     a("--order", ArgShape::JsonOrName),
     a("--threads", ArgShape::UInt),
     a("--max-trace-rows", ArgShape::UInt),
     a("--key-budget-s", ArgShape::UInt),
+    // line 7 (coord-pole-engine.md 8): probe mode (modular only, `probe` records, never relations) ...
+    a("--probe-d", ArgShape::Rational),
+    a("--probe-primes", ArgShape::UIntList(UIntElems::Line7Primes)),
+    // ... and the m1 work cap of one key (`BUDGET_WORK` with counter `m1_work_rows`)
+    a("--max-m1-rows", ArgShape::UInt),
+];
+/// `node-basis` (line 7, coord-pole-engine.md 8; contract owner's ruling: `--primes` is a LIST of primes under the
+/// line-7 prime rule, `--dims` a list of rationals).
+pub const NODE_BASIS_ARGS: [ArgRule; 5] = [
+    a("--mask", ArgShape::Mask),
+    a("--box", ArgShape::Spec),
+    a("--dims", ArgShape::RationalList),
+    a("--primes", ArgShape::UIntList(UIntElems::Line7Primes)),
+    a("--symmetry", ArgShape::Choice(&["on", "off"])),
 ];
 /// `proof-instantiate` (line 7, coord-ec2-instantiate.md 2d): `--elided-loci refuse` (the default when absent: the
 /// R-f refusal) or `facts` (records with elided witness loci answer coefficient facts only, never regularity).
@@ -762,17 +839,6 @@ fn d_resume_every() -> u32 {
     30
 }
 
-/// `proof-instantiate --elided-loci` (coord-ec2-instantiate.md 2d).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ElidedLoci {
-    /// R-f fail closed: a record with elided witness loci is refused (the whole legacy job, exit 2 -> 41).
-    #[default]
-    Refuse,
-    /// Records with elided witness loci answer exact COEFFICIENT facts only; never regularity evidence.
-    Facts,
-}
-
 /// The job spec.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -810,6 +876,25 @@ pub struct JobSpec {
     pub env_allow: Vec<String>,
     #[serde(default)]
     pub fake: Option<FakeScript>,
+}
+
+/// The probe parameters of a solve-recipe job run with `--probe-d` ([`JobSpec::probe_mode`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeArgs {
+    pub d0: crate::arith::Rational,
+    /// In argument order (records list `per_prime` in this order).
+    pub primes: Vec<u64>,
+}
+
+/// `proof-instantiate --elided-loci` (coord-ec2-instantiate.md 2d).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ElidedLoci {
+    /// R-f fail closed: a record with elided witness loci is refused (the whole legacy job, exit 2 -> 41).
+    #[default]
+    Refuse,
+    /// Records with elided witness loci answer exact COEFFICIENT facts only; never regularity evidence.
+    Facts,
 }
 
 /// The fake child's program name: a spec of an emulated kind ([`JobKind::fake_emulated`]) may carry a fake script only
@@ -1083,6 +1168,7 @@ impl JobSpec {
                 | JobKind::ProofInstantiate
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
+                | JobKind::NodeBasis
         ) {
             return Ok(());
         }
@@ -1121,7 +1207,7 @@ impl JobSpec {
             return Err(bad("on_case_budget", format!("kind {k:?}: stop only")));
         }
         let key_budget = self.args.iter().any(|a| a == "--key-budget-s");
-        if k.legacy_wrapped() && self.budgets.wall.case_s.is_some() {
+        if (k.legacy_wrapped() || k == JobKind::NodeBasis) && self.budgets.wall.case_s.is_some() {
             return Err(bad(
                 "budgets.wall.case_s",
                 format!("kind {k:?} has no per-case budget"),
@@ -1144,7 +1230,55 @@ impl JobSpec {
         if k == JobKind::SolveRecipe && !self.args.iter().any(|a| a == "--order") {
             return Err(bad("args", "kind SolveRecipe needs --order"));
         }
+        // line 7
+        if self.arg_value("--probe-primes").is_some() && self.arg_value("--probe-d").is_none() {
+            return Err(bad("args", "--probe-primes needs --probe-d (probe mode)"));
+        }
+        if self.max_m1_rows() == Some(0) {
+            return Err(bad(
+                "args",
+                "--max-m1-rows 0: a zero limit is not allowed (omit it instead)",
+            ));
+        }
         Ok(())
+    }
+
+    /// The value of a two-token flag of `args` (`None` when absent or the flag has no value). The allow-list check
+    /// ([`JobSpec::check_args`]) guarantees one occurrence and a value of the flag's shape.
+    pub fn arg_value(&self, flag: &str) -> Option<&str> {
+        let i = self.args.iter().position(|a| a == flag)?;
+        self.args.get(i + 1).map(String::as_str)
+    }
+
+    /// Kind solve-recipe, line 7: the probe mode of the job (`--probe-d` given), with the primes it runs (the given
+    /// `--probe-primes`, else [`crate::arith::PROBE_DEFAULT_PRIMES`]); `None` = a solve (relation) job. `Err` = a
+    /// value that does not parse (a spec that failed validation).
+    pub fn probe_mode(&self) -> Result<Option<ProbeArgs>, String> {
+        if self.kind != JobKind::SolveRecipe {
+            return Ok(None);
+        }
+        let Some(d) = self.arg_value("--probe-d") else {
+            return Ok(None);
+        };
+        let d0 = crate::arith::Rational::parse_canonical(d)?;
+        let primes = match self.arg_value("--probe-primes") {
+            Some(p) => crate::arith::parse_prime_list(p)?,
+            None => crate::arith::PROBE_DEFAULT_PRIMES.to_vec(),
+        };
+        Ok(Some(ProbeArgs { d0, primes }))
+    }
+
+    /// Kind solve-recipe, line 7: the `--max-m1-rows` cap, if set.
+    pub fn max_m1_rows(&self) -> Option<u64> {
+        self.arg_value("--max-m1-rows").and_then(|v| v.parse().ok())
+    }
+
+    /// Kind proof-instantiate, line 7: the elided-loci mode (`--elided-loci`, default [`ElidedLoci::Refuse`]).
+    pub fn elided_loci(&self) -> ElidedLoci {
+        match self.arg_value("--elided-loci") {
+            Some("facts") if self.kind == JobKind::ProofInstantiate => ElidedLoci::Facts,
+            _ => ElidedLoci::Refuse,
+        }
     }
 
     /// `run_dir` must be the directory of the spec file (3.1.3, exit 42). Both paths are canonicalised when they
@@ -1169,21 +1303,6 @@ impl JobSpec {
             p.to_path_buf()
         } else {
             Path::new(&self.run_dir).join(p)
-        }
-    }
-
-    /// The value of a two-token flag of `args` (`None` when absent or the flag has no value). The allow-list check
-    /// ([`JobSpec::check_args`]) guarantees one occurrence and a value of the flag's shape.
-    pub fn arg_value(&self, flag: &str) -> Option<&str> {
-        let i = self.args.iter().position(|a| a == flag)?;
-        self.args.get(i + 1).map(String::as_str)
-    }
-
-    /// Kind proof-instantiate, line 7: the elided-loci mode (`--elided-loci`, default [`ElidedLoci::Refuse`]).
-    pub fn elided_loci(&self) -> ElidedLoci {
-        match self.arg_value("--elided-loci") {
-            Some("facts") if self.kind == JobKind::ProofInstantiate => ElidedLoci::Facts,
-            _ => ElidedLoci::Refuse,
         }
     }
 
@@ -1233,9 +1352,9 @@ impl JobSpec {
             let Some(v) = self.args.get(k + 1) else {
                 return Err(SpecError::ArgNotAllowed(format!("{tok} needs a value")));
             };
-            if !r.shape.accepts(v) {
+            if let Err(why) = r.shape.check(v) {
                 return Err(SpecError::ArgNotAllowed(format!(
-                    "{tok}: value {v:?} is not of shape {:?}",
+                    "{tok}: {why} (shape {:?})",
                     r.shape
                 )));
             }
@@ -1249,6 +1368,27 @@ impl JobSpec {
                 ));
             }
             k += 2;
+        }
+        // line 7 (seed minimisation): the budget belongs to a mode, and a zero budget is not a limit
+        if self.arg_value("--minimise-target").is_some()
+            && self.arg_value("--minimise-rules").is_none()
+        {
+            return Err(bad("args", "--minimise-target needs --minimise-rules"));
+        }
+        if self.arg_value("--minimise-max-solves").is_some() {
+            if self.arg_value("--minimise-rules").is_none() {
+                return Err(bad("args", "--minimise-max-solves needs --minimise-rules"));
+            }
+            if self
+                .arg_value("--minimise-max-solves")
+                .and_then(|v| v.parse::<u64>().ok())
+                == Some(0)
+            {
+                return Err(bad(
+                    "args",
+                    "--minimise-max-solves 0: a zero limit is not allowed (omit it instead)",
+                ));
+            }
         }
         if self.determinism == Determinism::Strict
             && matches!(self.kind, JobKind::Generate | JobKind::GenerateAuto)

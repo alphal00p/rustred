@@ -362,7 +362,9 @@ fn store_check_equals_in_memory_check_for_every_form() {
         },
     )
     .unwrap();
-    assert_eq!(ev.counts.stores[0].origin, "reused");
+    // int6: every spec evidence input is pinned (closeloop4, audit-closeloop M1), and a store whose inputs are pinned
+    // re-hashes them in full on reuse (t266run 1f1ea34b): reused, re-verified
+    assert_eq!(ev.counts.stores[0].origin, "reused_reverified");
     let mut t = std::fs::read_to_string(&pp).unwrap();
     t.push_str(&format!(
         "{}\n",
@@ -499,4 +501,132 @@ fn store_lookups_over_many_blocks_equal_a_full_scan() {
     assert!(st.get(&sha0, &[1, 1, 0]).is_none());
     assert!(st.get(&sha0, &[2, 1, -51]).is_none());
     assert!(st.get(&sha0, &[51, 1, 50]).is_none());
+}
+
+/// closeloop4 open item m1 in STORE mode (lane t266run): a per-key proof and a DECIDED contrary verdict for the same
+/// (record, key) block the key's per-key level (never "the positive one wins"), in memory and in a store, whether the
+/// two lines meet inside one sort run or only in the final merge; an undecided attempt (ERROR) stands beside a proof.
+#[test]
+fn contradicting_proofs_deny_the_per_key_level_in_memory_and_in_the_store() {
+    let d = scratch("contra");
+    let top = 9;
+    let (spec0, _a) = toy(&d, top);
+    let set0 = load(&TableSetSpec::from_json(&spec0.to_string()).unwrap(), &d).unwrap();
+    let sha0 = set0.rules[0][0].record_sha256.clone();
+    let sha1 = set0.rules[0][1].record_sha256.clone();
+    let (fp, pp) = evidence_files(&d, &sha0, &sha1, top);
+    // a second proofs file: a decided contrary verdict for [6,1,0], an undecided attempt for [7,1,0]
+    let pp2 = d.join("proofs2.jsonl");
+    std::fs::write(
+        &pp2,
+        format!(
+            "{}\n{}\n",
+            json!({"record_sha256":sha0,"key":[6,1,0],"verdict":"IRREGULAR_KEY","index":0}),
+            json!({"record_sha256":sha0,"key":[7,1,0],"verdict":"ERROR","index":0})
+        ),
+    )
+    .unwrap();
+    let mut spec = spec0.clone();
+    spec["evidence"] = json!({"facts":[{"path": fp.display().to_string()}],
+        "proofs":[{"path": pp.display().to_string()}, {"path": pp2.display().to_string()}]});
+    // int6: spec evidence is read only pinned and with its family (closeloop4 M1 / m4): `pin_ev`, as the other tests
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
+    let basis = |r: &import::CheckResult, n0: i32| {
+        r.rows
+            .iter()
+            .find(|x| x.key == [n0, 1, 0])
+            .and_then(|x| x.basis)
+            .map(str::to_string)
+    };
+    // the import ITSELF (independent of the closing loop's blocker): the conflicted pair is not per-key even though
+    // its regularity fact would lift it; the verdict names the missing level
+    let level = |r: &import::CheckResult, n0: i32| {
+        r.rows
+            .iter()
+            .find(|x| x.key == [n0, 1, 0])
+            .and_then(|x| x.evidence)
+    };
+    let not_per_key = |r: &import::CheckResult| {
+        // the witness-not-carried key 6 can no longer be lifted through its fact: OPEN in the import's Tier C (key 5,
+        // without proof, stays served below per-key); key 7 (ERROR beside the proof) stays per-key
+        let row6 = r.rows.iter().find(|x| x.key == [6, 1, 0]);
+        assert!(
+            row6.is_none_or(
+                |x| x.status == RowStatus::Open || x.evidence != Some(import::Level::PerKey)
+            ),
+            "the conflicted pair is served per-key: {row6:?}"
+        );
+        assert_eq!(level(r, 7), Some(import::Level::PerKey));
+        assert_ne!(
+            r.summary.verdict,
+            closure::Verdict::Closed,
+            "{:?}",
+            r.blocking()
+        );
+        assert!(
+            r.blocking().iter().any(|b| b.starts_with("open_keys:")),
+            "{:?}",
+            r.blocking()
+        );
+    };
+    // in memory
+    let ev = Evidence::from_spec(&set, &d).unwrap();
+    assert_eq!(ev.counts.proof_conflicts, 1);
+    let r = checked(&set, &ev);
+    assert_ne!(basis(&r, 6).as_deref(), Some("per_key_proof"));
+    assert_eq!(basis(&r, 7).as_deref(), Some("per_key_proof"));
+    assert_eq!(ev.conflicts_used(), vec![(sha0.clone(), vec![6, 1, 0])]);
+    not_per_key(&r);
+    // (rows are not compared with the store runs: the in-memory evidence does not read the index fact form)
+    // in a store: one sort run (big budget) and one run per line (budget 1: the lines meet in the final merge)
+    for (i, budget) in [1usize << 30, 1].iter().enumerate() {
+        let so = StoreOptions {
+            dir: d.join(format!("cs{i}")),
+            budget_bytes: *budget,
+            threads: 2,
+        };
+        let ev = Evidence::from_spec_with(
+            &set,
+            &d,
+            &EvidenceOptions {
+                store: Some(so.clone()),
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            ev.counts.stores[0].counts.proof_conflicts, 1,
+            "budget {budget}"
+        );
+        let st = EvidenceStore::open(
+            &so.dir.join(
+                std::fs::read_dir(&so.dir)
+                    .unwrap()
+                    .next()
+                    .unwrap()
+                    .unwrap()
+                    .file_name(),
+            ),
+        )
+        .unwrap();
+        assert!(st.get(&sha0, &[6, 1, 0]).unwrap().proof_conflict);
+        assert!(!st.get(&sha0, &[7, 1, 0]).unwrap().proof_conflict);
+        assert!(!st.get(&sha0, &[8, 1, 0]).unwrap().proof_conflict);
+        let r = checked(&set, &ev);
+        assert_ne!(
+            basis(&r, 6).as_deref(),
+            Some("per_key_proof"),
+            "budget {budget}"
+        );
+        assert_eq!(
+            basis(&r, 7).as_deref(),
+            Some("per_key_proof"),
+            "budget {budget}"
+        );
+        assert_eq!(
+            ev.conflicts_used(),
+            vec![(sha0.clone(), vec![6, 1, 0])],
+            "budget {budget}"
+        );
+        not_per_key(&r);
+    }
 }

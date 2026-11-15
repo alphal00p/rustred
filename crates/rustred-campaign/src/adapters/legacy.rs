@@ -343,53 +343,6 @@ fn check_span(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String> {
     Ok(lines)
 }
 
-/// Values of `elided_cover` of an instantiate answer (coord-ec2-instantiate.md 2d).
-pub const ELIDED_COVERS: [&str; 3] = ["guards_v2", "excepted", "none"];
-
-/// lane closeloop4: what ONE instantiate answer may be used for under the job's elided-loci mode; `Err` = refused (the
-/// attempt's output is not sealed: row 22). SAME semantics as the contract-line7 lane's
-/// `rustred_campaign_contract::instantiate::instantiate_answer_use` (duplicate to reconcile at integration: this lane
-/// may not add a `pub mod` to the contract crate): an answer carrying an elision marker (`elided_cover`,
-/// `witness_loci_elided`) is refused under `--elided-loci refuse` (R-f); under `facts` it is EXACT COEFFICIENT FACTS
-/// ONLY: it never says `regular` and its `elided_cover` is one of [`ELIDED_COVERS`]. Returns true = the line may carry
-/// regularity (a complete record's answer), false = coefficient facts only.
-pub fn instantiate_answer_use(
-    v: &Value,
-    mode: rustred_campaign_contract::spec::ElidedLoci,
-) -> Result<bool, String> {
-    let elided = !v["elided_cover"].is_null() || !v["witness_loci_elided"].is_null();
-    let says_regular =
-        v["regular"] == Value::Bool(true) || v["regular"].as_str() == Some("regular");
-    if !elided {
-        return Ok(says_regular && v["error"].is_null());
-    }
-    if mode == rustred_campaign_contract::spec::ElidedLoci::Refuse {
-        return Err(
-            "an answer about a record with elided witness loci under --elided-loci refuse (R-f)"
-                .into(),
-        );
-    }
-    if says_regular {
-        return Err(
-            "an elided record's answer claims regular (facts mode answers coefficient facts only)"
-                .into(),
-        );
-    }
-    match v["elided_cover"].as_str() {
-        Some(c) if ELIDED_COVERS.contains(&c) => {}
-        _ => {
-            return Err(format!(
-                "elided_cover {} is not one of {ELIDED_COVERS:?}",
-                v["elided_cover"]
-            ));
-        }
-    }
-    if !v["witness_loci_elided"].is_null() && v["witness_loci_elided"].as_u64().is_none() {
-        return Err("witness_loci_elided is not a count".into());
-    }
-    Ok(false)
-}
-
 /// The checked answers of `proof-instantiate` (form (A) requests; record_sha256 recomputed from the table at the
 /// request's offset, its index checked): the answer lines, canonical. `coefficient-facts` (lane closeloop3) is
 /// checked the same way, with its own answer schema (`rustred.campaign.fact-verdict.v1`) and `producer: exact_eval`.
@@ -477,7 +430,8 @@ fn check_instantiate(spec: &JobSpec, out: &[u8]) -> Result<Vec<Vec<u8>>, String>
             return Err(format!("answer {}: schema {}", i + 1, v["schema"]));
         }
         if !coef {
-            instantiate_answer_use(&v, spec.elided_loci())
+            // the ONE elided-loci rule: the contract's (line 7, coord-ec2-instantiate.md 2d)
+            rustred_campaign_contract::instantiate::instantiate_answer_use(&v, spec.elided_loci())
                 .map_err(|m| format!("answer {}: {m}", i + 1))?;
         }
         if coef && v["producer"] != COEF_PRODUCER {

@@ -22,8 +22,9 @@ pub mod spec;
 pub mod statement;
 /// lane t266run: disk-backed evidence store (interfaces/evidence-store.md).
 pub mod store;
-// lane zeros2: structural zero proofs of rule terms as a fact source (interfaces/zero-proofs.md)
+pub mod sweep;
 pub mod symmetry;
+// lane zeros2: structural zero proofs of rule terms as a fact source (interfaces/zero-proofs.md)
 pub mod zero_proofs;
 
 pub use check::{CheckOptions, CheckResult, KeyRow, RowStatus, Server, SolveRequest, check};

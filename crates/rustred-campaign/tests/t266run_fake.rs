@@ -164,8 +164,11 @@ fn role_inputs(cdir: &Path, role: &str) -> Vec<(String, Vec<u8>)> {
     v.into_iter().map(|(_, id, b)| (id, b)).collect()
 }
 
+/// Every item (id, kind, phase) and the escalation records of a run.
+type Decisions = (BTreeSet<(String, String, String)>, Vec<(String, Vec<u8>)>);
+
 /// The decisions of a run: every item (id, kind, phase) and the escalation records.
-fn decisions(cdir: &Path) -> (BTreeSet<(String, String, String)>, Vec<(String, Vec<u8>)>) {
+fn decisions(cdir: &Path) -> Decisions {
     let items = state(cdir)
         .items
         .iter()
@@ -207,7 +210,7 @@ fn escalation_and_a_terminal_proposal_close_the_node_boxed_per_key() {
     let att = &tv["attempts"][0];
     assert_eq!(att["symmetry_at_key_tried"], true);
     assert_eq!(att["recipe_answers"].as_array().unwrap().len(), 2, "{att}");
-    assert_eq!(terminals_of(&cdir).to_string().contains("I(1,1,0)"), true);
+    assert!(terminals_of(&cdir).to_string().contains("I(1,1,0)"));
     // the escalation: symmetry attempted at every uncovered key (no group: recorded unavailable), recipes per key in
     // step order, keys 3, 2 served by their first step, key 1 by none
     let sym: Vec<Value> = role_inputs(&cdir, "closeloop_symrel")
@@ -442,4 +445,193 @@ fn two_box_clauses_get_their_own_verdicts_and_every_key_its_clause() {
         0
     );
     assert_eq!(verify(&cdir), 0);
+}
+
+// ------------------------------------------------------------------------------------------- resume after escalation
+// Defect of run T266run5 (2026-11-15): a restarted session loaded the BASE import spec (no escalation recipes), so
+// every escalation solve settled after the restart was refused ("recipe source ... not in the imported set") and its
+// item stayed in progress forever. Fixed: the restarted session loads the last pass's effective spec (re-derived from
+// the ledger, verified against the digest the pass recorded); a refused routing is a typed item event.
+
+use rustred_campaign::closeloop::ids::{KIND_FACTS, KIND_PROOF, KIND_SOLVE};
+use rustred_campaign::state::{AttemptState, CampaignState, ItemPhase};
+
+/// Items left IN PROGRESS over a sealed-success attempt (a settle without routing): none at any exit.
+fn unrouted(cdir: &Path) -> Vec<String> {
+    let st = state(cdir);
+    st.items
+        .iter()
+        .filter(|(_, it)| {
+            it.phase == ItemPhase::InProgress
+                && it
+                    .jobs
+                    .last()
+                    .and_then(|j| st.jobs.get(j))
+                    .is_some_and(|r| matches!(r.state, AttemptState::SucceededSealed(_)))
+        })
+        .map(|(k, _)| k.clone())
+        .collect()
+}
+
+/// Poll the READ-ONLY ledger view until `pred` holds (false after `limit`).
+fn wait_state(cdir: &Path, limit: Duration, pred: impl Fn(&CampaignState) -> bool) -> bool {
+    let t0 = std::time::Instant::now();
+    while t0.elapsed() < limit {
+        if cdir.join("ledger").is_dir() && pred(&state(cdir)) {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    false
+}
+
+/// A job of an item of one of `kinds` is running.
+fn running_kind(st: &CampaignState, kinds: &[&str]) -> bool {
+    st.jobs.values().any(|j| {
+        j.state == AttemptState::Running
+            && st
+                .items
+                .get(&j.item)
+                .is_some_and(|it| kinds.contains(&it.kind.as_str()))
+    })
+}
+
+/// An escalation round committed (step recipes recorded).
+fn escalated(st: &CampaignState) -> bool {
+    st.inputs.values().any(|r| r.role == "closeloop_recipes")
+}
+
+/// Interrupt (SIGTERM) when `when` holds, then resume to the end; every exit leaves no unrouted item; the decisions,
+/// escalation records and statement equal the uninterrupted reference; no routing was refused or requeued.
+fn interrupt_when_and_resume(tag: &str, when: impl Fn(&CampaignState) -> bool) {
+    let (_ta, spa, ca) = setup(&format!("{tag}ref"), 4, Some(3), true, 1500);
+    assert_eq!(
+        run_to_end(&spa, &ca, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&ca)
+    );
+    let (ref_items, ref_esc) = decisions(&ca);
+    let ref_stmt = std::fs::read(ca.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+    let (_tb, spb, cb) = setup(&format!("{tag}int"), 4, Some(3), true, 1500);
+    let mut c = start(&spb, &cb, &["--plain"], &[]);
+    let hit = wait_state(&cb, Duration::from_secs(600), &when);
+    signal(&c, libc::SIGTERM);
+    let code = wait(&mut c, Duration::from_secs(300));
+    assert!(hit, "the interrupt window never came: {}", log_tail(&cb));
+    assert_ne!(code, 0, "interrupted session ended 0");
+    assert_eq!(unrouted(&cb), Vec::<String>::new(), "after the interrupt");
+    let mut codes = vec![code];
+    for _ in 0..6 {
+        let mut c = start(&spb, &cb, &["--plain"], &[]);
+        let code = wait(&mut c, Duration::from_secs(900));
+        codes.push(code);
+        assert_eq!(unrouted(&cb), Vec::<String>::new(), "after exit {code}");
+        if code == 0 {
+            break;
+        }
+    }
+    assert_eq!(codes.last(), Some(&0), "{codes:?} {}", log_tail(&cb));
+    let st = state(&cb);
+    assert!(
+        st.items
+            .values()
+            .all(|it| it.phase != ItemPhase::InProgress),
+        "an item in progress at the end"
+    );
+    let recs = format!("{:?}", records(&cb));
+    assert!(
+        !recs.contains("routing_refused"),
+        "a routing was refused after the resume"
+    );
+    let (items, esc) = decisions(&cb);
+    assert_eq!(items, ref_items, "{codes:?}");
+    assert_eq!(esc.len(), ref_esc.len());
+    for (a, b) in esc.iter().zip(&ref_esc) {
+        assert_eq!(a.0, b.0);
+        let strip = |v: &[u8], d: &Path| {
+            String::from_utf8_lossy(v).replace(&d.display().to_string(), "CDIR")
+        };
+        assert_eq!(strip(&a.1, &cb), strip(&b.1, &ca), "{}", a.0);
+    }
+    let stmt = std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+    assert!(stmt == ref_stmt, "statements differ");
+    assert_eq!(result_json(&cb)["verdict"], "closed");
+    assert_eq!(verify(&cb), 0);
+}
+
+#[test]
+fn an_interrupt_during_escalation_solves_resumes_with_every_solve_routed() {
+    let _g = serial();
+    interrupt_when_and_resume("t2rs", |st| {
+        escalated(st) && running_kind(st, &[KIND_SOLVE])
+    });
+}
+
+#[test]
+fn an_interrupt_during_the_proof_phase_after_an_escalation_round_resumes_routed() {
+    let _g = serial();
+    interrupt_when_and_resume("t2rp", |st| {
+        escalated(st)
+            && st
+                .items
+                .values()
+                .any(|it| it.kind == KIND_SOLVE && matches!(it.phase, ItemPhase::Accepted(_)))
+            && running_kind(st, &[KIND_PROOF, KIND_FACTS])
+    });
+}
+
+#[test]
+fn a_refused_or_dropped_routing_ends_typed_and_a_new_attempt_closes() {
+    let _g = serial();
+    // test-build failpoints: every FIRST solve attempt's routing refused (Err) / dropped (no events: an older build's
+    // state); the item must be requeued (typed reason) and its new attempt routed through the normal acceptance
+    for (site, tag) in [
+        ("closeloop_route_refused:1", "t2rr"),
+        ("closeloop_route_dropped:1", "t2rd"),
+    ] {
+        let (_t, sp, cdir) = setup(tag, 3, Some(2), true, 20);
+        let mut codes = vec![];
+        for _ in 0..4 {
+            let mut c = start(&sp, &cdir, &["--plain"], &[("RR_CAMPAIGN_FAILPOINT", site)]);
+            let code = wait(&mut c, Duration::from_secs(900));
+            codes.push(code);
+            assert_eq!(
+                unrouted(&cdir),
+                Vec::<String>::new(),
+                "{site}: after exit {code}"
+            );
+            if code == 0 {
+                break;
+            }
+        }
+        assert_eq!(
+            codes.last(),
+            Some(&0),
+            "{site}: {codes:?} {}",
+            log_tail(&cdir)
+        );
+        assert_eq!(result_json(&cdir)["verdict"], "closed", "{site}");
+        let st = state(&cdir);
+        let solves: Vec<_> = st
+            .items
+            .iter()
+            .filter(|(_, it)| it.kind == KIND_SOLVE)
+            .collect();
+        assert!(!solves.is_empty(), "{site}: no solve item");
+        for (k, it) in &solves {
+            assert_eq!(it.jobs.len(), 2, "{site}: {k} jobs {:?}", it.jobs);
+            assert!(
+                it.phase != ItemPhase::InProgress && !matches!(it.phase, ItemPhase::Attention(_)),
+                "{site}: {k} {:?}",
+                it.phase
+            );
+        }
+        let recs = format!("{:?}", records(&cdir));
+        assert!(
+            recs.matches("routing_refused").count() >= solves.len(),
+            "{site}: typed requeues missing"
+        );
+        assert_eq!(verify(&cdir), 0);
+    }
 }

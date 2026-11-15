@@ -475,3 +475,102 @@ fn launch(
         .map_err(|e| format!("worker thread: {e}"))?;
     Ok(())
 }
+
+/// One solve of an EXPLICIT recipe file at one key through the solve-recipe adapter and the process layer (a
+/// reproduction harness: e.g. a reference seed list written as explicit centres). Returns the adapter's classification
+/// row, the accepted relations (the adapter's checks: contract, record bits, request binding), the failures, the raw
+/// sealed `relation` record of the key (verified stream) and the measured cost.
+pub fn solve_recipe_once(
+    cfg: &DirectConfig,
+    recipe: &Path,
+    key: &[i32],
+    id: &str,
+    cpu: usize,
+    sampler: Arc<Sampler>,
+) -> Result<Value, String> {
+    let caps = &cfg.spec.caps;
+    let adcfg = SolveRecipeConfig {
+        program: cfg.program.clone(),
+        family: InputFile::from_file(&cfg.family).map_err(|e| format!("{e:?}"))?,
+        order: cfg.order.clone(),
+        batch: BatchPolicy {
+            max_keys_per_job: 1,
+            max_threads: caps.threads.max(1),
+            min_keys_per_thread: 1,
+        },
+        max_trace_rows: caps.max_trace_rows,
+        key_budget_s: caps.key_budget_s,
+        expect: None,
+        determinism_id: None,
+        heartbeat_s: 10,
+        stop_grace_s: 30,
+        package: None,
+        live_repair: false,
+        licence_env: cfg.licence_env.clone(),
+        fake: None,
+    };
+    let rb = std::fs::read(recipe).map_err(|e| format!("{}: {e}", recipe.display()))?;
+    let req = AdReq {
+        recipe: RecipeInput {
+            id: id.to_string(),
+            file: InputFile::from_file(recipe).map_err(|e| format!("{e:?}"))?,
+            digest: None,
+            sha256: Some(sha256_hex(&rb)),
+        },
+        key: key.iter().map(|&x| x as i64).collect(),
+        tag: Some(id.to_string()),
+        context: None,
+    };
+    let work = cfg.work_root.join(crate::closeloop::ids::safe(id));
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let opts = RunOptions {
+        cpus: vec![cpu],
+        memory_cap_bytes: Some(caps.cap_bytes),
+        licence_env: cfg.licence_env.clone(),
+        wall_cap: Some(Duration::from_secs(cfg.wall_cap_s)),
+        grace: Some(Duration::from_secs(30)),
+    };
+    let ad = SolveRecipeAdapter::new(adcfg);
+    let reqs = vec![req];
+    let plans = ad.plan(&reqs).map_err(|e| format!("{e:?}"))?;
+    let plan = plans.first().ok_or("no plan")?;
+    let mut l = RealLauncher::new(sampler);
+    let (out, rep) =
+        run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts).map_err(|e| format!("{e:?}"))?;
+    let run_dir = rep.prepared.spec.run_dir.clone();
+    let cost = cost_of(Path::new(&run_dir), &out.job_id);
+    let c = &out.classification;
+    let mut record = Value::Null;
+    let layout = RunLayout::new(&run_dir);
+    if let Ok((_, h)) =
+        verify_stream_handle(&layout.root, &RunLayout::out_rel("results.jsonl"), &["end"])
+        && let Ok(lines) = h.canonical_lines()
+    {
+        for b in lines {
+            if let Ok(v) = serde_json::from_slice::<Value>(&b)
+                && v["type"] == "relation"
+            {
+                record = v;
+            }
+        }
+    }
+    Ok(json!({
+        "id": id, "key": key, "recipe": recipe.display().to_string(), "recipe_sha256": sha256_hex(&rb),
+        "row": c.row, "sub": c.sub, "why": c.why, "run_dir": run_dir,
+        "accepted": out.relations.iter().map(|r| json!({"relation_digest": r.relation_digest, "rhs_terms": r.rhs.len(),
+            "proof": r.proof, "relation_rule": r.relation_rule, "relation_rule_taken": r.relation_rule_taken})).collect::<Vec<_>>(),
+        "failures": out.failures.iter().map(|f| json!({"class": f.class, "verdict": f.verdict, "message": f.message})).collect::<Vec<_>>(),
+        "refusal": out.refusal.as_ref().map(|r| r.why.clone()),
+        "record": {"verdict": record["verdict"], "relation_rule": record["relation_rule"],
+                   "relation_rule_taken": record["relation_rule_taken"], "m1_steps": record["m1_steps"],
+                   "m1_fallback_reason": record["m1_fallback_reason"], "rhs_count": record["rhs_count"],
+                   "rhs_sub_count": record["rhs_sub_count"], "all_lower": record["all_lower"],
+                   "seeds_total": record["seeds_total"], "rows": record["rows"], "trace_rows": record["trace_rows"],
+                   "relation_digest": record["relation_digest"], "recipe_digest": record["recipe_digest"],
+                   "determinism_id": record["determinism_id"], "proof": record["proof"],
+                   "top_rhs": record["top_rhs"].as_array().map(|a| a.len()),
+                   "top_all_lower": record["top_rhs"].as_array().map(|a| a.iter().all(|t| t["lower"] == true)),
+                   "seconds": record["seconds"], "vmhwm_kb": record["vmhwm_kb"], "failure": record["failure"]},
+        "cost": cost,
+    }))
+}

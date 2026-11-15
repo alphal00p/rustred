@@ -299,7 +299,9 @@ fn own_session_exact_marker_is_killed_by_the_hunt_and_recorded_early_decoy_survi
     );
     assert!(early.try_wait().unwrap().is_none(), "early decoy harmed");
     assert!(!sigs.iter().any(|(q, ..)| *q == early.id()));
-    // M5: every launch record names its deterministic scope unit
+    // M5: every launch record names its deterministic scope unit WHEN a scope is requested; procfix6 (gate5 m5): never
+    // where no scope can exist (inside a private namespace there is no systemd scope: no unit is recorded).
+    let ns = rustred_campaign::launch::in_private_namespace();
     for rec in records(&d) {
         if let Event::Job {
             job,
@@ -307,13 +309,12 @@ fn own_session_exact_marker_is_killed_by_the_hunt_and_recorded_early_decoy_survi
             ev: JobEvent::Launch { scope_unit, .. },
         } = &rec.event
         {
-            assert_eq!(
-                scope_unit.as_deref(),
-                Some(
-                    rustred_campaign::launch::scope_unit_name(&id, &format!("{job}:a{attempt}"))
-                        .as_str()
-                )
-            );
+            let name = rustred_campaign::launch::scope_unit_name(&id, &format!("{job}:a{attempt}"));
+            if ns {
+                assert_eq!(scope_unit.as_deref(), None);
+            } else {
+                assert_eq!(scope_unit.as_deref(), Some(name.as_str()));
+            }
         }
     }
     let _ = early.kill();

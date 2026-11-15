@@ -193,9 +193,15 @@ fn server_json(set: &ImportedSet, row: &KeyRow) -> Value {
         None => Value::Null,
         Some(Server::Rule { table, record }) | Some(Server::Credit { table, record }) => {
             let i = &set.rules[*table][*record];
-            json!({"kind": if matches!(row.server, Some(Server::Credit{..})) {"credit"} else {"rule"},
+            let mut v = json!({"kind": if matches!(row.server, Some(Server::Credit{..})) {"credit"} else {"rule"},
                    "source": i.source, "class": i.class, "label": i.label, "ordinal": i.ordinal,
-                   "record_sha256": i.record_sha256, "recipe_sha256": null, "hand_name": hn})
+                   "record_sha256": i.record_sha256, "recipe_sha256": null, "hand_name": hn});
+            // lane import5 (18.4): a sym-served row says so (other rows unchanged)
+            if i.sym.is_some() && matches!(row.server, Some(Server::Rule { .. })) {
+                v["sym"] = Value::Bool(true);
+                v["image"] = json!(row.image);
+            }
+            v
         }
         Some(Server::Relation { set: name, recipe }) => {
             if *recipe {
@@ -249,7 +255,7 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
     let open = row.open_status.as_ref().map(
         |s| json!({"status": s, "reason": row.open_reason, "rule": rule_json(set, row.open_rule)}),
     );
-    json!({
+    let mut v = json!({
         "key": row.key,
         "in_start": row.in_start,
         "status": status,
@@ -258,7 +264,16 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
         "basis": row.basis,
         "facts": facts_json(row),
         "open": open,
-    })
+    });
+    // lane import5 (18.2): a terminal DECLARED BY A TABLE carries its provenance (rows of terminals declared by a
+    // `terminals` source are unchanged)
+    if row.status == RowStatus::Terminal
+        && let Some(d) = set.terminal_provenance.get(&row.key)
+    {
+        v["terminal"] = json!({"provenance": d.provenance, "source": d.source, "path": d.path,
+                                "line": d.line});
+    }
+    v
 }
 
 /// Digests of the written statement files.
@@ -369,12 +384,20 @@ pub fn write_statement(
         .filter(|r| r.status == RowStatus::Open)
         .map(|r| json!({"key": key_text(&r.key), "status": r.open_status, "reason": r.open_reason}))
         .collect();
-    write_canon(
-        dir,
-        "terminals.json",
-        &json!({"terminals": terms, "open": open}),
-        &mut sums,
-    )?;
+    let mut tj = json!({"terminals": terms, "open": open});
+    if !set.terminal_provenance.is_empty() {
+        // lane import5 (18.2): the terminals declared by tables (only when there are some: earlier digests unchanged)
+        tj["declared_by_tables"] = set
+            .terminal_provenance
+            .iter()
+            .map(|(k, d)| {
+                json!({"key": key_text(k), "provenance": d.provenance, "source": d.source,
+                       "path": d.path, "line": d.line})
+            })
+            .collect::<Vec<_>>()
+            .into();
+    }
+    write_canon(dir, "terminals.json", &tj, &mut sums)?;
     // requests (JSONL, canonical)
     let jsonl = |name: &str,
                  vals: Vec<Value>,

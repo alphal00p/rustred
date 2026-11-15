@@ -35,6 +35,31 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// lane t266run (audit-closeloop M1; implementer's ruling 2026-11-15, integration int6): the typed refusal of a spec
+/// evidence entry that is not ONE FILE pinned by its sha256 in big-node mode ([`check_big_node_pins`]).
+pub const UNPINNED_BIG_NODE: &str = "unpinned_evidence_big_node";
+
+/// Big-node mode (`scale.require_pinned_evidence`, default true): every spec evidence entry (facts / proofs / solved)
+/// must be one FILE pinned by its sha256. A directory is refused even when it is named with a pinned manifest: that
+/// form (lane closeloop4, core `resolve_evidence`) is accepted only OUTSIDE big-node mode. `Err` starts with
+/// [`UNPINNED_BIG_NODE`] and names the rule.
+pub fn check_big_node_pins(
+    ev: &rustred_campaign_core::import::spec::EvidenceSpec,
+    base: &Path,
+) -> Result<(), String> {
+    for r in ev.facts.iter().chain(&ev.proofs).chain(&ev.solved) {
+        let p = rustred_campaign_core::import::spec::resolve(base, &r.path);
+        if r.sha256.is_none() || p.is_dir() {
+            return Err(format!(
+                "{UNPINNED_BIG_NODE}: evidence {} is not pinned per file (big-node mode requires a file with its sha256; \
+                 a directory with a manifest is accepted only outside big-node mode; scale.require_pinned_evidence)",
+                p.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 pub const CHECK_SCHEMA: &str = "rustred.campaign.closeloop-check.v1";
 pub const RESULT_SCHEMA: &str = "rustred.campaign.closeloop-result.v1";
 pub const DISPATCH_SCHEMA: &str = "rustred.campaign.closeloop-dispatch.v1";
@@ -405,6 +430,14 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             .map_err(|e| format!("import load: {e}"))?,
         ),
     };
+    // lane t266run (audit-closeloop M1): every spec evidence file pinned by sha256 (directories cannot carry one)
+    if inp
+        .scale
+        .as_ref()
+        .is_some_and(|sc| sc.require_pinned_evidence)
+    {
+        check_big_node_pins(&set.spec.evidence, &inp.base)?;
+    }
     // lane t266run: in big-node mode the spec's facts / proofs and the node's own answer files live in disk-backed
     // evidence stores (interfaces/evidence-store.md), never in memory
     let store_opts = inp.scale.as_ref().map(|sc| StoreOptions {
@@ -1143,6 +1176,12 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                        "all_zeros": zeros_mode.word()},
             "all_zeros": zeros_v});
     }
+    // lane t266run (closeloop4 m1 in every evidence mode, incl. the stores): a per-key proof contradicted by a
+    // decided verdict for the same (record, key) gave that key no per-key level, and it blocks by name
+    let contradicted = ev.conflicts_used();
+    if !contradicted.is_empty() {
+        blocking.push(format!("contradicting_proofs:{}", contradicted.len()));
+    }
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
     let defect = if closed { 0 } else { (keys - certified).max(1) };
@@ -1598,6 +1637,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "relation_rule": inp.relation_rule,
         "relations": {"records": rels.len(), "proved": proved.len(), "proof_verdicts": relation_proof_status},
         "evidence_import": serde_json::to_value(&ev.counts).unwrap_or(Value::Null),
+        "contradicting_proofs": contradicted.iter().take(50)
+            .map(|(sha, k)| json!({"record_sha256": sha, "key": k})).collect::<Vec<_>>(),
         "requests": {"solve": res.solve_requests.len(), "solve_new": new_reqs.len(),
                      "solve_by_source": solve_by_source, "fact_records": res.fact_requests.len(),
                      "fact_keys": fact_keys, "proof_records": res.proof_requests.len(), "proof_keys": proof_keys},
@@ -2408,4 +2449,52 @@ pub fn fact_basis_counts(counts: &BTreeMap<String, u64>) -> BTreeMap<String, u64
         .iter()
         .filter_map(|(k, v)| k.strip_prefix("facts:basis:").map(|b| (b.to_string(), *v)))
         .collect()
+}
+
+#[cfg(test)]
+mod big_node_pin_tests {
+    use super::*;
+    use rustred_campaign_core::import::evidence::resolve_evidence;
+    use rustred_campaign_core::import::lines::file_sha256;
+    use rustred_campaign_core::import::spec::EvidenceSpec;
+
+    /// Implementer's ruling (int6, 2026-11-15): big-node mode + an evidence DIRECTORY named with a pinned manifest ->
+    /// typed refusal naming the rule; the same entry is accepted outside big-node mode (core `resolve_evidence`); a
+    /// file pinned by its sha256 passes both.
+    #[test]
+    fn big_node_refuses_a_manifest_pinned_directory_typed_and_accepts_a_pinned_file() {
+        let base = std::env::temp_dir().join(format!("int6-bignode-pins-{}", std::process::id()));
+        let ev_dir = base.join("ev");
+        std::fs::create_dir_all(&ev_dir).unwrap();
+        std::fs::write(ev_dir.join("a.jsonl"), b"{\"x\":1}\n").unwrap();
+        let a_sha = file_sha256(&ev_dir.join("a.jsonl")).unwrap();
+        std::fs::write(ev_dir.join("SHA256SUMS"), format!("{a_sha}  a.jsonl\n")).unwrap();
+        let m_sha = file_sha256(&ev_dir.join("SHA256SUMS")).unwrap();
+        std::fs::write(base.join("f.jsonl"), b"{\"y\":2}\n").unwrap();
+        let f_sha = file_sha256(&base.join("f.jsonl")).unwrap();
+
+        let dir_spec: EvidenceSpec = serde_json::from_value(json!({"facts": [
+            {"path": "ev", "manifest": {"path": "ev/SHA256SUMS", "sha256": m_sha}, "family": "fam"}]}))
+        .unwrap();
+        // outside big-node mode the directory is pinned by its manifest (closeloop4's rule)
+        let files = resolve_evidence(&base, &dir_spec.facts[0]).unwrap();
+        assert_eq!(files.len(), 1);
+        // big-node mode: typed refusal naming the rule
+        let e = check_big_node_pins(&dir_spec, &base).unwrap_err();
+        assert!(e.starts_with(UNPINNED_BIG_NODE), "{e}");
+        assert!(e.contains("scale.require_pinned_evidence"), "{e}");
+        assert!(e.contains("big-node mode"), "{e}");
+
+        let file_spec: EvidenceSpec = serde_json::from_value(
+            json!({"proofs": [{"path": "f.jsonl", "sha256": f_sha, "family": "fam"}]}),
+        )
+        .unwrap();
+        check_big_node_pins(&file_spec, &base).unwrap();
+        let unpinned: EvidenceSpec =
+            serde_json::from_value(json!({"solved": [{"path": "f.jsonl", "family": "fam"}]}))
+                .unwrap();
+        let e = check_big_node_pins(&unpinned, &base).unwrap_err();
+        assert!(e.starts_with(UNPINNED_BIG_NODE), "{e}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
 }

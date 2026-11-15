@@ -19,7 +19,7 @@ use super::exact::{Affine, ExactError, MPoly, linear_factors, slot_names};
 use super::{DomainSource, ElidedPolicy, PartitionError};
 use crate::domain::{CaseDomain, TargetMap, TargetSlot};
 use crate::key::NodeFrame;
-use crate::poly::Poly;
+use crate::poly::{D_VAR, ENGINE_PRIMES, Poly};
 
 /// One interned literal.
 #[derive(Clone, Debug)]
@@ -66,6 +66,10 @@ pub struct NfStats {
     /// FailClosed / dispatch sub-problem: number of rules making up the complement of the blocking record's
     /// SELECTED set.
     pub blocked_variants: usize,
+    /// Stop pieces evaluated before the equations (rule-point overflow, modular zero risk; audit-part3 M1 / C2).
+    pub extra_stop_pieces: usize,
+    /// Rule-point overflow pieces over-approximated by the whole fixed / constant set (literal not representable).
+    pub stop_pieces_over_approximated: usize,
 }
 
 /// How one source domain entered the normal form, when not simply "represented exactly" (audit-part-A C2: every
@@ -88,6 +92,12 @@ pub enum NfNote {
     /// Witness status not Complete, CREDITED as an ordinary domain (`ElidedPolicy::Ordinary`: a regression reference, never
     /// a proof: the engine never serves an elided record).
     ElidedCredited,
+    /// The engine's MODULAR zero test may disagree with the exact one somewhere on the record's reachable rule points
+    /// (an equation or exception member can take a nonzero value divisible by both engine primes: [`modular_risk`];
+    /// audit-part3 C2). Dispatch mode: the record STOPS dispatch (Undecided) at the exact rule points of
+    /// one-variable linear literals, else on its whole fixed-slot / target-constant set (a stop piece that
+    /// over-approximates the true one: sound for a no-gap proof). Union mode: a caveat.
+    ModularZeroRisk(String),
 }
 
 impl NfNote {
@@ -102,6 +112,38 @@ impl NfNote {
 pub struct SourceNote {
     pub source: usize,
     pub note: NfNote,
+}
+
+/// Why a record STOPS first-match dispatch at keys where it does not apply, beyond its blocked set (the latter is
+/// `selected minus applies`, see [`NfRules::selected`]). Both are evaluated by the dispatcher BEFORE the equations
+/// (audit-part3 M1 / C2), so they also stop dispatch at keys where an equation fails, and for records the normal form
+/// drops as never applying.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub enum StopWhy {
+    /// `CaseDomain::rule_point`: the rule point leaves the `i32` range at target slot `slot` (`n_slot - offset`):
+    /// `Verdict::Error(Overflow)`, Undecided. Exact.
+    RulePointOverflow { slot: usize },
+    /// The engine's modular zero test may read a nonzero literal value as zero ([`modular_zero_risk`]): the stop set
+    /// is over-approximated by the record's fixed-slot / target-constant set.
+    ModularZeroRisk(String),
+}
+
+/// One piece of a record's STOP set outside its selected-minus-applies set: the keys of `rule` (exact, or an
+/// over-approximation for [`StopWhy::ModularZeroRisk`]) stop dispatch at the record whatever its own verdict there,
+/// so the record's own APPLIES set is NOT subtracted from it (unlike the blocked set).
+#[derive(Clone, Debug)]
+pub struct StopPiece {
+    pub rule: NfRule,
+    pub why: StopWhy,
+}
+
+/// Which stop piece of a blocker a blocked sub-problem describes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
+pub enum StopRef {
+    /// `selected(e) minus applies(e)` (pole loci, recenter / range bounds, elision, witness status).
+    Selected,
+    /// `extra_stops[e][j]` (rule-point overflow, modular zero risk).
+    Extra(usize),
 }
 
 /// The rules of a partition run.
@@ -128,26 +170,55 @@ pub struct NfRules {
     /// Per blocker source its SELECTED set (the engine's selection: fixed slots, target constants, equations,
     /// bounds, exceptions; without pole loci, recenter / range bounds, elision).
     pub selected: BTreeMap<usize, NfRule>,
+    /// Per source the stop pieces evaluated BEFORE the equations (rule-point overflow, modular zero risk;
+    /// audit-part3 M1 / C2); such a source is a blocker even when it never applies.
+    pub extra_stops: BTreeMap<usize, Vec<StopPiece>>,
+    /// Per literal: first interned while building a stop piece. Such a literal is a state boundary only where a rule
+    /// of the run refers to it (`classes::slot_states`): the main partition's states are those of its rules, the
+    /// blocked sub-partitions of a piece refer to its literals through their complement rules.
+    pub stop_lits: Vec<bool>,
 }
 
 impl NfRules {
-    /// The BLOCKED sub-problem of blocker source `e` (FailClosed / dispatch mode, audit-part-A M3): the rules of
-    /// every source at or before `e` in dispatch order (`pos`: source -> position) plus the COMPLEMENT of `e`'s
-    /// SELECTED set. Its uncovered set is exactly `selected(e) \ applies(e) \ U_{s < e} applies(s)`: the keys where
-    /// `e` is selected but blocked and no earlier record serves, i.e. where first-match dispatch stops at a blocked
-    /// record (either `e` or an earlier blocked one). The union of these sets over all blockers together with the
-    /// union-uncovered set is exactly the dispatch-uncovered set.
+    /// The BLOCKED sub-problem of blocker source `e`, stop piece `which` (FailClosed / dispatch mode, audit-part-A M3,
+    /// audit-part3 M1 / C2). `StopRef::Selected`: the rules of every source at or before `e` in dispatch order (`pos`:
+    /// source -> position) plus the COMPLEMENT of `e`'s SELECTED set; its uncovered set is exactly
+    /// `selected(e) \ applies(e) \ U_{s < e} applies(s)`. `StopRef::Extra(j)`: the rules of every source STRICTLY
+    /// before `e` plus the complement of the stop piece `extra_stops[e][j]`; its uncovered set is
+    /// `piece \ U_{s < e} applies(s)` (the record's own verdict there is Undecided: its applies set is not
+    /// subtracted). The union of these sets over all blockers and pieces together with the union-uncovered set is the
+    /// dispatch-uncovered set (bridge: interfaces/partition.md 14).
     pub fn blocked_subproblem(
         &self,
         e: usize,
+        which: StopRef,
         pos: &HashMap<usize, usize>,
     ) -> Result<NfRules, PartitionError> {
-        let pe = pos[&e];
-        let sel = self
-            .selected
+        let pe = *pos
             .get(&e)
-            .ok_or_else(|| PartitionError::Unsupported(format!("source {e} is not a blocker")))?
-            .clone();
+            .ok_or_else(|| PartitionError::Unsupported(format!("blocker {e} has no position")))?;
+        let (sel, own) = match which {
+            StopRef::Selected => (
+                self.selected
+                    .get(&e)
+                    .ok_or_else(|| {
+                        PartitionError::Unsupported(format!("source {e} has no selected set"))
+                    })?
+                    .clone(),
+                true,
+            ),
+            StopRef::Extra(j) => (
+                self.extra_stops
+                    .get(&e)
+                    .and_then(|v| v.get(j))
+                    .ok_or_else(|| {
+                        PartitionError::Unsupported(format!("source {e} has no stop piece {j}"))
+                    })?
+                    .rule
+                    .clone(),
+                false,
+            ),
+        };
         let mut b = Builder {
             arity: self.arity,
             lits: self.lits.clone(),
@@ -164,7 +235,7 @@ impl NfRules {
             let before: Vec<usize> = self.sources[k]
                 .iter()
                 .copied()
-                .filter(|s| pos.get(s).is_some_and(|&p| p <= pe))
+                .filter(|s| pos.get(s).is_some_and(|&p| p < pe || (own && p == pe)))
                 .collect();
             if !before.is_empty() {
                 rules.push(r.clone());
@@ -193,6 +264,7 @@ impl NfRules {
                     .collect()
             })
             .collect();
+        let nlits = b.lits.len();
         Ok(NfRules {
             arity: self.arity,
             lines: self.lines.clone(),
@@ -203,6 +275,12 @@ impl NfRules {
             quick,
             elided: vec![],
             blockers: vec![],
+            extra_stops: BTreeMap::new(),
+            stop_lits: {
+                let mut v = self.stop_lits.clone();
+                v.resize(nlits, false);
+                v
+            },
             notes: if inexact {
                 vec![SourceNote {
                     source: e,
@@ -216,6 +294,18 @@ impl NfRules {
             },
             selected: BTreeMap::new(),
         })
+    }
+
+    /// The stop pieces of a blocker: its blocked set (if it has a selected set) and its extra pieces.
+    pub fn stop_refs(&self, e: usize) -> Vec<StopRef> {
+        let mut v = vec![];
+        if self.selected.contains_key(&e) {
+            v.push(StopRef::Selected);
+        }
+        if let Some(x) = self.extra_stops.get(&e) {
+            v.extend((0..x.len()).map(StopRef::Extra));
+        }
+        v
     }
 
     /// The notes of one source.
@@ -413,14 +503,15 @@ fn split_products(members: &[MPoly]) -> Result<Vec<Vec<MPoly>>, PartitionError> 
 
 /// The affine rule-point map of a target pattern, in the KEY's slot variables (the engine's `find_rule`):
 /// `pt[a] = n_j - o` for `n<a>+o` at slot j, the fixed value of slot a (else 0) for a parameter no slot maps. Also
-/// returns the target constants (slot, value) and the rule-point RANGE bounds (GE literals in the key): the engine
-/// computes `pt[a]` in `i32` and reports an evaluation error (the search stops: a block) where `n_j - o` leaves it.
+/// returns the target constants (slot, value) and the rule-point RANGE bounds (target slot j, GE literal in the key
+/// that holds where `n_j - o` fits `i32`): the dispatcher computes `pt[a]` in `i32` right after the fixed slots and
+/// the constants, BEFORE the equations, and stops (Undecided) where `n_j - o` leaves it (audit-part3 M1).
 #[allow(clippy::type_complexity)]
 fn pattern_map(
     t: &[TargetSlot],
     fixed: &[Option<i32>],
     arity: usize,
-) -> Result<(Vec<Affine>, Vec<(usize, i64)>, Vec<MPoly>), String> {
+) -> Result<(Vec<Affine>, Vec<(usize, i64)>, Vec<(usize, MPoly)>), String> {
     if t.len() != arity || fixed.len() != arity {
         return Err(format!(
             "target pattern of length {} for arity {arity}",
@@ -459,11 +550,386 @@ fn pattern_map(
                 } else {
                     continue;
                 };
-                range.push(bound.map_err(|e| format!("{e}"))?);
+                range.push((j, bound.map_err(|e| format!("{e}"))?));
             }
         }
     }
     Ok((map, consts, range))
+}
+
+/// The product of the engine's two zero-test primes (`ENGINE_PRIMES`): a value is "zero" for the engine iff it vanishes
+/// modulo both, so an exact value `v` with `0 < |v| < ENGINE_PRIME_PRODUCT` is never read as zero.
+pub fn engine_prime_product() -> u128 {
+    u128::from(ENGINE_PRIMES[0]).saturating_mul(u128::from(ENGINE_PRIMES[1]))
+}
+
+/// Where the engine's modular zero test can disagree with the exact one on a record's literals ([`modular_risk`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModularRisk {
+    /// Only at rule points whose variable `.0` equals one of the values `.1` (one-variable linear literals: the
+    /// residue class is solved exactly); the record stops dispatch there (an exact superset of its undecided keys).
+    Points(Vec<(usize, i128)>),
+    /// Only at rule points with `|pt[v]| >= r` for some listed `(v, r)` (a value bound: below that radius in every
+    /// variable the literal's primitive part stays below the prime modulus, so it vanishes modulo it only where it is
+    /// 0); the record stops dispatch on `fixed & constants & (pt_v >= r or pt_v <= -r)` (an over-approximation confined
+    /// to far keys).
+    Far(Vec<(usize, i128)>),
+    /// Possibly anywhere on the record's fixed-slot / target-constant set (an over-approximation), with the reason.
+    Anywhere(String),
+}
+
+/// The risk of one literal ([`literal_modular_risk`]).
+enum LitRisk {
+    Points(Vec<(usize, i128)>),
+    Far(Vec<(usize, i128)>),
+}
+
+/// `a * b mod m` for `a, b < m < 2^126` (double-and-add, every step checked; `None` never happens for such inputs).
+fn mulmod(a: u128, b: u128, m: u128) -> Option<u128> {
+    let mut a = a.checked_rem(m)?;
+    let mut b = b;
+    let mut r: u128 = 0;
+    while b > 0 {
+        if b & 1 == 1 {
+            r = r.checked_add(a)?.checked_rem(m)?;
+        }
+        a = a.checked_add(a)?.checked_rem(m)?;
+        b = b.checked_shr(1).unwrap_or(0);
+    }
+    Some(r)
+}
+
+/// `sum |c| prod m[v]^e` of a polynomial in the slot variables (`None` on overflow).
+fn mpoly_bound(q: &MPoly, m: &[u128]) -> Option<u128> {
+    let mut acc: u128 = 0;
+    for (e, c) in &q.terms {
+        let mut t = c.unsigned_abs();
+        for (v, &x) in e.iter().enumerate() {
+            if x > 0 {
+                t = t.checked_mul(m.get(v)?.checked_pow(x)?)?;
+            }
+        }
+        acc = acc.checked_add(t)?;
+    }
+    Some(acc)
+}
+
+/// The factor criterion of [`literal_modular_risk`]: can every prime of `pm` (each of `p1`, `p2` not dividing the
+/// content) divide the primitive part of `f` at a reachable rule point without the value being 0? `true` when the
+/// factorisation is unavailable (conservative).
+fn factor_can_vanish(f: &Poly, m: &[u128], pm: u128, p1: u128, p2: u128) -> bool {
+    let Ok(q) = MPoly::from_poly(f, m.len(), false).and_then(|x| x.primitive()) else {
+        return true;
+    };
+    let (fs, rest) = linear_factors(&q).unwrap_or_else(|_| (vec![], q.clone()));
+    let reach = |p: u128| -> bool {
+        fs.iter()
+            .chain(std::iter::once(&rest))
+            .filter(|x| x.terms.len() >= 2)
+            .any(|x| mpoly_bound(x, m).is_none_or(|b| b >= p))
+    };
+    [p1, p2]
+        .into_iter()
+        .filter(|&p| pm.checked_rem(p) == Some(0))
+        .all(reach)
+}
+
+/// The risk of ONE literal `f` at rule points with `|pt[v]| <= m[v]` (every `m[v]` below both primes). With
+/// `f = g q` (`g` the content), `f(pt)` is a nonzero multiple of both primes iff `q(pt) != 0` and `q(pt)` vanishes
+/// modulo `pm` = the product of the primes NOT dividing `g`. So: `pm = 1` (both divide `g`): anywhere; `q` one
+/// monomial: never (a monomial vanishes modulo a prime larger than every |pt| only where it is 0); `sum |c_q| prod
+/// m^e < pm`: never; `q = a x + b` in one variable: exactly at the residue `x = -b / a (mod pm)` inside the box;
+/// otherwise anywhere.
+fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
+    let p1 = u128::from(ENGINE_PRIMES[0]);
+    let p2 = u128::from(ENGINE_PRIMES[1]);
+    // a coefficient beyond i128 (exact parser: big literal): the normal form cannot represent it either (the record
+    // is excluded / weakened: a caveat); here: risk anywhere (conservative)
+    let terms: &[(crate::poly::Mono, i128)] = f
+        .small_terms()
+        .ok_or_else(|| format!("literal {f}: a coefficient beyond i128"))?;
+    if terms
+        .iter()
+        .any(|(mo, _)| mo.iter().any(|&(v, _)| v == D_VAR))
+    {
+        // a literal with d is not a valid case literal: the domain does not validate and the normal form excludes /
+        // weakens it (a caveat in dispatch mode, a refusal of the minting preconditions)
+        return Ok(LitRisk::Points(vec![]));
+    }
+    let mut g: u128 = 0;
+    for (_, c) in terms {
+        let mut a = c.unsigned_abs();
+        let mut b = g;
+        while b != 0 {
+            let r = a.checked_rem(b).unwrap_or(0);
+            a = b;
+            b = r;
+        }
+        g = a;
+    }
+    if g == 0 {
+        return Ok(LitRisk::Points(vec![])); // the zero polynomial: exactly zero everywhere
+    }
+    let mut pm: u128 = 1;
+    for p in [p1, p2] {
+        if g.checked_rem(p) != Some(0) {
+            pm = pm.saturating_mul(p);
+        }
+    }
+    if pm == 1 {
+        return Err(format!(
+            "literal {f}: its content is divisible by both engine primes"
+        ));
+    }
+    let gi = i128::try_from(g).map_err(|_| format!("literal {f}: content 2^127"))?;
+    let q: Vec<(&crate::poly::Mono, i128)> = terms
+        .iter()
+        .map(|(mo, c)| c.checked_div(gi).map(|x| (mo, x)))
+        .collect::<Option<_>>()
+        .ok_or_else(|| format!("literal {f}: content division"))?;
+    if q.len() <= 1 {
+        return Ok(LitRisk::Points(vec![]));
+    }
+    // sum |c_q| prod m^e (saturating: an overflow only means "at least the modulus")
+    let mut bound: u128 = 0;
+    for (mo, c) in &q {
+        let mut t = c.unsigned_abs();
+        for &(v, e) in mo.iter() {
+            let mv = *m
+                .get(usize::from(v))
+                .ok_or_else(|| format!("literal {f}: variable beyond the arity"))?;
+            t = mv
+                .checked_pow(e)
+                .and_then(|x| t.checked_mul(x))
+                .unwrap_or(u128::MAX);
+        }
+        bound = bound.saturating_add(t);
+    }
+    if bound < pm {
+        return Ok(LitRisk::Points(vec![]));
+    }
+    // FACTOR criterion (also necessary): with q = prod l_i * r (exact linear factors l_i, cofactor r), a prime p
+    // divides q(pt) iff it divides some l_i(pt) or r(pt); a factor whose value bound stays below p (or a one-monomial
+    // cofactor) is divisible by p only where it is 0, i.e. where q(pt) = 0. So each prime of pm must be reachable by a
+    // "large" factor; products of small linear factors (high-degree exception members of real tables) never are.
+    if !factor_can_vanish(f, m, pm, p1, p2) {
+        return Ok(LitRisk::Points(vec![]));
+    }
+    // one-variable linear primitive part a x + b: the residue is solved exactly; anything else: the far radius
+    let mut var: Option<(usize, i128)> = None;
+    let mut b: i128 = 0;
+    let mut linear = true;
+    for (mo, c) in &q {
+        match mo.as_slice() {
+            [] => b = *c,
+            [(v, 1)] if var.is_none() => var = Some((usize::from(*v), *c)),
+            _ => linear = false,
+        }
+    }
+    if !linear {
+        // smallest r with sum |c_q| r^deg >= pm: below r in every variable |q(pt)| < pm (no nonzero multiple)
+        let at = |r: u128| -> u128 {
+            let mut acc: u128 = 0;
+            for (mo, c) in &q {
+                let deg: u32 = mo.iter().map(|&(_, e)| e).sum();
+                let t = r
+                    .checked_pow(deg)
+                    .and_then(|x| x.checked_mul(c.unsigned_abs()));
+                acc = match t.and_then(|t| acc.checked_add(t)) {
+                    Some(a) => a,
+                    None => return u128::MAX,
+                };
+            }
+            acc
+        };
+        let (mut lo, mut hi): (u128, u128) = (1, 1u128 << 62);
+        if at(hi) < pm {
+            return Ok(LitRisk::Points(vec![])); // out of every reachable range
+        }
+        while lo < hi {
+            let mid = lo.saturating_add(hi.saturating_sub(lo).checked_div(2).unwrap_or(0));
+            if at(mid) >= pm {
+                hi = mid;
+            } else {
+                lo = mid.saturating_add(1);
+            }
+        }
+        let r = i128::try_from(lo).map_err(|_| format!("literal {f}: radius"))?;
+        let mut vars: Vec<usize> = q
+            .iter()
+            .flat_map(|(mo, _)| mo.iter().map(|&(v, _)| usize::from(v)))
+            .collect();
+        vars.sort_unstable();
+        vars.dedup();
+        return Ok(LitRisk::Far(vars.into_iter().map(|v| (v, r)).collect()));
+    }
+    let Some((v, a)) = var else {
+        return Ok(LitRisk::Points(vec![]));
+    };
+    let pmi = i128::try_from(pm).map_err(|_| format!("literal {f}: modulus"))?;
+    let am = a
+        .checked_rem_euclid(pmi)
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let (gg, inv, _) = super::exact::ext_gcd(am, pmi).map_err(|e| format!("literal {f}: {e}"))?;
+    if gg != 1 {
+        return Ok(LitRisk::Points(vec![])); // a prime of pm divides a but not b (gcd(a, b) = 1): never a multiple
+    }
+    let nb = b
+        .checked_neg()
+        .and_then(|x| x.checked_rem_euclid(pmi))
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let invm = inv
+        .checked_rem_euclid(pmi)
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let r = mulmod(nb.unsigned_abs(), invm.unsigned_abs(), pm)
+        .and_then(|x| i128::try_from(x).ok())
+        .ok_or_else(|| format!("literal {f}: residue"))?;
+    let mv = m.get(v).copied().unwrap_or(0);
+    let mut out = vec![];
+    for x in [Some(r), r.checked_sub(pmi)].into_iter().flatten() {
+        if x.unsigned_abs() <= mv && a.checked_mul(x).and_then(|y| y.checked_add(b)) != Some(0) {
+            out.push((v, x));
+        }
+    }
+    Ok(LitRisk::Points(out))
+}
+
+/// Can the ENGINE's modular zero test (a value is zero iff it vanishes modulo both `ENGINE_PRIMES`) disagree with the
+/// exact one on a literal the dispatcher evaluates with it (equations, exception members: `Verdict::Error(
+/// EngineZeroTest)`, Undecided; audit-part3 C2)? Rule points: a canonical target evaluates at the key (`|n| <= 2^31`
+/// on the chart); a target pattern at `pt[a] = n_j - o` (`|pt[a]| <= 2^31 + |o|`; an offset with `|o| >= 2^60`
+/// could reach the primes: risk anywhere), unmapped parameters at their fixed value or 0. Per literal see
+/// [`literal_modular_risk`]. `None` = no disagreement possible. (Pole coefficients are tested exactly by the
+/// dispatcher and are not part of the engine's first match; the engine's modular REDUCTION at huge keys is a separate
+/// matter, interfaces/partition.md 14.)
+pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
+    let m = match rule_point_bounds(d) {
+        Ok(m) => m,
+        Err(why) => return Some(ModularRisk::Anywhere(why)),
+    };
+    let mut points: Vec<(usize, i128)> = vec![];
+    let mut far: Vec<(usize, i128)> = vec![];
+    for (_, f) in reached_literals(d) {
+        match literal_modular_risk(f, &m) {
+            Ok(LitRisk::Points(p)) => points.extend(p),
+            Ok(LitRisk::Far(p)) => far.extend(p),
+            Err(why) => return Some(ModularRisk::Anywhere(why)),
+        }
+    }
+    if !far.is_empty() {
+        // one radius per variable (the smallest), points absorbed by the far pieces only if beyond the radius
+        far.sort_unstable();
+        far.dedup_by(|a, b| a.0 == b.0);
+        let pts: Vec<(usize, i128)> = points
+            .into_iter()
+            .filter(|(v, x)| {
+                !far.iter()
+                    .any(|(w, r)| w == v && x.unsigned_abs() >= r.unsigned_abs())
+            })
+            .collect();
+        if !pts.is_empty() {
+            return Some(ModularRisk::Anywhere(format!(
+                "exact residue points {pts:?} together with far radii {far:?}"
+            )));
+        }
+        return Some(ModularRisk::Far(far));
+    }
+    points.sort_unstable();
+    points.dedup();
+    (!points.is_empty()).then_some(ModularRisk::Points(points))
+}
+
+/// The largest `|pt[a]|` the dispatcher (i32) or the engine (i64: `key - offset`) evaluates a record's literals at:
+/// `2^31` on the chart for a canonical target; `2^31 + |o|` for a mapped parameter of a target pattern, the fixed value
+/// (else 0) for an unmapped one. `Err` for an offset `>= 2^60` (rule points could reach the engine primes).
+fn rule_point_bounds(d: &CaseDomain) -> Result<Vec<u128>, String> {
+    let n = d.arity;
+    let base: u128 = 1u128 << 31;
+    match &d.target {
+        TargetMap::Canonical => Ok(vec![base; n]),
+        TargetMap::Pattern(t) => {
+            let mut m: Vec<u128> = (0..n)
+                .map(|a| {
+                    u128::from(
+                        d.fixed
+                            .get(a)
+                            .copied()
+                            .flatten()
+                            .unwrap_or(0)
+                            .unsigned_abs(),
+                    )
+                })
+                .collect();
+            for s in t {
+                if let TargetSlot::Param { param, offset } = *s {
+                    let o = u128::from(offset.unsigned_abs());
+                    if o >= 1u128 << 60 {
+                        return Err(format!(
+                            "target offset {offset}: rule points may reach the engine primes"
+                        ));
+                    }
+                    if let Some(x) = m.get_mut(param) {
+                        *x = base.saturating_add(o);
+                    }
+                }
+            }
+            Ok(m)
+        }
+    }
+}
+
+/// Where a literal sits in the dispatcher's evaluation order.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LitPos {
+    Equation(usize),
+    Member(usize, usize),
+}
+
+/// The literals the dispatcher can EVALUATE with its modular zero test, in its order (`at_rule_point`): the
+/// equations up to the first nonzero constant one (it deselects everywhere: nothing after it is evaluated), then, if no
+/// bound is a negative constant, the exception members branch by branch up to the first nonzero constant member of
+/// each branch.
+fn reached_literals(d: &CaseDomain) -> Vec<(LitPos, &Poly)> {
+    let constant = |p: &Poly| -> Option<i128> {
+        let t = p.small_terms()?;
+        match t {
+            [] => Some(0),
+            [(mo, c)] if mo.is_empty() => Some(*c),
+            _ => None,
+        }
+    };
+    let mut out = vec![];
+    for (j, e) in d.equations.iter().enumerate() {
+        out.push((LitPos::Equation(j), e));
+        if constant(e).is_some_and(|c| c != 0) {
+            return out;
+        }
+    }
+    if d.bounds.iter().any(|g| constant(g).is_some_and(|c| c < 0)) {
+        return out;
+    }
+    for (bi, br) in d.exceptions.iter().enumerate() {
+        for (mi, f) in br.iter().enumerate() {
+            out.push((LitPos::Member(bi, mi), f));
+            if constant(f).is_some_and(|c| c != 0) {
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// [`modular_risk`] as a reason (`Some` for any risk, points or anywhere).
+pub fn modular_zero_risk(d: &CaseDomain) -> Option<String> {
+    modular_risk(d).map(|r| match r {
+        ModularRisk::Points(p) => format!(
+            "the engine's modular zero test may differ at the rule points {p:?} (variable, value)"
+        ),
+        ModularRisk::Far(p) => format!(
+            "the engine's modular zero test may differ only far out: some |pt[v]| >= r for (v, r) in {p:?}"
+        ),
+        ModularRisk::Anywhere(w) => w,
+    })
 }
 
 /// Build the normal form of the selected domains of `src`.
@@ -493,6 +959,8 @@ pub fn build(
     let mut blockers: Vec<usize> = vec![];
     let mut notes: Vec<SourceNote> = vec![];
     let mut selected: BTreeMap<usize, NfRule> = BTreeMap::new();
+    let mut extra_stops: BTreeMap<usize, Vec<StopPiece>> = BTreeMap::new();
+    let mut stop_created: Vec<u32> = vec![];
     type PoleKey = (Vec<Poly>, Option<Vec<Affine>>);
     let mut pole_cache: HashMap<PoleKey, (Vec<Vec<MPoly>>, bool)> = HashMap::new();
     let idx: Vec<usize> = match &opts.subset {
@@ -591,6 +1059,194 @@ pub fn build(
                     ));
                 }
             }
+        }
+        // STOP pieces the dispatcher evaluates BEFORE the equations (audit-part3 M1 / C2), registered now: a record
+        // dropped below as never applying still STOPS dispatch there. (A fixed value / target constant outside the
+        // chart was handled above: such a record is never reached on a chart key.)
+        sel.eq.sort_unstable();
+        sel.eq.dedup();
+        let fc = NfRule {
+            eq: sel.eq.clone(),
+            ge: vec![],
+            bad: vec![],
+        };
+        let mut extra: Vec<StopPiece> = vec![];
+        let lits_before = b.lits.len();
+        for (j, ok) in &range {
+            // violated: -ok - 1 >= 0 (n_j - o outside i32)
+            let viol = ok.scale(-1).and_then(|p| p.sub(&MPoly::constant(arity, 1)));
+            match viol
+                .map_err(|e| format!("{e}"))
+                .map(|v| b.try_intern(&v, true))
+            {
+                Ok(Ok(Ok(Norm::Lit(l)))) => {
+                    let mut r = fc.clone();
+                    r.ge.push(l);
+                    extra.push(StopPiece {
+                        rule: r,
+                        why: StopWhy::RulePointOverflow { slot: *j },
+                    });
+                }
+                Ok(Ok(Ok(Norm::NonZeroConst))) => {} // never violated
+                Ok(Ok(Ok(Norm::Zero))) => extra.push(StopPiece {
+                    rule: fc.clone(),
+                    why: StopWhy::RulePointOverflow { slot: *j },
+                }),
+                Ok(Err(e)) => return Err(e),
+                Ok(Ok(Err(_))) | Err(_) => {
+                    // not representable: over-approximated by the whole fixed / constant set (a larger stop set is
+                    // sound for a no-gap proof: it can only add gaps)
+                    stats.stop_pieces_over_approximated =
+                        stats.stop_pieces_over_approximated.saturating_add(1);
+                    extra.push(StopPiece {
+                        rule: fc.clone(),
+                        why: StopWhy::RulePointOverflow { slot: *j },
+                    });
+                }
+            }
+        }
+        // modular zero test (audit-part3 C2), per reached literal in the dispatcher's order: the piece is `fc` AND the
+        // literals evaluated before it hold (earlier equations zero; for a member: every equation zero, every bound
+        // >= 0, the earlier members of its branch zero) AND the literal's risk region (exact residue points, far
+        // radius, or everything); a condition that cannot be represented is left out (a larger piece: sound)
+        let reached = reached_literals(d);
+        let risks: Vec<(LitPos, Result<LitRisk, String>)> = match rule_point_bounds(d) {
+            Ok(mb) => reached
+                .iter()
+                .map(|(pos, f)| (*pos, literal_modular_risk(f, &mb)))
+                .collect(),
+            Err(why) => reached
+                .iter()
+                .map(|(pos, _)| (*pos, Err(why.clone())))
+                .collect(),
+        };
+        let mut risk_notes: Vec<String> = vec![];
+        for (pos, risk) in risks {
+            let region: Vec<(bool, MPoly, String)> = match &risk {
+                Ok(LitRisk::Points(p)) if p.is_empty() => continue,
+                Ok(LitRisk::Far(p)) if p.is_empty() => continue,
+                Ok(LitRisk::Points(p)) => p
+                    .iter()
+                    .filter_map(|&(v, x)| {
+                        MPoly::var(arity, v)
+                            .sub(&MPoly::constant(arity, x))
+                            .ok()
+                            .map(|q| (false, q, format!("rule point n{v} = {x}")))
+                    })
+                    .collect(),
+                Ok(LitRisk::Far(p)) => p
+                    .iter()
+                    .flat_map(|&(v, r)| {
+                        [1i128, -1].into_iter().filter_map(move |sign| {
+                            MPoly::var(arity, v)
+                                .scale(sign)
+                                .and_then(|q| q.sub(&MPoly::constant(arity, r)))
+                                .ok()
+                                .map(|q| (true, q, format!("|rule point n{v}| >= {r}")))
+                        })
+                    })
+                    .collect(),
+                Err(_) => vec![],
+            };
+            risk_notes.push(match &risk {
+                Ok(LitRisk::Points(p)) => format!("{pos:?}: exact rule points {p:?}"),
+                Ok(LitRisk::Far(p)) => format!("{pos:?}: far radii {p:?}"),
+                Err(w) => format!("{pos:?}: anywhere ({w})"),
+            });
+            // the prefix conditions
+            let mut base = fc.clone();
+            let mut possible = true;
+            let mut add_cond =
+                |p: &Poly, is_ge: bool, base: &mut NfRule| -> Result<(), PartitionError> {
+                    match lit_of(p).map(|q| b.try_intern(&q, is_ge)) {
+                        Ok(Ok(Ok(Norm::Lit(l)))) => {
+                            if is_ge {
+                                base.ge.push(l);
+                            } else {
+                                base.eq.push(l);
+                            }
+                        }
+                        Ok(Ok(Ok(Norm::NonZeroConst))) => possible = false,
+                        Ok(Err(e)) => return Err(e),
+                        _ => {} // always true, or not representable: left out (a larger piece)
+                    }
+                    Ok(())
+                };
+            match pos {
+                LitPos::Equation(j) => {
+                    for e in d.equations.iter().take(j) {
+                        add_cond(e, false, &mut base)?;
+                    }
+                }
+                LitPos::Member(bi, mi) => {
+                    for e in &d.equations {
+                        add_cond(e, false, &mut base)?;
+                    }
+                    for g in &d.bounds {
+                        add_cond(g, true, &mut base)?;
+                    }
+                    for f in d.exceptions[bi].iter().take(mi) {
+                        add_cond(f, false, &mut base)?;
+                    }
+                }
+            }
+            if !possible {
+                continue; // a prefix condition never holds: the literal is never evaluated
+            }
+            let why = |w: &str| StopWhy::ModularZeroRisk(format!("{pos:?}: {w}"));
+            if region.is_empty() {
+                // anywhere: the prefix set
+                extra.push(StopPiece {
+                    rule: base.clone(),
+                    why: why("anywhere"),
+                });
+                continue;
+            }
+            for (is_ge, q, label) in region {
+                let lit = match &map {
+                    None => Ok(q),
+                    Some(mm) => q.compose(mm, arity),
+                };
+                match lit.map(|p| b.try_intern(&p, is_ge)) {
+                    Ok(Ok(Ok(Norm::Lit(l)))) => {
+                        let mut r = base.clone();
+                        if is_ge {
+                            r.ge.push(l);
+                        } else {
+                            r.eq.push(l);
+                        }
+                        extra.push(StopPiece {
+                            rule: r,
+                            why: why(&label),
+                        });
+                    }
+                    Ok(Ok(Ok(Norm::NonZeroConst))) => {} // the region is never reached here
+                    Ok(Err(e)) => return Err(e),
+                    // always in the region, or not representable: the prefix set
+                    _ => extra.push(StopPiece {
+                        rule: base.clone(),
+                        why: why(&label),
+                    }),
+                }
+            }
+        }
+        if !risk_notes.is_empty() {
+            note(&mut notes, NfNote::ModularZeroRisk(risk_notes.join("; ")));
+        }
+        for piece in &mut extra {
+            piece.rule.eq.sort_unstable();
+            piece.rule.eq.dedup();
+            piece.rule.ge.sort_unstable();
+            piece.rule.ge.dedup();
+        }
+        for id in lits_before..b.lits.len() {
+            stop_created.push(lit_id(id)?);
+        }
+        let pre_blocker = !extra.is_empty();
+        if pre_blocker {
+            stats.extra_stop_pieces = stats.extra_stop_pieces.saturating_add(extra.len());
+            extra_stops.insert(i, extra);
+            blockers.push(i);
         }
         for e in &d.equations {
             let q = match lit_of(e) {
@@ -717,8 +1373,8 @@ pub fn build(
                 }
             }
         }
-        for q in range {
-            ge_blockers.push(("rule-point range bound".into(), q));
+        for (_, q) in &range {
+            ge_blockers.push(("rule-point range bound".into(), q.clone()));
         }
         for (what, q) in ge_blockers {
             match b.try_intern(&q, true)? {
@@ -793,7 +1449,7 @@ pub fn build(
         sel.bad.sort();
         sel.bad.dedup();
         let has_blocker = never_applies.is_some() || !blk_ge.is_empty() || !blk_bad.is_empty();
-        if has_blocker {
+        if has_blocker && !pre_blocker {
             blockers.push(i);
         }
         // APPLIES set = selected set minus the blockers
@@ -841,6 +1497,12 @@ pub fn build(
     }
     stats.distinct = rules.len();
     stats.literals = b.lits.len();
+    let mut stop_lits = vec![false; b.lits.len()];
+    for id in stop_created {
+        if let Some(x) = stop_lits.get_mut(id as usize) {
+            *x = true;
+        }
+    }
     let quick = rules
         .iter()
         .map(|r| {
@@ -861,6 +1523,8 @@ pub fn build(
         blockers,
         notes,
         selected,
+        extra_stops,
+        stop_lits,
     })
 }
 
