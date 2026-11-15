@@ -405,8 +405,10 @@ pub struct SearchStats {
     pub shifts: usize,
     /// Distinct seeds examined (the key + the shifted seeds kept).
     pub seeds: usize,
-    /// Seeds whose rows were over `max_terms_per_row` (every element of that seed lost).
+    /// Seeds with at least one row over `max_terms_per_row`.
     pub seeds_over_cap: usize,
+    /// Rows over `max_terms_per_row` (unknown rows; the other rows of their seed are kept).
+    pub rows_over_cap: usize,
     /// Rows computed in the scan.
     pub rows: usize,
     pub pool_rows: usize,
@@ -432,6 +434,7 @@ impl SearchStats {
     /// neighbourhood.
     pub fn complete(&self) -> bool {
         self.seeds_over_cap == 0
+            && self.rows_over_cap == 0
             && !self.pool_truncated
             && !self.subsets_budget_hit
             && self.undecided == 0

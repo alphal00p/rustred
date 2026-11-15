@@ -225,6 +225,55 @@ fn tworow_on_real_keys() {
         "best_rhs_terms": {"min": sizes.first(), "median": sizes.get(sizes.len() / 2), "max": sizes.last()},
         "best_with_3_or_more_rows": rows3, "zero_sectors": if zero.is_some() { "family (Lee), pruned" } else { "kept" }, "import_check_verified": a_ok,
         "seconds": t0.elapsed().as_secs_f64(), "threads": threads});
+    // TWOROW_SHAPES: COMPARISON only (never search input): JSON list of {"label", "rows": [{"element", "shift"}],
+    // "weights": ["1", "-1"]}; each shape evaluated at every key by apply_combination (size or the reason it fails)
+    if let Ok(p) = std::env::var("TWOROW_SHAPES") {
+        use rustred_campaign_core::replay_base::algebra::CheckAlgebra;
+        use rustred_campaign_core::tworow::{PairShift, RowSpec, apply_combination};
+        let shapes: Value = serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+        let mut out_s = serde_json::Map::new();
+        for sh in shapes.as_array().unwrap() {
+            let rows: Vec<RowSpec> = sh["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| RowSpec {
+                    element: r["element"].as_u64().unwrap() as usize,
+                    shift: r["shift"].as_str().map(|t| PairShift::parse(t).unwrap()),
+                })
+                .collect();
+            let w: Vec<_> = sh["weights"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| Independent.q_parse(t.as_str().unwrap()).unwrap())
+                .collect();
+            let per: Vec<Value> = keys
+                .iter()
+                .map(|(k, _)| {
+                    match apply_combination(
+                        &Independent,
+                        &g,
+                        k,
+                        &rows,
+                        &w,
+                        &cmp,
+                        &policy,
+                        zero.map(|z| z as &dyn Fn(&[i32]) -> bool),
+                    ) {
+                        Ok(c) => json!({"key": k, "rhs_terms": c.rhs.len(),
+                            "rows_terms": c.rows.iter().map(|r| r.terms).collect::<Vec<_>>()}),
+                        Err(e) => json!({"key": k, "refused": e.to_string()}),
+                    }
+                })
+                .collect();
+            out_s.insert(
+                sh["label"].as_str().unwrap_or("shape").to_string(),
+                json!(per),
+            );
+        }
+        summary["shapes"] = Value::Object(out_s);
+    }
     if std::env::var("TWOROW_REGION").as_deref() == Ok("1") {
         let mut faces: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (i, (k, _)) in keys.iter().enumerate() {

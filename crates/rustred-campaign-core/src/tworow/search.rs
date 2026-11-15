@@ -17,7 +17,7 @@
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use super::rows::{RowShape, RowsError, SeedRowList, row_shape, rows_pruned_for};
+use super::rows::{RowShape, RowsError, SeedRowList, row_shape, rows_partial_for};
 use super::{
     Combination, KeyOutcome, KeyResult, NearMiss, PairShift, RowRef, RowSpec, SearchStats,
     TwoRowPolicy,
@@ -67,8 +67,8 @@ impl std::fmt::Display for Reject {
 }
 
 enum SeedRows {
-    Rows(SeedRowList),
-    OverCap,
+    /// the rows that fit and the elements whose row is over the cap (unknown rows, never empty ones)
+    Rows(SeedRowList, Vec<usize>),
     Undecided(String),
 }
 
@@ -82,9 +82,9 @@ fn rows_for_seed<A: CheckAlgebra>(
     zero: ZeroSector,
     want: &dyn Fn(usize) -> bool,
 ) -> SeedRows {
-    match rows_pruned_for(alg, group, seed, max_terms, zero, want) {
-        Ok(r) => SeedRows::Rows(r),
-        Err(RowsError::OverCap { .. }) => SeedRows::OverCap,
+    match rows_partial_for(alg, group, seed, max_terms, zero, want) {
+        Ok((r, over)) => SeedRows::Rows(r, over),
+        Err(RowsError::OverCap { element, .. }) => SeedRows::Rows(vec![], vec![element]),
         Err(RowsError::Undecided(e)) => SeedRows::Undecided(e),
     }
 }
@@ -198,6 +198,7 @@ pub fn search_key<A: CheckAlgebra>(
         .collect();
     let mut done = vec![vec![false; nel]; seeds.len()];
     let mut dead = vec![false; seeds.len()];
+    let mut over_seed = vec![false; seeds.len()];
     let mut frontier: Vec<Vec<i32>> = vec![];
     for round in 0..=policy.max_rows {
         let mut next: Vec<Vec<i32>> = vec![];
@@ -223,21 +224,25 @@ pub fn search_key<A: CheckAlgebra>(
             if !want.iter().any(|&w| w) {
                 continue;
             }
-            match rows_pruned_for(alg, group, s, policy.max_terms_per_row, zero, &|e| {
+            match rows_for_seed(alg, group, s, policy.max_terms_per_row, zero, &|e| {
                 e < nel && want[e]
             }) {
-                Err(RowsError::OverCap { .. }) => {
-                    stats.seeds_over_cap += 1;
-                    dead[si] = true;
-                }
-                Err(RowsError::Undecided(e)) => {
+                SeedRows::Undecided(e) => {
                     stats.undecided += 1;
                     undecided_reason.get_or_insert(e);
                     dead[si] = true;
                 }
-                Ok(rows) => {
+                SeedRows::Rows(rows, over) => {
                     for e in (0..nel).filter(|&e| want[e]) {
                         done[si][e] = true;
+                    }
+                    // a row over the cap is UNKNOWN (counted, never treated as empty); the other rows of the seed stay
+                    if !over.is_empty() {
+                        stats.rows_over_cap += over.len();
+                        if !over_seed[si] {
+                            over_seed[si] = true;
+                            stats.seeds_over_cap += 1;
+                        }
                     }
                     for (e, v) in rows {
                         stats.rows += 1;
@@ -509,7 +514,11 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
             self.zero,
             &|e| e == el,
         ) {
-            SeedRows::Rows(rows) => {
+            SeedRows::Rows(_, over) if over.contains(&el) => {
+                self.stats.rows_over_cap += 1;
+                false
+            }
+            SeedRows::Rows(rows, _) => {
                 let Some((_, v)) = rows.into_iter().find(|(e, _)| *e == el) else {
                     self.stats.undecided += 1;
                     self.undecided_reason
@@ -524,10 +533,6 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
                     .unwrap_or(Q::ZERO);
                 self.prows[i].terms = Some(t);
                 true
-            }
-            SeedRows::OverCap => {
-                self.stats.seeds_over_cap += 1;
-                false
             }
             SeedRows::Undecided(e) => {
                 self.stats.undecided += 1;
@@ -856,9 +861,11 @@ pub fn apply_combination<A: CheckAlgebra>(
         let row = match rows_for_seed(alg, group, &seed, policy.max_terms_per_row, zero, &|e| {
             e == spec.element
         }) {
-            SeedRows::OverCap => return Err(Reject::OverCap { seed }),
             SeedRows::Undecided(e) => return Err(und(e)),
-            SeedRows::Rows(r) => r
+            SeedRows::Rows(_, over) if over.contains(&spec.element) => {
+                return Err(Reject::OverCap { seed });
+            }
+            SeedRows::Rows(r, _) => r
                 .into_iter()
                 .find(|(e, _)| *e == spec.element)
                 .map(|(_, v)| v)

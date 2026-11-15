@@ -105,7 +105,7 @@ pub fn rows_pruned<A: CheckAlgebra>(
     rows_pruned_for(alg, group, seed, max_terms, zero, &|_| true)
 }
 
-/// [`rows_pruned`] for the elements `want` accepts only (the others are not expanded).
+/// [`rows_pruned`] for the elements `want` accepts only (the others are not expanded); any row over the cap = `Err`.
 pub fn rows_pruned_for<A: CheckAlgebra>(
     alg: &A,
     group: &VerifiedGroup,
@@ -114,6 +114,27 @@ pub fn rows_pruned_for<A: CheckAlgebra>(
     zero: ZeroPredicate,
     want: &dyn Fn(usize) -> bool,
 ) -> Result<SeedRowList, RowsError> {
+    let (rows, over) = rows_partial_for(alg, group, seed, max_terms, zero, want)?;
+    match over.first() {
+        Some(&element) => Err(RowsError::OverCap {
+            element,
+            cap: max_terms,
+        }),
+        None => Ok(rows),
+    }
+}
+
+/// [`rows_pruned_for`] with the cap PER ELEMENT: the rows that fit, and the elements whose row went over the cap
+/// (those rows are unknown, never empty).
+pub fn rows_partial_for<A: CheckAlgebra>(
+    alg: &A,
+    group: &VerifiedGroup,
+    seed: &[i32],
+    max_terms: usize,
+    zero: ZeroPredicate,
+    want: &dyn Fn(usize) -> bool,
+) -> Result<(SeedRowList, Vec<usize>), RowsError> {
+    let mut over = vec![];
     let g = group.group();
     let n = g.arity;
     if seed.len() != n {
@@ -188,10 +209,8 @@ pub fn rows_pruned_for<A: CheckAlgebra>(
                 }
                 next.retain(|_, c| !c.is_zero());
                 if next.len() > max_terms {
-                    return Err(RowsError::OverCap {
-                        element: ei,
-                        cap: max_terms,
-                    });
+                    over.push(ei);
+                    continue 'el;
                 }
                 terms = next;
             }
@@ -214,5 +233,5 @@ pub fn rows_pruned_for<A: CheckAlgebra>(
             out.push((ei, row.into_iter().collect()));
         }
     }
-    Ok(out)
+    Ok((out, over))
 }
