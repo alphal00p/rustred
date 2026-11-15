@@ -2141,7 +2141,10 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
 /// over the coefficients (constants dropped), and the pole order of the relation at d = `d0`: the largest multiplicity
 /// over the coefficients of the factors vanishing at d0 (coefficients are reduced, so a vanishing denominator factor is
 /// a pole). The order is None when a factor depends on more than one variable (not a fixed-key relation).
-pub(crate) fn denominator_census(dens: &[&CoefficientPolynomial], d0: i64) -> (Vec<(String, usize)>, Option<usize>) {
+pub(crate) fn denominator_census(
+    dens: &[&CoefficientPolynomial],
+    d0: i64,
+) -> (Vec<(String, usize)>, Option<usize>) {
     use symbolica::domains::integer::Integer;
     use symbolica::poly::factor::Factorize;
     let mut max_mult: BTreeMap<String, usize> = BTreeMap::new();

@@ -78,15 +78,27 @@ pub fn bound_exclusions(record: &Value) -> Result<Vec<Vec<String>>, String> {
         .map(|a| a.iter().map(Value::as_i64).collect())
         .unwrap_or_else(|| vec![None; n]);
     if fixed.len() != n {
-        return Err(format!("domain_bounds: fixed of arity {} for a chart of arity {n}", fixed.len()));
+        return Err(format!(
+            "domain_bounds: fixed of arity {} for a chart of arity {n}",
+            fixed.len()
+        ));
     }
-    let shift = target_shifts(record["target"].as_str().ok_or("domain_bounds: rule without target")?, n)?;
+    let shift = target_shifts(
+        record["target"]
+            .as_str()
+            .ok_or("domain_bounds: rule without target")?,
+        n,
+    )?;
     // THE shared reading (rustred-proof/src/bounds_rule.rs, also rr_proof's): excluded values of the case variables
     let e = shared::bound_exclusions(&chart, &shift, &fixed, &min, &max, MAX_EXCLUDED_PER_SLOT)?;
     let mut out = Vec::new();
     if e.whole_case {
         // a fixed slot violates its bound: n_i - f vanishes on the whole case, so this branch excludes it all
-        let (i, f) = fixed.iter().enumerate().find_map(|(i, f)| f.map(|f| (i, f))).ok_or("domain_bounds: whole case without a fixed slot")?;
+        let (i, f) = fixed
+            .iter()
+            .enumerate()
+            .find_map(|(i, f)| f.map(|f| (i, f)))
+            .ok_or("domain_bounds: whole case without a fixed slot")?;
         out.push(vec![eq_text(i, f)]);
     }
     for (i, vals) in &e.per_slot {
@@ -106,7 +118,10 @@ fn target_shifts(target: &str, n: usize) -> Result<Vec<Option<i64>>, String> {
         .ok_or(format!("domain_bounds: target {target}"))?;
     let parts: Vec<&str> = inner.split(',').collect();
     if parts.len() != n {
-        return Err(format!("domain_bounds: target arity {} != {n}", parts.len()));
+        return Err(format!(
+            "domain_bounds: target arity {} != {n}",
+            parts.len()
+        ));
     }
     parts
         .iter()
@@ -120,10 +135,17 @@ fn target_shifts(target: &str, n: usize) -> Result<Vec<Option<i64>>, String> {
                 if p == r.len() {
                     Ok(Some(0))
                 } else {
-                    r[p..].trim_start_matches('+').parse::<i64>().map(Some).map_err(|_| format!("domain_bounds: target slot {a}"))
+                    r[p..]
+                        .trim_start_matches('+')
+                        .parse::<i64>()
+                        .map(Some)
+                        .map_err(|_| format!("domain_bounds: target slot {a}"))
                 }
             }
-            None => a.parse::<i64>().map(|_| None).map_err(|_| format!("domain_bounds: target slot {a}")),
+            None => a
+                .parse::<i64>()
+                .map(|_| None)
+                .map_err(|_| format!("domain_bounds: target slot {a}")),
         })
         .collect()
 }
@@ -178,30 +200,24 @@ mod tests {
                 vec!["n2".into()]
             ]
         );
-        let bad =
-            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"max":[4,null,null]}});
+        let bad = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"max":[4,null,null]}});
         assert!(bound_exclusions(&bad).is_err());
-        let fixed_violated =
-            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[null,2,null]}});
+        let fixed_violated = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[null,2,null]}});
         assert_eq!(
             bound_exclusions(&fixed_violated).unwrap(),
             vec![vec!["-1+n1".to_string()]]
         );
         // engfix4 mn-2 (one rule with the campaign core): the bound kind follows the slot kind on FIXED slots too,
         // a non-object value is refused, a far bound on a fixed slot is a comparison (no enumeration, no limit)
-        let min_on_fixed_numerator =
-            json!({"chart":"110","fixed":[null,1,0],"target":"I(n0,1,0)","domain_bounds":{"min":[null,null,-1]}});
+        let min_on_fixed_numerator = json!({"chart":"110","fixed":[null,1,0],"target":"I(n0,1,0)","domain_bounds":{"min":[null,null,-1]}});
         assert!(bound_exclusions(&min_on_fixed_numerator).is_err());
-        let max_on_fixed_line =
-            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"max":[null,3,null]}});
+        let max_on_fixed_line = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"max":[null,3,null]}});
         assert!(bound_exclusions(&max_on_fixed_line).is_err());
         let not_object = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":[1,2,3]});
         assert!(bound_exclusions(&not_object).is_err());
-        let far_free =
-            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[100,null,null]}});
+        let far_free = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[100,null,null]}});
         assert!(bound_exclusions(&far_free).is_err());
-        let far_fixed =
-            json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[null,100,null]}});
+        let far_fixed = json!({"chart":"110","fixed":[null,1,null],"target":"I(n0,1,n2)","domain_bounds":{"min":[null,100,null]}});
         assert_eq!(
             bound_exclusions(&far_fixed).unwrap(),
             vec![vec!["-1+n1".to_string()]]
@@ -212,7 +228,11 @@ mod tests {
             "domain_bounds":{"min":[2,null,null],"max":[null,null,0]}});
         assert_eq!(
             bound_exclusions(&shifted).unwrap(),
-            vec![vec!["n0".to_string()], vec!["-1+n0".into()], vec!["-1+n2".into()]]
+            vec![
+                vec!["n0".to_string()],
+                vec!["-1+n0".into()],
+                vec!["-1+n2".into()]
+            ]
         );
         let bad_target = json!({"chart":"110","fixed":[null,1,null],"target":"I(n1,1,n2)","domain_bounds":{"min":[2,null,null]}});
         assert!(bound_exclusions(&bad_target).is_err());

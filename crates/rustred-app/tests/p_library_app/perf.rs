@@ -245,7 +245,10 @@ fn a_refused_checkpoint_stops_a_p_reduction_under_every_arithmetic() {
             .unwrap();
         assert_eq!(full.terms, off.terms, "{arithmetic}");
         let checkpoints = seen.load(Ordering::SeqCst);
-        assert!(checkpoints > 1000, "{arithmetic}: {checkpoints} checkpoints");
+        assert!(
+            checkpoints > 1000,
+            "{arithmetic}: {checkpoints} checkpoints"
+        );
         for stop_at in [1, checkpoints / 2] {
             let seen = Arc::new(AtomicUsize::new(0));
             let library = assemble(2).library;
@@ -256,7 +259,10 @@ fn a_refused_checkpoint_stops_a_p_reduction_under_every_arithmetic() {
                 is_cancellation(&error),
                 "{arithmetic} at {stop_at}: {error}"
             );
-            assert!(seen.load(Ordering::SeqCst) >= stop_at, "{arithmetic} at {stop_at}");
+            assert!(
+                seen.load(Ordering::SeqCst) >= stop_at,
+                "{arithmetic} at {stop_at}"
+            );
         }
     }
 }

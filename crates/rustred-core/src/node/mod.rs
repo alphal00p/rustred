@@ -26,8 +26,8 @@
 pub mod affine;
 pub mod auto;
 pub mod bounds;
-pub mod choice;
 pub mod childjob;
+pub mod choice;
 pub mod descent;
 pub mod domain;
 pub mod domaincheck;

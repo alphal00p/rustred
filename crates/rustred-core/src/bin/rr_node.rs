@@ -2006,20 +2006,34 @@ fn cmd_symface(mut a: Args) -> i32 {
             .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
-                let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--point-keys: {e}")));
+                let v: serde_json::Value =
+                    serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--point-keys: {e}")));
                 let k = if v.is_array() { v } else { v["key"].clone() };
-                serde_json::from_value::<Vec<i64>>(k).unwrap_or_else(|e| die(&format!("--point-keys key: {e}")))
+                serde_json::from_value::<Vec<i64>>(k)
+                    .unwrap_or_else(|e| die(&format!("--point-keys key: {e}")))
             })
             .collect()
     });
-    let pair = a.take("--pair-shift").map(|t| rustred::node::symface::PairShift::parse(&t).unwrap_or_else(|e| die(&e)));
-    let face_arg = a.take("--face").unwrap_or_else(|| if point_keys.is_some() { "-/-".into() } else { die("missing --face (or --point-keys FILE)") });
-    let (d, nu) = face_arg.split_once('/').unwrap_or_else(|| die("--face DOTTED/NUMERATORS"));
+    let pair = a
+        .take("--pair-shift")
+        .map(|t| rustred::node::symface::PairShift::parse(&t).unwrap_or_else(|e| die(&e)));
+    let face_arg = a.take("--face").unwrap_or_else(|| {
+        if point_keys.is_some() {
+            "-/-".into()
+        } else {
+            die("missing --face (or --point-keys FILE)")
+        }
+    });
+    let (d, nu) = face_arg
+        .split_once('/')
+        .unwrap_or_else(|| die("--face DOTTED/NUMERATORS"));
     let list = |t: &str| -> Vec<usize> {
         if t == "-" || t.is_empty() {
             return vec![];
         }
-        t.split(',').map(|x| x.trim().parse().unwrap_or_else(|_| die("--face slot"))).collect()
+        t.split(',')
+            .map(|x| x.trim().parse().unwrap_or_else(|_| die("--face slot")))
+            .collect()
     };
     let chart: Vec<bool> = match a.take("--chart") {
         Some(m) => m.chars().map(|c| c == '1').collect(),
@@ -2034,7 +2048,10 @@ fn cmd_symface(mut a: Args) -> i32 {
     // --element K (one element) or `auto` / absent (every element; the smallest relation that passes wins)
     let element: Option<usize> = match a.take("--element").as_deref() {
         None | Some("auto") | Some("all") => None,
-        Some(k) => Some(k.parse().unwrap_or_else(|_| die("--element K (an index) or auto"))),
+        Some(k) => Some(
+            k.parse()
+                .unwrap_or_else(|_| die("--element K (an index) or auto")),
+        ),
     };
     let max_expansion: u128 = a.parse("--max-expansion").unwrap_or(2_000_000);
     let check_keys: Vec<Vec<i64>> = match a.take("--check-keys") {
@@ -2044,9 +2061,11 @@ fn cmd_symface(mut a: Args) -> i32 {
             .lines()
             .filter(|l| !l.trim().is_empty())
             .map(|l| {
-                let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--check-keys: {e}")));
+                let v: serde_json::Value =
+                    serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--check-keys: {e}")));
                 let k = if v.is_array() { v } else { v["key"].clone() };
-                serde_json::from_value::<Vec<i64>>(k).unwrap_or_else(|e| die(&format!("--check-keys key: {e}")))
+                serde_json::from_value::<Vec<i64>>(k)
+                    .unwrap_or_else(|e| die(&format!("--check-keys key: {e}")))
             })
             .collect(),
     };
@@ -2055,7 +2074,11 @@ fn cmd_symface(mut a: Args) -> i32 {
     let o = RunOptions {
         family_text: text,
         order,
-        face: Face { chart, dotted: list(d), numerators: list(nu) },
+        face: Face {
+            chart,
+            dotted: list(d),
+            numerators: list(nu),
+        },
         slice_max,
         total_bound,
         element,

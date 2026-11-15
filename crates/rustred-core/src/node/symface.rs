@@ -43,7 +43,10 @@ impl Q {
         assert!(d != 0);
         let g = gcd(n, d).max(1);
         let s = if d < 0 { -1 } else { 1 };
-        Q { n: s * n / g, d: s * d / g }
+        Q {
+            n: s * n / g,
+            d: s * d / g,
+        }
     }
     fn int(n: i128) -> Q {
         Q { n, d: 1 }
@@ -178,16 +181,22 @@ impl FamilyForms {
         let (x, unique) = decompose(&self.basis, &image)
             .ok_or_else(|| format!("slot {j}: image form not in the span of the slot forms"))?;
         if !unique {
-            return Err(format!("slot {j}: the slot forms are not a basis (decomposition not unique)"));
+            return Err(format!(
+                "slot {j}: the slot forms are not a basis (decomposition not unique)"
+            ));
         }
         if x.iter().any(|q| q.d != 1) {
             return Err(format!("slot {j}: non-integral decomposition"));
         }
         // exact check: sum x_i basis_i == image
         for r in 0..image.len() {
-            let s: i128 = (0..self.basis.len()).map(|c| x[c].n * self.basis[c][r]).sum();
+            let s: i128 = (0..self.basis.len())
+                .map(|c| x[c].n * self.basis[c][r])
+                .sum();
             if s != image[r] {
-                return Err(format!("SYMMETRY_FORM_CHECK_FAILED: slot {j}, component {r}"));
+                return Err(format!(
+                    "SYMMETRY_FORM_CHECK_FAILED: slot {j}, component {r}"
+                ));
             }
         }
         let n = self.momenta.len();
@@ -216,7 +225,10 @@ fn pow_text(p: &Pow) -> String {
 }
 
 pub fn pattern_text(p: &[Pow]) -> String {
-    format!("I({})", p.iter().map(pow_text).collect::<Vec<_>>().join(","))
+    format!(
+        "I({})",
+        p.iter().map(pow_text).collect::<Vec<_>>().join(",")
+    )
 }
 
 /// One face: chart mask, dotted lines (free n >= 2), face numerators (free n <= -1).
@@ -252,11 +264,20 @@ impl SliceRule {
     /// The coefficient of a term as text: reduced `num/den` (integer when the denominator divides).
     pub fn coef_text(&self, c: i128) -> String {
         let (mut a, mut b) = (c, self.den);
-        if b < 0 { a = -a; b = -b; }
+        if b < 0 {
+            a = -a;
+            b = -b;
+        }
         let (mut x, mut y) = (a.unsigned_abs(), b.unsigned_abs());
-        while y != 0 { (x, y) = (y, x % y); }
+        while y != 0 {
+            (x, y) = (y, x % y);
+        }
         let g = x.max(1) as i128;
-        if b / g == 1 { format!("{}", a / g) } else { format!("{}/{}", a / g, b / g) }
+        if b / g == 1 {
+            format!("{}", a / g)
+        } else {
+            format!("{}/{}", a / g, b / g)
+        }
     }
 }
 
@@ -316,16 +337,18 @@ pub fn slice_rule_at(
     // target pattern
     let target: Vec<Pow> = if let Some(k) = point {
         k.iter().map(|&c| Pow { var: None, c }).collect()
-    } else { (0..n)
-        .map(|i| match slice.get(&i) {
-            Some(&v) => Pow { var: None, c: v },
-            None if face.free(i) => Pow { var: Some(i), c: 0 },
-            None => Pow {
-                var: None,
-                c: i64::from(face.chart[i]),
-            },
-        })
-        .collect() };
+    } else {
+        (0..n)
+            .map(|i| match slice.get(&i) {
+                Some(&v) => Pow { var: None, c: v },
+                None if face.free(i) => Pow { var: Some(i), c: 0 },
+                None => Pow {
+                    var: None,
+                    c: i64::from(face.chart[i]),
+                },
+            })
+            .collect()
+    };
     // exactly mapped slots move their power
     let mut base = vec![Pow { var: None, c: 0 }; n];
     for i in 0..n {
@@ -345,7 +368,10 @@ pub fn slice_rule_at(
     for (&j, comb) in subs {
         let b = -slice[&j];
         if b < 0 {
-            return Err(format!("slice power {} on slot {j} is not a numerator power", slice[&j]));
+            return Err(format!(
+                "slice power {} on slot {j} is not a numerator power",
+                slice[&j]
+            ));
         }
         let factor: Vec<(Option<usize>, i128)> = comb
             .coef
@@ -391,7 +417,9 @@ pub fn slice_rule_at(
                 Some(v) => {
                     // n_v >= 2 on the face (a dotted line): n_v + c >= 1 for all n_v iff c >= -1
                     if !face.dotted.contains(&v) {
-                        return Err(format!("symbolic power of a non-dotted slot {v} on line {k}"));
+                        return Err(format!(
+                            "symbolic power of a non-dotted slot {v} on line {k}"
+                        ));
                     }
                     if p[k].c >= -1 {
                         true
@@ -431,14 +459,8 @@ pub fn slice_descends(
     samples: usize,
 ) -> Result<(), String> {
     let n = face.chart.len();
-    let free: Vec<usize> = (0..n)
-        .filter(|&i| rule.target[i].var.is_some())
-        .collect();
-    let in_chart = |p: &[Pow]| {
-        (0..n).all(|k| {
-            !face.chart[k] || p[k].var.is_some() || p[k].c >= 1
-        })
-    };
+    let free: Vec<usize> = (0..n).filter(|&i| rule.target[i].var.is_some()).collect();
+    let in_chart = |p: &[Pow]| (0..n).all(|k| !face.chart[k] || p[k].var.is_some() || p[k].c >= 1);
     for (p, _) in &rule.terms {
         if in_chart(p) {
             // affine difference per form: w.target - w.term = sum_k w_k (t_k - p_k); variables must cancel or
@@ -469,11 +491,19 @@ pub fn slice_descends(
                     if a == 0 {
                         continue;
                     }
-                    let (start, up) = if face.dotted.contains(&v) { (2i128, true) } else { (-1i128, false) };
+                    let (start, up) = if face.dotted.contains(&v) {
+                        (2i128, true)
+                    } else {
+                        (-1i128, false)
+                    };
                     corner += a * start;
                     // moving away from the corner: n_v increases (dotted) or decreases (numerator)
                     let grows = if up { a > 0 } else { a < 0 };
-                    if grows { can_grow = true } else { can_fall = true }
+                    if grows {
+                        can_grow = true
+                    } else {
+                        can_fall = true
+                    }
                 }
                 let sign: i8 = if can_grow && can_fall {
                     return Err(format!(
@@ -482,18 +512,32 @@ pub fn slice_descends(
                     ));
                 } else if can_grow {
                     // f >= corner everywhere, unbounded above
-                    if corner > 0 { 1 } else {
-                        return Err(format!("term {}: order form not of one sign on the face (undecided)", pattern_text(p)));
+                    if corner > 0 {
+                        1
+                    } else {
+                        return Err(format!(
+                            "term {}: order form not of one sign on the face (undecided)",
+                            pattern_text(p)
+                        ));
                     }
                 } else if can_fall {
-                    if corner < 0 { -1 } else {
-                        return Err(format!("term {}: order form not of one sign on the face (undecided)", pattern_text(p)));
+                    if corner < 0 {
+                        -1
+                    } else {
+                        return Err(format!(
+                            "term {}: order form not of one sign on the face (undecided)",
+                            pattern_text(p)
+                        ));
                     }
                 } else {
                     constant.signum() as i8
                 };
                 let constant = i128::from(sign);
-                let c = if *reversed { 0.cmp(&constant) } else { constant.cmp(&0) };
+                let c = if *reversed {
+                    0.cmp(&constant)
+                } else {
+                    constant.cmp(&0)
+                };
                 match c {
                     std::cmp::Ordering::Equal => continue,
                     // `Less` = left harder: target harder than term = term lower
@@ -502,12 +546,18 @@ pub fn slice_descends(
                         break;
                     }
                     std::cmp::Ordering::Greater => {
-                        return Err(format!("term {} is not lower than the target", pattern_text(p)));
+                        return Err(format!(
+                            "term {} is not lower than the target",
+                            pattern_text(p)
+                        ));
                     }
                 }
             }
             if !decided {
-                return Err(format!("term {} equals the target under the order", pattern_text(p)));
+                return Err(format!(
+                    "term {} equals the target under the order",
+                    pattern_text(p)
+                ));
             }
         }
         // concrete check at sample keys (all terms; the subsector terms' only check)
@@ -556,7 +606,10 @@ pub fn slices(subs: &[usize], max: i64, total: bool) -> Vec<BTreeMap<usize, i64>
 
 /// Upper estimate of the expanded terms of one slice: prod_j C(b_j + k_j - 1, k_j - 1), k_j = terms of slot j's
 /// combination (constant included). Saturates at u128::MAX.
-pub fn expansion_estimate(subs: &BTreeMap<usize, Combination>, slice: &BTreeMap<usize, i64>) -> u128 {
+pub fn expansion_estimate(
+    subs: &BTreeMap<usize, Combination>,
+    slice: &BTreeMap<usize, i64>,
+) -> u128 {
     let mut total: u128 = 1;
     for (j, c) in subs {
         let k = c.coef.iter().filter(|x| **x != 0).count() as u128 + u128::from(c.constant != 0);
@@ -573,12 +626,16 @@ pub fn expansion_estimate(subs: &BTreeMap<usize, Combination>, slice: &BTreeMap<
 
 /// The slice rule of `rules` serving `key` (the substituted slots' powers of the key), if generated.
 pub fn rule_for_key<'a>(rules: &'a [SliceRule], key: &[i64]) -> Option<&'a SliceRule> {
-    rules.iter().find(|r| r.slice.iter().all(|(s, v)| key[*s] == *v))
+    rules
+        .iter()
+        .find(|r| r.slice.iter().all(|(s, v)| key[*s] == *v))
 }
 
 /// A pattern instantiated at a key (symbolic slots take the key's values).
 pub fn instantiate(p: &[Pow], key: &[i64]) -> Vec<i64> {
-    p.iter().map(|w| w.var.map_or(0, |v| key[v]) + w.c).collect()
+    p.iter()
+        .map(|w| w.var.map_or(0, |v| key[v]) + w.c)
+        .collect()
 }
 
 /// Result for one element on one face: its slice rules, or why it was refused.
@@ -771,21 +828,41 @@ impl PairShift {
         let mut ops = Vec::new();
         for part in t.split(',').map(str::trim).filter(|x| !x.is_empty()) {
             let (slot, set, val) = if let Some((a, b)) = part.split_once('=') {
-                (a, true, b.trim().parse::<i64>().map_err(|_| format!("pair shift {part}"))?)
+                (
+                    a,
+                    true,
+                    b.trim()
+                        .parse::<i64>()
+                        .map_err(|_| format!("pair shift {part}"))?,
+                )
             } else if let Some(i) = part[1..].find(|c| c == '+' || c == '-').map(|i| i + 1) {
                 let (a, b) = part.split_at(i);
-                (a, false, b.trim_start_matches('+').parse::<i64>().map_err(|_| format!("pair shift {part}"))?)
+                (
+                    a,
+                    false,
+                    b.trim_start_matches('+')
+                        .parse::<i64>()
+                        .map_err(|_| format!("pair shift {part}"))?,
+                )
             } else {
                 return Err(format!("pair shift {part}: SLOT=VALUE or SLOT+DELTA"));
             };
-            ops.push((slot.trim().parse::<usize>().map_err(|_| format!("pair shift slot {part}"))?, set, val));
+            ops.push((
+                slot.trim()
+                    .parse::<usize>()
+                    .map_err(|_| format!("pair shift slot {part}"))?,
+                set,
+                val,
+            ));
         }
         Ok(Self { ops })
     }
     pub fn apply(&self, key: &[i64]) -> Vec<i64> {
         let mut k = key.to_vec();
         for &(s, set, v) in &self.ops {
-            if s < k.len() { if set { k[s] = v } else { k[s] += v } }
+            if s < k.len() {
+                if set { k[s] = v } else { k[s] += v }
+            }
         }
         k
     }
@@ -820,46 +897,72 @@ pub fn point_rule(
         }
         let subs = match face_action(ff, e, &face) {
             Ok(s) => s,
-            Err(m) => { refused.push((k, m)); continue; }
+            Err(m) => {
+                refused.push((k, m));
+                continue;
+            }
         };
         let slice: BTreeMap<usize, i64> = subs.keys().map(|&j| (j, key[j])).collect();
         let est = expansion_estimate(&subs, &slice);
         if est > max_expansion {
-            refused.push((k, format!("EXPANSION_TOO_LARGE: about {est} terms"))); continue;
+            refused.push((k, format!("EXPANSION_TOO_LARGE: about {est} terms")));
+            continue;
         }
         let mut r = match slice_rule_at(e, &face, &subs, &slice, zero, Some(key)) {
             Ok(r) => r,
-            Err(m) => { refused.push((k, m)); continue; }
+            Err(m) => {
+                refused.push((k, m));
+                continue;
+            }
         };
         // two rows of the same element: 0 = row(K) - row(K'), row(s) = I(s) - E(g s):
         // I(K) = I(K') + E(gK) - E(gK'); a K on the right is solved for (coefficient 1 - c, exact division required)
         if let Some(ps) = pair {
             let k2 = ps.apply(key);
-            if k2.iter().zip(chart).any(|(v, &line)| if line { *v < 1 } else { *v > 0 }) {
-                refused.push((k, format!("pair: shifted key {k2:?} leaves the chart"))); continue;
+            if k2
+                .iter()
+                .zip(chart)
+                .any(|(v, &line)| if line { *v < 1 } else { *v > 0 })
+            {
+                refused.push((k, format!("pair: shifted key {k2:?} leaves the chart")));
+                continue;
             }
             let face2 = face_of(&k2);
             let subs2 = match face_action(ff, e, &face2) {
                 Ok(s) => s,
-                Err(m) => { refused.push((k, format!("pair: {m}"))); continue; }
+                Err(m) => {
+                    refused.push((k, format!("pair: {m}")));
+                    continue;
+                }
             };
             let slice2: BTreeMap<usize, i64> = subs2.keys().map(|&j| (j, k2[j])).collect();
             if expansion_estimate(&subs2, &slice2) > max_expansion {
-                refused.push((k, "pair: EXPANSION_TOO_LARGE at the shifted key".into())); continue;
+                refused.push((k, "pair: EXPANSION_TOO_LARGE at the shifted key".into()));
+                continue;
             }
             let r2 = match slice_rule_at(e, &face2, &subs2, &slice2, zero, Some(&k2)) {
                 Ok(r) => r,
-                Err(m) => { refused.push((k, format!("pair: {m}"))); continue; }
+                Err(m) => {
+                    refused.push((k, format!("pair: {m}")));
+                    continue;
+                }
             };
             let mut acc: BTreeMap<Vec<i64>, i128> = BTreeMap::new();
             *acc.entry(k2.clone()).or_insert(0) += 1;
-            for (p, c) in &r.terms { *acc.entry(instantiate(p, key)).or_insert(0) += c; }
-            for (p, c) in &r2.terms { *acc.entry(instantiate(p, &k2)).or_insert(0) -= c; }
+            for (p, c) in &r.terms {
+                *acc.entry(instantiate(p, key)).or_insert(0) += c;
+            }
+            for (p, c) in &r2.terms {
+                *acc.entry(instantiate(p, &k2)).or_insert(0) -= c;
+            }
             acc.retain(|_, c| *c != 0);
             r = SliceRule {
                 slice: slice.clone(),
                 target: key.iter().map(|&c| Pow { var: None, c }).collect(),
-                terms: acc.into_iter().map(|(t, c)| (t.into_iter().map(|c| Pow { var: None, c }).collect(), c)).collect(),
+                terms: acc
+                    .into_iter()
+                    .map(|(t, c)| (t.into_iter().map(|c| Pow { var: None, c }).collect(), c))
+                    .collect(),
                 den: 1,
                 dropped_zero_sector: r.dropped_zero_sector + r2.dropped_zero_sector,
                 expanded: r.expanded + r2.expanded,
@@ -867,19 +970,39 @@ pub fn point_rule(
         }
         // a SELF-TERM (the key itself on the right with coefficient c, single row or pair) is solved for:
         // (1 - c) I(K) = rest, coefficients rest / (1 - c) exactly (rational: `den`); 1 - c = 0 refuses (no relation)
-        let self_c: i128 = r.terms.iter().filter(|(p, _)| instantiate(p, key) == key).map(|(_, c)| *c).sum();
+        let self_c: i128 = r
+            .terms
+            .iter()
+            .filter(|(p, _)| instantiate(p, key) == key)
+            .map(|(_, c)| *c)
+            .sum();
         if r.terms.iter().any(|(p, _)| instantiate(p, key) == key) {
             let lead = r.den - self_c;
             if lead == 0 {
-                refused.push((k, "self-term: the key cancels (no relation)".into())); continue;
+                refused.push((k, "self-term: the key cancels (no relation)".into()));
+                continue;
             }
             r.terms.retain(|(p, _)| instantiate(p, key) != key);
             r.den = lead;
         }
-        if let Some((p, _)) = r.terms.iter().find(|(p, _)| concrete(key, &instantiate(p, key)) != std::cmp::Ordering::Less) {
-            refused.push((k, format!("term {:?} is not strictly lower (full node order)", instantiate(p, key)))); continue;
+        if let Some((p, _)) = r
+            .terms
+            .iter()
+            .find(|(p, _)| concrete(key, &instantiate(p, key)) != std::cmp::Ordering::Less)
+        {
+            refused.push((
+                k,
+                format!(
+                    "term {:?} is not strictly lower (full node order)",
+                    instantiate(p, key)
+                ),
+            ));
+            continue;
         }
-        if best.as_ref().is_none_or(|(_, b)| r.terms.len() < b.terms.len()) {
+        if best
+            .as_ref()
+            .is_none_or(|(_, b)| r.terms.len() < b.terms.len())
+        {
             best = Some((k, r));
         }
     }
@@ -906,12 +1029,29 @@ pub struct RunOptions {
 macro_rules! with_n {
     ($n:expr, $N:ident, $body:block) => {
         match $n {
-            5 => { const $N: usize = 5; $body }
-            9 => { const $N: usize = 9; $body }
-            12 => { const $N: usize = 12; $body }
-            14 => { const $N: usize = 14; $body }
-            20 => { const $N: usize = 20; $body }
-            other => Err(format!("arity {other}: symface compiled for 5, 9, 12, 14, 20")),
+            5 => {
+                const $N: usize = 5;
+                $body
+            }
+            9 => {
+                const $N: usize = 9;
+                $body
+            }
+            12 => {
+                const $N: usize = 12;
+                $body
+            }
+            14 => {
+                const $N: usize = 14;
+                $body
+            }
+            20 => {
+                const $N: usize = 20;
+                $body
+            }
+            other => Err(format!(
+                "arity {other}: symface compiled for 5, 9, 12, 14, 20"
+            )),
         }
     };
 }
@@ -927,14 +1067,25 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
     let fam = super::driver::compile_family(&o.family_text)?;
     // eps (two-sided) families: refused (interface eps-families.md: charts per eps sign, two-sided order, kshift-equal
     // elements only; none of that is modelled here)
-    if fam.power_shifts().iter().any(|s| s.to_string().trim() != "0") {
-        return Err("eps (two-sided) families are not supported by symface (interfaces/eps-families.md)".into());
+    if fam
+        .power_shifts()
+        .iter()
+        .any(|s| s.to_string().trim() != "0")
+    {
+        return Err(
+            "eps (two-sided) families are not supported by symface (interfaces/eps-families.md)"
+                .into(),
+        );
     }
     if fam.denominator_count() != n {
-        return Err(format!("chart arity {n} != family arity {}", fam.denominator_count()));
+        return Err(format!(
+            "chart arity {n} != family arity {}",
+            fam.denominator_count()
+        ));
     }
     // zero-sector census of the chart's lines (the recipe verb's analyzer and downset)
-    let analyzer = zero::Analyzer::try_unrestricted(&fam).map_err(|e| format!("zero analyzer: {e:?}"))?;
+    let analyzer =
+        zero::Analyzer::try_unrestricted(&fam).map_err(|e| format!("zero analyzer: {e:?}"))?;
     let scope: Vec<usize> = (0..n).filter(|&i| o.face.chart[i]).collect();
     let mut zeros: std::collections::BTreeSet<Vec<bool>> = Default::default();
     for bits in 0u64..(1u64 << scope.len()) {
@@ -943,14 +1094,22 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
             active[i] = bits >> j & 1 == 1;
         }
         let m = Mask::try_new(active.iter().copied()).map_err(|e| format!("mask: {e:?}"))?;
-        if let zero::Decision::ProvedZero(_) = analyzer.analyze(&m).map_err(|e| format!("zero analysis: {e:?}"))? {
+        if let zero::Decision::ProvedZero(_) = analyzer
+            .analyze(&m)
+            .map_err(|e| format!("zero analysis: {e:?}"))?
+        {
             zeros.insert(active);
         }
     }
     let zero_fn = |mask: &[bool]| zeros.contains(mask);
     let ff = FamilyForms::new(&o.family_text)?;
     let group = node_group(&o.family_text, &o.face.chart)?;
-    let label: String = o.face.chart.iter().map(|&b| if b { '1' } else { '0' }).collect();
+    let label: String = o
+        .face
+        .chart
+        .iter()
+        .map(|&b| if b { '1' } else { '0' })
+        .collect();
     if let Some(keys) = &o.point_keys {
         return run_points(o, keys, &ff, &group, &zero_fn, &label, &zeros, t0);
     }
@@ -963,20 +1122,36 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         let concrete = |a: &[i64], b: &[i64]| -> std::cmp::Ordering {
             let to = |v: &[i64]| {
                 crate::solver::Integral::<N>::new(std::array::from_fn(|i| {
-                    crate::solver::Power::new(false, if i < n { v[i] as i16 } else { 0 }).expect("power")
+                    crate::solver::Power::new(false, if i < n { v[i] as i16 } else { 0 })
+                        .expect("power")
                 }))
             };
             io.compare(&to(a), &to(b))
         };
-        Ok(try_elements(&ff, &group, &o.face, o.slice_max, o.total_bound, &zero_fn, &forms, &concrete, o.element,
-            o.max_expansion, &o.check_keys))
+        Ok(try_elements(
+            &ff,
+            &group,
+            &o.face,
+            o.slice_max,
+            o.total_bound,
+            &zero_fn,
+            &forms,
+            &concrete,
+            o.element,
+            o.max_expansion,
+            &o.check_keys,
+        ))
     })?;
     // choice: the accepted element with the fewest total terms; ties by element index
     let chosen = results
         .iter()
         .filter(|r| r.refused.is_none() && !r.rules.is_empty())
         .min_by_key(|r| (r.total_terms(), r.element));
-    let bound = if o.total_bound { "sum |substituted power| <= slice_max" } else { "each |substituted power| <= slice_max" };
+    let bound = if o.total_bound {
+        "sum |substituted power| <= slice_max"
+    } else {
+        "each |substituted power| <= slice_max"
+    };
     let per_element: Vec<Value> = results
         .iter()
         .map(|r| json!({"element": r.element, "substituted": r.substituted, "accepted": r.refused.is_none(),
@@ -1002,7 +1177,10 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         let mut text = String::new();
         let mut h = header.as_object().unwrap().clone();
         h.remove("type");
-        text.push_str(&format!("{{\"type\":\"header\",{}\n", &Value::Object(h).to_string()[1..]));
+        text.push_str(&format!(
+            "{{\"type\":\"header\",{}\n",
+            &Value::Object(h).to_string()[1..]
+        ));
         text.push_str(&table_preamble(&label, &zeros));
         for l in &lines {
             text.push_str(l);
@@ -1026,8 +1204,14 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
             for key in &o.check_keys {
                 if let Some(r) = rule_for_key(&c.rules, key) {
                     if (0..n).all(|i| r.target[i].var.is_some() || r.target[i].c == key[i]) {
-                        let terms: Vec<Value> = r.terms.iter().map(|(p, co)| json!([instantiate(p, key), r.coef_text(*co)])).collect();
-                        lines.push_str(&json!({"key": key, "element": c.element, "terms": terms}).to_string());
+                        let terms: Vec<Value> = r
+                            .terms
+                            .iter()
+                            .map(|(p, co)| json!([instantiate(p, key), r.coef_text(*co)]))
+                            .collect();
+                        lines.push_str(
+                            &json!({"key": key, "element": c.element, "terms": terms}).to_string(),
+                        );
                         lines.push('\n');
                     }
                 }
@@ -1036,7 +1220,11 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
         }
     }
     report["seconds"] = json!(t0.elapsed().as_secs_f64());
-    std::fs::write(o.out.join("REPORT.json"), serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(
+        o.out.join("REPORT.json"),
+        serde_json::to_string_pretty(&report).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(report)
 }
 
@@ -1045,8 +1233,14 @@ pub fn run(o: &RunOptions) -> Result<Value, String> {
 /// slots, scope "chart_subsets": rr_proof --drop-zero-sectors drops a column whose mask is listed) and the chart line
 /// with the guards of its mask (bit 1 "n>=1", bit 0 "n<=0"; interfaces/eps-families.md section 4).
 fn table_preamble(label: &str, zeros: &std::collections::BTreeSet<Vec<bool>>) -> String {
-    let masks: Vec<String> = zeros.iter().map(|m| m.iter().map(|&b| if b { '1' } else { '0' }).collect()).collect();
-    let guards: Vec<&str> = label.chars().map(|b| if b == '1' { "n>=1" } else { "n<=0" }).collect();
+    let masks: Vec<String> = zeros
+        .iter()
+        .map(|m| m.iter().map(|&b| if b { '1' } else { '0' }).collect())
+        .collect();
+    let guards: Vec<&str> = label
+        .chars()
+        .map(|b| if b == '1' { "n>=1" } else { "n<=0" })
+        .collect();
     // "type" first (readers match the record prefix); serde_json sorts object keys
     format!(
         "{{\"type\":\"zero_sectors\",\"scope\":\"chart_subsets\",\"count\":{},\"masks\":{}}}\n{{\"type\":\"chart\",\"chart\":{},\"guards\":{},\"zero\":false}}\n",
@@ -1079,7 +1273,8 @@ fn run_points(
         let concrete = |a: &[i64], b: &[i64]| -> std::cmp::Ordering {
             let to = |v: &[i64]| {
                 crate::solver::Integral::<N>::new(std::array::from_fn(|i| {
-                    crate::solver::Power::new(false, if i < n { v[i] as i16 } else { 0 }).expect("power")
+                    crate::solver::Power::new(false, if i < n { v[i] as i16 } else { 0 })
+                        .expect("power")
                 }))
             };
             io.compare(&to(a), &to(b))
@@ -1088,7 +1283,17 @@ fn run_points(
             if key.len() != n {
                 return Err(format!("point key of arity {} (family {n})", key.len()));
             }
-            let (best, refused) = point_rule(ff, group, &o.face.chart, key, zero_fn, &concrete, o.max_expansion, o.pair.as_ref(), o.element);
+            let (best, refused) = point_rule(
+                ff,
+                group,
+                &o.face.chart,
+                key,
+                zero_fn,
+                &concrete,
+                o.max_expansion,
+                o.pair.as_ref(),
+                o.element,
+            );
             match best {
                 Some((k, r)) => {
                     served += 1;
@@ -1116,9 +1321,15 @@ fn run_points(
             "family_source": o.family_text, "charts": [label],
             "node_order": serde_json::from_str::<Value>(&o.order.to_json()).unwrap_or(Value::Null), "guard_version": 2,
             "symface_tables": {"mode": "point", "keys": keys.len(), "served": served}});
-        text.push_str(&format!("{{\"type\":\"header\",{}\n", &header.to_string()[1..]));
+        text.push_str(&format!(
+            "{{\"type\":\"header\",{}\n",
+            &header.to_string()[1..]
+        ));
         text.push_str(&table_preamble(&label, &zeros));
-        for l in &lines { text.push_str(l); text.push('\n'); }
+        for l in &lines {
+            text.push_str(l);
+            text.push('\n');
+        }
         text.push_str(&format!("{{\"type\":\"end\",\"charts\":1,\"rules\":{},\"residuals\":0,\"chart_errors\":0,\"harness\":\"rustred node symface point mode\"}}\n", lines.len()));
         std::fs::write(o.out.join("F.table.jsonl"), &text).map_err(|e| e.to_string())?;
     }
@@ -1127,7 +1338,11 @@ fn run_points(
         "rhs_terms": per_key.iter().filter_map(|k| k["terms"].as_u64()).sum::<u64>(), "zero_sectors": n_zero,
         "group_order": group.group_order, "per_key": per_key, "seconds": t0.elapsed().as_secs_f64(),
         "table_bytes": text.len()});
-    std::fs::write(o.out.join("REPORT.json"), serde_json::to_string_pretty(&report).unwrap()).map_err(|e| e.to_string())?;
+    std::fs::write(
+        o.out.join("REPORT.json"),
+        serde_json::to_string_pretty(&report).unwrap(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok(report)
 }
 

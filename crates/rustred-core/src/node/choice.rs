@@ -25,10 +25,18 @@ impl SizeRatio {
             Some((n, d)) => (n, d),
             None => (s, "1"),
         };
-        let num: u64 = n.trim().parse().map_err(|_| format!("max_size_ratio {s:?}"))?;
-        let den: u64 = d.trim().parse().map_err(|_| format!("max_size_ratio {s:?}"))?;
+        let num: u64 = n
+            .trim()
+            .parse()
+            .map_err(|_| format!("max_size_ratio {s:?}"))?;
+        let den: u64 = d
+            .trim()
+            .parse()
+            .map_err(|_| format!("max_size_ratio {s:?}"))?;
         if den == 0 || num < den {
-            return Err(format!("max_size_ratio {s:?} must be a rational >= 1 or \"unbounded\""));
+            return Err(format!(
+                "max_size_ratio {s:?} must be a rational >= 1 or \"unbounded\""
+            ));
         }
         Ok(Self::Ratio { num, den })
     }
@@ -37,7 +45,9 @@ impl SizeRatio {
     fn admits(&self, size: u64, smallest: u64) -> bool {
         match self {
             Self::Unbounded => true,
-            Self::Ratio { num, den } => u128::from(size) * u128::from(*den) <= u128::from(smallest) * u128::from(*num),
+            Self::Ratio { num, den } => {
+                u128::from(size) * u128::from(*den) <= u128::from(smallest) * u128::from(*num)
+            }
         }
     }
 }
@@ -93,30 +103,64 @@ mod tests {
     #[test]
     fn regular_always_wins_by_default_and_loses_to_a_finite_ratio() {
         let c = vec![
-            Candidate { rhs_terms: 100, regular_at_d0: false },
-            Candidate { rhs_terms: 10_000, regular_at_d0: true }, // 100x larger, regular
+            Candidate {
+                rhs_terms: 100,
+                regular_at_d0: false,
+            },
+            Candidate {
+                rhs_terms: 10_000,
+                regular_at_d0: true,
+            }, // 100x larger, regular
         ];
         // default (unbounded): the regular one wins whatever its size
         assert_eq!(choose(&c, SizeRatio::default()), Some((1, Reason::Regular)));
         assert_eq!(SizeRatio::parse("unbounded").unwrap(), SizeRatio::Unbounded);
         // max_size_ratio = 8: the regular one is 100x the smallest -> the singular one wins, recorded as size guard
         match choose(&c, SizeRatio::parse("8").unwrap()) {
-            Some((0, Reason::SizeGuard { regular_index: 1, ratio })) => assert!((ratio - 100.0).abs() < 1e-9),
+            Some((
+                0,
+                Reason::SizeGuard {
+                    regular_index: 1,
+                    ratio,
+                },
+            )) => assert!((ratio - 100.0).abs() < 1e-9),
             other => panic!("{other:?}"),
         }
         // within the ratio the regular one wins
         let c2 = vec![
-            Candidate { rhs_terms: 100, regular_at_d0: false },
-            Candidate { rhs_terms: 700, regular_at_d0: true },
+            Candidate {
+                rhs_terms: 100,
+                regular_at_d0: false,
+            },
+            Candidate {
+                rhs_terms: 700,
+                regular_at_d0: true,
+            },
         ];
-        assert_eq!(choose(&c2, SizeRatio::parse("8").unwrap()), Some((1, Reason::Regular)));
+        assert_eq!(
+            choose(&c2, SizeRatio::parse("8").unwrap()),
+            Some((1, Reason::Regular))
+        );
         // no regular candidate: the smallest; ties by position
         let c3 = vec![
-            Candidate { rhs_terms: 5, regular_at_d0: false },
-            Candidate { rhs_terms: 5, regular_at_d0: false },
+            Candidate {
+                rhs_terms: 5,
+                regular_at_d0: false,
+            },
+            Candidate {
+                rhs_terms: 5,
+                regular_at_d0: false,
+            },
         ];
-        assert_eq!(choose(&c3, SizeRatio::default()), Some((0, Reason::Smallest)));
-        assert!(SizeRatio::parse("1/2").is_err() && SizeRatio::parse("x").is_err() && SizeRatio::parse("3/2").is_ok());
+        assert_eq!(
+            choose(&c3, SizeRatio::default()),
+            Some((0, Reason::Smallest))
+        );
+        assert!(
+            SizeRatio::parse("1/2").is_err()
+                && SizeRatio::parse("x").is_err()
+                && SizeRatio::parse("3/2").is_ok()
+        );
         assert_eq!(choose(&[], SizeRatio::default()), None);
     }
 }
