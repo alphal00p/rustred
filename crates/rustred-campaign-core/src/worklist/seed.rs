@@ -1,0 +1,662 @@
+//! The seed-search space of a case (plan 2.4.4 "THE SEED RUNG AS A SMALL SEARCH", D-41, D-43, 2.4.13; R21, R25,
+//! R26, R29 (a), R37), attempt budgets that scale with the face (R34 (d), R38 oversized class) and the ONE mapping of
+//! an abstract [`SeedSetting`] to engine argv ([`engine_seed_args`], EC-1 spelling).
+
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+
+use super::items::{CaseSpec, NodeParams};
+use super::policy::{CentreSpec, SettingSpec, face_type_of_case};
+
+/// Which centre a setting uses (label; the offsets are authoritative).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum CentreKind {
+    Target,
+    LineDown(usize),
+    NumUp(usize),
+    Pair {
+        line: usize,
+        num: usize,
+    },
+    Combined,
+    CombinedNum,
+    /// A child's (or point's) fixed off-floor slot, one step towards its floor (H s.2).
+    FixedSlot(usize),
+    UnionLines,
+    UnionPairs,
+    Explicit,
+}
+
+impl CentreKind {
+    pub fn spec(&self) -> CentreSpec {
+        match self {
+            CentreKind::Target | CentreKind::Explicit => CentreSpec::Target,
+            CentreKind::LineDown(_) => CentreSpec::Line,
+            CentreKind::NumUp(_) => CentreSpec::Num,
+            CentreKind::Pair { .. } => CentreSpec::Pair,
+            CentreKind::Combined => CentreSpec::Combined,
+            CentreKind::CombinedNum => CentreSpec::CombinedNum,
+            CentreKind::FixedSlot(_) => CentreSpec::Fixed,
+            CentreKind::UnionLines => CentreSpec::UnionLines,
+            CentreKind::UnionPairs => CentreSpec::UnionPairs,
+        }
+    }
+}
+
+/// One abstract seed setting: centres (offsets from the target; empty = the target; several = a union of seed sets),
+/// floor filter on face lines, shell depth, tight seeds (a seed LAYER CAP `D,R[,B]` relative to the target's layer,
+/// engine `--seed-layer-cap`), symmetry rows in the seed system (R46 (1); depth 0 with symmetry rows = "symmetry rows
+/// at the target alone", no IBP shells).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct SeedSetting {
+    pub centre: CentreKind,
+    pub offsets: Vec<BTreeMap<usize, i32>>,
+    pub floor: bool,
+    pub depth: u8,
+    /// `layer_cap.is_some()` (kept for evidence records and labels).
+    pub tight: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layer_cap: Option<Vec<u32>>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub symmetry_rows: bool,
+}
+
+impl SeedSetting {
+    pub fn target(depth: u8) -> Self {
+        SeedSetting {
+            centre: CentreKind::Target,
+            offsets: vec![],
+            floor: false,
+            depth,
+            tight: false,
+            layer_cap: None,
+            symmetry_rows: false,
+        }
+    }
+
+    /// "Symmetry rows at the target alone" (R46 (1), (6)): no IBP shells.
+    pub fn symmetry_target() -> Self {
+        SeedSetting {
+            symmetry_rows: true,
+            ..SeedSetting::target(0)
+        }
+    }
+
+    /// Canonical identity (offsets as a sorted set, floor, depth, tight); two settings with the same key are the
+    /// same engine call.
+    pub fn canonical_key(&self) -> String {
+        let mut cs: Vec<String> = self
+            .offsets
+            .iter()
+            .filter(|m| m.values().any(|&v| v != 0))
+            .map(|m| {
+                m.iter()
+                    .filter(|(_, v)| **v != 0)
+                    .map(|(s, v)| format!("{s}:{v}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            })
+            .collect();
+        cs.sort();
+        cs.dedup();
+        let mut k = format!(
+            "c=[{}];fl={};d={};t={}",
+            cs.join(";"),
+            u8::from(self.floor),
+            self.depth,
+            u8::from(self.tight)
+        );
+        // new dimensions only when set: historical keys (and recorded evidence) stay valid
+        if let Some(c) = &self.layer_cap {
+            k.push_str(&format!(
+                ";cap={}",
+                c.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ));
+        }
+        if self.symmetry_rows {
+            k.push_str(";sym=1");
+        }
+        k
+    }
+
+    /// Short human label: "line:6/fl/d2", "union_lines(0,6)/unfl/d3".
+    pub fn label(&self) -> String {
+        let c = match &self.centre {
+            CentreKind::Target => "target".to_string(),
+            CentreKind::LineDown(x) => format!("line:{x}"),
+            CentreKind::NumUp(j) => format!("num:{j}"),
+            CentreKind::Pair { line, num } => format!("pair:{line}:{num}"),
+            CentreKind::Combined => "combined".into(),
+            CentreKind::CombinedNum => "combined_num".into(),
+            CentreKind::FixedSlot(s) => format!("fixed:{s}"),
+            CentreKind::UnionLines | CentreKind::UnionPairs | CentreKind::Explicit => {
+                let slots: BTreeSet<usize> = self
+                    .offsets
+                    .iter()
+                    .flat_map(|m| m.keys().copied())
+                    .collect();
+                let name = match self.centre {
+                    CentreKind::UnionLines => "union_lines",
+                    CentreKind::UnionPairs => "union_pairs",
+                    _ => "explicit",
+                };
+                format!(
+                    "{name}({})",
+                    slots
+                        .iter()
+                        .map(|s| s.to_string())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                )
+            }
+        };
+        let cap = match &self.layer_cap {
+            Some(c) => format!(
+                "/cap({})",
+                c.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join(",")
+            ),
+            None if self.tight => "/tight".into(),
+            None => String::new(),
+        };
+        format!(
+            "{c}/{}/d{}{cap}{}",
+            if self.floor { "fl" } else { "unfl" },
+            self.depth,
+            if self.symmetry_rows { "/sym" } else { "" }
+        )
+    }
+
+    /// The slots that carry a centre offset (for evidence records).
+    pub fn slots(&self) -> Vec<usize> {
+        let s: BTreeSet<usize> = self
+            .offsets
+            .iter()
+            .flat_map(|m| m.keys().copied())
+            .collect();
+        s.into_iter().collect()
+    }
+}
+
+/// THE ONE mapping of a setting to engine argv (interfaces/coord-ec1-seed-centre.md, EC-1 first form; addendum 3 of
+/// R46): `--seed-centre-offset 'S:D[,..][;..]'` (omitted for the target), `--seed-face-floor 1` (floor on only; the flag
+/// is omitted for floor off), `--max-depth K`, `--seed-layer-cap D,R[,B]` for a tight setting (coordinator branch,
+/// `solver::SeedLayerCap`), `--symmetry-symbolic` for symmetry rows (EC-1 v2 section 5, int4: a setting's symmetry rows
+/// are rows of the CASE SEARCH; the engine's `--symmetry-rows` adds them to the shared numeric bulk solve only and is
+/// implied by `--symmetry-symbolic`). Depth 0 = the symmetry rows at the target alone: `--max-depth 0 --numeric-depth 0`
+/// (EC-1 v2 section 6, measured form for a point; a symbolic face additionally needs `--open-on-refusal`, a property of
+/// the CASE that the job builder adds, not of the setting).
+pub fn engine_seed_args(s: &SeedSetting) -> Vec<String> {
+    let mut a = Vec::new();
+    let centres: Vec<String> = s
+        .offsets
+        .iter()
+        .filter(|m| m.values().any(|&v| v != 0))
+        .map(|m| {
+            m.iter()
+                .filter(|(_, v)| **v != 0)
+                .map(|(slot, d)| format!("{slot}:{d}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .collect();
+    if !centres.is_empty() {
+        a.push("--seed-centre-offset".into());
+        a.push(centres.join(";"));
+    }
+    if s.floor {
+        a.push("--seed-face-floor".into());
+        a.push("1".into());
+    }
+    a.push("--max-depth".into());
+    a.push(s.depth.to_string());
+    if s.depth == 0 {
+        a.push("--numeric-depth".into());
+        a.push("0".into());
+    }
+    if let Some(c) = &s.layer_cap {
+        a.push("--seed-layer-cap".into());
+        a.push(
+            c.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+    }
+    if s.symmetry_rows {
+        a.push("--symmetry-symbolic".into());
+    }
+    a
+}
+
+/// Instances of one policy entry on a case.
+fn expand(
+    spec: &SettingSpec,
+    depth: u8,
+    case: &CaseSpec,
+    params: &NodeParams,
+    class_tight: bool,
+) -> Vec<SeedSetting> {
+    let lines = &params.lines;
+    let free = case.free();
+    let lines_free: Vec<usize> = free
+        .iter()
+        .copied()
+        .filter(|&s| lines[s] && case.face.sd.contains(&s))
+        .collect();
+    let nums_free: Vec<usize> = free
+        .iter()
+        .copied()
+        .filter(|&s| !lines[s] && case.face.sn.contains(&s))
+        .collect();
+    let fixed_off = case.fixed_off_floor(lines);
+    let face_line = !lines_free.is_empty() || fixed_off.iter().any(|&s| lines[s]);
+    let floor = spec.floor.unwrap_or(true) && face_line;
+    let tight = spec.tight.unwrap_or(class_tight);
+    // a tight entry expands into one setting per layer cap, in the relaxation order of the data
+    let caps: Vec<Option<Vec<u32>>> = if tight {
+        spec.layer_caps
+            .clone()
+            .unwrap_or_else(super::policy::builtin_layer_caps)
+            .into_iter()
+            .map(Some)
+            .collect()
+    } else {
+        vec![None]
+    };
+    let one = |m: &[(usize, i32)]| -> BTreeMap<usize, i32> { m.iter().copied().collect() };
+    let mut out = Vec::new();
+    for cap in caps {
+        let mk =
+            |centre: CentreKind, offsets: Vec<BTreeMap<usize, i32>>, floor: bool| SeedSetting {
+                centre,
+                offsets,
+                floor,
+                depth,
+                tight: cap.is_some(),
+                layer_cap: cap.clone(),
+                symmetry_rows: false,
+            };
+        expand_one(
+            spec,
+            &mk,
+            &one,
+            &lines_free,
+            &nums_free,
+            &fixed_off,
+            floor,
+            lines,
+            &mut out,
+        );
+    }
+    out
+}
+
+/// Builds one setting from (centre, offsets, floor).
+type MakeSetting<'a> = dyn Fn(CentreKind, Vec<BTreeMap<usize, i32>>, bool) -> SeedSetting + 'a;
+
+/// Builds one centre map from (slot, offset) pairs.
+type OneCentre<'a> = dyn Fn(&[(usize, i32)]) -> BTreeMap<usize, i32> + 'a;
+
+#[allow(clippy::too_many_arguments)]
+fn expand_one(
+    spec: &SettingSpec,
+    mk: &MakeSetting<'_>,
+    one: &OneCentre<'_>,
+    lines_free: &[usize],
+    nums_free: &[usize],
+    fixed_off: &[usize],
+    floor: bool,
+    lines: &[bool],
+    out: &mut Vec<SeedSetting>,
+) {
+    let toward = |s: usize| if lines[s] { -1 } else { 1 };
+    match spec.centre {
+        CentreSpec::Target => out.push(mk(CentreKind::Target, vec![], false)),
+        CentreSpec::Line => {
+            for &x in lines_free {
+                out.push(mk(CentreKind::LineDown(x), vec![one(&[(x, -1)])], floor));
+            }
+        }
+        CentreSpec::Fixed => {
+            for &x in fixed_off {
+                out.push(mk(
+                    CentreKind::FixedSlot(x),
+                    vec![one(&[(x, toward(x))])],
+                    floor,
+                ));
+            }
+        }
+        CentreSpec::Num => {
+            for &j in nums_free {
+                out.push(mk(CentreKind::NumUp(j), vec![one(&[(j, 1)])], floor));
+            }
+        }
+        CentreSpec::Pair => {
+            for &x in lines_free {
+                for &j in nums_free {
+                    out.push(mk(
+                        CentreKind::Pair { line: x, num: j },
+                        vec![one(&[(x, -1), (j, 1)])],
+                        floor,
+                    ));
+                }
+            }
+        }
+        CentreSpec::Combined => {
+            let mut m = BTreeMap::new();
+            for &x in lines_free.iter().chain(nums_free).chain(fixed_off) {
+                m.insert(x, toward(x));
+            }
+            if m.len() >= 2 {
+                out.push(mk(CentreKind::Combined, vec![m], floor));
+            }
+        }
+        CentreSpec::CombinedNum => {
+            let mut m = BTreeMap::new();
+            for &x in nums_free
+                .iter()
+                .chain(fixed_off.iter().filter(|&&s| !lines[s]))
+            {
+                m.insert(x, 1);
+            }
+            if m.len() >= 2 {
+                out.push(mk(CentreKind::CombinedNum, vec![m], floor));
+            }
+        }
+        CentreSpec::UnionLines => {
+            let cs: Vec<BTreeMap<usize, i32>> = lines_free
+                .iter()
+                .chain(fixed_off.iter().filter(|&&s| lines[s]))
+                .map(|&x| one(&[(x, -1)]))
+                .collect();
+            if cs.len() >= 2 {
+                out.push(mk(CentreKind::UnionLines, cs, floor));
+            }
+        }
+        CentreSpec::UnionPairs => {
+            let mut cs = Vec::new();
+            for &x in lines_free {
+                for &j in nums_free {
+                    cs.push(one(&[(x, -1), (j, 1)]));
+                }
+            }
+            if cs.len() >= 2 {
+                out.push(mk(CentreKind::UnionPairs, cs, floor));
+            }
+        }
+    }
+}
+
+/// The seed-search space of a case, as WAVES (one wave per shell depth, in the order the depths first appear in the
+/// policy class, then the built-in depths): the class's ordered entries, then (completeness rule, unless the class
+/// says `replace_builtin`) every built-in entry not yet present, duplicates removed, then a stable reorder by the
+/// policy's evidence priors (never a removal). Finite and known when the item is created: its total length is the
+/// seed-search sub-counter (D-43).
+pub fn seed_space(case: &CaseSpec, params: &NodeParams) -> Vec<Vec<SeedSetting>> {
+    let face_type = face_type_of_case(case);
+    let class = params.policy.class_for(&params.node_class, &face_type);
+    let priors = params.policy.priors(&face_type);
+    let builtin = super::policy::SeedPolicy::builtin();
+    let builtin_waves = &builtin.classes[0].waves;
+    let mut depths: Vec<u8> = Vec::new();
+    for w in class
+        .waves
+        .iter()
+        .chain(builtin_waves.iter().filter(|_| !class.replace_builtin))
+    {
+        if !depths.contains(&w.depth) {
+            depths.push(w.depth);
+        }
+    }
+    let mut seen = BTreeSet::new();
+    let mut waves = Vec::new();
+    for depth in depths {
+        let mut wave = Vec::new();
+        let listed = class
+            .waves
+            .iter()
+            .filter(|w| w.depth == depth)
+            .flat_map(|w| &w.settings);
+        let extra = builtin_waves
+            .iter()
+            .filter(|w| w.depth == depth && !class.replace_builtin)
+            .flat_map(|w| &w.settings);
+        for spec in listed.chain(extra) {
+            for st in expand(spec, depth, case, params, class.tight) {
+                if seen.insert(st.canonical_key()) {
+                    wave.push(st);
+                }
+            }
+        }
+        if !priors.is_empty() {
+            let rank = |st: &SeedSetting| -> f64 {
+                priors
+                    .get(&(st.centre.spec(), st.floor, st.depth))
+                    .copied()
+                    .unwrap_or(f64::INFINITY)
+            };
+            wave.sort_by(|a, b| {
+                rank(a)
+                    .partial_cmp(&rank(b))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        waves.push(wave);
+    }
+    symmetry_dimension(waves, case, params)
+}
+
+/// The symmetry-rows dimension (R46 (1), (6); addendum 3): only for a node with a NONTRIVIAL symmetry group (data).
+/// If the caller's provers can establish the node's required level for rules WITH symmetry rows
+/// (`ProverCapabilities`), the cheapest wave "symmetry rows at the target alone" comes FIRST and every wave lists its
+/// settings with symmetry rows before the same settings without. Otherwise the plain space is unchanged and only the
+/// cheap "symmetry rows at the target alone" wave is added (first) for POINT cases, as INFORMATION for the terminal
+/// rung: its candidates are recorded but never accepted ("found, awaiting a certificate route").
+fn symmetry_dimension(
+    waves: Vec<Vec<SeedSetting>>,
+    case: &CaseSpec,
+    params: &NodeParams,
+) -> Vec<Vec<SeedSetting>> {
+    let Some(g) = &params.symmetry else {
+        return waves;
+    };
+    if !g.nontrivial() || !params.policy.symmetry_dimension {
+        return waves;
+    }
+    let capable = params.capabilities.can(true, params.min_evidence);
+    let mut out = Vec::new();
+    if capable {
+        out.push(vec![SeedSetting::symmetry_target()]);
+        for w in waves {
+            let mut nw: Vec<SeedSetting> = w
+                .iter()
+                .map(|s| SeedSetting {
+                    symmetry_rows: true,
+                    ..s.clone()
+                })
+                .collect();
+            nw.extend(w);
+            out.push(nw);
+        }
+    } else {
+        if case.is_point() {
+            out.push(vec![SeedSetting::symmetry_target()]);
+        }
+        out.extend(waves);
+    }
+    out
+}
+
+/// Budget class of an attempt (R38: oversized rules get their own class).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum BudgetClass {
+    Standard,
+    Deep,
+    Point,
+    Oversized,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AttemptBudget {
+    pub seconds: u64,
+    pub mem_mb: u64,
+    /// Work counter (preferred over wall time, D-54): estimated seeds x IBP rows per seed.
+    pub max_rows: u64,
+    pub class: BudgetClass,
+}
+
+fn binom(n: u64, k: u64) -> u64 {
+    let mut r: u64 = 1;
+    for i in 0..k {
+        r = r.saturating_mul(n - i) / (i + 1);
+    }
+    r
+}
+
+/// Estimated seed count of a setting: per centre, all raising shells up to the depth (sum_k C(N+k-1, k) for arity N)
+/// plus the lowering shells (~2N); times the number of centres of a union.
+pub fn estimated_seeds(s: &SeedSetting, arity: usize) -> u64 {
+    let n = arity as u64;
+    let raises: u64 = (0..=s.depth as u64).map(|k| binom(n + k - 1, k)).sum();
+    (raises + 2 * n) * (s.offsets.len().max(1) as u64)
+}
+
+/// The deterministic WORK of a setting for the economy extra budget (U-13, repair-library.md v1.3 4.4): its
+/// estimated seed count times the family's IBP rows per seed (1 when unknown). A pure function of the setting and the
+/// node: never wall clock, never a reported CPU time.
+pub fn setting_work(s: &SeedSetting, params: &NodeParams) -> u64 {
+    estimated_seeds(s, params.arity).saturating_mul((params.ibp_rows_per_seed as u64).max(1))
+}
+
+/// An INFORMATION setting: generated with symmetry rows while the caller's provers cannot bring a rule with
+/// symmetry rows to the node's required level. Its candidates are never accepted and its outcome never gates the
+/// terminal rung (re-audit A M1); a relation it finds marks the terminal proposal "awaiting a certificate route".
+pub fn is_information(s: &SeedSetting, params: &NodeParams) -> bool {
+    s.symmetry_rows && !params.capabilities.can(true, params.min_evidence)
+}
+
+/// Attempt budget: seconds = base(depth) x max(1, estimated seeds / `scale_reference_seeds`), capped (R34 (d));
+/// memory by depth (depth >= 3 uses the deep figures); the point and oversized classes have their own figures. The
+/// policy class of the case may override the base figures (`PolicyClass.budgets`).
+pub fn attempt_budget(
+    s: &SeedSetting,
+    case: &CaseSpec,
+    params: &NodeParams,
+    point: bool,
+    oversized: bool,
+) -> AttemptBudget {
+    let mut b = params.budgets.clone();
+    let class = params
+        .policy
+        .class_for(&params.node_class, &face_type_of_case(case));
+    if let Some(pb) = &class.budgets {
+        b.base_seconds_d2 = pb.seconds_d2;
+        b.base_seconds_d3 = pb.seconds_d3;
+        b.cap_seconds = pb.cap_seconds;
+        b.mem_mb_d2 = pb.mem_mb_d2;
+        b.mem_mb_d3 = pb.mem_mb_d3;
+    }
+    let est = estimated_seeds(s, params.arity);
+    let max_rows = est.saturating_mul(params.ibp_rows_per_seed as u64);
+    if oversized {
+        // the retry class is LARGER in the work counter too (re-audit A M2): a deterministic work-counter stop is
+        // not simply repeated
+        return AttemptBudget {
+            seconds: b.oversized_seconds,
+            mem_mb: b.oversized_mem_mb,
+            max_rows: max_rows.saturating_mul(b.oversized_work_factor.max(1)),
+            class: BudgetClass::Oversized,
+        };
+    }
+    let (base, mem, class) = if point {
+        (b.point_seconds, b.point_mem_mb, BudgetClass::Point)
+    } else if s.depth >= 3 {
+        (b.base_seconds_d3, b.mem_mb_d3, BudgetClass::Deep)
+    } else {
+        (b.base_seconds_d2, b.mem_mb_d2, BudgetClass::Standard)
+    };
+    let r = b
+        .scale_reference_seeds
+        .unwrap_or_else(|| {
+            let one = SeedSetting {
+                offsets: vec![BTreeMap::from([(0usize, -1i32)])],
+                ..SeedSetting::target(3)
+            };
+            // (reference seed count; tight caps and symmetry rows do not change it)
+            estimated_seeds(&one, params.arity)
+        })
+        .max(1);
+    let scaled = if est > r {
+        base.saturating_mul(est) / r
+    } else {
+        base
+    };
+    AttemptBudget {
+        seconds: scaled.min(b.cap_seconds),
+        mem_mb: mem,
+        max_rows,
+        class,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::items::Face;
+    use super::*;
+
+    #[test]
+    fn single_line_face_has_six_settings() {
+        let p = NodeParams::new("T178", 20, 10);
+        let c = CaseSpec::face_case(Face::new(vec![6], vec![]));
+        let w = seed_space(&c, &p);
+        let n: usize = w.iter().map(|x| x.len()).sum();
+        assert_eq!(
+            n,
+            6,
+            "{:?}",
+            w.iter().flatten().map(|s| s.label()).collect::<Vec<_>>()
+        );
+        assert_eq!(w[0][1].label(), "line:6/fl/d2");
+        assert_eq!(
+            engine_seed_args(&w[0][1]),
+            vec![
+                "--seed-centre-offset",
+                "6:-1",
+                "--seed-face-floor",
+                "1",
+                "--max-depth",
+                "2"
+            ]
+        );
+    }
+
+    #[test]
+    fn union_and_pairs_present() {
+        let p = NodeParams::new("T178", 20, 10);
+        let c = CaseSpec::face_case(Face::new(vec![0, 6], vec![11]));
+        let all: Vec<String> = seed_space(&c, &p)
+            .into_iter()
+            .flatten()
+            .map(|s| s.label())
+            .collect();
+        assert!(all.contains(&"union_lines(0,6)/fl/d2".to_string()));
+        assert!(all.contains(&"union_lines(0,6)/unfl/d3".to_string()));
+        assert!(all.contains(&"pair:0:11/fl/d2".to_string()));
+        assert!(all.contains(&"combined/fl/d2".to_string()));
+        assert!(all.contains(&"union_pairs(0,6,11)/fl/d2".to_string()));
+        let u = seed_space(&c, &p)[0]
+            .iter()
+            .find(|s| s.centre == CentreKind::UnionLines)
+            .cloned()
+            .unwrap();
+        assert_eq!(engine_seed_args(&u)[1], "0:-1;6:-1");
+        let b = attempt_budget(&u, &c, &p, false, false);
+        assert_eq!(b.seconds, 300);
+    }
+}

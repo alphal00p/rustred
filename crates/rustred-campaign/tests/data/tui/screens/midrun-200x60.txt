@@ -1,0 +1,60 @@
+rr_campaign  p5l-boxed-final  RUNNING  hb 2s  age 1d04h  seq 18,402  sessions 2  dir tests/data/tui/midrun
+NODES 4  FULL 1  BOXED 1  OPEN 2  items done #################... 86% (1,414 of 1,640)  last event 3s ago
+ETA ~ 54m-2.6h  done ~ 09:09-10:51 UTC  cpu-h 61.4 used  (18-55 CPU-h left; 186 items queued or running, 21 jobs)  escalations not counted
+NEXT  T178: 2 terminal candidate item(s) wait for a decision -> rr_campaign terminals --node T178  (+1 more: a)
+CPU 21/32 in use   jobs 21 running, 4 queued   RAM 9.8/30.0 GiB (22.0 reserved)   host free 60.0 GiB (floor 50.0)
+CERTIFIED at the level asked: 1 of 4 nodes; rules: 142 at replay, 870 per-key, 132 pending
+ITEMS 1,640  open 226  run 21  acc 1,144  esc 210  rej 31  term 3  stale 4
+RULES accepted 1,201  rejected 31  DEFECT 449 keys (2/3 checked nodes)  TERMINALS 3 (cand 2, bound 100/node)  ECONOMY rules 3,402->3,120, RHS 2,310,455->2,093,318
+-[ Nodes (4) ]------------------------------------------------------------------------------------------------------------------------------------------------------------------ Enter: node detail ----
+node  coverage           cert asked/got phase     open open by rung            term defect  rules  used%     RHS proved% CPU-h
+!T178 OPEN               replay/-       running    130 L0:74 L1:39 L2:11 L4:6 1/100    412  1,381  23.3% 990,321   75.1%  23.2
+!T266 OPEN               replay/-       running     72 L0:40 L1:9 L2:11 L4:12 0/100     37 12,658  37.6%       -       -   0.0
+T162  [BOXED T162.rstar] per-key/-      closed       0 -                      2/100      0  1,308  42.5% 765,004   94.7%  38.2
+T074  FULL               replay/replay  certified    0 -                      0/100      0    431 100.0% 337,993  100.0%   0.0
+-[ Work list by ladder level ]---------------------------------  -[ Rules and certificates ]-----------------------------------  -[ T178 (selected; n/N) ]----------------------------------------------
+rung open run prod acc rej esc tcand term stale ret  jobs med s  accepted 1,201  rejected 31  upgrades 640  retired 282          node T178
+L0    125   9    3 740  12 120     -    -     4  40 1,001  41.0  rejected: other 19, rule_covers_none 5, irregular_point 3, ce~  coverage OPEN  target full  spec box T178.rstar  phase running  attemp~
+L1     53   6    - 210   9  61     -    -     -  12   288  96.0  evidence: geometry 61  tested 96  proved 987                    certification asked replay  reached -  (not yet at the level asked)
+L2     27   4    - 151   6  22     -    -     -   5   184  38.0  per-key proved 987 of 1,144 accepted (86.3%)                    closure  rounds 3  defect 412  closure keys 88,410  rules used 1,381 o~
+L3      3   -    -  24   1   6     -    -     -   -    31 140.0  economy: rules 3,402->3,120  RHS 2,310,455->2,093,318           economy  rules 1,490 -> 1,381 (superseded 109)  RHS terms 1,101,000 ->~
+L4     18   2    -  19   3   1     2    -     -   -    25 210.0  closure defect 449 keys (largest T178 412)                      terminals 1 of bound 100 (candidates 2)  items open 130  CPU 23.2 h
+L5      -   -    -   -   -   -     -    3     -   -     -     -  jobs 1,904 settled: rule_found 1,290, complete 311, no_rule 2~  evidence geometry 40  tested 60  proved 301  (per-key proved 75.1%)
+                                                                                                                                 blockers full: -   box: -
+                                                                                                                                 items by state: open 98, in_progress 14, produced 3, accepted 401, rej~
+                                                                                                                                 open by rung: L0:74 L1:39 L2:11 L4:6
+                                                                                                                                 -[ Attention (2) ]----------------------------------------- a: all ----
+                                                                                                                                 ! T178 terminal_candidates [decision] 2 terminal candidate item(s) wai~
+                                                                                                                                     rr_campaign terminals --node T178
+                                                                                                                                 ! T266 stale_inputs [warning] node is STALE: input T266.joined changed~
+                                                                                                                                     rr_campaign why T266
+-[ Running jobs 21 ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- j: all jobs ----
+job     node item       rung cpu GiB RSS / cap elapsed / budget  hb phase     pid run dir
+J000917 T178 F041 n9=-1 L1     1     0.5 / 2.0    1m42s / 5m00s  3s lift  2718301 large:jobs/9f3c1a07.L1.a1
+J000921 T178 F112       L0     1     0.3 / 2.0      12s / 5m00s  2s seeds 2718355 large:jobs/1c2d3e4f.L0.a1
+J000922 T266 F009 a8=2  L4     1     1.8 / 2.0  26m50s / 30m00s  8s solve 2718360 large:jobs/41d0aa11.L4.a2
+-[ Recent events ]------------------------------------------------------------------------------------------------------------------------------------------------------------------- e: all events ----
+08:15:02 ok   item_upgraded     T178 F012: evidence -> identity_proved
+08:14:55 ok   item_accepted     T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11 points
+08:14:31 esc  item_escalated    T178 F019: escalated to L2 (rule_covers_none)
+08:14:10 FAIL item_rejected     T178 F044: rejected (irregular_point)
+08:13:02 FAIL job_finished      T178 F033 L4: job J000903 (killed_memory) at 5.0 GB
+08:12:01 esc  terminal_proposed T178 F033 a0=2: terminal candidate (terminal_after_ladder)
+08:09:30 esc  item_escalated    T178 F019: escalated to L1 (refused_spill, 300 s)
+08:02:12 .    input             input T266.joined changed (version 2): 4 items stale
+07:58:40 box  node              T162: closed (boxed), defect 0 of 61210 keys
+07:50:11 box  node              T162: fall back to box T162.rstar (full attempt ended: 9 faces, 3 loci, 1820 keys)
+
+
+
+
+
+
+
+
+
+
+
+
+
+n/N select node  Enter node detail  j jobs  e events  a attention(2)  ?help  q/Ctrl-C close viewer (campaign unaffected)

@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "outcome.schema.json",
+  "title": "RUN/OUTCOME.json of a child job (legacy NodeOutcome fields at top level + the new `job` object)",
+  "description": "AS BUILT: rustred_campaign_contract::outcome::Outcome / JobOutcome (child-job.md 3.7). Top-level legacy keys are kept verbatim (tolerant); `job.schema` = rustred.child-job.outcome.v1. Internal consistency as JobOutcome::check (status <-> exit code, stop code, time_decided, sealed table).",
+  "x-rr-names": [],
+  "x-rr-owner": "I-ENG / package contract",
+  "x-rr-struct": "rustred_campaign_contract::outcome::Outcome",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["job"],
+  "properties": {"job": {"$ref": "#/$defs/job"}},
+  "$defs": {
+    "hex_or_null": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]},
+    "u64n": {"type": ["integer", "null"], "minimum": 0},
+    "time_decision_what": {"enum": ["guard_route", "guard_timeout", "admission", "deferred_check", "screen_sampled", "fork_unavailable", "case_wall", "job_wall"]},
+    "time_decision": {"type": "object", "required": ["what", "limit_s", "measured_s", "taken"], "properties": {
+      "what": {"$ref": "#/$defs/time_decision_what"}, "case_ordinal": {"$ref": "#/$defs/u64n"}, "rule": {"$ref": "#/$defs/u64n"},
+      "limit_s": {"type": "number"}, "measured_s": {"type": "number"}, "taken": {"type": "string"}}},
+    "budget_hit": {"type": "object", "required": ["counter", "scope", "limit", "value"], "properties": {
+      "counter": {"$ref": "fake-script.schema.json#/$defs/work_counter"}, "scope": {"enum": ["case", "job"]},
+      "limit": {"$ref": "common.schema.json#/$defs/u64"}, "value": {"$ref": "common.schema.json#/$defs/u64"}, "case": true}},
+    "job": {
+      "type": "object",
+      "required": ["schema", "job_id", "attempt", "kind", "spec_blake3", "status", "exit_code", "stop", "program"],
+      "properties": {
+        "schema": {"const": "rustred.child-job.outcome.v1"},
+        "job_id": {"type": "string"}, "attempt": {"type": "integer", "minimum": 1},
+        "kind": {"$ref": "child-job-spec.schema.json#/$defs/job_kind"},
+        "spec_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+        "status": {"enum": ["complete", "incomplete", "decided_negative", "undecided", "budget", "interrupted", "error", "refused"]},
+        "exit_code": {"$ref": "fake-script.schema.json#/$defs/exit_code"},
+        "stop": {"type": "object", "required": ["code"], "properties": {
+          "code": {"anyOf": [{"type": "null"}, {"$ref": "fake-script.schema.json#/$defs/stop_code"}]}, "detail": true,
+          "source": {"enum": [null, "SIGTERM", "SIGINT", "SIGHUP", "stopfile", "budget", "memory"]}, "graceful": {"type": "boolean"}}},
+        "program": {"type": "object", "required": ["name", "version", "git_commit"], "properties": {
+          "name": {"type": "string"}, "version": {"type": "string"}, "git_commit": {"type": "string"}, "features": {"type": "array", "items": {"type": "string"}},
+          "exe": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path", "dev", "ino", "size", "mtime"], "properties": {"path": {"type": "string"}, "dev": {"$ref": "common.schema.json#/$defs/u64"}, "ino": {"$ref": "common.schema.json#/$defs/u64"}, "size": {"$ref": "common.schema.json#/$defs/u64"}, "mtime": {"$ref": "common.schema.json#/$defs/i64"}}}]}}},
+        "effective": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["subcommand", "blake3"], "properties": {
+          "subcommand": {"type": "string"}, "args": {"type": "array", "items": {"type": "string"}}, "node_options": true, "order": true,
+          "env": {"type": "object", "additionalProperties": {"type": "string"}}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}}}]},
+        "seed": {"type": "object", "required": ["sample_seed"], "properties": {"sample_seed": {"$ref": "common.schema.json#/$defs/u64"}, "point_source": {"enum": ["seed", "env", "region"]}, "point_blake3": {"$ref": "common.schema.json#/$defs/blake3"}}},
+        "inputs": {"type": "array", "items": {"type": "object", "required": ["role", "path", "bytes", "blake3", "verified"], "properties": {
+          "role": {"type": "string"}, "path": {"type": "string"}, "bytes": {"$ref": "common.schema.json#/$defs/u64"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "verified": {"type": "boolean"}}}},
+        "counters": {"$ref": "common.schema.json#/$defs/counters"},
+        "budgets": {"type": "object", "properties": {"work": {"$ref": "common.schema.json#/$defs/work_budgets"}, "wall": {"$ref": "common.schema.json#/$defs/wall_budgets"},
+          "mem_soft_bytes": {"$ref": "#/$defs/u64n"}, "hit": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/budget_hit"}]}}},
+        "time_decisions": {"type": "array", "items": {"$ref": "#/$defs/time_decision"}},
+        "time_decided": {"type": "boolean"},
+        "per_case": {"type": "array", "items": {"type": "object", "required": ["ordinal", "result"], "properties": {
+          "ordinal": {"$ref": "common.schema.json#/$defs/u64"}, "case": true, "result": {"$ref": "fake-script.schema.json#/$defs/case_result"},
+          "rule": {"$ref": "#/$defs/u64n"}, "children_open": {"$ref": "common.schema.json#/$defs/u64"}}}},
+        "outputs": {"type": "object", "properties": {
+          "table": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path"], "properties": {
+            "path": {"const": "out/F.table.jsonl"}, "bytes": {"$ref": "#/$defs/u64n"}, "blake3": {"$ref": "#/$defs/hex_or_null"}, "records": {"$ref": "#/$defs/u64n"}, "rules": {"$ref": "#/$defs/u64n"},
+            "rules_committed": {"$ref": "common.schema.json#/$defs/u64"}, "committed_bytes": {"$ref": "common.schema.json#/$defs/u64"}, "prefix_blake3": {"$ref": "#/$defs/hex_or_null"},
+            "sealed": {"type": "boolean"}, "end": {"enum": [null, "end", "partial"]}, "canonical_blake3": {"$ref": "#/$defs/hex_or_null"}, "witness_loci_elided": {"$ref": "common.schema.json#/$defs/u64"}}}]},
+          "cert": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path"], "properties": {"path": {"const": "out/F.cert.jsonl"}, "bytes": {"$ref": "#/$defs/u64n"}, "blake3": {"$ref": "#/$defs/hex_or_null"}, "sealed": {"type": "boolean"}}}]},
+          "queue": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["bytes"], "properties": {"bytes": {"$ref": "common.schema.json#/$defs/u64"}}}]},
+          "events": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["last_seq"], "properties": {"last_seq": {"$ref": "common.schema.json#/$defs/u64"}}}]},
+          "resume": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["path", "valid"], "properties": {"path": {"const": "RESUME.json"}, "valid": {"type": "boolean"}}}]},
+          "extra": {"type": "array", "items": {"type": "object", "required": ["role", "path", "bytes", "blake3"], "properties": {"role": {"type": "string"}, "path": {"type": "string", "pattern": "^out/[^/]+$"}, "bytes": {"$ref": "common.schema.json#/$defs/u64"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}, "records": {"$ref": "#/$defs/u64n"}, "canonical_blake3": {"$ref": "#/$defs/hex_or_null"}, "end": {"enum": [null, "end", "partial"]}, "sealed": {"type": "boolean"}}}}}},
+        "timing": {"type": "object", "properties": {"started_utc": {"type": ["string", "null"]}, "finished_utc": {"type": ["string", "null"]}, "wall_s": {"type": ["number", "null"], "minimum": 0}, "cpu_s": {"type": ["number", "null"], "minimum": 0}}},
+        "memory": {"type": "object", "properties": {"vmhwm_kb": {"$ref": "#/$defs/u64n"}, "rss_kb_at_end": {"$ref": "#/$defs/u64n"}, "helpers_peak_rss_kb": {"$ref": "#/$defs/u64n"}}},
+        "error": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["class", "message"], "properties": {"class": {"enum": ["usage", "input", "refused", "io", "nospace", "internal", "panic"]}, "message": {"type": "string", "maxLength": 4000}}}]},
+        "resumed": {"type": "boolean"}
+      },
+      "allOf": [
+        {"if": {"properties": {"exit_code": {"const": 0}}}, "then": {"properties": {"status": {"const": "complete"}}}},
+        {"if": {"properties": {"exit_code": {"const": 10}}}, "then": {"properties": {"status": {"const": "incomplete"}}}},
+        {"if": {"properties": {"exit_code": {"const": 11}}}, "then": {"properties": {"status": {"const": "decided_negative"}}}},
+        {"if": {"properties": {"exit_code": {"const": 12}}}, "then": {"properties": {"status": {"const": "undecided"}}}},
+        {"if": {"properties": {"exit_code": {"enum": [20, 21, 22]}}}, "then": {"properties": {"status": {"const": "budget"}}}},
+        {"if": {"properties": {"exit_code": {"const": 30}}}, "then": {"properties": {"status": {"const": "interrupted"}}}},
+        {"if": {"properties": {"exit_code": {"enum": [40, 42]}}}, "then": {"properties": {"status": {"const": "refused"}}}},
+        {"if": {"properties": {"exit_code": {"enum": [41, 50, 51, 70]}}}, "then": {"properties": {"status": {"const": "error"}}}}
+      ]
+    }
+  }
+}

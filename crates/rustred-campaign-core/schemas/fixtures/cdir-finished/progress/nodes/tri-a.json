@@ -1,0 +1,160 @@
+{
+  "accepted_by_evidence": {
+    "geometry_accepted": 0,
+    "identity_proved": 2,
+    "identity_tested": 0
+  },
+  "attempt": {
+    "cpu_ms_on_target": 3000,
+    "fixer_rounds_on_target": 0
+  },
+  "attempt_ended": false,
+  "blockers": {
+    "box": null,
+    "full": null
+  },
+  "campaign_id": "fixture-finished",
+  "certification": {
+    "asked": "replay",
+    "boxed": "replay",
+    "full": "replay",
+    "reached": "per-key"
+  },
+  "certified": true,
+  "closure": {
+    "binding": {
+      "closure_keys": 150000,
+      "defect_keys": 0,
+      "dispatch_order_digest": "3fc3fb8a04436d51e4c3a3fd7c892a6ec97ee48ef5b01c84e7bfa27acc97f28c",
+      "envelope": "proved",
+      "envelope_tables": [],
+      "round": 1,
+      "rule_set_digest": "2f4e37f03d84ffa9d290c79f4ab5fc95169399ae5fef8faf2640187be08952a3"
+    },
+    "closure_keys": 150000,
+    "defect_keys": 0,
+    "dispatch_order": "3fc3fb8a04436d51e4c3a3fd7c892a6ec97ee48ef5b01c84e7bfa27acc97f28c",
+    "keyset": {
+      "blake3": "9987ddb36ecedf4e84ee07023cf53e5fdee97fa2dc55f62920cd439997956d7d",
+      "bytes": 1028,
+      "path": "large:keysets/tri-a-closure-1.keys"
+    },
+    "provisional": false,
+    "rounds": 1,
+    "rule_set_digest": "2f4e37f03d84ffa9d290c79f4ab5fc95169399ae5fef8faf2640187be08952a3",
+    "rules_total": 2,
+    "rules_used": 2,
+    "used_share": 1.0
+  },
+  "closure_kind": "full",
+  "cpu_seconds": 3.0,
+  "economy": {
+    "after": {
+      "bytes": 72000,
+      "cases": 2,
+      "coefficient_degree": 12,
+      "monomials": 4200,
+      "rhs_terms": 600,
+      "rules": 2
+    },
+    "before": {
+      "bytes": 72000,
+      "cases": 2,
+      "coefficient_degree": 12,
+      "monomials": 4200,
+      "rhs_terms": 600,
+      "rules": 2
+    },
+    "rules_after": 2,
+    "rules_before": 2,
+    "superseded": 0,
+    "unmeasured": 0
+  },
+  "envelope": "proved",
+  "faces_summary": {
+    "closed": 2,
+    "total": 2
+  },
+  "file": "node",
+  "inputs": [
+    "tri-a.family",
+    "tri-a.bank"
+  ],
+  "items": {
+    "by_kind": {
+      "face": {
+        "done": 2,
+        "total": 2
+      }
+    },
+    "by_level": {
+      "L0": {
+        "accepted": 2,
+        "attention": 0,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "skipped": 0,
+        "stale": 0,
+        "terminal": 0,
+        "terminal_candidate": 0
+      }
+    },
+    "by_phase": {
+      "accepted": 2,
+      "attention": 0,
+      "escalated": 0,
+      "in_progress": 0,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 0,
+      "skipped": 0,
+      "stale": 0,
+      "terminal": 0,
+      "terminal_candidate": 0
+    },
+    "open": 0
+  },
+  "ledger": {
+    "head": "66739b6d2c0d8855bc9f8827b572976b64f8cb93861488a64569852d9f73688d",
+    "last_utc": "2026-11-14T06:00:24.250Z",
+    "seq": 97
+  },
+  "node": "tri-a",
+  "paused": false,
+  "phase": "certified",
+  "provisional": false,
+  "reference": null,
+  "reopen_cause": null,
+  "reopens": 0,
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "spec": {
+    "full_attempt_cpu_ms": 180000000,
+    "full_attempt_fixer_rounds": 1,
+    "preferred_terminals": null,
+    "terminal_rung": "L1"
+  },
+  "spec_box": null,
+  "stale_reason": null,
+  "target": {
+    "target": "full"
+  },
+  "terminals": {
+    "bound": 100,
+    "candidates": 0,
+    "declared": 0,
+    "other": 0,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    },
+    "preferred_declared": 0
+  },
+  "written_utc": "2026-11-14T06:00:24.500Z"
+}

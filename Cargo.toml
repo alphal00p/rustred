@@ -6,6 +6,11 @@ members = [
     "crates/rustred-python",
     "crates/rustred-feynkit",
     "crates/rustred-topology",
+    "crates/rustred-campaign-core",
+    "crates/rustred-campaign-contract",
+    "crates/rustred-campaign",
+    "crates/rustred-campaign-algebra",
+    "crates/rustred-proof",
 ]
 default-members = [
     "crates/rustred-order",

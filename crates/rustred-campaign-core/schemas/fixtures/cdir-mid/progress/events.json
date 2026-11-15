@@ -1,0 +1,267 @@
+{
+  "campaign_id": "fixture-mid",
+  "cap": 64,
+  "events": [
+    {
+      "kind": "campaign",
+      "seq": 16,
+      "text": "campaign starting (rr_campaign run)",
+      "utc": "2026-11-14T11:58:04.000Z"
+    },
+    {
+      "kind": "campaign",
+      "seq": 17,
+      "text": "campaign running (preflight ok)",
+      "utc": "2026-11-14T11:58:04.250Z"
+    },
+    {
+      "kind": "node",
+      "seq": 18,
+      "text": "T164: running (open)",
+      "utc": "2026-11-14T11:58:04.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 24,
+      "text": "T164 F000 L0: job T164-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T11:58:06.000Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 28,
+      "text": "T164 F000: rule T164:R:campaign:0 accepted (identity_proved)",
+      "utc": "2026-11-14T11:58:07.000Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 35,
+      "text": "T164 F001 L0: job T164-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T11:58:08.750Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 39,
+      "text": "T164 F001: rule T164:R:campaign:1 accepted (identity_proved)",
+      "utc": "2026-11-14T11:58:09.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 41,
+      "text": "T164: table set assembled (round 1)",
+      "utc": "2026-11-14T11:58:10.250Z"
+    },
+    {
+      "kind": "node",
+      "seq": 42,
+      "text": "T164: closure round 1, defect 0 of 150000 keys (Proved envelope)",
+      "utc": "2026-11-14T11:58:10.500Z"
+    },
+    {
+      "kind": "node",
+      "seq": 43,
+      "text": "T164: closed (full)",
+      "utc": "2026-11-14T11:58:10.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 44,
+      "text": "T164: certified (full)",
+      "utc": "2026-11-14T11:58:11.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 46,
+      "text": "T162: running (open)",
+      "utc": "2026-11-14T11:58:11.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 52,
+      "text": "T162 F000 L0: job T162-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T11:58:13.000Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 56,
+      "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
+      "utc": "2026-11-14T11:58:14.000Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 63,
+      "text": "T162 F001 L1: job T162-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T11:58:15.750Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 67,
+      "text": "T162 F001: rule T162:R:campaign:1 accepted (identity_tested)",
+      "utc": "2026-11-14T11:58:16.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 74,
+      "text": "T162 F002 L0: job T162-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T11:58:18.500Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 78,
+      "text": "T162 F002: rule T162:R:campaign:2 accepted (geometry_accepted)",
+      "utc": "2026-11-14T11:58:19.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 85,
+      "text": "T162 F003 n9=-1 L0: job T162-J00 (no_rule, accept committed_rules)",
+      "utc": "2026-11-14T11:58:21.250Z"
+    },
+    {
+      "kind": "item_rejected",
+      "seq": 87,
+      "text": "T162 F003 n9=-1: rejected (rule_covers_none)",
+      "utc": "2026-11-14T11:58:21.750Z"
+    },
+    {
+      "kind": "item_escalated",
+      "seq": 88,
+      "text": "T162 F003 n9=-1: escalated to L1 (rule_covers_none)",
+      "utc": "2026-11-14T11:58:22.000Z"
+    },
+    {
+      "kind": "terminal_proposed",
+      "seq": 90,
+      "text": "T162 F003 n9=-1: terminal candidate (terminal_after_ladder)",
+      "utc": "2026-11-14T11:58:22.500Z"
+    },
+    {
+      "kind": "terminal_declared",
+      "seq": 91,
+      "text": "T162 F003 n9=-1: 2 terminal key(s) declared",
+      "utc": "2026-11-14T11:58:22.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 92,
+      "text": "T162: table set assembled (round 1)",
+      "utc": "2026-11-14T11:58:23.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 93,
+      "text": "T162: closure round 1, defect 37 of 150037 keys (Proved envelope)",
+      "utc": "2026-11-14T11:58:23.250Z"
+    },
+    {
+      "kind": "node",
+      "seq": 94,
+      "text": "T162: fixer round 1 begins",
+      "utc": "2026-11-14T11:58:23.500Z"
+    },
+    {
+      "kind": "node",
+      "seq": 95,
+      "text": "T162: attempt ended (full attempt: the spec's fixer rounds without closure (U-6)): 2 faces, 1 loci, 150 keys block closure",
+      "utc": "2026-11-14T11:58:23.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 96,
+      "text": "T162: full closure not reached; falling back to spec box T162.box",
+      "utc": "2026-11-14T11:58:24.000Z"
+    },
+    {
+      "kind": "rule_retired",
+      "seq": 97,
+      "text": "T162 F000: rule T162:R:campaign:0 superseded by T162:I0001 (replaced_by)",
+      "utc": "2026-11-14T11:58:24.250Z"
+    },
+    {
+      "kind": "rule_retired",
+      "seq": 98,
+      "text": "T162 F002: rule T162:R:campaign:2 retired (box_closure_pass)",
+      "utc": "2026-11-14T11:58:24.500Z"
+    },
+    {
+      "kind": "node",
+      "seq": 99,
+      "text": "T162: table set assembled (round 2)",
+      "utc": "2026-11-14T11:58:24.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 100,
+      "text": "T162: closure round 2, defect 0 of 150000 keys (Proved envelope)",
+      "utc": "2026-11-14T11:58:25.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 101,
+      "text": "T162: closed (boxed)",
+      "utc": "2026-11-14T11:58:25.250Z"
+    },
+    {
+      "kind": "node",
+      "seq": 102,
+      "text": "T178: running (open)",
+      "utc": "2026-11-14T11:58:25.500Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 108,
+      "text": "T178 F000 L0: job T178-J00 (rule_found, accept canonical)",
+      "utc": "2026-11-14T11:58:27.000Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 112,
+      "text": "T178 F000: rule T178:R:campaign:0 accepted (geometry_accepted)",
+      "utc": "2026-11-14T11:58:28.000Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 119,
+      "text": "T178 F001 n9=-1 L0: job T178-J00 (no_rule, accept committed_rules)",
+      "utc": "2026-11-14T11:58:29.750Z"
+    },
+    {
+      "kind": "item_rejected",
+      "seq": 121,
+      "text": "T178 F001 n9=-1: rejected (rule_covers_none)",
+      "utc": "2026-11-14T11:58:30.250Z"
+    },
+    {
+      "kind": "item_escalated",
+      "seq": 122,
+      "text": "T178 F001 n9=-1: escalated to L1 (rule_covers_none)",
+      "utc": "2026-11-14T11:58:30.500Z"
+    },
+    {
+      "kind": "terminal_proposed",
+      "seq": 124,
+      "text": "T178 F001 n9=-1: terminal candidate (terminal_after_ladder)",
+      "utc": "2026-11-14T11:58:31.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 135,
+      "text": "T178: table set assembled (round 1)",
+      "utc": "2026-11-14T11:58:33.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 136,
+      "text": "T178: closure round 1, defect 409 of 150409 keys (Proved envelope)",
+      "utc": "2026-11-14T11:58:34.000Z"
+    }
+  ],
+  "file": "events",
+  "ledger": {
+    "head": "6272e6de22dde8d111877c7b881a660cd4ae676f11ca8f828ee98bae85139a50",
+    "last_utc": "2026-11-14T11:58:34.000Z",
+    "seq": 136
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-14T11:58:34.250Z"
+}

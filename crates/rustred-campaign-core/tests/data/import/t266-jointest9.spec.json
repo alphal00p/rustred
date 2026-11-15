@@ -1,0 +1,44 @@
+{
+ "schema": "rustred.campaign.import-spec.v1",
+ "node": "T266",
+ "frame_from": "jointest9",
+ "bits": 6,
+ "start": {
+  "path": "t266-box-B.box.json",
+  "format": "box"
+ },
+ "required_evidence": "imported",
+ "policies": {
+  "elided": "lift_with_per_key_proof",
+  "witness_absent": "lift_with_regular_fact",
+  "tier": "auto"
+ },
+ "sources": [
+  {
+   "id": "jointest9",
+   "kind": "engine_table",
+   "class": "table",
+   "path": "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/SCRATCHPAD/t266/jointest9/F.table.jsonl",
+   "sha256": null,
+   "hand_name": {
+    "template": "rule#{index}"
+   }
+  },
+  {
+   "id": "credits",
+   "kind": "symmetry_credit",
+   "group_format": "derive"
+  },
+  {
+   "id": "terminals",
+   "kind": "terminals",
+   "path": "/common/ben/sym-investigation/k7/runs/jointest9-full/deliver/terminals.jsonl",
+   "sha256": "1742a332069d75d9baefc06cf8b71ffa4e5ca59f2ae072d1fe57b7054c69eecd"
+  }
+ ],
+ "evidence": {
+  "facts": [],
+  "proofs": [],
+  "solved": []
+ }
+}

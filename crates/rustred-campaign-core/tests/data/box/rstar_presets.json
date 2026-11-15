@@ -1,0 +1,10 @@
+{"source": "plan AUTOMATION_PLAN.md s.1 'Box (R* box)'; WS/handoff/memory_account2/boxed-track-for-stuck-nodes.md; R40 U-7 (default box of the three stuck nodes). TEST DATA / spec example: the library knows no box shape.",
+ "presets": [
+  {"id": "rstar-union-v1", "name": "R* box of renormalisable gauge theories in Feynman gauge, union band (box B)",
+   "clauses": [{"name": "UNION D=0", "D": [0, 0], "r_max": {"E": 1, "D": 0, "const": -8}},
+               {"name": "UNION 1<=D<=4", "D": [1, 4], "r_max": {"E": 1, "D": 0, "const": -7}}],
+   "cap": 5},
+  {"id": "rstar-main-v1", "name": "R* box of renormalisable gauge theories in Feynman gauge, main band",
+   "clauses": [{"name": "MAIN D<=4", "D": [0, 4], "r_max": {"E": 1, "D": 1, "const": -11}}],
+   "cap": 5}
+ ]}

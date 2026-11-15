@@ -1,0 +1,225 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress-common.schema.json",
+  "title": "Shared parts of the progress files (not a document schema)",
+  "x-rr-names": [],
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "required": [
+        "schema",
+        "file",
+        "campaign_id",
+        "written_utc",
+        "source_of_truth",
+        "ledger"
+      ],
+      "properties": {
+        "schema": {
+          "const": "rustred.campaign.progress.v1"
+        },
+        "file": {
+          "enum": [
+            "campaign",
+            "node",
+            "events",
+            "terminals",
+            "attention",
+            "jobs",
+            "heartbeat"
+          ]
+        },
+        "campaign_id": {
+          "type": "string"
+        },
+        "written_utc": {
+          "$ref": "common.schema.json#/$defs/utc"
+        },
+        "source_of_truth": {
+          "const": "ledger"
+        },
+        "fixture_origin": {
+          "enum": [
+            "hand",
+            "derived"
+          ],
+          "description": "fixtures only: hand-written leftovers are marked `hand`"
+        },
+        "ledger": {
+          "type": "object",
+          "required": [
+            "seq",
+            "head",
+            "last_utc"
+          ],
+          "properties": {
+            "seq": {
+              "$ref": "common.schema.json#/$defs/u64"
+            },
+            "head": {
+              "$ref": "common.schema.json#/$defs/blake3"
+            },
+            "last_utc": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "phase_counts": {
+      "type": "object",
+      "required": [
+        "open",
+        "in_progress",
+        "produced",
+        "accepted",
+        "rejected",
+        "escalated",
+        "terminal_candidate",
+        "terminal",
+        "stale",
+        "retired",
+        "attention",
+        "skipped"
+      ],
+      "propertyNames": {
+        "$ref": "common.schema.json#/$defs/item_phase"
+      },
+      "additionalProperties": {
+        "$ref": "common.schema.json#/$defs/u64"
+      }
+    },
+    "by_level": {
+      "type": "object",
+      "propertyNames": {
+        "$ref": "common.schema.json#/$defs/rung"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/phase_counts"
+      }
+    },
+    "level_counts": {
+      "type": "object",
+      "required": [
+        "geometry_accepted",
+        "identity_tested",
+        "identity_proved"
+      ],
+      "additionalProperties": {
+        "$ref": "common.schema.json#/$defs/u64"
+      }
+    },
+    "node_economy": {
+      "type": "object",
+      "required": [
+        "rules_before",
+        "rules_after",
+        "superseded",
+        "unmeasured",
+        "before",
+        "after"
+      ],
+      "properties": {
+        "rules_before": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "rules_after": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "superseded": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "unmeasured": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "before": {
+          "$ref": "common.schema.json#/$defs/economy"
+        },
+        "after": {
+          "$ref": "common.schema.json#/$defs/economy"
+        }
+      }
+    },
+    "blockers_or_null": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "faces",
+            "loci",
+            "keys",
+            "list"
+          ],
+          "properties": {
+            "faces": {
+              "$ref": "common.schema.json#/$defs/u64"
+            },
+            "loci": {
+              "$ref": "common.schema.json#/$defs/u64"
+            },
+            "keys": {
+              "$ref": "common.schema.json#/$defs/u64"
+            },
+            "list": {
+              "$ref": "common.schema.json#/$defs/fileref_or_null"
+            }
+          }
+        }
+      ]
+    },
+    "range3_or_null": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "required": [
+            "low",
+            "mid",
+            "high"
+          ],
+          "properties": {
+            "low": {
+              "type": "number",
+              "minimum": 0
+            },
+            "mid": {
+              "type": "number",
+              "minimum": 0
+            },
+            "high": {
+              "type": "number",
+              "minimum": 0
+            }
+          }
+        }
+      ]
+    },
+    "quantiles": {
+      "type": "object",
+      "required": [
+        "p25_s",
+        "p50_s",
+        "p75_s"
+      ],
+      "properties": {
+        "p25_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p50_s": {
+          "type": "number",
+          "minimum": 0
+        },
+        "p75_s": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "description": "Shared vectors of the ONE canonical JSON rule of the campaign (plan 3.3.0; coordinator addendum 2, 2026-11-14): `document_rule` = validate.py canonical_json and rustred_campaign_core::schema::canon; `record_rule` = the contract crate's canon::canonical_line (child-job 3.2.3 v2: the same rule, floats allowed, plus removal of volatile top-level keys, of which these vectors have none). Since contract lane `contractfix` the two agree on every vector (`agree: true`). Checked by schemas/test_validate.py (document rule) and rustred-campaign-contract tests/schema_roundtrip.rs (record rule == document rule).",
+  "vectors": [
+    {
+      "name": "sorted_nested",
+      "input": "{\"b\":1,\"a\":[2,{\"d\":null,\"c\":\"x\"}]}",
+      "floats": false,
+      "document_rule": "{\"a\":[2,{\"c\":\"x\",\"d\":null}],\"b\":1}",
+      "record_rule": "{\"a\":[2,{\"c\":\"x\",\"d\":null}],\"b\":1}",
+      "agree": true
+    },
+    {
+      "name": "whitespace",
+      "input": "{ \"a\" : 1 ,\n \"b\" : [ ] }",
+      "floats": false,
+      "document_rule": "{\"a\":1,\"b\":[]}",
+      "record_rule": "{\"a\":1,\"b\":[]}",
+      "agree": true
+    },
+    {
+      "name": "raw_unicode",
+      "input": "{\"k\":\"é\"}",
+      "floats": false,
+      "document_rule": "{\"k\":\"é\"}",
+      "record_rule": "{\"k\":\"é\"}",
+      "agree": true
+    },
+    {
+      "name": "escaped_unicode",
+      "input": "{\"k\":\"\\u00e9\"}",
+      "floats": false,
+      "document_rule": "{\"k\":\"é\"}",
+      "record_rule": "{\"k\":\"é\"}",
+      "agree": true
+    },
+    {
+      "name": "escaped_slash",
+      "input": "{\"k\":\"a\\/b\"}",
+      "floats": false,
+      "document_rule": "{\"k\":\"a/b\"}",
+      "record_rule": "{\"k\":\"a/b\"}",
+      "agree": true
+    },
+    {
+      "name": "key_order_escaped_key",
+      "input": "{\"\\u00e9\":1,\"z\":2}",
+      "floats": false,
+      "document_rule": "{\"z\":2,\"é\":1}",
+      "record_rule": "{\"z\":2,\"é\":1}",
+      "agree": true
+    },
+    {
+      "name": "control_char",
+      "input": "{\"k\":\"a\\u0001b\\n\"}",
+      "floats": false,
+      "document_rule": "{\"k\":\"a\\u0001b\\n\"}",
+      "record_rule": "{\"k\":\"a\\u0001b\\n\"}",
+      "agree": true
+    },
+    {
+      "name": "integer_above_2_64",
+      "input": "{\"n\":18446744073709551616}",
+      "floats": false,
+      "document_rule": "{\"n\":18446744073709551616}",
+      "record_rule": "{\"n\":18446744073709551616}",
+      "agree": true
+    },
+    {
+      "name": "minus_zero",
+      "input": "{\"x\":-0}",
+      "floats": false,
+      "document_rule": "{\"x\":0}",
+      "record_rule": "{\"x\":0}",
+      "agree": true
+    },
+    {
+      "name": "float_spelling",
+      "input": "{\"x\":1e2,\"y\":1.0}",
+      "floats": true,
+      "document_rule": "{\"x\":100.0,\"y\":1.0}",
+      "record_rule": "{\"x\":100.0,\"y\":1.0}",
+      "agree": true
+    },
+    {
+      "name": "nested_sort_bytewise",
+      "input": "{\"B\":0,\"a\":0,\"_\":0}",
+      "floats": false,
+      "document_rule": "{\"B\":0,\"_\":0,\"a\":0}",
+      "record_rule": "{\"B\":0,\"_\":0,\"a\":0}",
+      "agree": true
+    }
+  ]
+}

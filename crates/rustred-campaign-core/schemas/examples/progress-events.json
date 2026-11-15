@@ -1,0 +1,219 @@
+{
+  "campaign_id": "test-campaign",
+  "cap": 64,
+  "events": [
+    {
+      "kind": "campaign",
+      "seq": 8,
+      "text": "campaign starting (test)",
+      "utc": "2026-11-13T23:00:01.750Z"
+    },
+    {
+      "kind": "campaign",
+      "seq": 9,
+      "text": "campaign running (preflight ok)",
+      "utc": "2026-11-13T23:00:02.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 10,
+      "text": "T162: running (open)",
+      "utc": "2026-11-13T23:00:02.250Z"
+    },
+    {
+      "kind": "provenance",
+      "seq": 11,
+      "text": "evidence_imported astra-bank-20261113 by hand closure (reference) (2 files, level claimed identity_tested)",
+      "utc": "2026-11-13T23:00:02.500Z"
+    },
+    {
+      "kind": "provenance",
+      "seq": 12,
+      "text": "tables_imported earlier-campaign by campaign c-20261101 (1 files, level claimed identity_tested)",
+      "utc": "2026-11-13T23:00:02.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 18,
+      "text": "T162 F000 L0: job T162-job (rule_found, accept canonical)",
+      "utc": "2026-11-13T23:00:04.250Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 22,
+      "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
+      "utc": "2026-11-13T23:00:05.250Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 28,
+      "text": "T162 F001 L0: job T162-job (rule_found, accept canonical)",
+      "utc": "2026-11-13T23:00:06.750Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 32,
+      "text": "T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:07.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 38,
+      "text": "T162 F002 L0: job T162-job (rule_found, accept canonical)",
+      "utc": "2026-11-13T23:00:09.250Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 42,
+      "text": "T162 F002: rule T162:R:campaign:2 accepted (identity_proved)",
+      "utc": "2026-11-13T23:00:10.250Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 48,
+      "text": "T162 F003 L0: job T162-job (rule_found, accept canonical)",
+      "utc": "2026-11-13T23:00:11.750Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 52,
+      "text": "T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:12.750Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 60,
+      "text": "T162 F004 L0: job T162-job (no_rule, accept committed_rules)",
+      "utc": "2026-11-13T23:00:14.750Z"
+    },
+    {
+      "kind": "item_rejected",
+      "seq": 62,
+      "text": "T162 F004: rejected (rule_covers_none)",
+      "utc": "2026-11-13T23:00:15.250Z"
+    },
+    {
+      "kind": "item_escalated",
+      "seq": 63,
+      "text": "T162 F004: escalated to L1 (rule_covers_none)",
+      "utc": "2026-11-13T23:00:15.500Z"
+    },
+    {
+      "kind": "terminal_proposed",
+      "seq": 65,
+      "text": "T162 F005: terminal candidate (terminal_after_ladder)",
+      "utc": "2026-11-13T23:00:16.000Z"
+    },
+    {
+      "kind": "terminal_declared",
+      "seq": 66,
+      "text": "T162 F005: 2 terminal key(s) declared",
+      "utc": "2026-11-13T23:00:16.250Z"
+    },
+    {
+      "kind": "job_finished",
+      "seq": 71,
+      "text": "T162 F006 L0: job T162-job (complete, accept canonical)",
+      "utc": "2026-11-13T23:00:17.500Z"
+    },
+    {
+      "kind": "item_accepted",
+      "seq": 73,
+      "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
+      "utc": "2026-11-13T23:00:18.000Z"
+    },
+    {
+      "kind": "item_upgraded",
+      "seq": 74,
+      "text": "T162 F006: evidence -> identity_tested",
+      "utc": "2026-11-13T23:00:18.250Z"
+    },
+    {
+      "kind": "terminal_proposed",
+      "seq": 76,
+      "text": "T162 F007: terminal candidate (preferred terminal of the spec)",
+      "utc": "2026-11-13T23:00:18.750Z"
+    },
+    {
+      "kind": "terminal_declared",
+      "seq": 77,
+      "text": "T162 F007: 1 terminal key(s) declared (preferred)",
+      "utc": "2026-11-13T23:00:19.000Z"
+    },
+    {
+      "kind": "item_imported",
+      "seq": 79,
+      "text": "T162 F008: rule T162:R:imported:8 imported from earlier-campaign (identity_tested)",
+      "utc": "2026-11-13T23:00:19.500Z"
+    },
+    {
+      "kind": "node",
+      "seq": 80,
+      "text": "T162: fixer round 1 begins",
+      "utc": "2026-11-13T23:00:19.750Z"
+    },
+    {
+      "kind": "node",
+      "seq": 81,
+      "text": "T162: table set assembled (round 1)",
+      "utc": "2026-11-13T23:00:20.000Z"
+    },
+    {
+      "kind": "node",
+      "seq": 82,
+      "text": "T162: closure round 1, defect 37 of 154783 keys (Proved envelope)",
+      "utc": "2026-11-13T23:00:20.250Z"
+    },
+    {
+      "kind": "rule_retired",
+      "seq": 87,
+      "text": "T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)",
+      "utc": "2026-11-13T23:00:21.500Z"
+    },
+    {
+      "kind": "attention",
+      "seq": 89,
+      "text": "T162 F009: needs attention (needs_bigmem): the L2 run needs more memory than the policy allows",
+      "utc": "2026-11-13T23:00:22.000Z"
+    },
+    {
+      "kind": "control",
+      "seq": 90,
+      "text": "operator (tty) requests Pause of Campaign (maintenance)",
+      "utc": "2026-11-13T23:00:22.250Z"
+    },
+    {
+      "kind": "control",
+      "seq": 91,
+      "text": "control c-0001 applied: launches paused",
+      "utc": "2026-11-13T23:00:22.500Z"
+    },
+    {
+      "kind": "control",
+      "seq": 92,
+      "text": "operator (tty) requests Resume of Campaign (maintenance done)",
+      "utc": "2026-11-13T23:00:22.750Z"
+    },
+    {
+      "kind": "control",
+      "seq": 93,
+      "text": "control c-0003 applied: launches resumed",
+      "utc": "2026-11-13T23:00:23.000Z"
+    },
+    {
+      "kind": "control",
+      "seq": 94,
+      "text": "operator (tty) requests Retry of Item { item: \"T162-item-00009\" } (BIGMEM authorised)",
+      "utc": "2026-11-13T23:00:23.250Z"
+    }
+  ],
+  "file": "events",
+  "ledger": {
+    "head": "d59131f73374aad6f2bb9e65c008f6bec70d79d95b55b0ba0c404ec57c6ccc0e",
+    "last_utc": "2026-11-13T23:00:25.250Z",
+    "seq": 102
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

@@ -1,0 +1,1773 @@
+//! Regression tests for the findings of the two independent audits of this crate (WS/notes/implementer.audit-core-A.md
+//! and implementer.audit-core-B.md) and ruling F1 of the coordinator. One test per finding id; each test name starts
+//! with the id. Every assertion here was FALSE at commit 62781c64 (the audited state; the auditors' probe outputs are
+//! quoted in the comments): the old crate wrapped, accepted or credited where these tests now demand an error, a
+//! refusal or an open verdict. Governing principle: FAIL CLOSED.
+
+use rustred_campaign_core::poly::{BigInt, ENGINE_PRIMES, ParseOptions, Poly, PolyError, Value};
+
+// ============================================================================================== poly (audit A)
+
+/// A m1: `n18446744073709551616` (2^64) was read as `n0` (`v as usize` truncation), `...617` as `n1`.
+#[test]
+fn audit_a_m1_variable_index_never_wraps() {
+    for s in [
+        "n18446744073709551616",
+        "n18446744073709551617",
+        "n340282366920938463463374607431768211456", // beyond u128
+        "n3",
+    ] {
+        assert!(
+            matches!(
+                Poly::parse_d_free(s, 3),
+                Err(PolyError::VariableOutOfRange { .. }) | Err(PolyError::Syntax { .. })
+            ),
+            "{s} must be refused"
+        );
+    }
+    assert_eq!(Poly::parse_d_free("n2", 3).unwrap(), Poly::var(2));
+}
+
+/// A m2: the parser accepted `n01` -> n1, `n00` -> n0 and `n1=2` -> n1-2, which the engine's `Expr::parse` refuses.
+/// Strict is now the default; the equation form needs the explicit lenient option.
+#[test]
+fn audit_a_m2_strict_parser_is_the_default() {
+    for s in ["n01", "n00", "n1=2", "n1 = n2", "n0+n007"] {
+        assert!(Poly::parse_d_free(s, 3).is_err(), "{s} must be refused");
+        assert!(Poly::parse(s, 3, true).is_err(), "{s} must be refused");
+    }
+    let lenient = ParseOptions {
+        allow_d: false,
+        allow_equation: true,
+    };
+    assert_eq!(
+        Poly::parse_with("n1=2", 3, lenient).unwrap(),
+        Poly::parse_d_free("n1-2", 3).unwrap()
+    );
+    assert!(Poly::parse_with("n01=2", 3, lenient).is_err());
+    // forms the engine accepts stay accepted (unary signs, n0, n10)
+    assert_eq!(
+        Poly::parse_d_free("+-+n1", 3).unwrap(),
+        Poly::parse_d_free("-n1", 3).unwrap()
+    );
+    assert!(Poly::parse_d_free("n0+n10", 11).is_ok());
+}
+
+/// A m3: `primitive_normal` computed `sign * (c/g)` unchecked: a leading coefficient `i128::MIN` with gcd 1 panicked
+/// in debug (wrapped in release, giving a polynomial with another zero set).
+#[test]
+fn audit_a_m3_primitive_normal_is_checked() {
+    let p = Poly::parse_d_free("n0 + (-(2^63))*(2^63)*2*n1", 3).unwrap();
+    let q = p.primitive_normal(); // panicked before
+    assert_eq!(q, p, "no representable normal form: returned unchanged");
+    for k in [[0, 0, 0], [1, 0, 0], [0, 1, 0], [-3, 5, 1]] {
+        assert_eq!(q.is_zero_at(&k).unwrap(), p.is_zero_at(&k).unwrap());
+    }
+    // ordinary case unchanged
+    assert_eq!(
+        Poly::parse_d_free("-4*n0+6*n1", 3)
+            .unwrap()
+            .primitive_normal(),
+        Poly::parse_d_free("-2*n0+3*n1", 3).unwrap() // positive on the largest monomial n1
+    );
+}
+
+/// A N1 (value part): the engine's zero test works modulo two 61-bit primes; a nonzero value divisible by both is
+/// "zero" for the engine. The crate now detects exactly that case (the domain part is
+/// `audit_a_n1_domain_fails_closed_on_engine_zero_disagreement`).
+#[test]
+fn audit_a_n1_value_detects_engine_modular_zero() {
+    let pp = ENGINE_PRIMES[0] as i128 * ENGINE_PRIMES[1] as i128;
+    assert!(Value::Small(pp).engine_zero_disagrees());
+    assert!(Value::Small(-pp).engine_zero_disagrees());
+    assert!(!Value::Small(pp + 1).engine_zero_disagrees());
+    assert!(!Value::Small(ENGINE_PRIMES[0] as i128).engine_zero_disagrees());
+    assert!(!Value::Small(0).engine_zero_disagrees());
+    assert!(Value::Big(BigInt::from_i128(pp).mul(&BigInt::from_i128(3))).engine_zero_disagrees());
+    assert!(
+        !Value::Big(
+            BigInt::from_i128(pp)
+                .mul(&BigInt::from_i128(3))
+                .add(&BigInt::from_i128(1))
+        )
+        .engine_zero_disagrees()
+    );
+}
+
+/// A N2: `Value` derived `PartialEq` structurally, so `Small(0) != Big(0)`.
+#[test]
+fn audit_a_n2_value_equality_is_numeric() {
+    assert_eq!(Value::Small(0), Value::Big(BigInt::zero()));
+    assert_eq!(Value::Small(-7), Value::Big(BigInt::from_i128(-7)));
+    assert_eq!(
+        Value::Big(BigInt::from_i128(i128::MIN)),
+        Value::Small(i128::MIN)
+    );
+    assert_ne!(Value::Small(1), Value::Big(BigInt::from_i128(2)));
+    let huge = BigInt::from_i128(i128::MAX).mul(&BigInt::from_i128(4));
+    assert_ne!(Value::Big(huge.clone()), Value::Small(i128::MAX));
+    assert_eq!(Value::Big(huge.clone()), Value::Big(huge));
+}
+
+/// A N4: `Poly::var(slot as u16)` collided with the `d` variable at slot 65535.
+#[test]
+fn audit_a_n4_variable_cannot_collide_with_d() {
+    assert!(matches!(
+        Poly::parse_d_free("n65535", 70_000),
+        Err(PolyError::VariableOutOfRange { .. })
+    ));
+    assert!(std::panic::catch_unwind(|| Poly::var(65_535)).is_err());
+    assert!(!Poly::parse_d_free("n65534", 70_000).unwrap().has_d());
+}
+
+// ============================================================================ frame, records, domains, dispatch
+
+use rustred_campaign_core::cover::{
+    Assurance, CoverError, CreditBasis, Dispatch, Dispatcher, LoadError, SourceFormat, Table,
+    UnionResult, WitnessProvenance,
+};
+use rustred_campaign_core::domain::{
+    CaseDomain, DomainError, DomainOptions, NotInCase, PoleKind, TargetMap, TargetSlot,
+    TargetSource, Verdict,
+};
+use rustred_campaign_core::key::{FrameError, FrameSource, NodeFrame};
+use rustred_campaign_core::poly::EvalError;
+use rustred_campaign_core::record::{
+    ReadOptions, RecordError, RecordReader, RuleRecord, TableFile, TableHeader, TableLine,
+};
+
+const EXPORT: TargetSource = TargetSource::CanonicalByConstruction {
+    attestation: "unit test: a case export of an engine table",
+};
+
+fn read_lines(text: &str) -> Vec<Result<TableLine, RecordError>> {
+    RecordReader::new(text.as_bytes(), ReadOptions::default()).collect()
+}
+
+fn one_rule(line: &str) -> RuleRecord {
+    match read_lines(line).pop().unwrap().unwrap() {
+        TableLine::Rule(r) => *r,
+        o => panic!("{o:?}"),
+    }
+}
+
+fn header(line: &str) -> TableHeader {
+    match read_lines(line).pop().unwrap().unwrap() {
+        TableLine::Header(h) => *h,
+        o => panic!("{o:?}"),
+    }
+}
+
+/// A table file from JSONL text (both formats), as `read_table_file` would build it.
+fn table_file(text: &str) -> TableFile {
+    let mut t = TableFile::default();
+    for l in read_lines(text) {
+        match l.unwrap() {
+            TableLine::Header(h) => t.header = Some(*h),
+            TableLine::Rule(r) => t.rules.push(*r),
+            TableLine::Chart { chart, guards } => t.charts.push((chart, guards)),
+            TableLine::Other { kind } => t.others.push((kind, 1)),
+        }
+    }
+    t
+}
+
+/// A minimal arity-3 bank predicate with every required field; `witness` is the witness-loci JSON list.
+fn bank_json(witness: &str) -> String {
+    format!(
+        r#"{{"global_ordinal0":0,"raw_fixed20":[null,null,null],"all_raw_Case_equations":[],"domain_atoms":[],"raw_written_exceptions_OR_of_AND":[],"cached_domain_exception_or_pole_AND_loci":[],"literal_written_denominators_generic_d_nonzero":[],"raw_header_source_conditions_generic_d_nonzero":[],"raw_rule_witness_loci_generic_d_nonzero":{witness},"no_recenter_or_permutation_applied":true}}"#
+    )
+}
+
+const H3: &str = r#"{"type":"header","schema":"table_dump.v1","denominators":3,"mask":"110","power_shifts":["0","0","0"]}"#;
+
+fn frame3() -> NodeFrame {
+    NodeFrame::from_header(&header(H3)).unwrap()
+}
+
+/// A rule line of arity 3 (table_dump.v1) with the given fields spliced in.
+fn rule3(extra: &str) -> String {
+    format!(
+        r#"{{"type":"rule","chart":"110","index":0,"fixed":[null,null,null],"equations":[],"target":"I(n0,n1,n2)","rhs":[],"exceptions":[],"dispatch":"Partition"{extra}}}"#
+    )
+}
+
+/// A M1: the rule `target` was never read. `target:"I(2,n1,n2)"` gave `Applies` at [1,1,0] (the engine requires
+/// k[0] = 2); `target:"I(n0+1,n1,n2)"` with `equations:["n0-2"]` gave `Applies` at [2,1,0] (the engine evaluates the
+/// equation at the rule point [1,1,0]) and not at [3,1,0]. Now the key is matched through the target exactly as
+/// `find_rule` does; a missing target needs the caller's explicit canonical-by-construction statement.
+#[test]
+fn audit_a_m1_target_pattern_is_matched_as_the_engine() {
+    let f = frame3();
+    let o = DomainOptions::default();
+    // constant slot
+    let line = r#"{"type":"rule","chart":"110","index":0,"fixed":[null,null,null],"equations":["n0-1"],"target":"I(2,n1,n2)","rhs":[],"exceptions":[],"dispatch":"Partition"}"#;
+    let d = CaseDomain::from_rule_record(&one_rule(line), &f, o).unwrap();
+    assert!(matches!(d.target, TargetMap::Pattern(_)));
+    assert_eq!(
+        d.applies(&[1, 1, 0]),
+        Verdict::NotInCase(NotInCase::TargetConstant {
+            slot: 0,
+            constant: 2,
+            got: 1
+        })
+    );
+    // at [2,1,0] the engine's rule point is [0,1,0] (unmapped parameter n0 -> fixed or 0): n0-1 = -1
+    assert_eq!(
+        d.applies(&[2, 1, 0]),
+        Verdict::NotInCase(NotInCase::Equation(0))
+    );
+    // offset slot
+    let line = r#"{"type":"rule","chart":"110","index":0,"fixed":[null,null,null],"equations":["n0-2"],"target":"I(n0+1,n1,n2)","rhs":[],"exceptions":[["n0-3"]],"dispatch":"Partition"}"#;
+    let d = CaseDomain::from_rule_record(&one_rule(line), &f, o).unwrap();
+    assert_eq!(
+        d.target,
+        TargetMap::Pattern(vec![
+            TargetSlot::Param {
+                param: 0,
+                offset: 1
+            },
+            TargetSlot::Param {
+                param: 1,
+                offset: 0
+            },
+            TargetSlot::Param {
+                param: 2,
+                offset: 0
+            },
+        ])
+    );
+    assert_eq!(
+        d.applies(&[2, 1, 0]),
+        Verdict::NotInCase(NotInCase::Equation(0))
+    );
+    assert_eq!(d.applies(&[3, 1, 0]), Verdict::Applies);
+    assert_eq!(
+        d.applies(&[4, 1, 0]),
+        Verdict::NotInCase(NotInCase::Equation(0))
+    );
+    // ... and the exception is evaluated at the rule point too: pt[0] = 3 at key [4,..] is excluded by the equation,
+    // so plant a domain without the equation
+    let line2 = line.replace(r#""equations":["n0-2"]"#, r#""equations":[]"#);
+    let d2 = CaseDomain::from_rule_record(&one_rule(&line2), &f, o).unwrap();
+    assert_eq!(d2.applies(&[4, 1, 0]), Verdict::OnException { branch: 0 });
+    assert_eq!(d2.applies(&[3, 1, 0]), Verdict::Applies);
+    // through the dispatcher (index + slow scan agree)
+    let mut t = Table::new("t", 3);
+    t.push(7, d).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    for (k, want) in [([3, 1, 0], Some(7)), ([2, 1, 0], None), ([4, 1, -1], None)] {
+        assert_eq!(
+            disp.first_match(&k).unwrap().winner().map(|w| w.label),
+            want
+        );
+        assert_eq!(
+            disp.first_match(&k).unwrap(),
+            disp.first_match_slow(&k).unwrap()
+        );
+    }
+    // canonical targets (the engine's own form) are recognised
+    let d = CaseDomain::from_rule_record(&one_rule(&rule3("")), &f, o).unwrap();
+    assert_eq!(d.target, TargetMap::Canonical);
+    let fixed = r#"{"type":"rule","chart":"110","index":0,"fixed":[1,null,null],"equations":[],"target":"I(1,n1,n2)","rhs":[],"exceptions":[],"dispatch":"Partition"}"#;
+    let d = CaseDomain::from_rule_record(&one_rule(fixed), &f, o).unwrap();
+    assert_eq!(d.target, TargetMap::Canonical);
+    // no target: refused unless the caller states canonical-by-construction (case exports, banks)
+    let export = r#"{"i":0,"index":0,"chart":"110","fixed":[null,null,null],"equations":[],"exceptions":[],"dispatch":"Partition"}"#;
+    let rec = one_rule(export);
+    assert_eq!(
+        CaseDomain::from_rule_record(&rec, &f, o),
+        Err(DomainError::MissingTarget)
+    );
+    let ok = CaseDomain::from_rule_record(
+        &rec,
+        &f,
+        DomainOptions {
+            targets: EXPORT,
+            ..o
+        },
+    )
+    .unwrap();
+    assert_eq!(ok.target, TargetMap::Canonical);
+    // the statement is recorded in the loaded table's provenance
+    let tf = table_file(&format!("{H3}\n{export}"));
+    assert!(matches!(
+        Table::from_table_file("e", "e", &tf, o),
+        Err(LoadError::Record {
+            err: DomainError::MissingTarget,
+            ..
+        })
+    ));
+    let t = Table::from_table_file(
+        "e",
+        "e",
+        &tf,
+        DomainOptions {
+            targets: EXPORT,
+            ..o
+        },
+    )
+    .unwrap();
+    assert_eq!(t.provenance.targets, Some(EXPORT));
+    assert_eq!(t.provenance.format, SourceFormat::CaseExport);
+    // bank predicates carry no target: FromRecord is refused
+    let bank: rustred_campaign_core::record::BankPredicate =
+        serde_json::from_str(&bank_json("[]")).unwrap();
+    assert_eq!(
+        CaseDomain::from_bank_predicate(&bank, 3, TargetSource::FromRecord),
+        Err(DomainError::MissingTarget)
+    );
+    assert!(CaseDomain::from_bank_predicate(&bank, 3, EXPORT).is_ok());
+    // unreadable or unsupported targets are typed errors
+    for bad in [
+        "I(n0,n0,n2)",
+        "I(n0,n1)",
+        "I(n0,n1,n7)",
+        "I(n0,n1,x)",
+        "I(n01,n1,n2)",
+    ] {
+        let l = rule3("").replace(r#""target":"I(n0,n1,n2)""#, &format!(r#""target":"{bad}""#));
+        assert!(
+            matches!(
+                CaseDomain::from_rule_record(&one_rule(&l), &f, o),
+                Err(DomainError::Target(_))
+            ),
+            "{bad}"
+        );
+    }
+}
+
+/// A M2: a record with `dispatch:"Numerical"` gave `Applies`; the engine's `Table::load` marks it `skip` and
+/// `find_rule` never returns it. Now it is never a candidate, and the table reports the skipped records.
+#[test]
+fn audit_a_m2_non_partition_records_are_never_candidates() {
+    let f = frame3();
+    let numerical = rule3("").replace(r#""dispatch":"Partition""#, r#""dispatch":"Numerical""#);
+    assert_eq!(
+        CaseDomain::from_rule_record(&one_rule(&numerical), &f, DomainOptions::default()),
+        Err(DomainError::NotDispatched {
+            dispatch: "Numerical".into()
+        })
+    );
+    // mixed table: record 0 (Numerical, applies everywhere), record 1 (Partition, n0 = 1), record 2 (no dispatch
+    // field = Partition for the engine, applies everywhere)
+    let r0 = numerical.replace(r#""index":0"#, r#""index":10"#);
+    // (witness loci present: since re-audit RA-MAJOR-1 a record without them blocks where selected)
+    let r1 = r#"{"type":"rule","chart":"110","index":11,"fixed":[1,null,null],"equations":[],"target":"I(1,n1,n2)","rhs":[],"exceptions":[],"dispatch":"Partition","witness_loci":[]}"#;
+    let r2 = r#"{"type":"rule","chart":"110","index":12,"fixed":[null,null,null],"equations":[],"target":"I(n0,n1,n2)","rhs":[],"exceptions":[],"witness_loci":[]}"#;
+    let r3 = rule3("")
+        .replace(
+            r#""dispatch":"Partition""#,
+            r#""dispatch":"AfterBaselinePartitionWholePiece""#,
+        )
+        .replace(r#""index":0"#, r#""index":13"#);
+    let tf = table_file(&format!("{H3}\n{r0}\n{r1}\n{r2}\n{r3}"));
+    let t = Table::from_table_file("mixed", "mixed", &tf, DomainOptions::default()).unwrap();
+    assert_eq!(t.skipped_count(), 2);
+    assert_eq!(t.len(), 2);
+    assert_eq!(
+        t.provenance
+            .skipped_not_dispatched
+            .iter()
+            .map(|s| (s.label, s.dispatch.as_str()))
+            .collect::<Vec<_>>(),
+        vec![(10, "Numerical"), (13, "AfterBaselinePartitionWholePiece")]
+    );
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert_eq!(
+        disp.first_match(&[1, 1, 0])
+            .unwrap()
+            .winner()
+            .map(|w| w.label),
+        Some(11)
+    );
+    assert_eq!(
+        disp.first_match(&[2, 1, 0])
+            .unwrap()
+            .winner()
+            .map(|w| w.label),
+        Some(12)
+    );
+}
+
+/// A M3: a pole verdict, a recenter bound and a chart mismatch let first match move on to the next rule (the old
+/// crate reported `Covered(R2)`); the engine selects R1 and then fails. Now first match STOPS at the first selected
+/// rule and the key is `Blocked{rule, reason}`: open, naming the rule. Exceptions, equations, fixed slots and target
+/// constants still pass the search on (selection).
+#[test]
+fn audit_a_m3_selected_but_unusable_rule_blocks_the_key() {
+    let f = frame3();
+    let o = DomainOptions::default();
+    let free = || CaseDomain::free(3, Some(vec![true, true, false]));
+    // R1 with a witness pole n0 - 2 (not among its exceptions), then a free R2
+    let r1 = one_rule(&rule3(r#","witness_loci":["n0-2"]"#));
+    let d1 = CaseDomain::from_rule_record(&r1, &f, o).unwrap();
+    let mut t = Table::new("t", 3);
+    t.push(1, d1).unwrap();
+    t.push(2, free()).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let k = [2, 1, 0];
+    let d = disp.first_match(&k).unwrap();
+    let Dispatch::Blocked { at, reason } = &d else {
+        panic!("{d:?}")
+    };
+    assert_eq!(
+        (at.table, at.record, at.source_index, at.label),
+        (0, 0, 0, 1)
+    );
+    assert_eq!(
+        *reason,
+        Verdict::OnPole {
+            kind: PoleKind::Witness,
+            index: 0
+        }
+    );
+    assert!(d.is_open() && !d.is_covered() && d.winner().is_none());
+    assert_eq!(d, disp.first_match_slow(&k).unwrap());
+    // off the pole R1 wins
+    assert_eq!(
+        disp.first_match(&[3, 1, 0])
+            .unwrap()
+            .winner()
+            .map(|w| w.label),
+        Some(1)
+    );
+    // union mode lists R1 as blocked, R2 as applying
+    let UnionResult::Rules { applies: yes, open } = disp.union(&k).unwrap() else {
+        panic!()
+    };
+    assert_eq!(yes.iter().map(|w| w.label).collect::<Vec<_>>(), vec![2]);
+    assert_eq!(open.len(), 1);
+    // batch counts it as blocked, not uncovered and not covered
+    let rep = disp.batch(&[k.to_vec(), vec![3, 1, 0]], 1).unwrap();
+    assert_eq!(
+        (rep.covered, rep.uncovered, rep.blocked, rep.open()),
+        (1, 0, 1, 1)
+    );
+    // recenter bound (opt-in) blocks too
+    let rr = one_rule(&rule3(r#","recenter":[-1,0,0]"#)); // n0 >= 2
+    let dr = CaseDomain::from_rule_record(
+        &rr,
+        &f,
+        DomainOptions {
+            recenter_bounds: true,
+            ..o
+        },
+    )
+    .unwrap();
+    let mut t = Table::new("t", 3);
+    t.push(1, dr).unwrap();
+    t.push(2, free()).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[1, 1, 0]).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::RecenterBound(0),
+            ..
+        }
+    ));
+    assert_eq!(
+        disp.first_match(&[2, 1, 0])
+            .unwrap()
+            .winner()
+            .map(|w| w.label),
+        Some(1)
+    );
+    // selection failures pass the search on: exception, equation, fixed slot, target constant
+    for extra in [r#","exceptions":[["n0-1"]]"#, r#","equations":["n0-5"]"#] {
+        let line = rule3("").replace(
+            if extra.contains("exceptions") {
+                r#","exceptions":[]"#
+            } else {
+                r#","equations":[]"#
+            },
+            extra,
+        );
+        let mut t = Table::new("t", 3);
+        t.push(
+            1,
+            CaseDomain::from_rule_record(&one_rule(&line), &f, o).unwrap(),
+        )
+        .unwrap();
+        t.push(2, free()).unwrap();
+        let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+        assert_eq!(
+            disp.first_match(&[1, 1, 0])
+                .unwrap()
+                .winner()
+                .map(|w| w.label),
+            Some(2),
+            "{extra}"
+        );
+    }
+    // keys outside the common chart are not dispatched at all
+    assert_eq!(
+        disp.first_match(&[0, 1, 0]).unwrap(),
+        Dispatch::OutsideChart { slot: 0 }
+    );
+    assert_eq!(
+        disp.first_match(&[1, 1, 1]).unwrap(),
+        Dispatch::OutsideChart { slot: 2 }
+    );
+    // a record chart other than the frame mask is refused at load (the engine refuses such a chart)
+    let other = rule3("").replace(r#""chart":"110""#, r#""chart":"100""#);
+    assert!(matches!(
+        CaseDomain::from_rule_record(&one_rule(&other), &f, o),
+        Err(DomainError::ChartNotFrame { .. })
+    ));
+    let chart_line = r#"{"type":"chart","chart":"100","guards":["n>=1","n<=0","n<=0"]}"#;
+    let tf = table_file(&format!("{H3}\n{chart_line}\n{}", rule3("")));
+    assert!(matches!(
+        Table::from_table_file("c", "c", &tf, o),
+        Err(LoadError::Chart(_))
+    ));
+    // domains with different charts cannot share a dispatcher
+    let mut a = Table::new("a", 3);
+    a.push(1, CaseDomain::free(3, Some(vec![true, true, false])))
+        .unwrap();
+    a.push(2, CaseDomain::free(3, Some(vec![true, false, false])))
+        .unwrap();
+    assert!(matches!(
+        Dispatcher::new(vec![a], vec![0]),
+        Err(CoverError::Invalid(_))
+    ));
+}
+
+/// A N1 (domain part): a literal that is nonzero but vanishes modulo both engine primes. As an exception literal the
+/// old crate said `Applies` where the engine skips the rule. Now an evaluation error, and first match is Undecided.
+#[test]
+fn audit_a_n1_domain_fails_closed_on_engine_zero_disagreement() {
+    let pp = ENGINE_PRIMES[0] as i128 * ENGINE_PRIMES[1] as i128;
+    let lit = Poly::var(0).mul(&Poly::constant(pp)).unwrap();
+    let mut d = CaseDomain::free(3, None);
+    d.exceptions.push(vec![lit.clone()]);
+    assert_eq!(
+        d.applies(&[1, 1, 0]),
+        Verdict::Error(EvalError::EngineZeroTest)
+    );
+    assert_eq!(d.applies(&[0, 1, 0]), Verdict::OnException { branch: 0 });
+    let mut e = CaseDomain::free(3, None);
+    e.equations.push(lit);
+    assert_eq!(
+        e.applies(&[1, 1, 0]),
+        Verdict::Error(EvalError::EngineZeroTest)
+    );
+    let mut t = Table::new("t", 3);
+    t.push(0, d).unwrap();
+    t.push(1, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[1, 1, 0]).unwrap(),
+        Dispatch::Undecided { .. }
+    ));
+}
+
+/// Ruling F1 (coordinator): a record with ELIDED witness loci is unusable: where it would win, the key is Blocked,
+/// never a credit (old crate: `Undecided` from raw records, a credit from a bank predicate whose witness list holds
+/// "elided" was a load error, and from case exports, which carry no witness loci, an undetectable credit: the loaded
+/// table now says so in its provenance).
+#[test]
+fn ruling_f1_elided_witness_loci_block_from_every_source_format() {
+    // table_dump.v1
+    let el = rule3(r#","witness_loci":["elided"]"#);
+    let tf = table_file(&format!("{H3}\n{el}"));
+    let mut t = Table::from_table_file("raw", "raw", &tf, DomainOptions::default()).unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::Checked);
+    t.push(9, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[1, 1, 0]).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::Elided,
+            ..
+        }
+    ));
+    // with the witness check off the provenance says Disabled
+    let t = Table::from_table_file(
+        "raw",
+        "raw",
+        &tf,
+        DomainOptions {
+            witness: false,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::Disabled);
+    // bank predicate with an elided witness locus
+    let bank: rustred_campaign_core::record::BankPredicate =
+        serde_json::from_str(&bank_json(r#"["elided","n0-7"]"#)).unwrap();
+    let d = CaseDomain::from_bank_predicate(&bank, 3, EXPORT).unwrap();
+    assert!(d.witness_elided);
+    assert_eq!(d.applies(&[1, 1, 0]), Verdict::Elided);
+    assert_eq!(
+        d.applies(&[7, 1, 0]),
+        Verdict::OnPole {
+            kind: PoleKind::Witness,
+            index: 0
+        }
+    );
+    // case export: no witness field at all -> provenance NotCarried (the elided status cannot be seen)
+    let export = r#"{"i":0,"index":0,"chart":"110","fixed":[null,null,null],"equations":[],"exceptions":[],"dispatch":"Partition"}"#;
+    let tf = table_file(&format!("{H3}\n{export}"));
+    let t = Table::from_table_file(
+        "e",
+        "e",
+        &tf,
+        DomainOptions {
+            targets: EXPORT,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::NotCarried);
+}
+
+/// A M5: eps protection depended on the caller copying `power_shifts` into the frame (`from_mask` started without
+/// shifts, so an eps record loaded as integer-only); numeric `0` and padded `"0 "` shifts were accepted. Now the frame
+/// is built from the header by one constructor; a frame without a header is a visibly named escape hatch.
+#[test]
+fn audit_a_m5_frame_is_built_from_the_header() {
+    let f = frame3();
+    assert_eq!(f.source(), &FrameSource::Header);
+    assert_eq!(f.power_shifts(), &["0", "0", "0"]);
+    for shifts in [
+        r#"[0,"0","0"]"#,
+        r#"["0 ","0","0"]"#,
+        r#"["0","1","0"]"#,
+        r#"["0","eps","0"]"#,
+    ] {
+        let h = header(&H3.replace(r#"["0","0","0"]"#, shifts));
+        assert!(
+            matches!(NodeFrame::from_header(&h), Err(FrameError::Unsupported(_))),
+            "{shifts}"
+        );
+    }
+    // malformed headers
+    for bad in [
+        H3.replace(r#""mask":"110","#, ""),
+        H3.replace(r#""denominators":3,"#, ""),
+        H3.replace(r#""denominators":3"#, r#""denominators":4"#),
+        H3.replace(r#"["0","0","0"]"#, r#"["0","0"]"#),
+        H3.replace(r#"["0","0","0"]"#, r#""0""#),
+    ] {
+        assert!(NodeFrame::from_header(&header(&bad)).is_err(), "{bad}");
+    }
+    // absent / null power_shifts: no shift (as the engine)
+    let h = header(&H3.replace(r#","power_shifts":["0","0","0"]"#, ""));
+    assert!(NodeFrame::from_header(&h).unwrap().is_integer_only());
+    let h = header(&H3.replace(r#"["0","0","0"]"#, "null"));
+    assert!(NodeFrame::from_header(&h).is_ok());
+    // escape hatches are labelled
+    assert_eq!(
+        NodeFrame::without_header_lines_first(3, 2).source(),
+        &FrameSource::WithoutHeader
+    );
+    assert_eq!(
+        NodeFrame::without_header_from_mask("110").unwrap().source(),
+        &FrameSource::WithoutHeader
+    );
+    // the loader builds the frame from the header itself: an eps header refuses the whole table
+    let tf = table_file(&format!(
+        "{}\n{}",
+        H3.replace(r#"["0","0","0"]"#, r#"["0","1","0"]"#),
+        rule3("")
+    ));
+    assert!(matches!(
+        Table::from_table_file("eps", "eps", &tf, DomainOptions::default()),
+        Err(LoadError::Frame(FrameError::Unsupported(_)))
+    ));
+}
+
+/// A m4: the JSON line scanner took the FIRST of duplicate keys (serde_json, which the engine uses, takes the last),
+/// accepted junk after the closing brace, read `exceptions: null` or a missing `exceptions` as "no exceptions" (the
+/// engine's load fails), and a short `recenter` silently gave fewer bounds.
+#[test]
+fn audit_a_m4_record_reader_is_strict() {
+    let dup = r#"{"type":"rule","fixed":[1,null,null],"fixed":[null,null,null],"target":"I(n0,n1,n2)","rhs":[],"exceptions":[]}"#;
+    assert!(read_lines(dup)[0].is_err());
+    let junk = format!("{} trailing junk", rule3(""));
+    assert!(read_lines(&junk)[0].is_err());
+    assert!(read_lines(&format!("{}}}", rule3("")))[0].is_err());
+    for no_exc in [
+        rule3("").replace(r#","exceptions":[]"#, r#","exceptions":null"#),
+        rule3("").replace(r#","exceptions":[]"#, ""),
+    ] {
+        assert!(read_lines(&no_exc)[0].is_err(), "{no_exc}");
+    }
+    // table_dump.v1 rules need target and rhs (Table::load)
+    assert!(read_lines(&rule3("").replace(r#""target":"I(n0,n1,n2)","#, ""))[0].is_err());
+    assert!(read_lines(&rule3("").replace(r#""rhs":[],"#, ""))[0].is_err());
+    // short recenter with recenter bounds: typed error
+    let r = one_rule(&rule3(r#","recenter":[0]"#));
+    assert!(matches!(
+        CaseDomain::from_rule_record(
+            &r,
+            &frame3(),
+            DomainOptions {
+                recenter_bounds: true,
+                ..Default::default()
+            }
+        ),
+        Err(DomainError::Malformed(_))
+    ));
+    // a second header line in one file
+    let p = std::env::temp_dir().join(format!("core-fix-two-headers-{}.jsonl", std::process::id()));
+    std::fs::write(&p, format!("{H3}\n{H3}\n")).unwrap();
+    assert!(rustred_campaign_core::record::read_table_file(&p, ReadOptions::default()).is_err());
+    let _ = std::fs::remove_file(&p);
+}
+
+/// A m5: `applies_in_chart` panicked on a short key and said `Applies` on a long one; a `CaseDomain` with
+/// inconsistent public fields made `first_match` panic. Now typed verdicts / errors.
+#[test]
+fn audit_a_m5_bad_input_is_a_typed_error_not_a_panic() {
+    let mut d = CaseDomain::free(3, None);
+    d.fixed[2] = Some(0);
+    assert!(matches!(
+        d.applies_in_chart(&[1, 1]),
+        Verdict::NotInCase(NotInCase::Arity { .. })
+    ));
+    assert!(matches!(
+        d.applies_in_chart(&[1, 1, 0, 7]),
+        Verdict::NotInCase(NotInCase::Arity { .. })
+    ));
+    let mut bad = CaseDomain::free(3, None);
+    bad.fixed.push(Some(1));
+    assert!(bad.validate().is_err());
+    let mut t = Table::new("t", 3);
+    assert!(t.push(0, bad.clone()).is_err());
+    // public fields edited after push: the dispatcher validates again
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    t.domains[0] = bad;
+    assert!(Dispatcher::new(vec![t], vec![0]).is_err());
+    // a polynomial beyond the arity
+    let mut p = CaseDomain::free(3, None);
+    p.equations.push(Poly::var(5));
+    assert!(p.validate().is_err());
+    // frame predicates on a key of the wrong length fail closed
+    let f = frame3();
+    assert!(!f.in_chart_orthant(&[1, 1]));
+    assert!(!f.is_top_sector(&[1, 1, 0, 0]));
+    assert_eq!(f.dots(&[1, 1]), None);
+    assert!(f.classify(&[1, 1]).is_err());
+}
+
+/// A m6: a key of the wrong length, a dispatcher without domains (arity 0) and a table missing from the priority all
+/// yielded `Uncovered`. Now typed errors.
+#[test]
+fn audit_a_m6_caller_mistakes_are_errors_not_uncovered() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t.clone()], vec![0]).unwrap();
+    assert_eq!(
+        disp.first_match(&[1, 1, 0, 0]),
+        Err(CoverError::KeyArity {
+            expected: 3,
+            got: 4
+        })
+    );
+    assert!(disp.first_match_slow(&[1]).is_err());
+    assert!(disp.union(&[1]).is_err());
+    assert!(disp.batch(&[vec![1, 1, 0], vec![1]], 2).is_err());
+    assert!(matches!(
+        Dispatcher::new(vec![], vec![]),
+        Err(CoverError::Arity(_))
+    ));
+    assert!(matches!(
+        Dispatcher::new(vec![t.clone(), t.clone()], vec![1]),
+        Err(CoverError::BadPriority(_))
+    ));
+    let other = Table::new("u", 4);
+    assert!(matches!(
+        Dispatcher::new(vec![t, other], vec![0, 1]),
+        Err(CoverError::Arity(_))
+    ));
+    // an empty table of known arity is fine: everything uncovered, but by decision, not by accident
+    let empty = Dispatcher::new(vec![Table::new("e", 3)], vec![0]).unwrap();
+    assert_eq!(empty.first_match(&[1, 1, 0]).unwrap(), Dispatch::Uncovered);
+}
+
+/// A m7: `TableHeader.two_sided` dropped boolean flags (read as u64 slot indices) and `coordinate_priority` preferred
+/// `order.*` over `node_order.*` (the engine uses node_order). Flags are now read as the engine's table_import reads
+/// them (bool, or number meaning true iff 1).
+#[test]
+fn audit_a_m7_header_fields_read_as_the_engine() {
+    let h = header(
+        r#"{"type":"header","denominators":4,"mask":"1100","node_order":{"coordinate_priority":[3,2,1,0]},"order":{"coordinate_priority":[0,1,2,3],"two_sided":[true,false,1,0]}}"#,
+    );
+    assert_eq!(h.two_sided, vec![true, false, true, false]);
+    assert_eq!(h.coordinate_priority, Some(vec![3, 2, 1, 0]));
+    assert_eq!(NodeFrame::from_header(&h).unwrap().two_sided(), &[0, 2]);
+    let only_order = header(
+        r#"{"type":"header","denominators":2,"mask":"10","order":{"coordinate_priority":[1,0]}}"#,
+    );
+    assert_eq!(only_order.coordinate_priority, Some(vec![1, 0]));
+    for bad in [
+        r#"{"type":"header","denominators":2,"mask":"10","order":{"two_sided":["yes",false]}}"#,
+        r#"{"type":"header","denominators":2,"mask":"10","order":{"coordinate_priority":[1,"0"]}}"#,
+        r#"{"type":"header","denominators":2,"mask":"10","node_order":{"coordinate_priority":[-1,0]}}"#,
+    ] {
+        assert!(read_lines(bad)[0].is_err(), "{bad}");
+    }
+}
+
+// ================================================================ fast index versus reference scan (audit A M4)
+
+struct Rng(u64);
+impl Rng {
+    fn next(&mut self) -> u64 {
+        // xorshift64*
+        self.0 ^= self.0 >> 12;
+        self.0 ^= self.0 << 25;
+        self.0 ^= self.0 >> 27;
+        self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+    }
+    fn r(&mut self, lo: i32, hi: i32) -> i32 {
+        lo + (self.next() % ((hi - lo + 1) as u64)) as i32
+    }
+    fn chance(&mut self, pct: u64) -> bool {
+        self.next() % 100 < pct
+    }
+}
+
+fn lin(rng: &mut Rng, n: usize) -> Poly {
+    // n_a - n_b - c  or  n_a - c
+    let a = rng.r(0, n as i32 - 1) as usize;
+    let mut p = Poly::var(a)
+        .sub(&Poly::constant(rng.r(-2, 2) as i128))
+        .unwrap();
+    if rng.chance(50) {
+        let b = rng.r(0, n as i32 - 1) as usize;
+        p = p.sub(&Poly::var(b)).unwrap();
+    }
+    p
+}
+
+/// A random domain with planted structure: fixed slots, equations, exception branches (incl. empty AND-lists),
+/// blocking witness poles, elided witness loci, recenter bounds, target patterns with offsets and constants.
+fn random_domain(rng: &mut Rng, n: usize, mask: &[bool]) -> CaseDomain {
+    let mut d = CaseDomain::free(n, rng.chance(80).then(|| mask.to_vec()));
+    for (f, &line) in d.fixed.iter_mut().zip(mask) {
+        if rng.chance(25) {
+            *f = Some(if line { rng.r(1, 3) } else { rng.r(-2, 0) });
+        }
+    }
+    for _ in 0..rng.r(0, 2) {
+        d.equations.push(lin(rng, n));
+    }
+    for _ in 0..rng.r(0, 3) {
+        let len = rng.r(0, 2) as usize;
+        d.exceptions.push((0..len).map(|_| lin(rng, n)).collect());
+    }
+    if rng.chance(10) {
+        let p = lin(rng, n);
+        d.poles.push(rustred_campaign_core::domain::PoleLocus::new(
+            PoleKind::Witness,
+            &p,
+        ));
+    }
+    if rng.chance(4) {
+        d.witness_elided = true;
+    }
+    if rng.chance(15) {
+        // permuted parameters with offsets and a constant slot
+        let mut params: Vec<usize> = (0..n).collect();
+        for i in (1..n).rev() {
+            params.swap(i, rng.r(0, i as i32) as usize);
+        }
+        let c = rng.r(0, n as i32 - 1) as usize;
+        d.target = TargetMap::Pattern(
+            (0..n)
+                .map(|j| {
+                    if j == c {
+                        TargetSlot::Const(if mask[j] { 1 } else { 0 } as i64)
+                    } else {
+                        TargetSlot::Param {
+                            param: params[j],
+                            offset: rng.r(-1, 1) as i64,
+                        }
+                    }
+                })
+                .collect(),
+        );
+    } else if rng.chance(10) {
+        let s = rng.r(0, n as i32 - 1) as usize;
+        d.recenter_bounds.push(if mask[s] {
+            Poly::slot_minus(s, 2)
+        } else {
+            Poly::slot_minus(s, 0).neg().unwrap()
+        });
+    }
+    d
+}
+
+/// Independent reference written here (not the crate's scan): tables in priority order, records in order, the
+/// engine's selection by verdict.
+fn naive(tables: &[Table], prio: &[usize], mask: Option<&[bool]>, key: &[i32]) -> Dispatch {
+    use rustred_campaign_core::cover::RuleRef;
+    use rustred_campaign_core::domain::Stage;
+    if let Some(m) = mask
+        && let Some(slot) = (0..key.len()).find(|&i| (m[i] && key[i] < 1) || (!m[i] && key[i] > 0))
+    {
+        return Dispatch::OutsideChart { slot };
+    }
+    for &t in prio {
+        for (r, d) in tables[t].domains.iter().enumerate() {
+            let at = RuleRef {
+                table: t,
+                record: r,
+                source_index: r,
+                label: tables[t].labels[r],
+                basis: CreditBasis {
+                    witness: Assurance::Caller,
+                    target: Assurance::Caller,
+                    chart_checked: mask.is_some(),
+                },
+            };
+            let v = d.applies(key);
+            match v.stage() {
+                Stage::Applies => return Dispatch::Covered(at),
+                Stage::NotSelected => {}
+                Stage::Blocked => return Dispatch::Blocked { at, reason: v },
+                Stage::Undecided => return Dispatch::Undecided { at, verdict: v },
+            }
+        }
+    }
+    Dispatch::Uncovered
+}
+
+/// A M4: the fixed-value index (the fast path the coverage figures rest on) had no in-repo test against a plain
+/// scan. Randomized differential test, seeded, arities 5, 9, 14, 20: `first_match` (index) = `first_match_slow`
+/// (crate scan) = an independent naive scan in this file; `batch` = `batch_slow`; the winner is in `union_cover`.
+#[test]
+fn audit_a_m4_fast_index_equals_reference_scan_random() {
+    let mut rng = Rng(0x00c0_ffee_2026_1113);
+    let mut tally = [0usize; 5];
+    for (n, lines) in [(5usize, 3usize), (9, 6), (14, 9), (20, 10)] {
+        let mask: Vec<bool> = (0..n).map(|i| i < lines).collect();
+        for round in 0..3 {
+            let n_tables = rng.r(1, 3) as usize;
+            let mut tables = vec![];
+            for t in 0..n_tables {
+                let mut tb = Table::new(format!("t{t}"), n);
+                for r in 0..rng.r(20, 60) {
+                    tb.push(
+                        (t * 1000) as i64 + r as i64,
+                        random_domain(&mut rng, n, &mask),
+                    )
+                    .unwrap();
+                }
+                tables.push(tb);
+            }
+            let mut prio: Vec<usize> = (0..n_tables).collect();
+            if round % 2 == 1 {
+                prio.reverse();
+            }
+            let disp = Dispatcher::new(tables.clone(), prio.clone()).unwrap();
+            let keys: Vec<Vec<i32>> = (0..1500)
+                .map(|_| {
+                    (0..n)
+                        .map(|i| {
+                            if rng.chance(3) {
+                                rng.r(-1, 2) // occasionally outside the chart
+                            } else if mask[i] {
+                                rng.r(1, 3)
+                            } else {
+                                rng.r(-2, 0)
+                            }
+                        })
+                        .collect()
+                })
+                .collect();
+            for k in &keys {
+                let fast = disp.first_match(k).unwrap();
+                assert_eq!(fast, disp.first_match_slow(k).unwrap(), "n={n} key {k:?}");
+                assert_eq!(
+                    fast,
+                    naive(&tables, &prio, disp.chart(), k),
+                    "n={n} key {k:?}"
+                );
+                match (&fast, disp.union(k).unwrap()) {
+                    (Dispatch::Covered(w), UnionResult::Rules { applies, .. }) => {
+                        assert!(applies.contains(w))
+                    }
+                    (
+                        Dispatch::Blocked { at, .. } | Dispatch::Undecided { at, .. },
+                        UnionResult::Rules { open, .. },
+                    ) => assert!(open.iter().any(|(r, _)| r == at)),
+                    (Dispatch::Uncovered, UnionResult::Rules { applies, open }) => {
+                        assert!(applies.is_empty() && open.is_empty())
+                    }
+                    (Dispatch::OutsideChart { slot }, UnionResult::OutsideChart { slot: s }) => {
+                        assert_eq!(*slot, s)
+                    }
+                    (f, u) => panic!("first match {f:?} vs union {u:?}"),
+                }
+                tally[match fast {
+                    Dispatch::Covered(_) => 0,
+                    Dispatch::Uncovered => 1,
+                    Dispatch::Blocked { .. } => 2,
+                    Dispatch::Undecided { .. } => 3,
+                    Dispatch::OutsideChart { .. } => 4,
+                }] += 1;
+            }
+            let (a, b) = (
+                disp.batch(&keys, 3).unwrap(),
+                disp.batch_slow(&keys, 2).unwrap(),
+            );
+            assert_eq!(a.results, b.results);
+            assert_eq!(
+                (
+                    a.covered,
+                    a.uncovered,
+                    a.blocked,
+                    a.undecided,
+                    a.outside_chart
+                ),
+                (
+                    b.covered,
+                    b.uncovered,
+                    b.blocked,
+                    b.undecided,
+                    b.outside_chart
+                )
+            );
+        }
+    }
+    println!("M4 random: covered/uncovered/blocked/undecided/outside = {tally:?}");
+    // every verdict kind occurs, so the comparison is not vacuous
+    assert!(
+        tally[0] > 500 && tally[1] > 500 && tally[2] > 50 && tally[4] > 500,
+        "{tally:?}"
+    );
+}
+
+// ============================================================================================== order (audit A)
+
+/// A N3: `cmp` acts on PRESENTED keys; a key in the original frame compared positionally with a presented one gives a
+/// wrong verdict silently (T162: `slot_permutation` swaps slots 0 and 3). `cmp_framed` carries the frame of each key
+/// and converts; the T162 example below gives `Less` for presented keys and `Greater` when the same slices are
+/// original-frame keys.
+#[test]
+fn audit_a_n3_framed_comparison_never_mixes_frames() {
+    use rustred_campaign_core::order::{FramedKey, NodeComparator};
+    use std::cmp::Ordering;
+    let headers: serde_json::Value =
+        serde_json::from_str(include_str!("data/order/headers.json")).unwrap();
+    let c = NodeComparator::from_header(&headers["t162_bank"]).unwrap();
+    assert!(!c.presentation().is_identity());
+    let a = [2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let b = [1, 1, 1, 2, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    use FramedKey::{Original as O, Presented as P};
+    assert_eq!(c.cmp_framed(P(&a), P(&b)).unwrap(), Ordering::Less);
+    assert_eq!(c.cmp_framed(O(&a), O(&b)).unwrap(), Ordering::Greater);
+    // mixed: the original-frame key is presented first
+    let pa = c.presentation().present(&a);
+    assert_eq!(c.cmp_framed(O(&a), P(&b)).unwrap(), c.cmp(&pa, &b));
+    assert_eq!(c.cmp_framed(P(&pa), O(&a)).unwrap(), Ordering::Equal);
+    assert!(c.cmp_framed(P(&a[..5]), P(&b)).is_err());
+}
+
+/// A m5 (order part): `GroupElement::apply` indexed without bounds checks (a line map longer than the key, or a
+/// target slot out of range, panicked). Now typed errors.
+#[test]
+fn audit_a_m5_group_element_apply_is_checked() {
+    use rustred_campaign_core::order::GroupElement;
+    let swap = GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: Some(vec![1, 0]),
+    };
+    assert_eq!(
+        swap.apply(&[3, 2, 1, -1, 0]).unwrap(),
+        Some(vec![2, 3, 1, 0, -1])
+    );
+    let line_only = GroupElement {
+        lines: vec![1, 0, 2],
+        numerators: None,
+    };
+    assert_eq!(line_only.apply(&[3, 2, 1, -1, 0]).unwrap(), None);
+    for bad in [
+        GroupElement {
+            lines: vec![0, 1, 2, 3, 4, 5],
+            numerators: None,
+        },
+        GroupElement {
+            lines: vec![0, 1, 7],
+            numerators: None,
+        },
+        GroupElement {
+            lines: vec![0, 0, 1],
+            numerators: None,
+        },
+        GroupElement {
+            lines: vec![0, 1, 2],
+            numerators: Some(vec![0, 5]),
+        },
+        GroupElement {
+            lines: vec![0, 1, 2],
+            numerators: Some(vec![0]),
+        },
+    ] {
+        assert!(bad.apply(&[3, 2, 1, -1, 0]).is_err(), "{bad:?}");
+    }
+}
+
+// ============================================================================================== audit B
+
+/// B M1: a record without `exceptions` loaded as having none (`Applies` where the rule should be excluded); a missing
+/// `equations` likewise. Both are now format errors (the engine requires `exceptions`; `equations` is required here,
+/// stricter than the engine, because every record at hand carries it).
+#[test]
+fn audit_b_m1_missing_exceptions_or_equations_is_an_error() {
+    let rec = r#"{"i":0,"index":0,"chart":"110","fixed":[1,null,null],"equations":[],"exceptions":[],"dispatch":"Partition","numerical":false}"#;
+    assert!(read_lines(rec)[0].is_ok());
+    assert!(read_lines(&rec.replace(r#""exceptions":[],"#, ""))[0].is_err());
+    assert!(read_lines(&rec.replace(r#""equations":[],"#, ""))[0].is_err());
+    assert!(read_lines(&rec.replace(r#""equations":[]"#, r#""equations":null"#))[0].is_err());
+}
+
+/// B M2: a case-export rule line without `fixed` was classed as a non-rule line and DROPPED silently (a later rule
+/// then won the key). Now a format error; only the `other` / `summary` wrappers are non-rule lines.
+#[test]
+fn audit_b_m2_rule_line_without_fixed_is_an_error() {
+    let rec =
+        r#"{"i":0,"index":0,"chart":"110","equations":[],"exceptions":[],"dispatch":"Partition"}"#;
+    assert!(read_lines(rec)[0].is_err());
+    assert!(matches!(
+        read_lines(r#"{"summary":{"rules":3}}"#)[0],
+        Ok(TableLine::Other { .. })
+    ));
+    assert!(matches!(
+        read_lines(r#"{"other":{"type":"zero_sectors","masks":[]}}"#)[0],
+        Ok(TableLine::Other { .. })
+    ));
+    assert!(read_lines(r#"{"summary":{},"i":1}"#)[0].is_err());
+}
+
+/// B M3: a bank predicate without `domain_atoms` loaded with no chart/recenter bounds (`Applies` at keys they
+/// exclude). Every domain field of a bank predicate is now required (null = empty list).
+#[test]
+fn audit_b_m3_bank_predicate_fields_are_required() {
+    use rustred_campaign_core::record::BankPredicate;
+    let full = bank_json("[]");
+    assert!(serde_json::from_str::<BankPredicate>(&full).is_ok());
+    for field in [
+        "domain_atoms",
+        "all_raw_Case_equations",
+        "raw_written_exceptions_OR_of_AND",
+        "cached_domain_exception_or_pole_AND_loci",
+        "literal_written_denominators_generic_d_nonzero",
+        "raw_header_source_conditions_generic_d_nonzero",
+        "raw_rule_witness_loci_generic_d_nonzero",
+        "raw_fixed20",
+    ] {
+        let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+        v.as_object_mut().unwrap().remove(field);
+        assert!(
+            serde_json::from_value::<BankPredicate>(v).is_err(),
+            "missing {field} must be refused"
+        );
+    }
+    // null = empty list only in the cached loci (re-audit RB m3, see `reaudit_b_m3_bank_null_only_where_the_bank_uses_it`)
+    let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+    v["cached_domain_exception_or_pole_AND_loci"] = serde_json::Value::Null;
+    assert!(serde_json::from_value::<BankPredicate>(v).is_ok());
+}
+
+/// B M4: case exports carry no `witness_loci`, so elision cannot be seen there; the old crate gave no sign of it.
+/// The loaded table now says `WitnessProvenance::NotCarried` (and a raw table `Checked`); with the raw rgq-g0-10 table
+/// the 21 keys are Blocked (ruling F1; `cover_raw_tables::f1_raw_tables_witness_check_409_uncovered_21_blocked`).
+#[test]
+fn audit_b_m4_exports_without_witness_loci_are_flagged() {
+    let export = r#"{"i":0,"index":0,"chart":"110","fixed":[null,null,null],"equations":[],"exceptions":[],"dispatch":"Partition"}"#;
+    let t = Table::from_table_file(
+        "e",
+        "e",
+        &table_file(&format!("{H3}\n{export}")),
+        DomainOptions {
+            targets: EXPORT,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::NotCarried);
+    let raw = rule3(r#","witness_loci":[]"#);
+    let t = Table::from_table_file(
+        "r",
+        "r",
+        &table_file(&format!("{H3}\n{raw}")),
+        DomainOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(t.provenance.witness, WitnessProvenance::Checked);
+    let mixed = table_file(&format!(
+        "{H3}\n{raw}\n{}",
+        rule3("").replace(r#""index":0"#, r#""index":1"#)
+    ));
+    let t = Table::from_table_file("m", "m", &mixed, DomainOptions::default()).unwrap();
+    assert_eq!(
+        t.provenance.witness,
+        WitnessProvenance::Partial { with: 1, total: 2 }
+    );
+}
+
+/// B m1: `first_match` on a key of the wrong length returned `Uncovered`; now `CoverError::KeyArity` (see also A m6).
+#[test]
+fn audit_b_m1_wrong_length_key_is_an_error() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[1, 1]),
+        Err(CoverError::KeyArity { .. })
+    ));
+}
+
+/// B m2: `Table` has public fields; `labels.len() < domains.len()` made `first_match` panic. `Dispatcher::new`
+/// validates it now.
+#[test]
+fn audit_b_m2_label_count_mismatch_is_refused() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    t.push(1, CaseDomain::free(3, None)).unwrap();
+    t.labels.pop();
+    assert!(matches!(
+        Dispatcher::new(vec![t], vec![0]),
+        Err(CoverError::Invalid(_))
+    ));
+}
+
+/// B m3: 30,000 nested parentheses overflowed the parser's stack and aborted the process. Nesting is now bounded
+/// (`MAX_NESTING`) with a typed syntax error.
+#[test]
+fn audit_b_m3_deep_nesting_is_a_typed_error() {
+    use rustred_campaign_core::poly::MAX_NESTING;
+    let deep = format!("{}n0{}", "(".repeat(30_000), ")".repeat(30_000));
+    assert!(matches!(
+        Poly::parse_d_free(&deep, 3),
+        Err(PolyError::Syntax { .. })
+    ));
+    let signs = format!("{}n0", "-".repeat(30_000));
+    assert!(Poly::parse_d_free(&signs, 3).is_err());
+    let ok = format!(
+        "{}n0{}",
+        "(".repeat(MAX_NESTING - 2),
+        ")".repeat(MAX_NESTING - 2)
+    );
+    assert_eq!(Poly::parse_d_free(&ok, 3).unwrap(), Poly::var(0));
+}
+
+// ======================================================= re-audits (WS/notes/implementer.reaudit-core-{A,B}.md)
+
+use rustred_campaign_core::cover::{
+    Attestation, AttestedRecords, RecordMeta, UnionCover, WitnessStatus,
+};
+
+/// An export line (no target, no witness loci) of arity 3 with the given index and extra fields.
+fn export3(index: i64, extra: &str) -> String {
+    format!(
+        r#"{{"i":{index},"index":{index},"chart":"110","fixed":[null,null,null],"equations":[],"exceptions":[],"dispatch":"Partition"{extra}}}"#
+    )
+}
+
+/// A raw rule line of arity 3 with the given index, target and extra fields.
+fn raw3(index: i64, target: &str, extra: &str) -> String {
+    format!(
+        r#"{{"type":"rule","chart":"110","index":{index},"fixed":[null,null,null],"equations":[],"target":"{target}","rhs":[],"exceptions":[],"dispatch":"Partition"{extra}}}"#
+    )
+}
+
+fn att(witness: AttestedRecords, targets: AttestedRecords) -> Attestation {
+    Attestation {
+        witness_complete: witness,
+        targets_canonical: targets,
+        source_digest: Some("sha256:unit-test".into()),
+        provenance: "unit test".into(),
+    }
+}
+
+fn export_opts() -> DomainOptions {
+    DomainOptions {
+        targets: EXPORT,
+        ..Default::default()
+    }
+}
+
+/// RA-MAJOR-1: an elided (or simply unknown) witness status was informational only: a case-export table
+/// (`WitnessProvenance::NotCarried`) credited every key its records applied to (39 T178B box keys rest on elided
+/// records). Now the witness status is per record and ENFORCED by dispatch: a selected record whose status is not
+/// `Complete` blocks the key, unless (a) the caller turned the check off (visible in every credit and in the batch
+/// tally) or (b) an attestation covers the record (checked against the raw table when given, else marked unchecked in
+/// the provenance and in every credit).
+#[test]
+fn reaudit_ra_major_1_witness_status_is_enforced_by_dispatch() {
+    let export = table_file(&format!("{H3}\n{}", export3(0, "")));
+    // (0) strict default: Blocked(WitnessNotCarried), never a credit
+    let t = Table::from_table_file("e", "e", &export, export_opts()).unwrap();
+    assert_eq!(t.meta[0].witness, WitnessStatus::NotCarried);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let d = disp.first_match(&[1, 1, 0]).unwrap();
+    assert!(
+        matches!(&d, Dispatch::Blocked { reason: Verdict::WitnessNotCarried, at } if at.label == 0),
+        "{d:?}"
+    );
+    assert_eq!(d, disp.first_match_slow(&[1, 1, 0]).unwrap());
+    let rep = disp.batch(&[vec![1, 1, 0]], 1).unwrap();
+    assert_eq!(
+        (rep.covered, rep.blocked, rep.tally.blocked_witness),
+        (0, 1, 1)
+    );
+    assert!(!disp.summary().is_strict() || disp.summary().tables[0].witness_not_complete == 1);
+    // (a) the witness check off: a credit, but it says so
+    let off = DomainOptions {
+        witness: false,
+        ..export_opts()
+    };
+    let disp = Dispatcher::new(
+        vec![Table::from_table_file("e", "e", &export, off).unwrap()],
+        vec![0],
+    )
+    .unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.witness, Assurance::CheckDisabled);
+    assert_eq!(w.basis.target, Assurance::AttestedUnchecked);
+    let rep = disp.batch(&[vec![1, 1, 0]], 1).unwrap();
+    assert_eq!(
+        (rep.covered, rep.tally.witness_check_off, rep.tally.strict),
+        (1, 1, 0)
+    );
+    assert!(!disp.summary().is_strict());
+    // (b1) attestation without the raw table: a credit resting on an UNCHECKED attestation
+    let a = att(AttestedRecords::All, AttestedRecords::None);
+    let t = Table::from_table_file_attested("e", "e", &export, export_opts(), &a, None).unwrap();
+    let ar = t.provenance.attestation.clone().unwrap();
+    assert_eq!(
+        (ar.checked, ar.witness_records, ar.target_records),
+        (false, 1, 0)
+    );
+    assert_eq!(ar.source_digest.as_deref(), Some("sha256:unit-test"));
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.witness, Assurance::AttestedUnchecked);
+    assert!(w.basis.rests_on_unchecked_attestation());
+    assert_eq!(
+        disp.batch(&[vec![1, 1, 0]], 1)
+            .unwrap()
+            .tally
+            .attested_unchecked,
+        1
+    );
+    // (b2) attestation CHECKED against the raw table: the raw witness poles are carried into the domain
+    let raw = table_file(&format!(
+        "{H3}\n{}",
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":["n0-2"]"#)
+    ));
+    let t =
+        Table::from_table_file_attested("e", "e", &export, export_opts(), &a, Some(&raw)).unwrap();
+    assert!(t.provenance.attestation.as_ref().unwrap().checked);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.witness, Assurance::AttestedChecked);
+    assert!(matches!(
+        disp.first_match(&[2, 1, 0]).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::OnPole {
+                kind: PoleKind::Witness,
+                ..
+            },
+            ..
+        }
+    ));
+    // a claim the raw table contradicts is a load error: elided raw loci, missing loci, missing record, other domain
+    for raw_line in [
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":["elided"]"#),
+        raw3(0, "I(n0,n1,n2)", ""),
+        raw3(7, "I(n0,n1,n2)", r#","witness_loci":[]"#),
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""exceptions":[]"#, r#""exceptions":[["n0-3"]]"#),
+    ] {
+        let raw = table_file(&format!("{H3}\n{raw_line}"));
+        assert!(
+            matches!(
+                Table::from_table_file_attested("e", "e", &export, export_opts(), &a, Some(&raw)),
+                Err(LoadError::Attestation { .. })
+            ),
+            "{raw_line}"
+        );
+    }
+    // the attestation a raw table supports leaves the elided record out: it stays NotCarried and blocks
+    let export2 = table_file(&format!(
+        "{H3}\n{}\n{}",
+        export3(0, ""),
+        export3(1, "").replace(r#""fixed":[null,null,null]"#, r#""fixed":[2,null,null]"#)
+    ));
+    let raw2 = table_file(&format!(
+        "{H3}\n{}\n{}",
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":["elided"]"#),
+        raw3(1, "I(2,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""fixed":[null,null,null]"#, r#""fixed":[2,null,null]"#)
+    ));
+    let a2 = Attestation::from_raw_table(&raw2, None, "from raw2").unwrap();
+    assert_eq!(a2.witness_complete, AttestedRecords::Indices([1].into()));
+    assert_eq!(
+        a2.targets_canonical,
+        AttestedRecords::Indices([0, 1].into())
+    );
+    let t = Table::from_table_file_attested("e", "e", &export2, export_opts(), &a2, Some(&raw2))
+        .unwrap();
+    assert_eq!(
+        t.meta.iter().map(|m| m.witness).collect::<Vec<_>>(),
+        vec![WitnessStatus::NotCarried, WitnessStatus::Complete]
+    );
+    assert_eq!(t.meta[1].target_basis, Assurance::AttestedChecked);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(matches!(
+        disp.first_match(&[2, 1, 0]).unwrap(),
+        Dispatch::Blocked {
+            reason: Verdict::WitnessNotCarried,
+            ..
+        }
+    ));
+    // a raw record without witness_loci is NotCarried as well (strict), with them Complete from the record itself
+    let raw_t = |extra: &str| {
+        Table::from_table_file(
+            "r",
+            "r",
+            &table_file(&format!("{H3}\n{}", raw3(0, "I(n0,n1,n2)", extra))),
+            DomainOptions::default(),
+        )
+        .unwrap()
+    };
+    assert_eq!(raw_t("").meta[0].witness, WitnessStatus::NotCarried);
+    let m: RecordMeta = raw_t(r#","witness_loci":[]"#).meta[0];
+    assert_eq!(
+        (m.witness, m.witness_basis, m.target_basis),
+        (
+            WitnessStatus::Complete,
+            Assurance::Record,
+            Assurance::Record
+        )
+    );
+    // the bank carries its witness loci: Complete from the data, target on the caller's unchecked statement
+    let bank: rustred_campaign_core::record::BankPredicate =
+        serde_json::from_str(&bank_json("[]")).unwrap();
+    let t = Table::from_bank("b", "b", &[bank], 3, EXPORT).unwrap();
+    assert_eq!(
+        (
+            t.meta[0].witness,
+            t.meta[0].witness_basis,
+            t.meta[0].target_basis
+        ),
+        (
+            WitnessStatus::Complete,
+            Assurance::Record,
+            Assurance::AttestedUnchecked
+        )
+    );
+}
+
+/// RA-MAJOR-2: "targets are canonical" for target-less sources was the caller's free text, never checked: an export of
+/// a table with offset targets (`I(n0+1,n1,n2)`, equation `n0-2`) would be evaluated at the key instead of the rule
+/// point (Applies at [2,1,0], where the engine requires k0 = 3). Now a target attestation is CHECKED against the raw
+/// table when one is given (a non-canonical raw target is a load error), else it is recorded as unchecked in the
+/// provenance and in every credit; the legacy text is likewise marked `AttestedUnchecked` in every credit.
+#[test]
+fn reaudit_ra_major_2_target_attestation_is_checked_or_marked_unchecked() {
+    let export = table_file(&format!(
+        "{H3}\n{}",
+        export3(0, "").replace(r#""equations":[]"#, r#""equations":["n0-2"]"#)
+    ));
+    let raw_offset = table_file(&format!(
+        "{H3}\n{}",
+        raw3(0, "I(n0+1,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""equations":[]"#, r#""equations":["n0-2"]"#)
+    ));
+    let plain = DomainOptions {
+        witness: false,
+        ..Default::default()
+    };
+    let a = att(AttestedRecords::None, AttestedRecords::All);
+    // checked: the raw target is not canonical -> refused
+    assert!(matches!(
+        Table::from_table_file_attested("e", "e", &export, plain, &a, Some(&raw_offset)),
+        Err(LoadError::Attestation { .. })
+    ));
+    // the raw table itself evaluates at the rule point (engine semantics): Applies at [3,1,0], not at [2,1,0]
+    let rt = Table::from_table_file("r", "r", &raw_offset, plain).unwrap();
+    assert_eq!(rt.domains[0].applies(&[3, 1, 0]), Verdict::Applies);
+    assert!(!rt.domains[0].applies(&[2, 1, 0]).applies());
+    // unchecked: loads, but provenance and every credit say so
+    let t = Table::from_table_file_attested("e", "e", &export, plain, &a, None).unwrap();
+    assert_eq!(t.meta[0].target_basis, Assurance::AttestedUnchecked);
+    assert!(!t.provenance.attestation.as_ref().unwrap().checked);
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[2, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!(w.basis.target, Assurance::AttestedUnchecked);
+    assert!(w.basis.rests_on_unchecked_attestation() && !w.basis.is_strict());
+    // checked against a raw table with the canonical target: AttestedChecked
+    let raw_ok = table_file(&format!(
+        "{H3}\n{}",
+        raw3(0, "I(n0,n1,n2)", r#","witness_loci":[]"#)
+            .replace(r#""equations":[]"#, r#""equations":["n0-2"]"#)
+    ));
+    let t = Table::from_table_file_attested("e", "e", &export, plain, &a, Some(&raw_ok)).unwrap();
+    assert_eq!(t.meta[0].target_basis, Assurance::AttestedChecked);
+    // no attestation and no statement: still MissingTarget
+    assert!(matches!(
+        Table::from_table_file("e", "e", &export, plain),
+        Err(LoadError::Record {
+            err: DomainError::MissingTarget,
+            ..
+        })
+    ));
+}
+
+/// RA minor N-m1: with recenter bounds requested, a record whose `recenter` is `null` or absent loaded with NO bounds
+/// (Applies at [1,1,0], while `recenter:[-1,0,0]` gives RecenterBound). Now it is `DomainError::MissingRecenter`.
+#[test]
+fn reaudit_ra_minor_recenter_null_with_bounds_requested_is_an_error() {
+    let o = DomainOptions {
+        recenter_bounds: true,
+        ..Default::default()
+    };
+    for extra in [r#","recenter":null"#, ""] {
+        assert_eq!(
+            CaseDomain::from_rule_record(&one_rule(&rule3(extra)), &frame3(), o),
+            Err(DomainError::MissingRecenter),
+            "{extra:?}"
+        );
+    }
+    let d =
+        CaseDomain::from_rule_record(&one_rule(&rule3(r#","recenter":[-1,0,0]"#)), &frame3(), o)
+            .unwrap();
+    assert_eq!(d.applies(&[1, 1, 0]), Verdict::RecenterBound(0));
+    // without recenter bounds a null recenter is fine (the engine's matcher does not test them)
+    assert!(
+        CaseDomain::from_rule_record(
+            &one_rule(&rule3(r#","recenter":null"#)),
+            &frame3(),
+            DomainOptions::default()
+        )
+        .is_ok()
+    );
+}
+
+/// RA minor N-m2: `RuleRef.record` was the position among the LOADED domains; after a skipped (non-Partition) record
+/// it no longer named the file position, and a consumer indexing the file's rules took the wrong rule. Credits now
+/// carry `source_index` (position among the file's rule records) next to the dispatch position; labels are unique.
+#[test]
+fn reaudit_ra_minor_record_number_is_the_source_position() {
+    let numerical = raw3(10, "I(n0,n1,n2)", r#","witness_loci":[]"#)
+        .replace(r#""dispatch":"Partition""#, r#""dispatch":"Numerical""#);
+    let partition = raw3(11, "I(n0,n1,n2)", r#","witness_loci":[]"#);
+    let tf = table_file(&format!("{H3}\n{numerical}\n{partition}"));
+    let t = Table::from_table_file("t", "t", &tf, DomainOptions::default()).unwrap();
+    assert_eq!(
+        (t.len(), t.meta[0].source_index, t.meta[0].line_no),
+        (1, 1, 3)
+    );
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 0]).unwrap().winner().unwrap();
+    assert_eq!((w.record, w.source_index, w.label), (0, 1, 11));
+    assert_eq!(tf.rules[w.source_index].index, Some(11));
+    // duplicate labels in one source are refused
+    let dup = table_file(&format!("{H3}\n{partition}\n{partition}"));
+    assert!(matches!(
+        Table::from_table_file("t", "t", &dup, DomainOptions::default()),
+        Err(LoadError::DuplicateLabel { label: 11, .. })
+    ));
+}
+
+/// RA minor N-m3: `union_cover` returned `([], [])` outside the chart, the same as "no rule applies". `union` now
+/// says `OutsideChart`; the deprecated tuple form refuses such a key with `CoverError::OutsideChart`.
+#[test]
+#[allow(deprecated)]
+fn reaudit_ra_minor_union_tells_outside_chart_from_uncovered() {
+    let mut t = Table::new("t", 3);
+    let mut d = CaseDomain::free(3, Some(vec![true, true, false]));
+    d.fixed[0] = Some(5);
+    t.push(0, d).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert_eq!(
+        disp.union(&[1, 1, 3]).unwrap(),
+        UnionResult::OutsideChart { slot: 2 }
+    );
+    assert_eq!(
+        disp.union(&[1, 1, 0]).unwrap(),
+        UnionResult::Rules {
+            applies: vec![],
+            open: vec![]
+        }
+    );
+    assert_eq!(
+        disp.union_cover(&[1, 1, 3]),
+        Err(CoverError::OutsideChart { slot: 2 })
+    );
+    let u: UnionCover = disp.union_cover(&[1, 1, 0]).unwrap();
+    assert_eq!(u, (vec![], vec![]));
+}
+
+/// RA minor N-m4: with the chart test off (or a bank-only dispatcher) a key the engine never dispatches (positive
+/// numerator) was `Covered` without any sign. Every credit now says `chart_checked`; `with_chart` restores the test.
+#[test]
+fn reaudit_ra_minor_chart_not_checked_is_visible_in_the_credit() {
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, None)).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    let w = disp.first_match(&[1, 1, 5]).unwrap().winner().unwrap();
+    assert!(!w.basis.chart_checked);
+    let rep = disp.batch(&[vec![1, 1, 5]], 1).unwrap();
+    assert_eq!(rep.tally.chart_unchecked, 1);
+    assert!(!disp.summary().chart_checked);
+    let disp = disp.with_chart(vec![true, true, false]).unwrap();
+    assert_eq!(
+        disp.first_match(&[1, 1, 5]).unwrap(),
+        Dispatch::OutsideChart { slot: 2 }
+    );
+    assert!(
+        disp.first_match(&[1, 1, 0])
+            .unwrap()
+            .winner()
+            .unwrap()
+            .basis
+            .chart_checked
+    );
+    // a chart of the wrong length, or one that contradicts the domains' chart, is refused
+    let mut t = Table::new("t", 3);
+    t.push(0, CaseDomain::free(3, Some(vec![true, true, false])))
+        .unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+    assert!(disp.with_chart(vec![true, false, false]).is_err());
+}
+
+/// RB m1: a rule point beyond the i32 range was `Undecided` even when a LATER target constant deselects the rule (the
+/// engine, in i64, skips it). Constants are now tested first; an overflowing rule point of a rule the constants do not
+/// deselect stays `Error(Overflow)` (fail closed).
+#[test]
+fn reaudit_b_m1_target_constants_deselect_before_the_overflow() {
+    let r = one_rule(&rule3("").replace("I(n0,n1,n2)", "I(n0-1,n1,5)"));
+    let d = CaseDomain::from_rule_record(&r, &frame3(), DomainOptions::default()).unwrap();
+    assert!(matches!(
+        d.applies_in_chart(&[i32::MAX, 1, 0]),
+        Verdict::NotInCase(NotInCase::TargetConstant { slot: 2, .. })
+    ));
+    assert_eq!(
+        d.applies_in_chart(&[i32::MAX, 1, 5]),
+        Verdict::Error(EvalError::Overflow)
+    );
+    assert_eq!(d.applies_in_chart(&[1, 1, 5]), Verdict::Applies);
+}
+
+/// RB m2: a table whose header line comes AFTER its rule lines was accepted (the engine fails: the rule is parsed with
+/// arity 0). `read_table_file` now refuses it, and reports the line of a second header.
+#[test]
+fn reaudit_b_m2_header_after_rule_lines_is_refused() {
+    let dir = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"));
+    let write = |name: &str, text: String| {
+        let p = dir.join(name);
+        std::fs::write(&p, text).unwrap();
+        p
+    };
+    let rule = raw3(0, "I(n0,n1,n2)", r#","witness_loci":[]"#);
+    let late = write("corefix2_late_header.jsonl", format!("{rule}\n{H3}\n"));
+    assert!(matches!(
+        rustred_campaign_core::record::read_table_file(&late, ReadOptions::default()),
+        Err(RecordError::Format { line: 2, .. })
+    ));
+    let twice = write(
+        "corefix2_two_headers.jsonl",
+        format!("{H3}\n{H3}\n{rule}\n"),
+    );
+    assert!(matches!(
+        rustred_campaign_core::record::read_table_file(&twice, ReadOptions::default()),
+        Err(RecordError::Format { line: 2, .. })
+    ));
+    let ok = write("corefix2_header_first.jsonl", format!("{H3}\n{rule}\n"));
+    assert_eq!(
+        rustred_campaign_core::record::read_table_file(&ok, ReadOptions::default())
+            .unwrap()
+            .rules
+            .len(),
+        1
+    );
+}
+
+/// RB m3: the bank reader accepted `null` as an empty list in every list field; a `null` exception list gave
+/// `Applies` (fail open). `null` is now accepted ONLY in `cached_domain_exception_or_pole_AND_loci`, where the real
+/// bank writes it.
+#[test]
+fn reaudit_b_m3_bank_null_only_where_the_bank_uses_it() {
+    use rustred_campaign_core::record::BankPredicate;
+    let full = bank_json("[]");
+    for field in [
+        "domain_atoms",
+        "all_raw_Case_equations",
+        "raw_written_exceptions_OR_of_AND",
+        "literal_written_denominators_generic_d_nonzero",
+        "raw_header_source_conditions_generic_d_nonzero",
+        "raw_rule_witness_loci_generic_d_nonzero",
+        "raw_fixed20",
+    ] {
+        let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+        v[field] = serde_json::Value::Null;
+        assert!(
+            serde_json::from_value::<BankPredicate>(v).is_err(),
+            "null {field} must be refused"
+        );
+    }
+    let mut v: serde_json::Value = serde_json::from_str(&full).unwrap();
+    v["cached_domain_exception_or_pole_AND_loci"] = serde_json::Value::Null;
+    let p: BankPredicate = serde_json::from_value(v).unwrap();
+    assert_eq!(p.cached_loci, None);
+}
+
+/// RB m4: `PoleLocus::vanishes_at` returned `Ok(false)` on a key too short for the locus when an earlier coefficient
+/// was already nonzero (pole `n19*d+n1`, key of length 19). Now a typed `KeyTooShort` error.
+#[test]
+fn reaudit_b_m4_pole_locus_on_a_short_key_is_an_error() {
+    use rustred_campaign_core::domain::PoleLocus;
+    let p = Poly::parse("n19*d+n1", 20, true).unwrap();
+    let l = PoleLocus::new(PoleKind::Witness, &p);
+    assert_eq!(
+        l.vanishes_at(&[1; 19]),
+        Err(EvalError::KeyTooShort {
+            needed: 20,
+            len: 19
+        })
+    );
+    assert_eq!(l.vanishes_at(&[0; 20]), Ok(true));
+    assert_eq!(l.vanishes_at(&[1; 20]), Ok(false));
+}
+
+/// RB m5: wrong-length keys panicked in `sector`, `sector_slots`, `lower`, `rank`, `cmp_original`, `present`,
+/// `original`; `lower` had no checked twin. Checked variants now return typed errors, and the crate's campaign-facing
+/// `Descent` impl uses them (a wrong-length key is "not lower", never a panic).
+#[test]
+fn reaudit_b_m5_checked_variants_return_typed_errors() {
+    use rustred_campaign_core::order::{NodeComparator, OrderError, Presentation};
+    use rustred_campaign_core::repair::Descent;
+    let f = frame3();
+    assert!(matches!(
+        f.try_sector(&[1, 1]),
+        Err(FrameError::Arity { .. })
+    ));
+    assert_eq!(f.try_sector(&[1, 0, 0]), Ok(0b001));
+    assert!(matches!(
+        f.try_sector_slots(&[1]),
+        Err(FrameError::Arity { .. })
+    ));
+    let c = NodeComparator::legacy(3, None).unwrap();
+    assert!(matches!(
+        c.try_lower(&[1, 1], &[1, 1, 0]),
+        Err(OrderError::Arity { .. })
+    ));
+    assert_eq!(c.try_lower(&[1, 1, 0], &[2, 1, 0]), Ok(true));
+    assert!(c.try_rank(&[1]).is_err());
+    assert!(c.try_cmp_original(&[1, 1, 0], &[1]).is_err());
+    assert!(!Descent::lower(&c, &[1, 1], &[2, 1, 0]));
+    assert!(Descent::lower(&c, &[1, 1, 0], &[2, 1, 0]));
+    let p = Presentation::identity(3);
+    assert!(p.try_present(&[1]).is_err() && p.try_original(&[1, 2, 3, 4]).is_err());
+    assert_eq!(p.try_present(&[1, 2, 3]).unwrap(), vec![1, 2, 3]);
+}

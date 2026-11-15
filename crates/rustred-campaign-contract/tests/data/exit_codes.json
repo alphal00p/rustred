@@ -1,0 +1,258 @@
+{
+  "exit_codes": [
+    {
+      "code": 0,
+      "name": "COMPLETE",
+      "outcome_required": true,
+      "resumable": "NotApplicable",
+      "status": "complete"
+    },
+    {
+      "code": 10,
+      "name": "INCOMPLETE",
+      "outcome_required": true,
+      "resumable": "ViaOpenList",
+      "status": "incomplete"
+    },
+    {
+      "code": 11,
+      "name": "DECIDED_NEGATIVE",
+      "outcome_required": true,
+      "resumable": "No",
+      "status": "decided_negative"
+    },
+    {
+      "code": 12,
+      "name": "UNDECIDED",
+      "outcome_required": true,
+      "resumable": "No",
+      "status": "undecided"
+    },
+    {
+      "code": 20,
+      "name": "BUDGET_WORK",
+      "outcome_required": true,
+      "resumable": "Yes",
+      "status": "budget"
+    },
+    {
+      "code": 21,
+      "name": "BUDGET_WALL",
+      "outcome_required": true,
+      "resumable": "Yes",
+      "status": "budget"
+    },
+    {
+      "code": 22,
+      "name": "BUDGET_MEMORY",
+      "outcome_required": true,
+      "resumable": "Yes",
+      "status": "budget"
+    },
+    {
+      "code": 30,
+      "name": "INTERRUPTED",
+      "outcome_required": true,
+      "resumable": "Yes",
+      "status": "interrupted"
+    },
+    {
+      "code": 40,
+      "name": "USAGE",
+      "outcome_required": false,
+      "resumable": "No",
+      "status": "refused"
+    },
+    {
+      "code": 41,
+      "name": "INPUT",
+      "outcome_required": true,
+      "resumable": "No",
+      "status": "error"
+    },
+    {
+      "code": 42,
+      "name": "REFUSED",
+      "outcome_required": true,
+      "resumable": "No",
+      "status": "refused"
+    },
+    {
+      "code": 50,
+      "name": "NOSPACE",
+      "outcome_required": false,
+      "resumable": "AfterSpace",
+      "status": "error"
+    },
+    {
+      "code": 51,
+      "name": "IO",
+      "outcome_required": false,
+      "resumable": "Yes",
+      "status": "error"
+    },
+    {
+      "code": 70,
+      "name": "INTERNAL",
+      "outcome_required": true,
+      "resumable": "No",
+      "status": "error"
+    }
+  ],
+  "stops": [
+    {
+      "exit": 10,
+      "stop": "max_cases"
+    },
+    {
+      "exit": 10,
+      "stop": "lift_refused"
+    },
+    {
+      "exit": 10,
+      "stop": "guard_timeout"
+    },
+    {
+      "exit": 10,
+      "stop": "open_regions"
+    },
+    {
+      "exit": 10,
+      "stop": "open_obligations"
+    },
+    {
+      "exit": 10,
+      "stop": "before_numeric"
+    },
+    {
+      "exit": 10,
+      "stop": "numeric_search_refused"
+    },
+    {
+      "exit": 10,
+      "stop": "not_lower"
+    },
+    {
+      "exit": 20,
+      "stop": "budget_work"
+    },
+    {
+      "exit": 21,
+      "stop": "budget_wall"
+    },
+    {
+      "exit": 22,
+      "stop": "budget_memory"
+    },
+    {
+      "exit": 30,
+      "stop": "interrupted"
+    },
+    {
+      "exit": 41,
+      "stop": "input_error"
+    },
+    {
+      "exit": 51,
+      "stop": "io_error"
+    },
+    {
+      "exit": 50,
+      "stop": "nospace"
+    },
+    {
+      "exit": 70,
+      "stop": "internal_error"
+    },
+    {
+      "exit": 70,
+      "stop": "panic"
+    },
+    {
+      "exit": 42,
+      "stop": "refused"
+    },
+    {
+      "exit": 10,
+      "stop": "keys_unsolved"
+    }
+  ],
+  "volatile": [
+    {
+      "keys": [
+        "zero_seconds"
+      ],
+      "type": "header"
+    },
+    {
+      "keys": [
+        "seconds_search",
+        "lift_seconds"
+      ],
+      "type": "rule"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "chart_end"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "chart_partial"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "end"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "partial"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "chart_error"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "cert_end"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "cert_partial"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "relation"
+    },
+    {
+      "keys": [
+        "seconds",
+        "vmhwm_kb"
+      ],
+      "type": "probe"
+    }
+  ]
+}

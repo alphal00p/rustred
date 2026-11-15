@@ -1,0 +1,59 @@
+{
+  "campaign_id": "test-campaign",
+  "declared": 3,
+  "file": "terminals",
+  "ledger": {
+    "head": "d59131f73374aad6f2bb9e65c008f6bec70d79d95b55b0ba0c404ec57c6ccc0e",
+    "last_utc": "2026-11-13T23:00:25.250Z",
+    "seq": 102
+  },
+  "nodes": {
+    "T162": {
+      "report": {
+        "bound": 100,
+        "counted": 2,
+        "other": 2,
+        "preferred_listed": 3,
+        "preferred_not_needed": 2,
+        "preferred_used": 1
+      },
+      "terminals": [
+        {
+          "counted": true,
+          "item": "T162-item-00005",
+          "keys": 2,
+          "keyset": {
+            "blake3": "00be396c7d7690369a8dc00787d65cc05b0271a6f37fe36b5150ba8ee5a75924",
+            "bytes": 3500,
+            "path": "large:keysets/T162-terminals-1.keys"
+          },
+          "label": "F005",
+          "ladder_exhausted": {
+            "blake3": "3945d93bbe0a49e97d705e51e680d6b2ac24a99c28c13f77962793c58e133483",
+            "bytes": 3900,
+            "path": "large:ladder/T162-item-5.exhausted.json"
+          },
+          "preferred": false,
+          "rung": "L1"
+        },
+        {
+          "counted": false,
+          "item": "T162-item-00007",
+          "keys": 1,
+          "keyset": {
+            "blake3": "401045707fe223e716572e685fbddc914067ec6f6c9b539b64756d1f949b6424",
+            "bytes": 3500,
+            "path": "large:keysets/T162-preferred-1.keys"
+          },
+          "label": "F007",
+          "ladder_exhausted": null,
+          "preferred": true,
+          "rung": "L0"
+        }
+      ]
+    }
+  },
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

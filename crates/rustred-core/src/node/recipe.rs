@@ -431,6 +431,45 @@ pub fn build_seeds(recipe: &Recipe, key: &[i64]) -> Vec<Vec<i64>> {
 /// An external stop request (an embedding supervisor's flag, e.g. the child-job contract's signal counter).
 pub type StopFn = Arc<dyn Fn() -> bool + Send + Sync>;
 
+/// An embedding caller's end hook (lane engbase2: the child-job dispatcher `rr_node job` writes the contract OUTCOME
+/// here): called ONCE, after `results.jsonl` is sealed and the verb's own OUTCOME written, with (that outcome, the
+/// verb's exit code, graceful); its return value is the exit code, also on the paths where the batch's watchdog
+/// ends the process itself (grace expired, only budget-expired keys left).
+pub type EndFn = Arc<dyn Fn(&Value, i32, bool) -> i32 + Send + Sync>;
+
+/// An embedding caller's failure hook (lane engfix4, re-audit MJ-2): called with the error of the output writer on
+/// the paths where the batch's watchdog ends the process itself (grace expired, only budget-expired keys left), so
+/// that the caller writes its error OUTCOME (the child-job dispatcher: 50 / 51 on a full disk or an I/O error); its
+/// return value is the exit code. Without a hook the code is 70.
+pub type FailFn = Arc<dyn Fn(&str) -> i32 + Send + Sync>;
+
+static FAIL_HOOK: std::sync::OnceLock<FailFn> = std::sync::OnceLock::new();
+
+/// Install the failure hook (once per process; see [`FailFn`]).
+pub fn set_fail_hook(f: FailFn) {
+    let _ = FAIL_HOOK.set(f);
+}
+
+fn failed_exit(e: &str) -> i32 {
+    FAIL_HOOK.get().map_or(70, |h| h(e))
+}
+
+/// The OS error number of the first failed write of the batch's outputs (0 = none, -1 = a failure without one):
+/// an embedding caller maps it to its exit code (child-job 3.10: no space = 50, other I/O = 51), the errors
+/// themselves are strings (lane engfix4, re-audit MJ-2).
+pub fn output_errno() -> i32 {
+    OUTPUT_ERRNO.load(AtomicOrdering::Relaxed)
+}
+
+static OUTPUT_ERRNO: AtomicI32 = AtomicI32::new(0);
+
+/// An output I/O error as the batch's error string, its OS error number noted first ([`output_errno`]).
+fn io_error(what: &str, e: std::io::Error) -> String {
+    let n = e.raw_os_error().unwrap_or(-1);
+    let _ = OUTPUT_ERRNO.compare_exchange(0, n, AtomicOrdering::Relaxed, AtomicOrdering::Relaxed);
+    format!("{what}: {e}")
+}
+
 /// Options of one batch (command line of `rr_node solve-recipe`).
 #[derive(Clone)]
 pub struct BatchOptions {
@@ -463,6 +502,8 @@ pub struct BatchOptions {
     pub events_path: Option<PathBuf>,
     /// heartbeat period of the contract events (job mode), seconds
     pub heartbeat_s: f64,
+    /// end hook of an embedding caller (see [`EndFn`]); None = the verb's exit code
+    pub on_end: Option<EndFn>,
 }
 
 impl BatchOptions {
@@ -487,6 +528,7 @@ impl BatchOptions {
             path_base: None,
             events_path: None,
             heartbeat_s: 10.0,
+            on_end: None,
         }
     }
 
@@ -1303,14 +1345,26 @@ fn run_prepared<const N: usize>(
 
 /// End the process after the watchdog sealed the outputs itself: the batch's exit code, or (an I/O error while
 /// sealing) exit 51 with an error OUTCOME in job mode, 70 stand-alone.
+/// Merged build (lane engfix4, re-audit MJ-2): an embedding dispatcher's failure hook ([`set_fail_hook`]: `rr_node job`
+/// writes the contract's error OUTCOME, 50 / 51) is used first; the verb's own job route writes its error OUTCOME
+/// with 50 when the write failed for lack of space ([`output_errno`]: ENOSPC / EDQUOT), else 51; the print never
+/// panics (a full disk may hold stderr).
 fn exit_sealed(opts: &BatchOptions, r: Result<i32, String>) -> ! {
     match r {
         Ok(code) => std::process::exit(code),
         Err(e) => {
-            eprintln!("rr_node solve-recipe: {e}");
+            let _ = writeln!(std::io::stderr(), "rr_node solve-recipe: {e}");
+            if FAIL_HOOK.get().is_some() {
+                std::process::exit(failed_exit(&e));
+            }
             if let (Some(job), Some(base)) = (&opts.job, &opts.path_base) {
-                let _ = super::recipe_job::error_outcome_job(job, base, 51, &e);
-                std::process::exit(51)
+                let code = if matches!(output_errno(), libc::ENOSPC | libc::EDQUOT) {
+                    50
+                } else {
+                    51
+                };
+                let _ = super::recipe_job::error_outcome_job(job, base, code, &e);
+                std::process::exit(code)
             }
             std::process::exit(70)
         }
@@ -1347,21 +1401,22 @@ fn write_outputs_inner<const N: usize>(
     let opts = ctx.opts;
     let results = shared.results.lock().unwrap().clone();
     let interrupted = results.iter().any(Option::is_none);
-    // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed
-    let tmp = match (&opts.job, &opts.path_base) {
-        // job mode: the temporary file lives in RUN/tmp (contract layout), renamed into out/ when complete
-        (Some(_), Some(base)) => {
+    // results.jsonl in INPUT order, then the end record; written to a temporary name and renamed. Job mode (the
+    // verb's own job route, or an embedding dispatcher that passes the run directory as `path_base`: `rr_node job`,
+    // lane engfix4): the temporary file lives in RUN/tmp (contract layout), renamed into out/ when complete
+    let tmp = match &opts.path_base {
+        Some(base) => {
             let t = base.join("tmp");
-            std::fs::create_dir_all(&t).map_err(|e| format!("tmp: {e}"))?;
+            std::fs::create_dir_all(&t).map_err(|e| io_error("tmp", e))?;
             t.join("results.jsonl.part")
         }
-        _ => out.join("results.jsonl.part"),
+        None => out.join("results.jsonl.part"),
     };
     let mut counts: BTreeMap<String, usize> = BTreeMap::new();
     let mut lines: Vec<Value> = Vec::with_capacity(keys.len() + 1);
     let mut f = std::io::BufWriter::new(
         super::recipe_job::create_excl(&tmp)
-            .map_err(|e| format!("results {}: {e}", tmp.display()))?,
+            .map_err(|e| io_error(&format!("results {}", tmp.display()), e))?,
     );
     for (ordinal, k) in keys.iter().enumerate() {
         let mut rec = match &results[uniq_of[ordinal]] {
@@ -1380,20 +1435,24 @@ fn write_outputs_inner<const N: usize>(
         *counts
             .entry(rec["verdict"].as_str().unwrap_or("?").to_string())
             .or_default() += 1;
-        writeln!(f, "{rec}").map_err(|e| e.to_string())?;
+        writeln!(f, "{rec}").map_err(|e| io_error("results", e))?;
         lines.push(rec);
     }
     let end = json!({"type": if interrupted { "partial" } else { "end" }, "records": keys.len(),
         "counts": counts, "recipe_digest": ctx.recipe_digest, "determinism_id": DETERMINISM_ID});
-    writeln!(f, "{end}").map_err(|e| e.to_string())?;
+    writeln!(f, "{end}").map_err(|e| io_error("results", e))?;
     lines.push(end);
     let canonical_blake3 = super::recipe_job::canonical_stream_blake3(&lines);
     drop(lines);
-    f.flush().map_err(|e| e.to_string())?;
-    drop(f);
+    f.flush().map_err(|e| io_error("results", e))?;
+    let file = f
+        .into_inner()
+        .map_err(|e| io_error("results", e.into_error()))?;
+    file.sync_all().map_err(|e| io_error("results", e))?;
+    drop(file);
     let path = out.join("results.jsonl");
-    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
-    let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| io_error("results", e))?;
+    let bytes = std::fs::read(&path).map_err(|e| io_error("results", e))?;
     let all_solved = counts.keys().all(|k| k == "SOLVED");
     let exit = if interrupted {
         30
@@ -1496,21 +1555,25 @@ fn write_outputs_inner<const N: usize>(
         .outcome_path
         .clone()
         .unwrap_or_else(|| out.join("OUTCOME.json"));
-    let text = serde_json::to_string_pretty(&outcome).unwrap() + "\n";
-    if opts.job.is_some() {
-        // job mode: OUTCOME.json is never replaced (no-clobber write)
+    let text = serde_json::to_string_pretty(&outcome).map_err(|e| e.to_string())? + "\n";
+    if opts.job.is_some() || opts.path_base.is_some() {
+        // job mode (either route): OUTCOME.json is never replaced (no-clobber write: a temporary file created
+        // O_EXCL | O_NOFOLLOW, then a hard link; lane engfix4 extends it to the dispatcher's informational out/OUTCOME)
         super::recipe_job::write_new(&target, text.as_bytes())
-            .map_err(|e| format!("OUTCOME {}: {e}", target.display()))?;
+            .map_err(|e| io_error(&format!("OUTCOME {}", target.display()), e))?;
     } else {
         let otmp = target.with_extension("json.part");
-        std::fs::write(&otmp, text).map_err(|e| e.to_string())?;
-        std::fs::rename(&otmp, &target).map_err(|e| e.to_string())?;
+        std::fs::write(&otmp, text).map_err(|e| io_error("OUTCOME", e))?;
+        std::fs::rename(&otmp, &target).map_err(|e| io_error("OUTCOME", e))?;
     }
     events.emit(
         "job_finished",
         json!({"exit_code": exit, "status": outcome["status"], "stop_code": stop_code}),
     );
-    Ok(exit)
+    Ok(opts
+        .on_end
+        .as_ref()
+        .map_or(exit, |h| h(&outcome, exit, graceful)))
 }
 
 /// The contract's work counters (child-job 3.3.1); this kind counts keys as cases and solved keys as commits.
@@ -2230,6 +2293,27 @@ pub fn parse_keys(text: &str) -> Result<Vec<KeyInput>, String> {
         out.push(KeyInput { key, tag });
     }
     Ok(out)
+}
+
+/// Parse an `--expect` text (lane engbase2, for the job dispatcher; the CLI's inline reader does the same): JSONL of
+/// certified digests `{"key":[..],"relation_digest":".."}` (results.jsonl lines qualify; lines without both members
+/// are skipped).
+pub fn parse_expect(text: &str) -> Result<BTreeMap<Vec<i64>, String>, String> {
+    let mut expect = BTreeMap::new();
+    for (i, l) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let v: Value =
+            serde_json::from_str(l).map_err(|e| format!("expect line {}: {e}", i + 1))?;
+        if let (Some(k), Some(d)) = (v.get("key"), v["relation_digest"].as_str()) {
+            let k: Vec<i64> = serde_json::from_value(k.clone())
+                .map_err(|e| format!("expect line {}: {e}", i + 1))?;
+            expect.insert(k, d.to_string());
+        }
+    }
+    Ok(expect)
 }
 
 /// The binary's identity for records (path, BLAKE3 of the executable, build commit if exported at build time).

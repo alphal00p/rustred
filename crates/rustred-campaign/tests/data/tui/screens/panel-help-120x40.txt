@@ -1,0 +1,40 @@
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
+-[ Help ]-------------------------------------------------------------------------------------------------- q: back ----
+VIEW   Tab next table (80 cols)   n/N or arrows select   Enter/f/i node detail   w why (item)
+       j running jobs   e events   a attention   ? help   q/Esc back   PgUp/PgDn/Home/End scroll
+STOP   Ctrl-C once: drain (no new jobs; running ones finish or stop after the grace, recorded interrupted)
+       Ctrl-C twice: forced stop, still safe   third (after a pause): leave the dashboard   resume: same command
+       (in a read-only viewer Ctrl-C and q only close the viewer)
+CONTROL  pause / resume / drain / retry / skip / terminal / workers: rr_campaign <verb> in another pane
+COLOURS  green FULL/ok   blue [BOXED box] (closed inside the user's box)   magenta terminals   cyan RUN
+         yellow escalated / attention / STALE / near a cap / defect on a running node   red failed / rejected /
+         OPEN with blockers / defect after the closure check   dim: estimates, old values
+VALUES   - none (0)   ? not known   a number followed by ? contradicts another number (listed below)
+PROGRESS nodes FULL + BOXED are closed; items done = accepted + escalated + terminal + retired of all items
+COVERAGE FULL = every key of the sector reduces; BOXED = closed inside the box GIVEN BY THE USER; OPEN = not closed
+CERTIFIED nodes at the certification level THEIR spec asks (asked/got column); rules by the level that certifies
+         them; proved% = accepted items at identity_proved (per-key proof), a detail
+DEFECT   keys reached by the closure that are neither covered, nor terminals, nor handed down
+TERMINALS declared (candidates waiting, bound per node); pref = the user's preferred terminals used / given (a wish)
+RULES    rules used on the node's closure; used% = used / rules of the node's dispatch (economy, R31)
+ETA      sum over levels of remaining items (open + in_progress) x CPU-seconds quantile (p25 / p50 / p75) of finished j~
+STALE    the campaign says running but no heartbeat for > 60 s (no heartbeat field: inferred from file times)
+DATA     progress/*.json read in the background; drill-down from a read-only ledger reduction
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+arrows/PgUp/PgDn scroll  q back  q/Ctrl-C close viewer (campaign unaffected)

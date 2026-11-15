@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "registry.schema.json",
+  "title": "Campaign registry WS/campaigns/INDEX.json (rewritten temp + rename under flock of INDEX.json.lock)",
+  "description": "NO AS-BUILT WRITER yet: plan 3.3.0 / 3.P.1 list the entry fields only; the top-level `campaigns` array is fixed here. The website's loader starts here (P5L_CAMPAIGNS overrides the path).",
+  "x-rr-names": ["rustred.campaign.registry.v1"],
+  "x-rr-owner": "I-SUP (writer) / C-DASH (reader)",
+  "x-rr-struct": "rustred_campaign_core::schema::registry::Registry",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "written_utc", "campaigns"],
+  "properties": {
+    "schema": {"const": "rustred.campaign.registry.v1"},
+    "written_utc": {"$ref": "common.schema.json#/$defs/utc"},
+    "fixture_origin": {"enum": ["hand", "derived"]},
+    "campaigns": {"type": "array", "items": {
+      "type": "object", "required": ["id", "dir", "kind", "mode", "started_utc", "owner"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "dir": {"type": "string", "minLength": 1, "description": "absolute CDIR, or relative to the registry's directory"},
+        "kind": {"enum": ["reproduce", "boxed", "test"]},
+        "mode": {"enum": ["close", "optimise"]},
+        "started_utc": {"$ref": "common.schema.json#/$defs/utc"},
+        "owner": {"type": "string"},
+        "optimised_from": {"type": ["string", "null"]}
+      }}}
+  }
+}

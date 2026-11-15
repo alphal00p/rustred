@@ -1,0 +1,24 @@
+rr_campaign  p5l-boxed-final  STARTING  hb 2s  age 4s  seq 4  sessions 1
+NODES 0  FULL 0  BOXED 0  OPEN 0  last event 3s ago
+ETA ? (no work registered yet)  cpu-h 0.0 used
+NEXT  nothing needs you
+CPU 0/32 in use   jobs 0 running   RAM 0.0/30.0 GiB (0.0 reserved)
+CERTIFIED at the level asked: 0 of 0 nodes; rules: 0 pending
+ITEMS 0  open 0  run 0  acc 0  esc 0  rej 0  term 0  stale 0
+RULES accepted 0  rejected 0  DEFECT not checked yet
+-[ Nodes (0) ]--------------------------------------------- Tab: next table ----
+node coverage cert phase open open by rung term defect rules  used%   RHS
+(no node files yet)
+-[ Recent events ]-------------------------------------------------- e: all ----
+04:03:11 .    campaign starting (session 1)
+
+
+
+
+
+
+
+
+
+
+Tab table  n/N node  Enter detail  a attention(0)  ?help  q/Ctrl-C close viewer~

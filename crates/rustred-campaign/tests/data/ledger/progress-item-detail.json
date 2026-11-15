@@ -1,0 +1,70 @@
+{
+  "children": [
+    "T162-item-00005"
+  ],
+  "item": "T162-item-00004",
+  "jobs": [
+    {
+      "attempt": 2,
+      "cpu_seconds": 2.5,
+      "failures": 0,
+      "generation": 0,
+      "job": "T162-job-00004-L0",
+      "run_dir": "large:jobs/j4.a2",
+      "stale": null,
+      "state": {
+        "class": "no_rule",
+        "state": "succeeded_sealed"
+      }
+    }
+  ],
+  "record": {
+    "accepted": null,
+    "attention": null,
+    "children": [
+      "T162-item-00005"
+    ],
+    "cpu_ms": 2500,
+    "created_seq": 53,
+    "economy": null,
+    "exclusions": [],
+    "failed_attempts": 0,
+    "generation": 0,
+    "inputs": [],
+    "jobs": [
+      "T162-job-00004-L0"
+    ],
+    "kind": "locus",
+    "label": "F004",
+    "ladder_exhausted": null,
+    "node": "T162",
+    "operator_retries": 0,
+    "parent": null,
+    "paused": false,
+    "phase": {
+      "detail": "L1",
+      "phase": "escalated"
+    },
+    "produced": {
+      "attempt": 2,
+      "job": "T162-job-00004-L0",
+      "seq": 61,
+      "table": {
+        "blake3": "5d51dd15c99df3bda71c623d1ff20150a3f84885776178e93511e6299e6522f7",
+        "bytes": 4900,
+        "path": "large:jobs/T162-job-00004-L0.a2/out/F.table.jsonl"
+      }
+    },
+    "retired": null,
+    "rung": "L0",
+    "stale_from": null,
+    "stale_input": null,
+    "terminal_counted": false,
+    "terminal_keys": 0,
+    "terminal_keyset": null,
+    "terminal_preferred": false,
+    "updated_seq": 63,
+    "weight": 3
+  },
+  "why": "escalated to L1"
+}

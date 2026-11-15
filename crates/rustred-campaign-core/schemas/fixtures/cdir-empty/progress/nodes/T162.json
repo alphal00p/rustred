@@ -1,0 +1,125 @@
+{
+  "accepted_by_evidence": {
+    "geometry_accepted": 0,
+    "identity_proved": 0,
+    "identity_tested": 0
+  },
+  "attempt": {
+    "cpu_ms_on_target": 0,
+    "fixer_rounds_on_target": 0
+  },
+  "attempt_ended": false,
+  "blockers": {
+    "box": null,
+    "full": null
+  },
+  "campaign_id": "fixture-empty",
+  "certification": {
+    "asked": "per-key",
+    "boxed": "per-key",
+    "full": "per-key",
+    "reached": null
+  },
+  "certified": false,
+  "closure": {
+    "binding": null,
+    "closure_keys": null,
+    "defect_keys": null,
+    "dispatch_order": null,
+    "keyset": null,
+    "provisional": false,
+    "rounds": 0,
+    "rule_set_digest": "454d0f7739e6e55c1a5ac9e1676016c76d230b7c892cf93ee6c0d0e5f1a8ed5f",
+    "rules_total": null,
+    "rules_used": null,
+    "used_share": null
+  },
+  "closure_kind": "open",
+  "cpu_seconds": 0.0,
+  "economy": {
+    "after": {
+      "bytes": 0,
+      "cases": 0,
+      "coefficient_degree": 0,
+      "monomials": 0,
+      "rhs_terms": 0,
+      "rules": 0
+    },
+    "before": {
+      "bytes": 0,
+      "cases": 0,
+      "coefficient_degree": 0,
+      "monomials": 0,
+      "rhs_terms": 0,
+      "rules": 0
+    },
+    "rules_after": 0,
+    "rules_before": 0,
+    "superseded": 0,
+    "unmeasured": 0
+  },
+  "envelope": null,
+  "faces_summary": null,
+  "file": "node",
+  "inputs": [
+    "T162.family",
+    "T162.bank"
+  ],
+  "items": {
+    "by_kind": {},
+    "by_level": {},
+    "by_phase": {
+      "accepted": 0,
+      "attention": 0,
+      "escalated": 0,
+      "in_progress": 0,
+      "open": 0,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 0,
+      "skipped": 0,
+      "stale": 0,
+      "terminal": 0,
+      "terminal_candidate": 0
+    },
+    "open": 0
+  },
+  "ledger": {
+    "head": "80bdcd6cc5edbaa9faf54b0c3ff9b0414e2188ff10743aafc0eb7caed200de02",
+    "last_utc": "2026-11-14T08:00:02.000Z",
+    "seq": 8
+  },
+  "node": "T162",
+  "paused": false,
+  "phase": "registered",
+  "provisional": false,
+  "reference": null,
+  "reopen_cause": null,
+  "reopens": 0,
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "spec": {
+    "full_attempt_cpu_ms": 180000000,
+    "full_attempt_fixer_rounds": 1,
+    "preferred_terminals": null,
+    "terminal_rung": "L1"
+  },
+  "spec_box": "T162.box",
+  "stale_reason": null,
+  "target": {
+    "target": "full"
+  },
+  "terminals": {
+    "bound": 100,
+    "candidates": 0,
+    "declared": 0,
+    "other": 0,
+    "preferred": {
+      "not_needed": null,
+      "total": null,
+      "used": 0
+    },
+    "preferred_declared": 0
+  },
+  "written_utc": "2026-11-14T08:00:02.250Z"
+}

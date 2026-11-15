@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "control.schema.json",
+  "title": "Operator control request (CDIR/control/<utc>-<nonce>.json; moved to control/done/ when applied)",
+  "description": "NO AS-BUILT WRITER OR READER yet: plan 3.3.8. The as-built ledger has no control_applied / control_refused kinds (ledger-and-progress.md open question 1; being added by the ledger fix lane). U-5: operator interrupts never count against retry caps.",
+  "x-rr-names": ["rustred.campaign.control.v1"],
+  "x-rr-owner": "I-SUP (supervisor) / I-TUI (CLI writer)",
+  "x-rr-struct": "rustred_campaign_core::schema::control::ControlRequest",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "id", "utc", "by", "verb", "target", "args", "reason"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "rustred.campaign.control.v1"},
+    "id": {"type": "string", "pattern": "^c-[0-9]{8}T[0-9]{6}Z-[0-9a-f]{4,16}$"},
+    "utc": {"$ref": "common.schema.json#/$defs/utc"},
+    "by": {"type": "string", "minLength": 1},
+    "verb": {"enum": ["pause", "resume", "drain", "stop", "retry", "skip", "terminal", "budget", "workers", "hold", "release", "priority", "note"]},
+    "target": {"type": ["string", "null"], "description": "campaign (null), a node id, an item id or display id"},
+    "args": {"type": "object", "properties": {
+      "rung": {"$ref": "common.schema.json#/$defs/rung"}, "seconds": {"type": "integer", "minimum": 1}, "mem_bytes": {"type": "integer", "minimum": 1},
+      "workers": {"type": "integer", "minimum": 0}, "priority": {"type": "integer"}, "text": {"type": "string"}}},
+    "reason": {"type": "string", "minLength": 1},
+    "fixture_origin": {"enum": ["hand", "derived"]}
+  },
+  "allOf": [
+    {"if": {"properties": {"verb": {"enum": ["retry", "skip", "terminal", "hold", "release", "priority"]}}}, "then": {"properties": {"target": {"type": "string"}}}}
+  ]
+}

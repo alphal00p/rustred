@@ -1,0 +1,140 @@
+{
+ "schema": "rustred.campaign.progress.v1",
+ "file": "node",
+ "fixture_origin": "hand",
+ "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-27T11:00:00.000Z",
+ "source_of_truth": "ledger",
+ "ledger": {
+  "seq": 91233,
+  "head": "77aa000000000000000000000000000000000000000000000000000000000000",
+  "last_utc": "2026-11-27T10:59:59.000Z"
+ },
+ "node": "T266",
+ "phase": "closed",
+ "closure_kind": "boxed",
+ "certified": false, "certification": {"asked": "per-key", "reached": null},
+ "target": {
+  "target": "boxed",
+  "box_id": "T266.rstar"
+ },
+ "spec_box": "T266.rstar",
+ "attempt_ended": false,
+ "blockers": {
+  "full": null,
+  "box": null
+ },
+ "closure": {
+  "rounds": 1,
+  "defect_keys": 0,
+  "keyset": null,
+  "closure_keys": 13951428,
+  "rules_used": 12658,
+  "rules_total": 33660,
+  "used_share": 0.376
+ },
+ "economy": {
+  "rules_before": 0,
+  "rules_after": 0,
+  "superseded": 0,
+  "unmeasured": 0,
+  "before": {
+   "bytes": 0,
+   "cases": 0,
+   "coefficient_degree": 0,
+   "monomials": 0,
+   "rhs_terms": 0,
+   "rules": 0
+  },
+  "after": {
+   "bytes": 0,
+   "cases": 0,
+   "coefficient_degree": 0,
+   "monomials": 0,
+   "rhs_terms": 0,
+   "rules": 0
+  }
+ },
+ "terminals": {
+  "declared": 2,
+  "bound": 100,
+  "candidates": 0
+ },
+ "items": {
+  "open": 0,
+  "by_phase": {
+   "open": 0,
+   "in_progress": 0,
+   "produced": 0,
+   "accepted": 72,
+   "rejected": 0,
+   "escalated": 0,
+   "terminal_candidate": 0,
+   "terminal": 0,
+   "stale": 0,
+   "retired": 0
+  },
+  "by_level": {
+   "L0": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 40,
+    "rejected": 0,
+    "escalated": 0,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   },
+   "L1": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 9,
+    "rejected": 0,
+    "escalated": 0,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   },
+   "L2": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 11,
+    "rejected": 0,
+    "escalated": 0,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   },
+   "L4": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 12,
+    "rejected": 0,
+    "escalated": 0,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   }
+  }
+ },
+ "accepted_by_evidence": {
+  "geometry_accepted": 0,
+  "identity_tested": 0,
+  "identity_proved": 0
+ },
+ "inputs": [
+  "T266.family",
+  "T266.joined",
+  "T266.rstar"
+ ],
+ "stale_reason": null,
+ "cpu_seconds": 0.0
+}

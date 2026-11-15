@@ -50,18 +50,17 @@ pub fn hash_parts(parts: &[&[u8]]) -> String {
 
 /// Hash of the certificate rows of an `F.cert.jsonl` text: header, original source rows and basis derivation rows
 /// (the full source basis; `cert_end` statistics are excluded).
-pub fn cert_hash(text: &str) -> String {
+/// The kind of every line is its parsed `type` (records.rs); an unreadable line or an unknown kind is an error.
+pub fn cert_hash(text: &str) -> Result<String, String> {
     let mut h = blake3::Hasher::new();
-    for l in text.lines() {
-        if l.starts_with("{\"type\":\"cert_header\"")
-            || l.starts_with("{\"type\":\"source_row\"")
-            || l.starts_with("{\"type\":\"basis_row\"")
-        {
+    for (i, l) in text.lines().enumerate() {
+        let kind = super::records::record_kind(l, "F.cert.jsonl", i + 1, super::records::CERT_KINDS)?;
+        if matches!(kind, Some("cert_header" | "source_row" | "basis_row")) {
             h.update(l.as_bytes());
             h.update(b"\n");
         }
     }
-    h.finalize().to_hex().to_string()
+    Ok(h.finalize().to_hex().to_string())
 }
 
 /// Canonical JSON text (keys sorted, no spaces) of a JSON document; the text itself if it does not parse.
@@ -88,7 +87,7 @@ pub fn run_math_key(dir: &Path) -> Result<(String, RunHeader), String> {
     let h = read_run_header(&dir.join("F.table.jsonl"))?;
     let cert = std::fs::read_to_string(dir.join("F.cert.jsonl"))
         .map_err(|e| format!("{}: {e}", dir.join("F.cert.jsonl").display()))?;
-    let key = math_key(&h.presented, &h.chart, &h.descriptor, &cert_hash(&cert));
+    let key = math_key(&h.presented, &h.chart, &h.descriptor, &cert_hash(&cert)?);
     Ok((key, h))
 }
 
@@ -576,6 +575,9 @@ pub fn read_rule_shapes(
         }
     }
     let mut line = String::new();
+    let mut line_no = 1usize;
+    let mut kinds: Vec<&str> = super::records::TABLE_KINDS.to_vec();
+    kinds.push("cover_index");
     loop {
         line.clear();
         if rd
@@ -585,7 +587,9 @@ pub fn read_rule_shapes(
         {
             break;
         }
-        if !line.starts_with("{\"type\":\"rule\"") {
+        line_no += 1;
+        // the record kind is the parsed `type` (any key order); unknown kinds / unreadable lines are errors
+        if super::records::record_kind(line.trim_end(), path, line_no, &kinds)? != Some("rule") {
             continue;
         }
         let s: RuleShape =
@@ -1451,29 +1455,29 @@ fn write_joined_table(
         let f = std::fs::File::open(r.dir.join("F.table.jsonl")).map_err(|e| e.to_string())?;
         let mut rd = std::io::BufReader::with_capacity(1 << 22, f);
         let mut line = String::new();
+        let table_name = r.dir.join("F.table.jsonl").display().to_string();
+        let mut line_no = 0usize;
         loop {
             line.clear();
             if rd.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
                 break;
             }
+            line_no += 1;
             let l = line.trim_end();
-            if k == 0
-                && (l.starts_with("{\"type\":\"header\"")
-                    || l.starts_with("{\"type\":\"zero_sectors\"")
-                    || l.starts_with("{\"type\":\"chart\""))
-            {
+            // the record kind is the parsed `type` (any key order); unknown kinds / unreadable lines are errors
+            let kind =
+                super::records::record_kind(l, &table_name, line_no, super::records::TABLE_KINDS)?;
+            if k == 0 && matches!(kind, Some("header" | "zero_sectors" | "chart")) {
                 writeln!(out, "{l}").map_err(|e| e.to_string())?;
                 continue;
             }
-            if !l.starts_with("{\"type\":\"rule\"") {
+            if kind != Some("rule") {
                 continue;
             }
-            // re-index: the first "index": field of a rule line is the rule index
-            let pos = l.find("\"index\":").ok_or("rule line without index")? + 8;
-            let end = pos
-                + l[pos..]
-                    .find(|c: char| !c.is_ascii_digit())
-                    .ok_or("rule index")?;
+            // re-index: the TOP-LEVEL "index" member of the rule record (any key order)
+            let (pos, end) = super::records::top_member_span(l, "index")
+                .filter(|(a, b)| b > a && l[*a..*b].bytes().all(|c| c.is_ascii_digit()))
+                .ok_or_else(|| format!("{table_name} line {line_no}: rule record without an integer index"))?;
             let body = l
                 .strip_suffix('}')
                 .ok_or("rule line does not end with '}'")?;

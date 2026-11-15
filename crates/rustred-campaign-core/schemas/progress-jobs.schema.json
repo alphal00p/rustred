@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress-jobs.schema.json",
+  "title": "Progress file CDIR/progress/jobs.json (VOLATILE: running attempts with the supervisor's live samples)",
+  "description": "AS BUILT: rustred_campaign::progress::derive (\"file\": \"jobs\"); ledger-and-progress.md 9.",
+  "x-rr-names": [
+    "rustred.campaign.progress.v1"
+  ],
+  "x-rr-select": {
+    "file": "jobs"
+  },
+  "x-rr-owner": "I-LEDGER (co-signer C-DASH)",
+  "x-rr-freeze": "M0",
+  "allOf": [
+    {
+      "$ref": "progress-common.schema.json#/$defs/envelope"
+    }
+  ],
+  "type": "object",
+  "required": [
+    "sampled_utc",
+    "list"
+  ],
+  "properties": {
+    "file": {
+      "const": "jobs"
+    },
+    "sampled_utc": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "list": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "job",
+          "attempt",
+          "state",
+          "rung",
+          "cpus",
+          "rss_bytes",
+          "seconds",
+          "heartbeat_utc",
+          "phase"
+        ]
+      }
+    }
+  }
+}

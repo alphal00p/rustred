@@ -181,8 +181,10 @@ fn run_children(
                 break;
             };
             // SAFETY: the supervisor holds no locks needed by the child; the child runs the job and _exits.
+            let parent = super::childjob::proc::pid();
             let pid = unsafe { fork() };
             if pid == 0 {
+                super::childjob::proc::after_fork_child(parent);
                 let ok = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_ok();
                 // SAFETY: leave the forked child without the parent's destructors.
                 unsafe { _exit(if ok { 0 } else { 3 }) }

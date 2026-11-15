@@ -1,0 +1,54 @@
+{
+  "schema": "rustred.child-job.v1",
+  "job_id": "a71d0c9e",
+  "attempt": 1,
+  "kind": "generate",
+  "run_dir": "/abs/CDIR/jobs/a71d0c9e/a1",
+  "program": {
+    "name": "rr_node",
+    "blake3": "0000000000000000000000000000000000000000000000000000000000000000",
+    "features_required": [
+      "initial_presented"
+    ]
+  },
+  "inputs": [
+    {
+      "role": "family",
+      "path": "/abs/T162.sym",
+      "blake3": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "args": [
+    "--order",
+    "{\"name\":\"phys_swap_0_3_rot7\"}",
+    "--symmetry-rows"
+  ],
+  "seed": {
+    "sample_seed": 0
+  },
+  "budgets": {
+    "work": {
+      "cases": 1,
+      "seeds_per_case": 200000,
+      "rows_per_case": null,
+      "probe_evals_per_case": null,
+      "trace_rows_max": null
+    },
+    "wall": {
+      "case_s": 300,
+      "job_s": 10800
+    },
+    "mem_soft_bytes": 4500000000
+  },
+  "on_case_budget": "stop",
+  "determinism": "recorded",
+  "output": {
+    "elide_witness_loci": false
+  },
+  "heartbeat_s": 10,
+  "stop_grace_s": 20,
+  "resume_every_s": 30,
+  "resume": null,
+  "env_allow": [],
+  "fake": null
+}

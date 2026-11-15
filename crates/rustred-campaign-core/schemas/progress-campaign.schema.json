@@ -1,0 +1,579 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "progress-campaign.schema.json",
+  "title": "Progress file CDIR/progress/campaign.json",
+  "description": "AS BUILT: rustred_campaign::progress::derive (\"file\": \"campaign\"); ledger-and-progress.md 9. Derived only from the ledger + resource inputs; unknown values are null, never 0. Readers ignore unknown fields (additive = minor) and refuse other majors. Plan 3.P.4 `rustred.campaign.summary.v1` differs (DISAGREEMENTS).",
+  "x-rr-names": [
+    "rustred.campaign.progress.v1"
+  ],
+  "x-rr-select": {
+    "file": "campaign"
+  },
+  "x-rr-owner": "I-LEDGER (co-signer C-DASH)",
+  "x-rr-struct": "rustred_campaign_core::schema::progress::CampaignProgress",
+  "x-rr-freeze": "M0",
+  "allOf": [
+    {
+      "$ref": "progress-common.schema.json#/$defs/envelope"
+    }
+  ],
+  "type": "object",
+  "required": [
+    "campaign",
+    "resources",
+    "jobs",
+    "nodes",
+    "economy",
+    "items",
+    "rules",
+    "terminals",
+    "certified",
+    "closure",
+    "cost",
+    "eta",
+    "files"
+  ],
+  "properties": {
+    "file": {
+      "const": "campaign"
+    },
+    "campaign": {
+      "type": "object",
+      "required": [
+        "phase",
+        "created_utc",
+        "spec_blake3",
+        "sessions",
+        "crash_recoveries",
+        "lock_takeovers",
+        "torn_tail_recoveries",
+        "segments_opened",
+        "pending_operations",
+        "unsettled_jobs"
+      ],
+      "properties": {
+        "phase": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/campaign_phase"
+            }
+          ]
+        },
+        "created_utc": {
+          "type": "string"
+        },
+        "spec_blake3": {
+          "type": "string"
+        },
+        "sessions": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "crash_recoveries": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "lock_takeovers": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "torn_tail_recoveries": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "segments_opened": {
+          "$ref": "common.schema.json#/$defs/u32"
+        },
+        "pending_operations": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "unsettled_jobs": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "resources": {
+      "type": "object",
+      "description": "inputs of the derivation, measured by the process layer; null = not measured (never 0)",
+      "required": [
+        "cpus_in_use",
+        "cpus_allowed",
+        "live_jobs",
+        "reserved_bytes",
+        "measured_rss_bytes",
+        "mem_cap_bytes",
+        "host_mem_available_bytes",
+        "host_floor_bytes",
+        "sampled_utc"
+      ],
+      "properties": {
+        "cpus_in_use": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u32"
+            }
+          ]
+        },
+        "cpus_allowed": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u32"
+            }
+          ]
+        },
+        "live_jobs": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u32"
+            }
+          ]
+        },
+        "reserved_bytes": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "measured_rss_bytes": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "mem_cap_bytes": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "host_mem_available_bytes": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "host_floor_bytes": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/u64"
+            }
+          ]
+        },
+        "sampled_utc": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "common.schema.json#/$defs/utc"
+            }
+          ]
+        },
+        "jobs": {
+          "type": "array",
+          "maxItems": 0,
+          "description": "live samples are in jobs.json"
+        },
+        "supervisor": {
+          "type": "null",
+          "description": "the heartbeat is in heartbeat.json"
+        }
+      }
+    },
+    "jobs": {
+      "type": "object",
+      "required": [
+        "total",
+        "by_state",
+        "settled_by_class",
+        "reserved_bytes_running"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "by_state": {
+          "type": "object",
+          "required": [
+            "queued",
+            "launching",
+            "running",
+            "succeeded_sealed",
+            "failed",
+            "budget_stopped",
+            "interrupted",
+            "lost",
+            "cancelled",
+            "unconfirmed"
+          ],
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/attempt_state_tag"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/u64"
+          }
+        },
+        "settled_by_class": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/finish_class"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/u64"
+          }
+        },
+        "reserved_bytes_running": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "required": [
+        "total",
+        "by_phase",
+        "by_closure",
+        "certified"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "by_phase": {
+          "type": "object",
+          "required": [
+            "registered",
+            "running",
+            "closure_check",
+            "closed",
+            "certified",
+            "open",
+            "stale"
+          ],
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/node_phase"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/u64"
+          }
+        },
+        "by_closure": {
+          "type": "object",
+          "required": [
+            "full",
+            "boxed",
+            "open"
+          ],
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/closure_kind"
+          },
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/u64"
+          }
+        },
+        "certified": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "economy": {
+      "type": "object",
+      "required": [
+        "rules_before",
+        "rules_after",
+        "before",
+        "after",
+        "retired"
+      ],
+      "properties": {
+        "rules_before": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "rules_after": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "before": {
+          "$ref": "common.schema.json#/$defs/economy"
+        },
+        "after": {
+          "$ref": "common.schema.json#/$defs/economy"
+        },
+        "retired": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "items": {
+      "type": "object",
+      "required": [
+        "total",
+        "by_phase",
+        "by_level"
+      ],
+      "properties": {
+        "total": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "by_phase": {
+          "$ref": "progress-common.schema.json#/$defs/phase_counts"
+        },
+        "by_level": {
+          "$ref": "progress-common.schema.json#/$defs/by_level"
+        }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "required": [
+        "accepted",
+        "rejected",
+        "rejected_by_reason",
+        "upgrades",
+        "accepted_items_by_evidence"
+      ],
+      "properties": {
+        "accepted": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "rejected": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "rejected_by_reason": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "common.schema.json#/$defs/u64"
+          }
+        },
+        "upgrades": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "accepted_items_by_evidence": {
+          "$ref": "progress-common.schema.json#/$defs/level_counts"
+        }
+      }
+    },
+    "terminals": {
+      "type": "object",
+      "required": [
+        "declared",
+        "candidates",
+        "bound_per_node_default"
+      ],
+      "properties": {
+        "declared": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "candidates": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "bound_per_node_default": {
+          "$ref": "common.schema.json#/$defs/u32"
+        }
+      }
+    },
+    "certified": {
+      "type": "object",
+      "required": [
+        "share",
+        "identity_proved",
+        "accepted",
+        "basis"
+      ],
+      "properties": {
+        "share": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "maximum": 1
+        },
+        "identity_proved": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "accepted": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "basis": {
+          "type": "string"
+        }
+      }
+    },
+    "closure": {
+      "type": "object",
+      "required": [
+        "defect_keys",
+        "nodes_checked",
+        "nodes_with_defect"
+      ],
+      "properties": {
+        "defect_keys": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "nodes_checked": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "nodes_with_defect": {
+          "$ref": "common.schema.json#/$defs/u64"
+        }
+      }
+    },
+    "cost": {
+      "type": "object",
+      "required": [
+        "cpu_seconds",
+        "by_level"
+      ],
+      "properties": {
+        "cpu_seconds": {
+          "type": "number",
+          "minimum": 0
+        },
+        "by_level": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/rung"
+          },
+          "additionalProperties": {
+            "allOf": [
+              {
+                "$ref": "progress-common.schema.json#/$defs/quantiles"
+              }
+            ],
+            "type": "object",
+            "required": [
+              "jobs",
+              "cpu_seconds"
+            ],
+            "properties": {
+              "jobs": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "cpu_seconds": {
+                "type": "number",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    "eta": {
+      "type": "object",
+      "required": [
+        "estimator",
+        "remaining_items",
+        "cpu_seconds",
+        "wall_seconds",
+        "parallelism",
+        "pooled_levels",
+        "reason"
+      ],
+      "properties": {
+        "estimator": {
+          "type": "string"
+        },
+        "remaining_items": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "by_level": {
+          "type": "object",
+          "propertyNames": {
+            "$ref": "common.schema.json#/$defs/rung"
+          },
+          "additionalProperties": {
+            "allOf": [
+              {
+                "$ref": "progress-common.schema.json#/$defs/quantiles"
+              }
+            ],
+            "type": "object",
+            "required": [
+              "remaining",
+              "samples"
+            ],
+            "properties": {
+              "remaining": {
+                "$ref": "common.schema.json#/$defs/u64"
+              },
+              "samples": {
+                "$ref": "common.schema.json#/$defs/u64"
+              }
+            }
+          }
+        },
+        "cpu_seconds": {
+          "$ref": "progress-common.schema.json#/$defs/range3_or_null"
+        },
+        "wall_seconds": {
+          "$ref": "progress-common.schema.json#/$defs/range3_or_null"
+        },
+        "parallelism": {
+          "$ref": "common.schema.json#/$defs/u64"
+        },
+        "pooled_levels": {
+          "type": "array",
+          "items": {
+            "$ref": "common.schema.json#/$defs/rung"
+          }
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "files": {
+      "type": "object",
+      "required": [
+        "events",
+        "nodes"
+      ],
+      "properties": {
+        "events": {
+          "const": "events.json"
+        },
+        "nodes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^nodes/[A-Za-z0-9_.-]+\\.json$"
+          }
+        }
+      }
+    }
+  }
+}

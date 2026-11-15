@@ -1,0 +1,195 @@
+{
+  "accepted_by_evidence": {
+    "geometry_accepted": 1,
+    "identity_proved": 2,
+    "identity_tested": 2
+  },
+  "attempt": {
+    "cpu_ms_on_target": 12900,
+    "fixer_rounds_on_target": 1
+  },
+  "attempt_ended": false,
+  "blockers": {
+    "box": null,
+    "full": null
+  },
+  "campaign_id": "test-campaign",
+  "certification": {
+    "asked": "replay",
+    "boxed": "per-key",
+    "full": "replay",
+    "reached": null
+  },
+  "certified": false,
+  "closure": {
+    "binding": {
+      "closure_keys": 154783,
+      "defect_keys": 37,
+      "dispatch_order_digest": "85f66ea46d39dcd58bdff05fe1a7eef7927b0870ad42de296b572b046b736c24",
+      "envelope": "proved",
+      "envelope_tables": [
+        {
+          "blake3": "7e210af666b3557bedb585314cf0807dcc6806a69220722520b2a616a40c98b1",
+          "bytes": 3100,
+          "path": "large:handdown/T162.ranges.json"
+        }
+      ],
+      "round": 1,
+      "rule_set_digest": "3ce3248dc42833dd17ebed0165a508e36ee2a8553a936ff7bbb2804bc633c320"
+    },
+    "closure_keys": 154783,
+    "defect_keys": 37,
+    "dispatch_order": "85f66ea46d39dcd58bdff05fe1a7eef7927b0870ad42de296b572b046b736c24",
+    "keyset": {
+      "blake3": "d28f0b8f276e6c5e24f35c559a528919b62f6f82d88f15d9fa1535bc1eea73dc",
+      "bytes": 3300,
+      "path": "large:keysets/T162-closure-1.keys"
+    },
+    "provisional": false,
+    "rounds": 1,
+    "rule_set_digest": "38d71ec2281d5e9922f218147302212a96d94939054eae0840ac62c13a5debb8",
+    "rules_total": 6,
+    "rules_used": 5,
+    "used_share": 0.833
+  },
+  "closure_kind": "open",
+  "cpu_seconds": 12.9,
+  "economy": {
+    "after": {
+      "bytes": 270003,
+      "cases": 3,
+      "coefficient_degree": 14,
+      "monomials": 30000,
+      "rhs_terms": 2130,
+      "rules": 3
+    },
+    "before": {
+      "bytes": 360006,
+      "cases": 4,
+      "coefficient_degree": 15,
+      "monomials": 50000,
+      "rhs_terms": 2860,
+      "rules": 4
+    },
+    "rules_after": 5,
+    "rules_before": 6,
+    "superseded": 1,
+    "unmeasured": 2
+  },
+  "envelope": "proved",
+  "faces_summary": {
+    "closed": 6,
+    "total": 10
+  },
+  "file": "node",
+  "inputs": [
+    "T162.family",
+    "T162.bank"
+  ],
+  "items": {
+    "by_kind": {
+      "face": {
+        "done": 6,
+        "total": 10
+      },
+      "locus": {
+        "done": 2,
+        "total": 2
+      },
+      "point_set": {
+        "done": 1,
+        "total": 1
+      }
+    },
+    "by_level": {
+      "L0": {
+        "accepted": 5,
+        "attention": 1,
+        "escalated": 1,
+        "in_progress": 1,
+        "open": 2,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 1,
+        "skipped": 0,
+        "stale": 0,
+        "terminal": 1,
+        "terminal_candidate": 0
+      },
+      "L1": {
+        "accepted": 0,
+        "attention": 0,
+        "escalated": 0,
+        "in_progress": 0,
+        "open": 0,
+        "produced": 0,
+        "rejected": 0,
+        "retired": 0,
+        "skipped": 0,
+        "stale": 0,
+        "terminal": 1,
+        "terminal_candidate": 0
+      }
+    },
+    "by_phase": {
+      "accepted": 5,
+      "attention": 1,
+      "escalated": 1,
+      "in_progress": 1,
+      "open": 2,
+      "produced": 0,
+      "rejected": 0,
+      "retired": 1,
+      "skipped": 0,
+      "stale": 0,
+      "terminal": 2,
+      "terminal_candidate": 0
+    },
+    "open": 4
+  },
+  "ledger": {
+    "head": "d59131f73374aad6f2bb9e65c008f6bec70d79d95b55b0ba0c404ec57c6ccc0e",
+    "last_utc": "2026-11-13T23:00:25.250Z",
+    "seq": 102
+  },
+  "node": "T162",
+  "paused": false,
+  "phase": "closure_check",
+  "provisional": false,
+  "reference": {
+    "name": "old ledger",
+    "terminals": 7
+  },
+  "reopen_cause": null,
+  "reopens": 0,
+  "schema": "rustred.campaign.progress.v1",
+  "source_of_truth": "ledger",
+  "spec": {
+    "full_attempt_cpu_ms": 180000000,
+    "full_attempt_fixer_rounds": 2,
+    "preferred_terminals": {
+      "blake3": "27f918bfc0362bd4323a5acad092d1a121e131db7e9a4435d1d439b467b3ef85",
+      "bytes": 2400,
+      "path": "spec/T162.preferred.json"
+    },
+    "terminal_rung": "L1"
+  },
+  "spec_box": "T162.box",
+  "stale_reason": null,
+  "target": {
+    "target": "full"
+  },
+  "terminals": {
+    "bound": 100,
+    "candidates": 0,
+    "declared": 2,
+    "other": 2,
+    "preferred": {
+      "not_needed": 2,
+      "total": 3,
+      "used": 1
+    },
+    "preferred_declared": 1
+  },
+  "written_utc": "2026-11-13T23:10:01.000Z"
+}

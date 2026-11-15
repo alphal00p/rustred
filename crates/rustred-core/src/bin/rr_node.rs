@@ -28,7 +28,8 @@
 //! rr_node first-match --table T (--key K,.. | --keys FILE)   (first applicable rule per key, table reducer dispatch)
 //! rr_node solve-recipe --family F.sym --order JSON|NAME --recipe RECIPE.json (--keys KEYS.jsonl | --key K,..) --out DIR
 //!                  [--threads T] [--max-trace-rows R] [--key-budget-s S] [--expect DIGESTS.jsonl] [--no-proof]
-//!                  (R48 recipe rules, node::recipe); job mode: rr_node solve-recipe --job RUN/job.json
+//!                  (R48 recipe rules, node::recipe); job mode: rr_node job RUN/job.json (kind solve-recipe;
+//!                  `rr_node solve-recipe --job RUN/job.json` is an alias of the same dispatcher)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -53,7 +54,15 @@
 //!                  [--primes N] [--lower] [--symbolic [--points 80] [--first-d 1001]]
 //!                  (reduce keys with the table's rules to its masters (+ lower-sector keys): exact rationals per d, or
 //!                   N(d)/D(d) with --symbolic; node::mastermap)
+//! rr_node domaincheck --table F.table.jsonl --keys FILE|'K1;K2' --out OUT.jsonl [--masters 'K;..'] [--point-valid [--dims 37/7,-11/5,9/13]]
+//!                  (EC-15, read-only: per key the engine's own decision without reducing: in_sector, zero sector, master,
+//!                   the rule find_rule selects with its rule point, rejection counts, ambiguity markers; schema
+//!                   rustred.domaincheck.v1, node::domaincheck; exit 0 ok / 3 internal / 41 input / 51 io)
+//! rr_node --capabilities   (JSON list of verbs and the domaincheck options)
+//! rr_node job RUN/job.json   (child-job contract rustred.child-job.v1: one generate job described by a job spec;
+//!                  exit codes of the contract 0/10/20/21/22/30/40/41/42/50/51/70; node::childjob)
 //! rr_node version --json | rr_node --version --json   (program, version, build commit, contract, features, job kinds)
+//! rr_node generate|witness ... --no-elide-witness-loci   (opt-in: witness loci written in full whatever their size)
 //! rr_node mastermap --old OLD.table.jsonl --new NEW.table.jsonl --out MAP.json [--old-masters 'K;..'] [--new-masters 'K;..']
 //!                  [--dims ..] [--primes N] [--no-symbolic] [--points 80] [--sym-primes 8] [--symbolic-lower]
 //!                  [--laporta DOTS,RANK|none] [--check-keys auto|'K;..'|none]
@@ -92,6 +101,9 @@ use rustred::node::driver::{
 use rustred::node::order::{NodeOrder, SourceOrder, variants};
 use rustred::node::replay::{self, ReplayArgs};
 use rustred::node::screen::{HeavyAction, LiftScreen};
+
+#[path = "rr_node_job/job.rs"]
+mod job;
 
 struct Args {
     items: Vec<String>,
@@ -144,6 +156,7 @@ type DieHook = Box<dyn Fn(&str) + Send + Sync>;
 static DIE_HOOK: std::sync::OnceLock<DieHook> = std::sync::OnceLock::new();
 
 fn die(msg: &str) -> ! {
+    job::on_die(msg);
     if let Some(h) = DIE_HOOK.get() {
         h(msg);
     }
@@ -594,6 +607,9 @@ fn probe_options(a: &mut Args) -> ProbeOptions {
 }
 
 fn cmd_generate(mut a: Args) -> i32 {
+    if a.flag("--no-elide-witness-loci") {
+        rustred::node::childjob::set_legacy_no_elision();
+    }
     let family_path = a.need("--family");
     let family = read(&family_path);
     let out = PathBuf::from(a.need("--out"));
@@ -1185,6 +1201,9 @@ fn cmd_affine(mut a: Args) -> i32 {
 /// options recorded in the table header, with the witness guards on; when the new rule equals the table rule (same
 /// target, RHS and seeds) its witness poles are the table rule's hidden poles.
 fn cmd_witness(mut a: Args) -> i32 {
+    if a.flag("--no-elide-witness-loci") {
+        rustred::node::childjob::set_legacy_no_elision();
+    }
     let table = a.need("--table");
     let out = PathBuf::from(a.need("--out"));
     let rules = ReplayArgs::parse_rules(&a.need("--rules")).unwrap_or_else(|e| die(&e));
@@ -1347,6 +1366,13 @@ fn cmd_symmetry(mut a: Args) -> i32 {
 /// Job mode: `rr_node solve-recipe --job RUN/job.json` (child-job contract subset, kind "solve-recipe").
 fn cmd_solve_recipe(mut a: Args) -> i32 {
     use rustred::node::{recipe, recipe_job};
+    // lane engbase2: ONE job entry. `solve-recipe --job RUN/job.json` is the same dispatcher as `rr_node job
+    // RUN/job.json` (contract preflight, signal flags, sealing, spec-digest binding); the verb's own job reader below
+    // is no longer reached.
+    if let Some(jp) = a.take("--job") {
+        a.done();
+        return job::cmd_job_at(&jp);
+    }
     let fail = |code: i32, m: &str| -> ! {
         eprintln!("rr_node solve-recipe: {m}");
         std::process::exit(code)
@@ -1561,6 +1587,7 @@ fn cmd_solve_recipe(mut a: Args) -> i32 {
         path_base: path_base.clone(),
         events_path: events_path.clone(),
         heartbeat_s,
+        on_end: None,
     };
     let single = keys.len() == 1;
     match recipe::run_batch(&family, &order, &recipe_text, &keys, outp, &opts) {
@@ -1640,6 +1667,9 @@ fn cmd_first_match(mut a: Args) -> i32 {
 
 /// `rr_node version --json` / `rr_node --version --json`: one JSON line (child-job contract 3.2.1: program, package
 /// version, build commit, contract, features, job kinds, arities).
+/// Merged build (lane engfix4): superseded by `job::cmd_version` (ONE job entry, both kinds generate and solve-recipe);
+/// kept unchanged for the next engine-line merge.
+#[allow(dead_code)]
 fn cmd_version(mut a: Args) -> i32 {
     if !a.flag("--json") {
         die("usage: rr_node version --json");
@@ -1742,6 +1772,76 @@ fn cmd_laporta(mut a: Args) -> i32 {
         "cells": cells, "all_ok": ok, "seconds": t0.elapsed().as_secs_f64()}),
     );
     if ok { 0 } else { 1 }
+}
+
+/// Every subcommand `main` dispatches (reported by `rr_node --capabilities`).
+const VERBS: [&str; 24] = [
+    "generate",
+    "probe",
+    "variants",
+    "descent",
+    "replay",
+    "cover-index",
+    "obligations",
+    "join",
+    "predict",
+    "oracle",
+    "affine",
+    "witness",
+    "locus-rank",
+    "symmetry",
+    "first-match",
+    "solve-recipe",
+    "reduce",
+    "mastermap",
+    "mapcheck",
+    "symmasters",
+    "laporta",
+    "domaincheck",
+    "job",
+    "version",
+];
+
+/// `rr_node --capabilities`: see the header.
+fn cmd_capabilities(a: Args) -> i32 {
+    use rustred::node::domaincheck::{OPTIONS, SCHEMA};
+    a.done();
+    println!(
+        "{}",
+        serde_json::json!({"schema": "rustred.capabilities.v1", "program": "rr_node", "verbs": VERBS,
+            "domaincheck": {"schema": SCHEMA, "options": OPTIONS}, "version": job::version_json()})
+    );
+    0
+}
+
+/// `rr_node domaincheck` (EC-15): see the header and node::domaincheck.
+fn cmd_domaincheck(mut a: Args) -> i32 {
+    use rustred::node::domaincheck::{DomainCheckArgs, run};
+    let table = a.need("--table");
+    let keys = a.need("--keys");
+    let out = a.need("--out");
+    let masters = a.take("--masters").map(|m| keys_arg(&m));
+    let point_valid = a.flag("--point-valid");
+    let dims = dims_arg(&mut a);
+    a.done();
+    let args = DomainCheckArgs {
+        table,
+        keys,
+        out,
+        masters,
+        point_valid,
+        dims,
+    };
+    match run(&args) {
+        Ok(n) => {
+            eprintln!("[domaincheck] {n} keys -> {}", args.out);
+            0
+        }
+        Err(e) => {
+            eprintln!("rr_node domaincheck: {}", e.message());
+            e.exit_code()
+        }
+    }
 }
 
 /// `rr_node reduce`: see the header.
@@ -2045,7 +2145,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|first-match|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|version ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|first-match|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|job|version|--capabilities ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -2072,7 +2172,10 @@ fn main() {
         "symmetry" => cmd_symmetry(a),
         "solve-recipe" => cmd_solve_recipe(a),
         "first-match" => cmd_first_match(a),
-        "version" | "--version" => cmd_version(a),
+        "domaincheck" => cmd_domaincheck(a),
+        "--capabilities" => cmd_capabilities(a),
+        "job" => job::cmd_job(a),
+        "version" | "--version" => job::cmd_version(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");

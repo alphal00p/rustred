@@ -998,6 +998,12 @@ pub enum StopReason {
         cases: Vec<CaseSpec>,
     },
     Error(String),
+    /// child-job (job mode only): a stop request (signal, STOP file, soft memory limit) honoured at a safe point;
+    /// `pending` counts the open cases including the interrupted one (RESUME.json lists them).
+    Interrupted { source: String, pending: usize },
+    /// child-job `--descend open` (job mode only): the job's own cases are done; `returned` sub-cases, numeric
+    /// endpoints and regions were returned to the supervisor (F.subcases.jsonl) instead of being searched.
+    Descended { returned: usize },
 }
 
 /// Result of [`generate`]. `complete` = the chart closed (no stop, no error); `state` says it in words
@@ -1366,6 +1372,24 @@ pub fn compile_family(text: &str) -> Result<IntegralFamily, String> {
         .into_family())
 }
 
+/// THE list of arities `generate` is compiled for (audit-engjob m9: one source for its dispatch below and for what
+/// `rr_node version --json` reports); `$m!` is applied to the list.
+macro_rules! generate_arities {
+    ($m:ident) => {
+        $m!(5, 9, 12, 14, 20)
+    };
+}
+
+/// The arities of [`generate`] (from `generate_arities!`).
+pub const GENERATE_ARITIES: &[usize] = {
+    macro_rules! list {
+        ($($a:literal),*) => {
+            &[$($a),*]
+        };
+    }
+    generate_arities!(list)
+};
+
 /// Generate one chart of `family_text` (ORIGINAL presentation) under `opts.order` into `out_dir`
 /// (`F.family.sym` = presented family, `F.table.jsonl`, `F.queue.jsonl`, `F.cert.jsonl`, optional candidate dumps).
 pub fn generate(
@@ -1385,57 +1409,20 @@ pub fn generate(
         .map_err(|e| format!("family copy: {e}"))?;
     let n = fam.denominator_count();
     opts.order.validate(n)?;
-    match n {
-        5 => run::<5>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        9 => run::<9>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        12 => run::<12>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        14 => run::<14>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        20 => run::<20>(
-            family_text,
-            family_path,
-            &presented,
-            &fam,
-            out_dir,
-            opts,
-            events,
-        ),
-        other => Err(format!(
-            "arity {other}: node driver compiled for 5, 9, 12, 14, 20"
-        )),
+    macro_rules! dispatch {
+        ($($a:literal),*) => {
+            match n {
+                $($a => run::<$a>(family_text, family_path, &presented, &fam, out_dir, opts, events),)*
+                other => Err(format!(
+                    "arity {other}: node driver compiled for {}",
+                    GENERATE_ARITIES.iter().map(|a| a.to_string()).collect::<Vec<_>>().join(", ")
+                )),
+            }
+        };
     }
+    generate_arities!(dispatch)
 }
+
 
 /// The node order's [`SectorConfig`] pieces: legacy order, or the compiled tie-priority program.
 pub(super) fn order_program(
@@ -1491,6 +1478,38 @@ fn discovery_progress_log() -> bool {
 
 fn case_json<const N: usize>(c: &Case<N>, n: usize) -> String {
     serde_json::to_string(&case_spec(c, n)).expect("case json")
+}
+
+// ---- child-job journal records (job mode only; engfix4, re-audit MJ-1). The legacy queue log leaves a few changes of
+// the open state silent (duplicate discards, a branch admitted with nothing left, the full detail objects of deferred
+// charts and refused cases, the PRESENTED queue that replaces the initial one). In job mode these are written as
+// `job_*` records, so that a resumed attempt re-derives every open-state field of RESUME.json from the committed
+// queue-log prefix ([`resume_replay_check`]). Legacy invocations write none of them (byte-identical queue log).
+
+/// A discard the legacy log leaves silent: `{"type":"job_discard","why":W,"case"|"at":..}` (`what` = (key, JSON)).
+fn job_discard(qlog: &mut impl std::io::Write, why: &str, what: (&str, &str)) -> Result<(), String> {
+    if !super::childjob::active() {
+        return Ok(());
+    }
+    writeln!(qlog, "{{\"type\":\"job_discard\",\"why\":{},\"{}\":{}}}", q(why), what.0, what.1)
+        .map_err(|e| e.to_string())
+}
+
+/// An entry of an open list with the detail object RESUME carries: `{"type":"job_open","list":"deferred"|"refused",
+/// "case":C,"detail":D}`.
+fn job_open<const N: usize>(
+    qlog: &mut impl std::io::Write,
+    list: &str,
+    case: &Case<N>,
+    detail: &serde_json::Value,
+    n: usize,
+) -> Result<(), String> {
+    if !super::childjob::active() {
+        return Ok(());
+    }
+    let d = serde_json::to_string(detail).map_err(|e| e.to_string())?;
+    writeln!(qlog, "{{\"type\":\"job_open\",\"list\":{},\"case\":{},\"detail\":{d}}}", q(list), case_json(case, n))
+        .map_err(|e| e.to_string())
 }
 
 /// Linear integer expression in `n<i>` (`3*n1-n2+4`) as a coefficient polynomial of the family's index variables.
@@ -1670,7 +1689,7 @@ fn write_rule<const N: usize>(
                 .any(|w| w[0] == b'n' && w[1].is_ascii_digit())
         })
         .map(|t| {
-            if t.len() > 4000 {
+            if t.len() > 4000 && super::childjob::elide_witness_loci() {
                 "elided".to_string()
             } else {
                 t
@@ -1690,7 +1709,7 @@ fn write_rule<const N: usize>(
         .hidden_poles
         .iter()
         .filter(|p| {
-            let long = p.to_string().len() > 4000;
+            let long = p.to_string().len() > 4000 && super::childjob::elide_witness_loci();
             if long {
                 witness_d_poles.push("elided".to_string());
             }
@@ -1961,11 +1980,14 @@ fn guards_of<const N: usize>(
             native_timeout: std::time::Duration::from_secs(secs),
         };
         return match extract_exceptions_routed(candidate, idx, sector, &[false; N], route) {
-            Ok((x, report)) => Guards::Ok(
-                x,
-                Some(format!("{report:?}")),
-                report.route == GuardRouteTaken::Content,
-            ),
+            Ok((x, report)) => {
+                note_guard_report(&report, secs, None);
+                Guards::Ok(
+                    x,
+                    Some(format!("{report:?}")),
+                    report.route == GuardRouteTaken::Content,
+                )
+            }
             Err(e) => Guards::Err(format!("{e:?}")),
         };
     }
@@ -1975,12 +1997,45 @@ fn guards_of<const N: usize>(
             Err(e) => format!("err {e:?}"),
         }
     });
+    note_forked(&r, super::childjob::TimeWhat::GuardTimeout, secs, None, "no guards (side bank)");
     if !matches!(r, Forked::Done(..)) {
         return Guards::Timeout(secs);
     }
     match extract_exceptions(candidate, idx, sector) {
         Ok(x) => Guards::Ok(x, None, false),
         Err(e) => Guards::Err(format!("{e:?}")),
+    }
+}
+
+/// child-job (audit-engjob M5): a fork-timed try that the CLOCK decided (`Forked::Timeout`: `what`), or that a
+/// helper failure decided (`Forked::Failed`: fork unavailable or the helper died), is recorded as a time decision.
+/// No-op in legacy mode and when the try finished.
+fn note_forked(r: &Forked, what: super::childjob::TimeWhat, limit: u64, rule: Option<usize>, taken: &str) {
+    match r {
+        Forked::Done(..) => {}
+        Forked::Timeout(t) => super::childjob::time_decision(what, rule, limit as f64, *t, taken),
+        Forked::Failed(_, t) => super::childjob::time_decision(
+            super::childjob::TimeWhat::ForkUnavailable,
+            rule,
+            limit as f64,
+            *t,
+            taken,
+        ),
+    }
+}
+
+/// child-job (audit-engjob M5): the timed native guard try of the content-fallback route timed out (content route
+/// taken): a time decision. (A helper that could not be forked or was killed by a signal is recorded by
+/// `solver::exception`'s timed try itself; a native error is deterministic and not recorded.)
+fn note_guard_report(report: &crate::solver::GuardReport, limit: u64, rule: Option<usize>) {
+    if report.native_try == crate::solver::NativeGuardTry::TimedOut {
+        super::childjob::time_decision(
+            super::childjob::TimeWhat::GuardRoute,
+            rule,
+            limit as f64,
+            report.try_seconds,
+            "content route",
+        );
     }
 }
 
@@ -2007,6 +2062,7 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
     let path = dir.join(format!("rr_fork_{}_{}.out", std::process::id(), tag));
     let _ = std::fs::remove_file(&path);
     let t = Instant::now();
+    let parent = super::childjob::proc::pid();
     // SAFETY: fork in a process whose other threads (if any) hold no locks the child needs; the child only runs
     // `f`, writes one file and _exits.
     let pid = unsafe { fork() };
@@ -2014,6 +2070,7 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
         return Forked::Failed("fork failed".into(), 0.0);
     }
     if pid == 0 {
+        super::childjob::proc::after_fork_child(parent);
         let s = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
             .unwrap_or_else(|_| "{\"child_panic\":true}".to_string());
         let tmp = path.with_extension("part");
@@ -2022,12 +2079,13 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
         unsafe { _exit(if ok { 0 } else { 3 }) }
     }
     FORK_CHILD.store(pid, std::sync::atomic::Ordering::SeqCst);
+    let registered = super::childjob::proc::register_helper(pid);
     loop {
-        let mut status = 0i32;
-        // SAFETY: own child, WNOHANG.
-        let r = unsafe { waitpid(pid, &mut status, 1) };
-        if r == pid {
+        // the child is reaped only after it left the helper registry (audit-engjob m4: no pid-reuse window for the
+        // job watchdog's kill_helpers)
+        if super::childjob::proc::helper_ended(pid) {
             FORK_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
+            let status = super::childjob::proc::reap_helper(pid, registered).unwrap_or(-1);
             let used = t.elapsed().as_secs_f64();
             return match std::fs::read_to_string(&path) {
                 Ok(s) => {
@@ -2038,11 +2096,7 @@ pub fn forked<F: FnOnce() -> String>(dir: &Path, tag: &str, secs: u64, f: F) -> 
             };
         }
         if t.elapsed().as_secs() >= secs {
-            // SAFETY: own child.
-            unsafe {
-                kill(pid, 9);
-                waitpid(pid, &mut status, 0);
-            }
+            super::childjob::proc::kill_reap_helper(pid, registered);
             let _ = std::fs::remove_file(&path);
             let _ = std::fs::remove_file(path.with_extension("part"));
             FORK_CHILD.store(0, std::sync::atomic::Ordering::SeqCst);
@@ -3017,20 +3071,22 @@ fn run<const N: usize>(
     let zero_seconds = t0.elapsed().as_secs_f64();
     let table_path = out_dir.join("F.table.jsonl");
     let mut out = std::io::BufWriter::new(
-        std::fs::File::create(&table_path).map_err(|e| format!("table: {e}"))?,
+        super::childjob::create_stream(&table_path, super::childjob::Stream::Table)
+            .map_err(|e| format!("table: {e}"))?,
     );
     let mut qlog = std::io::BufWriter::new(
-        std::fs::File::create(out_dir.join("F.queue.jsonl"))
+        super::childjob::create_stream(&out_dir.join("F.queue.jsonl"), super::childjob::Stream::Queue)
             .map_err(|e| format!("queue log: {e}"))?,
     );
     let options_json = serde_json::to_string(opts).map_err(|e| e.to_string())?;
     writeln!(
         out,
-        "{{\"type\":\"header\",\"schema\":{},\"node_schema\":{},\"source_base\":\"rustred-node\",\"family\":{},\"family_file\":{},\"family_source\":{},\"original_family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"node_order\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":\"downset\",\"zero_seconds\":{zero_seconds:.3},\"guard_version\":{},\"node_options\":{options_json}}}",
+        "{{\"type\":\"header\",\"schema\":{},\"node_schema\":{},\"source_base\":\"rustred-node\",\"family\":{},\"family_file\":{}{},\"family_source\":{},\"original_family_source\":{},\"loops\":{},\"externals\":{},\"denominators\":{n},\"parameters\":{},\"power_shifts\":{},\"mask\":{},\"node_order\":{},\"order_name\":{},\"order_is_program\":{},\"order\":{},\"two_sided_axes\":{:?},\"charts\":{},\"numerical_depth\":{},\"max_numerator_rank\":null,\"source_conditions\":{},\"zero_scope\":\"downset\",\"zero_seconds\":{zero_seconds:.3},\"guard_version\":{},\"node_options\":{options_json}}}",
         q(SCHEMA),
         q(NODE_SCHEMA),
         q(fam.name()),
         q(family_path),
+        super::childjob::header_family_digest(),
         q(presented),
         q(original_text),
         fam.loop_count(),
@@ -3174,7 +3230,8 @@ fn run<const N: usize>(
     }
     // certificate file: header, original source rows, basis derivation (replay authority for retained traces)
     let mut cert = std::io::BufWriter::new(
-        std::fs::File::create(out_dir.join("F.cert.jsonl")).map_err(|e| format!("cert: {e}"))?,
+        super::childjob::create_stream(&out_dir.join("F.cert.jsonl"), super::childjob::Stream::Cert)
+            .map_err(|e| format!("cert: {e}"))?,
     );
     write_cert_header(&mut cert, fam, &sources);
     for (k, row) in derivation.rows.iter().enumerate() {
@@ -3321,7 +3378,9 @@ fn run<const N: usize>(
     // coefficients are skipped) or a compact cover index (`rr_node cover-index`) bound to its table
     let mut cover: Vec<CoverEntry<N>> = Vec::new();
     for (path, upto) in &opts.cover_tables {
-        let (shapes, head) = super::registry::read_rule_shapes(path, *upto)?;
+        // child-job (engfix4 mn-1): read through the input file whose digest the job verified (legacy: `path`)
+        let read_path = super::childjob::input_read_path(path);
+        let (shapes, head) = super::registry::read_rule_shapes(&read_path, *upto)?;
         // guard-fix D1: cover material of another guard semantics is REFUSED (a pre-fix rule lacks the witness-pole
         // branches, so as a cover it would suppress the child cases this run must open). Header (absent = 1; a cover
         // index carries its table's), and every rule line that carries its own stamp.
@@ -3355,7 +3414,7 @@ fn run<const N: usize>(
                 ));
             }
             use std::io::BufRead as _;
-            let f = std::fs::File::open(path).map_err(|e| format!("cover table {path}: {e}"))?;
+            let f = std::fs::File::open(&read_path).map_err(|e| format!("cover table {path}: {e}"))?;
             let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
             let mut line = String::new();
             rd.read_line(&mut line)
@@ -3381,6 +3440,7 @@ fn run<const N: usize>(
                 ));
             }
             let mut checked = 0usize;
+            let mut checked_lines = 1usize;
             loop {
                 line.clear();
                 if rd
@@ -3390,7 +3450,15 @@ fn run<const N: usize>(
                 {
                     break;
                 }
-                if !line.starts_with("{\"type\":\"rule\"") {
+                checked_lines += 1;
+                // the record kind is the parsed `type` (any key order); unknown kinds / unreadable lines are errors
+                if super::records::record_kind(
+                    line.trim_end(),
+                    path,
+                    checked_lines,
+                    super::records::TABLE_KINDS,
+                )? != Some("rule")
+                {
                     continue;
                 }
                 let v: serde_json::Value = serde_json::from_str(line.trim_end())
@@ -3576,7 +3644,7 @@ fn run<const N: usize>(
         presented,
         &label,
         &descriptor_json(&opts.order, n),
-        &super::registry::cert_hash(&cert_text),
+        &super::registry::cert_hash(&cert_text)?,
     );
     drop(cert_text);
     outcome.math_key = math_key.clone();
@@ -3835,6 +3903,9 @@ fn run<const N: usize>(
             let fixed = *case.face();
             if numerical.contains(&fixed) {
                 *discarded += 1;
+                // child-job (job mode only, engfix4 MJ-1): a discard the legacy log leaves silent is journaled, so a
+                // resumed attempt re-derives the `discarded` counter from the committed queue log
+                let _ = job_discard(qlog, "numerical_duplicate", ("case", &case_json(&case, n)));
                 return;
             }
             let _ = writeln!(
@@ -3846,7 +3917,10 @@ fn run<const N: usize>(
             return;
         }
         match pending.binary_search_by(|queued| queued.queue_cmp(&case)) {
-            Ok(_) => *discarded += 1,
+            Ok(_) => {
+                *discarded += 1;
+                let _ = job_discard(qlog, "queued_duplicate", ("case", &case_json(&case, n)));
+            }
             Err(position) => {
                 let _ = writeln!(
                     qlog,
@@ -3934,6 +4008,7 @@ fn run<const N: usize>(
                                 pivot, trace_rows, ..
                             } => {
                                 raw = Some(pivot);
+                                super::childjob::exact_started(trace_rows);
                                 started = Some(Instant::now());
                                 eprintln!(
                                     "EVENT {:.3}s ExactStarted rows={trace_rows} pivot={pivot}",
@@ -4159,11 +4234,76 @@ fn run<const N: usize>(
         orders
     };
     let mut symbolic_cases = 0usize;
+    // child-job resume of an interrupted NUMERIC stage (audit-engjob C1): (endpoints of the whole stage, endpoints the
+    // per-point search already exhausted, waiting for the shared solve)
+    let mut resumed_numeric: Option<(usize, Vec<CoordinateCase<N>>)> = None;
+    // child-job (job mode only): a resumed attempt continues from RESUME.json: its queue and counters, and the
+    // committed rules of the copied table prefix as cover entries (rule indices continue after them)
+    if let Some(r) = super::childjob::resumed() {
+        super::childjob::resume_arm(&mut out, &mut qlog)?;
+        let built = |c: &CaseSpec| build_case::<N>(c, &template, &idx, &sector, n);
+        pending = r.cases.iter().map(built).collect::<Result<Vec<_>, _>>()?.into_iter().flatten().collect();
+        // audit-engjob m8: a numeric endpoint of the wrong arity, out of range or not a valid point is refused (41),
+        // never dropped or truncated
+        let point = |f: &Vec<i64>| numeric_point::<N>(f, n).unwrap_or_else(|e| super::childjob::fail_input(&format!("resume: numeric endpoint {f:?}: {e}")));
+        numerical = r.numerical.iter().map(point).collect();
+        resumed_numeric = r.numeric_stage.as_ref().map(|(total, ex)| (*total, ex.iter().map(point).collect()));
+        deferred_charts = r.deferred.iter().map(|(c, d)| Ok(built(c)?.map(|c| (c, d.clone())))).collect::<Result<Vec<_>, String>>()?.into_iter().flatten().collect();
+        for v in &r.rules {
+            if let Some((c, b)) = parse_cover_entry::<N>(v, &template, &idx, &sector, n) {
+                cover.push((format!("resume#{}", v["index"]), c, b));
+            }
+        }
+        adopted_rules = r.rules.len();
+        symbolic_cases = r.symbolic_cases;
+        [terms, branches_total, discarded, deferred_regions, deferred_branches] = r.counters;
+        // audit-engjob M1: not-lower rules of the committed prefix are reported again (stop `not_lower` at the end)
+        outcome.not_lower = r.not_lower.clone();
+    }
     // registry leases (postponed sibling-contained cases, with the lessor's label), cases returned from a lease (never
     // leased again), cases left open by `open_on_refusal`, and the case in flight when the loop breaks
     let mut leased: Vec<(Case<N>, String)> = Vec::new();
     let mut returned: Vec<Case<N>> = Vec::new();
     let mut refused_open: Vec<(Case<N>, serde_json::Value)> = Vec::new();
+    // child-job resume: the cases a previous attempt left open by `open_on_refusal`
+    if let Some(r) = super::childjob::resumed() {
+        for (c, d) in &r.refused_open {
+            if let Some(c) = build_case::<N>(c, &template, &idx, &sector, n)? {
+                refused_open.push((c, d.clone()));
+            }
+        }
+        outcome.refused_open = refused_open.len();
+        if r.prefix {
+            // engfix4 (re-audit MJ-1): RESUME is used only where it equals what the copied committed prefixes prove
+            let frame = ReplayFrame {
+                ordering: solver.ordering(),
+                template: &template,
+                idx: &idx,
+                sector: &sector,
+                n,
+                descend_open: super::childjob::descend_open(),
+            };
+            let got = ResumeBuilt {
+                pending: &pending,
+                numerical: &numerical,
+                numeric_stage: resumed_numeric.as_ref(),
+                deferred: &deferred_charts,
+                refused: &refused_open,
+            };
+            if let Err(m) = resume_replay_check::<N>(r, &out_dir.join("F.queue.jsonl"), &frame, &got) {
+                super::childjob::fail_input(&format!("resume refused: {m}"));
+            }
+        } else {
+            // PRESENTED cases replaced the initial queue (job mode): journaled for a later resume's replay (MJ-1)
+            writeln!(
+                qlog,
+                "{{\"type\":\"job_queue_reset\",\"source\":\"presented\",\"cases\":{},\"numerical\":{}}}",
+                pending.len(),
+                numerical.len()
+            )
+            .map_err(|e| e.to_string())?;
+        }
+    }
     let mut in_flight: Option<Case<N>>;
     loop {
         in_flight = None;
@@ -4322,6 +4462,19 @@ fn run<const N: usize>(
             break;
         }
         let current = pending.remove(0);
+        // child-job (job mode only): commit point of the previous case, safe point, start of this one
+        if super::childjob::active() {
+            match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&current, n), false, &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, None, n))? {
+                super::childjob::Boundary::Stop(s) => {
+                    // the popped case stays open: `current` in RESUME and F.subcases, and in F.obligations
+                    in_flight = Some(current.clone());
+                    stop = Some(s);
+                    break;
+                }
+                super::childjob::Boundary::Skip => continue,
+                super::childjob::Boundary::Go => {}
+            }
+        }
         // Astra known terminals: a declared literal is never searched (checked before it becomes in flight)
         if terminal_ledger
             .as_ref()
@@ -5035,10 +5188,9 @@ fn run<const N: usize>(
             .map_err(|e| e.to_string())?;
             if opts.open_on_refusal {
                 outcome.refused_open += 1;
-                refused_open.push((
-                    current.clone(),
-                    serde_json::json!({"reason": "lift refused", "reports": serde_json::to_value(&refusals).unwrap_or_default()}),
-                ));
+                let detail = serde_json::json!({"reason": "lift refused", "reports": serde_json::to_value(&refusals).unwrap_or_default()});
+                job_open(&mut qlog, "refused", &current, &detail, n)?;
+                refused_open.push((current.clone(), detail));
                 continue;
             }
             stop = Some(StopReason::LiftRefused {
@@ -5059,6 +5211,7 @@ fn run<const N: usize>(
             error = Some(format!(
                 "winning rule is not strictly descending on {current:?}"
             ));
+            super::childjob::note_not_lower(&nl);
             outcome.not_lower.extend(nl);
             break;
         }
@@ -5076,6 +5229,7 @@ fn run<const N: usize>(
                 };
                 match extract_exceptions_routed(&candidate, &idx, &sector, &[false; N], route) {
                     Ok((x, report)) => {
+                        note_guard_report(&report, secs, Some(rules.len() + adopted_rules));
                         if report.route == GuardRouteTaken::Content {
                             outcome.content_routes += 1;
                         }
@@ -5103,14 +5257,14 @@ fn run<const N: usize>(
                         Err(e) => format!("err {e:?}"),
                     },
                 );
+                note_forked(&r, super::childjob::TimeWhat::GuardTimeout, secs, Some(rules.len() + adopted_rules), if opts.open_on_refusal { "case left open (open-on-refusal)" } else { "node stopped (guard_timeout)" });
                 if !matches!(r, Forked::Done(..)) {
                     writeln!(qlog, "{{\"type\":\"guard_timeout\",\"rule\":{},\"case\":{},\"rhs\":{},\"timeout\":{secs}}}", rules.len() + adopted_rules, case_json(&current, n), candidate.rhs.len()).map_err(|e| e.to_string())?;
                     if opts.open_on_refusal {
                         outcome.refused_open += 1;
-                        refused_open.push((
-                            current.clone(),
-                            serde_json::json!({"reason": format!("guard extraction timeout ({secs} s)"), "rhs": candidate.rhs.len()}),
-                        ));
+                        let detail = serde_json::json!({"reason": format!("guard extraction timeout ({secs} s)"), "rhs": candidate.rhs.len()});
+                        job_open(&mut qlog, "refused", &current, &detail, n)?;
+                        refused_open.push((current.clone(), detail));
                         continue;
                     }
                     stop = Some(StopReason::GuardTimeout {
@@ -5187,7 +5341,9 @@ fn run<const N: usize>(
                 break;
             }
         }
-        terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+        let rhs_written = write_rule(&mut out, &label, index, &rule, &extras, n);
+        terms += rhs_written;
+        super::childjob::rule_written(rhs_written, extras.trace_rows, extras.monomials);
         out.flush().map_err(|e| e.to_string())?;
         branches_total += rule.exceptions.branches.len();
         if opts.cand_dump {
@@ -5256,9 +5412,12 @@ fn run<const N: usize>(
                         Err(e) => format!("err {e:?}"),
                     },
                 );
+                note_forked(&r, super::childjob::TimeWhat::Admission, secs, Some(index), "deferred region");
                 if !matches!(r, Forked::Done(..)) {
                     deferred_regions += 1;
-                    deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "region", "rule": index, "branch": bi, "reason": format!("AdmissionTimeout({secs} s)"), "conjunction": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "exclusions": [], "parent": case_spec(&rule.candidate.case, n)})));
+                    let detail = serde_json::json!({"kind": "region", "rule": index, "branch": bi, "reason": format!("AdmissionTimeout({secs} s)"), "conjunction": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "exclusions": [], "parent": case_spec(&rule.candidate.case, n)});
+                    job_open(&mut qlog, "deferred", &rule.candidate.case, &detail, n)?;
+                    deferred_charts.push((rule.candidate.case.clone(), detail));
                     writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"reason\":\"AdmissionTimeout({secs} s)\",\"chart\":{},\"conjunction\":{}}}", case_json(&rule.candidate.case, n), strings(branch.iter())).map_err(|e| e.to_string())?;
                     continue;
                 }
@@ -5282,11 +5441,15 @@ fn run<const N: usize>(
                 Ok(r) => {
                     for (di, d) in r.deferred.iter().enumerate() {
                         deferred_regions += 1;
-                        deferred_charts.push((d.chart.clone(), region_detail(index, bi, di, d, n)));
+                        let detail = region_detail(index, bi, di, d, n);
+                        job_open(&mut qlog, "deferred", &d.chart, &detail, n)?;
+                        deferred_charts.push((d.chart.clone(), detail));
                         writeln!(qlog, "{{\"type\":\"deferred_region\",\"rule\":{index},\"branch\":{bi},\"k\":{di},\"reason\":{},\"chart\":{},\"conjunction\":{}}}", q(&format!("{:?}", d.reason)), case_json(&d.chart, n), strings(d.conjunction.iter())).map_err(|e| e.to_string())?;
                     }
                     if r.cases.is_empty() && r.deferred.is_empty() {
                         discarded += 1;
+                        // child-job (job mode only, engfix4 MJ-1): the silent discard is journaled
+                        job_discard(&mut qlog, "branch_empty", ("at", &format!("{{\"rule\":{index},\"branch\":{bi}}}")))?;
                     }
                     for ch in &r.cases {
                         writeln!(
@@ -5300,7 +5463,9 @@ fn run<const N: usize>(
                 }
                 Err(e) => {
                     deferred_branches += 1;
-                    deferred_charts.push((rule.candidate.case.clone(), serde_json::json!({"kind": "branch", "rule": index, "branch": bi, "polys": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "error": format!("{e:?}").chars().take(2000).collect::<String>()})));
+                    let detail = serde_json::json!({"kind": "branch", "rule": index, "branch": bi, "polys": branch.iter().map(|p| p.to_string()).collect::<Vec<_>>(), "error": format!("{e:?}").chars().take(2000).collect::<String>()});
+                    job_open(&mut qlog, "deferred", &rule.candidate.case, &detail, n)?;
+                    deferred_charts.push((rule.candidate.case.clone(), detail));
                     writeln!(qlog, "{{\"type\":\"deferred_branch\",\"rule\":{index},\"branch\":{bi},\"polys\":{},\"error\":{}}}", strings(branch.iter()), q(&format!("{e:?}").chars().take(4000).collect::<String>())).map_err(|e| e.to_string())?;
                 }
             }
@@ -5349,6 +5514,13 @@ fn run<const N: usize>(
         }
         rules.push(rule);
     }
+    // child-job (job mode only): commit point at the end of the symbolic queue
+    if super::childjob::active() {
+        let s = super::childjob::queue_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], error.is_some(), &mut || super::childjob::queue_lists(&pending, &numerical, &deferred_charts, &refused_open, resumed_numeric.as_ref().map(|(t, e)| (*t, e.as_slice())), n))?;
+        if stop.is_none() && error.is_none() {
+            stop = s;
+        }
+    }
     *WATCH.lock().unwrap() = None;
     // ---- numeric endpoints: one by one under the node's source order and exact backend; exhausted ones in bulk
     // declared inventory first (Astra known terminals); native residuals are added (and checked) below
@@ -5376,14 +5548,28 @@ fn run<const N: usize>(
     // numeric endpoints are open obligations unless the numeric phase ran to its end (a stop before the numeric
     // phase leaves them open)
     let numeric_ran = error.is_none() && stop.is_none();
-    if !opts.stop_before_numeric && numeric_ran && !numerical.is_empty() {
-        outcome.numerical_cases = numerical.len();
+    // endpoints exhausted by the per-point search (bulk-solved after the loop) and the endpoint count of the whole
+    // stage; a child-job attempt resumed inside the numeric stage starts from its RESUME (audit-engjob C1)
+    let (numeric_total, mut exhausted): (usize, Vec<CoordinateCase<N>>) =
+        resumed_numeric.take().unwrap_or_else(|| (numerical.len(), Vec::new()));
+    if !opts.stop_before_numeric && numeric_ran && (!numerical.is_empty() || !exhausted.is_empty()) {
+        outcome.numerical_cases = numeric_total;
         let options = SearchOptions {
             max_depth: Some(opts.numeric_depth),
             ..symbolic
         };
-        let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
         for (point_index, point) in numerical.clone().into_iter().enumerate() {
+            // child-job (job mode only): safe point and commit point before each numeric endpoint
+            if super::childjob::active() {
+                match super::childjob::case_boundary(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], case_spec(&Case::from(point), n), true, &mut || super::childjob::queue_lists(&[], &numerical[point_index + 1..], &deferred_charts, &refused_open, Some((numeric_total, &exhausted)), n))? {
+                    super::childjob::Boundary::Stop(s) => {
+                        stop = Some(s);
+                        break;
+                    }
+                    super::childjob::Boundary::Skip => continue,
+                    super::childjob::Boundary::Go => {}
+                }
+            }
             if terminal_ledger
                 .as_ref()
                 .is_some_and(|ledger| ledger.is_point(&Case::from(point), n))
@@ -5580,6 +5766,7 @@ fn run<const N: usize>(
                         })
                         .map(|t| t.integral.to_string())
                         .collect();
+                    super::childjob::note_not_lower(&nl);
                     outcome.not_lower.extend(nl);
                     let exceptions = extract_exceptions(&candidate, &idx, &sector)
                         .map_err(|e| format!("numerical exceptions: {e:?}"))?;
@@ -5617,7 +5804,9 @@ fn run<const N: usize>(
                             break;
                         }
                     }
-                    terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+                    let rhs_written = write_rule(&mut out, &label, index, &rule, &extras, n);
+                    terms += rhs_written;
+                    super::childjob::rule_written(rhs_written, extras.trace_rows, extras.monomials);
                     out.flush().map_err(|e| e.to_string())?;
                     if opts.cand_dump {
                         write_cand_dump(out_dir, index, &rule.candidate, n)?;
@@ -5651,7 +5840,14 @@ fn run<const N: usize>(
                 }
             }
         }
-        if error.is_none() && !exhausted.is_empty() && opts.strict_numeric_search {
+        // child-job (job mode only): safe point (d) after the per-point loop, before the shared solve (audit-engjob C1)
+        if super::childjob::active() && error.is_none() && stop.is_none() {
+            if let Some(s) = super::childjob::numeric_done(&mut out, &mut qlog, symbolic_cases, [terms, branches_total, discarded, deferred_regions, deferred_branches], !exhausted.is_empty(), &mut || super::childjob::queue_lists(&[], &[], &deferred_charts, &refused_open, Some((numeric_total, &exhausted)), n))? {
+                stop = Some(s);
+            }
+        }
+        // audit-engjob M2: an interrupted stage never becomes a strict-search refusal
+        if error.is_none() && stop.is_none() && !exhausted.is_empty() && opts.strict_numeric_search {
             let cases: Vec<CaseSpec> = exhausted
                 .iter()
                 .map(|point| case_spec(&Case::from(*point), n))
@@ -5713,7 +5909,7 @@ fn run<const N: usize>(
                 .as_ref()
                 .map(|_| &images as &dyn Fn(&Integral<N>) -> Vec<(Integral<N>, bool)>);
             match solver.solve_numeric_cases_with_symmetry(
-                exhausted,
+                exhausted.clone(),
                 options,
                 visit.as_deref(),
                 images_dyn,
@@ -5771,6 +5967,7 @@ fn run<const N: usize>(
                                 })
                                 .map(|t| t.integral.to_string())
                                 .collect();
+                            super::childjob::note_not_lower(&nl);
                             outcome.not_lower.extend(nl);
                             let exceptions = extract_exceptions(&candidate, &idx, &sector)
                                 .map_err(|e| format!("numerical exceptions: {e:?}"))?;
@@ -5802,7 +5999,9 @@ fn run<const N: usize>(
                                     break;
                                 }
                             }
-                            terms += write_rule(&mut out, &label, index, &rule, &extras, n);
+                            let rhs_written = write_rule(&mut out, &label, index, &rule, &extras, n);
+                            terms += rhs_written;
+                            super::childjob::rule_written(rhs_written, extras.trace_rows, extras.monomials);
                             if opts.cand_dump {
                                 write_cand_dump(out_dir, index, &rule.candidate, n)?;
                             }
@@ -5845,6 +6044,7 @@ fn run<const N: usize>(
         // run it in a forked child with a time limit; a timeout leaves every region open (never a silent closure)
         out.flush().map_err(|e| e.to_string())?;
         qlog.flush().map_err(|e| e.to_string())?;
+        super::childjob::deferred_check_started();
         let checked = forked(out_dir, "deferred_check", 600, || {
             let flags: Vec<bool> = deferred_charts
                 .iter()
@@ -5858,6 +6058,7 @@ fn run<const N: usize>(
                 .collect();
             serde_json::to_string(&flags).unwrap_or_default()
         });
+        note_forked(&checked, super::childjob::TimeWhat::DeferredCheck, 600, None, "every region left open");
         let flags: Vec<bool> = match checked {
             Forked::Done(text, _) => {
                 serde_json::from_str(&text).unwrap_or_else(|_| vec![false; deferred_charts.len()])
@@ -5932,6 +6133,10 @@ fn run<const N: usize>(
                     .as_ref()
                     .is_some_and(|ledger| ledger.is_point(&Case::from(**p), n))
             }) {
+                open.push(ob("numerical", &Case::from(*p), serde_json::Value::Null));
+            }
+            // a resumed numeric stage: its exhausted endpoints are not in `numerical` any more
+            for p in exhausted.iter().filter(|p| !numerical.contains(p)) {
                 open.push(ob("numerical", &Case::from(*p), serde_json::Value::Null));
             }
         }
@@ -6013,8 +6218,9 @@ fn run<const N: usize>(
         writeln!(out, "{{\"type\":\"chart_error\",\"chart\":{},\"seconds\":{seconds:.3},\"error\":{},\"stop\":{reason}}}", q(&label), q("node stopped (see stop)")).map_err(|e| e.to_string())?;
         events(&NodeEvent::Stopped { reason });
     }
-    let active_partial = (terminal_ledger.is_some() || opts.stop_before_numeric)
-        && (error.is_some() || stop.is_some() || !outcome.not_lower.is_empty());
+    let active_partial = ((terminal_ledger.is_some() || opts.stop_before_numeric)
+        && (error.is_some() || stop.is_some() || !outcome.not_lower.is_empty()))
+        || super::childjob::partial_end(error.is_some() || stop.is_some() || !outcome.not_lower.is_empty());
     let chart_record = if active_partial {
         "chart_partial"
     } else {
@@ -6117,6 +6323,19 @@ fn run<const N: usize>(
     outcome.seconds = t_total.elapsed().as_secs_f64();
     outcome.vmhwm_kb = vmhwm_kb();
     Ok(outcome)
+}
+
+/// A numeric endpoint (all `n` presented slots fixed) from a RESUME list: the arity must be `n`, every value must fit
+/// the engine's power type, and the point must be a valid coordinate case (child-job resume, audit-engjob m8).
+fn numeric_point<const N: usize>(f: &[i64], n: usize) -> Result<CoordinateCase<N>, String> {
+    if f.len() != n {
+        return Err(format!("arity {} != {n}", f.len()));
+    }
+    let mut fixed = [Some(0i16); N];
+    for (slot, &v) in fixed.iter_mut().zip(f) {
+        *slot = Some(i16::try_from(v).map_err(|_| format!("value {v} out of range"))?);
+    }
+    CoordinateCase::new(fixed).map_err(|e| format!("{e:?}"))
 }
 
 /// Full fields of a deferred region (the queue log keeps chart and conjunction only).
@@ -6245,6 +6464,372 @@ fn write_cand_dump_named<const N: usize>(
         pivots.join(",")
     );
     std::fs::write(path, body).map_err(|e| format!("cand dump: {e}"))
+}
+
+/// The open state a resumed attempt built from RESUME.json (`current` first in `pending`), checked by
+/// [`resume_replay_check`].
+struct ResumeBuilt<'a, const N: usize> {
+    pending: &'a [Case<N>],
+    numerical: &'a [CoordinateCase<N>],
+    numeric_stage: Option<&'a (usize, Vec<CoordinateCase<N>>)>,
+    deferred: &'a [(Case<N>, serde_json::Value)],
+    refused: &'a [(Case<N>, serde_json::Value)],
+}
+
+/// The node's frame for [`resume_replay_check`].
+struct ReplayFrame<'a, const N: usize> {
+    ordering: &'a crate::solver::IntegralOrder<N>,
+    template: &'a CoefficientPolynomial,
+    idx: &'a [usize; N],
+    sector: &'a [bool; N],
+    n: usize,
+    descend_open: bool,
+}
+
+/// Child-job resume SELF-CHECK (engfix4, re-audit MJ-1): RESUME.json is never trusted beyond what the committed
+/// prefixes it names PROVE. The copied queue-log prefix is replayed through the driver's own queue operations
+/// (`enqueue` / `enqueue_numerical` with the silent subsumption pruning and the sorted insertion, `job_taken` pops
+/// of the first queued case / first open endpoint, discards, `job_open` entries of the open lists, numeric-stage
+/// `numerical_exhausted`, the PRESENTED `job_queue_reset` from the cases input) and the copied table prefix is
+/// re-read (rule indices, RHS sizes, exception branches, monomials, and the strict-descent test of every RHS key under
+/// the node order, as the driver does for a winning rule). Every open-state field RESUME carries and the resumed
+/// attempt uses must equal the re-derived value: the open queue (`current` + `pending`), `numerical`, the numeric
+/// stage (`numerical_cases`, `exhausted`), `deferred`, `refused_open` (with their detail objects), `symbolic_cases`,
+/// the five running counters of the end records, `engine.not_lower` (as a multiset), `engine.descend_open` (own set,
+/// returned list), and the derivable work counters of `counters_at_commit`. Any difference: Err (the caller refuses
+/// the resume with exit 41). Each queue-log `rule` record must also match the table rule of its index (case or fixed
+/// point, RHS size, trace rows): the table prefix is bound to the history the queue log records.
+fn resume_replay_check<const N: usize>(
+    r: &super::childjob::Resumed,
+    queue_log: &Path,
+    f: &ReplayFrame<'_, N>,
+    got: &ResumeBuilt<'_, N>,
+) -> Result<(), String> {
+    use serde_json::Value;
+    let n = f.n;
+    let text = std::fs::read_to_string(queue_log)
+        .map_err(|e| format!("committed queue log {}: {e}", queue_log.display()))?;
+    let build = |v: &Value| -> Result<Case<N>, String> {
+        let spec: CaseSpec = serde_json::from_value(v.clone()).map_err(|e| format!("case {v}: {e}"))?;
+        build_case::<N>(&spec, f.template, f.idx, f.sector, n)?
+            .ok_or_else(|| format!("case {v} is empty"))
+    };
+    let point = |v: &Value| -> Result<CoordinateCase<N>, String> {
+        let p: Vec<i64> = serde_json::from_value(v.clone()).map_err(|e| format!("endpoint {v}: {e}"))?;
+        numeric_point::<N>(&p, n).map_err(|e| format!("endpoint {v}: {e}"))
+    };
+    let key = |c: &Case<N>| super::childjob::case_key(&case_spec(c, n));
+    let mut pending: Vec<Case<N>> = Vec::new();
+    let mut numerical: Vec<CoordinateCase<N>> = Vec::new();
+    let mut deferred: Vec<(Case<N>, Value)> = Vec::new();
+    let mut refused: Vec<(Case<N>, Value)> = Vec::new();
+    let mut exhausted: Vec<CoordinateCase<N>> = Vec::new();
+    let mut numeric_total: Option<usize> = None;
+    let mut symbolic_cases = 0usize;
+    let (mut discarded, mut deferred_regions, mut deferred_branches) = (0usize, 0usize, 0usize);
+    let mut own: Option<std::collections::BTreeSet<String>> = None;
+    let mut returned: Vec<String> = Vec::new();
+    let mut numeric_points = 0u64;
+    let mut qrules: Vec<Value> = Vec::new();
+    for (k, line) in text.lines().enumerate() {
+        let at = |m: String| format!("committed queue log line {}: {m}", k + 1);
+        let v: Value = serde_json::from_str(line).map_err(|e| at(e.to_string()))?;
+        let t = v["type"].as_str().unwrap_or("").to_string();
+        match t.as_str() {
+            "enqueue" => {
+                let c = build(&v["case"]).map_err(at)?;
+                if !prune_subsumed(&mut pending, &c) {
+                    return Err(at("an enqueued case is contained in a queued case".into()));
+                }
+                match pending.binary_search_by(|queued| queued.queue_cmp(&c)) {
+                    Ok(_) => return Err(at("an enqueued case is already queued".into())),
+                    Err(p) => pending.insert(p, c),
+                }
+            }
+            "enqueue_numerical" => {
+                let c = build(&v["case"]).map_err(at)?;
+                if !c.is_numerical() || !prune_subsumed(&mut pending, &c) {
+                    return Err(at("not an open numeric endpoint".into()));
+                }
+                let fixed = *c.face();
+                if numerical.contains(&fixed) {
+                    return Err(at("a numeric endpoint enqueued twice".into()));
+                }
+                numerical.push(fixed);
+            }
+            "covered" if v.get("by_registry").is_some() => {
+                return Err(at("a registry record cannot be replayed in job mode".into()));
+            }
+            "covered" | "union_covered" | "subsumed_by_pending" => discarded += 1,
+            "job_discard" => {
+                match v["why"].as_str() {
+                    // as `enqueue`: the subsumption pruning runs first (its side effect included)
+                    Some("numerical_duplicate") => {
+                        let c = build(&v["case"]).map_err(at)?;
+                        if !c.is_numerical()
+                            || !prune_subsumed(&mut pending, &c)
+                            || !numerical.contains(c.face())
+                        {
+                            return Err(at("a duplicate endpoint that is not open".into()));
+                        }
+                    }
+                    Some("queued_duplicate") => {
+                        let c = build(&v["case"]).map_err(at)?;
+                        if !prune_subsumed(&mut pending, &c)
+                            || pending.binary_search_by(|queued| queued.queue_cmp(&c)).is_err()
+                        {
+                            return Err(at("a duplicate case that is not queued".into()));
+                        }
+                    }
+                    Some("branch_empty") => {}
+                    other => return Err(at(format!("job_discard why {other:?}"))),
+                }
+                discarded += 1;
+            }
+            "job_taken" => {
+                let back = v["returned"].as_bool().unwrap_or(false);
+                if v["numerical"].as_bool() == Some(true) {
+                    let p = point(&v["fixed"]).map_err(at)?;
+                    if back != f.descend_open {
+                        return Err(at("a numeric endpoint is returned iff the job runs --descend open".into()));
+                    }
+                    numeric_total.get_or_insert(numerical.len());
+                    if numerical.first() != Some(&p) {
+                        return Err(at("the endpoint taken is not the first open endpoint".into()));
+                    }
+                    numerical.remove(0);
+                    if back {
+                        returned.push(format!("numeric|{}", key(&Case::from(p))));
+                    } else {
+                        numeric_points += 1;
+                    }
+                } else {
+                    let c = build(&v["case"]).map_err(at)?;
+                    if numeric_total.is_some() {
+                        return Err(at("a symbolic case taken after the numeric stage started".into()));
+                    }
+                    if f.descend_open && own.is_none() {
+                        own = Some(pending.iter().map(key).collect());
+                    }
+                    if pending.first() != Some(&c) {
+                        return Err(at("the case taken is not the first queued case".into()));
+                    }
+                    pending.remove(0);
+                    let is_own = own.as_ref().is_some_and(|s| s.contains(&key(&c)));
+                    if back == (is_own || !f.descend_open) {
+                        return Err(at(format!(
+                            "a case {} although it is {}one of the job's own cases",
+                            if back { "returned" } else { "solved" },
+                            if is_own { "" } else { "not " }
+                        )));
+                    }
+                    if back {
+                        returned.push(format!("case|{}", key(&c)));
+                    }
+                }
+            }
+            "rule" => {
+                if v["numerical"].as_bool() != Some(true) {
+                    symbolic_cases += 1;
+                }
+                qrules.push(v);
+            }
+            "guard_timeout" => symbolic_cases += 1,
+            "numerical_exhausted" => exhausted.push(point(&v["fixed"]).map_err(at)?),
+            "deferred_region" => deferred_regions += 1,
+            "deferred_branch" => deferred_branches += 1,
+            "job_open" => {
+                let c = build(&v["case"]).map_err(at)?;
+                match v["list"].as_str() {
+                    Some("deferred") => deferred.push((c, v["detail"].clone())),
+                    Some("refused") => refused.push((c, v["detail"].clone())),
+                    other => return Err(at(format!("job_open list {other:?}"))),
+                }
+            }
+            "job_queue_reset" => {
+                let Some((cases, points)) = super::childjob::presented_input() else {
+                    return Err(at("a PRESENTED queue reset but the job has no PRESENTED cases input".into()));
+                };
+                if !qrules.is_empty() {
+                    return Err(at("a PRESENTED queue reset after a rule".into()));
+                }
+                pending = Vec::new();
+                for c in cases {
+                    if let Some(c) = build_case::<N>(c, f.template, f.idx, f.sector, n).map_err(at)? {
+                        pending.push(c);
+                    }
+                }
+                numerical = points
+                    .iter()
+                    .map(|p| numeric_point::<N>(p, n))
+                    .collect::<Result<_, _>>()
+                    .map_err(at)?;
+                if v["cases"].as_u64() != Some(pending.len() as u64)
+                    || v["numerical"].as_u64() != Some(numerical.len() as u64)
+                {
+                    return Err(at("the PRESENTED queue reset does not match the cases input".into()));
+                }
+                deferred.clear();
+                refused.clear();
+                exhausted.clear();
+                numeric_total = None;
+                symbolic_cases = 0;
+                (discarded, deferred_regions, deferred_branches) = (0, 0, 0);
+            }
+            "pool_claim" | "lease" | "lease_resolved" | "lease_returned" | "sym_closed" | "declared_terminal"
+            | "bank_adopted" => {
+                return Err(at(format!("a {t} record cannot be replayed in job mode")));
+            }
+            _ => {}
+        }
+    }
+    // `--descend open`: the own set was fixed at the first symbolic safe point; a stop AT that point (RESUME `current`
+    // set, no case taken yet) fixed it to the open queue
+    if f.descend_open && own.is_none() && r.current {
+        own = Some(pending.iter().map(key).collect());
+    }
+    let cmp_cases = |what: &str, a: &[Case<N>], b: &[Case<N>]| -> Result<(), String> {
+        if let Some(i) = (0..a.len().max(b.len())).find(|&i| a.get(i) != b.get(i)) {
+            let show = |c: Option<&Case<N>>| c.map_or("none".to_string(), |c| case_json(c, n));
+            return Err(format!(
+                "RESUME {what} ({} entries) differs from what the committed queue log proves ({} entries): first \
+                 difference at position {i}: RESUME {} / queue log {}",
+                a.len(),
+                b.len(),
+                show(a.get(i)),
+                show(b.get(i))
+            ));
+        }
+        Ok(())
+    };
+    if r.cases.len() != got.pending.len() {
+        return Err(format!(
+            "RESUME current + pending: {} cases, {} of them build",
+            r.cases.len(),
+            got.pending.len()
+        ));
+    }
+    cmp_cases("current + pending", got.pending, &pending)?;
+    let pts = |v: &[CoordinateCase<N>]| v.iter().map(|p| Case::from(*p)).collect::<Vec<_>>();
+    cmp_cases("numerical", &pts(got.numerical), &pts(&numerical))?;
+    match got.numeric_stage {
+        None => {
+            if numeric_total.is_some() || !exhausted.is_empty() {
+                return Err("RESUME has no engine.numeric_stage but the committed queue log shows the numeric stage started".into());
+            }
+        }
+        Some((total, ex)) => {
+            let want = numeric_total.unwrap_or(numerical.len());
+            if *total != want {
+                return Err(format!(
+                    "RESUME engine.numeric_stage.numerical_cases {total}, the committed queue log proves {want}"
+                ));
+            }
+            cmp_cases("engine.numeric_stage.exhausted", &pts(ex), &pts(&exhausted))?;
+        }
+    }
+    let cmp_list = |what: &str, want_len: usize, a: &[(Case<N>, Value)], b: &[(Case<N>, Value)]| {
+        if want_len != a.len() {
+            return Err(format!("RESUME {what}: {want_len} entries, {} of them build", a.len()));
+        }
+        let ca: Vec<Case<N>> = a.iter().map(|x| x.0.clone()).collect();
+        let cb: Vec<Case<N>> = b.iter().map(|x| x.0.clone()).collect();
+        cmp_cases(what, &ca, &cb)?;
+        if let Some(i) = (0..a.len()).find(|&i| a[i].1 != b[i].1) {
+            return Err(format!("RESUME {what}[{i}].detail differs from the committed queue log"));
+        }
+        Ok(())
+    };
+    cmp_list("deferred", r.deferred.len(), got.deferred, &deferred)?;
+    cmp_list("refused_open", r.refused_open.len(), got.refused, &refused)?;
+    // the committed table prefix: rule indices, the running sums of the end records, the strict-descent test
+    let (mut terms, mut branches, mut monomials) = (0usize, 0usize, 0u64);
+    let mut not_lower: Vec<String> = Vec::new();
+    for (i, v) in r.rules.iter().enumerate() {
+        let bad = |m: &str| format!("committed table rule {i}: {m}");
+        if v["index"].as_u64() != Some(i as u64) {
+            return Err(bad("index out of sequence"));
+        }
+        let target = super::descent::parse_key::<N>(v["target"].as_str().ok_or_else(|| bad("no target"))?)
+            .map_err(|e| bad(&e))?;
+        let rhs = v["rhs"].as_array().ok_or_else(|| bad("no rhs"))?;
+        for t in rhs {
+            let k = t[0].as_str().ok_or_else(|| bad("rhs term without a key"))?;
+            let ik = super::descent::parse_key::<N>(k).map_err(|e| bad(&e))?;
+            if f.ordering.compare(&target, &ik) != Ordering::Less {
+                not_lower.push(k.to_string());
+            }
+        }
+        terms += rhs.len();
+        branches += v["exceptions"].as_array().ok_or_else(|| bad("no exceptions"))?.len();
+        monomials += v["monomials"].as_u64().ok_or_else(|| bad("no monomials"))?;
+    }
+    if qrules.len() != r.rules.len() {
+        return Err(format!(
+            "the committed table prefix has {} rules, the committed queue log records {}",
+            r.rules.len(),
+            qrules.len()
+        ));
+    }
+    for q in &qrules {
+        let i = q["index"].as_u64().unwrap_or(u64::MAX) as usize;
+        let Some(t) = r.rules.get(i) else {
+            return Err(format!("queue-log rule {i} is not in the committed table prefix"));
+        };
+        let same_case = if q["numerical"].as_bool() == Some(true) {
+            let fixed: Option<Vec<i64>> = serde_json::from_value(t["fixed"].clone()).ok();
+            fixed.is_some() && serde_json::from_value::<Vec<i64>>(q["fixed"].clone()).ok() == fixed
+        } else {
+            let tc = CaseSpec {
+                fixed: serde_json::from_value(t["fixed"].clone()).unwrap_or_default(),
+                equations: serde_json::from_value(t["equations"].clone()).unwrap_or_default(),
+            };
+            serde_json::from_value::<CaseSpec>(q["case"].clone()).ok() == Some(tc)
+        };
+        if !same_case
+            || q["rhs"].as_u64() != t["rhs"].as_array().map(|a| a.len() as u64)
+            || q["trace_rows"] != t["trace_rows"]
+        {
+            return Err(format!(
+                "committed table rule {i} does not match the queue-log record of its discovery (case, RHS size, trace rows)"
+            ));
+        }
+    }
+    let mut want_nl = r.not_lower.clone();
+    want_nl.sort();
+    not_lower.sort();
+    if want_nl != not_lower {
+        return Err(format!(
+            "RESUME engine.not_lower {want_nl:?}, the committed table prefix has not-lower RHS keys {not_lower:?}"
+        ));
+    }
+    let counters = [terms, branches, discarded, deferred_regions, deferred_branches];
+    if r.counters != counters || r.symbolic_cases != symbolic_cases {
+        return Err(format!(
+            "RESUME counters [rhs_terms, branches, discarded, deferred_regions, deferred_branches] {:?} / \
+             symbolic_cases {}, the committed prefixes prove {counters:?} / {symbolic_cases}",
+            r.counters, r.symbolic_cases
+        ));
+    }
+    let w = &r.work;
+    let want_w = (symbolic_cases as u64, r.rules.len() as u64, terms as u64, monomials, numeric_points);
+    if (w.cases, w.rules_committed, w.rhs_terms, w.lift_monomials, w.numeric_points) != want_w {
+        return Err(format!(
+            "RESUME counters_at_commit (cases, rules_committed, rhs_terms, lift_monomials, numeric_points) {:?}, \
+             the committed prefixes prove {want_w:?}",
+            (w.cases, w.rules_committed, w.rhs_terms, w.lift_monomials, w.numeric_points)
+        ));
+    }
+    let own_v: Option<Vec<String>> = own.map(|s| s.into_iter().collect());
+    let mut r_own = r.own.clone();
+    if let Some(o) = r_own.as_mut() {
+        o.sort();
+        o.dedup();
+    }
+    if r_own != own_v || r.returned != returned {
+        return Err("RESUME engine.descend_open (own cases / returned list) differs from the committed queue log".into());
+    }
+    Ok(())
 }
 
 #[cfg(test)]

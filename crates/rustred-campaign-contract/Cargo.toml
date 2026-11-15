@@ -1,0 +1,20 @@
+[package]
+name = "rustred-campaign-contract"
+version.workspace = true
+authors.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Child-job contract of the node campaign (rustred.child-job.v1): job spec, exit codes, OUTCOME schema, canonical record form and digest"
+license = "MIT"
+
+[lib]
+name = "rustred_campaign_contract"
+path = "src/lib.rs"
+
+# Deliberately dependency-light: no rustred core, no Symbolica.
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+# float_roundtrip (lane contractfix2, audit ac2-m8): readers parse floats exactly, so the f64 a reader holds is the
+# value the canonical form names; feature unification gives it to every crate that links this one.
+serde_json = { version = "1.0.151", features = ["float_roundtrip"] }
+blake3 = "1"
