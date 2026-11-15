@@ -896,7 +896,8 @@ fn compute_stream(a: &Args) {
     let alg = algebra();
     let rows_p = a.rows.clone().unwrap_or_else(|| die("--rows missing"));
     let (set, edges, frame_checks) = prepare_base(a);
-    let rows = arrivals::stream::CompactRows::read(&set, &rows_p).unwrap_or_else(|e| die(&e));
+    let rows =
+        arrivals::stream::CompactRows::read(&set, &rows_p, a.threads).unwrap_or_else(|e| die(&e));
     let mut cfg = walk_cfg(a);
     cfg.routed_masks = routed(a, &edges);
     let t_load = t0.elapsed().as_secs_f64();

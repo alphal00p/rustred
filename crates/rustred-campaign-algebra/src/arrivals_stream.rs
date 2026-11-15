@@ -46,12 +46,92 @@ fn json_key(v: &Value, at: &dyn Fn() -> String, what: &str) -> Result<Vec<i32>, 
     serde_json::from_value(v.clone()).map_err(|e| format!("{}: {what}: {e}", at()))
 }
 
+/// One rows-file line as read (unknown fields skipped).
+#[derive(serde::Deserialize)]
+struct RowIn {
+    key: Vec<i32>,
+    #[serde(default)]
+    in_start: Value,
+    #[serde(default)]
+    status: Value,
+    #[serde(default)]
+    server: Value,
+    #[serde(default)]
+    image: Value,
+}
+
+/// A parsed row: key bytes, in_start, (table, record) or u32::MAX, the applied key where it differs, 0 served /
+/// 1 terminal / 2 open.
+type ParsedRow = (CKey, bool, (u32, u32), Option<Box<[i32]>>, u8);
+
+/// Parse one rows-file line (same acceptance rules as `ParentRows::read`).
+fn parse_row(
+    set: &ImportedSet,
+    n: usize,
+    l: &str,
+    at: &dyn Fn() -> String,
+) -> Result<ParsedRow, String> {
+    let v: RowIn = serde_json::from_str(l).map_err(|e| format!("{}: {e}", at()))?;
+    let key = v.key;
+    if key.len() != n {
+        return Err(format!(
+            "{}: key of arity {} (the set's is {n})",
+            at(),
+            key.len()
+        ));
+    }
+    let kb = ck(&key)?;
+    let in_start = v.in_start == true;
+    match v.status.as_str() {
+        Some("served") => {}
+        Some("terminal") => return Ok((kb, in_start, (u32::MAX, 0), None, 1)),
+        Some("open") => return Ok((kb, in_start, (u32::MAX, 0), None, 2)),
+        s => return Err(format!("{}: status {s:?}", at())),
+    }
+    let kind = v.server["kind"].as_str().unwrap_or("");
+    let app: Option<Vec<i32>> = match kind {
+        // a sym-served rule row carries its image too (import5): the record is applied there
+        "rule" => match v.server.get("image") {
+            Some(img) if !img.is_null() => Some(json_key(img, at, "image")?),
+            _ => None,
+        },
+        "credit" => match v.server.get("image").or(Some(&v.image)) {
+            Some(img) if !img.is_null() => Some(json_key(img, at, "image")?),
+            _ => {
+                return Err(format!(
+                    "{}: a credit row without its image (the walk cannot apply the record): refused",
+                    at()
+                ));
+            }
+        },
+        k => {
+            return Err(format!(
+                "{}: a key served by {k:?} (not a table rule): the arrival walk refuses (fail closed)",
+                at()
+            ));
+        }
+    };
+    let sha = v.server["record_sha256"]
+        .as_str()
+        .ok_or_else(|| format!("{}: server without record_sha256", at()))?;
+    let (t, r) = set
+        .find_sha(sha)
+        .ok_or_else(|| format!("{}: record {sha} is not in the parent's table set", at()))?;
+    let applied = app.filter(|a| *a != key).map(Vec::into_boxed_slice);
+    Ok((kb, in_start, (t as u32, r as u32), applied, 0))
+}
+
+/// Bytes of rows-file lines read before a batch is parsed (in parallel).
+const ROWS_BATCH: usize = 256 << 20;
+
 impl CompactRows {
-    /// Read a rows file against the parent's imported set (records found by their sha256 in the set).
-    pub fn read(set: &ImportedSet, path: &Path) -> Result<CompactRows, String> {
+    /// Read a rows file against the parent's imported set (records found by their sha256 in the set); lines parsed in
+    /// parallel batches by `threads` workers (the file hash and the row order are those of a sequential read).
+    pub fn read(set: &ImportedSet, path: &Path, threads: usize) -> Result<CompactRows, String> {
         use std::io::BufRead;
         let n = set.arity();
         let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut rd = BufReader::with_capacity(1 << 22, f);
         let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
         let mut keys: Vec<i8> = vec![];
         let mut in_start: Vec<bool> = vec![];
@@ -59,76 +139,62 @@ impl CompactRows {
         let mut srv: Vec<(u32, u32)> = vec![];
         let mut applied: HashMap<u32, Box<[i32]>> = HashMap::new();
         let (mut terminal, mut open) = (0u64, 0u64);
-        for (i, l) in BufReader::with_capacity(1 << 20, f).lines().enumerate() {
-            let l = l.map_err(|e| format!("{}: {e}", path.display()))?;
-            h.update(l.as_bytes());
-            h.update(b"\n");
-            if l.trim().is_empty() {
-                continue;
-            }
-            let at = || format!("{} line {}", path.display(), i + 1);
-            let v: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", at()))?;
-            let key = json_key(&v["key"], &at, "key")?;
-            if key.len() != n {
-                return Err(format!(
-                    "{}: key of arity {} (the set's is {n})",
-                    at(),
-                    key.len()
-                ));
-            }
-            let idx =
-                u32::try_from(in_start.len()).map_err(|_| format!("{}: too many rows", at()))?;
-            keys.extend(ck(&key)?.iter());
-            in_start.push(v["in_start"] == true);
-            match v["status"].as_str() {
-                Some("served") => {}
-                Some("terminal") => {
-                    terminal += 1;
-                    srv.push((u32::MAX, 0));
-                    continue;
+        let mut line_no = 0usize;
+        let mut done = false;
+        while !done {
+            // a batch of (line number, line) in file order; the hash is updated line by line as `lines()` would see it
+            let mut batch: Vec<(usize, String)> = vec![];
+            let mut bytes = 0usize;
+            while bytes < ROWS_BATCH {
+                let mut s = String::new();
+                let k = rd
+                    .read_line(&mut s)
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+                if k == 0 {
+                    done = true;
+                    break;
                 }
-                Some("open") => {
-                    open += 1;
-                    srv.push((u32::MAX, 0));
-                    continue;
-                }
-                s => return Err(format!("{}: status {s:?}", at())),
-            }
-            let kind = v["server"]["kind"].as_str().unwrap_or("");
-            let app: Option<Vec<i32>> = match kind {
-                // a sym-served rule row carries its image too (import5): the record is applied there
-                "rule" => match v["server"].get("image") {
-                    Some(img) if !img.is_null() => Some(json_key(img, &at, "image")?),
-                    _ => None,
-                },
-                "credit" => match v["server"].get("image").or_else(|| v.get("image")) {
-                    Some(img) if !img.is_null() => Some(json_key(img, &at, "image")?),
-                    _ => {
-                        return Err(format!(
-                            "{}: a credit row without its image (the walk cannot apply the record): refused",
-                            at()
-                        ));
+                if s.ends_with('\n') {
+                    s.pop();
+                    if s.ends_with('\r') {
+                        s.pop();
                     }
-                },
-                k => {
-                    return Err(format!(
-                        "{}: a key served by {k:?} (not a table rule): the arrival walk refuses (fail closed)",
-                        at()
-                    ));
                 }
-            };
-            let sha = v["server"]["record_sha256"]
-                .as_str()
-                .ok_or_else(|| format!("{}: server without record_sha256", at()))?;
-            let (t, r) = set.find_sha(sha).ok_or_else(|| {
-                format!("{}: record {sha} is not in the parent's table set", at())
-            })?;
-            if let Some(a) = app
-                && a != key
-            {
-                applied.insert(idx, a.into_boxed_slice());
+                line_no += 1;
+                h.update(s.as_bytes());
+                h.update(b"\n");
+                bytes += k;
+                if !s.trim().is_empty() {
+                    batch.push((line_no, s));
+                }
             }
-            srv.push((t as u32, r as u32));
+            let chunk = batch.len().div_ceil(threads.max(1)).max(1);
+            let parts: Vec<&[(usize, String)]> = batch.chunks(chunk).collect();
+            let parsed = par_map(&parts, threads, |part| -> Result<Vec<ParsedRow>, String> {
+                part.iter()
+                    .map(|(i, l)| {
+                        let at = || format!("{} line {i}", path.display());
+                        parse_row(set, n, l, &at)
+                    })
+                    .collect()
+            });
+            for p in parsed {
+                for (kb, s, sv, ap, kind) in p? {
+                    let idx = u32::try_from(in_start.len())
+                        .map_err(|_| format!("{}: too many rows", path.display()))?;
+                    keys.extend_from_slice(&kb);
+                    in_start.push(s);
+                    srv.push(sv);
+                    match kind {
+                        1 => terminal += 1,
+                        2 => open += 1,
+                        _ => {}
+                    }
+                    if let Some(a) = ap {
+                        applied.insert(idx, a);
+                    }
+                }
+            }
         }
         let nk = in_start.len();
         let kat = |i: usize| &keys[i * n..(i + 1) * n];
