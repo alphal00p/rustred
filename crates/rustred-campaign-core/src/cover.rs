@@ -416,6 +416,27 @@ impl Table {
     pub fn arity(&self) -> usize {
         self.arity
     }
+    /// The label of a source rule record in THIS table: `i`, else `index`; in a table of an eps-shifted family the
+    /// packed (chart, index) ([`eps_label`]). Use it for every record -> label lookup (never the raw index alone).
+    /// `None` without an index, or (eps) with a chart that is not one of the table's charts.
+    pub fn record_label(&self, rec: &RuleRecord) -> Option<i64> {
+        let l = rec.i.or(rec.index)?;
+        let Some((mask, axes)) = &self.eps_chart else {
+            return Some(l);
+        };
+        let bits: Vec<bool> = rec.chart.as_deref()?.chars().map(|x| x == '1').collect();
+        if bits.len() != mask.len()
+            || (0..mask.len()).any(|i| !axes.contains(&i) && bits[i] != mask[i])
+        {
+            return None;
+        }
+        // chart ordinal in the ascending order of NodeFrame::charts: the eps-axis bits read as a binary number
+        // whose most significant bit is the lowest eps axis
+        let ord = axes
+            .iter()
+            .fold(0usize, |o, &a| (o << 1) | usize::from(bits[a]));
+        eps_label(ord, l)
+    }
     /// For a table of an eps-shifted family: the (chart mask string, engine rule index) a label names (`None` for an
     /// integer table or a label that is not of this table's packed form).
     pub fn eps_rule_of_label(&self, label: i64) -> Option<(String, i64)> {

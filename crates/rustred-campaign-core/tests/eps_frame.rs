@@ -583,3 +583,112 @@ fn import_classify_only_loads_eps_tables_and_campaign_load_refuses() {
     }
     std::fs::remove_dir_all(&scratch).ok();
 }
+
+/// THE CLOSURE WALK on eps tables (first consumer): forced axes never dropped, keys with an eps axis <= 0 inside the
+/// node (never OutsideChart), the two-sided order (every followed edge strictly lower: the engine certified these
+/// tables' descent), bodies matched by (chart, index). Start = the box of the engine facts; reference: the engine's
+/// first match (rr_proof instantiate facts) at every reached key of that box, and the open keys are exactly the
+/// table's residuals.
+#[test]
+fn closure_walk_on_eps_tables() {
+    use rustred_campaign_core::closure::{
+        ClosureConfig, HandDowns, KeyCodec, KeySet, NoFacts, OpenStatus, RuleBodies, Tier, closure,
+    };
+    use rustred_campaign_core::order::NodeComparator;
+    use rustred_campaign_core::record::RhsMode;
+    for (file, facts) in [
+        ("T012_a0-td-e.table.jsonl", "T012.engine_first.jsonl"),
+        ("T041_min.table.jsonl", "T041.engine_first.jsonl"),
+        ("T047_min.table.jsonl", "T047.engine_first.jsonl"),
+    ] {
+        let tf = read_table_file(
+            data(file),
+            ReadOptions {
+                rhs: RhsMode::KeysOnly,
+            },
+        )
+        .unwrap();
+        let header = tf.header.clone().unwrap();
+        let frame = NodeFrame::from_header_eps_aware(&header).unwrap();
+        let opts = DomainOptions {
+            witness: false,
+            ..Default::default()
+        };
+        let t = Table::from_table_file_eps_aware(file, file, &tf, opts).unwrap();
+        let disp = Dispatcher::new(vec![t], vec![0]).unwrap();
+        let mut bodies = RuleBodies::new(&disp);
+        let st = bodies.load_table_records(&disp, 0, &tf).unwrap();
+        assert_eq!(
+            st.rules,
+            tf.rules.len(),
+            "{file}: every record has its own body"
+        );
+        let cmp = NodeComparator::from_header(&header.raw).unwrap();
+        let first = engine_first(facts);
+        let codec = KeyCodec::new(frame.arity(), 8).unwrap();
+        let start = KeySet::from_keys(codec, first.iter().map(|(k, _)| k.as_slice())).unwrap();
+        let cfg = ClosureConfig {
+            tier: Tier::K,
+            threads: 2,
+            bits: 8,
+            hand_downs: HandDowns::Keys,
+            table_digests: [(file.to_string(), "sha256:test".to_string())].into(),
+            ..Default::default()
+        };
+        let cl = closure(&disp, &bodies, &cmp, &start, &cfg, &NoFacts).unwrap();
+        let s = cl.summary();
+        assert_eq!(s.descent_violations, 0, "{file}: two-sided order");
+        assert_eq!(s.unrepresentable, 0, "{file}");
+        assert!(!s.truncated, "{file}");
+        // the open keys: exactly residuals of the table (uncovered), nothing outside the chart, no missing body
+        let residuals: std::collections::BTreeSet<Vec<i32>> = std::fs::read_to_string(data(file))
+            .unwrap()
+            .lines()
+            .filter_map(|l| {
+                let v: serde_json::Value = serde_json::from_str(l).ok()?;
+                (v["type"] == "residual").then(|| {
+                    rustred_campaign_core::key::parse_key(v["key"].as_str().unwrap()).unwrap()
+                })
+            })
+            .collect();
+        for o in cl.open_keys() {
+            assert_eq!(
+                o.status,
+                OpenStatus::Uncovered,
+                "{file} {:?}: {}",
+                o.key,
+                o.detail
+            );
+            assert!(
+                residuals.contains(&o.key),
+                "{file}: open non-residual {:?}",
+                o.key
+            );
+        }
+        // the walk lives on both sides of the eps axes
+        let eps = frame.eps_axes();
+        let nonpos = (0..cl.len())
+            .filter(|&i| eps.iter().any(|&a| cl.key(i)[a] <= 0))
+            .count();
+        assert!(nonpos > 0, "{file}: no reached key with an eps axis <= 0");
+        // winners agree with the engine's first match on the facts box
+        let tab = &disp.tables()[0];
+        let mut compared = 0;
+        for (key, want) in &first {
+            let Some(i) = cl.index_of(key) else { continue };
+            let got = cl
+                .winner(i)
+                .map(|w| tab.eps_rule_of_label(w.label).expect("packed label"));
+            assert_eq!(&got, want, "{file} {key:?}");
+            compared += 1;
+        }
+        assert_eq!(compared, first.len(), "{file}");
+        eprintln!(
+            "{file}: keys {} (eps <= 0: {nonpos}), edges {}, open {}, hand-down children {}",
+            s.keys_total,
+            s.edges,
+            s.open_total,
+            s.hand_downs.len()
+        );
+    }
+}

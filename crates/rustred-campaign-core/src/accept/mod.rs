@@ -1137,6 +1137,7 @@ pub fn accept_candidate(
     };
     let sectors = Sectors {
         lines: node.lines(),
+        forced: 0, // accept loads integer frames only (Table::from_table_file refuses eps families)
         zero_sectors: node.zero_sectors.clone(),
     };
     let mut dropped_zero = 0u64;
