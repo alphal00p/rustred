@@ -6,7 +6,7 @@
 set -u
 NODES=$1; W=$2
 LAYER=${LAYER:-3}; BUDGET=${BUDGET:-20000}; MAXR=${MAXR:-4}
-PROOF=/shared/vhirschi/t3code/vakint_dev/p_integral_dev/bin/frozen/20261115T0042Z-engine-line7b/rr_proof
+PROOF=${PROOF:-/shared/vhirschi/t3code/vakint_dev/p_integral_dev/bin/frozen/20261115T0652Z-engine-line7d/rr_proof}
 SPLIT=$W/split_req.py
 OUT=$W/results.jsonl; FIN=$W/final.jsonl
 mkdir -p $W/tmp

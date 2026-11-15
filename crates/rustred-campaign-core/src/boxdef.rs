@@ -931,13 +931,13 @@ pub struct BandClause {
 // ===================================================================================================================
 // EPS BOXES (lane epsframe): the box of a node of an eps-shifted (two-sided) family as DATA (BOXDEF section B,
 // rule L15). The integer box above reads line signs and refuses eps frames; an eps box measures the eps axes by its
-// own data-given rule. Nothing here knows a node: the constants of the bound, the carrier input and the eps-axis
-// rule are fields of the clause document.
+// own data-given rule. Nothing here knows a node: the constants of the bound, the carrier term, the caps and the
+// eps-axis rule are fields of the clause document (each tagged read / inferred / provisional there).
 // ===================================================================================================================
 
 /// Schema of an eps box document.
 pub const EPS_BOX_SCHEMA: &str = "rustred.campaign.eps-box.v1";
-/// Schema of an eps box CLAUSE (the generator's input: the bound as coefficients, the carrier term as an input).
+/// Schema of an eps box CLAUSE (the generator's input: the bound as coefficients, the carrier term, the caps).
 pub const EPS_BOX_CLAUSE_SCHEMA: &str = "rustred.campaign.eps-box-clause.v1";
 /// The measure of an eps box: D and r of the integer slots as `dots-rank-v1` on the top support, plus the eps-axis
 /// contributions of [`EpsAxisRule`].
@@ -952,12 +952,21 @@ pub enum EpsDotsFloor {
     One,
 }
 
-/// How an eps axis (integer part n, weight w) enters the measure: D += max(0, n - floor), and, with
-/// `rank_from_nonpositive`, r += max(0, -n).
+/// Where the rank of an eps axis starts (data: `rank_from`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EpsRankFrom {
+    /// r += -n for n <= 0 (`"nonpositive"`: the non-positive integer parts count as rank). With the floor 1 - w and
+    /// w >= 3 the parts 2 - w ..= -1 count as dots AND rank ([`EpsBox::double_counted`]).
+    NonPositive,
+    /// r += floor - n for n < floor (`"below_floor"`: an eps part is either dots or rank).
+    BelowFloor,
+}
+
+/// How an eps axis (integer part n, weight w) enters the measure: D += max(0, n - floor), r by [`EpsRankFrom`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct EpsAxisRule {
     pub dots_floor: EpsDotsFloor,
-    pub rank_from_nonpositive: bool,
+    pub rank_from: EpsRankFrom,
 }
 
 impl EpsAxisRule {
@@ -967,15 +976,15 @@ impl EpsAxisRule {
             EpsDotsFloor::One => 1,
         }
     }
+    fn rank_start(&self, w: u32) -> i64 {
+        match self.rank_from {
+            EpsRankFrom::NonPositive => 0,
+            EpsRankFrom::BelowFloor => self.floor(w),
+        }
+    }
     fn contribution(&self, n: i32, w: u32) -> (i64, i64) {
         let n = i64::from(n);
-        let d = (n - self.floor(w)).max(0);
-        let r = if self.rank_from_nonpositive {
-            (-n).max(0)
-        } else {
-            0
-        };
-        (d, r)
+        ((n - self.floor(w)).max(0), (self.rank_start(w) - n).max(0))
     }
     fn from_object(o: &Map<String, Value>) -> Result<EpsAxisRule, BoxError> {
         let dots_floor = match o.get("dots_floor").and_then(Value::as_str) {
@@ -987,20 +996,29 @@ impl EpsAxisRule {
                 )));
             }
         };
-        let rank_from_nonpositive = o
-            .get("rank_from_nonpositive")
-            .and_then(Value::as_bool)
-            .ok_or_else(|| BoxError::Schema("rank_from_nonpositive: expected a boolean".into()))?;
-        if !rank_from_nonpositive {
-            // integer parts below the dots floor would then cost nothing: the box would be infinite
-            return Err(BoxError::Invalid(
-                "rank_from_nonpositive false: the eps box would be unbounded below the dots floor"
-                    .into(),
-            ));
-        }
+        let rank_from = match (
+            o.get("rank_from").and_then(Value::as_str),
+            o.get("rank_from_nonpositive"),
+        ) {
+            (Some("nonpositive"), None) | (None, Some(Value::Bool(true))) => {
+                EpsRankFrom::NonPositive
+            }
+            (Some("below_floor"), None) => EpsRankFrom::BelowFloor,
+            (None, Some(Value::Bool(false))) => {
+                // integer parts below the dots floor would then cost nothing: the box would be infinite
+                return Err(BoxError::Invalid(
+                    "rank_from_nonpositive false: the eps box would be unbounded below the dots floor".into(),
+                ));
+            }
+            other => {
+                return Err(BoxError::Schema(format!(
+                    "rank_from {other:?}: expected \"nonpositive\" or \"below_floor\" (or the old rank_from_nonpositive: true)"
+                )));
+            }
+        };
         Ok(EpsAxisRule {
             dots_floor,
-            rank_from_nonpositive,
+            rank_from,
         })
     }
     fn to_fields(self, o: &mut Map<String, Value>) {
@@ -1012,15 +1030,18 @@ impl EpsAxisRule {
             }),
         );
         o.insert(
-            "rank_from_nonpositive".into(),
-            json!(self.rank_from_nonpositive),
+            "rank_from".into(),
+            json!(match self.rank_from {
+                EpsRankFrom::NonPositive => "nonpositive",
+                EpsRankFrom::BelowFloor => "below_floor",
+            }),
         );
     }
 }
 
 /// The box of an eps node: its TOP support (every integer line >= 1, every numerator <= 0, eps axes any integer:
 /// the eps lines never drop to a subsector), layers `[D, r_max]` (union semantics, exact D) under
-/// [`EPS_BOX_MEASURE`].
+/// [`EPS_BOX_MEASURE`], optional caps (a key over a cap is outside).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EpsBox {
     pub id: String,
@@ -1030,6 +1051,10 @@ pub struct EpsBox {
     pub eps: Vec<(usize, u32)>,
     pub rule: EpsAxisRule,
     pub layers: Vec<[u32; 2]>,
+    /// Largest power of an integer line (`None`: no cap).
+    pub line_power_cap: Option<u32>,
+    /// Largest integer part of an eps axis (`None`: no cap).
+    pub eps_part_cap: Option<i64>,
     pub origin: Option<String>,
 }
 
@@ -1043,11 +1068,24 @@ pub struct EpsBoxClause {
     pub eps_coef: i64,
     pub constant: i64,
     pub d_max_constant: i64,
-    /// The carrier term (an input from the node's graph; 0 on a clean support).
-    pub carriers: i64,
+    pub carriers: Carriers,
     pub rule: EpsAxisRule,
-    /// Where the clause comes from (e.g. "BOXDEF.v3 B, reading of 2026-11-15").
+    /// Largest power of an integer line (`line_power_cap`, null = none).
+    pub line_power_cap: Option<u32>,
+    /// Largest eps integer part = `eps_part_cap.constant` + (`eps_part_cap.plus_e` ? e : 0) (null = none).
+    pub eps_part_cap: Option<(i64, bool)>,
+    /// The D bound of the reported SUBSET (`subset_d_max`, e.g. 4: the helper's band table), if any.
+    pub subset_d_max: Option<u32>,
+    /// Where the clause comes from (e.g. "BOXDEF.v3 B, answers of 2026-11-15").
     pub origin: String,
+}
+
+/// The carrier term of the D bound: a number, or the node's eps total e (`"eps_total"`: one carrier segment per eps
+/// unit).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Carriers {
+    Fixed(i64),
+    EpsTotal,
 }
 
 impl EpsBoxClause {
@@ -1066,14 +1104,44 @@ impl EpsBoxClause {
                 .and_then(Value::as_i64)
                 .ok_or_else(|| BoxError::Schema(format!("{k}: expected an integer")))
         };
+        let carriers = match o.get("carriers") {
+            Some(Value::String(s)) if s == "eps_total" => Carriers::EpsTotal,
+            Some(v) if v.is_i64() => Carriers::Fixed(v.as_i64().unwrap_or(0)),
+            other => {
+                return Err(BoxError::Schema(format!(
+                    "carriers {other:?}: expected an integer or \"eps_total\""
+                )));
+            }
+        };
+        let line_power_cap = match o.get("line_power_cap") {
+            None | Some(Value::Null) => None,
+            Some(c) => Some(as_u32(c, "line_power_cap")?),
+        };
+        let eps_part_cap = match o.get("eps_part_cap") {
+            None | Some(Value::Null) => None,
+            Some(Value::Object(c)) => Some((
+                c.get("constant")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| BoxError::Schema("eps_part_cap.constant".into()))?,
+                c.get("plus_e").and_then(Value::as_bool).unwrap_or(false),
+            )),
+            Some(v) => return Err(BoxError::Schema(format!("eps_part_cap {v}"))),
+        };
+        let subset_d_max = match o.get("subset_d_max") {
+            None | Some(Value::Null) => None,
+            Some(c) => Some(as_u32(c, "subset_d_max")?),
+        };
         Ok(EpsBoxClause {
             d_coef: int("d_coef")?,
             e_coef: int("e_coef")?,
             eps_coef: int("eps_coef")?,
             constant: int("constant")?,
             d_max_constant: int("d_max_constant")?,
-            carriers: int("carriers")?,
+            carriers,
             rule: EpsAxisRule::from_object(o)?,
+            line_power_cap,
+            eps_part_cap,
+            subset_d_max,
             origin: req_string(o, "origin")?,
         })
     }
@@ -1103,7 +1171,11 @@ impl EpsBox {
         }
         let e_lines = frame.n_lines() as i64;
         let e_sum: i64 = eps.iter().map(|&(_, w)| i64::from(w)).sum();
-        let d_max = clause.d_max_constant + clause.carriers;
+        let carriers = match clause.carriers {
+            Carriers::Fixed(c) => c,
+            Carriers::EpsTotal => e_sum,
+        };
+        let d_max = clause.d_max_constant + carriers;
         let mut layers = vec![];
         for d in 0..=d_max.max(-1) {
             let r = clause.d_coef * d
@@ -1120,6 +1192,10 @@ impl EpsBox {
             eps,
             rule: clause.rule,
             layers,
+            line_power_cap: clause.line_power_cap,
+            eps_part_cap: clause
+                .eps_part_cap
+                .map(|(c, plus_e)| c + if plus_e { e_sum } else { 0 }),
             origin: Some(clause.origin.clone()),
         })
     }
@@ -1144,7 +1220,8 @@ impl EpsBox {
     fn weight(&self, slot: usize) -> Option<u32> {
         self.eps.iter().find(|&&(a, _)| a == slot).map(|&(_, w)| w)
     }
-    /// (D, r) of a top-support key; `None` for a wrong length, an integer line <= 0 or a numerator > 0.
+    /// (D, r) of a top-support key within the caps; `None` for a wrong length, an integer line <= 0, a numerator > 0
+    /// or a value over a cap.
     pub fn measure(&self, key: &[i32]) -> Option<(i64, i64)> {
         if key.len() != self.chart.len() {
             return None;
@@ -1152,11 +1229,18 @@ impl EpsBox {
         let (mut d, mut r) = (0i64, 0i64);
         for (i, &x) in key.iter().enumerate() {
             if let Some(w) = self.weight(i) {
+                if self.eps_part_cap.is_some_and(|c| i64::from(x) > c) {
+                    return None;
+                }
                 let (dd, rr) = self.rule.contribution(x, w);
                 d += dd;
                 r += rr;
             } else if self.chart[i] {
-                if x < 1 {
+                if x < 1
+                    || self
+                        .line_power_cap
+                        .is_some_and(|c| i64::from(x) > i64::from(c))
+                {
                     return None;
                 }
                 d += i64::from(x) - 1;
@@ -1175,6 +1259,16 @@ impl EpsBox {
             self.layers
                 .iter()
                 .any(|&[ld, lr]| i64::from(ld) == d && r <= i64::from(lr))
+        })
+    }
+    /// Some eps axis of the key counts as dots AND rank (rule `nonpositive` with the floor 1 - w, w >= 3: parts
+    /// 2 - w ..= -1): the coordinator's flag "double-counted: definition pending".
+    pub fn double_counted(&self, key: &[i32]) -> bool {
+        self.eps.iter().any(|&(a, w)| {
+            key.get(a).is_some_and(|&x| {
+                let (dd, rr) = self.rule.contribution(x, w);
+                dd > 0 && rr > 0
+            })
         })
     }
     /// Every key of the box, each once (layers merged per D), in no particular order.
@@ -1201,10 +1295,12 @@ impl EpsBox {
             return;
         }
         if let Some(w) = self.weight(slot) {
-            // every integer part whose contributions fit: n from -(r budget) (or the floor) up to floor + D budget
-            // (rank_from_nonpositive is always true: EpsAxisRule::from_object refuses false)
-            let lo = -r_left;
-            let hi = self.rule.floor(w) + d_left;
+            // every integer part whose contributions fit: from (rank start - r budget) up to floor + D budget
+            let lo = self.rule.rank_start(w).min(self.rule.floor(w)) - r_left;
+            let mut hi = self.rule.floor(w) + d_left;
+            if let Some(c) = self.eps_part_cap {
+                hi = hi.min(c);
+            }
             for x in lo..=hi {
                 let (dd, rr) = self.rule.contribution(x as i32, w);
                 if dd <= d_left && rr <= r_left {
@@ -1213,7 +1309,11 @@ impl EpsBox {
                 }
             }
         } else if self.chart[slot] {
-            for dd in 0..=d_left {
+            let mut top = d_left;
+            if let Some(c) = self.line_power_cap {
+                top = top.min(i64::from(c) - 1);
+            }
+            for dd in 0..=top {
                 key[slot] = 1 + dd as i32;
                 self.fill(slot + 1, d_left - dd, r_left, key, f);
             }
@@ -1243,6 +1343,14 @@ impl EpsBox {
         );
         self.rule.to_fields(&mut o);
         o.insert("layers".into(), layers_value(&merge_layers(&self.layers)));
+        o.insert(
+            "line_power_cap".into(),
+            self.line_power_cap.map_or(Value::Null, |c| json!(c)),
+        );
+        o.insert(
+            "eps_part_cap".into(),
+            self.eps_part_cap.map_or(Value::Null, |c| json!(c)),
+        );
         o.insert(
             "origin".into(),
             self.origin.clone().map_or(Value::Null, Value::String),

@@ -1,0 +1,16 @@
+{"schema":"rustred.campaign.eps-box-clause.v1",
+ "origin":"BOXDEF.v3 B, coordinator answers 2026-11-15 (Q1-Q5)",
+ "d_coef":1,"e_coef":1,"eps_coef":1,"constant":-11,
+ "d_max_constant":4,"carriers":"eps_total",
+ "dots_floor":"one_minus_weight","rank_from":"nonpositive",
+ "line_power_cap":5,"eps_part_cap":{"constant":5,"plus_e":true},
+ "subset_d_max":4,
+ "tags":{
+  "weights_and_e":"read (Q1: power n + w eps, w per eps line, e = sum of w; per-node data targets.tsv eps_weights / eps_total)",
+  "r_bound":"read (Q1: P_int - r = 11 - 2e, hence r <= D + E + e - 11)",
+  "dots_floor":"read (Q2: D_eps = n - (1 - w) for n >= 1 - w)",
+  "rank_from":"read for D, inferred for the overlap (Q2: r_eps = -n for n <= 0; w >= 3 parts 2-w..-1 double-counted: definition pending)",
+  "E":"read (Q3: E = |S|, eps lines always in S; sub-supports measured independently)",
+  "carriers":"coordinator's reading (Q4: one carrier segment per eps unit; THE BOX is D <= 4 + e; subset D <= 4 reported)",
+  "lower_bounds":"inferred (Q5: D >= 0, r >= 0)",
+  "caps":"provisional (Q5: integer line power <= 5, eps integer part <= 5 + e)"}}
