@@ -113,6 +113,7 @@ impl HermiteLattice {
         let before = self.det_valuation();
         let mut x: Vec<QP> = x.to_vec();
         self.reduce_entries(&mut x);
+        let mut changed = false;
         for j in 0..self.n {
             if x[j].is_zero() {
                 continue;
@@ -126,6 +127,7 @@ impl HermiteLattice {
                 continue;
             }
             // x becomes the new pivot row of column j: normalise its pivot to t^w by a unit (mod t^s)
+            changed = true;
             let u = div_t(&x[j], w);
             let inv = unit_inverse(&u, self.s);
             for k in j..self.n {
@@ -142,7 +144,9 @@ impl HermiteLattice {
             y[j] = self.zero();
             x = y;
         }
-        self.reduce_offdiagonal();
+        if changed {
+            self.reduce_offdiagonal();
+        }
         Ok(before - self.det_valuation())
     }
 

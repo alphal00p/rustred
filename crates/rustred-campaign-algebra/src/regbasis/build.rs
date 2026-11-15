@@ -49,6 +49,29 @@ pub struct Published {
     pub q: Vec<Vec<String>>,
 }
 
+impl Published {
+    /// From lane poles' master map (`valuation::basis::read_master_map`, THE reader): the map must be `T = Q P` with
+    /// rows = the closure's terminals (key texts, compared exactly when they parse as keys) and columns = the masters.
+    pub fn from_master_map(map: &crate::valuation::basis::MasterMap, terminals: &[Key]) -> Result<Published, String> {
+        if map.rows.len() != terminals.len() {
+            return Err(format!(
+                "master map has {} rows, the closure {} terminals (rows must be the terminals: T = Q P)",
+                map.rows.len(),
+                terminals.len()
+            ));
+        }
+        for (i, r) in map.rows.iter().enumerate() {
+            if let Ok(k) = rustred_campaign_core::key::parse_key(r) {
+                if k != terminals[i] {
+                    return Err(format!("master map row {i} is {r}, terminal {i} is {:?}", terminals[i]));
+                }
+            }
+        }
+        let keys = map.cols.iter().map(|c| rustred_campaign_core::key::parse_key(c).ok()).collect();
+        Ok(Published { labels: map.cols.clone(), keys, q: map.entries.clone() })
+    }
+}
+
 /// Inputs of [`construct`].
 pub struct BuildInput<'a> {
     /// Which slots are lines (the node frame).
@@ -111,6 +134,8 @@ pub struct BuildResult {
     pub r_complete: Option<u32>,
     pub cert_lattice: Option<bool>,
     pub cert_det: Option<bool>,
+    /// c4: lane poles' independent master-map check agrees with the constructed M (`None` = M not exact).
+    pub cert_poles_check: Option<bool>,
     pub cert_keys_checked: Option<usize>,
     pub cert_keys_with_pole: Option<usize>,
     pub max_pole_on_r: Option<Vec<u32>>,
@@ -510,7 +535,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     let mut g = t_n.clone();
     let mut chosen: Vec<(Key, Vec<Laurent>, String)> = vec![];
     let mut considered: HashSet<Key> = HashSet::new();
-    let mut try_take = |k: &Key, c: &Vec<Laurent>, src: &str, g: &mut HermiteLattice, chosen: &mut Vec<(Key, Vec<Laurent>, String)>| -> Result<(), String> {
+    let try_take = |k: &Key, c: &Vec<Laurent>, src: &str, g: &mut HermiteLattice, chosen: &mut Vec<(Key, Vec<Laurent>, String)>| -> Result<(), String> {
         if chosen.len() >= n {
             return Ok(());
         }
@@ -614,6 +639,33 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     } else {
         None
     };
+    // c4: lane poles' exact master-map check of the constructed M (independent code path); a disagreement is a finding
+    let c4 = exact.as_ref().map(|x| {
+        let map = crate::valuation::basis::MasterMap {
+            rows: inp.terminals.iter().map(|k| rustred_campaign_core::key::key_text(k)).collect(),
+            cols: regular_set.iter().map(|k| rustred_campaign_core::key::key_text(k)).collect(),
+            entries: x.m_text.clone(),
+        };
+        let chk = crate::valuation::basis::check_master_map(&map, &d0);
+        let val = |v: &crate::valuation::Valuation| match v {
+            crate::valuation::Valuation::Zero => None,
+            crate::valuation::Valuation::Order(o) => Some(*o),
+        };
+        let det_ok = chk.det_order.as_ref().map(val) == Some(x.det_m_order);
+        let m_ok = chk.entry_orders.iter().map(|r| r.iter().map(val).collect::<Vec<_>>()).collect::<Vec<_>>() == x.m_orders;
+        let inv_ok = chk.inverse_orders.as_ref().map(|io| io.iter().map(|r| r.iter().map(val).collect::<Vec<_>>()).collect::<Vec<_>>())
+            == Some(x.a_orders.clone());
+        let max_inv_pole = x.a_orders.iter().flatten().filter_map(|o| *o).filter(|&o| o < 0).map(|o| (-o) as u64).max();
+        let verdict_ok = match max_inv_pole {
+            None => chk.verdict == "regular",
+            Some(p) => chk.verdict == "degenerate" && chk.order == Some(p),
+        };
+        let agree = det_ok && m_ok && inv_ok && verdict_ok;
+        json!({"agree": agree, "det_order_agrees": det_ok, "M_orders_agree": m_ok, "M_inv_orders_agree": inv_ok,
+               "verdict_agrees": verdict_ok, "poles_verdict": chk.verdict, "poles_order": chk.order,
+               "rank_at_d0": chk.rank_at_d0, "null_directions_of_M_at_d0": chk.null_directions, "reason": chk.reason})
+    });
+    let c4_agree = c4.as_ref().map(|v| v["agree"].as_bool() == Some(true));
     let cert_det = exact.as_ref().map(|x| x.det_m_order == Some(n_lat.length() as i64) || (n_lat.length() == 0 && x.det_m_order == Some(0)));
     let m_regular = exact.as_ref().map(|x| x.m_orders.iter().flatten().all(|o| o.is_none_or(|v| v >= 0)));
 
@@ -667,6 +719,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
 
     let regular = cert_lattice.unwrap_or(true)
         && cert_det.unwrap_or(true)
+        && c4_agree.unwrap_or(true)
         && m_regular.unwrap_or(true)
         && cert_keys_with_pole.is_none_or(|w| w == 0);
     let verdict = band_verdict(r_complete, r_max, regular);
@@ -738,6 +791,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         "certificate": {
             "c1_lattice_index_one": cert_lattice,
             "c3_det_order_equals_length": cert_det,
+            "c4_poles_master_map_check": c4,
             "M_regular": m_regular,
             "c2_keys_checked": cert_keys_checked,
             "c2_keys_with_pole_on_R": cert_keys_with_pole,
@@ -777,6 +831,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         r_complete,
         cert_lattice,
         cert_det,
+        cert_poles_check: c4_agree,
         cert_keys_checked,
         cert_keys_with_pole,
         max_pole_on_r,
