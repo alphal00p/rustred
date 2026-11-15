@@ -2125,6 +2125,29 @@ pub fn import_table_streamed<R: std::io::BufRead, W: std::io::Write>(
     scratch: std::fs::File,
     payload: &mut W,
 ) -> Result<ImportedOwner, PError> {
+    import_table_impl(reader, graph, options, Some((StreamScratch::Atoms(scratch), payload)))
+}
+
+/// vk5l WP6: the scratch storage of a streamed import: the expanded form's
+/// atom frames, or the SHARED form's dictionary entries and coefficient parts.
+pub enum StreamScratch {
+    Atoms(std::fs::File),
+    Shared {
+        entries: std::fs::File,
+        parts: std::fs::File,
+    },
+}
+
+/// vk5l WP6: [`import_table_streamed`] with the payload's coefficient section
+/// in the form `scratch` selects (`Shared`: the section `--coef-form shared`
+/// writes, built while the rules are read, without the expanded table).
+pub fn import_table_streamed_with<R: std::io::BufRead, W: std::io::Write>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+    scratch: StreamScratch,
+    payload: &mut W,
+) -> Result<ImportedOwner, PError> {
     import_table_impl(reader, graph, options, Some((scratch, payload)))
 }
 
@@ -2132,7 +2155,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     reader: R,
     graph: &PTopo,
     options: &TableImportOptions,
-    stream: Option<(std::fs::File, &mut W)>,
+    stream: Option<(StreamScratch, &mut W)>,
 ) -> Result<ImportedOwner, PError> {
     trace_rss("start");
     let (scratch, mut sink) = match stream {
@@ -2323,8 +2346,11 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     let mut coefficients = Coefficients {
         context: &indexed,
         table: match scratch {
-            Some(scratch) => {
+            Some(StreamScratch::Atoms(scratch)) => {
                 CoefficientTableBuilder::with_spill(BinaryIoLimits::default(), scratch)
+            }
+            Some(StreamScratch::Shared { entries, parts }) => {
+                CoefficientTableBuilder::with_shared_spill(BinaryIoLimits::default(), entries, parts)
             }
             None => CoefficientTableBuilder::new(BinaryIoLimits::default()),
         },

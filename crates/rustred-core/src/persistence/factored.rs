@@ -415,6 +415,209 @@ fn shared_part<'a>(
     }
 }
 
+// ----- streaming shared writer (vk5l WP6) -----
+
+/// vk5l WP6: the SHARED form ([`encode_shared_table`]) written without holding
+/// the coefficient table: each unique coefficient is pushed once, in table
+/// order ([`Self::intern`] deduplicates and returns its id); its new
+/// dictionary polynomials and its parts are appended to two scratch files
+/// (the caller removes them afterwards), only a hash index and the variable
+/// maps stay in memory. [`Self::write_section`] writes the section
+/// [`encode_shared_table`] writes for the same coefficients in the same order.
+pub struct SharedSpillWriter {
+    entries: std::fs::File,
+    entry_frames: Vec<(u64, u32)>,
+    entry_end: u64,
+    entry_index: HashMap<u64, Vec<u32>>,
+    parts: std::fs::File,
+    parts_end: u64,
+    coefficient_index: HashMap<u64, Vec<(u32, u64, u32)>>,
+    count: u32,
+    maps: Vec<Arc<Vec<PolyVariable>>>,
+    templates: Vec<Coefficient>,
+}
+
+fn hash_bytes(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn read_at(file: &std::fs::File, offset: u64, len: u32) -> Result<Vec<u8>, BinaryIoError> {
+    use std::os::unix::fs::FileExt;
+    let mut out = vec![0; len as usize];
+    file.read_exact_at(&mut out, offset)
+        .map_err(super::native_io_error)?;
+    Ok(out)
+}
+
+fn append_at(file: &std::fs::File, end: &mut u64, bytes: &[u8]) -> Result<(u64, u32), BinaryIoError> {
+    use std::os::unix::fs::FileExt;
+    let offset = *end;
+    file.write_all_at(bytes, offset)
+        .map_err(super::native_io_error)?;
+    let len = u32::try_from(bytes.len())
+        .map_err(|_| BinaryIoError::Invalid("shared table record exceeds u32 bytes"))?;
+    *end += u64::from(len);
+    Ok((offset, len))
+}
+
+impl SharedSpillWriter {
+    pub fn new(entries: std::fs::File, parts: std::fs::File) -> Self {
+        Self {
+            entries,
+            entry_frames: Vec::new(),
+            entry_end: 0,
+            entry_index: HashMap::new(),
+            parts,
+            parts_end: 0,
+            coefficient_index: HashMap::new(),
+            count: 0,
+            maps: Vec::new(),
+            templates: Vec::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.count as usize
+    }
+
+    fn map_of(&mut self, c: &Coefficient) -> u32 {
+        let vars = c.numerator.variables();
+        match self.maps.iter().position(|m| m == vars) {
+            Some(i) => i as u32,
+            None => {
+                self.maps.push(vars.clone());
+                let mut zero = c.clone();
+                zero.numerator = c.numerator.zero();
+                zero.denominator = c.numerator.one();
+                self.templates.push(zero);
+                (self.maps.len() - 1) as u32
+            }
+        }
+    }
+
+    fn part(&mut self, p: &CoefficientPolynomial, map: u32) -> Result<Part, BinaryIoError> {
+        if p.is_constant() {
+            return Ok(Part {
+                content: if p.is_zero() {
+                    Integer::zero()
+                } else {
+                    p.lcoeff()
+                },
+                factors: Vec::new(),
+            });
+        }
+        let mut bytes = Vec::new();
+        varint(&mut bytes, u64::from(map));
+        put_poly(&mut bytes, p);
+        let hash = hash_bytes(&bytes);
+        if let Some(bucket) = self.entry_index.get(&hash) {
+            for &id in bucket {
+                let (offset, len) = self.entry_frames[id as usize];
+                if read_at(&self.entries, offset, len)? == bytes {
+                    return Ok(Part {
+                        content: Integer::one(),
+                        factors: vec![(id, 1)],
+                    });
+                }
+            }
+        }
+        let id = u32::try_from(self.entry_frames.len())
+            .map_err(|_| BinaryIoError::Invalid("shared table dictionary exceeds u32"))?;
+        let frame = append_at(&self.entries, &mut self.entry_end, &bytes)?;
+        self.entry_frames.push(frame);
+        self.entry_index.entry(hash).or_default().push(id);
+        Ok(Part {
+            content: Integer::one(),
+            factors: vec![(id, 1)],
+        })
+    }
+
+    /// The table id of `c`: an earlier one when an equal coefficient (same
+    /// variable map, numerator and denominator) was pushed, else the next.
+    pub fn intern(&mut self, c: &Coefficient) -> Result<u32, BinaryIoError> {
+        super::resource_checkpoint()?;
+        let map = self.map_of(c);
+        // The parts of the coefficient; a repeated coefficient adds no
+        // dictionary entry (its polynomials are found), so computing them
+        // first keeps the encounter order of encode_shared_table.
+        let num = self.part(&c.numerator, map)?;
+        let den = self.part(&c.denominator, map)?;
+        let mut record = Vec::new();
+        varint(&mut record, u64::from(map));
+        put_part(&mut record, &num);
+        put_part(&mut record, &den);
+        let hash = hash_bytes(&record);
+        if let Some(bucket) = self.coefficient_index.get(&hash) {
+            for &(id, offset, len) in bucket {
+                if read_at(&self.parts, offset, len)? == record {
+                    return Ok(id);
+                }
+            }
+        }
+        let id = self.count;
+        let (offset, len) = append_at(&self.parts, &mut self.parts_end, &record)?;
+        self.coefficient_index
+            .entry(hash)
+            .or_default()
+            .push((id, offset, len));
+        self.count = self
+            .count
+            .checked_add(1)
+            .ok_or(BinaryIoError::Invalid("shared table exceeds u32 coefficients"))?;
+        Ok(id)
+    }
+
+    fn head(&self) -> Result<Vec<u8>, BinaryIoError> {
+        let mut out = Vec::new();
+        out.extend_from_slice(&FACTORED_TABLE_MAGIC);
+        out.extend_from_slice(&FACTORED_TABLE_VERSION.to_le_bytes());
+        varint(&mut out, self.templates.len() as u64);
+        for template in &self.templates {
+            let mut atom = Atom::new();
+            atom.to_num(NativeCoefficient::RationalPolynomial(template.clone()));
+            let mut frame = Vec::new();
+            bincode::encode_into_std_write(&atom, &mut frame, bincode::config::standard())
+                .map_err(super::native_encode_error)?;
+            varint(&mut out, frame.len() as u64);
+            out.extend_from_slice(&frame);
+        }
+        varint(&mut out, self.entry_frames.len() as u64);
+        Ok(out)
+    }
+
+    /// The byte length of the section [`Self::write_section`] writes.
+    pub fn section_len(&self) -> Result<usize, BinaryIoError> {
+        let mut parts_count = Vec::new();
+        varint(&mut parts_count, u64::from(self.count));
+        Ok(self.head()?.len() + self.entry_end as usize + parts_count.len() + self.parts_end as usize)
+    }
+
+    /// The section: header, templates, the dictionary and the parts copied
+    /// from the scratch files.
+    pub fn write_section(self, writer: &mut impl std::io::Write) -> Result<(), BinaryIoError> {
+        use std::io::{Read, Seek};
+        let io = super::native_io_error;
+        writer.write_all(&self.head()?).map_err(io)?;
+        let mut copy = |mut file: &std::fs::File, len: u64, writer: &mut dyn std::io::Write| {
+            file.seek(std::io::SeekFrom::Start(0)).map_err(io)?;
+            let copied = std::io::copy(&mut (&mut file).take(len), writer).map_err(io)?;
+            if copied != len {
+                return Err(BinaryIoError::Invalid("shared table scratch file truncated"));
+            }
+            Ok(())
+        };
+        copy(&self.entries, self.entry_end, writer)?;
+        let mut parts_count = Vec::new();
+        varint(&mut parts_count, u64::from(self.count));
+        writer.write_all(&parts_count).map_err(io)?;
+        copy(&self.parts, self.parts_end, writer)?;
+        Ok(())
+    }
+}
+
 // ----- decoder -----
 
 fn get_part(
@@ -675,6 +878,91 @@ mod tests {
 
     /// coef-form `shared`: the factored container without factoring. Same
     /// coefficients through the eager and the lazy reader, no factoring
+    /// vk5l WP6: the streaming shared writer (scratch files, one coefficient
+    /// at a time, repeats deduplicated) and the spilled builder mode write
+    /// the section encode_shared_table writes for the same table.
+    #[test]
+    fn the_streaming_shared_writer_writes_the_shared_section() {
+        let vars: Arc<Vec<PolyVariable>> = Arc::new(
+            ["d", "n0", "n1", "n2"]
+                .iter()
+                .map(|s| PolyVariable::Symbol(symbolica::symbol!(*s)))
+                .collect(),
+        );
+        let small: Arc<Vec<PolyVariable>> =
+            Arc::new(vec![PolyVariable::Symbol(symbolica::symbol!("d"))]);
+        let texts = [
+            "-n0/(-1+n2)",
+            "n1/(-1+n2)",
+            "(d-4)*(n0+n1-2)^2*(3*d-2*n2+1)/((d-2*n0-1)*(n1-1)^2*(2*d-7))",
+            "-n0/(-1+n2)",
+            "0",
+            "-5",
+            "n0^2/((d-2*n0-1)*(n1-1)^2*(2*d-7))",
+            "n1/(-1+n2)",
+        ];
+        let mut values: Vec<Coefficient> = texts.iter().map(|t| coefficient(t, &vars)).collect();
+        values.push(coefficient("(d-4)/(2*d-7)", &small));
+        values.push(coefficient("(d-4)/(2*d-7)", &small));
+        // The reference: the in-memory builder, its table decoded, encode_shared_table.
+        let mut builder = CoefficientTableBuilder::new(BinaryIoLimits::default());
+        let ids: Vec<_> = values.iter().map(|v| builder.intern(v).unwrap()).collect();
+        let encoded = builder.finish().unwrap();
+        let expanded = DecodedCoefficientTable::import_generated(
+            &encoded.state,
+            &encoded.atoms,
+            BinaryIoLimits::default(),
+        )
+        .unwrap();
+        let originals: Vec<Coefficient> = (0..expanded.len())
+            .map(|i| {
+                expanded
+                    .coefficient(crate::persistence::CoefficientId::try_from_index(i).unwrap())
+                    .unwrap()
+                    .clone()
+            })
+            .collect();
+        let reference = encode_shared_table(&originals).unwrap();
+        let scratch = |name: &str| {
+            let path = std::env::temp_dir().join(format!(
+                "rustred-shared-writer-{}-{name}",
+                std::process::id()
+            ));
+            let file = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)
+                .unwrap();
+            (path, file)
+        };
+        // The writer alone.
+        let ((p1, e1), (p2, f1)) = (scratch("e1"), scratch("p1"));
+        let mut writer = SharedSpillWriter::new(e1, f1);
+        let writer_ids: Vec<u32> = values.iter().map(|v| writer.intern(v).unwrap()).collect();
+        assert_eq!(writer_ids, ids.iter().map(|id| id.index() as u32).collect::<Vec<_>>());
+        let expected_len = writer.section_len().unwrap();
+        let mut section = Vec::new();
+        writer.write_section(&mut section).unwrap();
+        assert_eq!(section.len(), expected_len);
+        assert_eq!(section, reference);
+        // The spilled builder mode.
+        let ((p3, e2), (p4, f2)) = (scratch("e2"), scratch("p2"));
+        let mut builder = CoefficientTableBuilder::with_shared_spill(BinaryIoLimits::default(), e2, f2);
+        let builder_ids: Vec<_> = values.iter().map(|v| builder.intern(v).unwrap()).collect();
+        assert_eq!(builder_ids, ids);
+        assert_eq!(builder.encoded_atom_bytes(), reference.len());
+        let state = builder.encoded_state().unwrap();
+        assert_eq!(state, encoded.state);
+        let mut section = Vec::new();
+        builder.write_atoms(&mut section).unwrap();
+        assert_eq!(section, reference);
+        for path in [p1, p2, p3, p4] {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+
     /// (every non-constant polynomial is one entry with exponent 1, shared
     /// between coefficients), and the bytes depend only on the table.
     #[test]

@@ -362,7 +362,10 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     // renamed at the end; memory = the hash index + the program records.
     let mut table = Some(table);
     let streamed = if arguments.stream_payload {
-        if !arguments.no_verify || arguments.factored || arguments.replay.is_some() {
+        if !arguments.no_verify
+            || arguments.coef_form == CoefForm::Factored
+            || arguments.replay.is_some()
+        {
             return Err(CliError::Input(
                 "--stream-payload needs --no-verify and allows neither --coef-form factored nor --replay"
                     .to_owned(),
@@ -376,25 +379,44 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         let io = |what: &std::path::Path, error: std::io::Error| {
             CliError::OutputIo(format!("{}: {error}", what.display()))
         };
-        let (scratch_path, partial_path) = (path("atoms.scratch"), path("rrbin.partial"));
-        let scratch = std::fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(&scratch_path)
-            .map_err(|error| io(&scratch_path, error))?;
+        let open_scratch = |path: &std::path::Path| {
+            std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(path)
+                .map_err(|error| io(path, error))
+        };
+        let partial_path = path("rrbin.partial");
+        // vk5l WP6: --coef-form shared streams the SHARED form (dictionary +
+        // parts scratch files), the expanded form spills its atoms.
+        let scratch_paths: Vec<std::path::PathBuf> = if arguments.coef_form == CoefForm::Shared {
+            vec![path("entries.scratch"), path("parts.scratch")]
+        } else {
+            vec![path("atoms.scratch")]
+        };
+        let scratch = if arguments.coef_form == CoefForm::Shared {
+            rustred::propagator::table_import::StreamScratch::Shared {
+                entries: open_scratch(&scratch_paths[0])?,
+                parts: open_scratch(&scratch_paths[1])?,
+            }
+        } else {
+            rustred::propagator::table_import::StreamScratch::Atoms(open_scratch(&scratch_paths[0])?)
+        };
         let partial =
             std::fs::File::create(&partial_path).map_err(|error| io(&partial_path, error))?;
         let mut writer = std::io::BufWriter::with_capacity(8 << 20, partial);
-        let result = rustred::propagator::table_import::import_table_streamed(
+        let result = rustred::propagator::table_import::import_table_streamed_with(
             std::io::BufReader::with_capacity(1 << 20, table.take().expect("the table file")),
             &graph,
             &options,
             scratch,
             &mut writer,
         );
-        let _ = std::fs::remove_file(&scratch_path);
+        for scratch_path in &scratch_paths {
+            let _ = std::fs::remove_file(scratch_path);
+        }
         let imported = result.map_err(failed)?;
         use std::io::Write as _;
         writer
@@ -420,7 +442,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let import_seconds = started.elapsed().as_secs_f64();
     let expanded_payload_bytes = imported.payload_len();
     let mut coef_form_seconds = 0.0;
-    if arguments.coef_form != CoefForm::Expanded {
+    // A streamed payload is already written in its form (shared: built while
+    // the rules were read); the conversion applies to an in-memory payload.
+    if arguments.coef_form != CoefForm::Expanded && partial_payload.is_none() {
         let started = Instant::now();
         imported.payload = factored_payload(&imported.payload, arguments.coef_form)?;
         coef_form_seconds = started.elapsed().as_secs_f64();
@@ -507,7 +531,12 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             "form": arguments.coef_form.name(),
             "FACTORED_TABLE_VERSION": FACTORED_TABLE_VERSION,
             "seconds": coef_form_seconds,
-            "expanded_payload_bytes": expanded_payload_bytes,
+            "expanded_payload_bytes": if partial_payload.is_some() {
+                serde_json::Value::Null
+            } else {
+                serde_json::json!(expanded_payload_bytes)
+            },
+            "streamed": partial_payload.is_some(),
         });
     }
     record["census_family"] = serde_json::json!(

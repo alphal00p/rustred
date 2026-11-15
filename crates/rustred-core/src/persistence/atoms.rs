@@ -69,6 +69,9 @@ pub struct CoefficientTableBuilder {
     /// vk5l WP6 ([`Self::with_spill`]): unique atoms kept as their encoded
     /// frames in a scratch file instead of `atoms`.
     spill: Option<AtomSpill>,
+    /// vk5l WP6 ([`Self::with_shared_spill`]): the table written in the
+    /// SHARED form by a streaming writer; atoms are not kept.
+    shared: Option<super::factored::SharedSpillWriter>,
 }
 
 /// The unique atoms of a spilled builder: each atom's native encoding (the
@@ -102,7 +105,25 @@ impl CoefficientTableBuilder {
             variable_maps: HashSet::new(),
             encoded_atom_bytes: LENGTH_BYTES,
             spill: None,
+            shared: None,
         }
+    }
+
+    /// vk5l WP6: a builder whose table is written in the SHARED coefficient
+    /// form (persistence/factored.rs) by a streaming writer over two scratch
+    /// files (dictionary entries, coefficient parts; the caller removes them):
+    /// same ids as [`Self::new`] (coefficients equal in variable map,
+    /// numerator and denominator are one entry), the section
+    /// `encode_shared_table` writes for the same table, and memory = the hash
+    /// indexes and the variable maps only.
+    pub fn with_shared_spill(
+        limits: BinaryIoLimits,
+        entries: std::fs::File,
+        parts: std::fs::File,
+    ) -> Self {
+        let mut builder = Self::new(limits);
+        builder.shared = Some(super::factored::SharedSpillWriter::new(entries, parts));
+        builder
     }
 
     /// vk5l WP6: a builder whose unique atoms live in `scratch` (an empty,
@@ -120,6 +141,9 @@ impl CoefficientTableBuilder {
     }
 
     pub fn len(&self) -> usize {
+        if let Some(shared) = &self.shared {
+            return shared.len();
+        }
         match &self.spill {
             Some(spill) => spill.frames.len(),
             None => self.atoms.len(),
@@ -138,6 +162,19 @@ impl CoefficientTableBuilder {
             self.limits.exact_algebra,
         )
         .map_err(super::native_error)?;
+        if let Some(shared) = &mut self.shared {
+            // Constructing an RP atom registers its variable list in
+            // Symbolica's state (see encoded_state): do it once per new map so
+            // the exported state equals the expanded builder's.
+            if !self.variable_maps.contains(coefficient.get_variables()) {
+                let mut atom = Atom::new();
+                atom.to_num(NativeCoefficient::RationalPolynomial(coefficient.clone()));
+            }
+            let index = shared.intern(coefficient)?;
+            self.variable_maps
+                .insert(coefficient.get_variables().clone());
+            return CoefficientId::try_from_index(index as usize);
+        }
         let mut atom = Atom::new();
         // Unlike Atom::num, to_num retains the RP variant and its map for zero.
         atom.to_num(NativeCoefficient::RationalPolynomial(coefficient.clone()));
@@ -255,7 +292,13 @@ impl CoefficientTableBuilder {
 
     /// Complete encoded atom-section size, including count and frame lengths.
     pub fn encoded_atom_bytes(&self) -> usize {
-        self.encoded_atom_bytes
+        match &self.shared {
+            // The section the shared writer will write (computed from its
+            // scratch sizes); 0 if it cannot be computed (then the streamed
+            // envelope's length check refuses the payload).
+            Some(shared) => shared.section_len().unwrap_or(0),
+            None => self.encoded_atom_bytes,
+        }
     }
 
     /// Compact unique atom payload retained by the interner, excluding framing.
@@ -351,6 +394,9 @@ impl CoefficientTableBuilder {
         // Drop indexes before writing; consumed atoms are then freed one by one.
         drop(self.buckets);
         drop(self.variable_maps);
+        if let Some(shared) = self.shared {
+            return shared.write_section(writer);
+        }
         write_length(writer, count)?;
         if let Some(spill) = &self.spill {
             let mut frame = Vec::new();
