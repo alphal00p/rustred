@@ -1,0 +1,205 @@
+//! Lane poles, B1: D1 per relation (src/valuation/relation.rs): the stable call `is_regular_at` / `pole_order_of` over
+//! the record forms other lanes hold (engine solve-recipe relation, table rule, unnormalised relation), the same verdict
+//! from the normalised and the unnormalised form (TRICKS 12(a)), index-dependent rule poles judged per key (TRICKS 9),
+//! and the `rustred.campaign.pole-relation.v1` record. Needs the Symbolica licence; SKIPS without it.
+
+use rustred_campaign_algebra::licensed;
+use rustred_campaign_algebra::valuation::D0;
+use rustred_campaign_algebra::valuation::relation::{
+    analyse_rule, is_regular_at, pole_order_of, relation_record, rule_record,
+};
+use rustred_campaign_core::poles::record::{RegularAt, check_record_digest};
+use serde_json::{Value, json};
+
+fn go() -> bool {
+    if !licensed() {
+        eprintln!("SKIP: Symbolica licence absent (source WS/ops/env.sh)");
+        return false;
+    }
+    true
+}
+
+fn d4() -> D0 {
+    D0::parse("4").unwrap()
+}
+
+/// An engine solve-recipe relation record (the shape of results.jsonl; invented keys of arity 3).
+fn engine(rhs: Value) -> Value {
+    json!({"type": "relation", "key": [2, 1, -1], "verdict": "SOLVED", "target": "I(2,1,-1)", "rhs": rhs,
+        "relation_digest": "00ff", "relation_rule_taken": "m1", "d_poles": [], "seconds": 1.5, "ordinal": 3})
+}
+
+#[test]
+fn engine_relation_records() {
+    if !go() {
+        return;
+    }
+    let k = [2, 1, -1];
+    // regular (old two-member rhs entries and new three-member ones)
+    let r = engine(json!([
+        ["I(1,1,-1)", "(-10+3*d)/2"],
+        ["I(2,1,0)", "3-d", "top"],
+        ["I(2,0,-1)", "1/(d-3)", "sub"]
+    ]));
+    assert_eq!(is_regular_at(&r, &k, &d4()), RegularAt::Regular);
+    assert_eq!(pole_order_of(&r, &k, &d4()), Ok(0));
+    // a double pole on a subsector term, a simple one on a top term
+    let r = engine(json!([
+        ["I(1,1,-1)", "(d-3)/(d-4)", "top"],
+        ["I(2,0,-1)", "1/(2*d-8)^2", "sub"]
+    ]));
+    assert_eq!(
+        is_regular_at(&r, &k, &d4()),
+        RegularAt::Singular { order: 2 }
+    );
+    assert_eq!(pole_order_of(&r, &k, &d4()), Ok(2));
+    // at another d0 the same relation is regular
+    assert_eq!(pole_order_of(&r, &k, &D0::parse("6").unwrap()), Ok(0));
+    // a zero coefficient is no term
+    let r = engine(json!([["I(1,1,-1)", "(d-4)/(d-4)^2-1/(d-4)", "top"]]));
+    assert_eq!(is_regular_at(&r, &k, &d4()), RegularAt::Regular);
+    // undecided: another key, an unsolved record, an unparsable coefficient, not a relation
+    assert!(matches!(
+        is_regular_at(&r, &[1, 1, 1], &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    let mut u = engine(json!([]));
+    u["verdict"] = json!("NO_RELATION_IN_SEEDS");
+    assert!(matches!(
+        is_regular_at(&u, &k, &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    assert!(pole_order_of(&u, &k, &d4()).is_err());
+    let bad = engine(json!([["I(1,1,-1)", "log(d)", "top"]]));
+    assert!(matches!(
+        is_regular_at(&bad, &k, &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    assert!(matches!(
+        is_regular_at(&json!({"type": "end"}), &k, &d4()),
+        RegularAt::Undecided { .. }
+    ));
+}
+
+/// TRICKS 12(a): `c_0 I(k) = sum c_j I(k_j)` with `c_0 = (d - 4) x regular`: the unnormalised form shows a regular rhs and
+/// a vanishing target coefficient, the normalised form (what the engine writes) shows rhs poles; the verdict is the same.
+#[test]
+fn normalised_and_unnormalised_give_the_same_verdict() {
+    if !go() {
+        return;
+    }
+    let k = [2, 1, -1];
+    let un = json!({"key": k, "target_coefficient": "(d-4)*(2*d-7)",
+        "rhs": [["I(1,1,-1)", "(d-3)*(2*d-7)", "top"], ["I(2,1,0)", "(d-4)*(d-5)", "top"], ["I(2,0,-1)", "d", "sub"]]});
+    let norm = engine(json!([
+        ["I(1,1,-1)", "(d-3)/(d-4)", "top"],
+        ["I(2,1,0)", "(d-5)/(2*d-7)", "top"],
+        ["I(2,0,-1)", "d/((d-4)*(2*d-7))", "sub"]
+    ]));
+    let a = is_regular_at(&un, &k, &d4());
+    let b = is_regular_at(&norm, &k, &d4());
+    assert_eq!(a, RegularAt::Singular { order: 1 });
+    assert_eq!(a, b);
+    // the record of the unnormalised form names the target's own order (+1: it vanishes at d0)
+    let rec = relation_record(&un, &k, &d4(), "N", json!({"kind": "point"}), 20).to_json();
+    check_record_digest(&rec).unwrap();
+    assert_eq!(rec["representation"], "unnormalised");
+    assert_eq!(rec["target_order"], 1);
+    assert_eq!(rec["pole_order"], 1);
+    assert_eq!(rec["terms_with_pole"], 2);
+    let rec = relation_record(&norm, &k, &d4(), "N", json!({"kind": "recipe"}), 20).to_json();
+    assert_eq!(
+        (rec["representation"].clone(), rec["target_order"].clone()),
+        (json!("normalised"), Value::Null)
+    );
+    assert_eq!(rec["pole_order"], 1);
+    assert_eq!(rec["verdict"]["relation"], "pole");
+    // a common factor of every coefficient cancels: regular
+    let common = json!({"key": k, "target_coefficient": "(d-4)^2", "rhs": [["I(1,1,-1)", "(d-4)^2*(d-1)"], ["I(2,1,0)", "(d-4)^3"]]});
+    assert_eq!(is_regular_at(&common, &k, &d4()), RegularAt::Regular);
+    // a target coefficient that vanishes identically: no relation for the target
+    let zero = json!({"key": k, "target_coefficient": "d-d", "rhs": [["I(1,1,-1)", "1"]]});
+    assert!(matches!(
+        is_regular_at(&zero, &k, &d4()),
+        RegularAt::Undecided { .. }
+    ));
+}
+
+#[test]
+fn record_is_deterministic_and_bound_to_the_relation() {
+    if !go() {
+        return;
+    }
+    let k = [2, 1, -1];
+    let mut r = engine(json!([
+        ["I(1,1,-1)", "(d-3)/(d-4)", "top"],
+        ["I(2,0,-1)", "1/(2*d-8)^2", "sub"]
+    ]));
+    let a = relation_record(&r, &k, &d4(), "N", json!({"kind": "recipe", "id": "x"}), 20).to_json();
+    let b = relation_record(&r, &k, &d4(), "N", json!({"kind": "recipe", "id": "x"}), 20).to_json();
+    assert_eq!(a, b);
+    check_record_digest(&a).unwrap();
+    assert_eq!(a["relation"]["relation_digest"], "00ff");
+    assert_eq!(a["pole_order_top"], 1);
+    assert_eq!(a["worst"], json!([{"key": "I(2,0,-1)", "order": 2}]));
+    // volatile members do not move the entry digest; a coefficient does
+    r["seconds"] = json!(99.0);
+    r["ordinal"] = json!(7);
+    let c = relation_record(&r, &k, &d4(), "N", json!({"kind": "recipe", "id": "x"}), 20).to_json();
+    assert_eq!(a["relation"]["entry_digest"], c["relation"]["entry_digest"]);
+    r["rhs"][0][1] = json!("(d-3)/(d-5)");
+    let e = relation_record(&r, &k, &d4(), "N", json!({"kind": "recipe", "id": "x"}), 20).to_json();
+    assert_ne!(a["relation"]["entry_digest"], e["relation"]["entry_digest"]);
+    assert_ne!(a["record_digest"], e["record_digest"]);
+    // hidden lift poles are recorded separately, never as a pole of the relation
+    r["hidden_d_poles"] = json!(["-4+d", "-3+d"]);
+    let h = relation_record(&r, &k, &d4(), "N", json!({}), 20).to_json();
+    assert_eq!(h["certificate_pole_at_d0"], true);
+    // (the first coefficient was changed above: the subsector term's double pole remains)
+    assert_eq!(h["pole_order"], 2);
+}
+
+/// TRICKS 9: one rule, regular at one key and singular at another; the record carries per-key verdicts and the loci.
+#[test]
+fn table_rule_per_key_verdicts() {
+    if !go() {
+        return;
+    }
+    // arity 3: n0, n1 lines, n2 numerator; the factor (n1 - 1)(d - 2 n1) is (d - 4) at n1 = 2
+    let rule = json!({"type": "rule", "chart": "110", "index": 5, "target": "I(n0,n1,n2)",
+        "rhs": [["I(n0-1,n1,n2)", "(d-3)/((n1-1)*(d-2*n1))"], ["I(n0,n1-1,n2)", "n0/(d-5)"], ["I(n0,n1,n2+1)", "(d-2*n0)"]],
+        "exceptions": []});
+    let keys = vec![vec![2, 2, 0], vec![3, 3, -1], vec![2, 1, 0]];
+    assert_eq!(
+        is_regular_at(&rule, &keys[0], &d4()),
+        RegularAt::Singular { order: 1 }
+    );
+    assert_eq!(is_regular_at(&rule, &keys[1], &d4()), RegularAt::Regular);
+    assert!(matches!(
+        is_regular_at(&rule, &keys[2], &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    let a = analyse_rule(&rule, &keys, 3, &d4()).unwrap();
+    assert_eq!(a.factor_order, 0);
+    // loci: the first coefficient (den (n1-1)(4-2 n1)), the second (num n0: vanishes at n0 = 0), the third (num n0 = 2)
+    assert_eq!(a.loci.len(), 3, "{:?}", a.loci);
+    let rec = rule_record(
+        &rule,
+        &keys,
+        3,
+        &d4(),
+        "N",
+        json!({"table": "t", "index": 5, "record_sha256": "aa"}),
+        20,
+    )
+    .to_json();
+    check_record_digest(&rec).unwrap();
+    assert_eq!(rec["scope"], "rule");
+    assert_eq!(rec["per_key"].as_array().unwrap().len(), 3);
+    assert_eq!(rec["per_key"][0]["relation"], "pole");
+    assert_eq!(rec["per_key"][1]["relation"], "regular");
+    assert_eq!(rec["per_key"][2]["relation"], "undecided");
+    assert_eq!(rec["factor_order"], 0);
+    let t0 = &rec["locus"]["terms"][0];
+    assert_eq!(t0["pole_rises_on"].as_array().unwrap().len(), 2, "{t0}");
+}
