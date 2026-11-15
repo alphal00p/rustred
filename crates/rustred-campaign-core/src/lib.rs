@@ -51,3 +51,5 @@ pub mod regbasis;
 pub mod repairflow;
 // lane regions (interfaces/regionfit.md): REQUEST TO I-INT, one line
 pub mod regionfit;
+// lane pieces (interfaces/pieces.md): REQUEST TO I-INT, one line
+pub mod pieces;
