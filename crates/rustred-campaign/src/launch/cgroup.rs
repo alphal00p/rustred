@@ -62,6 +62,8 @@ impl CgroupRoot {
                 .write(true)
                 .open(probe.join("cgroup.procs"))
                 .is_ok();
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own probe directory
         let _ = fs::remove_dir(&probe);
         if !ok {
             return Err(format!(
@@ -133,7 +135,11 @@ impl CgroupRoot {
         fs::create_dir(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
         let setup = || -> io::Result<File> {
             write_file(&dir.join("memory.max"), &cap.to_string())?;
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): an optional knob (absent without swap accounting)
             let _ = write_file(&dir.join("memory.swap.max"), "0"); // absent without swap accounting
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): an optional knob (absent on older kernels)
             let _ = write_file(&dir.join("memory.oom.group"), "1");
             OpenOptions::new()
                 .write(true)
@@ -146,6 +152,8 @@ impl CgroupRoot {
                 memory: true,
             }),
             Err(e) => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): removal of our own empty job cgroup (an empty cgroup holds no process)
                 let _ = fs::remove_dir(&dir);
                 Err(format!("set up {}: {e}", dir.display()))
             }
@@ -190,6 +198,8 @@ impl JobCgroup {
 
     /// `cgroup.kill` (Linux >= 5.14): SIGKILL to every process of the cgroup, escapees included.
     pub fn kill_all(&self) {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the kill is followed by the proof passes (cgroup.procs belt): survivors make the end unproven
         let _ = kill_path(&self.dir);
     }
 
@@ -208,6 +218,8 @@ impl JobCgroup {
     }
 
     pub(super) fn remove(self) {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own empty job cgroup (an empty cgroup holds no process)
         let _ = fs::remove_dir(&self.dir);
     }
 }
@@ -297,6 +309,8 @@ impl CgroupRoot {
                     .write(true)
                     .open(probe.join("cgroup.procs"))
                     .is_ok();
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): removal of our own probe directory
             let _ = fs::remove_dir(&probe);
             if ok {
                 return Ok(Self { path: dir });
@@ -338,6 +352,8 @@ impl CgroupRoot {
                 memory: false,
             }),
             Err(e) => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): removal of our own empty job cgroup (an empty cgroup holds no process)
                 let _ = fs::remove_dir(&dir);
                 Err(format!("open {}/cgroup.procs: {e}", dir.display()))
             }
@@ -543,8 +559,11 @@ fn scope_candidates(unit: &str, uid: u32) -> Vec<PathBuf> {
 pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
     let uid = crate::resources::our_uid();
     for dir in scope_candidates(unit, uid) {
-        let Ok(md) = fs::symlink_metadata(&dir) else {
-            continue;
+        // procfix7 (gate7 B1, the class): only an ABSENT scope is "no such scope"; another failed read is an error
+        let md = match fs::symlink_metadata(&dir) {
+            Ok(md) => md,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
+            Err(e) => return Err(io::Error::new(e.kind(), format!("{}: {e}", dir.display()))),
         };
         if !md.file_type().is_dir() || md.uid() != uid {
             continue;
@@ -562,6 +581,7 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

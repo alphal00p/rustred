@@ -775,3 +775,304 @@ fn m3a_full_intent_log_uses_the_tmpfs_fallback_and_the_restart_reads_it() {
     assert_no_marked(&t.campaign);
     umount(&xdg);
 }
+
+/// A job wrapper whose FIRST job leaves a marked daemon (double fork, own session; it carries the job's marker) and
+/// records `pid start` in `daemon.txt`.
+fn daemon_wrapper_once(dir: &Path) -> PathBuf {
+    let rec = dir.join("daemon.txt");
+    script(
+        dir,
+        "wrap-daemon.sh",
+        &format!(
+            "#!/bin/sh\nif [ \"$1\" = job ] && [ ! -e {rec} ]; then\n  ( setsid {sleep} 600 </dev/null >/dev/null 2>&1 & \
+             d=$!; echo \"$d $(cut -d' ' -f22 /proc/$d/stat)\" > {rec}.tmp; mv {rec}.tmp {rec} )\nfi\nexec {fake} \"$@\"\n",
+            rec = rec.display(),
+            sleep = sleep_bin().display(),
+            fake = FAKE
+        ),
+    )
+}
+
+fn daemon_of(dir: &Path) -> (u32, u64) {
+    let t = std::fs::read_to_string(dir.join("daemon.txt")).unwrap();
+    let mut it = t.split_whitespace();
+    (
+        it.next().unwrap().parse().unwrap(),
+        it.next().unwrap().parse().unwrap(),
+    )
+}
+
+fn alive_with(pid: u32, start: u64) -> bool {
+    alive(pid) && start_ticks(pid) == start
+}
+
+/// Session 1 of the B1 scenario: jobs run, the first leaves a marked daemon, the supervisor is SIGKILLed with two jobs
+/// started (their attempts unsettled). Returns (spec, cdir, daemon, reference result, reference exit code).
+fn b1_setup(
+    t: &Tmp,
+) -> (
+    PathBuf,
+    PathBuf,
+    (u32, u64),
+    rustred_campaign::supervisor::result::FinalResult,
+    i32,
+) {
+    let base = spec(
+        t,
+        serde_json::json!({"items": 4, "nodes": 1, "rungs": 1, "seed": 8, "case_ms": [2500, 4000],
+            "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.0, "deps": 0.0}),
+        serde_json::json!({"max_jobs": 2}),
+    );
+    let r = t.cdir("ref");
+    let spr = write_spec(t, "spec_ref.json", &base);
+    let ref_codes = run_to_end(&spr, &r, &[]);
+    let reference = result(&r);
+    let mut v = base.clone();
+    v["programs"]["rr_fake_child"]["path"] = serde_json::json!(daemon_wrapper_once(&t.path));
+    let sp_ = write_spec(t, "spec.json", &v);
+    let d = t.cdir("c");
+    let mut s1 = start(&sp_, &d, &[], &[]);
+    wait_until(
+        "two started jobs and the daemon",
+        Duration::from_secs(120),
+        || started_count(&d) >= 2 && t.path.join("daemon.txt").exists(),
+    );
+    signal(&s1, libc::SIGKILL);
+    let _ = s1.wait();
+    let dm = daemon_of(&t.path);
+    assert!(alive_with(dm.0, dm.1));
+    (sp_, d, dm, reference, *ref_codes.last().unwrap())
+}
+
+/// gate7 B1: a read of RECOVERY that fails once (test build: `recovery_read_fails:<n>` = the n-th read, for every n
+/// until a session meets no fault) stops the start TYPED (exit 71) and decides nothing: when the ledger / intent-log
+/// pre-read fails, no record about any attempt is written and nothing is signalled (the marked daemon of the crashed
+/// session lives); when a run-directory read fails, the attempt read is not decided. The first session without a fault
+/// recovers: the daemon is killed by the recovery sweep and the campaign ends with the reference result (before: one
+/// failed ledger read gave no recovery sweep, the final sweep bounded by its own start, and exit 0 with the daemon
+/// alive).
+#[test]
+fn b1_a_failed_recovery_read_stops_typed_and_decides_nothing() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-b1");
+    let (sp_, d, dm, reference, ref_code) = b1_setup(&t);
+    let mut faulted = 0usize;
+    let mut pre_read = 0usize;
+    let mut last = None;
+    for n in 1..=40usize {
+        let before = records(&d).len();
+        let fp = format!("recovery_read_fails:{n}");
+        let mut c = start(&sp_, &d, &[], &[("RR_CAMPAIGN_FAILPOINT", fp.as_str())]);
+        let code = wait(&mut c, Duration::from_secs(600));
+        if code != 71 {
+            last = Some(code);
+            break;
+        }
+        faulted += 1;
+        let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
+        let line = log
+            .lines()
+            .rev()
+            .find(|l| l.contains("recovery cannot read"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "n={n}: exit 71 without the recovery-read line: {}",
+                    log_tail(&d)
+                )
+            })
+            .to_string();
+        assert!(line.contains("nothing was decided"), "{line}");
+        let new = &records(&d)[before..];
+        if line.contains("cannot read the ledger") || line.contains("signal intent log") {
+            // the pre-read: nothing about any attempt, nothing signalled
+            pre_read += 1;
+            assert!(
+                !new.iter().any(|r| matches!(
+                    r.event,
+                    Event::Job { .. }
+                        | Event::Item { .. }
+                        | Event::SignalSent { .. }
+                        | Event::OrphanKilled { .. }
+                )),
+                "n={n}: a decision after a failed pre-read: {:?}",
+                new.iter().map(|r| r.event.kind()).collect::<Vec<_>>()
+            );
+            assert!(
+                alive_with(dm.0, dm.1),
+                "n={n}: the daemon was signalled after a failed pre-read"
+            );
+        } else {
+            // a run-directory read: the attempt named is not decided by this session
+            let who = line
+                .split("the run directory of ")
+                .nth(1)
+                .or_else(|| line.split("job.json of ").nth(1))
+                .or_else(|| line.split("the spawn sentinel of ").nth(1))
+                .unwrap_or_else(|| panic!("n={n}: which read? {line}"));
+            let mut it = who.split_whitespace();
+            let job = it.next().unwrap().to_string();
+            let attempt: u32 = it.next().unwrap().trim_start_matches('a').parse().unwrap();
+            assert!(
+                !new.iter().any(|r| matches!(&r.event, Event::Job { job: j, attempt: a, .. } if *j == job && *a == attempt)),
+                "n={n}: {job} a{attempt} was decided after its read failed"
+            );
+        }
+    }
+    eprintln!("b1: {faulted} faulted session(s) ({pre_read} in the pre-read), then exit {last:?}");
+    assert!(
+        faulted >= 3,
+        "only {faulted} faulted session(s): the reads of recovery are not all instrumented"
+    );
+    assert!(
+        pre_read >= 2,
+        "the ledger pass and the intent log read must both be instrumented ({pre_read})"
+    );
+    // the first session without a fault ran the campaign: the reference, the daemon killed by the recovery sweep
+    let mut codes: Vec<i32> = last.into_iter().collect();
+    if !codes.last().is_some_and(|c| finished(*c)) {
+        codes.extend(run_to_end(&sp_, &d, &[]));
+    }
+    assert_eq!(codes.last().copied(), Some(ref_code), "{}", log_tail(&d));
+    assert_eq!(result(&d), reference, "{}", log_tail(&d));
+    assert!(
+        !alive_with(dm.0, dm.1),
+        "the crashed session's marked daemon survived"
+    );
+    assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
+}
+
+/// gate7 B1, the auditor's scenario on the real binary: an LD_PRELOAD shim fails the SECOND open of
+/// ledger/MANIFEST.json (the recovery pass) with EMFILE: the start stops with exit 71 (before: exit 0 with the crashed
+/// session's marked daemon alive); the next start recovers to the reference. Needs `cc`; ignored by default.
+#[test]
+#[ignore = "builds an LD_PRELOAD shim with cc; run explicitly"]
+fn b1_preload_fault_on_the_second_manifest_open() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-b1p");
+    let c_src = t.path.join("fault.c");
+    std::fs::write(
+        &c_src,
+        r#"#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string.h>
+static int count = 0;
+static int fail(const char *p) {
+  const char *s = getenv("PF7_FAIL_SUFFIX"), *at = getenv("PF7_FAIL_AT");
+  if (!s || !at || !p) return 0;
+  size_t lp = strlen(p), ls = strlen(s);
+  if (lp < ls || strcmp(p + lp - ls, s)) return 0;
+  return __atomic_add_fetch(&count, 1, __ATOMIC_SEQ_CST) == atoi(at);
+}
+#define W(name) int name(const char *p, int f, ...) { mode_t m = 0; if (f & (O_CREAT | O_TMPFILE)) { va_list a; \
+  va_start(a, f); m = va_arg(a, int); va_end(a); } if (fail(p)) { errno = EMFILE; return -1; } \
+  static int (*r)(const char *, int, ...) = 0; if (!r) r = dlsym(RTLD_NEXT, #name); return r(p, f, m); }
+W(open) W(open64)
+#define WA(name) int name(int d, const char *p, int f, ...) { mode_t m = 0; if (f & (O_CREAT | O_TMPFILE)) { va_list a; \
+  va_start(a, f); m = va_arg(a, int); va_end(a); } if (fail(p)) { errno = EMFILE; return -1; } \
+  static int (*r)(int, const char *, int, ...) = 0; if (!r) r = dlsym(RTLD_NEXT, #name); return r(d, p, f, m); }
+WA(openat) WA(openat64)
+"#,
+    )
+    .unwrap();
+    let so = t.path.join("fault.so");
+    let built = Command::new("cc")
+        .args(["-shared", "-fPIC", "-O1", "-o"])
+        .arg(&so)
+        .arg(&c_src)
+        .arg("-ldl")
+        .env("PATH", path_env())
+        .status();
+    if !built.is_ok_and(|s| s.success()) {
+        eprintln!("SKIPPED: no C compiler for the preload shim");
+        return;
+    }
+    let (sp_, d, dm, reference, ref_code) = b1_setup(&t);
+    let so_s = so.to_str().unwrap().to_string();
+    let mut c = start(
+        &sp_,
+        &d,
+        &[],
+        &[
+            ("LD_PRELOAD", so_s.as_str()),
+            ("PF7_FAIL_SUFFIX", "ledger/MANIFEST.json"),
+            ("PF7_FAIL_AT", "2"),
+        ],
+    );
+    let code = wait(&mut c, Duration::from_secs(600));
+    assert_eq!(code, 71, "{}", log_tail(&d));
+    assert!(
+        alive_with(dm.0, dm.1),
+        "nothing may be signalled after the failed read"
+    );
+    let codes = run_to_end(&sp_, &d, &[]);
+    assert_eq!(codes.last().copied(), Some(ref_code), "{}", log_tail(&d));
+    assert_eq!(result(&d), reference);
+    assert!(
+        !alive_with(dm.0, dm.1),
+        "the crashed session's marked daemon survived"
+    );
+    assert_eq!(verify(&d), 0);
+    assert_no_marked(&t.campaign);
+}
+
+/// gate7 B1, the class: a signal intent log that exists but cannot be read (here an earlier session's tmpfs fallback,
+/// mode 000, read by a capability-less supervisor) is never ignored: the run cannot claim a clean end: exit 8 with the
+/// ledger note `end_unproven` naming the file, and the file is kept (not removed with the readable ones).
+#[test]
+fn an_unreadable_intent_log_never_gives_a_clean_end() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf7-unr");
+    let xdg = t.path.join("xdg");
+    mount_tmpfs(&xdg, "size=4m,mode=0777");
+    let sp_ = small_spec(&t, 4);
+    let d = t.cdir("c");
+    std::fs::create_dir_all(&d).unwrap();
+    let md = std::fs::metadata(&d).unwrap();
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
+    let fb_dir = xdg
+        .join("rr-campaign-intents-0")
+        .join(format!("{}-{}", md.dev(), md.ino()));
+    std::fs::create_dir_all(&fb_dir).unwrap();
+    let old = fb_dir.join("earlier.jsonl");
+    std::fs::write(&old, b"").unwrap();
+    std::fs::set_permissions(&old, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(d.with_extension("log"))
+        .unwrap();
+    let mut c = Command::new(SUP);
+    c.arg("run")
+        .arg("--spec")
+        .arg(&sp_)
+        .arg("--dir")
+        .arg(&d)
+        .stdin(Stdio::null())
+        .stdout(log.try_clone().unwrap())
+        .stderr(log)
+        .env_remove("RR_CAMPAIGN_FAILPOINT")
+        .env("XDG_RUNTIME_DIR", &xdg);
+    drop_caps(&mut c);
+    let mut c = c.spawn().unwrap();
+    let code = wait(&mut c, Duration::from_secs(300));
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    let n = notes(&d, "end_unproven");
+    assert!(n.iter().any(|x| x.contains("earlier.jsonl")), "{n:?}");
+    assert!(old.exists(), "an unreadable log is never removed");
+    assert_eq!(verify(&d), 0);
+    umount(&xdg);
+}

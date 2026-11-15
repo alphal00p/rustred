@@ -415,6 +415,7 @@ pub(crate) fn classify_unreadable(root: &Path, st: &ProcStat, campaign_id: &str)
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

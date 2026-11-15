@@ -6,6 +6,9 @@
 //! from the run directory, accepted record files are written atomically, and ONE group commit records `job.finished`
 //! together with the work source's routing events. Every crash point is recovered by [`Supervisor::recover`].
 
+// procfix7 (gate7 B1): an ignored Result is a reviewed exception (`#[allow]` + `ignored-ok (procfix7):` reason),
+// never a default; tests/procfix7_tripwire.rs checks every `let _ =` of the process layer and the supervisor.
+#![deny(clippy::let_underscore_must_use, unused_must_use)]
 pub mod failpoint;
 pub mod identity;
 pub mod orphans;
@@ -102,6 +105,8 @@ pub const SPAWN_SENTINEL: &str = "SPAWN";
 pub const SPAWN_BARRIER_TAG: &str = "barrier v1\n";
 /// `RUN/sup/CAMPAIGN`: the campaign's marker id, written before the launch record (run directory authentication).
 pub const CAMPAIGN_ID_FILE: &str = "CAMPAIGN";
+/// procfix7 (gate7 B1): prefix of an `authenticate_run` error that is a supervisor resource limit (never a verdict).
+const AUTH_RESOURCE: &str = "resource limit while reading: ";
 /// procfix7 (gate6 m2-a): `RUN/sup/BARRIER_REFUSED`, written by the spawn-barrier shim when it refused the release (EOF,
 /// short or wrong token): the program never ran.
 pub const BARRIER_REFUSED_FILE: &str = "BARRIER_REFUSED";
@@ -219,6 +224,8 @@ pub struct Log {
 impl Log {
     pub fn open(cdir: &Path) -> Log {
         let dir = cdir.join("log");
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the log directory; a failure shows as a missing log file (diagnostics only)
         let _ = std::fs::create_dir_all(&dir);
         let file = std::fs::OpenOptions::new()
             .create(true)
@@ -236,6 +243,8 @@ impl Log {
     pub fn line_file_only(&mut self, level: &str, text: &str) {
         let l = format!("{} {level} {text}\n", crate::cpu_policy::utc_now());
         if let Some(f) = &mut self.file {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): a log line (diagnostics only)
             let _ = f.write_all(l.as_bytes());
         }
     }
@@ -246,6 +255,8 @@ impl Log {
             .as_ref()
             .is_some_and(|q| q.load(Ordering::SeqCst))
         {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): stderr (diagnostics only; a closed stderr must never stop the run, gate3 m1)
             let _ = std::io::stderr().write_all(l.as_bytes());
         }
         if let Some(f) = &mut self.file
@@ -319,6 +330,39 @@ struct SweepTask {
     cancel: Arc<AtomicBool>,
 }
 
+/// procfix7 (gate7 B1): everything recovery decides from in the LEDGER, read in one pass BEFORE anything is decided,
+/// written or signalled (a read that fails stops the start typed; see `Supervisor::recovery_read_failed`).
+#[derive(Default)]
+struct RecoveryFacts {
+    /// The earliest supervisor session start of this boot (None: no session of this boot is recorded).
+    min_ticks: Option<u64>,
+    scope_of: BTreeMap<(String, u32), String>,
+    started_this_boot: BTreeSet<(String, u32)>,
+    resource_ends: BTreeMap<String, u32>,
+    sessions: Vec<crate::resources::lineage::RecordedSession>,
+    lineages: Vec<crate::resources::lineage::SessionLineage>,
+    /// Intent ids named by `signal_sent` records (for the intent reconciliation).
+    recorded_intents: BTreeSet<String>,
+}
+
+/// procfix7 (gate7 B1): the signal intent logs of earlier sessions (campaign directory + tmpfs fallbacks), read before
+/// anything is decided. `unreadable`: logs that exist but could not be read for a reason other than a resource limit.
+struct IntentLogs {
+    intents: Vec<crate::launch::LoggedIntent>,
+    bad: usize,
+    unreadable: Vec<String>,
+}
+
+/// procfix7 (gate7 B1): a file read of recovery, classified.
+enum RecoveryRead {
+    Data(Vec<u8>),
+    Absent,
+    /// A supervisor resource limit (EMFILE, ENFILE, ENOMEM, EAGAIN): nothing may be decided from it.
+    Resource(String),
+    /// Any other error (permission, I/O): the content is unknown.
+    Other(String),
+}
+
 impl SweepTask {
     fn spawn(spec: crate::launch::SweepSpec) -> Option<SweepTask> {
         let (tx, rx) = mpsc::channel();
@@ -327,6 +371,8 @@ impl SweepTask {
         std::thread::Builder::new()
             .name("rr-sweep".into())
             .spawn(move || {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the receiver is gone only when the task was cancelled: nothing to report
                 let _ = tx.send(crate::launch::sweep::sweep(&spec, &c));
             })
             .ok()?;
@@ -467,6 +513,9 @@ pub struct Supervisor {
     resource_stop: Option<String>,
     /// procfix7 (gate6 MJ-B): a run directory of another campaign (or of none) was met: draining, then exit 1.
     refusal_stop: Option<String>,
+    /// procfix7 (gate7 B1, the class): reads that failed in a way that may hide a process of the campaign or a record of
+    /// its signals: the run never claims a clean end (exit 8 after the final sweep, naming each reason).
+    end_unproven: Vec<String>,
 }
 
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
@@ -1177,6 +1226,7 @@ impl Supervisor {
             resource_backoff_until: None,
             resource_stop: None,
             refusal_stop: None,
+            end_unproven: Vec::new(),
             opts,
         })
     }
@@ -1341,11 +1391,29 @@ impl Supervisor {
     /// unsettled attempt is settled; an attempt whose launch was journalled but never confirmed is authenticated first
     /// and is never treated as "did not run" without proof (requirement 05:23Z).
     fn recover(&mut self) {
+        // procfix7 (gate7 B1): FIRST read everything recovery decides from (the whole ledger, the intent logs). A read
+        // that fails stops the start typed (exit 71 for a resource limit, else 70) BEFORE anything is decided, written or
+        // signalled: never a partial view (it gave no recovery sweep, the final sweep bounded by this session's start, no
+        // lineage, attempts marked lost without a hunt, and exit 0 with a live marked process).
+        let facts = match self.read_recovery_facts() {
+            Ok(f) => f,
+            Err(e) => {
+                self.recovery_read_failed("the ledger (recovery pass)", &e);
+                return;
+            }
+        };
+        let logs = match self.read_intent_logs() {
+            Ok(l) => l,
+            Err(e) => {
+                self.recovery_read_failed("the signal intent log", &e);
+                return;
+            }
+        };
         // THE RECOVERY HOOK, step 1 (ledger-and-progress.md 16; lane int5): every launch journalled in an earlier
         // session and never confirmed becomes `unconfirmed` (EXECUTION UNKNOWN) before anything is decided about it.
         self.mark_unconfirmed();
         // procfix5 (gate4 M1): signals of earlier sessions that never reached the ledger, from the intent log.
-        self.reconcile_intents();
+        self.reconcile_intents(&facts.recorded_intents, logs);
         if self.ledger_dead.is_some() {
             return;
         }
@@ -1355,22 +1423,64 @@ impl Supervisor {
             .into_iter()
             .map(|(id, j)| (id.clone(), j.attempt, j.state))
             .collect();
-        // The boot and start bounds of the previous sessions, from the ledger itself.
+        // The boot and start bounds of the previous sessions, from the ledger itself (read above).
         let mut rules = self.scan_rules();
-        let mut min_ticks: Option<u64> = None;
-        // streamed (ledgerfix2 m10: never every record of a long campaign in memory)
+        let RecoveryFacts {
+            min_ticks,
+            scope_of,
+            started_this_boot,
+            resource_ends,
+            sessions,
+            lineages,
+            recorded_intents: _,
+        } = facts;
+        self.child_resource_ends = resource_ends;
+        self.install_lineage_rules(&sessions, &lineages);
+        // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
+        // when no session of this boot launched anything, and then nothing is signalled).
+        rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
+        // A copied / moved directory (--adopt-moved-campaign): nothing recorded is ours; no scan at all.
+        let scan_allowed = min_ticks.is_some() && !self.moved;
+        if scan_allowed {
+            self.campaign_min_ticks = min_ticks;
+        }
+        let report = if scan_allowed {
+            orphans::sweep(&rules, None, Duration::from_secs(30))
+        } else {
+            SweepReport {
+                proven: true,
+                ..Default::default()
+            }
+        };
+        self.recover_after_sweep(unsettled, scope_of, started_this_boot, scan_allowed, report);
+    }
+
+    /// procfix7 (gate7 B1): the ONE ledger pass of recovery (streamed: ledgerfix2 m10, never every record of a long
+    /// campaign in memory). Err: the ledger could not be read completely: nothing may be decided.
+    fn read_recovery_facts(&self) -> Result<RecoveryFacts, String> {
+        self.recovery_read_fault("the ledger (recovery pass)")
+            .map_err(|e| e.to_string())?;
+        let mut f = RecoveryFacts::default();
         let boot_id = self.boot_id.clone();
-        // gate3 M5: the scope unit of each launch and the leader of each start (this boot), for the scope backstop.
-        let mut scope_of: BTreeMap<(String, u32), String> = BTreeMap::new();
-        let mut started_this_boot: BTreeSet<(String, u32)> = BTreeSet::new();
-        // procfix5 (gate4 m6): the row-15 / 15b count of each job comes from the LEDGER (the trailing run of resource
-        // requeues), so a restart never re-arms it.
-        let mut resource_ends: BTreeMap<String, u32> = BTreeMap::new();
-        // procfix7 (gate6 MJ-A): every recorded session and every recorded lineage, for the parent-chain rule.
-        let mut sessions: Vec<crate::resources::lineage::RecordedSession> = Vec::new();
-        let mut lineages: Vec<crate::resources::lineage::SessionLineage> = Vec::new();
-        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
-            fold_resource_ends(&mut resource_ends, &r.event);
+        if boot_id.is_empty() {
+            return Err("the boot id of this host is unknown".into());
+        }
+        let RecoveryFacts {
+            min_ticks,
+            scope_of,
+            started_this_boot,
+            resource_ends,
+            sessions,
+            lineages,
+            recorded_intents,
+        } = &mut f;
+        crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
+            fold_resource_ends(resource_ends, &r.event);
+            if let Event::SignalSent { by, .. } = &r.event
+                && let Some(id) = crate::launch::intent_id_in(by)
+            {
+                recorded_intents.insert(id.to_string());
+            }
             if let Event::SupervisorStarted { identity, .. } = &r.event {
                 sessions.push(crate::resources::lineage::RecordedSession {
                     pid: identity.pid,
@@ -1385,7 +1495,7 @@ impl Supervisor {
             }
             match &r.event {
                 Event::SupervisorStarted { identity, .. } if identity.boot_id == boot_id => {
-                    min_ticks = Some(
+                    *min_ticks = Some(
                         min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)),
                     );
                 }
@@ -1410,25 +1520,117 @@ impl Supervisor {
                 _ => {}
             }
             Ok(())
-        });
-        self.child_resource_ends = resource_ends;
-        self.install_lineage_rules(&sessions, &lineages);
-        // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
-        // when no session of this boot launched anything, and then nothing is signalled).
-        rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
-        // A copied / moved directory (--adopt-moved-campaign): nothing recorded is ours; no scan at all.
-        let scan_allowed = min_ticks.is_some() && !self.moved;
-        if scan_allowed {
-            self.campaign_min_ticks = min_ticks;
+        })
+        .map_err(|e| e.to_string())?;
+        if f.min_ticks.is_none() {
+            // This session's own SupervisorStarted (this boot) is always in the ledger: its absence is a partial read.
+            return Err(
+                "the ledger read gave no supervisor session of this boot (not even this one)"
+                    .into(),
+            );
         }
-        let report = if scan_allowed {
-            orphans::sweep(&rules, None, Duration::from_secs(30))
-        } else {
-            SweepReport {
-                proven: true,
-                ..Default::default()
-            }
+        Ok(f)
+    }
+
+    /// procfix7 (gate7 B1): the signal intent logs of earlier sessions (campaign directory + tmpfs fallbacks). Err: a
+    /// resource limit stopped a read (nothing may be decided); other unreadable logs are listed in `unreadable`.
+    fn read_intent_logs(&self) -> Result<IntentLogs, String> {
+        let mut out = IntentLogs {
+            intents: Vec::new(),
+            bad: 0,
+            unreadable: Vec::new(),
         };
+        let mut files = vec![self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE)];
+        files.extend(crate::launch::intent_fallback_logs(&self.cdir));
+        for (k, f) in files.iter().enumerate() {
+            self.recovery_read_fault("a signal intent log")
+                .map_err(|e| format!("{}: {e}", f.display()))?;
+            match crate::launch::read_intent_log(f) {
+                Ok((more, b)) => {
+                    out.bad += b;
+                    for li in more {
+                        // merged by intent id (a completion line wins)
+                        match out.intents.iter_mut().find(|x| x.line.id == li.line.id) {
+                            Some(x) if x.result.is_none() => x.result = li.result,
+                            Some(_) => {}
+                            None => out.intents.push(li),
+                        }
+                    }
+                }
+                Err(e) if io_resource_errno(&e).is_some() => {
+                    return Err(format!("{}: {e}", f.display()));
+                }
+                Err(e) => out.unreadable.push(format!(
+                    "{} ({}): {e}",
+                    f.display(),
+                    if k == 0 {
+                        "campaign directory"
+                    } else {
+                        "tmpfs fallback"
+                    }
+                )),
+            }
+        }
+        Ok(out)
+    }
+
+    /// procfix7 (gate7 B1): test builds only: `recovery_read_fails:<n>` makes the n-th read of recovery fail once with
+    /// EMFILE (every read site of recovery passes here first).
+    fn recovery_read_fault(&self, what: &str) -> std::io::Result<()> {
+        if self.fp.nth("recovery_read_fails") {
+            return Err(std::io::Error::other(format!(
+                "TEST BUILD failpoint recovery_read_fails at {what}: {}",
+                std::io::Error::from_raw_os_error(libc::EMFILE)
+            )));
+        }
+        Ok(())
+    }
+
+    /// procfix7 (gate7 B1): recovery could not read what it decides from: stop typed, deciding nothing (exit 71 for a
+    /// supervisor resource limit, 70 for anything else); a later start with a readable ledger recovers.
+    fn recovery_read_failed(&mut self, what: &str, e: &str) {
+        let resource = text_resource_errno(e);
+        let msg = format!(
+            "recovery cannot read {what} ({e}): nothing was decided, written or signalled; {}",
+            if resource.is_some() {
+                "free the resource (e.g. raise ulimit -n / -u) and run the same command"
+            } else {
+                "check the campaign directory, then run the same command"
+            }
+        );
+        self.log.line("ERROR", &msg);
+        if self.ledger_dead.is_none() {
+            self.ledger_dead = Some(match resource {
+                Some(_) => RunExit::Resources(msg),
+                None => RunExit::Internal(msg),
+            });
+        }
+    }
+
+    /// procfix7 (gate7 B1): one file read of recovery, classified (the failpoint first).
+    fn recovery_read(&self, p: &Path, what: &str) -> RecoveryRead {
+        if let Err(e) = self.recovery_read_fault(what) {
+            return RecoveryRead::Resource(format!("{}: {e}", p.display()));
+        }
+        match std::fs::read(p) {
+            Ok(b) => RecoveryRead::Data(b),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => RecoveryRead::Absent,
+            Err(e) if io_resource_errno(&e).is_some() => {
+                RecoveryRead::Resource(format!("{}: {e}", p.display()))
+            }
+            Err(e) => RecoveryRead::Other(format!("{}: {e}", p.display())),
+        }
+    }
+
+    /// The rest of recovery, after the sweep (split from `recover` by procfix7: everything before it is a pure read).
+    fn recover_after_sweep(
+        &mut self,
+        unsettled: Vec<(String, u32, AttemptState)>,
+        scope_of: BTreeMap<(String, u32), String>,
+        started_this_boot: BTreeSet<(String, u32)>,
+        scan_allowed: bool,
+        report: SweepReport,
+    ) {
         if scan_allowed {
             self.log.line(
                 "INFO",
@@ -1470,10 +1672,16 @@ impl Supervisor {
                     Ok(Some(n)) => self.note(format!(
                         "scope_killed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"processes\":{n}}}"
                     )),
-                    Err(e) => self.note(format!(
-                        "scope_backstop_failed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"error\":{:?}}}",
-                        e.to_string()
-                    )),
+                    Err(e) => {
+                        self.note(format!(
+                            "scope_backstop_failed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"error\":{:?}}}",
+                            e.to_string()
+                        ));
+                        // procfix7 (gate7 B1, the class): what that scope held is unknown: never a clean end
+                        self.end_unproven.push(format!(
+                            "the recorded scope {unit} of {job} a{attempt} could not be stopped ({e})"
+                        ));
+                    }
                 }
             }
         }
@@ -1535,6 +1743,10 @@ impl Supervisor {
             // released only after `job.started` is durable): a marked process of it is the exiting shim or a copied
             // environment, never a late confirmation.
             let barrier = unconfirmed && self.barrier_launch(&job, attempt);
+            if self.ledger_dead.is_some() {
+                // procfix7 (gate7 B1): a read of this attempt failed: nothing more is decided
+                return;
+            }
             if let Some(alive) = report
                 .left
                 .iter()
@@ -1623,6 +1835,13 @@ impl Supervisor {
                     if let Err(why) =
                         self.authenticate_run(&job, attempt, &rd, &layout, launched.as_deref())
                     {
+                        if let Some(e) = why.strip_prefix(AUTH_RESOURCE) {
+                            self.recovery_read_failed(
+                                &format!("the run directory of {job} a{attempt}"),
+                                e,
+                            );
+                            return;
+                        }
                         self.log.line(
                             "WARN",
                             &format!("{job} a{attempt}: confirmed late, run directory not authenticated ({why}): interrupted, nothing consumed"),
@@ -1659,13 +1878,35 @@ impl Supervisor {
                 .jobs
                 .get(&job)
                 .and_then(|j| j.attempt_spec.clone());
-            // procfix7 (gate6 MJ-B): never read a run directory that is not this campaign's
-            let owned = workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
-                == workdir::RunDirOwner::Ours;
-            match owned
-                .then(|| read_spec(&layout, launched.as_deref()))
-                .flatten()
+            // procfix7 (gate6 MJ-B): never read a run directory that is not this campaign's; (gate7 B1) a read that fails
+            // for a resource limit stops typed, never "not ours" / "no job.json" (both would decide)
+            let owned = match self
+                .recovery_read(&layout.sup_dir().join(CAMPAIGN_ID_FILE), "RUN/sup/CAMPAIGN")
             {
+                RecoveryRead::Data(b) => {
+                    String::from_utf8_lossy(&b).trim() == self.ctx.campaign_key
+                }
+                RecoveryRead::Resource(e) => {
+                    self.recovery_read_failed(
+                        &format!("the run directory of {job} a{attempt}"),
+                        &e,
+                    );
+                    return;
+                }
+                RecoveryRead::Absent | RecoveryRead::Other(_) => false,
+            };
+            let spec = if owned {
+                match self.recovery_spec(&layout, launched.as_deref()) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        self.recovery_read_failed(&format!("job.json of {job} a{attempt}"), &e);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            match spec {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
                     self.settle_at_recovery(
@@ -1982,6 +2223,11 @@ impl Supervisor {
             jr.attempt_spec.as_deref(),
         ) {
             Ok(x) => x,
+            Err(why) if why.starts_with(AUTH_RESOURCE) => {
+                let e = why[AUTH_RESOURCE.len()..].to_string();
+                self.recovery_read_failed(&format!("the run directory of {job} a{attempt}"), &e);
+                return;
+            }
             Err(why) => {
                 self.execution_unknown(
                     job,
@@ -1997,11 +2243,21 @@ impl Supervisor {
         // supervisor's barrier reads EOF (the shim exits without executing anything). The proof is the ABSENCE OF THE
         // LEDGER RECORD; the sentinel's content (written before the spawn, untouchable by a child that never ran) only
         // says that the barrier was used.
-        let barrier_launch = std::fs::read(&sentinel)
-            .map(|b| b == SPAWN_BARRIER_TAG.as_bytes())
-            .unwrap_or(false);
+        let barrier_launch = match self.recovery_barrier_tag(&layout) {
+            Ok(b) => b,
+            Err(e) => {
+                // procfix7 (gate7 B1): never "not a barrier launch" from an unread sentinel
+                self.recovery_read_failed(&format!("the spawn sentinel of {job} a{attempt}"), &e);
+                return;
+            }
+        };
         if barrier_launch {
-            if layout.outcome().exists() {
+            // procfix7 (gate7 B1, the class): an OUTCOME that cannot be ruled out counts as present (never "not spawned")
+            let outcome_absent = matches!(
+                std::fs::symlink_metadata(layout.outcome()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound
+            );
+            if !outcome_absent {
                 self.execution_unknown(
                     job,
                     attempt,
@@ -2099,18 +2355,31 @@ impl Supervisor {
 
     /// procfix5 (gate4 m1): was this attempt launched behind the spawn barrier? Its run directory must authenticate and
     /// its `RUN/sup/SPAWN` (written before the spawn) carry the barrier tag.
-    fn barrier_launch(&self, job: &str, attempt: u32) -> bool {
-        let Some(jr) = self.st().jobs.get(job) else {
+    fn barrier_launch(&mut self, job: &str, attempt: u32) -> bool {
+        let Some(jr) = self.st().jobs.get(job).cloned() else {
             return false;
         };
         let Some(rd) = jr.run_dir.clone() else {
             return false;
         };
         let layout = RunLayout::new(&rd);
-        self.authenticate_run(job, attempt, &rd, &layout, jr.attempt_spec.as_deref())
-            .is_ok()
-            && std::fs::read(layout.sup_dir().join(SPAWN_SENTINEL))
-                .is_ok_and(|b| b == SPAWN_BARRIER_TAG.as_bytes())
+        // procfix7 (gate7 B1): an unread file is never "not a barrier launch" (that would decide): stop typed
+        match self.authenticate_run(job, attempt, &rd, &layout, jr.attempt_spec.as_deref()) {
+            Ok(_) => {}
+            Err(why) if why.starts_with(AUTH_RESOURCE) => {
+                let e = why[AUTH_RESOURCE.len()..].to_string();
+                self.recovery_read_failed(&format!("the run directory of {job} a{attempt}"), &e);
+                return false;
+            }
+            Err(_) => return false,
+        }
+        match self.recovery_barrier_tag(&layout) {
+            Ok(b) => b,
+            Err(e) => {
+                self.recovery_read_failed(&format!("the spawn sentinel of {job} a{attempt}"), &e);
+                false
+            }
+        }
     }
 
     /// The job is of its item's current generation and not stale.
@@ -2183,19 +2452,64 @@ impl Supervisor {
                 expected.display()
             ));
         }
-        let id = std::fs::read_to_string(layout.sup_dir().join(CAMPAIGN_ID_FILE))
-            .map_err(|e| format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}"))?;
+        // procfix7 (gate7 B1): a read that fails for a supervisor resource limit is never "not authenticated" (a
+        // decision); the caller stops typed (`AUTH_RESOURCE` prefix)
+        let id = match self
+            .recovery_read(&layout.sup_dir().join(CAMPAIGN_ID_FILE), "RUN/sup/CAMPAIGN")
+        {
+            RecoveryRead::Data(b) => String::from_utf8_lossy(&b).into_owned(),
+            RecoveryRead::Resource(e) => return Err(format!("{AUTH_RESOURCE}{e}")),
+            RecoveryRead::Absent => {
+                return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE}: absent"));
+            }
+            RecoveryRead::Other(e) => return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}")),
+        };
         if id.trim() != self.ctx.campaign_key {
             return Err(format!(
                 "RUN/sup/{CAMPAIGN_ID_FILE} names another campaign id"
             ));
         }
-        let (spec, digest) = read_spec(layout, launched)
+        let (spec, digest) = self
+            .recovery_spec(layout, launched)
+            .map_err(|e| format!("{AUTH_RESOURCE}{e}"))?
             .ok_or("job.json does not have the digest of its launch record")?;
         if spec.job_id != job || spec.attempt != attempt || Path::new(&spec.run_dir) != expected {
             return Err("job.json names another job, attempt or run directory".into());
         }
         Ok((spec, digest))
+    }
+
+    /// procfix7 (gate7 B1): `read_spec` for recovery: Err only when job.json could not be read for a supervisor resource
+    /// limit (nothing may be decided then); Ok(None) when it is absent / unreadable otherwise / not the launched one.
+    fn recovery_spec(
+        &self,
+        layout: &RunLayout,
+        launched: Option<&str>,
+    ) -> Result<Option<(JobSpec, String)>, String> {
+        let Some(d) = launched.map(str::to_string) else {
+            return Ok(None);
+        };
+        if !rustred_campaign_contract::is_blake3_hex(&d) {
+            return Ok(None);
+        }
+        let b = match self.recovery_read(&layout.job_spec(), "job.json") {
+            RecoveryRead::Data(b) => b,
+            RecoveryRead::Resource(e) => return Err(e),
+            RecoveryRead::Absent | RecoveryRead::Other(_) => return Ok(None),
+        };
+        if rustred_campaign_contract::spec::spec_blake3(&b) != d {
+            return Ok(None);
+        }
+        Ok(JobSpec::from_json(&b).ok().map(|spec| (spec, d)))
+    }
+
+    /// procfix7 (gate7 B1): the spawn sentinel says "barrier v1" (Err: unread for a resource limit).
+    fn recovery_barrier_tag(&self, layout: &RunLayout) -> Result<bool, String> {
+        match self.recovery_read(&layout.sup_dir().join(SPAWN_SENTINEL), "RUN/sup/SPAWN") {
+            RecoveryRead::Data(b) => Ok(b == SPAWN_BARRIER_TAG.as_bytes()),
+            RecoveryRead::Resource(e) => Err(e),
+            RecoveryRead::Absent | RecoveryRead::Other(_) => Ok(false),
+        }
     }
 
     /// EXECUTION UNKNOWN of an unconfirmed launch (the attempt stays `unconfirmed`): its item goes to
@@ -2212,7 +2526,7 @@ impl Supervisor {
         self.unknown.insert(job.to_string(), attempt);
         // The cores of its launch record (streamed: never every record of a long campaign in memory, ledgerfix2 m10).
         let mut cores = 1usize;
-        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
+        let read = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
             if let Event::Job {
                 job: j,
                 attempt: a,
@@ -2225,6 +2539,15 @@ impl Supervisor {
             }
             Ok(())
         });
+        if let Err(e) = read {
+            // procfix7 (gate7 B1, the class): an unread launch record charges the WHOLE budget (more conservative:
+            // fewer launches while the execution is unknown), never one core
+            cores = self.policy.budget().max(1);
+            self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: launch record unread ({e}): charged {cores} core(s) (the whole budget)"),
+            );
+        }
         self.unknown_charge
             .insert(job.to_string(), (jr.reserved_bytes, cores));
         self.log.line(
@@ -2275,58 +2598,31 @@ impl Supervisor {
     /// recorded before the supervisor ended", WITHOUT a completion line as "POSSIBLY SENT" (the crash came between the
     /// durable intent and the completion: the signal may or may not have gone out). Never re-sent: whatever still lives is
     /// judged by the recovery sweep's identity checklist. Intents completed `gone` / `failed` were not delivered.
-    fn reconcile_intents(&mut self) {
-        let path = self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE);
-        let (mut intents, mut bad) = match crate::launch::read_intent_log(&path) {
-            Ok(x) => x,
-            Err(e) => {
-                self.log.line(
-                    "ERROR",
-                    &format!("signal intent log {} unreadable ({e}): signals of an earlier session may be missing from the ledger", path.display()),
-                );
-                self.note(format!(
-                    "signal_intents_unreadable {{\"error\":{:?}}}",
-                    e.to_string()
-                ));
-                return;
-            }
-        };
-        // procfix7 (gate6 m3-a): the tmpfs fallback logs of earlier sessions of this boot (intents written while the
-        // campaign directory's log was full); merged by intent id (a completion line wins).
-        for f in crate::launch::intent_fallback_logs(&self.cdir) {
-            match crate::launch::read_intent_log(&f) {
-                Ok((more, b)) => {
-                    bad += b;
-                    for li in more {
-                        match intents.iter_mut().find(|x| x.line.id == li.line.id) {
-                            Some(x) if x.result.is_none() => x.result = li.result,
-                            Some(_) => {}
-                            None => intents.push(li),
-                        }
-                    }
-                }
-                Err(e) => self.log.line(
-                    "ERROR",
-                    &format!(
-                        "signal intent fallback log {} unreadable ({e})",
-                        f.display()
-                    ),
-                ),
-            }
+    fn reconcile_intents(&mut self, recorded: &BTreeSet<String>, logs: IntentLogs) {
+        // procfix7 (gate7 B1): the logs and the recorded intent ids were read before anything was decided.
+        let IntentLogs {
+            intents,
+            bad,
+            unreadable,
+        } = logs;
+        for u in &unreadable {
+            self.log.line(
+                "ERROR",
+                &format!("signal intent log {u}: signals of an earlier session may be missing from the ledger"),
+            );
+            self.note(format!("signal_intents_unreadable {{\"error\":{u:?}}}"));
+            // procfix7 (gate7 B1, class): the run cannot claim a clean end while the record of earlier signals is unknown
+            self.end_unproven
+                .push(format!("signal intent log unreadable: {u}"));
         }
+        // the earlier sessions' fallback logs are removed only when every log was read
+        let all_read = unreadable.is_empty();
         if intents.is_empty() && bad == 0 {
-            crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+            if all_read {
+                crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+            }
             return;
         }
-        let mut recorded: BTreeSet<String> = BTreeSet::new();
-        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
-            if let Event::SignalSent { by, .. } = &r.event
-                && let Some(id) = crate::launch::intent_id_in(by)
-            {
-                recorded.insert(id.to_string());
-            }
-            Ok(())
-        });
         let (mut delivered, mut possibly) = (0usize, 0usize);
         let mut ev = Vec::new();
         for li in intents {
@@ -2394,7 +2690,9 @@ impl Supervisor {
             });
         }
         if delivered + possibly == 0 && bad == 0 {
-            crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+            if all_read {
+                crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
+            }
             return;
         }
         ev.push(Event::Note {
@@ -2410,7 +2708,7 @@ impl Supervisor {
             ),
         );
         // procfix7 (gate6 m3-a): the earlier sessions' tmpfs fallback logs only once their intents are in the ledger
-        if self.commit(ev) {
+        if self.commit(ev) && all_read {
             crate::launch::remove_earlier_intent_fallbacks(&self.cdir);
         }
     }
@@ -2739,16 +3037,21 @@ impl Supervisor {
         // procfix7 (gate6 MJ-B): nothing is read from a run directory that is not this campaign's: the attempt is lost
         // (its work redone in a directory of our own) and the run ends with the typed refusal. A removed / replaced
         // campaign directory is checked first: it keeps its own typed end (exit 70) and nothing is recorded here.
-        if workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
-            != workdir::RunDirOwner::Ours
+        let owner = workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key);
+        // procfix7 (gate7 B1): a resource limit while reading the identity: the settle waits (never a verdict)
+        if let workdir::RunDirOwner::Unreadable(errno, what) = &owner {
+            return SettleEnd::Deferred {
+                errno: *errno,
+                what: format!("reading the identity of {}: {what}", layout.root.display()),
+            };
+        }
+        if owner != workdir::RunDirOwner::Ours
             && let Err(e) = self.dirs_intact()
         {
             self.dirs_gone(e);
             return SettleEnd::Done;
         }
-        if workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
-            != workdir::RunDirOwner::Ours
-        {
+        if owner != workdir::RunDirOwner::Ours {
             let still = self
                 .st()
                 .jobs
@@ -3065,6 +3368,8 @@ impl Supervisor {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the write below reports its own error (disk full -> exit 75)
                 let _ = std::fs::create_dir_all(d);
             }
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
@@ -3210,6 +3515,11 @@ impl Supervisor {
                             "run directory {} belongs to campaign {id:?}",
                             run_dir.display()
                         ));
+                    }
+                    // procfix7 (gate7 B1): a resource limit while reading the identity: back off, never a refusal
+                    workdir::RunDirOwner::Unreadable(c, why) => {
+                        self.resource_failure(c, &format!("reading {}: {why}", run_dir.display()));
+                        return Err(format!("{}: {why}", run_dir.display()));
                     }
                     workdir::RunDirOwner::Unknown(why) => {
                         self.refuse_run_dir(
@@ -3601,6 +3911,8 @@ impl Supervisor {
                 Ok(ChildProgress::Finished(r)) => finished.push((idx, r)),
                 Ok(_) => {}
                 Err(e) => {
+                    #[allow(clippy::let_underscore_must_use)]
+                    // ignored-ok (procfix7): a trace line on stderr (diagnostics only)
                     let _ = writeln!(std::io::stderr(), "poll {}: {e}", ch.job);
                 }
             }
@@ -3673,6 +3985,8 @@ impl Supervisor {
                 cores: ch.cores,
                 seq: ch.seq,
             });
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): not an error: a field read
             let _ = &ch.item;
         }
         self.drive_pending();
@@ -3908,7 +4222,8 @@ impl Supervisor {
             self.note_stop_holds(&r, "final sweep");
             self.record_deliveries();
             if r.empty() {
-                return self.hidden_descendants_check();
+                self.hidden_descendants_check()?;
+                return self.end_unproven_check();
             }
             last = Some(r);
         }
@@ -3948,11 +4263,17 @@ impl Supervisor {
         let hidden = match crate::resources::hidden_descendants() {
             Ok(v) => v,
             Err(e) => {
-                self.log.line(
-                    "WARN",
-                    &format!("non-dumpable descendant check: /proc unreadable ({e})"),
+                // procfix7 (gate7 B1, the class): a check that could not run proves nothing: never a clean end
+                let msg = format!(
+                    "the check for descendants that cannot be inspected could not read /proc ({e}): the end is not proven; nothing was signalled; run the same command"
                 );
-                return Ok(());
+                self.commit(vec![Event::Note {
+                    text: format!(
+                        "hidden_descendants_unchecked {{\"error\":{:?}}}",
+                        e.to_string()
+                    ),
+                }]);
+                return Err(msg);
             }
         };
         if hidden.is_empty() {
@@ -3969,6 +4290,22 @@ impl Supervisor {
         Err(format!(
             "descendant process(es) of this supervisor under our uid that cannot be inspected (environ not ours: non-dumpable or setuid): {}; their marker is unreadable, nothing was signalled; check them by hand (ps -o pid,ppid,uid,cmd -p PID), then run the same command",
             list.join(", ")
+        ))
+    }
+
+    /// procfix7 (gate7 B1, the class): reads that failed during the run in a way that may hide a process of the campaign
+    /// or a record of its signals: never a clean end (exit 8, ledger note `end_unproven`, each reason named).
+    fn end_unproven_check(&mut self) -> Result<(), String> {
+        if self.end_unproven.is_empty() {
+            return Ok(());
+        }
+        let reasons = self.end_unproven.clone();
+        self.commit(vec![Event::Note {
+            text: format!("end_unproven {{\"reasons\":{reasons:?}}}"),
+        }]);
+        Err(format!(
+            "the end is not proven: {}; nothing was signalled for these; check them, then run the same command",
+            reasons.join("; ")
         ))
     }
 
@@ -4039,6 +4376,8 @@ impl Supervisor {
         for p in files {
             let name = p.file_name().unwrap().to_owned();
             let done = dir.join("done");
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
             let _ = std::fs::create_dir_all(&done);
             let req: Option<ControlRequest> = std::fs::read(&p)
                 .ok()
@@ -4049,6 +4388,8 @@ impl Supervisor {
                 if self.ledger_dead.is_some() {
                     return;
                 }
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
                 let _ = std::fs::rename(&p, done.join(&name));
                 continue;
             }
@@ -4057,6 +4398,8 @@ impl Supervisor {
                 if self.ledger_dead.is_some() {
                     return;
                 }
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
                 let _ = std::fs::rename(&p, done.join(&name));
                 continue;
             }
@@ -4073,6 +4416,8 @@ impl Supervisor {
             if self.ledger_dead.is_some() {
                 return;
             }
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
             let _ = std::fs::rename(&p, done.join(&name));
         }
     }
@@ -4100,6 +4445,8 @@ impl Supervisor {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the write below reports its own error (disk full -> exit 75)
                 let _ = std::fs::create_dir_all(d);
             }
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
@@ -4549,6 +4896,8 @@ impl Supervisor {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the write below reports its own error (disk full -> exit 75)
                 let _ = std::fs::create_dir_all(d);
             }
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
@@ -5196,6 +5545,8 @@ impl Supervisor {
                 ),
             );
         }
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
         let _ = self.ledger.sync();
         let msg = match r {
             RunExit::Finished => format!(
@@ -5235,8 +5586,12 @@ impl Supervisor {
         }
         // gate3 M2: the last deliveries (shutdown, abandoned quarantine) are recorded while the lock is still held.
         self.record_deliveries();
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
         let _ = self.ledger.sync();
         if let Some(l) = self.lock.take() {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the kernel releases the flock at exit anyway
             let _ = l.release();
         }
     }
@@ -5740,6 +6095,7 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
     use rustred_campaign_contract::seal::{self, RecordWriter, TABLE_END_TYPES};

@@ -400,6 +400,8 @@ pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
 pub(crate) fn start_reaper(leaders: Arc<Leaders>, period: Duration, max_per_tick: usize) {
     static STARTED: OnceLock<()> = OnceLock::new();
     STARTED.get_or_init(|| {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): without the reaper thread zombies wait; leaders are reaped by the launcher
         let _ = std::thread::Builder::new()
             .name("rr-adopted-reaper".into())
             .spawn(move || {

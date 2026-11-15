@@ -18,6 +18,9 @@
 //!
 //! Every signal of this crate goes through `guard` (see its module documentation for the identity checklist).
 
+// procfix7 (gate7 B1): an ignored Result is a reviewed exception (`#[allow]` + `ignored-ok (procfix7):` reason),
+// never a default; tests/procfix7_tripwire.rs checks every `let _ =` of the process layer and the supervisor.
+#![deny(clippy::let_underscore_must_use, unused_must_use)]
 mod cgroup;
 mod fake;
 pub mod guard;
@@ -631,6 +634,7 @@ pub trait ChildLauncher {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

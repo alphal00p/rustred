@@ -994,6 +994,8 @@ impl ChildLauncher for RealLauncher {
         }) {
             crate::resources::Bounded::Done(Ok(i)) => i,
             other => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the child keeps the marker: if this kill fails, the sweeps find and kill it
                 let _ =
                     guard::with_context("launch: identity unreadable", Some(&spec.label), || {
                         signal_pinned_group(&leaders, pid, libc::SIGKILL)
@@ -1239,6 +1241,8 @@ impl RealChild {
         match &self.mechanism {
             MemoryMechanism::SystemdScope { .. } => {
                 if self.scope.is_none() {
+                    #[allow(clippy::let_underscore_must_use)]
+                    // ignored-ok (procfix7): memory accounting only
                     let _ = self.scope_memory();
                 }
                 match &self.scope {
@@ -1476,6 +1480,8 @@ impl RealChild {
             .name("rr-hunt".into())
             .spawn(move || {
                 let r = hunt::run(&spec, &cancel);
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the receiver is gone only when the launcher shut down
                 let _ = tx.send(r);
             });
         if spawned.is_ok() {
@@ -1520,6 +1526,8 @@ impl RealChild {
         if let Some(mut c) = self.child.take() {
             let mut reg = self.leaders.lock();
             if self.exit.is_some() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): reaping a zombie (immediate); its exit was already observed
                 let _ = c.try_wait(); // a zombie: immediate
             }
             reg.remove(&self.sid);
@@ -1788,6 +1796,8 @@ impl ChildHandle for RealChild {
             }
             // Unverified: keep hunting (helper thread) every `rehunt_every`; upgrade to Verified once proven.
             let now = Instant::now();
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the hunt below decides (an unverified end keeps hunting)
             let _ = self.poll_exit();
             match self.poll_hunt() {
                 Some(HuntResult::Proven {
@@ -2032,6 +2042,8 @@ impl Drop for RealChild {
                 if !finished_verified {
                     let (leaders, sid, cg) = (&self.leaders, self.sid, self.cgroup.as_ref());
                     guard::with_context("job handle dropped unproven", Some(&self.label), || {
+                        #[allow(clippy::let_underscore_must_use)]
+                        // ignored-ok (procfix7): a dropped unproven handle: best effort; the restart's sweep finds what is left by its marker
                         let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);
                         if let Some(cg) = cg {
                             cg.kill_all();
@@ -2123,6 +2135,8 @@ pub fn barrier_shim(args: &[String]) -> i32 {
     use std::io::Write;
     use std::os::unix::process::CommandExt;
     // Before anything else (the descriptor is reachable through /proc only until here).
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): the release token is the protection (procfix6 m2, documented window)
     let _ = set_not_dumpable();
     // procfix7 (gate6 m2-a): optional `--refused <file>` before `--`.
     let (refused, rest) = match args.get(2).map(String::as_str) {
@@ -2135,6 +2149,8 @@ pub fn barrier_shim(args: &[String]) -> i32 {
         args.get(rest).map(String::as_str),
         args.get(rest + 1),
     ) else {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the shim's message on stderr (diagnostics only)
         let _ = writeln!(
             std::io::stderr(),
             "{}: usage <fd> <blake3 hex> [--refused <file>] -- <program> [args]",
@@ -2150,7 +2166,11 @@ pub fn barrier_shim(args: &[String]) -> i32 {
                 .create_new(true)
                 .open(p)
         {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): best effort: without the record the refusal is classified as a crash (more conservative)
             let _ = writeln!(f, "{why}");
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): best effort: without the record the refusal is classified as a crash (more conservative)
             let _ = f.sync_all();
         }
     };
@@ -2176,6 +2196,8 @@ pub fn barrier_shim(args: &[String]) -> i32 {
     // SAFETY: closing the inherited barrier descriptor (the program must not inherit it).
     unsafe { libc::close(fd) };
     if failed && n == 0 {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the shim's message on stderr (diagnostics only)
         let _ = writeln!(
             std::io::stderr(),
             "{}: the supervisor ended before it recorded this spawn: the program was not started",
@@ -2187,6 +2209,8 @@ pub fn barrier_shim(args: &[String]) -> i32 {
         return super::BARRIER_NOT_RELEASED;
     }
     if failed || blake3::hash(&b).to_hex().as_str() != hash.as_str() {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the shim's message on stderr (diagnostics only)
         let _ = writeln!(
             std::io::stderr(),
             "{}: the barrier was released with a wrong token ({n} byte(s); another process wrote into the barrier pipe?): the program was not started",
@@ -2200,6 +2224,8 @@ pub fn barrier_shim(args: &[String]) -> i32 {
     let e = std::process::Command::new(prog)
         .args(&args[rest + 2..])
         .exec();
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): the shim's message on stderr (diagnostics only)
     let _ = writeln!(
         std::io::stderr(),
         "{}: exec {prog}: {e}",

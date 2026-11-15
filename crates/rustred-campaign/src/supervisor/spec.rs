@@ -516,6 +516,7 @@ impl CampaignSpec {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

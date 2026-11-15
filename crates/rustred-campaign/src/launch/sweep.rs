@@ -31,8 +31,8 @@
 use super::guard::{self, ProcessTarget, StartRule, Verdict};
 use crate::resources::{
     CampaignMarker, FactRead, HiddenProcess, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT,
-    boot_id, children_of, describe_hidden, our_uid, owner_uid_at, read_marker_at, read_proc_facts,
-    read_stat, request_reap, scan_marked_inline,
+    boot_id, children_of, describe_hidden, our_uid, owner_uid_checked, read_marker_at,
+    read_proc_facts, read_stat, request_reap, scan_marked_inline,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
@@ -186,8 +186,11 @@ impl Sweep<'_> {
             return Ok(out);
         };
         for c in kids {
-            if owner_uid_at(Path::new("/proc"), c) != Some(self.uid) {
-                continue;
+            // procfix7 (gate7 B1, the class): a child whose owner cannot be read makes the round inconclusive
+            match owner_uid_checked(Path::new("/proc"), c) {
+                Ok(Some(u)) if u == self.uid => {}
+                Ok(_) => continue,
+                Err(e) => return Err(format!("owner of child {c}: {e}")),
             }
             let st = match read_stat(c) {
                 Ok(Some(st)) => st,
@@ -641,6 +644,8 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
     w.retry_stranded();
     let reason = loop {
         // A freeze that hit the bound still ends in the SIGKILL of every member; the proof below decides.
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): a freeze that hit the bound still ends in the kill round; the two proof scans decide
         let _ = w.freeze();
         w.kill_members();
         match w.two_passes() {
@@ -694,6 +699,7 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

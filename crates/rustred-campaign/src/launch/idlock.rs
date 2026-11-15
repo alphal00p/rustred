@@ -63,8 +63,12 @@ impl Drop for IdLock {
         // An ad-hoc id is unique to this process: remove its file while still holding the lock. A campaign's file stays
         // (removing a lock file another process may be opening would split the lock).
         if self.adhoc {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the flock is the lock; the file is only removed as a courtesy
             let _ = fs::remove_file(&self.path);
         }
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): not an error: keeps the locked file alive until here
         let _ = &self.file;
     }
 }
@@ -150,6 +154,8 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
         Ok(()) => {}
         Err(fs::TryLockError::WouldBlock) => {
             let mut s = String::new();
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the holder pid is read for the refusal message only
             let _ = file.read_to_string(&mut s);
             let holder = s.split_whitespace().next().and_then(|w| w.parse().ok());
             return Err(IdLockError::InUse { path, holder });
@@ -162,8 +168,14 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
         }
     }
     // Informational content: who holds it.
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): diagnostic content of the lock file (the flock is the lock)
     let _ = file.set_len(0);
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): diagnostic content of the lock file (the flock is the lock)
     let _ = file.rewind();
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): diagnostic content of the lock file (the flock is the lock)
     let _ = writeln!(
         file,
         "{} {}",

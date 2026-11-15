@@ -11,6 +11,9 @@
 //! Reading guide: [`ProcessIdentity`] is the only thing that may authorise a signal. [`Sampler`] publishes
 //! [`Snapshot`]s; the control loop reads [`Sampler::latest`] and never waits for a scan.
 
+// procfix7 (gate7 B1): an ignored Result is a reviewed exception (`#[allow]` + `ignored-ok (procfix7):` reason),
+// never a default; tests/procfix7_tripwire.rs checks every `let _ =` of the process layer and the supervisor.
+#![deny(clippy::let_underscore_must_use, unused_must_use)]
 #[cfg(not(target_os = "linux"))]
 compile_error!(
     "rustred-campaign's process layer (resources, launch, cpu_policy) requires Linux: /proc, sched_setaffinity, prctl"
@@ -38,7 +41,7 @@ pub use marked::{
     MarkerRead, environ_readable_at, hidden_descendants, hidden_descendants_at, marker_in_environ,
     our_uid, owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
 };
-pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, scan_marked_inline};
+pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, owner_uid_checked, scan_marked_inline};
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
 pub(crate) use scan::Leaders;
 pub use scan::{
@@ -162,7 +165,8 @@ pub fn live_thread(pid: u32) -> io::Result<Option<(u32, ProcStat)>> {
         Err(e) => return Err(e),
     };
     for entry in entries {
-        let Ok(entry) = entry else { continue };
+        // procfix7 (gate7 B1, the class): a failed entry read is an error, never "no live thread" (= dead)
+        let entry = entry?;
         let Some(tid) = entry
             .file_name()
             .to_str()
@@ -555,6 +559,7 @@ pub fn own_cgroup_dir() -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

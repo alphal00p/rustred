@@ -143,6 +143,8 @@ fn trace(msg: impl FnOnce() -> String) {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
         use std::io::Write;
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): a trace line on stderr (diagnostics only)
         let _ = writeln!(std::io::stderr(), "HUNT {}", msg());
     }
 }
@@ -457,6 +459,8 @@ impl Hunt<'_> {
     ) -> Result<BTreeMap<u32, Member>, (String, BTreeMap<u32, Member>)> {
         let mut known: BTreeMap<u32, Member> = BTreeMap::new();
         if self.s.pinned {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the fixed point and two proof passes decide; a failed stop only costs rounds
             let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
         }
         let me = me();
@@ -673,9 +677,13 @@ impl Hunt<'_> {
     /// Step 3: SIGKILL every stopped member (and the pinned group, and the cgroup); wait for the exits (bounded).
     fn kill_all(&mut self, known: BTreeMap<u32, Member>) -> Vec<LeftoverRecord> {
         if self.s.pinned {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the proof passes decide; a survivor sends the hunt back (never a proof by itself)
             let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL);
         }
         if let Some(cg) = &self.s.cgroup {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the proof passes decide; a survivor sends the hunt back (never a proof by itself)
             let _ = super::cgroup::kill_path(cg);
         }
         let mut pending: Vec<Member> = Vec::new();
@@ -764,11 +772,16 @@ impl Hunt<'_> {
                 let mut t0 = self.snapshot_tops()?;
                 let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
                 for pid in own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))? {
-                    if !t0.contains_key(&pid)
-                        && !reg.contains(&pid)
-                        && let Ok(Some(st)) = crate::resources::read_stat(pid)
-                    {
-                        t0.insert(pid, st.start_ticks);
+                    if !t0.contains_key(&pid) && !reg.contains(&pid) {
+                        // procfix7 (gate7 B1, the class): a child whose stat cannot be read makes the pass
+                        // inconclusive (it was skipped before)
+                        match crate::resources::read_stat(pid) {
+                            Ok(Some(st)) => {
+                                t0.insert(pid, st.start_ticks);
+                            }
+                            Ok(None) => {}
+                            Err(e) => return Err(format!("stat of child {pid}: {e}")),
+                        }
                     }
                 }
                 let mut tops: Vec<u32> = t0.keys().copied().collect();

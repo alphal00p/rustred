@@ -161,6 +161,28 @@ impl Failpoints {
         false
     }
 
+    /// procfix7 (gate7 B1): a NON-aborting counted site that fires at EXACTLY the n-th pass (one transient fault:
+    /// `recovery_read_fails:<n>` fails the n-th read of recovery once). Always false in a release build.
+    #[cfg(debug_assertions)]
+    pub fn nth(&self, site: &str) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut any = false;
+        for f in &self.more {
+            any |= f.nth(site);
+        }
+        if self.site.as_deref() != Some(site) {
+            return any;
+        }
+        let k = self.passes.fetch_add(1, Ordering::SeqCst) + 1;
+        any || k == self.n
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub fn nth(&self, _site: &str) -> bool {
+        false
+    }
+
     /// Pass `site`: abort ourselves at the configured pass (test builds); nothing in a release build.
     #[cfg(debug_assertions)]
     pub fn hit(&self, site: &str) {
@@ -175,6 +197,8 @@ impl Failpoints {
         if k == self.n {
             // abort(): no unwinding, no Drop, no flush (as a hard kill); the supervisor has no signal path of its own.
             use std::io::Write;
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): test builds: a message right before abort()
             let _ = writeln!(std::io::stderr(), "failpoint {site}:{k}: abort");
             std::process::abort();
         }
@@ -257,6 +281,7 @@ mod enospc {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

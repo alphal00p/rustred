@@ -372,6 +372,8 @@ impl Drop for Sampler {
         if let Some(t) = self.thread.take()
             && t.is_finished()
         {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): joining the sampler thread at drop
             let _ = t.join();
         }
     }
@@ -740,6 +742,7 @@ pub fn scan_sessions_now(sids: &BTreeSet<u32>) -> BTreeMap<u32, SessionUsage> {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

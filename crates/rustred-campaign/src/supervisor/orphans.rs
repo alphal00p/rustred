@@ -17,8 +17,7 @@
 //! verify or signal is reported (`left`) and stops the campaign with exit 8 (never exit 0) listing the pids.
 
 use crate::launch::{SweepReport, SweepSpec};
-use crate::resources::{MarkedProcess, scan_campaign};
-use std::collections::BTreeSet;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
@@ -54,32 +53,14 @@ pub fn cwd_note(pid: u32, roots: &[PathBuf]) -> String {
 }
 
 impl ScanRules {
-    /// True when the recorded boot is not this boot (nothing may be signalled).
+    /// True when the recorded boot is PROVED not this boot (nothing may be signalled). procfix7 (gate7 B1, the class):
+    /// an unreadable current boot id is not "another boot" (that made a sweep "proven" with nothing scanned); it is
+    /// left to the sweep, which then reports itself unproven.
     pub fn other_boot(&self) -> bool {
         match (&self.recorded_boot_id, current_boot_id()) {
             (Some(r), Some(now)) => *r != now,
-            (Some(_), None) => true,
-            (None, _) => false,
+            (Some(_), None) | (None, _) => false,
         }
-    }
-
-    /// Every live marked process of this campaign (optionally one attempt id `<job>:a<k>`).
-    pub fn scan(&self, only: Option<&str>) -> Vec<MarkedProcess> {
-        self.scan_all(only)
-    }
-
-    /// Every live marked process of this campaign (optionally one attempt).
-    pub fn scan_all(&self, only: Option<&str>) -> Vec<MarkedProcess> {
-        if self.other_boot() {
-            return Vec::new();
-        }
-        let Ok(s) = scan_campaign(&self.campaign_id, self.min_start_ticks, &BTreeSet::new()) else {
-            return Vec::new();
-        };
-        s.processes
-            .into_iter()
-            .filter(|p| only.is_none_or(|o| o == p.attempt_id))
-            .collect()
     }
 
     /// The process layer's sweep spec: THE ONE OWNERSHIP RULE, no narrowing of the supervisor's own (gate3 M1). `None`

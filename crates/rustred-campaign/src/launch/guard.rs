@@ -423,7 +423,11 @@ pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
             .open(&reserve)
         {
             use std::io::Write;
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the reserve only helps a later full-disk write (best effort)
             let _ = f.write_all(&vec![0u8; INTENT_RESERVE_BYTES]);
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the reserve only helps a later full-disk write (best effort)
             let _ = f.sync_all();
         }
     }
@@ -572,10 +576,16 @@ pub fn retire_own_intent_fallback() {
         return;
     }
     if let Some((_, p)) = log.fallback.take() {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
         let _ = std::fs::remove_file(&p);
         if let Some(d) = p.parent() {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
             let _ = std::fs::remove_dir(d);
             if let Some(u) = d.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
                 let _ = std::fs::remove_dir(u);
             }
         }
@@ -718,6 +728,8 @@ fn prealloc_tail(file: &std::fs::File) {
         return;
     }
     // SAFETY: fallocate on our own open descriptor with integer arguments; KEEP_SIZE leaves the file size unchanged.
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): best-effort pre-allocation (not a decision; the reserve and the tmpfs fallback cover a full disk)
     let _ = unsafe {
         libc::fallocate(
             file.as_raw_fd(),
@@ -877,9 +889,13 @@ fn write_done_to(log: &mut IntentLog, done: &[(Option<String>, String)]) {
     if !buf.is_empty() {
         match (&mut log.fallback, log.on_fallback) {
             (Some((f, _)), true) => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): completion lines are not synced by design: a lost one only makes a delivered signal POSSIBLY SENT
                 let _ = f.write_all(&buf);
             }
             _ => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): completion lines are not synced by design: a lost one only makes a delivered signal POSSIBLY SENT
                 let _ = log.file.write_all(&buf);
             }
         }
@@ -2280,6 +2296,7 @@ pub fn is_child_subreaper() -> bool {
 pub const CAMPAIGN_MARKER_VAR: &str = MARKER_VAR;
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 

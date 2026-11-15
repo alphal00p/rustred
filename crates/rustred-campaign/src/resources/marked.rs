@@ -181,28 +181,33 @@ pub(crate) fn scan_marked_inline(
         if pid <= 1 || pid == me {
             continue;
         }
-        if owner_uid_at(root, pid) != Some(uid) {
-            continue;
+        match owner_uid_checked(root, pid) {
+            Ok(Some(u)) if u == uid => {}
+            Ok(_) => continue,
+            Err(e) => {
+                out.unreadable_facts(pid, format!("owner unreadable: {e}"));
+                continue;
+            }
         }
         let st = match read_stat_path(pid, &root.join(format!("{pid}/stat"))) {
             Ok(Some(st)) => st,
             Ok(None) => continue,
             Err(e) => {
-                out.unreadable += 1;
-                out.hidden.push(HiddenProcess {
-                    pid,
-                    start_ticks: 0,
-                    ppid: 0,
-                    comm: String::new(),
-                    why: format!("stat unreadable: {e}"),
-                });
+                out.unreadable_facts(pid, format!("stat unreadable: {e}"));
                 continue;
             }
         };
         if st.start_ticks < not_before_ticks {
             continue;
         }
-        let Some(tid) = live_tid(&st) else { continue };
+        let tid = match live_tid_checked(&st) {
+            Ok(Some(t)) => t,
+            Ok(None) => continue,
+            Err(e) => {
+                out.unreadable_facts(pid, format!("thread list unreadable: {e}"));
+                continue;
+            }
+        };
         match read_marker_at(root, pid, tid, STRICT_ENVIRON_TIMEOUT) {
             MarkerRead::Marker(v) => {
                 if let Some(m) = CampaignMarker::parse(&v)
@@ -271,7 +276,8 @@ pub fn hidden_descendants_at(
     };
     let mut out = Vec::new();
     for entry in fs::read_dir(root)? {
-        let Ok(entry) = entry else { continue };
+        // procfix7 (gate7 B1, the class): a failed read fails the check (never a skipped process)
+        let entry = entry?;
         let Some(pid) = entry
             .file_name()
             .to_str()
@@ -283,6 +289,10 @@ pub fn hidden_descendants_at(
             continue;
         }
         let Some((mut ppid, ruid, name)) = read(pid) else {
+            // uninspectable and its status unreadable: listed unless it is gone (never skipped silently)
+            if root.join(pid.to_string()).exists() {
+                out.push((pid, "<status unreadable>".to_string()));
+            }
             continue;
         };
         if ruid != uid {
@@ -325,8 +335,14 @@ pub fn hidden_descendants() -> std::io::Result<Vec<(u32, String)>> {
 pub fn environ_readable_at(root: &Path, pid: u32) -> Option<bool> {
     match fs::File::open(root.join(format!("{pid}/environ"))) {
         Ok(_) => Some(true),
-        Err(e) if matches!(e.raw_os_error(), Some(libc::EACCES) | Some(libc::EPERM)) => Some(false),
-        Err(_) => None,
+        // procfix7 (gate7 B1, the class): only a vanished process is "gone"; any other failure is uninspectable
+        Err(e)
+            if e.kind() == std::io::ErrorKind::NotFound
+                || e.raw_os_error() == Some(libc::ESRCH) =>
+        {
+            None
+        }
+        Err(_) => Some(false),
     }
 }
 
@@ -391,13 +407,36 @@ impl CampaignScan {
 }
 
 /// For a stat whose main thread is dead: a live thread of the group (None if the whole group is dead).
-pub(crate) fn live_tid(st: &ProcStat) -> Option<Option<u32>> {
+/// procfix7 (gate7 B1, the class): [`live_tid`] with a failed read of the thread list as an ERROR (the strict scans
+/// count it as unreadable; it is never "the whole group is dead").
+pub(crate) fn live_tid_checked(st: &ProcStat) -> std::io::Result<Option<Option<u32>>> {
     if !st.is_dead() {
-        return Some(None);
+        return Ok(Some(None));
     }
-    match live_thread(st.pid) {
-        Ok(Some((tid, _))) => Some(Some(tid)),
-        _ => None,
+    Ok(live_thread(st.pid)?.map(|(tid, _)| Some(tid)))
+}
+
+/// procfix7 (gate7 B1, the class): the owner uid of `/proc/<pid>` for the strict scans: Ok(None) only when the process
+/// is gone; any other failed read is an error (counted as unreadable, never "not ours").
+pub(crate) fn owner_uid_checked(root: &Path, pid: u32) -> std::io::Result<Option<u32>> {
+    match fs::metadata(root.join(pid.to_string())) {
+        Ok(m) => Ok(Some(m.uid())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+impl CampaignScan {
+    /// procfix7 (gate7 B1, the class): a candidate whose facts could not be read: counted and listed (inconclusive).
+    fn unreadable_facts(&mut self, pid: u32, why: String) {
+        self.unreadable += 1;
+        self.hidden.push(HiddenProcess {
+            pid,
+            start_ticks: 0,
+            ppid: 0,
+            comm: String::new(),
+            why,
+        });
     }
 }
 
@@ -429,7 +468,8 @@ pub(crate) fn scan_campaign_at(
     let me = std::process::id();
     let mut out = CampaignScan::default();
     for entry in fs::read_dir(root)? {
-        let Ok(entry) = entry else { continue };
+        // procfix7 (gate7 B1, the class): a failed read is counted (inconclusive), never a skipped candidate
+        let entry = entry?;
         let Some(pid) = entry
             .file_name()
             .to_str()
@@ -440,16 +480,33 @@ pub(crate) fn scan_campaign_at(
         if pid <= 1 || pid == me {
             continue;
         }
-        if owner_uid_at(root, pid) != Some(uid) {
-            continue;
+        match owner_uid_checked(root, pid) {
+            Ok(Some(u)) if u == uid => {}
+            Ok(_) => continue,
+            Err(e) => {
+                out.unreadable_facts(pid, format!("owner unreadable: {e}"));
+                continue;
+            }
         }
-        let Ok(Some(st)) = read_stat_path(pid, &root.join(format!("{pid}/stat"))) else {
-            continue;
+        let st = match read_stat_path(pid, &root.join(format!("{pid}/stat"))) {
+            Ok(Some(st)) => st,
+            Ok(None) => continue,
+            Err(e) => {
+                out.unreadable_facts(pid, format!("stat unreadable: {e}"));
+                continue;
+            }
         };
         if st.start_ticks < not_before_ticks {
             continue;
         }
-        let Some(tid) = live_tid(&st) else { continue };
+        let tid = match live_tid_checked(&st) {
+            Ok(Some(t)) => t,
+            Ok(None) => continue,
+            Err(e) => {
+                out.unreadable_facts(pid, format!("thread list unreadable: {e}"));
+                continue;
+            }
+        };
         match read_marker_at(root, pid, tid, ENVIRON_READ_TIMEOUT) {
             MarkerRead::Marker(v) => {
                 if let Some(m) = CampaignMarker::parse(&v)
@@ -469,6 +526,7 @@ pub(crate) fn scan_campaign_at(
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     /// procfix5 (gate4 m5): a fake /proc tree: an uninspectable entry (environ refused; procfix7: readability, not the
     /// directory's owner) whose real uid is ours and whose parent chain reaches the ancestor is listed; one of another
@@ -504,6 +562,30 @@ mod tests {
     }
 
     use super::*;
+
+    /// procfix7 (gate7 B1, the class): a candidate whose facts cannot be read is COUNTED (inconclusive), never skipped:
+    /// a strict scan over a fake /proc whose entry has an unreadable `stat` (a directory) reports it as unreadable; and
+    /// an uninspectable process whose status cannot be read is LISTED by the hidden-descendant check.
+    #[test]
+    fn failed_reads_are_counted_never_skipped() {
+        let root = std::env::temp_dir().join(format!(
+            "rr-class-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("4242").join("stat")).unwrap(); // `stat` unreadable (EISDIR)
+        let s = scan_campaign_at(&root, "cls.0123456789abcdef", 0, &Default::default()).unwrap();
+        assert_eq!(s.unreadable, 1, "{s:?}");
+        assert!(s.hidden[0].why.contains("stat unreadable"), "{s:?}");
+        // hidden descendants: pid 4343 exists, cannot be inspected and has no readable status: listed
+        std::fs::create_dir_all(root.join("4343")).unwrap();
+        let v = hidden_descendants_at(&root, 1, 7, &|p| Some(p != 4343)).unwrap();
+        assert_eq!(v, vec![(4343, "<status unreadable>".to_string())]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn marker_values_and_environ_parsing() {

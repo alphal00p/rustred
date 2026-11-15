@@ -78,6 +78,9 @@ pub enum RunDirOwner {
     Other(String),
     /// No identity (absent / unreadable / empty): never ours.
     Unknown(String),
+    /// procfix7 (gate7 B1): the identity could not be read for a supervisor resource limit (EMFILE, ENFILE, ENOMEM,
+    /// EAGAIN): undecided (the caller backs off / stops typed; never "not ours").
+    Unreadable(i32, String),
 }
 
 pub fn run_dir_owner(run_dir: &Path, key: &str) -> RunDirOwner {
@@ -86,6 +89,18 @@ pub fn run_dir_owner(run_dir: &Path, key: &str) -> RunDirOwner {
         Ok(s) if s.trim() == key => RunDirOwner::Ours,
         Ok(s) if s.trim().is_empty() => RunDirOwner::Unknown("RUN/sup/CAMPAIGN is empty".into()),
         Ok(s) => RunDirOwner::Other(s.trim().to_string()),
+        Err(e)
+            if e.kind() != std::io::ErrorKind::NotFound
+                && matches!(
+                    e.raw_os_error(),
+                    Some(libc::EMFILE | libc::ENFILE | libc::ENOMEM | libc::EAGAIN)
+                ) =>
+        {
+            RunDirOwner::Unreadable(
+                e.raw_os_error().unwrap_or(libc::EMFILE),
+                format!("RUN/sup/CAMPAIGN: {e}"),
+            )
+        }
         Err(e) => RunDirOwner::Unknown(format!("RUN/sup/CAMPAIGN: {e}")),
     }
 }
@@ -132,8 +147,14 @@ pub fn create_run_dir(run_dir: &Path, key: &str) -> Result<(), CreateError> {
     })();
     // Our own temporary directory (unique name, at most one file): removed again on any failure.
     let discard = || {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own temporary directory after a failure; the error returned is the real one
         let _ = std::fs::remove_file(sup.join(super::CAMPAIGN_ID_FILE));
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own temporary directory after a failure; the error returned is the real one
         let _ = std::fs::remove_dir(&sup);
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own temporary directory after a failure; the error returned is the real one
         let _ = std::fs::remove_dir(&tmp);
     };
     if let Err(e) = r {
@@ -181,6 +202,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 mod tests {
     use super::*;
 
