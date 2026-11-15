@@ -167,3 +167,16 @@ pub fn row<'a>(r: &'a import::CheckResult, k: &[i32]) -> &'a import::KeyRow {
 pub fn comparator() -> rustred_campaign_core::order::NodeComparator {
     rustred_campaign_core::order::NodeComparator::from_header(&header_value()).unwrap()
 }
+
+/// int7 (coordinator's ruling 2026-11-15): a NAMED list of tables without an `end` record (schema
+/// `rustred.campaign.tables-no-end.v1`) listing `tables`; returns the override text `"<list path> sha256:<hex>"`.
+#[allow(dead_code)]
+pub fn no_end_list(dir: &Path, name: &str, tables: &[&Path]) -> String {
+    let v = serde_json::json!({"schema": rustred_campaign_core::import::lines::NO_END_LIST_SCHEMA,
+        "tables": tables.iter().map(|t| serde_json::json!({"node": "toy", "path": t.display().to_string(),
+            "origin": "test writer omits end"})).collect::<Vec<_>>()});
+    let p = dir.join(name);
+    std::fs::write(&p, serde_json::to_vec(&v).unwrap()).unwrap();
+    let sha = rustred_campaign_core::import::lines::file_sha256(&p).unwrap();
+    format!("{} sha256:{sha}", p.display())
+}

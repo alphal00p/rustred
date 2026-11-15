@@ -50,12 +50,13 @@ fn ledger_keys_are_declared_terminals_t270_shape() {
     let tail = vec![ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)];
     let t = write_table_with(&d, "t.jsonl", &header_value(), &rules_two(), Some(&tail));
     // partfix4: a table without an end record loads only with the explicit, recorded override (the real T270
-    // composite has none: its writer omits it)
+    // composite has none: its writer omits it); int7: the override names the list of such tables (path + sha256)
+    let list = no_end_list(&d, "no-end.json", &[&t]);
     let sp = spec(
         &d,
         &t,
         &[&TOP],
-        json!({"marker_rules": {"accept_missing_end": "T270 shape: the composite writer omits the end record"}}),
+        json!({"marker_rules": {"accept_missing_end": list}}),
         &[],
     );
     let (set, ev, r) = run(&sp, &d);

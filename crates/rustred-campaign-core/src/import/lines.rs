@@ -800,6 +800,92 @@ pub struct MarkerPolicy {
     /// (recorded in the overrides); `None` = strict: refused, since a missing `end` cannot be told from a file cut at a
     /// line boundary.
     pub accept_missing_end: Option<String>,
+    /// int7 (coordinator's ruling 2026-11-15): why a given `accept_missing_end` did not apply to THIS file (not in the
+    /// named list); appended to the refusal so that it is never silent.
+    pub missing_end_hint: Option<String>,
+}
+
+/// Schema of the NAMED LIST of tables without an `end` record (int7, coordinator's ruling 2026-11-15): the only way a
+/// table without an end record is loaded is the per-source `marker_rules.accept_missing_end` naming such a list and
+/// its sha256 (`"<list path> sha256:<hex>"`) and the table's file being listed in it.
+pub const NO_END_LIST_SCHEMA: &str = "rustred.campaign.tables-no-end.v1";
+/// The campaign's list (the refusal names it; the list itself is data, maintained outside the code).
+pub const NO_END_LIST_HINT: &str = "plan/auto-campaign/reports/TABLES-NO-END.json";
+
+/// The per-source override `marker_rules.accept_missing_end` for one table FILE: `Ok(Some(reason))` = the file is in
+/// the named list (the reason, recorded with the load, names the list, its sha256 and the entry's origin); `Ok(None)`
+/// + hint = the list is valid but does not name this file; `Err` = the override is not a named list (path + sha256),
+/// the list is unreadable, of another schema, or its sha256 differs: a typed spec refusal (never a silent load).
+pub fn named_no_end_list(
+    reason: &str,
+    base: &Path,
+    table: &Path,
+) -> Result<(Option<String>, Option<String>), ImportError> {
+    let bad = |m: String| ImportError::Spec(format!("marker_rules.accept_missing_end: {m}"));
+    let parts: Vec<&str> = reason.split_whitespace().collect();
+    let (lp, sha) = match parts.as_slice() {
+        [p, s] if s.strip_prefix("sha256:").is_some_and(|h| {
+            h.len() == 64 && h.bytes().all(|b| b.is_ascii_hexdigit())
+        }) =>
+        {
+            (*p, &s[7..])
+        }
+        _ => {
+            return Err(bad(format!(
+                "{reason:?} is not a named list: give `<list path> sha256:<hex>` of a {NO_END_LIST_SCHEMA} list \
+                 (the campaign's: {NO_END_LIST_HINT})"
+            )));
+        }
+    };
+    let path = super::spec::resolve(base, lp);
+    let got = file_sha256(&path)?;
+    if !got.eq_ignore_ascii_case(sha) {
+        return Err(bad(format!(
+            "the list {} has sha256 {got}, the override names {sha}",
+            path.display()
+        )));
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| io_err(&path, e))?;
+    let v: Value = serde_json::from_str(&text)
+        .map_err(|e| bad(format!("the list {}: {e}", path.display())))?;
+    if v["schema"] != NO_END_LIST_SCHEMA {
+        return Err(bad(format!(
+            "the list {} has schema {}, expected {NO_END_LIST_SCHEMA}",
+            path.display(),
+            v["schema"]
+        )));
+    }
+    let entries = v["tables"]
+        .as_array()
+        .ok_or_else(|| bad(format!("the list {} has no `tables`", path.display())))?;
+    let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let me = canon(table);
+    for e in entries {
+        let Some(ep) = e["path"].as_str() else {
+            return Err(bad(format!(
+                "the list {}: an entry without `path`",
+                path.display()
+            )));
+        };
+        if canon(Path::new(ep)) == me {
+            return Ok((
+                Some(format!(
+                    "listed in {} (sha256:{got}): {}",
+                    path.display(),
+                    e["origin"].as_str().unwrap_or("no origin given")
+                )),
+                None,
+            ));
+        }
+    }
+    Ok((
+        None,
+        Some(format!(
+            "the override names the list {} (sha256:{got}), which does not list {}",
+            path.display(),
+            table.display()
+        )),
+    ))
 }
 
 /// What a table's markers declare, after [`check_markers`].
@@ -954,13 +1040,21 @@ pub fn check_markers(
                 raw.rule_lines, raw.sym_lines
             )),
             _ => {
+                // int7 (coordinator's ruling): the refusal names the override and the list, never silent
                 return Err(refused(
                     0,
                     TableRefusal::Incomplete {
                         msg: format!(
                             "no end record ({} rule + {} sym records found; a file cut at a line boundary looks the \
-                             same; override per source: marker_rules.accept_missing_end with a reason)",
-                            raw.rule_lines, raw.sym_lines
+                             same); override marker_rules.accept_missing_end with the list {NO_END_LIST_HINT} \
+                             (`<list path> sha256:<hex>`; the table must be listed){}",
+                            raw.rule_lines,
+                            raw.sym_lines,
+                            policy
+                                .missing_end_hint
+                                .as_deref()
+                                .map(|h| format!(": {h}"))
+                                .unwrap_or_default()
                         ),
                     },
                 ));

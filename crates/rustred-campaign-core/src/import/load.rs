@@ -586,16 +586,6 @@ pub(crate) fn load_inner(
                     }
                     check_header(&src.id, &raw.header, &frame, &frame_desc, &fhead)?;
                     // lane import5 (interfaces/import.md 18.2 / 18.3): the table's own statements about itself
-                    let policy = MarkerPolicy {
-                        accept_fewer_rules: src
-                            .marker_rules
-                            .as_ref()
-                            .and_then(|m| m.accept_fewer.clone()),
-                        accept_missing_end: src
-                            .marker_rules
-                            .as_ref()
-                            .and_then(|m| m.accept_missing_end.clone()),
-                    };
                     if let Some(m) = &src.marker_rules
                         && [&m.accept_fewer, &m.accept_missing_end]
                             .iter()
@@ -606,6 +596,31 @@ pub(crate) fn load_inner(
                             src.id
                         )));
                     }
+                    // int7 (coordinator's ruling 2026-11-15): a table without an `end` record loads ONLY through a
+                    // NAMED list (`<list path> sha256:<hex>`, the table listed in it); else refused, the refusal names
+                    // the override and why it did not apply
+                    let (accept_missing_end, missing_end_hint) = match src
+                        .marker_rules
+                        .as_ref()
+                        .and_then(|m| m.accept_missing_end.as_deref())
+                    {
+                        None => (None, None),
+                        Some(r) => super::lines::named_no_end_list(r, base, &u.path)
+                            .map_err(|e| match e {
+                                ImportError::Spec(m) => {
+                                    ImportError::Spec(format!("source {}: {m}", src.id))
+                                }
+                                e => e,
+                            })?,
+                    };
+                    let policy = MarkerPolicy {
+                        accept_fewer_rules: src
+                            .marker_rules
+                            .as_ref()
+                            .and_then(|m| m.accept_fewer.clone()),
+                        accept_missing_end,
+                        missing_end_hint,
+                    };
                     let ms = check_markers(&src.id, &u.path, &raw, arity, &policy)?;
                     rep.marker_overrides.extend(ms.overrides.iter().cloned());
                     for k in [

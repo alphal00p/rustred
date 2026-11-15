@@ -44,8 +44,13 @@ fn pf4_table_without_end_record_is_refused_unless_overridden_with_a_reason() {
         "{msg}"
     );
     assert!(e.to_string().contains("table_incomplete"), "{e}");
-    // the explicit override with a reason: loaded, the override recorded
-    let why = "Astra composite writer omits the end record (checked by hand: 2 records)";
+    // int7 (coordinator's ruling): the refusal names the override and the list
+    assert!(
+        msg.contains("marker_rules.accept_missing_end") && msg.contains("TABLES-NO-END.json"),
+        "{msg}"
+    );
+    // the explicit override naming the list of such tables (path + sha256) that lists this table: loaded, recorded
+    let why = no_end_list(&d, "no-end.json", &[&t]);
     let sp = spec(
         &d,
         &t,
@@ -57,7 +62,7 @@ fn pf4_table_without_end_record_is_refused_unless_overridden_with_a_reason() {
     let ov = &set.report.sources[0].marker_overrides;
     assert!(
         ov.iter()
-            .any(|o| o.contains("no end record accepted") && o.contains(why)),
+            .any(|o| o.contains("no end record accepted") && o.contains("listed in") && o.contains("no-end.json")),
         "{ov:?}"
     );
     // an empty reason: refused
@@ -92,7 +97,7 @@ fn pf4_table_without_end_record_is_refused_unless_overridden_with_a_reason() {
         &t,
         &import::sweep::ClassifyOptions {
             scratch: Some(d.clone()),
-            accept_missing_end: Some("sweep census".into()),
+            accept_missing_end: Some(why.clone()),
             ..Default::default()
         },
     );
@@ -127,9 +132,10 @@ fn pf4_last_line_cut_in_the_middle_is_a_typed_refusal() {
     // (a) rule 1 cut in the middle, no end record
     let a = d.join("a.jsonl");
     std::fs::write(&a, format!("{}\n{half}", lines[..3].join("\n"))).unwrap();
+    let listed = no_end_list(&d, "no-end.json", &[&a]);
     for extra in [
         json!({}),
-        json!({"marker_rules": {"accept_missing_end": "test"}}),
+        json!({"marker_rules": {"accept_missing_end": listed}}),
     ] {
         let e = try_load(&spec(&d, &a, &[&TOP], extra.clone(), &[]), &d).unwrap_err();
         assert!(
