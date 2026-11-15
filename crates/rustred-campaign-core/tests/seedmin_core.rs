@@ -1185,3 +1185,34 @@ fn undecided_answers_are_never_journaled_nor_replayed() {
     assert!(ju.take_new_lines().is_empty());
     assert!(ju.is_empty());
 }
+
+#[test]
+fn the_core_solver_entry_for_shell_subsets_ranks_the_alternatives() {
+    let k: Key = vec![2, 2, -1];
+    let mut o = CoreOracle {
+        needs: vec![vec![0, 0, 0], vec![-1, 0, 0]],
+        engine: false,
+    };
+    let pol = rustred_campaign_core::coreseed::spec::CoreSeedPolicy::default();
+    let (alts, infos) = rustred_campaign_core::seedmin::bridge::minimise_shell_subsets_core(
+        &mut o,
+        &pol,
+        &core_make,
+        std::slice::from_ref(&k),
+        &C0,
+        &[true, true, false],
+        &["S0".to_string(), "S1".to_string()],
+        &["S2".to_string(), "Sm1".to_string()],
+    )
+    .unwrap();
+    assert_eq!(alts.len(), 3);
+    assert_eq!(alts[0].shells, vec!["S0", "S1", "Sm1"]);
+    assert_eq!(
+        alts[0].joint.pieces[0].list,
+        vec![vec![0, 0, 0], vec![-1, 0, 0]]
+    );
+    // the S2-only list solves nothing: ranked last (unserved 1)
+    assert_eq!(alts[2].shells, vec!["S0", "S1", "S2"]);
+    assert_eq!(alts[2].measures["unserved"], 1);
+    assert!(!infos.is_empty());
+}

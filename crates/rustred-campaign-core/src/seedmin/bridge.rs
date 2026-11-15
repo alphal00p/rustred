@@ -113,7 +113,11 @@ impl TrialSolver for Bridge<'_, '_, '_> {
             for (k, x) in t.keys.iter().zip(a) {
                 v.push(match x {
                     KeyAnswer::Relation(r) => {
-                        let f = facts_of(&r);
+                        let mut f = facts_of(&r);
+                        // coreseed reports the support as offsets FROM THE KEY: centre-relative for the minimiser
+                        f.seeds_used = f
+                            .seeds_used
+                            .map(|v| v.iter().map(|o| super::sub(o, &t.centre)).collect());
                         self.infos
                             .insert((k.clone(), r.relation_digest.clone()), *r);
                         TrialAnswer::Relation(Box::new(f))
@@ -255,4 +259,88 @@ pub fn minimise(
         member,
         cost: json!({"trials_solved": br.trials, "trials_run": jm.trials_run}),
     }))
+}
+
+/// Every coreseed `RelationInfo` met through the bridge, by (key, relation digest).
+pub type RelationInfos = BTreeMap<(Key, String), RelationInfo>;
+
+/// coreseed's CoreSolver as a seedmin solver for any of the minimiser's entries (the adapter of [`minimise`]).
+fn with_bridge<T>(
+    solver: &mut dyn CoreSolver,
+    make: &MakeReq<'_>,
+    engine: bool,
+    f: impl FnOnce(&mut dyn TrialSolver) -> Result<T, super::SeedMinError>,
+) -> Result<(T, RelationInfos), String> {
+    let mut br = Bridge {
+        solver,
+        make,
+        infos: BTreeMap::new(),
+        engine,
+        trials: 0,
+    };
+    let out = f(&mut br).map_err(|e| e.to_string())?;
+    Ok((out, br.infos))
+}
+
+/// JOINT minimisation through coreseed's CoreSolver (public entry for its flow): `centre` = one offset from the key,
+/// `list` centre-relative in its row order; returns the seedmin result and the full `RelationInfo` of every relation
+/// met (keyed by (key, relation digest)) so the caller keeps its own record type.
+pub fn minimise_joint_core(
+    solver: &mut dyn CoreSolver,
+    policy: &CoreSeedPolicy,
+    make: &MakeReq<'_>,
+    keys: &[Key],
+    centre: &[i32],
+    list: &[Offset],
+) -> Result<(super::JointMin, RelationInfos), String> {
+    let sp = policy_from_core(policy);
+    let engine = sp.backend == "engine";
+    with_bridge(solver, make, engine, |s| {
+        minimise_joint(keys, centre, list, &sp, s, &mut StubSystemPoles)
+    })
+}
+
+/// SHELL SUBSETS through coreseed's CoreSolver (public entry for its flow, implementer 2026-11-15): the start lists
+/// base + each non-empty subset of `escalation` around `centre` (order = the seedmin policy's `shell_subsets`, default
+/// smallest_first; `off` = the full set only), each minimised jointly; alternatives ranked best first, plus the
+/// `RelationInfo` of every relation met.
+#[allow(clippy::too_many_arguments)]
+pub fn minimise_shell_subsets_core(
+    solver: &mut dyn CoreSolver,
+    policy: &CoreSeedPolicy,
+    make: &MakeReq<'_>,
+    keys: &[Key],
+    centre: &[i32],
+    lines: &[bool],
+    base: &[String],
+    escalation: &[String],
+) -> Result<(Vec<super::SubsetAlternative>, RelationInfos), String> {
+    let sp = policy_from_core(policy);
+    let engine = sp.backend == "engine";
+    let spec = super::ShellSubsetSpec::from_policy(base, escalation, &sp).unwrap_or_else(|| {
+        // off: the full set only
+        super::ShellSubsetSpec {
+            base: base.iter().chain(escalation).cloned().collect(),
+            escalation: vec![],
+            order: "smallest_first".into(),
+            rank: vec![],
+        }
+    });
+    if spec.escalation.is_empty() {
+        let list = super::subsets::subset_list(keys, centre, lines, &spec.base)?;
+        let (j, infos) = with_bridge(solver, make, engine, |s| {
+            minimise_joint(keys, centre, &list, &sp, s, &mut StubSystemPoles)
+        })?;
+        let alt = super::SubsetAlternative {
+            shells: spec.base.clone(),
+            start_seeds: list.len(),
+            start_list_sha256: super::list_digest(&list),
+            measures: serde_json::Value::Null,
+            joint: j,
+        };
+        return Ok((vec![alt], infos));
+    }
+    with_bridge(solver, make, engine, |s| {
+        super::minimise_shell_subsets(keys, centre, lines, &spec, &sp, s, &mut StubSystemPoles)
+    })
 }

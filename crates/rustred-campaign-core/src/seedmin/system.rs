@@ -112,7 +112,7 @@ impl SystemPoles for TadicSystem<'_> {
         // the full system: built from the first list asked about at this key (every later list is a subset of it)
         let before = self.in_sector(key, before);
         let after = self.in_sector(key, after);
-        let rebuild = match self.cache.get(&key.to_vec()) {
+        let rebuild = match self.cache.get(key) {
             None => true,
             Some(f) => after.iter().any(|o| !f.seeds.contains(o)),
         };
@@ -134,7 +134,7 @@ impl SystemPoles for TadicSystem<'_> {
                 },
             );
         }
-        let f = self.cache.get(&key.to_vec())?;
+        let f = self.cache.get(key)?;
         let bound = f.bound?;
         let keep: Vec<usize> = after
             .iter()
