@@ -31,6 +31,7 @@ pub mod region;
 pub mod rows;
 pub mod search;
 
+pub use composite::{CompositeStep, with_catalogue_rule};
 pub use region::{RegionReport, Shape, ShapeVerdict, WeightForm, region_forms};
 pub use search::{Reject, apply_combination, import_check, search_key, two_row_relations};
 
@@ -175,6 +176,9 @@ pub struct TwoRowPolicy {
     pub max_relations: usize,
     /// Report one-row relations too (a row at K alone: route 0b's object; one row at a shifted seed alone).
     pub single_rows: bool,
+    /// When no valid combination exists: keep at most this many NEAR MISSES (every non-lower term but one cancels),
+    /// the input of the composite with one catalogue rule (0 = off).
+    pub max_near_misses: usize,
 }
 
 impl Default for TwoRowPolicy {
@@ -190,6 +194,7 @@ impl Default for TwoRowPolicy {
             max_subsets: 200_000,
             max_relations: 8,
             single_rows: true,
+            max_near_misses: 8,
         }
     }
 }
@@ -328,6 +333,15 @@ pub struct Combination {
 }
 
 impl Combination {
+    fn empty(key: &[i32]) -> Combination {
+        Combination {
+            key: key.to_vec(),
+            rows: vec![],
+            weights: vec![],
+            key_coefficients: vec![],
+            rhs: vec![],
+        }
+    }
     /// `single_row` (one row at the key), `shifted_row` (one row at a shifted seed alone), `pair` (two rows of one
     /// element), `two_elements` (two rows of two elements), `rows<m>` otherwise.
     pub fn kind(&self) -> String {
@@ -401,6 +415,8 @@ pub struct SearchStats {
     pub found: usize,
     /// Pivot rows refused by the explicit re-check (a term not strictly lower under the comparator).
     pub not_lower: usize,
+    /// Near misses kept (keys without a valid combination only).
+    pub near_misses: usize,
 }
 
 impl SearchStats {
@@ -448,12 +464,23 @@ impl KeyOutcome {
     }
 }
 
+/// A combination that cancels every non-lower term but ONE: `comb.rhs` reads `I(key) = c_T I(T) + lower` with the
+/// remaining non-lower key(s) in `non_lower`. NOT a relation for the key by itself: the input of
+/// [`composite::with_catalogue_rule`] (one catalogue rule at `T`, then descent against the key).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NearMiss {
+    pub comb: Combination,
+    pub non_lower: Vec<Vec<i32>>,
+}
+
 /// The result at one key.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyResult {
     pub key: Vec<i32>,
     pub outcome: KeyOutcome,
     pub stats: SearchStats,
+    /// Only for keys without a valid combination (best first: fewest non-lower terms, then size).
+    pub near_misses: Vec<NearMiss>,
 }
 
 impl KeyResult {
@@ -473,6 +500,17 @@ impl KeyResult {
                 v["reason"] = json!(reason)
             }
             KeyOutcome::NoneInNeighbourhood => {}
+        }
+        if !self.near_misses.is_empty() {
+            v["near_misses"] = self
+                .near_misses
+                .iter()
+                .map(|n| {
+                    let mut j = n.comb.to_json();
+                    j["non_lower"] = json!(n.non_lower);
+                    j
+                })
+                .collect();
         }
         v
     }

@@ -535,3 +535,137 @@ fn pruned_rows_equal_the_symrows_rows() {
         println!("{text:.12}: {rows_seen} rows, {dropped} zero-sector terms pruned");
     }
 }
+
+/// A test catalogue: a term is served by the one-element rows at the term (route 0b), else by the tworow search at
+/// the term; the seeds used are remembered so that the composed relation can be re-derived by the import's verifier.
+struct SymCat<'a> {
+    f: &'a Fam,
+    policy: TwoRowPolicy,
+    seeds: std::cell::RefCell<std::collections::BTreeMap<Vec<i32>, Vec<Vec<i32>>>>,
+}
+
+impl<'a>
+    rustred_campaign_core::repairflow::composite::Catalogue<
+        rustred_campaign_core::repairflow::composite::QField<'a, Independent>,
+    > for SymCat<'a>
+{
+    fn serve(
+        &self,
+        _alg: &rustred_campaign_core::repairflow::composite::QField<'a, Independent>,
+        term: &[i32],
+    ) -> Result<
+        rustred_campaign_core::repairflow::composite::Service<
+            rustred_campaign_core::replay_base::algebra::Q,
+        >,
+        String,
+    > {
+        use rustred_campaign_core::repairflow::composite::{RuleUse, Service};
+        let cmp = |a: &[i32], b: &[i32]| (self.f.cmp)(a, b);
+        let rule = |src: &str| RuleUse {
+            table: 0,
+            record: 0,
+            source: src.into(),
+            label: 0,
+            record_sha256: String::new(),
+        };
+        if let SymRelation::Relation { rhs, .. } =
+            symmetry_relation_at_key(&Independent, &self.f.group, term, &cmp, 65_536)
+        {
+            self.seeds
+                .borrow_mut()
+                .insert(term.to_vec(), vec![term.to_vec()]);
+            return Ok(Service::Rule {
+                rule: rule("route0b"),
+                rhs,
+            });
+        }
+        let r = search_key(&Independent, term, &self.f.group, &cmp, &self.policy, None);
+        match r.outcome.best() {
+            Some(c) => {
+                self.seeds.borrow_mut().insert(term.to_vec(), c.seeds());
+                Ok(Service::Rule {
+                    rule: rule("tworow"),
+                    rhs: c.rhs.clone(),
+                })
+            }
+            None => Ok(Service::Unserved("no symmetry relation at the term".into())),
+        }
+    }
+}
+
+#[test]
+fn composite_with_one_catalogue_rule_on_near_misses() {
+    use rustred_campaign_core::import::symmetry::verify_relation_with;
+    use rustred_campaign_core::repairflow::composite::{ComposeOptions, QField};
+    use rustred_campaign_core::tworow::{CompositeStep, with_catalogue_rule};
+    let f = sunbub();
+    let cmp = |a: &[i32], b: &[i32]| (f.cmp)(a, b);
+    let lower = |a: &[i32], b: &[i32]| (f.cmp)(a, b) == Ordering::Less;
+    let p = TwoRowPolicy::default();
+    let cat = SymCat {
+        f: &f,
+        policy: p.clone(),
+        seeds: Default::default(),
+    };
+    let qf = QField(&Independent);
+    let keys = box_keys(&f.chart, 1, 4);
+    let (mut none, mut with_near, mut accepted, mut verified) = (0, 0, 0, 0);
+    let mut words: std::collections::BTreeMap<&str, usize> = Default::default();
+    for r in keys_needing_more(&f, &keys, &p) {
+        if r.outcome.best().is_some() {
+            assert!(r.near_misses.is_empty());
+            continue;
+        }
+        none += 1;
+        if r.near_misses.is_empty() {
+            continue;
+        }
+        with_near += 1;
+        for n in &r.near_misses {
+            assert!(!n.non_lower.is_empty());
+            assert!(n.non_lower.len() <= 1, "{:?}", n.non_lower);
+            assert!(
+                n.comb
+                    .rhs
+                    .iter()
+                    .all(|(k, _)| n.non_lower.contains(k) || lower(k, &r.key))
+            );
+        }
+        let step = with_catalogue_rule(
+            &qf,
+            &cat,
+            &r.near_misses,
+            &lower,
+            &cmp,
+            &ComposeOptions::default(),
+        )
+        .unwrap();
+        *words.entry(step.word()).or_default() += 1;
+        if let CompositeStep::Accepted { near, composite } = step {
+            accepted += 1;
+            assert!(composite.rhs.iter().all(|(k, _)| lower(k, &r.key)));
+            assert_eq!(composite.replacements.len(), 1);
+            // the composed relation lies in the span of the symmetry rows at the near miss's seeds and the rule's seeds
+            let mut seeds = near.comb.seeds();
+            for rep in &composite.replacements {
+                seeds.extend(cat.seeds.borrow()[&rep.term].iter().cloned());
+            }
+            seeds.sort();
+            seeds.dedup();
+            let rhs: Vec<(Vec<i32>, String)> = composite
+                .rhs
+                .iter()
+                .map(|(k, c)| (k.clone(), rustred_campaign_core::termmin::symrel::q_text(c)))
+                .collect();
+            let chk = verify_relation_with(&Independent, &f.group, &r.key, &rhs, &seeds, 1 << 16);
+            assert!(chk.verified(), "{chk:?}");
+            verified += 1;
+        }
+    }
+    println!(
+        "{}",
+        json!({"route0b_and_tworow_none": none, "with_near_misses": with_near, "composite": words,
+            "accepted": accepted, "verified_in_row_span": verified})
+    );
+    assert!(none > 0);
+}

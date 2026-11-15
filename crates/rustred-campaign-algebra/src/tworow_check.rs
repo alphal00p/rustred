@@ -129,7 +129,7 @@ pub fn row_by_polynomials(
             return;
         }
         let e = row.entry(k).or_insert_with(Rational::zero);
-        *e = Q.add(e, &c);
+        *e = Q.add(&*e, &c);
     };
     add(seed.to_vec(), Rational::one());
     for mono in &poly {
@@ -169,7 +169,7 @@ pub fn second_route(
         let w = rat(*w);
         for (k, c) in row {
             let e = acc.entry(k).or_insert_with(Rational::zero);
-            *e = Q.add(e, &Q.mul(&w, &c));
+            *e = Q.add(&*e, &Q.mul(&w, &c));
         }
     }
     acc.retain(|_, c| !Q.is_zero(c));
@@ -178,7 +178,7 @@ pub fn second_route(
     core.insert(comb.key.clone(), Rational::one());
     for (k, c) in &comb.rhs {
         let e = core.entry(k.clone()).or_insert_with(Rational::zero);
-        *e = Q.sub(e, &rat(*c));
+        *e = Q.sub(&*e, &rat(*c));
     }
     core.retain(|_, c| !Q.is_zero(c));
     let mut difference = None;

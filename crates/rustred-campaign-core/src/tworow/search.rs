@@ -19,7 +19,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use super::rows::{RowsError, rows_pruned};
 use super::{
-    Combination, KeyOutcome, KeyResult, PairShift, RowRef, RowSpec, SearchStats, TwoRowPolicy,
+    Combination, KeyOutcome, KeyResult, NearMiss, PairShift, RowRef, RowSpec, SearchStats,
+    TwoRowPolicy,
 };
 use crate::import::symmetry::{RelationCheck, verify_relation_with};
 use crate::replay_base::algebra::{CheckAlgebra, Q};
@@ -142,6 +143,7 @@ pub fn search_key<A: CheckAlgebra>(
         key: key.to_vec(),
         outcome: KeyOutcome::Refused { reason },
         stats: SearchStats::default(),
+        near_misses: vec![],
     };
     let g = group.group();
     if key.len() != g.arity {
@@ -343,6 +345,7 @@ pub fn search_key<A: CheckAlgebra>(
         visited: HashSet::new(),
         found: vec![],
         seen_rel: HashSet::new(),
+        near: vec![],
         stats: &mut stats,
     };
     for a in 0..prows.len() {
@@ -350,8 +353,24 @@ pub fn search_key<A: CheckAlgebra>(
             en.dfs(vec![a]);
         }
     }
+    if en.found.is_empty() && policy.max_near_misses > 0 {
+        en.visited.clear();
+        for a in 0..prows.len() {
+            if prows[a].has_k {
+                en.dfs_near(vec![a]);
+            }
+        }
+    }
     let mut found = std::mem::take(&mut en.found);
+    let mut near = std::mem::take(&mut en.near);
     drop(en);
+    near.sort_by(|a, b| {
+        a.non_lower
+            .len()
+            .cmp(&b.non_lower.len())
+            .then(a.comb.rhs.len().cmp(&b.comb.rhs.len()))
+            .then(a.comb.rows.len().cmp(&b.comb.rows.len()))
+    });
     stats.found = found.len();
     // ranking: fewest RHS terms, fewer rows, lower highest RHS key, elements, seeds (generation order)
     found.sort_by(|(sa, a), (sb, b)| {
@@ -416,10 +435,16 @@ pub fn search_key<A: CheckAlgebra>(
     } else {
         KeyOutcome::NoneInNeighbourhood
     };
+    if !matches!(outcome, KeyOutcome::Served { .. }) {
+        stats.near_misses = near.len();
+    } else {
+        near.clear();
+    }
     KeyResult {
         key: key.to_vec(),
         outcome,
         stats,
+        near_misses: near,
     }
 }
 
@@ -443,6 +468,7 @@ struct Enumerator<'x, A: CheckAlgebra> {
     /// (seed indices of the rows, relation)
     found: Vec<(Vec<usize>, Combination)>,
     seen_rel: HashSet<Vec<(u32, Q)>>,
+    near: Vec<NearMiss>,
     stats: &'x mut SearchStats,
 }
 
@@ -511,6 +537,21 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
 
     /// The exact RREF test of a subset; records a valid relation. Returns whether the subset is valid.
     fn test(&mut self, s: &[usize]) -> bool {
+        match self.eval(s, None) {
+            None => false,
+            Some((_, false)) => true, // the same relation from another subset, or a single row not reported
+            Some((comb, true)) => {
+                let seeds_of: Vec<usize> = s.iter().map(|&i| self.prows[i].seed).collect();
+                self.found.push((seeds_of, comb));
+                true
+            }
+        }
+    }
+
+    /// The echelon form of a subset with the columns in comparator order (highest first), except that `allowed` (a
+    /// non-lower term of a NEAR MISS) is placed right after the key: the key's pivot row then reads
+    /// `I(key) = c_T I(T) + lower`. Returns the relation (rhs incl. a nonzero `allowed` term) and whether it is new.
+    fn eval(&mut self, s: &[usize], allowed: Option<u32>) -> Option<(Combination, bool)> {
         let alg = self.alg;
         let mut cols: Vec<u32> = s
             .iter()
@@ -518,11 +559,27 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
             .collect();
         cols.sort_unstable();
         cols.dedup();
-        cols.sort_by(|&a, &b| self.rank[b as usize].cmp(&self.rank[a as usize]));
-        let pos: HashMap<u32, usize> = cols.iter().enumerate().map(|(i, &t)| (t, i)).collect();
-        let Some(&tcol) = pos.get(&self.kid) else {
-            return false;
+        let kr = self.rank[self.kid as usize];
+        let key_of = |t: u32| -> (u8, u32) {
+            // sort key, descending: higher terms, then the key, then the allowed term, then lower terms
+            let r = self.rank[t as usize];
+            if Some(t) == allowed {
+                (1, 0)
+            } else if r >= kr {
+                (3, r)
+            } else {
+                (0, r)
+            }
         };
+        cols.sort_by(|&a, &b| {
+            let (ca, ra) = key_of(a);
+            let (cb, rb) = key_of(b);
+            let ca = if a == self.kid { 2 } else { ca };
+            let cb = if b == self.kid { 2 } else { cb };
+            cb.cmp(&ca).then(rb.cmp(&ra))
+        });
+        let pos: HashMap<u32, usize> = cols.iter().enumerate().map(|(i, &t)| (t, i)).collect();
+        let &tcol = pos.get(&self.kid)?;
         let n = cols.len();
         let m = s.len();
         let dense: Vec<Vec<Q>> = s
@@ -542,16 +599,14 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
             Ok(x) => x,
             Err(_) => {
                 self.stats.undecided += 1;
-                return false;
+                return None;
             }
         };
-        let Some(pr) = piv.iter().position(|&p| p == tcol) else {
-            return false;
-        };
+        let pr = piv.iter().position(|&p| p == tcol)?;
         let row = &rref[pr];
         if row[..tcol].iter().any(|c| !c.is_zero()) {
             self.stats.undecided += 1; // impossible in an echelon form: fail closed
-            return false;
+            return None;
         }
         let mut rhs = vec![];
         let mut ident = vec![];
@@ -560,22 +615,22 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
                 continue;
             }
             let k = &self.keys[cols[j] as usize];
-            if (self.cmp)(k, self.key) != Ordering::Less {
+            if Some(cols[j]) != allowed && (self.cmp)(k, self.key) != Ordering::Less {
                 self.stats.not_lower += 1;
-                return false;
+                return None;
             }
             let Ok(c) = alg.q_neg(row[j]) else {
                 self.stats.undecided += 1;
-                return false;
+                return None;
             };
             ident.push((cols[j], c));
             rhs.push((k.clone(), c));
         }
         if !self.seen_rel.insert(ident) {
-            return true; // the same relation from another subset
+            return Some((Combination::empty(self.key), false));
         }
-        if m == 1 && !self.policy.single_rows {
-            return true;
+        if m == 1 && !self.policy.single_rows && allowed.is_none() {
+            return Some((Combination::empty(self.key), false));
         }
         let comb = Combination {
             key: self.key.to_vec(),
@@ -597,9 +652,74 @@ impl<A: CheckAlgebra> Enumerator<'_, A> {
             key_coefficients: s.iter().map(|&i| self.prows[i].kcoef).collect(),
             rhs,
         };
-        let seeds_of: Vec<usize> = s.iter().map(|&i| self.prows[i].seed).collect();
-        self.found.push((seeds_of, comb));
-        true
+        Some((comb, true))
+    }
+
+    /// NEAR MISSES (second pass, only when no valid combination exists): subsets of at most `max_rows` rows in which
+    /// every non-lower term but ONE cancels; that term `T` is left in the relation `I(key) = c_T I(T) + lower`
+    /// (the input of the composite with one catalogue rule at `T`, [`super::composite`]).
+    fn dfs_near(&mut self, s: Vec<usize>) {
+        // best effort: the subset budget bounds this pass too, but hitting it here claims nothing about the main
+        // search (the outcome was decided by the main pass)
+        if self.near.len() >= self.policy.max_near_misses
+            || self.visited.contains(&s)
+            || self.visited.len() >= self.policy.max_subsets
+        {
+            return;
+        }
+        self.visited.insert(s.clone());
+        let mut count: BTreeMap<u32, usize> = BTreeMap::new();
+        for &i in &s {
+            for &t in &self.prows[i].bad {
+                *count.entry(t).or_default() += 1;
+            }
+        }
+        let uncovered: Vec<u32> = count
+            .iter()
+            .filter(|(_, c)| **c == 1)
+            .map(|(t, _)| *t)
+            .collect();
+        let candidates: Vec<u32> = match uncovered.len() {
+            0 => count.keys().copied().collect(),
+            1 => uncovered.clone(),
+            _ => vec![],
+        };
+        for t in candidates {
+            if self.near.len() >= self.policy.max_near_misses {
+                break;
+            }
+            if let Some((comb, true)) = self.eval(&s, Some(t)) {
+                let non_lower: Vec<Vec<i32>> = comb
+                    .rhs
+                    .iter()
+                    .filter(|(k, _)| (self.cmp)(k, self.key) != Ordering::Less)
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                if !non_lower.is_empty() {
+                    self.near.push(NearMiss { comb, non_lower });
+                }
+            }
+        }
+        if s.len() < self.policy.max_rows {
+            let mut branch: BTreeSet<usize> = BTreeSet::new();
+            let link: Vec<u32> = if uncovered.len() > 1 {
+                uncovered[..1].to_vec()
+            } else {
+                count.keys().copied().collect()
+            };
+            for t in &link {
+                branch.extend(self.bad_index.get(t).into_iter().flatten().copied());
+            }
+            for j in branch {
+                if s.contains(&j) || !self.elements_ok(&s, j) {
+                    continue;
+                }
+                let mut s2 = s.clone();
+                s2.push(j);
+                s2.sort_unstable();
+                self.dfs_near(s2);
+            }
+        }
     }
 }
 
