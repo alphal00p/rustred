@@ -346,6 +346,65 @@ impl Laurent for SymbolicaExact {
     }
 }
 
+/// An exact basis map for re-expressing composed vectors on another terminal set (lane regbasis' `M` with the convention
+/// `T_i = sum_j M[i][j] R_j`): entries are rational functions of d (texts), read exactly and shifted to t = d - d0.
+pub struct BasisMap {
+    /// `m[i][j]` (`None` = identically zero).
+    pub m: Vec<Vec<Option<TRational>>>,
+}
+
+impl BasisMap {
+    /// Read `M` (rows of coefficient texts in d) exactly.
+    pub fn from_texts(
+        alg: &SymbolicaAlgebra,
+        lau: &SymbolicaLaurent,
+        ex: &SymbolicaExact,
+        rows: &[Vec<String>],
+    ) -> Result<BasisMap, String> {
+        let n = rows.len();
+        let mut m = Vec::with_capacity(n);
+        for r in rows {
+            if r.len() != n {
+                return Err(format!(
+                    "basis map row of length {} in a {n} x {n} map",
+                    r.len()
+                ));
+            }
+            let mut row = Vec::with_capacity(n);
+            for t in r {
+                let c = lau.coeff_from_text(alg, t, 0, &[])?;
+                row.push(ex.rational(&c));
+            }
+            m.push(row);
+        }
+        Ok(BasisMap { m })
+    }
+
+    /// `c_R = c_T M` (row vector times matrix), exactly.
+    pub fn apply(&self, v: &[Option<TRational>]) -> Result<Vec<Option<TRational>>, String> {
+        let n = self.m.len();
+        if v.len() != n {
+            return Err(format!("vector of length {} for a {n} x {n} map", v.len()));
+        }
+        let mut out: Vec<Option<TRational>> = vec![None; n];
+        for (i, vi) in v.iter().enumerate() {
+            let Some(vi) = vi else { continue };
+            for (j, mij) in self.m[i].iter().enumerate() {
+                let Some(mij) = mij else { continue };
+                let p = vi * mij;
+                out[j] = Some(match out[j].take() {
+                    None => p,
+                    Some(a) => &a + &p,
+                });
+            }
+        }
+        Ok(out
+            .into_iter()
+            .map(|o| o.filter(|r| !r.numerator.is_zero()))
+            .collect())
+    }
+}
+
 /// The core trait `Valuation` on lane poles' exact valuation (`valuation::order_at_key`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ExactValuation;
