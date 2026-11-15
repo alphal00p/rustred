@@ -46,9 +46,7 @@ fn sha(s: &str) -> String {
 /// Material: table (`skip` = chain keys WITHOUT a rule: uncovered), facts, proofs, start / layer files, import spec,
 /// closeloop config. `coef` = a tag in every coefficient (another coefficient file = another table set).
 struct Mat {
-    dir: PathBuf,
     config: PathBuf,
-    import_spec: PathBuf,
 }
 
 fn material(dir: &Path, start: &[[i32; 3]], layers: Option<Value>, skip: &[i32], tag: &str) -> Mat {
@@ -144,11 +142,8 @@ fn material(dir: &Path, start: &[[i32; 3]], layers: Option<Value>, skip: &[i32],
         .unwrap(),
     )
     .unwrap();
-    Mat {
-        dir: dir.to_path_buf(),
-        config,
-        import_spec,
-    }
+    let _ = import_spec;
+    Mat { config }
 }
 
 fn keys_file(dir: &Path, name: &str, keys: &[[i32; 3]]) -> Value {

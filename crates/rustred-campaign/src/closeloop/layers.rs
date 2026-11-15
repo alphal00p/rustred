@@ -35,6 +35,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::Sender;
 
+/// A followed edge that is not strictly lower: (key, server, term key).
+pub type BadEdge = (Vec<i32>, String, Vec<i32>);
+/// The route-free view of a statement: key -> canonical row without `in_start`, and the start keys.
+pub type StatementView = (BTreeMap<Vec<i32>, String>, BTreeSet<Vec<i32>>);
+
 pub const LAYER_RECORD_SCHEMA: &str = "rustred.campaign.closeloop-layer.v1";
 pub const ROLE_LAYER: &str = "closeloop_layer";
 
@@ -422,7 +427,7 @@ pub struct Walked {
     pub leaves: Arc<LeafSet>,
     pub scan: ZeroScan,
     pub rel_edges: u64,
-    pub rel_bad: Vec<(Vec<i32>, String, Vec<i32>)>,
+    pub rel_bad: Vec<BadEdge>,
     pub closed: bool,
     pub why: Vec<String>,
     pub keys: u64,
@@ -859,18 +864,16 @@ fn add_json(a: &mut Value, b: &Value) {
         }
         (Value::Bool(x), Value::Bool(y)) => *x = *x || *y,
         (av @ Value::Null, v) => *av = v.clone(),
-        (Value::Array(x), Value::Array(y)) => {
-            if x.iter().chain(y).all(Value::is_string) {
-                let xs: Vec<String> = x
-                    .iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect();
-                let ys: Vec<String> = y
-                    .iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect();
-                *x = merge_words(&xs, &ys).into_iter().map(Value::from).collect();
-            }
+        (Value::Array(x), Value::Array(y)) if x.iter().chain(y).all(Value::is_string) => {
+            let xs: Vec<String> = x
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            let ys: Vec<String> = y
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
+            *x = merge_words(&xs, &ys).into_iter().map(Value::from).collect();
         }
         _ => {}
     }
@@ -957,10 +960,11 @@ fn append_rows(
     src: &Path,
     start: &KeySet,
     expect_sha: Option<&str>,
-) -> Result<u64, String> {
+) -> Result<(u64, u64), String> {
     let f = std::fs::File::open(src).map_err(|e| format!("{}: {e}", src.display()))?;
     let mut own = rustred_campaign_core::closure::sha256::Sha256::new();
     let mut n = 0u64;
+    let mut n_start = 0u64;
     for l in std::io::BufReader::with_capacity(1 << 22, f).lines() {
         let l = l.map_err(|e| format!("{}: {e}", src.display()))?;
         own.update(l.as_bytes());
@@ -981,6 +985,9 @@ fn append_rows(
         h.update(line.as_bytes());
         h.update(b"\n");
         n += 1;
+        if line.contains("\"in_start\":true") {
+            n_start += 1;
+        }
     }
     if let Some(e) = expect_sha {
         let got = own.finish_hex();
@@ -991,7 +998,7 @@ fn append_rows(
             ));
         }
     }
-    Ok(n)
+    Ok((n, n_start))
 }
 
 /// The key of a canonical statement line (`"key":[..]`) without a full parse.
@@ -1021,20 +1028,24 @@ pub fn compose(
         std::fs::File::create(rows_path).map_err(|e| format!("{}: {e}", rows_path.display()))?;
     let mut w = std::io::BufWriter::with_capacity(1 << 20, f);
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
-    let mut n = 0u64;
+    let (mut n, mut n_start) = (0u64, 0u64);
     let start = &set.start;
     for l in &plan.layers {
-        if let Some(fz) = plan.frozen.get(&l.idx) {
-            n += append_rows(
+        let (a, b) = if let Some(fz) = plan.frozen.get(&l.idx) {
+            append_rows(
                 &mut w,
                 &mut h,
                 Path::new(&fz.rec.rows.path),
                 start,
                 Some(&fz.rec.rows.sha256),
-            )?;
+            )?
         } else if let Some(x) = walked.iter().find(|x| x.idx == l.idx) {
-            n += append_rows(&mut w, &mut h, &x.rows_path, start, None)?;
-        }
+            append_rows(&mut w, &mut h, &x.rows_path, start, None)?
+        } else {
+            (0, 0)
+        };
+        n += a;
+        n_start += b;
     }
     w.flush().map_err(|e| e.to_string())?;
     let summaries: Vec<&ClosureSummary> = walked.iter().map(|x| &x.res.summary).collect();
@@ -1101,12 +1112,15 @@ pub fn compose(
                 image: None,
             });
         }
-        summary.keys_total += fz.rec.keys;
         summary.terminals_other += fz.rec.terminals.len() as u64;
     }
     for r in rows.iter_mut() {
         r.in_start = start.contains(&r.key);
     }
+    // the composed numbers count every key once (a later layer's leaf hits are rows of the layer that holds them)
+    summary.keys_total = n;
+    summary.keys_in_start = n_start;
+    summary.keys_outside = n - n_start;
     rows.sort_by(|a, b| a.key.cmp(&b.key));
     solve_requests.sort();
     // leaves of the node = the prior clauses' leaf sets (every frozen / walked layer is in `key_set`)
@@ -1165,7 +1179,7 @@ pub fn compose(
 }
 
 /// The merged scan of the walked layers (node-level decisive zeros and descent).
-pub fn merged_scan(walked: &[Walked]) -> (ZeroScan, u64, Vec<(Vec<i32>, String, Vec<i32>)>) {
+pub fn merged_scan(walked: &[Walked]) -> (ZeroScan, u64, Vec<BadEdge>) {
     let mut z = ZeroScan::default();
     let mut rel_edges = 0u64;
     let mut rel_bad = vec![];
@@ -1282,9 +1296,7 @@ pub fn node_leafset(
 // ------------------------------------------------------------------------------------------------ equality
 
 /// The route-free per-key view of a statement (key -> canonical row without `in_start`) and its start keys.
-pub fn statement_view(
-    path: &Path,
-) -> Result<(BTreeMap<Vec<i32>, String>, BTreeSet<Vec<i32>>), String> {
+pub fn statement_view(path: &Path) -> Result<StatementView, String> {
     let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut m = BTreeMap::new();
     let mut st = BTreeSet::new();
