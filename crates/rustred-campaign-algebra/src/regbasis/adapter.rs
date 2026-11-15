@@ -110,7 +110,7 @@ fn series_text(s: &QSeries, abs_prec: i64) -> Result<SeriesText, String> {
 }
 
 /// TCoeff (t^v n1/d1, n1, d1 over Q in t) -> a rational function over Z in t.
-fn tcoeff_rf(c: &TCoeff, tv: &Arc<Vec<PolyVariable>>) -> Option<RF> {
+pub fn tcoeff_rf(c: &TCoeff, tv: &Arc<Vec<PolyVariable>>) -> Option<RF> {
     match c {
         TCoeff::Zero => None,
         TCoeff::Ratio { v, n1, d1 } => {
@@ -155,7 +155,7 @@ fn qp_ratio(n: &QP, d: &QP, tv: &Arc<Vec<PolyVariable>>) -> RF {
 }
 
 /// A rational function of t -> the same function of d (t = d - d0), over Z in the variable d.
-fn rf_t_to_d(r: &RF, d0: &Rational) -> RF {
+pub fn rf_t_to_d(r: &RF, d0: &Rational) -> RF {
     let dv = d_vars();
     let back = |p: &ZP| -> QP {
         let q: QP = p
