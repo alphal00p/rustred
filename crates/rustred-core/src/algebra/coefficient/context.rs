@@ -131,7 +131,7 @@ impl CoefficientContext {
     /// parameters) and every result whose left operand descends from it updates only this thread's
     /// reference counts; with the shared `template`, all threads updated one count. Values are identical
     /// (`algebra::thread_owned`).
-    pub(crate) fn thread_template(&self) -> CoefficientPolynomial {
+    pub(crate) fn thread_template(&self) -> crate::algebra::CoefficientPolynomial {
         crate::algebra::thread_owned::zero_with_capacity_thread_owned(&self.template.numerator, 0)
     }
 
