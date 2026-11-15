@@ -26,6 +26,10 @@ pub mod sweep;
 pub mod symmetry;
 // lane zeros2: structural zero proofs of rule terms as a fact source (interfaces/zero-proofs.md)
 pub mod zero_proofs;
+// lane arrivals: certified arrival sets per DAG edge (src/arrivals/; interfaces/arrivals.md). Placed here until the
+// integration lane grants `pub mod arrivals;` in lib.rs (REQUEST TO I-INT); internal paths use `crate::` and stay valid.
+#[path = "../arrivals/mod.rs"]
+pub mod arrivals;
 
 pub use check::{CheckOptions, CheckResult, KeyRow, RowStatus, Server, SolveRequest, check};
 pub use error::ImportError;

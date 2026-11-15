@@ -96,6 +96,14 @@ struct Term {
     den: Option<ZPoly>,
 }
 
+/// lane arrivals: a term restricted to a locus (`RecordProver::restrict`).
+struct Restricted {
+    num: ZPoly,
+    den: Option<ZPoly>,
+    exc: Vec<Vec<ZPoly>>,
+    used: Vec<u32>,
+}
+
 /// The tool object of a summary / version output.
 pub fn tool() -> Value {
     json!({"program": PROGRAM, "version": env!("CARGO_PKG_VERSION"), "backend": "symbolica", "symbolica": SYMBOLICA_REV})
@@ -139,6 +147,8 @@ pub struct RecordProver<'r> {
     pub outcomes: BTreeMap<(usize, Locus), (Outcome, f64)>,
     /// Outcomes decided since the last [`RecordProver::take_new`].
     fresh: Vec<(usize, Locus)>,
+    /// lane arrivals: decided non-zero attempts of hand-down terms per (term, locus).
+    pub nz_outcomes: BTreeMap<(usize, Locus), (NzOutcome, f64)>,
 }
 
 fn int(v: i64) -> Integer {
@@ -230,6 +240,7 @@ impl<'r> RecordProver<'r> {
             terms: HashMap::new(),
             outcomes: BTreeMap::new(),
             fresh: vec![],
+            nz_outcomes: BTreeMap::new(),
         })
     }
 
@@ -331,27 +342,57 @@ impl<'r> RecordProver<'r> {
     }
 
     fn decide(&mut self, j: usize, locus: Locus) -> Outcome {
+        let r = match self.restrict(j, locus) {
+            Ok(r) => r,
+            Err(o) => return o,
+        };
+        let (num, den, exc_l, used) = (r.num, r.den, r.exc, r.used);
+        if !num.is_zero() {
+            return Outcome::NotProved(
+                "the numerator does not vanish identically on the locus".into(),
+            );
+        }
+        let den_status = match &den {
+            None => DenStatus::NowhereZero,
+            Some(d) if d.is_zero() => {
+                return Outcome::NotProved(
+                    "the denominator vanishes identically on the locus (coefficient undefined)"
+                        .into(),
+                );
+            }
+            Some(d) => self.classify_den(d, &exc_l, locus),
+        };
+        Outcome::Proved {
+            den: den_status,
+            equations: used,
+        }
+    }
+
+    /// lane arrivals: term j restricted to `locus` (the record's constants, the plane, the case equations solved for
+    /// unit parameters, exception branches restricted), or the early outcome (excluded / unreadable). Logic moved
+    /// unchanged out of `decide`, which zeros2 wrote; the non-zero test of hand-down terms shares it.
+    fn restrict(&mut self, j: usize, locus: Locus) -> Result<Restricted, Outcome> {
         if let Locus::Plane { param, value } = locus {
             if param as usize >= self.arity {
-                return Outcome::NotProved(format!("parameter {param} out of range"));
+                return Err(Outcome::NotProved(format!("parameter {param} out of range")));
             }
             if let Some(c) = self.konst[param as usize]
                 && c != value
             {
-                return Outcome::Excluded(format!("n{param} is the constant {c} on the record"));
+                return Err(Outcome::Excluded(format!("n{param} is the constant {c} on the record")));
             }
         }
         let term = match self.term(j) {
             Ok(t) => t.clone(),
-            Err(e) => return Outcome::NotProved(format!("coefficient text: {e}")),
+            Err(e) => return Err(Outcome::NotProved(format!("coefficient text: {e}"))),
         };
         let eqs = match self.equations() {
             Ok(e) => e,
-            Err(e) => return Outcome::NotProved(format!("case equation: {e}")),
+            Err(e) => return Err(Outcome::NotProved(format!("case equation: {e}"))),
         };
         let excs = match self.exceptions() {
             Ok(e) => e,
-            Err(e) => return Outcome::NotProved(format!("exception: {e}")),
+            Err(e) => return Err(Outcome::NotProved(format!("exception: {e}"))),
         };
         let dvar = self.arity;
         let mut num = self.at_locus(&term.num, locus);
@@ -376,7 +417,7 @@ impl<'r> RecordProver<'r> {
             .collect();
         let mut used: Vec<u32> = vec![];
         if eq_l.iter().any(|e| !e.is_zero() && e.is_constant()) {
-            return Outcome::Excluded("a case equation is a non-zero constant on the locus".into());
+            return Err(Outcome::Excluded("a case equation is a non-zero constant on the locus".into()));
         }
         if !num.is_zero() && !eq_l.is_empty() {
             // solve the equations for unit parameters, one after the other
@@ -386,9 +427,9 @@ impl<'r> RecordProver<'r> {
                     continue;
                 }
                 if e.is_constant() {
-                    return Outcome::Excluded(format!(
+                    return Err(Outcome::Excluded(format!(
                         "case equation {i} is a non-zero constant on the locus"
-                    ));
+                    )));
                 }
                 let Some((x, sol)) = unit_solution(&e, dvar) else {
                     continue;
@@ -405,9 +446,9 @@ impl<'r> RecordProver<'r> {
                 }
                 used.push(i as u32);
                 if eq_l.iter().any(|f| !f.is_zero() && f.is_constant()) {
-                    return Outcome::Excluded(
+                    return Err(Outcome::Excluded(
                         "the case equations are inconsistent on the locus".into(),
-                    );
+                    ));
                 }
             }
         }
@@ -415,27 +456,14 @@ impl<'r> RecordProver<'r> {
             .iter()
             .position(|b| !b.is_empty() && b.iter().all(ZPoly::is_zero))
         {
-            return Outcome::Excluded(format!("exception branch {b} holds the whole locus"));
+            return Err(Outcome::Excluded(format!("exception branch {b} holds the whole locus")));
         }
-        if !num.is_zero() {
-            return Outcome::NotProved(
-                "the numerator does not vanish identically on the locus".into(),
-            );
-        }
-        let den_status = match &den {
-            None => DenStatus::NowhereZero,
-            Some(d) if d.is_zero() => {
-                return Outcome::NotProved(
-                    "the denominator vanishes identically on the locus (coefficient undefined)"
-                        .into(),
-                );
-            }
-            Some(d) => self.classify_den(d, &exc_l, locus),
-        };
-        Outcome::Proved {
-            den: den_status,
-            equations: used,
-        }
+        Ok(Restricted {
+            num,
+            den,
+            exc: exc_l,
+            used,
+        })
     }
 
     fn classify_den(&self, d: &ZPoly, excs: &[Vec<ZPoly>], locus: Locus) -> DenStatus {
@@ -1083,4 +1111,399 @@ pub fn prove_posnum_record(p: &mut RecordProver<'_>, c: &mut PosnumCounts) -> Ve
         }
     }
     p.take_new()
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// lane arrivals (interfaces/zero-proofs.md section 6, interfaces/arrivals.md): HAND-DOWN terms. A term j of a record is a
+// hand-down term at a rule point where one of its LINE slots drops to <= 0 (no positive numerator). Its locus is a finite
+// union of planes n_p = v (line slot pattern n_p + offset: v from the parameter's lower bound up to -offset) or the whole
+// domain (a constant line slot <= 0). Per (term, locus): ZERO (zeros2's proof: the numerator restricted to the locus is
+// the zero polynomial), NON-ZERO (the restricted numerator passes the nowhere-zero test zeros2 applies to denominators:
+// a d-coefficient that is a non-zero constant, or every irreducible factor has one / is d-free and divides a
+// one-polynomial exception branch / is d-free, linear and of constant sign on the chart orthant: it is then not
+// identically zero in d at ANY rule point of the locus), or NOT DECIDED (the numerator vanishes on a sub-locus or the
+// test does not apply): the key is decided per key.
+// ---------------------------------------------------------------------------------------------------------------------
+
+/// Schema of a non-zero / not-decided line of a hand-down locus.
+pub const NONZERO_PROOF_SCHEMA: &str = "rustred.campaign.nonzero-proof.v1";
+/// Schema of the header of a hand-down proof file.
+pub const HANDDOWN_HEADER_SCHEMA: &str = "rustred.campaign.handdown-proof-header.v1";
+/// `method` of the hand-down lines.
+pub const HANDDOWN_METHOD: &str = "structural.handdown.v1";
+/// What `structural.handdown.v1` means.
+pub const HANDDOWN_METHOD_DOC: &str = "hand-down loci (planes where a line slot of the term drops to <= 0, or the domain); \
+     zero: as structural.v1; nonzero_on_locus: the numerator restricted to the locus (constants, plane, case equations \
+     solved for unit parameters) is not the zero polynomial and passes the nowhere-zero test of structural.v1's \
+     denominator classification (constant d-coefficient / factor test); per_key: neither";
+
+/// The outcome of a non-zero attempt of term j on a locus.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NzOutcome {
+    /// The restricted numerator is never identically zero in d on the locus; `class` = `constant_d_coefficient` |
+    /// `factors`; `den` = the restricted denominator's class.
+    NonZero {
+        class: &'static str,
+        den: DenStatus,
+        equations: Vec<u32>,
+    },
+    /// The restricted numerator IS the zero polynomial (a zero proof decides it).
+    Zero,
+    NotDecided(String),
+    Excluded(String),
+}
+
+impl RecordProver<'_> {
+    /// lane arrivals: whether slot `i` is a line of the frame.
+    pub fn is_line(&self, i: usize) -> bool {
+        self.lines.get(i).copied().unwrap_or(false)
+    }
+
+    /// lane arrivals: the parsed numerator / denominator polynomials of term j (variables n0..n{N-1}, d).
+    pub fn term_polys(&mut self, j: usize) -> Result<(&ZPoly, Option<&ZPoly>), String> {
+        let t = self.term(j)?;
+        Ok((&t.num, t.den.as_ref()))
+    }
+
+    /// lane arrivals: the hand-down loci of term j over the record's domain: (loci, budget / unbounded refusals).
+    pub fn handdown_loci(&self, j: usize) -> (Vec<Locus>, Vec<String>) {
+        let mut loci = vec![];
+        let mut refused = vec![];
+        let Some(Some(sl)) = self.slots.get(j) else {
+            refused.push(format!("term {j}: unreadable pattern"));
+            return (loci, refused);
+        };
+        for (i, s) in sl.iter().enumerate() {
+            if !self.lines[i] {
+                continue;
+            }
+            match *s {
+                RhsSlot::Const(c) => {
+                    if c <= 0 {
+                        loci.push(Locus::Domain);
+                    }
+                }
+                RhsSlot::Param { param, offset } => {
+                    if param >= self.arity {
+                        refused.push(format!("term {j}: parameter {param} out of range"));
+                        continue;
+                    }
+                    let top = -(offset as i64);
+                    if let Some(c) = self.konst[param] {
+                        if c <= top {
+                            loci.push(Locus::Domain);
+                        }
+                        continue;
+                    }
+                    let upper = self.hi[param].map_or(top, |h| h.min(top));
+                    match self.lo[param] {
+                        None => {
+                            refused.push(format!(
+                                "term {j} slot {i}: n{param} unbounded below (not a finite union of planes)"
+                            ));
+                            loci.push(Locus::Domain);
+                        }
+                        Some(l) if l > upper => {}
+                        Some(l) => {
+                            if (upper - l + 1) as usize > self.cfg.max_planes {
+                                refused.push(format!(
+                                    "term {j} slot {i}: {} planes above the budget {}",
+                                    upper - l + 1,
+                                    self.cfg.max_planes
+                                ));
+                                loci.push(Locus::Domain);
+                            } else {
+                                for v in l..=upper {
+                                    loci.push(Locus::Plane {
+                                        param: param as u32,
+                                        value: v,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        loci.sort();
+        loci.dedup();
+        (loci, refused)
+    }
+
+    /// lane arrivals: decide the NON-ZERO attempt of (term j, locus) once (cached).
+    pub fn prove_nonzero(&mut self, j: usize, locus: Locus) -> NzOutcome {
+        if let Some((o, _)) = self.nz_outcomes.get(&(j, locus)) {
+            return o.clone();
+        }
+        let t0 = Instant::now();
+        let o = match self.restrict(j, locus) {
+            Err(Outcome::Excluded(x)) => NzOutcome::Excluded(x),
+            Err(Outcome::NotProved(x)) => NzOutcome::NotDecided(x),
+            Err(Outcome::Proved { .. }) => NzOutcome::NotDecided("internal".into()),
+            Ok(r) => {
+                if r.num.is_zero() {
+                    NzOutcome::Zero
+                } else {
+                    match &r.den {
+                        Some(d) if d.is_zero() => NzOutcome::NotDecided(
+                            "the denominator vanishes identically on the locus".into(),
+                        ),
+                        den => {
+                            let den = match den {
+                                None => DenStatus::NowhereZero,
+                                Some(d) => self.classify_den(d, &r.exc, locus),
+                            };
+                            let dvar = self.arity;
+                            if has_constant_d_coefficient(&r.num, dvar) {
+                                NzOutcome::NonZero {
+                                    class: "constant_d_coefficient",
+                                    den,
+                                    equations: r.used,
+                                }
+                            } else if self.classify_den(&r.num, &r.exc, locus) == DenStatus::NowhereZero {
+                                NzOutcome::NonZero {
+                                    class: "factors",
+                                    den,
+                                    equations: r.used,
+                                }
+                            } else {
+                                NzOutcome::NotDecided(
+                                    "the numerator may vanish on a sub-locus (zero set of its restriction)".into(),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        self.nz_outcomes
+            .insert((j, locus), (o.clone(), t0.elapsed().as_secs_f64()));
+        o
+    }
+
+    /// lane arrivals: the candidate loci of hand-down term j at rule point `pt` (term key `tk`): the domain, then the plane
+    /// of every line slot the term drops there.
+    pub fn handdown_candidates(&self, j: usize, pt: &[i32], tk: &[i32]) -> Vec<Locus> {
+        let mut c = vec![Locus::Domain];
+        if let Some(Some(sl)) = self.slots.get(j) {
+            for (i, s) in sl.iter().enumerate() {
+                if self.lines[i]
+                    && tk.get(i).is_some_and(|&x| x <= 0)
+                    && let RhsSlot::Param { param, .. } = *s
+                    && param < self.arity
+                    && self.konst[param].is_none()
+                {
+                    let l = Locus::Plane {
+                        param: param as u32,
+                        value: pt[param] as i64,
+                    };
+                    if !c.contains(&l) {
+                        c.push(l);
+                    }
+                }
+            }
+        }
+        c
+    }
+
+    /// lane arrivals: the STRUCTURAL word of hand-down term j at rule point `pt` (None: not decided structurally) and how:
+    /// `zero:<locus>` / `nonzero:<locus>` (`+den` = the denominator was evaluated at the key).
+    pub fn handdown_structural(&mut self, j: usize, pt: &[i32], tk: &[i32]) -> Option<(CoefFact, String)> {
+        let cands = self.handdown_candidates(j, pt, tk);
+        let name = |l: Locus| match l {
+            Locus::Domain => "domain".to_string(),
+            Locus::Plane { param, value } => format!("plane:{param}={value}"),
+        };
+        for &l in &cands {
+            if let Outcome::Proved { den, .. } = self.prove(j, l) {
+                return Some(match den {
+                    DenStatus::NowhereZero => (CoefFact::Zero, format!("zero:{}", name(l))),
+                    DenStatus::WhereRegular => {
+                        if self.den_vanishes_at(j, pt) {
+                            (CoefFact::Unknown, format!("zero:{}+den", name(l)))
+                        } else {
+                            (CoefFact::Zero, format!("zero:{}+den", name(l)))
+                        }
+                    }
+                });
+            }
+        }
+        for &l in &cands {
+            if let NzOutcome::NonZero { den, .. } = self.prove_nonzero(j, l) {
+                return Some(match den {
+                    DenStatus::NowhereZero => (CoefFact::NonZero, format!("nonzero:{}", name(l))),
+                    DenStatus::WhereRegular => {
+                        if self.den_vanishes_at(j, pt) {
+                            (CoefFact::Unknown, format!("nonzero:{}+den", name(l)))
+                        } else {
+                            (CoefFact::NonZero, format!("nonzero:{}+den", name(l)))
+                        }
+                    }
+                });
+            }
+        }
+        None
+    }
+
+    /// lane arrivals: the word of hand-down term j at `pt`: structural first, else the exact per-key evaluation (`key`).
+    pub fn handdown_word(&mut self, j: usize, pt: &[i32], tk: &[i32]) -> (CoefFact, String) {
+        match self.handdown_structural(j, pt, tk) {
+            Some(x) => x,
+            None => (self.word_at(j, pt), "key".into()),
+        }
+    }
+
+    /// lane arrivals: whether the denominator of term j vanishes identically in d at `pt` (exact).
+    pub fn den_vanishes(&mut self, j: usize, pt: &[i32]) -> bool {
+        self.den_vanishes_at(j, pt)
+    }
+
+    /// lane arrivals: the record's sha256 (hex) and index.
+    pub fn record_id(&self) -> (&str, Option<i64>) {
+        (&self.sha, self.rule.index())
+    }
+}
+
+/// lane arrivals: the line of a non-zero / not-decided hand-down locus.
+pub fn nonzero_line(sha: &str, rule: Option<i64>, j: usize, l: Locus, o: &NzOutcome, secs: f64) -> Value {
+    let mut v = json!({"schema": NONZERO_PROOF_SCHEMA, "record_sha256": sha, "rule": rule, "term": j, "locus": l.json(),
+        "class": "hand_down", "method": HANDDOWN_METHOD, "tool": tool_word(), "seconds": (secs * 1e6).round() / 1e6});
+    match o {
+        NzOutcome::NonZero { class, den, equations } => {
+            v["verdict"] = json!("nonzero_on_locus");
+            v["numerator"] = json!(class);
+            v["denominator"] = json!(den.word());
+            v["equations"] = json!(equations);
+        }
+        NzOutcome::Zero => v["verdict"] = json!("zero_on_locus"),
+        NzOutcome::NotDecided(r) => {
+            v["verdict"] = json!("per_key");
+            v["reason"] = json!(r);
+        }
+        NzOutcome::Excluded(r) => {
+            v["verdict"] = json!("excluded");
+            v["reason"] = json!(r);
+        }
+    }
+    v
+}
+
+/// lane arrivals: counts of [`prove_handdown_record`].
+#[derive(Clone, Debug, Default, serde::Serialize)]
+pub struct HandDownCounts {
+    pub records: u64,
+    pub records_refused: u64,
+    pub handdown_terms: u64,
+    pub terms_fully_decided: u64,
+    pub loci: u64,
+    pub zero: u64,
+    pub zero_nowhere: u64,
+    pub nonzero: u64,
+    pub per_key: u64,
+    pub excluded: u64,
+    pub budget_refusals: u64,
+}
+
+impl HandDownCounts {
+    pub fn add(&mut self, o: &HandDownCounts) {
+        self.records += o.records;
+        self.records_refused += o.records_refused;
+        self.handdown_terms += o.handdown_terms;
+        self.terms_fully_decided += o.terms_fully_decided;
+        self.loci += o.loci;
+        self.zero += o.zero;
+        self.zero_nowhere += o.zero_nowhere;
+        self.nonzero += o.nonzero;
+        self.per_key += o.per_key;
+        self.excluded += o.excluded;
+        self.budget_refusals += o.budget_refusals;
+    }
+}
+
+/// lane arrivals: decide every hand-down locus of every term of one record: a domain zero proof first (it covers every
+/// plane), else per locus zero / non-zero / per_key. One line per decided (term, locus): zero claims as zero-proof.v1
+/// lines with `class: hand_down` (+ `den` for where_regular), non-zero and per_key as nonzero-proof.v1 lines
+/// (excluded loci only with `all`).
+pub fn prove_handdown_record(p: &mut RecordProver<'_>, c: &mut HandDownCounts, all: bool) -> Vec<Value> {
+    c.records += 1;
+    let mut out = vec![];
+    let (sha, rule) = (p.sha.clone(), p.rule.index());
+    for j in 0..p.n_terms() {
+        let (loci, refused) = p.handdown_loci(j);
+        if loci.is_empty() && refused.is_empty() {
+            continue;
+        }
+        c.handdown_terms += 1;
+        c.budget_refusals += refused.len() as u64;
+        let zero_line = |p: &mut RecordProver<'_>, l: Locus, o: &Outcome, secs: f64| {
+            let mut v = proof_line(&sha, rule, j, l, o, secs);
+            v["class"] = json!("hand_down");
+            if matches!(o, Outcome::Proved { den: DenStatus::WhereRegular, .. })
+                && let Ok((_, Some(d))) = p.side_texts(j)
+            {
+                v["den"] = json!(d.trim());
+            }
+            v
+        };
+        let o = p.prove(j, Locus::Domain);
+        if let Outcome::Proved { den, .. } = &o {
+            c.loci += 1;
+            c.zero += 1;
+            c.zero_nowhere += (*den == DenStatus::NowhereZero) as u64;
+            c.terms_fully_decided += 1;
+            let secs = p.outcomes[&(j, Locus::Domain)].1;
+            out.push(zero_line(p, Locus::Domain, &o, secs));
+            continue;
+        }
+        let mut decided = true;
+        for l in loci {
+            c.loci += 1;
+            let o = p.prove(j, l);
+            match &o {
+                Outcome::Proved { den, .. } => {
+                    c.zero += 1;
+                    c.zero_nowhere += (*den == DenStatus::NowhereZero) as u64;
+                    let secs = p.outcomes[&(j, l)].1;
+                    out.push(zero_line(p, l, &o, secs));
+                    continue;
+                }
+                Outcome::Excluded(_) => {
+                    c.excluded += 1;
+                    if all {
+                        let secs = p.outcomes[&(j, l)].1;
+                        out.push(zero_line(p, l, &o, secs));
+                    }
+                    continue;
+                }
+                Outcome::NotProved(_) => {}
+            }
+            let nz = p.prove_nonzero(j, l);
+            let secs = p.nz_outcomes[&(j, l)].1;
+            match &nz {
+                NzOutcome::NonZero { .. } => c.nonzero += 1,
+                NzOutcome::Excluded(_) => {
+                    c.excluded += 1;
+                    if !all {
+                        continue;
+                    }
+                }
+                NzOutcome::Zero | NzOutcome::NotDecided(_) => {
+                    c.per_key += 1;
+                    decided = false;
+                }
+            }
+            let mut v = nonzero_line(&sha, rule, j, l, &nz, secs);
+            if let NzOutcome::NonZero { den: DenStatus::WhereRegular, .. } = nz
+                && let Ok((_, Some(d))) = p.side_texts(j)
+            {
+                v["den"] = json!(d.trim());
+            }
+            out.push(v);
+        }
+        if decided && refused.is_empty() {
+            c.terms_fully_decided += 1;
+        }
+    }
+    p.fresh.clear();
+    out
 }

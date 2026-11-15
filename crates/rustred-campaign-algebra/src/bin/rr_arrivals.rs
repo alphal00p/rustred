@@ -1,0 +1,961 @@
+//! `rr_arrivals`: CERTIFIED ARRIVAL SETS per DAG edge parent -> child (lane arrivals; interfaces/arrivals.md).
+//!
+//! ```text
+//! rr_arrivals prove-handdowns --tables T [..] --out P [--threads N] [--summary S] [--all-lines] [--max-planes K]
+//! rr_arrivals verify-handdown-proofs --tables T [..] --proofs P [..] [--threads N] [--summary S]
+//! rr_arrivals compute --spec PARENT_SPEC --rows ROWS --edge E [--edge E2 ..] --out-dir D --parent NAME
+//!                     [--child-table LABEL=PATH ..] [--edge-producer TEXT] [--exact all|none|keys:FILE]
+//!                     [--no-structural] [--threads N] [--index-dir DIR] [--decisions-sample N] [--cache-entries N]
+//! rr_arrivals verify --spec PARENT_SPEC --rows ROWS --edge E [..] --arrivals A [..] [--sample N] [--threads N]
+//!                    [--index-dir DIR]
+//! rr_arrivals child-check --spec CHILD_SPEC --statement F --arrivals NAME=A [..] --out REPORT --work-dir W
+//!                    [--threads N] [--index-dir DIR]
+//! rr_arrivals second-route --spec PARENT_SPEC --decisions D --facts F [..] --out REPORT [--index-dir DIR]
+//! rr_arrivals compare-engine --edge E --facts ENGINE.keys.jsonl [..] [--out REPORT]
+//! rr_arrivals version
+//! ```
+//! Needs the Symbolica licence (`source WS/ops/env.sh`) for every command but `child-check` and `version`. Exit 0 = ok /
+//! verified, 3 = a mismatch (verifiers), 2 = error. Nothing here names a node: parents, children, frames, edges are data.
+
+#[path = "../arrivals.rs"]
+mod arrivals;
+#[path = "../coef_facts.rs"]
+#[allow(dead_code)]
+mod coef_facts;
+#[path = "../zero_proofs.rs"]
+#[allow(dead_code)]
+mod zero_proofs;
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::path::{Path, PathBuf};
+
+use rustred_campaign_algebra::SymbolicaAlgebra;
+use rustred_campaign_core::closure::CoefFact;
+use rustred_campaign_core::import::arrivals::edge::EdgeFile;
+use rustred_campaign_core::import::arrivals::format::{self, ArrivalSet};
+use rustred_campaign_core::import::arrivals::rows::ParentRows;
+use rustred_campaign_core::import::arrivals::{CHILD_CHECK_SCHEMA, canonical_json, child, parse_key};
+use rustred_campaign_core::import::{Evidence, ImportedSet, LoadOptions, TableSetSpec, load_with};
+use serde_json::{Value, json};
+
+fn die(msg: &str) -> ! {
+    println!("{}", json!({"verdict": "ERROR", "error": msg}));
+    std::process::exit(2);
+}
+
+#[derive(Default)]
+struct Args {
+    tables: Vec<PathBuf>,
+    proofs: Vec<PathBuf>,
+    out: Option<PathBuf>,
+    out_dir: Option<PathBuf>,
+    summary: Option<PathBuf>,
+    spec: Option<PathBuf>,
+    rows: Option<PathBuf>,
+    edges: Vec<PathBuf>,
+    arrivals: Vec<String>,
+    child_tables: Vec<String>,
+    parent: Option<String>,
+    statement: Option<PathBuf>,
+    work_dir: Option<PathBuf>,
+    index_dir: Option<PathBuf>,
+    decisions: Option<PathBuf>,
+    facts: Vec<PathBuf>,
+    edge_producer: String,
+    exact: String,
+    map: String,
+    maps: Vec<String>,
+    threads: usize,
+    sample: usize,
+    decisions_sample: usize,
+    cache_entries: usize,
+    max_planes: usize,
+    all_lines: bool,
+    no_structural: bool,
+}
+
+fn parse(args: &[String]) -> Args {
+    let mut a = Args {
+        threads: 4,
+        exact: "all".into(),
+        map: "chosen".into(),
+        cache_entries: 20_000_000,
+        max_planes: 64,
+        ..Default::default()
+    };
+    let mut i = 0;
+    let val = |i: &mut usize| -> String {
+        *i += 1;
+        args.get(*i).cloned().unwrap_or_else(|| die(&format!("{} needs a value", args[*i - 1])))
+    };
+    let num = |s: String| -> usize { s.parse().unwrap_or_else(|_| die(&format!("not a number: {s}"))) };
+    while i < args.len() {
+        match args[i].as_str() {
+            "--tables" => a.tables.push(val(&mut i).into()),
+            "--proofs" => a.proofs.push(val(&mut i).into()),
+            "--out" => a.out = Some(val(&mut i).into()),
+            "--out-dir" => a.out_dir = Some(val(&mut i).into()),
+            "--summary" => a.summary = Some(val(&mut i).into()),
+            "--spec" => a.spec = Some(val(&mut i).into()),
+            "--rows" => a.rows = Some(val(&mut i).into()),
+            "--edge" => a.edges.push(val(&mut i).into()),
+            "--arrivals" => a.arrivals.push(val(&mut i)),
+            "--child-table" => a.child_tables.push(val(&mut i)),
+            "--parent" => a.parent = Some(val(&mut i)),
+            "--statement" => a.statement = Some(val(&mut i).into()),
+            "--work-dir" => a.work_dir = Some(val(&mut i).into()),
+            "--index-dir" => a.index_dir = Some(val(&mut i).into()),
+            "--decisions" => a.decisions = Some(val(&mut i).into()),
+            "--facts" => a.facts.push(val(&mut i).into()),
+            "--edge-producer" => a.edge_producer = val(&mut i),
+            "--exact" => a.exact = val(&mut i),
+            "--map" => a.map = val(&mut i),
+            "--maps" => a.maps = val(&mut i).split(',').map(str::to_string).collect(),
+            "--threads" => a.threads = num(val(&mut i)).max(1),
+            "--sample" => a.sample = num(val(&mut i)),
+            "--decisions-sample" => a.decisions_sample = num(val(&mut i)),
+            "--cache-entries" => a.cache_entries = num(val(&mut i)),
+            "--max-planes" => a.max_planes = num(val(&mut i)),
+            "--all-lines" => a.all_lines = true,
+            "--no-structural" => a.no_structural = true,
+            x => die(&format!("unknown argument {x}")),
+        }
+        i += 1;
+    }
+    a
+}
+
+fn algebra() -> &'static SymbolicaAlgebra {
+    let a = SymbolicaAlgebra::new().unwrap_or_else(|e| die(&format!("UNSUPPORTED: {e}")));
+    arrivals::check_primes().unwrap_or_else(|e| die(&e));
+    Box::leak(Box::new(a))
+}
+
+fn file_sha256(p: &Path) -> Result<(String, u64), String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    let mut buf = vec![0u8; 1 << 22];
+    let mut n = 0u64;
+    loop {
+        let k = f.read(&mut buf).map_err(|e| format!("{}: {e}", p.display()))?;
+        if k == 0 {
+            break;
+        }
+        h.update(&buf[..k]);
+        n += k as u64;
+    }
+    Ok((h.finish_hex(), n))
+}
+
+fn write_json(p: &Path, v: &Value) {
+    let tmp = p.with_extension("part");
+    std::fs::write(&tmp, format!("{}\n", serde_json::to_string_pretty(v).unwrap_or_default()))
+        .unwrap_or_else(|e| die(&format!("{}: {e}", tmp.display())));
+    std::fs::rename(&tmp, p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+}
+
+/// Byte offsets of every line of a table file that may be a rule record (same scan as rr_coef_facts).
+fn rule_offsets(p: &Path) -> Result<Vec<u64>, String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let mut buf = vec![0u8; 1 << 22];
+    let (mut off, mut start, mut head): (u64, u64, Vec<u8>) = (0, 0, vec![]);
+    let mut out = vec![];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| format!("{}: {e}", p.display()))?;
+        if n == 0 {
+            break;
+        }
+        for &c in &buf[..n] {
+            if c == b'\n' {
+                if head.windows(6).any(|w| w == b"\"rule\"") {
+                    out.push(start);
+                }
+                head.clear();
+                start = off + 1;
+            } else if head.len() < 256 {
+                head.push(c);
+            }
+            off += 1;
+        }
+    }
+    if !head.is_empty() && head.windows(6).any(|w| w == b"\"rule\"") {
+        out.push(start);
+    }
+    Ok(out)
+}
+
+fn tables_header(tables: &[PathBuf]) -> Value {
+    let mut list = vec![];
+    let mut names = vec![];
+    for tp in tables {
+        let (sha, bytes) = file_sha256(tp).unwrap_or_else(|e| die(&e));
+        names.push((tp.display().to_string(), sha.clone()));
+        list.push(json!({"path": tp, "sha256": sha, "bytes": bytes}));
+    }
+    names.sort();
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    for (p, s) in &names {
+        h.update(format!("{p}\t{s}\n").as_bytes());
+    }
+    json!({"schema": zero_proofs::HANDDOWN_HEADER_SCHEMA, "tables": list, "tables_digest": h.finish_hex(),
+        "tool": zero_proofs::tool(), "method": zero_proofs::HANDDOWN_METHOD, "method_doc": zero_proofs::HANDDOWN_METHOD_DOC})
+}
+
+fn prover_cfg(a: &Args) -> zero_proofs::ProverCfg {
+    zero_proofs::ProverCfg {
+        max_planes: a.max_planes,
+        ..Default::default()
+    }
+}
+
+/// Every rule record of `tp` in parallel: `work(offset)` -> lines; returned in record order.
+fn per_record<R: Send>(tp: &Path, threads: usize, work: impl Fn(u64) -> R + Sync) -> Result<Vec<R>, String> {
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let offs = rule_offsets(tp)?;
+    let next = AtomicUsize::new(0);
+    let out: Vec<Mutex<Option<R>>> = offs.iter().map(|_| Mutex::new(None)).collect();
+    std::thread::scope(|s| {
+        for _ in 0..threads.max(1) {
+            s.spawn(|| {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(&o) = offs.get(i) else { break };
+                    let r = work(o);
+                    *out[i].lock().expect("lock") = Some(r);
+                }
+            });
+        }
+    });
+    Ok(out.into_iter().filter_map(|m| m.into_inner().expect("lock")).collect())
+}
+
+type RecordLines = Result<Option<(Vec<Value>, zero_proofs::HandDownCounts)>, String>;
+
+fn prove_record(alg: &SymbolicaAlgebra, cfg: &zero_proofs::ProverCfg, tp: &Path, off: u64, all: bool) -> RecordLines {
+    let (frame, _) = coef_facts::table_frame(tp)?;
+    let (line, _) = coef_facts::line_at(tp, off)?;
+    let rt = match rustred_campaign_core::accept::rule::RuleText::parse(&line, &frame) {
+        Ok(rt) => rt,
+        Err(rustred_campaign_core::accept::rule::RuleTextError::NotARule(_)) => return Ok(None),
+        Err(e) => return Err(format!("{}@{off}: {e:?}", tp.display())),
+    };
+    let mut c = zero_proofs::HandDownCounts::default();
+    let mut p = zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask()).map_err(|e| format!("{}@{off}: {e}", tp.display()))?;
+    let lines = zero_proofs::prove_handdown_record(&mut p, &mut c, all);
+    Ok(Some((lines, c)))
+}
+
+/// `prove-handdowns`: every hand-down locus of every rule record of the tables.
+fn prove(a: &Args) {
+    use std::io::Write;
+    if a.tables.is_empty() {
+        die("--tables missing");
+    }
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let t0 = std::time::Instant::now();
+    let alg = algebra();
+    let cfg = prover_cfg(a);
+    let header = tables_header(&a.tables);
+    let part = out.with_extension("part");
+    let mut w = std::io::BufWriter::new(std::fs::File::create(&part).unwrap_or_else(|e| die(&format!("{}: {e}", part.display()))));
+    writeln!(w, "{}", canonical_json(&header)).unwrap_or_else(|e| die(&e.to_string()));
+    let mut total = zero_proofs::HandDownCounts::default();
+    let mut errors = vec![];
+    for tp in &a.tables {
+        let res = per_record(tp, a.threads, |off| prove_record(alg, &cfg, tp, off, a.all_lines)).unwrap_or_else(|e| die(&e));
+        for r in res {
+            match r {
+                Ok(Some((lines, c))) => {
+                    total.add(&c);
+                    for l in lines {
+                        writeln!(w, "{}", canonical_json(&l)).unwrap_or_else(|e| die(&e.to_string()));
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    total.records_refused += 1;
+                    errors.push(e);
+                }
+            }
+        }
+    }
+    w.flush().unwrap_or_else(|e| die(&e.to_string()));
+    drop(w);
+    std::fs::rename(&part, &out).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    let (osha, obytes) = file_sha256(&out).unwrap_or_else(|e| die(&e));
+    let s = json!({"schema": "rustred.campaign.handdown-proof-summary.v1", "tables_digest": header["tables_digest"],
+        "out": out, "out_sha256": osha, "out_bytes": obytes, "threads": a.threads, "seconds": t0.elapsed().as_secs_f64(),
+        "counts": total, "errors": errors.len(), "first_errors": errors.iter().take(20).collect::<Vec<_>>(),
+        "tool": zero_proofs::tool()});
+    if let Some(p) = &a.summary {
+        write_json(p, &s);
+    }
+    println!("{s}");
+    if !errors.is_empty() {
+        std::process::exit(2);
+    }
+}
+
+/// The comparable identity of a hand-down line: (verdict word, class word).
+fn claim_of(v: &Value) -> (String, String) {
+    let verdict = v["verdict"].as_str().unwrap_or("").to_string();
+    let class = match verdict.as_str() {
+        "zero_on_locus" => v["denominator"].as_str().unwrap_or("").to_string(),
+        "nonzero_on_locus" => format!("{}/{}", v["numerator"].as_str().unwrap_or(""), v["denominator"].as_str().unwrap_or("")),
+        _ => String::new(),
+    };
+    (verdict, class)
+}
+
+/// `verify-handdown-proofs`: re-derive every hand-down locus from the table bytes and compare; re-check proved zero
+/// numerators and constant-d-coefficient non-zero numerators INDEPENDENTLY with the core's exact polynomial.
+fn verify_proofs(a: &Args) {
+    use std::io::BufRead;
+    if a.tables.is_empty() || a.proofs.is_empty() {
+        die("--tables and --proofs are required");
+    }
+    let t0 = std::time::Instant::now();
+    let alg = algebra();
+    let cfg = prover_cfg(a);
+    let header = tables_header(&a.tables);
+    type Key = (String, u64, String);
+    let mut claims: HashMap<Key, Value> = HashMap::new();
+    let mut mismatches: Vec<String> = vec![];
+    for p in &a.proofs {
+        let f = std::fs::File::open(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+        for (i, l) in std::io::BufReader::new(f).lines().enumerate() {
+            let l = l.unwrap_or_else(|e| die(&e.to_string()));
+            let v: Value = serde_json::from_str(&l).unwrap_or_else(|e| die(&format!("{} line {}: {e}", p.display(), i + 1)));
+            if v["schema"] == zero_proofs::HANDDOWN_HEADER_SCHEMA {
+                if v["tables_digest"] != header["tables_digest"] {
+                    mismatches.push(format!("{}: tables_digest {} != {}", p.display(), v["tables_digest"], header["tables_digest"]));
+                }
+                continue;
+            }
+            let k = (
+                v["record_sha256"].as_str().unwrap_or("").to_string(),
+                v["term"].as_u64().unwrap_or(u64::MAX),
+                canonical_json(&v["locus"]),
+            );
+            if claims.insert(k.clone(), v).is_some() {
+                mismatches.push(format!("duplicate claim {k:?}"));
+            }
+        }
+    }
+    let n_claims = claims.len();
+    let mut rederived = 0u64;
+    let mut independent = 0u64;
+    for tp in &a.tables {
+        let res = per_record(tp, a.threads, |off| -> Result<Option<(String, usize, Vec<Value>, Vec<String>)>, String> {
+            let (frame, _) = coef_facts::table_frame(tp)?;
+            let (line, _) = coef_facts::line_at(tp, off)?;
+            let rt = match rustred_campaign_core::accept::rule::RuleText::parse(&line, &frame) {
+                Ok(rt) => rt,
+                Err(rustred_campaign_core::accept::rule::RuleTextError::NotARule(_)) => return Ok(None),
+                Err(e) => return Err(format!("{}@{off}: {e:?}", tp.display())),
+            };
+            let mut c = zero_proofs::HandDownCounts::default();
+            let mut p = zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask())?;
+            let lines = zero_proofs::prove_handdown_record(&mut p, &mut c, false);
+            // independent re-checks of the re-derived claims
+            let mut bad = vec![];
+            for v in &lines {
+                let eqs = v["equations"].as_array().is_some_and(|e| !e.is_empty());
+                let j = v["term"].as_u64().unwrap_or(0) as usize;
+                let locus = rustred_campaign_core::import::zero_proofs::Locus::from_json(&v["locus"]).map_err(|e| e.to_string())?;
+                let subs = p.substitutions(locus);
+                let (num, _) = p.side_texts(j)?;
+                match v["verdict"].as_str() {
+                    Some("zero_on_locus") if !eqs => {
+                        if !zero_proofs::core_vanishes(&num, p.arity(), &subs)? {
+                            bad.push(format!("independent: term {j} {} does not vanish", v["locus"]));
+                        }
+                    }
+                    Some("nonzero_on_locus") if !eqs && v["numerator"] == "constant_d_coefficient" => {
+                        if !zero_proofs::core_constant_d_coefficient(&num, p.arity(), &subs)? {
+                            bad.push(format!("independent: term {j} {} has no constant d-coefficient", v["locus"]));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            let sha = p.record_id().0.to_string();
+            Ok(Some((sha, lines.len(), lines, bad)))
+        })
+        .unwrap_or_else(|e| die(&e));
+        for r in res {
+            match r {
+                Ok(Some((sha, _, lines, bad))) => {
+                    for b in bad {
+                        independent += 1;
+                        mismatches.push(format!("{sha}: {b}"));
+                    }
+                    for v in lines {
+                        rederived += 1;
+                        let k = (sha.clone(), v["term"].as_u64().unwrap_or(u64::MAX), canonical_json(&v["locus"]));
+                        match claims.remove(&k) {
+                            None => mismatches.push(format!("{k:?}: re-derived {:?}, no line in the file", claim_of(&v))),
+                            Some(c) if claim_of(&c) != claim_of(&v) => {
+                                mismatches.push(format!("{k:?}: file {:?} != re-derived {:?}", claim_of(&c), claim_of(&v)))
+                            }
+                            Some(_) => {}
+                        }
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => die(&e),
+            }
+        }
+    }
+    for (k, c) in claims {
+        mismatches.push(format!("{k:?}: claim {:?} without a re-derived locus", claim_of(&c)));
+    }
+    let s = json!({"schema": "rustred.campaign.handdown-proof-verify.v1", "verdict": if mismatches.is_empty() {"verified"} else {"mismatch"},
+        "claims": n_claims, "rederived": rederived, "independent_failures": independent, "mismatches": mismatches.len(),
+        "first_mismatches": mismatches.iter().take(20).collect::<Vec<_>>(), "seconds": t0.elapsed().as_secs_f64(),
+        "tool": zero_proofs::tool()});
+    if let Some(p) = &a.summary {
+        write_json(p, &s);
+    }
+    println!("{s}");
+    if !mismatches.is_empty() {
+        std::process::exit(3);
+    }
+}
+
+fn load_spec(path: &Path, index_dir: &Option<PathBuf>, edit: impl FnOnce(&mut Value)) -> (ImportedSet, Value) {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| die(&format!("{}: {e}", path.display())));
+    let mut v: Value = serde_json::from_str(&text).unwrap_or_else(|e| die(&format!("{}: {e}", path.display())));
+    edit(&mut v);
+    let spec = TableSetSpec::from_json(&v.to_string()).unwrap_or_else(|e| die(&format!("spec: {e}")));
+    let set = load_with(&spec, Path::new("/"), &LoadOptions { index_dir: index_dir.clone() }).unwrap_or_else(|e| die(&format!("load: {e}")));
+    (set, v)
+}
+
+fn spec_tables(set: &ImportedSet) -> Vec<(String, String)> {
+    let mut out: BTreeMap<String, String> = BTreeMap::new();
+    for t in &set.rules {
+        for r in t {
+            out.entry(r.path.clone()).or_default();
+        }
+    }
+    out.into_keys()
+        .map(|p| {
+            let (s, _) = file_sha256(Path::new(&p)).unwrap_or_else(|e| die(&e));
+            (p, s)
+        })
+        .collect()
+}
+
+/// The `family_source` and line mask of a table header.
+fn header_frame(path: &Path) -> Result<(String, Vec<bool>), String> {
+    let (frame, _) = coef_facts::table_frame(path)?;
+    let h = rustred_campaign_core::import::lines::read_header("arrivals", path).map_err(|e| e.to_string())?;
+    let fs = h.raw.get("family_source").and_then(Value::as_str).ok_or_else(|| format!("{}: no family_source", path.display()))?;
+    Ok((fs.to_string(), frame.mask().to_vec()))
+}
+
+fn walk_cfg(a: &Args) -> arrivals::WalkCfg {
+    let exact = match a.exact.as_str() {
+        "all" => arrivals::ExactLevel::All,
+        "none" => arrivals::ExactLevel::None,
+        x if x.starts_with("keys:") => {
+            let p = &x[5..];
+            let text = std::fs::read_to_string(p).unwrap_or_else(|e| die(&format!("{p}: {e}")));
+            let mut s = BTreeSet::new();
+            for l in text.lines().filter(|l| !l.trim().is_empty()) {
+                let v: Value = serde_json::from_str(l).unwrap_or_else(|_| Value::String(l.trim().to_string()));
+                s.insert(parse_key(&v).unwrap_or_else(|e| die(&e)));
+            }
+            arrivals::ExactLevel::Keys(s)
+        }
+        x => die(&format!("--exact {x}: all | none | keys:FILE")),
+    };
+    arrivals::WalkCfg {
+        threads: a.threads,
+        prover: prover_cfg(a),
+        exact,
+        structural: !a.no_structural,
+        cache_entries: a.cache_entries,
+    }
+}
+
+struct Prepared {
+    set: ImportedSet,
+    rows: ParentRows,
+    edges: Vec<EdgeFile>,
+    frame_checks: Value,
+}
+
+fn prepare(a: &Args) -> Prepared {
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    let rows_p = a.rows.clone().unwrap_or_else(|| die("--rows missing"));
+    if a.edges.is_empty() {
+        die("--edge missing");
+    }
+    let (set, _) = load_spec(&spec, &a.index_dir, |_| {});
+    let rows = ParentRows::read(&set, &rows_p).unwrap_or_else(|e| die(&e));
+    let edges: Vec<EdgeFile> = a.edges.iter().map(|p| EdgeFile::read(p, &a.map).unwrap_or_else(|e| die(&e))).collect();
+    // frame binding: the parent side against every table of the set; the child side against the given child table
+    let child_tables: HashMap<String, PathBuf> = a
+        .child_tables
+        .iter()
+        .map(|s| {
+            let (l, p) = s.split_once('=').unwrap_or_else(|| die("--child-table LABEL=PATH"));
+            (l.to_string(), PathBuf::from(p))
+        })
+        .collect();
+    let mut checks = vec![];
+    let tables: BTreeSet<String> = set.rules.iter().flatten().map(|r| r.path.clone()).collect();
+    for e in &edges {
+        for t in &tables {
+            let (fs, mask) = header_frame(Path::new(t)).unwrap_or_else(|x| die(&x));
+            let n = e.parent.check_frame(&fs, &mask).unwrap_or_else(|x| die(&format!("FRAME parent {} vs {t}: {x}", e.path)));
+            checks.push(json!({"edge": e.path, "side": "parent", "table": t, "slots": n, "ok": true}));
+        }
+        let ct = child_tables.get(&e.child.label).cloned().unwrap_or_else(|| PathBuf::from(&e.child.table));
+        match header_frame(&ct) {
+            Ok((fs, mask)) => {
+                let n = e.child.check_frame(&fs, &mask).unwrap_or_else(|x| die(&format!("FRAME child {} vs {}: {x}", e.path, ct.display())));
+                checks.push(json!({"edge": e.path, "side": "child", "table": ct, "slots": n, "ok": true,
+                    "given": child_tables.contains_key(&e.child.label)}));
+            }
+            Err(x) => die(&format!("FRAME child {}: {x}", e.path)),
+        }
+    }
+    Prepared { set, rows, edges, frame_checks: json!(checks) }
+}
+
+/// `compute`: walk the parent, decide, map, write one arrival file per edge + a summary.
+fn compute(a: &Args) {
+    let t0 = std::time::Instant::now();
+    let parent = a.parent.clone().unwrap_or_else(|| die("--parent missing"));
+    let out_dir = a.out_dir.clone().unwrap_or_else(|| die("--out-dir missing"));
+    std::fs::create_dir_all(&out_dir).unwrap_or_else(|e| die(&format!("{}: {e}", out_dir.display())));
+    let alg = algebra();
+    let pr = prepare(a);
+    let cfg = walk_cfg(a);
+    let t_load = t0.elapsed().as_secs_f64();
+    let recs: BTreeSet<(usize, usize)> = pr.rows.served.iter().map(|r| (r.table, r.record)).collect();
+    let cache = arrivals::RecCache::new(alg, &pr.set, cfg.prover.clone(), recs);
+    let w = arrivals::walk(&pr.set, &pr.rows, &cache, &cfg).unwrap_or_else(|e| die(&e));
+    let tables = spec_tables(&pr.set);
+    let mut files = vec![];
+    let maps: Vec<String> = if a.maps.is_empty() { vec![a.map.clone()] } else { a.maps.clone() };
+    let multi = maps.len() > 1;
+    let mut union: BTreeMap<String, (BTreeSet<Vec<i32>>, BTreeSet<Vec<i32>>)> = BTreeMap::new();
+    let mut other = BTreeMap::new();
+    for map in &maps {
+    let edges: Vec<EdgeFile> = if *map == a.map { pr.edges.clone() } else {
+        a.edges.iter().map(|p| EdgeFile::read(p, map).unwrap_or_else(|e| die(&e))).collect()
+    };
+    let (res, oth) = arrivals::aggregate(&pr.set, &pr.rows, &w, &edges, &cache, &cfg).unwrap_or_else(|e| die(&e));
+    other = oth;
+    for (e, r) in edges.iter().zip(&res) {
+        let u = union.entry(e.child.label.clone()).or_default();
+        u.0.extend(r.lines.iter().map(|l| l.key.clone()));
+        u.1.extend(r.lines.iter().filter(|l| l.exact_senders.is_some_and(|n| n > 0)).map(|l| l.key.clone()));
+        let mut h = arrivals::header(&parent, &tables, &pr.rows, &w, e, &a.edge_producer, &pr.frame_checks, &cfg);
+        // the file is deterministic: no wall-clock field (timings stay in the compute summary)
+        h["walk"] = no_timing(serde_json::to_value(&w.stats).unwrap_or(Value::Null));
+        let summ = json!({"edge_stats": no_timing(serde_json::to_value(&r.stats).unwrap_or(Value::Null)),
+            "walk": no_timing(serde_json::to_value(&w.stats).unwrap_or(Value::Null))});
+        let name = if multi { format!("{}-{}.{}.arrivals.jsonl", parent, e.child.label, map) } else { format!("{}-{}.arrivals.jsonl", parent, e.child.label) };
+        let p = out_dir.join(&name);
+        let sha = format::write(&p, &h, &r.lines, &summ).unwrap_or_else(|x| die(&x));
+        let exact = r.lines.iter().filter(|l| l.exact_senders.is_some_and(|n| n > 0)).count();
+        files.push(json!({"child": e.child.label, "map": map, "file": p, "sha256": sha, "keys": r.lines.len(), "exact_keys": exact,
+            "exact_level_keys": r.lines.iter().filter(|l| l.exact_senders.is_some()).count(), "stats": r.stats}));
+    }
+    }
+    // per-record decision sample for the second route (rr_proof instantiate requests + our words)
+    if a.decisions_sample > 0 {
+        let step = (w.cl_served.len() / a.decisions_sample).max(1);
+        let mut req: BTreeMap<(usize, usize), Vec<Vec<i32>>> = BTreeMap::new();
+        let mut dec = vec![];
+        for ci in (0..w.cl_served.len()).step_by(step).take(a.decisions_sample) {
+            let row = &pr.rows.served[w.cl_served[ci]];
+            if w.hand[ci].is_empty() {
+                continue;
+            }
+            req.entry((row.table, row.record)).or_default().push(row.applied.clone());
+            let info = &pr.set.rules[row.table][row.record];
+            dec.push(json!({"record_sha256": info.record_sha256, "applied": row.applied,
+                "nonzero": w.hand[ci].iter().map(|h| json!([h.j, h.tk, match h.word {CoefFact::NonZero => "nonzero", CoefFact::Zero => "zero", CoefFact::Unknown => "unknown"}, h.by])).collect::<Vec<_>>()}));
+        }
+        let rq: Vec<String> = req
+            .into_iter()
+            .map(|((t, r), keys)| {
+                let info = &pr.set.rules[t][r];
+                json!({"table": info.path, "offset": info.offset, "rule": info.index.unwrap_or(info.label), "keys": keys}).to_string()
+            })
+            .collect();
+        std::fs::write(out_dir.join(format!("{parent}.second-route.requests.jsonl")), rq.join("\n") + "\n").unwrap_or_else(|e| die(&e.to_string()));
+        let dl: Vec<String> = dec.iter().map(canonical_json).collect();
+        std::fs::write(out_dir.join(format!("{parent}.decisions.jsonl")), dl.join("\n") + "\n").unwrap_or_else(|e| die(&e.to_string()));
+        // distinct routed hand-down term keys (every k-th), for the engine's own transport (compare-engine)
+        let owners = rustred_campaign_core::import::arrivals::edge::mask_owners(&pr.edges).unwrap_or_else(|e| die(&e));
+        let mut tks: BTreeSet<Vec<i32>> = BTreeSet::new();
+        for h in w.hand.iter().flatten() {
+            if owners.contains_key(&h.mask) {
+                tks.insert(h.tk.clone());
+            }
+        }
+        let step = (tks.len() / a.decisions_sample).max(1);
+        let sample: Vec<&Vec<i32>> = tks.iter().step_by(step).take(a.decisions_sample).collect();
+        std::fs::write(out_dir.join(format!("{parent}.handdown-keys.sample.json")), json!(sample).to_string()).unwrap_or_else(|e| die(&e.to_string()));
+    }
+    let s = json!({"schema": "rustred.campaign.arrival-compute-summary.v1", "parent": parent, "files": files,
+        "maps": maps, "union_over_maps": union.iter().map(|(c, (sk, ek))| json!({"child": c, "support_keys": sk.len(), "exact_keys": ek.len()})).collect::<Vec<_>>(),
+        "other_children_masks": other.iter().map(|(m, c)| json!({"dropped_mask": format!("{m:#x}"),
+            "dropped": (0..64).filter(|i| m >> i & 1 == 1).collect::<Vec<u32>>(), "terms": c})).collect::<Vec<_>>(),
+        "walk": w.stats, "frame_checks": pr.frame_checks, "seconds_load": t_load, "seconds": t0.elapsed().as_secs_f64(),
+        "threads": a.threads, "tool": arrivals::TOOL_VERSION});
+    write_json(&out_dir.join(format!("{parent}.summary.json")), &s);
+    println!("{}", canonical_json(&s));
+}
+
+/// `verify`: re-derive the arrival sets from the tables (hand-down terms decided PER KEY only: no structural proof is
+/// used), on all parent keys (`--sample 0`) or every k-th; compare with the files (key set, sender counts, first
+/// senders, exact counts when the file has the exact level), re-check every expansion used by a first sender with the
+/// independent mod-p identity. Exit 0 verified / 3 mismatch.
+fn verify(a: &Args) {
+    let t0 = std::time::Instant::now();
+    if a.arrivals.is_empty() {
+        die("--arrivals missing");
+    }
+    let alg = algebra();
+    let pr = prepare(a);
+    let files: Vec<ArrivalSet> = a.arrivals.iter().map(|p| format::read(Path::new(p)).unwrap_or_else(|e| die(&e))).collect();
+    let mut mism: Vec<String> = vec![];
+    // bindings
+    for (f, p) in files.iter().zip(&a.arrivals) {
+        if f.header["parent"]["rows"]["sha256"] != pr.rows.sha256.as_str() {
+            mism.push(format!("{p}: rows sha256 {} != {}", f.header["parent"]["rows"]["sha256"], pr.rows.sha256));
+        }
+        if !pr.edges.iter().any(|e| f.header["edge"]["sha256"] == e.sha256.as_str()) {
+            mism.push(format!("{p}: edge sha256 {} is none of the given edges", f.header["edge"]["sha256"]));
+        }
+    }
+    let mut cfg = walk_cfg(a);
+    cfg.structural = false;
+    let exact_in_files = files.iter().any(|f| f.lines.iter().any(|l| l.exact_senders.is_some()));
+    if !exact_in_files {
+        cfg.exact = arrivals::ExactLevel::None;
+    }
+    let mut rows = pr.rows.clone();
+    let full = a.sample == 0;
+    let recs: BTreeSet<(usize, usize)> = rows.served.iter().map(|r| (r.table, r.record)).collect();
+    let cache = arrivals::RecCache::new(alg, &pr.set, cfg.prover.clone(), recs);
+    let w = arrivals::walk(&pr.set, &rows, &cache, &cfg).unwrap_or_else(|e| die(&e));
+    for f in &files {
+        if f.header["parent"]["closure_digest"] != w.closure_digest.as_str() {
+            mism.push(format!("closure digest {} != re-derived {}", f.header["parent"]["closure_digest"], w.closure_digest));
+        }
+    }
+    // a sample of parent keys: restrict the walk's served set (every k-th closure key keeps its hand-down terms)
+    let mut wv = w;
+    if !full {
+        let step = a.sample.max(1);
+        for (ci, h) in wv.hand.iter_mut().enumerate() {
+            if ci % step != 0 {
+                h.clear();
+            }
+        }
+    }
+    let (res, _) = arrivals::aggregate(&pr.set, &rows, &wv, &pr.edges, &cache, &cfg).unwrap_or_else(|e| die(&e));
+    let tr = arrivals::Transporter::new(alg, pr.set.arity()).unwrap_or_else(|e| die(&e));
+    let mut checked = 0u64;
+    let mut identity_checks = 0u64;
+    for (e, r) in pr.edges.iter().zip(&res) {
+        let Some(f) = files.iter().find(|f| f.header["edge"]["sha256"] == e.sha256.as_str()) else { continue };
+        let fm: HashMap<&Vec<i32>, &format::ArrivalLine> = f.lines.iter().map(|l| (&l.key, l)).collect();
+        for l in &r.lines {
+            checked += 1;
+            match fm.get(&l.key) {
+                None => mism.push(format!("{}: re-derived key {:?} missing from the file", e.child.label, l.key)),
+                Some(fl) => {
+                    // the sender's identity (how it was decided differs by design: the verifier decides per key)
+                    let same_first = (&fl.first.parent_key, &fl.first.applied, &fl.first.record_sha256, fl.first.term, &fl.first.term_key)
+                        == (&l.first.parent_key, &l.first.applied, &l.first.record_sha256, l.first.term, &l.first.term_key);
+                    if full && (fl.senders != l.senders || !same_first) {
+                        mism.push(format!("{}: key {:?}: file senders {} first {:?} != re-derived {} {:?}", e.child.label, l.key, fl.senders, fl.first.parent_key, l.senders, l.first.parent_key));
+                    }
+                    if full && exact_in_files && fl.exact_senders != l.exact_senders {
+                        mism.push(format!("{}: key {:?}: exact senders {:?} != re-derived {:?}", e.child.label, l.key, fl.exact_senders, l.exact_senders));
+                    }
+                }
+            }
+        }
+        if full && f.lines.len() != r.lines.len() {
+            mism.push(format!("{}: file has {} keys, re-derived {}", e.child.label, f.lines.len(), r.lines.len()));
+        }
+        // every file line's first sender: the expansion re-checked independently (mod-p identity)
+        for fl in f.lines.iter().step_by(if full { 1 } else { a.sample.max(1) }) {
+            let mask = fl.first.term_key.iter().zip(pr.set.frame.mask()).enumerate().filter(|(_, (v, l))| **l && **v <= 0).fold(0u64, |m, (i, _)| m | 1 << i);
+            let Some(sec) = e.sector(mask) else {
+                mism.push(format!("{}: key {:?}: first sender's term mask {mask:#x} is not routed by the edge", e.child.label, fl.key));
+                continue;
+            };
+            match tr.apply(sec, &fl.first.term_key) {
+                Err(x) => mism.push(format!("{}: key {:?}: expansion: {x}", e.child.label, fl.key)),
+                Ok(img) => {
+                    if !img.iter().any(|(k, _)| k == &fl.key) {
+                        mism.push(format!("{}: key {:?}: not in the expansion of its first sender's term", e.child.label, fl.key));
+                    }
+                    let im: Option<Vec<(Vec<i32>, (i128, i128))>> = img.iter().map(|(k, c)| arrivals::rat_i128(c).map(|x| (k.clone(), x))).collect();
+                    if let Some(im) = im {
+                        identity_checks += 1;
+                        match arrivals::transport_identity_mod_p(sec, &fl.first.term_key, &im, identity_checks) {
+                            Ok(true) => {}
+                            Ok(false) => mism.push(format!("{}: key {:?}: independent identity check of the expansion FAILED", e.child.label, fl.key)),
+                            Err(x) => mism.push(format!("{}: identity: {x}", e.child.label)),
+                        }
+                    }
+                }
+            }
+        }
+    }
+    rows.served.clear();
+    let s = json!({"schema": "rustred.campaign.arrival-verify.v1", "verdict": if mism.is_empty() {"verified"} else {"mismatch"},
+        "full": full, "sample_step": a.sample, "rederived_keys_checked": checked, "identity_checks": identity_checks,
+        "exact_compared": exact_in_files, "mismatches": mism.len(), "first_mismatches": mism.iter().take(20).collect::<Vec<_>>(),
+        "seconds": t0.elapsed().as_secs_f64(), "tool": arrivals::TOOL_VERSION});
+    if let Some(p) = &a.summary {
+        write_json(p, &s);
+    }
+    println!("{}", canonical_json(&s));
+    if !mism.is_empty() {
+        std::process::exit(3);
+    }
+}
+
+/// `child-check`: classify every parent's arrivals against the child's certified set and tables (core `arrivals::child`).
+fn child_check(a: &Args) {
+    let t0 = std::time::Instant::now();
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    let st = a.statement.clone().unwrap_or_else(|| die("--statement missing"));
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let work = a.work_dir.clone().unwrap_or_else(|| die("--work-dir missing"));
+    if a.arrivals.is_empty() {
+        die("--arrivals NAME=FILE missing");
+    }
+    let (set, sv) = load_spec(&spec, &a.index_dir, |v| {
+        // keys only: the child's tables as they dispatch; evidence is not needed (and not loaded)
+        if let Some(o) = v.as_object_mut() {
+            o.remove("evidence");
+        }
+        v["policies"] = json!({"witness_check": "off_diagnostic", "tier": "K"});
+    });
+    let ev = Evidence::from_spec(&set, Path::new("/")).unwrap_or_else(|e| die(&format!("evidence: {e}")));
+    let (cert, cert_sha) = child::read_certified(&st).unwrap_or_else(|e| die(&e));
+    let mut parents = vec![];
+    let lines = set.frame.mask().to_vec();
+    for s in &a.arrivals {
+        let (name, p) = s.split_once('=').unwrap_or_else(|| die("--arrivals NAME=FILE"));
+        let arr = format::read(Path::new(p)).unwrap_or_else(|e| die(&e));
+        let rows = work.join(format!("rows.{name}.jsonl"));
+        let pc = child::check_parent(&set, &ev, &cert, name, &arr, &rows, a.threads).unwrap_or_else(|e| die(&e));
+        let mut j = pc.json(&lines);
+        j["arrivals_file"] = json!({"path": p, "sha256": arr.sha256});
+        parents.push(j);
+        let _ = std::fs::remove_file(&rows);
+    }
+    let r = json!({"schema": CHILD_CHECK_SCHEMA, "child_spec": {"path": spec, "node": sv["node"]},
+        "certified_set": {"path": st, "sha256": cert_sha, "keys": cert.len()}, "parents": parents,
+        "seconds": t0.elapsed().as_secs_f64(), "tool": arrivals::TOOL_VERSION});
+    write_json(&out, &r);
+    println!("{}", canonical_json(&r));
+}
+
+/// `second-route`: compare our hand-down words (compute's decisions sample) with rr_proof instantiate's facts for the
+/// same (record, key) pairs (loaded by the core's evidence reader). Exit 0 agree / 3 disagreement.
+fn second_route(a: &Args) {
+    use std::io::BufRead;
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    let dec = a.decisions.clone().unwrap_or_else(|| die("--decisions missing"));
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let facts: Vec<Value> = a
+        .facts
+        .iter()
+        .map(|f| {
+            let (s, _) = file_sha256(f).unwrap_or_else(|e| die(&e));
+            json!({"path": f, "sha256": s})
+        })
+        .collect();
+    let (set, _) = load_spec(&spec, &a.index_dir, |v| {
+        let fam = v["sources"][0]["path"].as_str().and_then(|p| header_family(Path::new(p)));
+        let ev: Vec<Value> = facts.iter().map(|f| {
+            let mut f = f.clone();
+            if let Some(fm) = &fam {
+                f["family"] = json!(fm);
+            }
+            f
+        }).collect();
+        v["evidence"] = json!({"facts": ev});
+        v["policies"] = json!({"tier": "C"});
+    });
+    let ev = Evidence::from_spec(&set, Path::new("/")).unwrap_or_else(|e| die(&format!("evidence: {e}")));
+    use rustred_campaign_core::closure::FactSource;
+    let f = std::fs::File::open(&dec).unwrap_or_else(|e| die(&e.to_string()));
+    let (mut pairs, mut terms, mut agree, mut unanswered) = (0u64, 0u64, 0u64, 0u64);
+    let mut dis = vec![];
+    for l in std::io::BufReader::new(f).lines() {
+        let l = l.unwrap_or_else(|e| die(&e.to_string()));
+        if l.trim().is_empty() {
+            continue;
+        }
+        let v: Value = serde_json::from_str(&l).unwrap_or_else(|e| die(&e.to_string()));
+        let sha = v["record_sha256"].as_str().unwrap_or("");
+        let (t, r) = set.find_sha(sha).unwrap_or_else(|| die(&format!("record {sha} not in the set")));
+        let applied: Vec<i32> = serde_json::from_value(v["applied"].clone()).unwrap_or_else(|e| die(&e.to_string()));
+        let info = &set.rules[t][r];
+        let rid = rustred_campaign_core::closure::RuleId { table: &info.table_name, record: r, label: info.label, digest: "" };
+        pairs += 1;
+        // every hand-down term of the record at the key (ours: listed = non-zero / unknown, unlisted = zero)
+        let listed: HashMap<u64, String> = v["nonzero"].as_array().into_iter().flatten()
+            .map(|x| (x[0].as_u64().unwrap_or(0), x[2].as_str().unwrap_or("").to_string())).collect();
+        let (mut buf, mut cm) = (vec![], vec![]);
+        let n = set.arity();
+        let Ok(Some(nt)) = set.bodies.instantiate(&set.disp, set.disp.rule_ref(t, r), &applied, &mut buf, &mut cm) else {
+            die("instantiate failed");
+        };
+        for j in 0..nt {
+            let tk = &buf[j * n..(j + 1) * n];
+            let lines = set.frame.mask();
+            let pos = tk.iter().zip(lines).any(|(x, l)| !*l && *x > 0);
+            let drop = tk.iter().zip(lines).any(|(x, l)| *l && *x <= 0);
+            if pos || !drop {
+                continue;
+            }
+            terms += 1;
+            let ours = listed.get(&(j as u64)).cloned().unwrap_or_else(|| "zero".into());
+            let theirs = match ev.coefficient(&rid, &applied, j, tk) {
+                CoefFact::Zero => "zero",
+                CoefFact::NonZero => "nonzero",
+                CoefFact::Unknown => "unknown",
+            };
+            if theirs == "unknown" && !ev.has_fact(&set, t, r, &applied) {
+                unanswered += 1;
+                continue;
+            }
+            if ours == theirs {
+                agree += 1;
+            } else if dis.len() < 20 {
+                dis.push(json!({"record_sha256": sha, "applied": applied, "term": j, "ours": ours, "rr_proof": theirs}));
+            }
+        }
+    }
+    let disagree = terms - agree - unanswered;
+    let r = json!({"schema": "rustred.campaign.arrival-second-route.v1", "pairs": pairs, "handdown_terms": terms,
+        "agree": agree, "disagree": disagree, "unanswered": unanswered, "first_disagreements": dis, "facts": facts});
+    write_json(&out, &r);
+    println!("{}", canonical_json(&r));
+    if disagree > 0 {
+        std::process::exit(3);
+    }
+}
+
+/// `compare-engine`: the engine's own transport (the frozen route probe's `<out>.keys.jsonl`: per parent table key, the
+/// chosen map's child table terms with exact coefficients) vs our Symbolica expansion of the same keys under the edge
+/// file's map. Exit 0 identical / 3 a difference.
+fn compare_engine(a: &Args) {
+    use std::io::BufRead;
+    let alg = algebra();
+    let e = EdgeFile::read(a.edges.first().unwrap_or_else(|| die("--edge missing")), &a.map).unwrap_or_else(|x| die(&x));
+    let tr = arrivals::Transporter::new(alg, e.parent.momenta.len()).unwrap_or_else(|x| die(&x));
+    let (mut keys, mut terms, mut diffs) = (0u64, 0u64, vec![]);
+    for f in &a.facts {
+        let r = std::fs::File::open(f).unwrap_or_else(|x| die(&format!("{}: {x}", f.display())));
+        for l in std::io::BufReader::new(r).lines() {
+            let l = l.unwrap_or_else(|x| die(&x.to_string()));
+            if l.trim().is_empty() {
+                continue;
+            }
+            let v: Value = serde_json::from_str(&l).unwrap_or_else(|x| die(&x.to_string()));
+            let pk: Vec<i32> = serde_json::from_value(v["parent_table_key"].clone()).unwrap_or_else(|x| die(&x.to_string()));
+            let routes = v["routes"].as_object().cloned().unwrap_or_default();
+            for (_, r) in routes {
+                let eng: BTreeMap<Vec<i32>, String> = r[&a.map]
+                    .as_array()
+                    .unwrap_or_else(|| die("engine line without the map"))
+                    .iter()
+                    .map(|t| {
+                        let k: Vec<i32> = serde_json::from_value(t[0].clone()).unwrap_or_else(|x| die(&x.to_string()));
+                        let c = rustred_campaign_core::import::arrivals::edge::Rat::parse(&t[1]).map(|c| c.text()).unwrap_or_else(|_| format!("unparsed:{}", t[1]));
+                        (k, c)
+                    })
+                    .collect();
+                keys += 1;
+                let mask = pk.iter().zip(&e.parent.table_lines.iter().fold(vec![false; pk.len()], |mut m, &i| { m[i] = true; m })).enumerate()
+                    .filter(|(_, (x, l))| **l && **x <= 0).fold(0u64, |m, (i, _)| m | 1 << i);
+                let Some(sec) = e.sector(mask) else {
+                    diffs.push(format!("{pk:?}: mask {mask:#x} not routed by the edge"));
+                    continue;
+                };
+                let ours: BTreeMap<Vec<i32>, String> = tr
+                    .apply(sec, &pk)
+                    .unwrap_or_else(|x| die(&x))
+                    .into_iter()
+                    .map(|(k, c)| {
+                        let (n, d) = arrivals::rat_i128(&c).unwrap_or((0, 0));
+                        (k, if d == 1 { n.to_string() } else { format!("{n}/{d}") })
+                    })
+                    .collect();
+                terms += eng.len() as u64;
+                if ours != eng && diffs.len() < 20 {
+                    let only_e: Vec<_> = eng.iter().filter(|(k, c)| ours.get(*k) != Some(c)).take(3).collect();
+                    let only_o: Vec<_> = ours.iter().filter(|(k, c)| eng.get(*k) != Some(c)).take(3).collect();
+                    diffs.push(format!("{pk:?}: engine-only {only_e:?} ours-only {only_o:?}"));
+                } else if ours != eng {
+                    diffs.push(String::new());
+                }
+            }
+        }
+    }
+    let r = json!({"schema": "rustred.campaign.arrival-engine-compare.v1", "edge": e.identity(), "keys": keys, "engine_terms": terms,
+        "differing_keys": diffs.len(), "first": diffs.iter().filter(|x| !x.is_empty()).take(20).collect::<Vec<_>>(),
+        "verdict": if diffs.is_empty() {"identical"} else {"differ"}});
+    if let Some(o) = &a.out {
+        write_json(o, &r);
+    }
+    println!("{}", canonical_json(&r));
+    if !diffs.is_empty() {
+        std::process::exit(3);
+    }
+}
+
+/// A counters object without its wall-clock fields (`seconds*`).
+fn no_timing(mut v: Value) -> Value {
+    if let Some(o) = v.as_object_mut() {
+        o.retain(|k, _| !k.starts_with("seconds"));
+    }
+    v
+}
+
+fn header_family(p: &Path) -> Option<String> {
+    let h = rustred_campaign_core::import::lines::read_header("arrivals", p).ok()?;
+    h.raw.get("family").and_then(Value::as_str).map(str::to_string)
+}
+
+fn main() {
+    let argv: Vec<String> = std::env::args().collect();
+    let Some(cmd) = argv.get(1) else {
+        die("usage: rr_arrivals prove-handdowns|verify-handdown-proofs|compute|verify|child-check|second-route|version ...")
+    };
+    let a = parse(&argv[2..]);
+    match cmd.as_str() {
+        "version" => println!("{}", json!({"program": "rr_arrivals", "version": arrivals::TOOL_VERSION, "crate": env!("CARGO_PKG_VERSION"), "symbolica": zero_proofs::SYMBOLICA_REV})),
+        "prove-handdowns" => prove(&a),
+        "verify-handdown-proofs" => verify_proofs(&a),
+        "compute" => compute(&a),
+        "verify" => verify(&a),
+        "child-check" => child_check(&a),
+        "second-route" => second_route(&a),
+        "compare-engine" => compare_engine(&a),
+        x => die(&format!("unknown command {x}")),
+    }
+}
