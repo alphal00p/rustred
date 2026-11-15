@@ -4,7 +4,7 @@
 //! rustred p-import-table --table <F.table.jsonl> --graph "<census edges>" --ext <s>,<t>
 //!                        --label <name> --lp <count> --out <dir> [--force]
 //!                        [--replay <seeds.json>] [--census-family <T.sym>] [--order-map <ORDER-MAP.json>]
-//!                        [--coef-form expanded|factored] [--partial-box] [--mixed-box] [--no-verify]
+//!                        [--coef-form expanded|factored|shared] [--partial-box] [--mixed-box] [--no-verify]
 //!                        [--certified-keys <keys.jsonl | .rrkeys>]
 //!                        [--recipes <recipes.jsonl> [--recipe-revision <name>] [--recipes-first]]
 //! rustred p-import-table --check <dir>/<label>.json [--force]
@@ -85,6 +85,10 @@
 //! coefficient section in the factored format
 //! (`rustred::persistence::FACTORED_TABLE_VERSION`): every reader decodes it to
 //! the identical coefficients; the load-time check runs on the written bytes.
+//! `--coef-form shared` writes the same container WITHOUT factoring (one
+//! dictionary of the distinct whole numerators and denominators, encounter
+//! order; `encode_shared_table`): no factoring cost, bytes determined by the
+//! coefficient table alone; checked to decode identically like `factored`.
 use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::io::Write;
@@ -93,7 +97,7 @@ use std::time::Instant;
 
 use rustred::persistence::{
     BinaryIoLimits, BinarySection, CoefficientId, DecodedCoefficientTable, FACTORED_TABLE_VERSION,
-    SectionTag, encode_factored_table, encode_program, inspect_program,
+    SectionTag, encode_factored_table, encode_program, encode_shared_table, inspect_program,
 };
 use rustred::propagator::PresentationId;
 use rustred::propagator::certified_keys::CertifiedKeySet;
@@ -133,7 +137,7 @@ struct Arguments {
     replay: Option<PathBuf>,
     census_family: Option<PathBuf>,
     order_map: Option<PathBuf>,
-    factored: bool,
+    coef_form: CoefForm,
     partial_box: bool,
     mixed_box: bool,
     no_verify: bool,
@@ -148,7 +152,8 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
     let (mut table, mut graph, mut ext, mut label) = (None, None, None, None);
     let (mut lp, mut out, mut force, mut replay) = (None, None, false, None);
     let (mut census_family, mut order_map) = (None, None);
-    let (mut factored, mut partial_box, mut no_verify) = (false, false, false);
+    let mut coef_form = CoefForm::Expanded;
+    let (mut partial_box, mut no_verify) = (false, false);
     let mut mixed_box = false;
     let mut certified_keys = None;
     let (mut recipes, mut recipe_revision, mut recipes_first) = (None, None, false);
@@ -195,14 +200,15 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             "--order-map" => order_map = Some(PathBuf::from(next_value(&mut arguments, option)?)),
             "--coef-form" => {
                 let value = next_utf8_value(&mut arguments, option)?;
-                factored = match value.as_str() {
-                    "factored" => true,
-                    "expanded" => false,
+                coef_form = match value.as_str() {
+                    "factored" => CoefForm::Factored,
+                    "shared" => CoefForm::Shared,
+                    "expanded" => CoefForm::Expanded,
                     _ => {
                         return Err(ArgError::InvalidValue {
                             option,
                             value: value.clone(),
-                            expected: "expanded or factored",
+                            expected: "expanded, factored or shared",
                         });
                     }
                 };
@@ -247,7 +253,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         replay,
         census_family,
         order_map,
-        factored,
+        coef_form,
         partial_box,
         mixed_box,
         no_verify,
@@ -354,9 +360,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let import_seconds = started.elapsed().as_secs_f64();
     let expanded_payload_bytes = imported.payload.len();
     let mut coef_form_seconds = 0.0;
-    if arguments.factored {
+    if arguments.coef_form != CoefForm::Expanded {
         let started = Instant::now();
-        imported.payload = factored_payload(&imported.payload)?;
+        imported.payload = factored_payload(&imported.payload, arguments.coef_form)?;
         coef_form_seconds = started.elapsed().as_secs_f64();
     }
     let verify_started = Instant::now();
@@ -436,9 +442,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     if let Some(bundle) = &imported.recipes {
         record["recipes"] = recipes_summary(bundle);
     }
-    if arguments.factored {
+    if arguments.coef_form != CoefForm::Expanded {
         record["coef_form"] = serde_json::json!({
-            "form": "factored",
+            "form": arguments.coef_form.name(),
             "FACTORED_TABLE_VERSION": FACTORED_TABLE_VERSION,
             "seconds": coef_form_seconds,
             "expanded_payload_bytes": expanded_payload_bytes,
@@ -1007,9 +1013,31 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     .map_err(|error| CliError::OutputIo(error.to_string()))
 }
 
-/// The payload with its coefficient section re-encoded factored, every other
-/// section byte-identical; checked to decode to the identical coefficients.
-fn factored_payload(payload: &[u8]) -> Result<Vec<u8>, CliError> {
+/// Coefficient section form of the written payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CoefForm {
+    /// one native Symbolica atom per coefficient (the importer's own output)
+    Expanded,
+    /// factored container, irreducible factors (`encode_factored_table`)
+    Factored,
+    /// factored container, whole polynomials, no factoring (`encode_shared_table`)
+    Shared,
+}
+
+impl CoefForm {
+    fn name(self) -> &'static str {
+        match self {
+            CoefForm::Expanded => "expanded",
+            CoefForm::Factored => "factored",
+            CoefForm::Shared => "shared",
+        }
+    }
+}
+
+/// The payload with its coefficient section re-encoded in `form` (factored or
+/// shared), every other section byte-identical; checked to decode to the
+/// identical coefficients.
+fn factored_payload(payload: &[u8], form: CoefForm) -> Result<Vec<u8>, CliError> {
     let io = |error: rustred::persistence::BinaryIoError| {
         CliError::Input(format!("coef-form factored payload: {error:?}"))
     };
@@ -1023,14 +1051,12 @@ fn factored_payload(payload: &[u8]) -> Result<Vec<u8>, CliError> {
     let state = section(SectionTag::SYMBOLICA_STATE)?;
     let atoms = section(SectionTag::COEFFICIENTS)?;
     let table = DecodedCoefficientTable::import_generated(state, atoms, limits).map_err(io)?;
-    let coefficients = (0..table.len())
-        .map(|i| {
-            CoefficientId::try_from_index(i)
-                .and_then(|id| table.coefficient(id).cloned())
-                .map_err(io)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    let factored = encode_factored_table(&coefficients).map_err(io)?;
+    let coefficients = table.into_coefficients().map_err(io)?;
+    let factored = match form {
+        CoefForm::Shared => encode_shared_table(&coefficients),
+        _ => encode_factored_table(&coefficients),
+    }
+    .map_err(io)?;
     let sections: Vec<BinarySection<'_>> = envelope
         .sections()
         .iter()
@@ -1104,6 +1130,29 @@ mod tests {
         assert_eq!((parsed.ext, parsed.lp, parsed.force), ((2, 3), 1, false));
         assert!(parsed.partial_box);
         assert!(!parsed.no_verify);
+        assert_eq!(parsed.coef_form, CoefForm::Expanded);
+        let base = [
+            "--table", "t", "--graph", "0-1", "--ext", "0,1", "--label", "x", "--lp", "0", "--out",
+            "o",
+        ];
+        for (value, form) in [
+            ("shared", CoefForm::Shared),
+            ("factored", CoefForm::Factored),
+            ("expanded", CoefForm::Expanded),
+        ] {
+            let args = base
+                .iter()
+                .chain(["--coef-form", value].iter())
+                .map(OsString::from)
+                .collect();
+            assert_eq!(parse(args).unwrap().coef_form, form);
+        }
+        let bad = base
+            .iter()
+            .chain(["--coef-form", "zip"].iter())
+            .map(OsString::from)
+            .collect();
+        assert!(parse(bad).is_err());
         let no_verify = parse(
             [
                 "--table",
