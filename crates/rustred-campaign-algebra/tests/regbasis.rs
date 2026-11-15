@@ -91,6 +91,8 @@ fn run(
         published: None,
         availability: None,
         binding: b,
+        given_sets: &[],
+        closure_extra: &[],
     };
     construct(&mut sc, &inp).expect("construct")
 }
@@ -509,6 +511,8 @@ fn needs_on_published_masters_and_eps_box() {
         published: Some(&p),
         availability: Some(&av),
         binding: None,
+        given_sets: &[],
+        closure_extra: &[],
     };
     let r = construct(&mut sc, &inp).unwrap();
     assert!(r.regular);
@@ -627,6 +631,8 @@ fn adapter_on_epsdepth_text_reduction() {
         published: None,
         availability: None,
         binding: None,
+        given_sets: &[],
+        closure_extra: &[],
     };
     let r = construct(&mut ad, &inp).unwrap();
     assert!(r.regular, "{}", r.verdict);
@@ -666,5 +672,61 @@ fn need_read_off_a_map() {
         t0.missing_total,
         Some(2),
         "base 1: need 2 against 1 available on both"
+    );
+}
+
+#[test]
+fn given_sets_preferred_and_freedom() {
+    if !licensed() {
+        eprintln!("SKIP: no Symbolica licence");
+        return;
+    }
+    let (_, keys) = band(2);
+    let x = vec![1, 2, 0, 0];
+    let spec = RegBasisSpec {
+        preferred: vec![x.clone()],
+        ..Default::default()
+    };
+    let terms = vec![t1(), t2()];
+    let given = vec![
+        ("hidden".to_string(), vec![t1(), x.clone()]),
+        ("terminals".to_string(), terms.clone()),
+    ];
+    // closure keys outside the band: rank 3 keys (not used by the construction)
+    let extra: Vec<Key> = vec![vec![1, 1, -3, 0], vec![1, 1, -1, -2]];
+    let mut sc = StandIn::new(2, Rational::from(4), Box::new(toy1));
+    let inp = BuildInput {
+        chart: &CHART,
+        terminals: &terms,
+        band: &keys,
+        band_r_max: None,
+        cmp: &cmp,
+        spec: &spec,
+        published: None,
+        availability: None,
+        binding: None,
+        given_sets: &given,
+        closure_extra: &extra,
+    };
+    let r = construct(&mut sc, &inp).unwrap();
+    assert!(r.regular);
+    assert_eq!(
+        r.regular_set,
+        vec![x.clone(), t1()],
+        "the preferred key is taken first"
+    );
+    assert_eq!(r.sources[0], "preferred");
+    let g = &r.record["given_sets"];
+    assert_eq!(g[0]["regular"], json!(true), "{g}");
+    assert_eq!(g[0]["change_of_basis_to_R"]["unimodular"], json!(true));
+    assert_eq!(g[1]["regular"], json!(false), "T itself is not regular");
+    let f = &r.record["freedom"];
+    assert!(f["regular_subsets"].as_u64().unwrap() > 0, "{f}");
+    let c = &r.record["certificate"]["c2_closure_outside_band"];
+    assert_eq!(c["checked"], json!(2));
+    assert_eq!(
+        c["with_pole_on_R"],
+        json!(0),
+        "toy1 is regular on R everywhere"
     );
 }

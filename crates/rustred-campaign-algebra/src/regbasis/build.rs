@@ -20,6 +20,7 @@ use std::sync::Arc;
 use serde_json::{Value, json};
 use symbolica::domains::rational::{Q, Rational};
 use symbolica::poly::PolyVariable;
+use symbolica::tensors::matrix::Matrix;
 
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::regbasis::need::{Availability, NeedTable, need_table};
@@ -107,6 +108,12 @@ pub struct BuildInput<'a> {
     pub availability: Option<&'a dyn Availability>,
     /// The export binding (node identity, box, closure statement, d0); `None` = no sealed object.
     pub binding: Option<Binding>,
+    /// Candidate sets to CERTIFY (label, keys; |keys| = |T|): regular iff M' = A'^-1 is regular and every Hermite row
+    /// of the band lattice is finite on them; the change of basis to the constructed R is reported.
+    pub given_sets: &'a [(String, Vec<Key>)],
+    /// Closure keys outside the band, re-checked by certificate c2 (reported separately: the construction does not
+    /// cover them).
+    pub closure_extra: &'a [Key],
 }
 
 /// Per-rank band summary.
@@ -443,7 +450,15 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         cmp: inp.cmp,
     };
     sort_by_preference(&mut cands, &pref);
-    let cand_set: HashSet<Key> = cands.iter().cloned().collect();
+    let mut cand_set: HashSet<Key> = cands.iter().cloned().collect();
+    for k in &spec.preferred {
+        cand_set.insert(k.clone());
+    }
+    for (_, ks) in inp.given_sets {
+        for k in ks {
+            cand_set.insert(k.clone());
+        }
+    }
 
     // lattices: T per rank (socle q), global (socle q), variant (socle q+1); P per rank (socle q_p)
     let mut lt = Scaled {
@@ -654,6 +669,21 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         }
         Ok(())
     };
+    let mut preferred_outside: Vec<Key> = vec![];
+    for k in &spec.preferred {
+        if !considered.insert(k.clone()) {
+            continue;
+        }
+        let c = if let Some(&i) = term_pos.get(k.as_slice()) {
+            unit_laurent(n, i, abs_prec, &tv)
+        } else if let Some(c) = cache.get(k) {
+            c.clone()
+        } else {
+            preferred_outside.push(k.clone());
+            continue;
+        };
+        try_take(k, &c, "preferred", &mut g, &mut chosen)?;
+    }
     for k in &cands {
         if !considered.insert(k.clone()) {
             continue;
@@ -704,6 +734,13 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     let order_of: HashMap<Key, usize> = {
         let mut all: Vec<Key> = chosen.iter().map(|x| x.0.clone()).collect();
         sort_by_preference(&mut all, &pref);
+        let ppos: HashMap<&Key, usize> = spec
+            .preferred
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k, i))
+            .collect();
+        all.sort_by_key(|k| ppos.get(k).copied().unwrap_or(usize::MAX));
         all.into_iter().enumerate().map(|(i, k)| (k, i)).collect()
     };
     chosen.sort_by_key(|x| order_of[&x.0]);
@@ -835,22 +872,81 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
             .all(|o| o.is_none_or(|v| v >= 0))
     });
 
+    let mexp: Option<Vec<Vec<Laurent>>> = exact.as_ref().map(|x| {
+        x.m.iter()
+            .map(|r| {
+                r.iter()
+                    .map(|e| expand_rf(e, d0.value(), i64::from(q) + 1, &tv))
+                    .collect()
+            })
+            .collect()
+    });
+    let on_r = |c: &[Laurent], mexp: &[Vec<Laurent>]| -> Vec<Laurent> {
+        (0..n)
+            .map(|j| {
+                let mut acc = Laurent::zero(i64::MAX / 4, &tv);
+                for (ii, ci) in c.iter().enumerate() {
+                    acc = acc.add(&ci.mul(&mexp[ii][j]));
+                }
+                acc
+            })
+            .collect()
+    };
+
+    // GIVEN SETS: certify (exact) and the change of basis to R
+    let mut given_out: Vec<Value> = vec![];
+    for (label, keys) in inp.given_sets {
+        given_out.push(certify_given(
+            compose,
+            label,
+            keys,
+            inp.terminals,
+            &term_pos,
+            &n_lat,
+            q,
+            &d0,
+            &tv,
+            exact.as_ref(),
+        ));
+    }
+
+    // FREEDOM: regular sets among the lowest-complexity band keys (bases of N / t N: images = (c(K) M)(t = 0))
+    let freedom = match (mexp.as_ref(), spec.freedom_window) {
+        (Some(me), w) if w > 0 => {
+            let mut win: Vec<(Key, Vec<Rational>)> = vec![];
+            for k in &cands {
+                if win.len() >= w {
+                    break;
+                }
+                let c = if let Some(&i) = term_pos.get(k.as_slice()) {
+                    unit_laurent(n, i, abs_prec, &tv)
+                } else if let Some(c) = cache.get(k) {
+                    c.clone()
+                } else {
+                    continue;
+                };
+                let img: Vec<Rational> = on_r(&c, me)
+                    .iter()
+                    .map(|x| x.coeff(0).unwrap_or_else(|_| Rational::zero()))
+                    .collect();
+                win.push((k.clone(), img));
+            }
+            Some(count_bases(&win, n))
+        }
+        _ => None,
+    };
+
     // c2: per band key on R (streamed)
     let mut cert_keys_checked = None;
     let mut cert_keys_with_pole = None;
     let mut max_pole_on_r: Option<Vec<u32>> = None;
     let mut failures: Vec<Key> = vec![];
+    let mut closure_extra_out: Option<Value> = None;
     if spec.certify_keys == rustred_campaign_core::regbasis::CertifyKeys::All
         && let Some(x) = exact.as_ref()
     {
-        let mexp: Vec<Vec<Laurent>> =
-            x.m.iter()
-                .map(|r| {
-                    r.iter()
-                        .map(|e| expand_rf(e, d0.value(), i64::from(q) + 1, &tv))
-                        .collect()
-                })
-                .collect();
+        let _ = x;
+        let mexp = mexp.as_ref().expect("exact present");
         let mut checked = 0usize;
         let mut with_pole = 0usize;
         let mut mx = vec![0u32; n];
@@ -865,11 +961,8 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
                 let Ok(c) = res else { return Ok(()) };
                 checked += 1;
                 let mut polar = false;
-                for j in 0..n {
-                    let mut acc = Laurent::zero(i64::MAX / 4, &tv);
-                    for (ii, ci) in c.iter().enumerate() {
-                        acc = acc.add(&ci.mul(&mexp[ii][j]));
-                    }
+                let v = on_r(&c, mexp);
+                for (j, acc) in v.iter().enumerate() {
                     if !acc.decides_pole() {
                         return Err(format!(
                             "certificate c2: precision does not decide the pole of {:?}",
@@ -898,6 +991,41 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         cert_keys_checked = Some(checked);
         cert_keys_with_pole = Some(with_pole);
         max_pole_on_r = Some(mx);
+        // the closure keys outside the band (not covered by the construction; reported separately)
+        if !inp.closure_extra.is_empty() {
+            let (mut ch, mut wp, mut und) = (0usize, 0usize, 0usize);
+            let mut fx: Vec<Key> = vec![];
+            stream_parsed(
+                compose,
+                inp.closure_extra,
+                spec.chunk_keys,
+                abs_prec,
+                &tv,
+                |i, res| {
+                    let Ok(c) = res else {
+                        und += 1;
+                        return Ok(());
+                    };
+                    ch += 1;
+                    let v = on_r(&c, mexp);
+                    if v.iter().any(|x| !x.decides_pole()) {
+                        und += 1;
+                        return Ok(());
+                    }
+                    if v.iter().any(|x| x.pole_order() > 0) {
+                        wp += 1;
+                        if fx.len() < MAX_EXAMPLES {
+                            fx.push(inp.closure_extra[i].clone());
+                        }
+                    }
+                    Ok(())
+                },
+            )?;
+            closure_extra_out = Some(
+                json!({"keys": inp.closure_extra.len(), "checked": ch, "undecided": und,
+                                            "with_pole_on_R": wp, "examples": fx}),
+            );
+        }
     }
 
     let regular = cert_lattice.unwrap_or(true)
@@ -1025,10 +1153,15 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
             "c2_keys_with_pole_on_R": cert_keys_with_pole,
             "c2_max_pole_on_R": max_pole_on_r,
             "c2_failures": failures,
+            "c2_closure_outside_band": closure_extra_out,
         },
         "need": needs.iter().map(|t| t.to_value()).collect::<Vec<_>>(),
         "published": inp.published.map(|p| json!({"labels": p.labels, "keys": p.keys, "Q": p.q})),
+        "given_sets": given_out,
+        "freedom": freedom,
         "selection": {
+            "preferred": spec.preferred,
+            "preferred_outside_band": preferred_outside,
             "candidates": cands.len(),
             "fallback_used": sources.iter().any(|s| s == "pivot_fallback"),
             "pivot_keys": pivots.len(),
@@ -1076,3 +1209,149 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         keys_with_pole_on_t: keys_polar,
     })
 }
+
+/// Certify a given candidate set (exact): regular iff A' is invertible, M' = A'^-1 is regular at d0, and every Hermite
+/// row of the band lattice (generators of N together with O^n) has coefficients regular on it (Theorem 1). The change
+/// of basis R' = U R with U = A' M (exact) is reported with the order of every entry; U is unimodular over the local
+/// ring iff every entry is regular and v(det U) = 0 (then R' and R span the same lattice).
+#[allow(clippy::too_many_arguments)]
+fn certify_given(
+    compose: &mut dyn Compose,
+    label: &str,
+    keys: &[Key],
+    terminals: &[Key],
+    term_pos: &HashMap<&[i32], usize>,
+    n_lat: &HermiteLattice,
+    q: u32,
+    d0: &D0,
+    tv: &Arc<Vec<PolyVariable>>,
+    exact_r: Option<&ExactMap>,
+) -> Value {
+    let n = terminals.len();
+    if keys.len() != n {
+        return json!({"label": label, "keys": keys, "regular": null, "reason": format!("{} keys, {n} terminals", keys.len())});
+    }
+    let mut rows: Vec<Vec<String>> = vec![];
+    for k in keys {
+        if let Some(&i) = term_pos.get(k.as_slice()) {
+            rows.push(
+                (0..n)
+                    .map(|j| if i == j { "1".into() } else { "0".into() })
+                    .collect(),
+            );
+        } else {
+            match compose.exact(k) {
+                Ok(v) if v.len() == n => rows.push(v),
+                Ok(v) => {
+                    return json!({"label": label, "keys": keys, "regular": null, "reason": format!("{:?}: {} coefficients", k, v.len())});
+                }
+                Err(e) => {
+                    return json!({"label": label, "keys": keys, "regular": null, "reason": format!("{k:?}: {e}")});
+                }
+            }
+        }
+    }
+    let x = match exact_map(&rows, d0) {
+        Ok(x) => x,
+        Err(e) => return json!({"label": label, "keys": keys, "regular": false, "reason": e}),
+    };
+    let m_regular = x
+        .m_orders
+        .iter()
+        .flatten()
+        .all(|o| o.is_none_or(|v| v >= 0));
+    // every Hermite row h of t^q N: (h / t^q) M' regular
+    let mexp: Vec<Vec<Laurent>> =
+        x.m.iter()
+            .map(|r| {
+                r.iter()
+                    .map(|e| expand_rf(e, d0.value(), i64::from(q) + 1, tv))
+                    .collect()
+            })
+            .collect();
+    let mut rows_ok = true;
+    for h in n_lat.rows() {
+        let c: Vec<Laurent> = h
+            .iter()
+            .map(|p| Laurent::normalised(-i64::from(q), p.clone(), i64::MAX / 4))
+            .collect();
+        for j in 0..n {
+            let mut acc = Laurent::zero(i64::MAX / 4, tv);
+            for (ii, ci) in c.iter().enumerate() {
+                acc = acc.add(&ci.mul(&mexp[ii][j]));
+            }
+            if acc.pole_order() > 0 {
+                rows_ok = false;
+            }
+        }
+    }
+    let regular = m_regular && rows_ok;
+    // change of basis to the constructed R: R' = U R, U = A' M
+    let change = exact_r.map(|xr| {
+        let u: Vec<Vec<RF>> = x.a.iter().map(|row| super::exact::row_times(row, &xr.m)).collect();
+        let ut: Vec<Vec<String>> = u.iter().map(|r| r.iter().map(super::series::rf_text).collect()).collect();
+        let uo: Vec<Vec<Option<i64>>> = u.iter().map(|r| r.iter().map(|e| super::series::rf_valuation(e, d0.value())).collect()).collect();
+        let field = symbolica::domains::rational_polynomial::RationalPolynomialField::new(symbolica::domains::integer::Z);
+        let det = symbolica::tensors::matrix::Matrix::from_linear(u.iter().flatten().cloned().collect(), n as u32, n as u32, field)
+            .ok()
+            .and_then(|m| m.det().ok());
+        let det_order = det.as_ref().and_then(|d| super::series::rf_valuation(d, d0.value()));
+        let unimodular = uo.iter().flatten().all(|o| o.is_none_or(|v| v >= 0)) && det_order == Some(0);
+        json!({"convention": "R'_i = sum_j U[i][j] R_j", "U": ut, "U_order": uo, "det_U_order": det_order, "unimodular": unimodular})
+    });
+    json!({"label": label, "keys": keys, "regular": regular, "M_regular": m_regular, "band_lattice_finite": rows_ok,
+           "M": x.m_text, "M_order": x.m_orders, "M_inv_order": x.a_orders, "det_M_order": x.det_m_order,
+           "change_of_basis_to_R": change})
+}
+
+/// Count the n-subsets of the window whose images form a basis of N / t N (exact determinants over Q, numerica
+/// `Matrix::det`). Capped at `MAX_SUBSETS` subsets (then not counted).
+fn count_bases(win: &[(Key, Vec<Rational>)], n: usize) -> Value {
+    let m = win.len();
+    let zero_image = win
+        .iter()
+        .filter(|(_, v)| v.iter().all(|x| x.is_zero()))
+        .count();
+    let mut total: u128 = 1;
+    for i in 0..n.min(m) {
+        total = total * (m - i) as u128 / (i + 1) as u128;
+    }
+    if n > m || total > MAX_SUBSETS {
+        return json!({"window": m, "zero_image_keys": zero_image, "subsets": total.to_string(), "regular_subsets": null,
+                      "note": "not counted (window smaller than n or above the subset cap)"});
+    }
+    let mut idx: Vec<usize> = (0..n).collect();
+    let mut count = 0u64;
+    let mut first: Option<Vec<Key>> = None;
+    loop {
+        let data: Vec<Rational> = idx.iter().flat_map(|&i| win[i].1.iter().cloned()).collect();
+        let nonzero = Matrix::from_linear(data, n as u32, n as u32, Q)
+            .ok()
+            .and_then(|mm| mm.det().ok())
+            .is_some_and(|d| !d.is_zero());
+        if nonzero {
+            count += 1;
+            if first.is_none() {
+                first = Some(idx.iter().map(|&i| win[i].0.clone()).collect());
+            }
+        }
+        // next combination
+        let mut k = n;
+        while k > 0 && idx[k - 1] == m - n + k - 1 {
+            k -= 1;
+        }
+        if k == 0 {
+            break;
+        }
+        idx[k - 1] += 1;
+        for j in k..n {
+            idx[j] = idx[j - 1] + 1;
+        }
+    }
+    json!({"window": m, "window_keys": win.iter().map(|(k, _)| k.clone()).collect::<Vec<_>>(),
+           "zero_image_keys": zero_image, "subsets": total.to_string(), "regular_subsets": count,
+           "first_regular_subset": first})
+}
+
+/// Cap of the subsets examined by the freedom count.
+pub const MAX_SUBSETS: u128 = 2_000_000;

@@ -9,9 +9,11 @@
 //! | `candidates.max_dots` | `2` | candidate family: top-sector keys with dots <= this ... |
 //! | `candidates.max_rank` | `1` | ... rank <= this ... |
 //! | `candidates.max_weight` | `2` | ... and dots + rank <= this (then the fallback: pivot keys of the band pass) |
+//! | `candidates.preferred` | `[]` | an ordered list of PREFERRED keys tried first by the greedy (a preference, never a guarantee, L9) |
 //! | `candidates.order` | `"weight_then_node"` | `weight_then_node` (dots + rank, then the node comparator) or `node` (comparator only) |
 //! | `certify.lattice` | `true` | certificate c1: the lattice of R equals the band lattice (index 1) |
 //! | `certify.keys` | `"all"` | certificate c2: `all` band keys re-checked as c(K) M (streamed) or `none` |
+//! | `freedom_window` | `50` | count the regular sets among this many lowest-complexity band keys (0 = off) |
 //! | `chunk_keys` | `4096` | keys per composition batch (streaming; memory bound) |
 //! | `tower.enabled` | `true` | run the tower test (dot-free keys) |
 //! | `tower.max_rank` | `null` | highest rank of the tower (`null` = the band's highest rank) |
@@ -73,6 +75,10 @@ pub struct RegBasisSpec {
     pub tower_max_keys_per_rank: Option<usize>,
     pub tower_max_seconds: Option<f64>,
     pub tower_seed_with_band: bool,
+    /// Ordered preferred keys (tried first by the greedy).
+    pub preferred: Vec<Vec<i32>>,
+    /// Size of the window of lowest-complexity band keys in which regular sets are counted (0 = off).
+    pub freedom_window: usize,
 }
 
 impl Default for RegBasisSpec {
@@ -93,6 +99,8 @@ impl Default for RegBasisSpec {
             tower_max_keys_per_rank: None,
             tower_max_seconds: None,
             tower_seed_with_band: true,
+            preferred: vec![],
+            freedom_window: 50,
         }
     }
 }
@@ -158,8 +166,12 @@ impl RegBasisSpec {
                 "certify",
                 "chunk_keys",
                 "tower",
+                "freedom_window",
             ],
         )?;
+        if let Some(x) = o.get("freedom_window") {
+            s.freedom_window = u32_of(x, "freedom_window")? as usize;
+        }
         if let Some(x) = o.get("schema")
             && x.as_str() != Some(SPEC_SCHEMA)
         {
@@ -187,8 +199,28 @@ impl RegBasisSpec {
                     "max_rank",
                     "max_weight",
                     "order",
+                    "preferred",
                 ],
             )?;
+            if let Some(x) = c.get("preferred") {
+                let a = x
+                    .as_array()
+                    .ok_or("candidates.preferred: expected an array of keys")?;
+                s.preferred =
+                    a.iter()
+                        .map(|k| {
+                            k.as_array()
+                                .ok_or_else(|| format!("candidates.preferred: {k} is not a key"))?
+                                .iter()
+                                .map(|v| {
+                                    v.as_i64().and_then(|v| i32::try_from(v).ok()).ok_or_else(
+                                        || format!("candidates.preferred: entry {v} of {k}"),
+                                    )
+                                })
+                                .collect::<Result<Vec<i32>, String>>()
+                        })
+                        .collect::<Result<_, _>>()?;
+            }
             if let Some(x) = c.get("terminals_first") {
                 s.terminals_first = bool_of(x, "candidates.terminals_first")?;
             }
@@ -273,7 +305,9 @@ impl RegBasisSpec {
             "d0": self.d0,
             "base_order": self.base_order,
             "candidates": {"terminals_first": self.terminals_first, "max_dots": self.max_dots,
-                           "max_rank": self.max_rank, "max_weight": self.max_weight, "order": self.order.word()},
+                           "max_rank": self.max_rank, "max_weight": self.max_weight, "order": self.order.word(),
+                           "preferred": self.preferred},
+            "freedom_window": self.freedom_window,
             "certify": {"lattice": self.certify_lattice, "keys": self.certify_keys.word()},
             "chunk_keys": self.chunk_keys,
             "tower": {"enabled": self.tower_enabled, "max_rank": self.tower_max_rank,

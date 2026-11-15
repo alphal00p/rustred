@@ -76,6 +76,8 @@ struct RunCtx<'a> {
     out: &'a Path,
     tower: bool,
     backend: &'a str,
+    given: &'a [(String, Vec<Key>)],
+    closure: &'a [Key],
 }
 
 fn build_and_tower(comp: &mut dyn Compose, c: &RunCtx<'_>) -> Result<Value, String> {
@@ -91,6 +93,8 @@ fn build_and_tower(comp: &mut dyn Compose, c: &RunCtx<'_>) -> Result<Value, Stri
         published: c.published,
         availability: c.avail,
         binding: Some(c.binding.clone()),
+        given_sets: c.given,
+        closure_extra: c.closure,
     };
     let res = construct(comp, &inp)?;
     let t_build = t1.elapsed().as_secs_f64();
@@ -123,6 +127,7 @@ fn build_and_tower(comp: &mut dyn Compose, c: &RunCtx<'_>) -> Result<Value, Stri
         "certificates": res.record["certificate"], "needs": res.record["need"], "M_order": res.record["M_order"],
         "M_inv_order": res.record["M_inv_order"], "det_M_order": res.record["det_M_order"],
         "terminal_in_t_N": res.terminal_in_t_n, "timing": {"build_s": t_build, "rss_peak_mb": rss_mb()},
+        "given_sets": res.record["given_sets"], "freedom": res.record["freedom"],
     });
     if c.tower {
         let t2 = Instant::now();
@@ -314,6 +319,38 @@ fn run() -> Result<(), String> {
         .value()
         .clone();
     let backend = get("--backend").unwrap_or_else(|| "exact".into());
+    // --given FILE: {"label": [[key], ..], ..} candidate sets to certify
+    let given: Vec<(String, Vec<Key>)> = match get("--given") {
+        None => vec![],
+        Some(p) => {
+            let v = text_or_file(&p)?;
+            let o = v
+                .as_object()
+                .ok_or("--given: expected an object {label: [keys]}")?;
+            let mut out = vec![];
+            for (label, ks) in o {
+                let keys: Vec<Key> = serde_json::from_value(ks.clone())
+                    .map_err(|e| format!("--given {label}: {e}"))?;
+                out.push((label.clone(), keys));
+            }
+            out
+        }
+    };
+    // --closure: certificate c2 also over every top-sector closure key outside the band
+    let closure: Vec<Key> = if flag("--closure") {
+        let bs: std::collections::HashSet<&Key> = band.iter().collect();
+        (0..src.n_keys())
+            .map(|i| src.key(i))
+            .filter(|k| rank_of(&chart, k).is_some() && !bs.contains(k))
+            .collect()
+    } else {
+        vec![]
+    };
+    eprintln!(
+        "given sets {}, closure keys outside the band {}",
+        given.len(),
+        closure.len()
+    );
     let ctx = RunCtx {
         node: &node,
         chart: &chart,
@@ -328,6 +365,8 @@ fn run() -> Result<(), String> {
         out: &out,
         tower: spec.tower_enabled && !flag("--no-tower"),
         backend: &backend,
+        given: &given,
+        closure: &closure,
     };
     let summary = match backend.as_str() {
         "exact" => {
