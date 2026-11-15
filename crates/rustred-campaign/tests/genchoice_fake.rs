@@ -77,7 +77,7 @@ fn material(dir: &Path, optimise: bool) -> PathBuf {
                   "box":{"path":bx.display().to_string(),"sha256":sha256_file(&bx)}}],
         "policy":{"orders":["id","bfi","isp_rev"],"probe":{"cases":50},
                   "economy":{"optimise":optimise},
-                  "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3}},
+                  "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,"full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3}},
         "fake":{"program":"rr_fake_child","ms":5,"runs":runs}});
     let p = dir.join("genchoice.json");
     std::fs::write(&p, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
@@ -85,8 +85,18 @@ fn material(dir: &Path, optimise: bool) -> PathBuf {
 }
 
 fn setup(tag: &str, optimise: bool) -> (Tmp, PathBuf, PathBuf) {
+    setup_with(tag, optimise, None)
+}
+
+/// `full_cap`: replaces the policy's full-run cap (bytes).
+fn setup_with(tag: &str, optimise: bool, full_cap: Option<u64>) -> (Tmp, PathBuf, PathBuf) {
     let t = Tmp::new(tag);
     let cfg = material(&t.path.join("material"), optimise);
+    if let Some(c) = full_cap {
+        let mut v: Value = serde_json::from_slice(&std::fs::read(&cfg).unwrap()).unwrap();
+        v["policy"]["job"]["full_cap_bytes"] = json!(c);
+        std::fs::write(&cfg, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    }
     let spec = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}, "rr_node": {"path": FAKE}},
@@ -223,4 +233,15 @@ fn optimise_mode_runs_every_ranked_candidate_without_cap() {
         c["winner"], "isp_rev-default-std",
         "the smallest full table of all: {c:#}"
     );
+}
+
+#[test]
+fn a_job_cap_above_the_campaign_memory_total_is_refused_at_start_not_waited_for() {
+    let _g = serial();
+    let (_t, sp, cdir) = setup_with("gccap", false, Some(16 << 30));
+    let mut c = start(&sp, &cdir, &["--plain"], &[]);
+    let code = wait(&mut c, std::time::Duration::from_secs(120));
+    assert_ne!(code, 0);
+    let log = log_tail(&cdir);
+    assert!(log.contains("exceeds the campaign memory total"), "{log}");
 }

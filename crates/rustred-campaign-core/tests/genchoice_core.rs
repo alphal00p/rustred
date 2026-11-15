@@ -354,3 +354,75 @@ fn config_parse_and_import_spec() {
     assert_eq!(s["sources"][0]["table_terminals"], "ledger_and_residuals");
     assert_eq!(s["start"]["format"], "box");
 }
+
+#[test]
+fn deep_cases_refused_first_then_most_constrained_and_deep_ranking() {
+    let s = shape();
+    let oc = |f: Vec<Option<i64>>| {
+        OpenCase::from_case(&serde_json::json!({"frame":"presented","fixed":f,"equations":[]}))
+            .unwrap()
+    };
+    let refused = vec![vec![oc(vec![None, None, Some(1), None, None])]];
+    let open = vec![
+        vec![
+            oc(vec![Some(1), Some(2), None, Some(0), None]),
+            oc(vec![Some(1), Some(1), Some(1), Some(-1), Some(0)]),
+            oc(vec![None, None, Some(1), None, None]),
+        ],
+        vec![oc(vec![Some(1), Some(1), Some(1), Some(-1), Some(0)])],
+    ];
+    let d = deep_cases(&s, &refused, &open, 3);
+    assert_eq!(d.len(), 3);
+    assert_eq!(
+        d[0].fixed,
+        vec![None, None, Some(1), None, None],
+        "refused cases first"
+    );
+    assert_eq!(
+        d[1].fixed,
+        vec![Some(1), Some(1), Some(1), Some(-1), Some(0)],
+        "most fixed slots next, deduplicated"
+    );
+    assert_eq!(d[2].fixed, vec![Some(1), Some(2), None, Some(0), None]);
+    assert_eq!(deep_cases(&s, &refused, &open, 1).len(), 1);
+    // ranking with the deep stage: the same deep cases decide before the shallow cost bands
+    let dm = |monomials: u64, refused: u64| {
+        Some(Some(DeepMeasure {
+            solved: 3,
+            refused,
+            monomials,
+            max_monomials: monomials,
+        }))
+    };
+    let probes = vec![
+        (
+            0,
+            RunStatus::MaxCases,
+            Some(tm(100, 100_000, 50_000, 3_000)),
+            0,
+            dm(1_000_000, 0),
+        ),
+        (
+            1,
+            RunStatus::MaxCases,
+            Some(tm(100, 10_000_000, 9_000_000, 2_000_000)),
+            0,
+            dm(1_000, 0),
+        ),
+        (
+            2,
+            RunStatus::MaxCases,
+            Some(tm(100, 100_000, 50_000, 3_000)),
+            0,
+            dm(10, 1),
+        ),
+        (
+            3,
+            RunStatus::MaxCases,
+            Some(tm(100, 100_000, 50_000, 3_000)),
+            0,
+            Some(None),
+        ),
+    ];
+    assert_eq!(ranking_deep(&probes), vec![1, 0, 2, 3]);
+}

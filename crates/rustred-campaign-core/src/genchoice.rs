@@ -156,6 +156,45 @@ impl Default for ProbePolicy {
     }
 }
 
+/// DEEP PROBE (v1.2; request part 4): the SAME deep cases (the most constrained cases left open by the shallow probes,
+/// i.e. the subtrees a shallow probe never reaches) solved under every candidate (`--descend open`: only the given
+/// cases), so the candidates are compared on identical cases (order-study's native probes of the hard cases, made
+/// automatic). Default OFF until measured (the blind runs of this lane ran without it).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct DeepPolicy {
+    pub enabled: bool,
+    /// Number of deep cases.
+    pub cases: usize,
+    /// Extra flags of deep jobs (default: only the given cases, heavy relations refused before their lift and left open).
+    pub args: Vec<String>,
+    pub wall_case_s: Option<u64>,
+    pub wall_job_s: Option<u64>,
+}
+
+impl Default for DeepPolicy {
+    fn default() -> Self {
+        DeepPolicy {
+            enabled: false,
+            cases: 16,
+            args: [
+                "--descend",
+                "open",
+                "--on-heavy",
+                "refuse",
+                "--screen",
+                "0,64,24,2500",
+                "--open-on-refusal",
+            ]
+            .iter()
+            .map(|x| x.to_string())
+            .collect(),
+            wall_case_s: Some(600),
+            wall_job_s: Some(2700),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct FullPolicy {
@@ -290,6 +329,7 @@ pub struct Policy {
     pub ladders: Vec<NamedArgs>,
     pub common_args: Vec<String>,
     pub probe: ProbePolicy,
+    pub deep: DeepPolicy,
     pub full: FullPolicy,
     pub bfi: BfiPolicy,
     pub economy: EconomyPolicy,
@@ -323,6 +363,7 @@ impl Default for Policy {
             }],
             common_args: vec!["--numeric-depth-max".into(), "3".into()],
             probe: ProbePolicy::default(),
+            deep: DeepPolicy::default(),
             full: FullPolicy::default(),
             bfi: BfiPolicy::default(),
             economy: EconomyPolicy::default(),
@@ -363,6 +404,9 @@ impl Policy {
                     return Err(format!("genchoice policy: {what} {} listed twice", p.name));
                 }
             }
+        }
+        if self.deep.enabled && self.deep.cases == 0 {
+            return Err("genchoice policy: deep.cases must be >= 1 when deep.enabled".into());
         }
         if self.probe.cases == 0 {
             return Err("genchoice policy: probe.cases must be >= 1".into());
@@ -701,6 +745,10 @@ pub fn band(x: f64) -> u32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ProbeKey {
     pub status: u8,
+    /// Deep stage (zero when it did not run): heavy relations refused on the deep cases, then the factor-2 band of the
+    /// summed monomials of the deep cases' rules (the same cases for every candidate).
+    pub deep_refused: u64,
+    pub deep_band: u32,
     /// Heavy relations the probe refused (pre-lift screen; fewer = better).
     pub refused: u64,
     pub cost_band: u32,
@@ -716,11 +764,51 @@ pub fn probe_key(
     refused: u64,
     index: usize,
 ) -> ProbeKey {
+    probe_key_deep(status, m, refused, None, index)
+}
+
+/// [`probe_key`] with the deep stage's measure (None = no deep stage; `Some(None)` = the deep job gave nothing: worst).
+pub fn probe_key_deep(
+    status: RunStatus,
+    m: Option<&TableMeasure>,
+    refused: u64,
+    deep: Option<Option<&DeepMeasure>>,
+    index: usize,
+) -> ProbeKey {
+    let (deep_refused, deep_band) = match deep {
+        None => (0, 0),
+        Some(Some(d)) => (d.refused, band(d.monomials as f64)),
+        Some(None) => (u64::MAX, u32::MAX),
+    };
+    let k = probe_key_shallow(status, m, refused, index);
+    ProbeKey {
+        deep_refused: if k.status < RunStatus::Failed.rank() {
+            deep_refused
+        } else {
+            u64::MAX
+        },
+        deep_band: if k.status < RunStatus::Failed.rank() {
+            deep_band
+        } else {
+            u32::MAX
+        },
+        ..k
+    }
+}
+
+fn probe_key_shallow(
+    status: RunStatus,
+    m: Option<&TableMeasure>,
+    refused: u64,
+    index: usize,
+) -> ProbeKey {
     match m {
         Some(m) if m.rules > 0 && status != RunStatus::Failed => {
             let per = m.use_cost_ns / m.rules as f64;
             ProbeKey {
                 status: status.rank(),
+                deep_refused: 0,
+                deep_band: 0,
                 refused,
                 cost_band: band(per),
                 max_band: band(m.max_monomials as f64),
@@ -732,6 +820,8 @@ pub fn probe_key(
         // eligible, after every measured candidate of its status
         _ if status.rank() == RunStatus::Heavy.rank() => ProbeKey {
             status: status.rank(),
+            deep_refused: 0,
+            deep_band: 0,
             refused: u64::MAX,
             cost_band: u32::MAX,
             max_band: u32::MAX,
@@ -740,6 +830,8 @@ pub fn probe_key(
         },
         _ => ProbeKey {
             status: RunStatus::Failed.rank(),
+            deep_refused: 0,
+            deep_band: 0,
             refused: u64::MAX,
             cost_band: u32::MAX,
             max_band: u32::MAX,
@@ -752,15 +844,143 @@ pub fn probe_key(
 /// Candidate indices in ranking order; failed probes (no table, not heavy) excluded.
 /// Each probe: (candidate index, status, measures, refused heavy relations).
 pub fn ranking(probes: &[(usize, RunStatus, Option<TableMeasure>, u64)]) -> Vec<usize> {
+    let with: Vec<_> = probes
+        .iter()
+        .map(|(i, s, m, r)| (*i, *s, m.clone(), *r, None))
+        .collect();
+    ranking_deep(&with)
+}
+
+/// [`ranking`] with the deep stage: (candidate, status, measures, refused, deep measure: None = no deep stage,
+/// Some(None) = the deep job gave nothing).
+#[allow(clippy::type_complexity)]
+pub fn ranking_deep(
+    probes: &[(
+        usize,
+        RunStatus,
+        Option<TableMeasure>,
+        u64,
+        Option<Option<DeepMeasure>>,
+    )],
+) -> Vec<usize> {
     let mut keys: Vec<ProbeKey> = probes
         .iter()
-        .map(|(i, s, m, r)| probe_key(*s, m.as_ref(), *r, *i))
+        .map(|(i, s, m, r, d)| {
+            probe_key_deep(*s, m.as_ref(), *r, d.as_ref().map(|x| x.as_ref()), *i)
+        })
         .collect();
     keys.sort();
     keys.into_iter()
         .filter(|k| k.status < RunStatus::Failed.rank())
         .map(|k| k.index)
         .collect()
+}
+
+// ------------------------------------------------------------------------------------------------ deep stage
+
+/// A case of a sealed open list (`F.subcases.jsonl`, PRESENTED slots = family slots: the orders are comparator-only),
+/// with its line verbatim (a valid line of a `cases` input).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OpenCase {
+    pub fixed: Vec<Option<i64>>,
+    pub equations: Vec<String>,
+    pub line: Value,
+}
+
+impl OpenCase {
+    /// From a subcase record's `case` object (None when it has no fixed list).
+    pub fn from_case(case: &Value) -> Option<OpenCase> {
+        let fixed: Vec<Option<i64>> = case
+            .get("fixed")?
+            .as_array()?
+            .iter()
+            .map(|x| x.as_i64())
+            .collect();
+        let equations = case
+            .get("equations")
+            .and_then(|e| e.as_array())
+            .map(|a| {
+                a.iter()
+                    .map(|x| x.as_str().map_or_else(|| x.to_string(), str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        Some(OpenCase {
+            fixed,
+            equations,
+            line: case.clone(),
+        })
+    }
+
+    pub fn key(&self) -> String {
+        case_key(&self.fixed, &self.equations)
+    }
+}
+
+/// The deep cases: first the cases some probe REFUSED as heavy (the known hard cases), then the most constrained
+/// distinct cases the probes left open (most fixed slots, then most slots fixed at an INTERIOR value (R1 class 2:
+/// dotted line / numerator), then the case key: deterministic); `m` in all.
+pub fn deep_cases(
+    shape: &FamilyShape,
+    refused: &[Vec<OpenCase>],
+    open: &[Vec<OpenCase>],
+    m: usize,
+) -> Vec<OpenCase> {
+    let mut out = constrained_first(shape, refused, m);
+    let have: std::collections::BTreeSet<String> = out.iter().map(OpenCase::key).collect();
+    let rest: Vec<OpenCase> = constrained_first(shape, open, usize::MAX)
+        .into_iter()
+        .filter(|c| !have.contains(&c.key()))
+        .take(m.saturating_sub(out.len()))
+        .collect();
+    out.extend(rest);
+    out
+}
+
+fn constrained_first(shape: &FamilyShape, lists: &[Vec<OpenCase>], m: usize) -> Vec<OpenCase> {
+    let mut seen = std::collections::BTreeMap::new();
+    for l in lists {
+        for c in l {
+            if c.fixed.len() == shape.arity {
+                seen.entry(c.key()).or_insert_with(|| c.clone());
+            }
+        }
+    }
+    let mut v: Vec<(usize, usize, String, OpenCase)> = seen
+        .into_iter()
+        .map(|(k, c)| {
+            let fixed = c.fixed.iter().filter(|x| x.is_some()).count();
+            let interior = c
+                .fixed
+                .iter()
+                .enumerate()
+                .filter(|(s, f)| r1_class(shape.is_line(*s), **f) == 2)
+                .count();
+            (fixed, interior, k, c)
+        })
+        .collect();
+    v.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(a.2.cmp(&b.2)));
+    v.into_iter().take(m).map(|(_, _, _, c)| c).collect()
+}
+
+/// What a candidate's deep job gave on the deep cases.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeepMeasure {
+    pub solved: u64,
+    pub refused: u64,
+    pub monomials: u64,
+    pub max_monomials: u64,
+}
+
+impl DeepMeasure {
+    pub fn of(rows: &[RuleRow], refused: u64) -> DeepMeasure {
+        DeepMeasure {
+            solved: rows.len() as u64,
+            refused,
+            monomials: rows.iter().map(|r| r.monomials).sum(),
+            max_monomials: rows.iter().map(|r| r.monomials).max().unwrap_or(0),
+        }
+    }
 }
 
 // ------------------------------------------------------------------------------------------------ economy

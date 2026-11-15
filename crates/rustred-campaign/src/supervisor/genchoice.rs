@@ -38,6 +38,10 @@ pub const ROLE_CHOICE: &str = "genchoice_choice";
 pub const KIND_PROBE: &str = "genchoice-probe";
 pub const KIND_FULL: &str = "genchoice-full";
 pub const KIND_ALT: &str = "genchoice-alt";
+pub const KIND_DEEP: &str = "genchoice-deep";
+pub const ROLE_DEEP: &str = "genchoice_deep";
+/// At most this many open cases of one probe are kept in its answer (for the deep stage).
+const MAX_OPEN_KEPT: usize = 20_000;
 
 fn item_probe(node: &str, cand: &str) -> String {
     format!("{node}.gc.p.{cand}")
@@ -47,6 +51,12 @@ fn item_full(node: &str, cand: &str) -> String {
 }
 fn item_alt(node: &str, cand: &str) -> String {
     format!("{node}.gc.a.{cand}")
+}
+fn item_deep(node: &str, cand: &str) -> String {
+    format!("{node}.gc.d.{cand}")
+}
+fn input_deep(node: &str) -> String {
+    format!("genchoice:{node}:deep")
 }
 fn input_family(node: &str) -> String {
     format!("genchoice:{node}:family")
@@ -213,52 +223,75 @@ pub struct Answer {
     /// How the subcases list was read (verified against the attempt's OUTCOME, or why not).
     #[serde(default)]
     pub subcases: String,
+    /// The refused and the still open (kind `case`) cases of the sealed open list, as `cases` input lines (at most
+    /// MAX_OPEN_KEPT open ones): the deep stage's material.
+    #[serde(default)]
+    pub refused_lines: Vec<Value>,
+    #[serde(default)]
+    pub open_lines: Vec<Value>,
 }
+
+/// The open list of an attempt: (refused count, refused fixed values, refused case lines, open case lines, how).
+type OpenList = (u64, Vec<Vec<Option<i64>>>, Vec<Value>, Vec<Value>, String);
 
 /// The refused cases of an attempt's sealed open list, verified against the OUTCOME's sealed-output entry (role
 /// `subcases`: bytes + BLAKE3). Ok((count, fixed values, how)); a missing list = none refused.
-fn refused_of(run_dir: &Path) -> (u64, Vec<Vec<Option<i64>>>, String) {
+/// The refused cases of an attempt's sealed open list, verified against the OUTCOME's sealed-output entry (role
+/// `subcases`: BLAKE3), and its still open cases; a missing list = nothing open.
+fn open_list_of(run_dir: &Path) -> OpenList {
+    let none = |why: String| (0, vec![], vec![], vec![], why);
     let oc = run_dir.join(rustred_campaign_contract::layout::OUTCOME);
     let Ok(ob) = std::fs::read(&oc) else {
-        return (0, vec![], "no OUTCOME".into());
+        return none("no OUTCOME".into());
     };
     let Ok(o) = serde_json::from_slice::<Value>(&ob) else {
-        return (0, vec![], "OUTCOME unreadable".into());
+        return none("OUTCOME unreadable".into());
     };
     let Some(e) = o["job"]["outputs"]["extra"]
         .as_array()
         .and_then(|a| a.iter().find(|x| x["role"] == "subcases"))
     else {
-        return (0, vec![], "no subcases output (no open case)".into());
+        return none("no subcases output (no open case)".into());
     };
     let (Some(rel), Some(b3)) = (e["path"].as_str(), e["blake3"].as_str()) else {
-        return (0, vec![], "subcases entry without path / blake3".into());
+        return none("subcases entry without path / blake3".into());
     };
     let p = run_dir.join(rel);
     let Ok(b) = std::fs::read(&p) else {
-        return (0, vec![], format!("{}: unreadable", p.display()));
+        return none(format!("{}: unreadable", p.display()));
     };
     if blake3_hex(&b) != b3 {
-        return (
-            0,
-            vec![],
-            format!("{}: differs from its OUTCOME seal: not used", p.display()),
-        );
+        return none(format!(
+            "{}: differs from its OUTCOME seal: not used",
+            p.display()
+        ));
     }
-    let mut cases = Vec::new();
+    let (mut fixed, mut refused, mut open) = (Vec::new(), Vec::new(), Vec::new());
     for line in String::from_utf8_lossy(&b).lines() {
         let Ok(v) = serde_json::from_str::<Value>(line) else {
             continue;
         };
-        if v["type"] == "subcase" && v["kind"] == "refused" {
+        if v["type"] != "subcase" {
+            continue;
+        }
+        if v["kind"] == "refused" {
             let f: Vec<Option<i64>> = v["case"]["fixed"]
                 .as_array()
                 .map(|a| a.iter().map(|x| x.as_i64()).collect())
                 .unwrap_or_default();
-            cases.push(f);
+            fixed.push(f);
+            refused.push(v["case"].clone());
+        } else if v["kind"] == "case" && open.len() < MAX_OPEN_KEPT {
+            open.push(v["case"].clone());
         }
     }
-    (cases.len() as u64, cases, "verified against OUTCOME".into())
+    (
+        fixed.len() as u64,
+        fixed,
+        refused,
+        open,
+        "verified against OUTCOME".into(),
+    )
 }
 
 struct NodeRt {
@@ -343,6 +376,24 @@ impl GenChoiceSource {
         }
         check_flags(&cfg.policy.common_args)?;
         check_flags(&cfg.policy.probe.args)?;
+        check_flags(&cfg.policy.deep.args)?;
+        // a job whose cap can never fit the campaign's memory total would wait forever (admission NeverFits): refuse
+        let total = spec.resources.mem_total.0;
+        let caps: Vec<u64> = match spec.resources.job_mem_cap {
+            Some(c) => vec![c.0],
+            None => vec![
+                cfg.policy.job.cap_bytes,
+                cfg.policy
+                    .job
+                    .full_cap_bytes
+                    .unwrap_or(cfg.policy.job.cap_bytes),
+            ],
+        };
+        if let Some(c) = caps.iter().find(|&&c| total > 0 && c > total) {
+            return Err(format!(
+                "genchoice: a job cap of {c} bytes exceeds the campaign memory total {total} (resources.mem_total / --mem-total): lower policy.job.cap_bytes / full_cap_bytes or pass --mem-cap"
+            ));
+        }
         let mut nodes = Vec::new();
         for e in &cfg.nodes {
             let p = Path::new(&e.family);
@@ -403,7 +454,7 @@ impl GenChoiceSource {
     }
 
     fn is_ours(it: &crate::state::ItemRec) -> bool {
-        it.kind == KIND_PROBE || it.kind == KIND_FULL || it.kind == KIND_ALT
+        it.kind == KIND_PROBE || it.kind == KIND_FULL || it.kind == KIND_ALT || it.kind == KIND_DEEP
     }
 
     /// Read a registered input, verified by its recorded BLAKE3.
@@ -500,8 +551,36 @@ impl GenChoiceSource {
         if it.kind == KIND_PROBE {
             args.extend(p.probe.args.iter().cloned());
         }
+        if it.kind == KIND_DEEP {
+            args.extend(p.deep.args.iter().cloned());
+        }
         let n = &self.nodes[i];
-        let (work, wall) = if it.kind == KIND_PROBE {
+        let mut inputs = vec![InputRef {
+            role: "family".into(),
+            path: n.e.family.clone(),
+            blake3: n.family_blake3.clone(),
+            upto: None,
+        }];
+        let mut depends_on = vec![input_family(&n.e.node)];
+        if it.kind == KIND_DEEP {
+            let r = st.inputs.get(&input_deep(&n.e.node))?;
+            inputs.push(InputRef {
+                role: "cases".into(),
+                path: r.path.clone(),
+                blake3: r.blake3.clone(),
+                upto: None,
+            });
+            depends_on.push(input_deep(&n.e.node));
+        }
+        let (work, wall) = if it.kind == KIND_DEEP {
+            (
+                WorkBudgets::default(),
+                WallBudgets {
+                    case_s: p.deep.wall_case_s,
+                    job_s: p.deep.wall_job_s,
+                },
+            )
+        } else if it.kind == KIND_PROBE {
             (
                 WorkBudgets {
                     cases: Some(p.probe.cases),
@@ -525,10 +604,10 @@ impl GenChoiceSource {
                 },
             )
         };
-        let stage = if it.kind == KIND_PROBE {
-            "probe"
-        } else {
-            "full"
+        let stage = match it.kind.as_str() {
+            KIND_PROBE => "probe",
+            KIND_DEEP => "deep",
+            _ => "full",
         };
         let (program, fake) = match &self.fake {
             Some(f) => (f.program.clone(), Some(fake_script(f, &cand_id, stage))),
@@ -540,12 +619,12 @@ impl GenChoiceSource {
             rung: it.rung,
             kind: JobKind::Generate,
             priority,
-            cap_bytes: if stage == "probe" {
+            cap_bytes: if stage == "probe" || stage == "deep" {
                 p.job.cap_bytes
             } else {
                 p.job.full_cap_bytes.unwrap_or(p.job.cap_bytes)
             },
-            expected_peak_bytes: if stage == "probe" {
+            expected_peak_bytes: if stage == "probe" || stage == "deep" {
                 p.job.expected_peak_bytes
             } else {
                 p.job
@@ -557,13 +636,8 @@ impl GenChoiceSource {
             stop_grace_s: p.job.stop_grace_s,
             program,
             args,
-            inputs: vec![InputRef {
-                role: "family".into(),
-                path: n.e.family.clone(),
-                blake3: n.family_blake3.clone(),
-                upto: None,
-            }],
-            depends_on: vec![input_family(&n.e.node)],
+            inputs,
+            depends_on,
             budgets: Budgets {
                 work,
                 wall,
@@ -688,6 +762,8 @@ impl GenChoiceSource {
                                 refused: 0,
                                 refused_cases: vec![],
                                 subcases: String::new(),
+                                refused_lines: vec![],
+                                open_lines: vec![],
                             },
                         ));
                     }
@@ -786,8 +862,19 @@ impl GenChoiceSource {
                 "wall_job_s_cap": a.wall_job_s, "table": a.table, "table_path": a.table_path,
                 "measure": a.measure})
         };
+        let deep_on = p.deep.enabled;
+        let deep_answers: BTreeMap<usize, Option<Answer>> = probes
+            .iter()
+            .map(|(c, _)| (c.index, self.answer(st, &item_deep(&node, &c.id))))
+            .collect();
         let mut list = Vec::new();
         for (c, pa) in probes {
+            let da = deep_answers.get(&c.index).cloned().flatten();
+            let dm = da.as_ref().and_then(|a| {
+                a.measure
+                    .as_ref()
+                    .map(|_| gc::DeepMeasure::of(&a.rows, a.refused))
+            });
             let fulls: Vec<Value> = runs
                 .iter()
                 .filter(|(r, a)| r.cand == c.index && a.stage != "probe")
@@ -815,8 +902,10 @@ impl GenChoiceSource {
                 "order": pa.as_ref().map(|a| a.order.clone()),
                 "args": pa.as_ref().map(|a| a.args.clone()),
                 "probe": pa.as_ref().map(job_info),
-                "probe_key": gc::probe_key(pa.as_ref().map_or(gc::RunStatus::Failed, |a| a.status),
-                    pa.as_ref().and_then(|a| a.measure.as_ref()), pa.as_ref().map_or(0, |a| a.refused), c.index),
+                "probe_key": gc::probe_key_deep(pa.as_ref().map_or(gc::RunStatus::Failed, |a| a.status),
+                    pa.as_ref().and_then(|a| a.measure.as_ref()), pa.as_ref().map_or(0, |a| a.refused),
+                    deep_on.then_some(dm.as_ref()), c.index),
+                "deep": da.as_ref().map(|a| { let mut v = job_info(a); v["deep_measure"] = json!(dm); v }),
                 "full": fulls, "verdict": verdict}),
             );
         }
@@ -896,6 +985,44 @@ impl GenChoiceSource {
         Ok(())
     }
 
+    /// The deep cases file of a node (role `genchoice_deep`): refused cases of every probe first, then the most
+    /// constrained open cases ([`gc::deep_cases`]).
+    fn write_deep(
+        &mut self,
+        _st: &CampaignState,
+        i: usize,
+        probes: &[(gc::Candidate, Option<Answer>)],
+        rt: &mut Routing,
+    ) -> Result<(), String> {
+        let node = self.nodes[i].e.node.clone();
+        let lists = |f: &dyn Fn(&Answer) -> &Vec<Value>| -> Vec<Vec<gc::OpenCase>> {
+            probes
+                .iter()
+                .filter_map(|(_, a)| a.as_ref())
+                .map(|a| f(a).iter().filter_map(gc::OpenCase::from_case).collect())
+                .collect()
+        };
+        let refused = lists(&|a: &Answer| &a.refused_lines);
+        let open = lists(&|a: &Answer| &a.open_lines);
+        let d = gc::deep_cases(
+            &self.nodes[i].shape,
+            &refused,
+            &open,
+            self.cfg.policy.deep.cases,
+        );
+        let mut b = Vec::new();
+        for c in &d {
+            b.extend_from_slice(c.line.to_string().as_bytes());
+            b.push(b'\n');
+        }
+        let rec = AcceptedRecord {
+            path: format!("{}/deep_cases.jsonl", node_dir(&node)),
+            bytes: b,
+        };
+        self.reg(rt, input_deep(&node), ROLE_DEEP, rec);
+        Ok(())
+    }
+
     /// One node's step (poll): BFI candidates, then the full-run phase, then the choice.
     fn step_node(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<(), String> {
         let node = self.nodes[i].e.node.clone();
@@ -926,7 +1053,73 @@ impl GenChoiceSource {
         let Some(probes) = self.probes_final(st, i) else {
             return Ok(());
         };
-        let rk: Vec<(usize, gc::RunStatus, Option<gc::TableMeasure>, u64)> = probes
+        // the DEEP stage (when enabled): the same deep cases under every candidate with a usable probe
+        let mut deep: Option<BTreeMap<usize, Option<gc::DeepMeasure>>> = None;
+        if p.deep.enabled {
+            if !st.inputs.contains_key(&input_deep(&node)) {
+                return self.write_deep(st, i, &probes, rt);
+            }
+            // an empty deep set (no case left open by any probe): no deep stage
+            let ndeep = Self::read_input(st, &input_deep(&node))
+                .map(|b| b.split(|c| *c == b'\n').filter(|l| !l.is_empty()).count())
+                .unwrap_or(0);
+            if ndeep == 0 {
+                return self.step_full(st, i, &probes, None, rt);
+            }
+            let before = rt.events.len();
+            let mut all_final = true;
+            let mut m = BTreeMap::new();
+            for (c, pa) in &probes {
+                if pa
+                    .as_ref()
+                    .is_none_or(|a| a.status == gc::RunStatus::Failed)
+                {
+                    continue;
+                }
+                let item = item_deep(&node, &c.id);
+                if !st.items.contains_key(&item) {
+                    rt.events
+                        .push(Self::create_item(&node, item, KIND_DEEP, c.id.clone()));
+                    continue;
+                }
+                if !Self::item_final(st, &item) {
+                    all_final = false;
+                    continue;
+                }
+                let d = self.answer(st, &item).and_then(|a| {
+                    a.measure
+                        .as_ref()
+                        .map(|_| gc::DeepMeasure::of(&a.rows, a.refused))
+                });
+                m.insert(c.index, d);
+            }
+            if rt.events.len() > before || !all_final {
+                return Ok(());
+            }
+            deep = Some(m);
+        }
+        self.step_full(st, i, &probes, deep, rt)
+    }
+
+    /// The ranking (with the deep measures when the deep stage ran) and the full-run phase of a node.
+    fn step_full(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        probes: &[(gc::Candidate, Option<Answer>)],
+        deep: Option<BTreeMap<usize, Option<gc::DeepMeasure>>>,
+        rt: &mut Routing,
+    ) -> Result<(), String> {
+        let node = self.nodes[i].e.node.clone();
+        let p = self.cfg.policy.clone();
+        #[allow(clippy::type_complexity)]
+        let rk: Vec<(
+            usize,
+            gc::RunStatus,
+            Option<gc::TableMeasure>,
+            u64,
+            Option<Option<gc::DeepMeasure>>,
+        )> = probes
             .iter()
             .map(|(c, a)| {
                 (
@@ -934,11 +1127,12 @@ impl GenChoiceSource {
                     a.as_ref().map_or(gc::RunStatus::Failed, |a| a.status),
                     a.as_ref().and_then(|a| a.measure.clone()),
                     a.as_ref().map_or(0, |a| a.refused),
+                    deep.as_ref().map(|m| m.get(&c.index).cloned().flatten()),
                 )
             })
             .collect();
-        let ranking = gc::ranking(&rk);
-        let runs = self.full_runs(st, i, &probes);
+        let ranking = gc::ranking_deep(&rk);
+        let runs = self.full_runs(st, i, probes);
         let fr: Vec<gc::FullRun> = runs.iter().map(|(r, _)| r.clone()).collect();
         let cands = p.candidates();
         match gc::next_step(&ranking, &fr, &p) {
@@ -966,9 +1160,9 @@ impl GenChoiceSource {
                     }
                 }
             }
-            gc::NextStep::Decide => self.decide(st, i, &probes, &runs, &ranking, None, rt)?,
+            gc::NextStep::Decide => self.decide(st, i, probes, &runs, &ranking, None, rt)?,
             gc::NextStep::NoCandidate(why) => {
-                self.decide(st, i, &probes, &runs, &ranking, Some(why), rt)?
+                self.decide(st, i, probes, &runs, &ranking, Some(why), rt)?
             }
         }
         Ok(())
@@ -1058,6 +1252,7 @@ impl WorkSource for GenChoiceSource {
             // probes first (the base probe first of all), then first full runs, then alternatives
             let stage_prio: i64 = match it.kind.as_str() {
                 KIND_PROBE => 3_000,
+                KIND_DEEP => 2_500,
                 KIND_FULL => 2_000,
                 _ => 1_000,
             };
@@ -1174,11 +1369,12 @@ impl WorkSource for GenChoiceSource {
             }
             _ => (None, vec![], None),
         };
-        let (refused, refused_cases, subcases) = if it.kind == KIND_PROBE && !run_dir.is_empty() {
-            refused_of(Path::new(&run_dir))
-        } else {
-            (0, vec![], String::new())
-        };
+        let (refused, refused_cases, refused_lines, open_lines, subcases) =
+            if (it.kind == KIND_PROBE || it.kind == KIND_DEEP) && !run_dir.is_empty() {
+                open_list_of(Path::new(&run_dir))
+            } else {
+                (0, vec![], vec![], vec![], String::new())
+            };
         let cand = self.candidate(&cand_id);
         let order = match &cand {
             Some(cd) => self.order_of(st, i, cd).unwrap_or_default(),
@@ -1191,9 +1387,13 @@ impl WorkSource for GenChoiceSource {
         if it.kind == KIND_PROBE {
             args.extend(self.cfg.policy.probe.args.iter().cloned());
         }
+        if it.kind == KIND_DEEP {
+            args.extend(self.cfg.policy.deep.args.iter().cloned());
+        }
         let stage = match it.kind.as_str() {
             KIND_PROBE => "probe",
             KIND_FULL => "full",
+            KIND_DEEP => "deep",
             _ => "alt",
         };
         let a = Answer {
@@ -1217,6 +1417,8 @@ impl WorkSource for GenChoiceSource {
             refused,
             refused_cases,
             subcases,
+            refused_lines,
+            open_lines,
         };
         let rec = AcceptedRecord {
             path: format!(
