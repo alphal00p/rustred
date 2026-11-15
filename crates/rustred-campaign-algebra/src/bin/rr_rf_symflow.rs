@@ -214,12 +214,7 @@ fn main() {
     };
     let t_check = t0.elapsed().as_secs_f64();
     // the verified group (derived from the frame header's family, or the policy's family file)
-    let fsrc = spec
-        .sources
-        .iter()
-        .find(|s| s.id == spec.frame_from)
-        .unwrap_or_else(|| die("frame_from"));
-    let fpath = fsrc.path.clone().unwrap_or_else(|| die("frame_from path"));
+    let fpath = symflow::frame_table_path(&set).unwrap_or_else(|| die("frame_from: no table file"));
     let fpath = if Path::new(&fpath).is_absolute() {
         PathBuf::from(&fpath)
     } else {

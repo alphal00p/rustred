@@ -178,3 +178,21 @@ pub fn gate(services: &[KeyService], lower: &dyn Fn(&[i32], &[i32]) -> bool) -> 
         "duplicate_keys": dup, "faces": faces.len(),
         "method": "every edge: import descent test; acyclicity: Kahn over the keys with a shipped relation"})
 }
+
+/// The path of a table file of the spec's `frame_from` source in a loaded set (a `table_set` source has no single
+/// `path`; every table of the source carries the same frame header, checked by the import): the first one found.
+pub fn frame_table_path(set: &crate::import::load::ImportedSet) -> Option<String> {
+    let src = set
+        .spec
+        .sources
+        .iter()
+        .find(|s| s.id == set.spec.frame_from)?;
+    if let Some(p) = &src.path {
+        return Some(p.clone());
+    }
+    set.rules
+        .iter()
+        .flatten()
+        .find(|r| r.source == set.spec.frame_from)
+        .map(|r| r.path.clone())
+}

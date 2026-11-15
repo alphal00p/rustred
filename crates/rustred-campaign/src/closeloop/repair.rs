@@ -1451,15 +1451,7 @@ fn p1_pass(
     }
     let faces: Vec<FaceGroup> = xfaces.into_iter().chain(plain).collect();
     // frame header (raw first line of the frame_from source) and the node order's coordinate priority
-    let fsrc = spec
-        .sources
-        .iter()
-        .find(|s| s.id == spec.frame_from)
-        .ok_or("frame_from source missing")?;
-    let fpath = fsrc
-        .path
-        .clone()
-        .ok_or("frame_from source without a path")?;
+    let fpath = rf::symflow::frame_table_path(&set).ok_or("frame_from: no table file")?;
     let fpath = if Path::new(&fpath).is_absolute() {
         PathBuf::from(&fpath)
     } else {
