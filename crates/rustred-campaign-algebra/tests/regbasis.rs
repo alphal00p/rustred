@@ -33,7 +33,7 @@ fn t2() -> Key {
 
 /// The band: top-sector keys with dots <= 2, rank <= r_max, line powers <= 3 (a BoxDef: data).
 fn band(r_max: u32) -> (BoxDef, Vec<Key>) {
-    let v = json!({"schema": "rustred.campaign.box.v1", "id": "toy", "name": "toy band", "measure": "dots_rank",
+    let v = json!({"schema": "rustred.campaign.box.v1", "id": "toy", "name": "toy band", "measure": "dots-rank-v1",
         "chart": "1100", "layers": [[0, r_max], [1, r_max], [2, r_max]], "sectors": [], "cap": 3, "slot_caps": [],
         "keys": [], "origin": null, "derived_from": null});
     let b = BoxDef::from_value(&v).expect("box");
@@ -109,6 +109,7 @@ fn toy_dependent_terminals_regular_set_found() {
     assert_eq!(r.cert_lattice, Some(true));
     assert_eq!(r.cert_det, Some(true));
     assert_eq!(r.cert_poles_check, Some(true), "lane poles' master-map check agrees");
+    assert_eq!(r.cert_tadic_smith, Some(true), "lane tadic's Smith exponents of A agree");
     assert_eq!(r.cert_keys_checked, Some(r.keys_decided));
     assert_eq!(r.cert_keys_with_pole, Some(0), "every band key finite on R");
     assert!(r.keys_with_pole_on_t > 0);
@@ -425,4 +426,25 @@ fn adapter_on_epsdepth_text_reduction() {
     assert_eq!(r.regular_set, vec![t1(), z.clone()]);
     assert_eq!(r.cert_poles_check, Some(true));
     assert_eq!(r.cert_keys_with_pole, Some(0));
+}
+
+#[test]
+fn need_read_off_a_map() {
+    use rustred_campaign_algebra::regbasis::need::need_from_map;
+    use rustred_campaign_algebra::valuation::D0;
+    if !licensed() {
+        eprintln!("SKIP: no Symbolica licence");
+        return;
+    }
+    // X = M_X L with M_X = [[1, 0], [1, d-4]]: M_X^-1 = [[1, 0], [-1/(d-4), 1/(d-4)]]
+    let map = rustred_campaign_algebra::valuation::basis::read_master_map(&json!({
+        "rows": ["P1", "P2"], "cols": ["L1", "L2"], "entries": [["1", "0"], ["1", "d-4"]]})).unwrap();
+    let av = MapAvailability { default: Some(1), keys: HashMap::new(), labels: HashMap::new() };
+    let (t, chk, extra) = need_from_map(&map, &D0::parse("4").unwrap(), 0, Some(&av), true).unwrap();
+    assert_eq!(t.rows.iter().map(|r| r.need).collect::<Vec<_>>(), vec![1, 1]);
+    assert_eq!(t.missing_total, Some(0));
+    assert_eq!(chk.verdict, "degenerate");
+    assert_eq!(extra["M_X_regular"], json!(true));
+    let (t0, _, _) = need_from_map(&map, &D0::parse("4").unwrap(), 1, Some(&av), true).unwrap();
+    assert_eq!(t0.missing_total, Some(2), "base 1: need 2 against 1 available on both");
 }

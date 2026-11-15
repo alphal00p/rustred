@@ -57,8 +57,42 @@ fn main() {
     }
 }
 
+/// `rr_regbasis need-from-map --map MAP.json [--d0 4] [--base 0] [--eps-box JSON|PATH] [--exact] [--out FILE]`:
+/// the need of the map's rows (X = M_X L) read off M_X^-1 (lane poles' reader and exact check).
+fn need_cmd(args: &[String]) -> Result<(), String> {
+    let get = |name: &str| -> Option<String> { args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned()) };
+    if !licensed() {
+        return Err("no Symbolica licence (source WS/ops/env.sh)".into());
+    }
+    let map_path = get("--map").ok_or("missing --map")?;
+    let map = rustred_campaign_algebra::valuation::basis::read_master_map(&text_or_file(&map_path)?)?;
+    let d0 = rustred_campaign_algebra::valuation::D0::parse(&get("--d0").unwrap_or_else(|| "4".into())).map_err(|e| e.to_string())?;
+    let base: i64 = get("--base").and_then(|x| x.parse().ok()).unwrap_or(0);
+    let avail = match get("--eps-box") {
+        Some(s) => Some(EpsAvail(EpsBox::from_value(&text_or_file(&s)?)?)),
+        None => None,
+    };
+    let (t, _chk, extra) = rustred_campaign_algebra::regbasis::need::need_from_map(
+        &map,
+        &d0,
+        base,
+        avail.as_ref().map(|a| a as &dyn Availability),
+        args.iter().any(|a| a == "--exact"),
+    )?;
+    let v = json!({"map": map_path, "d0": d0.text(), "need": t.to_value(), "map_check": extra});
+    let text = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
+    match get("--out") {
+        Some(o) => std::fs::write(o, text).map_err(|e| e.to_string())?,
+        None => println!("{text}"),
+    }
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("need-from-map") {
+        return need_cmd(&args[1..]);
+    }
     let get = |name: &str| -> Option<String> { args.iter().position(|a| a == name).and_then(|i| args.get(i + 1).cloned()) };
     let flag = |name: &str| args.iter().any(|a| a == name);
     let need = |name: &str| get(name).ok_or_else(|| format!("missing {name}"));

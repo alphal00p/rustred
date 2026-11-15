@@ -15,9 +15,11 @@
 //! L11: Symbolica has no Hermite / Smith form over a DVR or over Q[t]/t^s (verified, notes); the elimination LOGIC is
 //! ours, every arithmetic step is a Symbolica polynomial operation.
 
+pub mod adapter;
 pub mod build;
 pub mod exact;
 pub mod lattice;
+pub mod need;
 pub mod series;
 pub mod standin;
 pub mod tower;

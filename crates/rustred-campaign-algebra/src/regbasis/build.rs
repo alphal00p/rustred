@@ -136,6 +136,8 @@ pub struct BuildResult {
     pub cert_det: Option<bool>,
     /// c4: lane poles' independent master-map check agrees with the constructed M (`None` = M not exact).
     pub cert_poles_check: Option<bool>,
+    /// c5: lane tadic's Smith exponents of the exact A agree with the lattice's elementary divisors.
+    pub cert_tadic_smith: Option<bool>,
     pub cert_keys_checked: Option<usize>,
     pub cert_keys_with_pole: Option<usize>,
     pub max_pole_on_r: Option<Vec<u32>>,
@@ -216,6 +218,12 @@ impl QMap {
             })
             .collect()
     }
+}
+
+/// d0 text (`a` or `a/b`) as lane tadic's `Rat`.
+fn d0_rat(text: &str) -> Option<rustred_campaign_core::tadic::Rat> {
+    let (a, b) = text.split_once('/').unwrap_or((text, "1"));
+    rustred_campaign_core::tadic::Rat::new(a.parse().ok()?, b.parse().ok()?)
 }
 
 /// Polar-or-more scaled entries: `t^q c` truncated below `s`.
@@ -666,6 +674,25 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
                "rank_at_d0": chk.rank_at_d0, "null_directions_of_M_at_d0": chk.null_directions, "reason": chk.reason})
     });
     let c4_agree = c4.as_ref().map(|v| v["agree"].as_bool() == Some(true));
+    // c5: lane tadic's Smith exponents of the exact A (rows of R on T, the module generated AS GIVEN) must be minus the
+    // elementary divisors of N, padded with zeros (an independent code path: fraction-free elimination over Z[t])
+    let c5 = exact.as_ref().and_then(|x| {
+        let rat = d0_rat(d0.text())?;
+        let rows: Vec<Vec<(u32, String)>> = x
+            .a_text
+            .iter()
+            .map(|r| r.iter().enumerate().filter(|(_, t)| t.as_str() != "0").map(|(j, t)| (j as u32, t.clone())).collect())
+            .collect();
+        let got = crate::tadic::lattice::smith_exponents(&rows, rat);
+        let mut want: Vec<i64> = elementary(&n_lat, q).iter().map(|&k| -i64::from(k)).collect();
+        want.resize(n, 0);
+        want.sort_unstable();
+        Some(match got {
+            Ok(g) => json!({"agree": g == want, "tadic_smith_exponents": g, "expected": want}),
+            Err(e) => json!({"agree": null, "error": e}),
+        })
+    });
+    let c5_agree = c5.as_ref().and_then(|v| v["agree"].as_bool());
     let cert_det = exact.as_ref().map(|x| x.det_m_order == Some(n_lat.length() as i64) || (n_lat.length() == 0 && x.det_m_order == Some(0)));
     let m_regular = exact.as_ref().map(|x| x.m_orders.iter().flatten().all(|o| o.is_none_or(|v| v >= 0)));
 
@@ -720,6 +747,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
     let regular = cert_lattice.unwrap_or(true)
         && cert_det.unwrap_or(true)
         && c4_agree.unwrap_or(true)
+        && c5_agree.unwrap_or(true)
         && m_regular.unwrap_or(true)
         && cert_keys_with_pole.is_none_or(|w| w == 0);
     let verdict = band_verdict(r_complete, r_max, regular);
@@ -792,6 +820,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
             "c1_lattice_index_one": cert_lattice,
             "c3_det_order_equals_length": cert_det,
             "c4_poles_master_map_check": c4,
+            "c5_tadic_smith_exponents": c5,
             "M_regular": m_regular,
             "c2_keys_checked": cert_keys_checked,
             "c2_keys_with_pole_on_R": cert_keys_with_pole,
@@ -832,6 +861,7 @@ pub fn construct(compose: &mut dyn Compose, inp: &BuildInput<'_>) -> Result<Buil
         cert_lattice,
         cert_det,
         cert_poles_check: c4_agree,
+        cert_tadic_smith: c5_agree,
         cert_keys_checked,
         cert_keys_with_pole,
         max_pole_on_r,
