@@ -349,13 +349,32 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                                        "mark": t[2].clone()})
                             })
                             .collect();
+                        // int7 (B1): the relation of the key through the ONE selection function (poles::pole_objective,
+                        // default objective); one engine answer per key and no pole profile in the supervisor yet
+                        // (profiles come from the `rr_poles` child or precomputed records): "no profile", ranked by size
+                        let choice = rustred_campaign_core::poles::pole_objective(
+                            &[rustred_campaign_core::poles::Candidate {
+                                id: a.relation_digest.clone(),
+                                admissible: true,
+                                excluded_by: None,
+                                evidence_level: 0,
+                                size: rhs.len() as u64,
+                                pole_order: None,
+                            }],
+                            &[],
+                            &rustred_campaign_core::poles::PoleObjective::default(),
+                            None,
+                        )
+                        .ok()
+                        .flatten()
+                        .map(|ch| ch.to_json());
                         let v = json!({"schema": SOLVED_SCHEMA, "source": c.batch.source,
                             "recipe_sha256": c.batch.recipe_sha256, "recipe_digest": a.recipe_digest,
                             "determinism_id": a.determinism_id, "binary_sha256": c.binary_sha256,
                             "key": k32, "verdict": "SOLVED", "relation_digest": a.relation_digest, "rhs": rhs,
                             "proof": rec["proof"].clone(), "regular": true,
                             "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": a.ordinal},
-                            "relation_rule": rule_label, "failure": null});
+                            "relation_rule": rule_label, "choice": choice, "failure": null});
                         out.lines.push(line(&v));
                         out.records.push((k32.clone(), rec.clone()));
                         out.certified.push(k32);
