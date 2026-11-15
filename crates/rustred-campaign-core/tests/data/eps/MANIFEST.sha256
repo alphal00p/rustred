@@ -2,6 +2,7 @@
 # *.engine_first.jsonl: rr_proof instantiate (frozen 20261114T2332Z-engine-line7a, git 6c2fb15c) facts per chart via mkreq.py + condense.py
 # *.check_facts.jsonl: rr_proof instantiate (frozen 20261114T2332Z-engine-line7a) answers to the import check's fact requests (split_req.py: byte offsets, one job per chart; iterate.sh)
 # campaign.sh / summarize.py: the eps campaign sweep driver and its table (lane epsframe; Rust step: eps_campaign_node)
+# probe_pass_SUMMARY.txt: the probe pass (box probe(weight<=3)) over 137 eps nodes, run1 2026-11-15
 16adb44cc95f0a38f5e31458c1f0b68a81596f4ab1d88cd4f51f2bdd2caf98c6  T012_a0-td-e.check_facts.jsonl
 3b5971648ffe02196bc1d3dff613487ad0fe1664f3190bb5beae60713f539ec8  T012_a0-td-e.table.jsonl
 1fec621d497e09b91f23d987bfb2d282ab50af1d830af8570bdd04fd211c2027  T012.engine_first.jsonl
@@ -19,6 +20,7 @@ c66ae1b7431e7c48a2df53ed227f1972bca5b472de5d702ed33fafab7a37e734  T064_min.heade
 9ef6d7d904a5d2190e8d0b6ad2a754995c9b3bbf3896df5d42198372b82274fc  condense.py
 fe282557b92ebe731f8172686b814b52bce910b3e1b6f909d01466cddde4aeec  mkreq.py
 71f8825129598fe144c6c5e061238db13317062c73e5735c6d7222b1490ad1a9  split_req.py
-c9f91e03b59c4d34500c46b0d5df355ae737bb7abe65abeaa1b8c9d3266b2986  summarize.py
+2b76baba96e1f3f51500809f8a68276eb7bbbb787e39971609358c891d9a6558  summarize.py
 a1596222dbeaf2d53decc53cfcd5025304de6445a351d84cfe2fd3ab0ad8dae1  campaign.sh
 93595504ed0598d9419fcedcba6f76fd2c3f7ce58849c2e52b4c792359e916fd  iterate.sh
+9ae4bca80d14ae7ce7955c55db81bf4faca2d2191c240eed93852baad4e4cdc0  probe_pass_SUMMARY.txt

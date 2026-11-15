@@ -1067,7 +1067,9 @@ fn eps_campaign_node() {
     let dir = std::path::PathBuf::from(dir);
     std::fs::create_dir_all(&dir).unwrap();
     let t0 = std::time::Instant::now();
-    let mut line = serde_json::json!({"node": node, "table": table, "mode": mode, "layer": layer});
+    // the start set is a PROBE box chosen by this lane (not the campaign's box): every line says so
+    let mut line = serde_json::json!({"node": node, "table": table, "mode": mode, "layer": layer,
+        "box": format!("probe(weight<={layer})")});
     let res = (|| -> Result<(), String> {
         let head = {
             let f = std::fs::File::open(&table).map_err(|e| e.to_string())?;
