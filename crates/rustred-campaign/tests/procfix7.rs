@@ -92,6 +92,21 @@ fn start_capless(spec: &Path, cdir: &Path, extra: &[&str]) -> Child {
     c.spawn().unwrap()
 }
 
+/// The decoy `pid` is alive and non-dumpable, waiting up to 20 s: its pid file is written right after the fork, before
+/// the child has exec'd the execute-only copy of sleep (under load that exec can lag behind the test).
+fn non_dumpable_soon(pid: u32) -> bool {
+    let t0 = Instant::now();
+    loop {
+        if alive(pid) && refused_to_capless(pid) {
+            return true;
+        }
+        if t0.elapsed() > Duration::from_secs(20) {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
 /// Is the environ of `pid` refused to a capability-less process of our uid (the host-like condition of the test)?
 fn refused_to_capless(pid: u32) -> bool {
     let mut c = Command::new("sh");
@@ -188,7 +203,7 @@ fn mj_a_unrelated_non_dumpable_process_never_makes_sweeps_inconclusive() {
     std::fs::write(&go, b"").unwrap();
     let nd = read_pid(&pidf);
     assert!(
-        alive(nd) && refused_to_capless(nd),
+        non_dumpable_soon(nd),
         "the decoy must be alive and non-dumpable for the test to mean anything"
     );
     let code = wait(&mut c, Duration::from_secs(240));
@@ -248,7 +263,10 @@ fn mj_a_resume_with_an_unrelated_non_dumpable_process() {
     std::thread::sleep(Duration::from_millis(500));
     std::fs::write(&go, b"").unwrap();
     let nd = read_pid(&pidf);
-    assert!(alive(nd) && refused_to_capless(nd));
+    assert!(
+        non_dumpable_soon(nd),
+        "the decoy must be alive and non-dumpable"
+    );
     let mut c2 = start_capless(&sp_, &d, &["--plain"]);
     let code = wait(&mut c2, Duration::from_secs(240));
     assert_eq!(code, finish_code_by_items(&d), "{}", log_tail(&d));
@@ -310,7 +328,10 @@ fn mj_a_non_dumpable_descendant_of_a_job_is_named_and_never_proved_away() {
     let d = t.cdir("c");
     let mut c = start_capless(&sp_, &d, &["--plain", "--fake-child"]);
     let nd = read_pid(&pids);
-    assert!(alive(nd) && refused_to_capless(nd));
+    assert!(
+        non_dumpable_soon(nd),
+        "the decoy must be alive and non-dumpable"
+    );
     let named = |d: &Path| {
         std::fs::read_to_string(d.with_extension("log"))
             .unwrap_or_default()
@@ -391,7 +412,10 @@ fn mj1_an_unproven_end_is_named_its_lease_released_and_the_run_ends_8() {
     let d = t.cdir("c");
     let mut c = start_capless(&sp_, &d, &["--plain", "--fake-child"]);
     let nd = read_pid(&pids);
-    assert!(alive(nd) && refused_to_capless(nd));
+    assert!(
+        non_dumpable_soon(nd),
+        "the decoy must be alive and non-dumpable"
+    );
     let t0 = Instant::now();
     let code = loop {
         if let Some(st) = c.try_wait().unwrap() {
