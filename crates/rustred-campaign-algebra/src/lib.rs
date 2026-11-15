@@ -29,6 +29,8 @@
 //! quadratic on unsorted input); it is never used here for acceptance. PR candidates: WS/notes/implementer.rows3.md.
 
 pub mod backend;
+// lane epsdepth (interfaces/epsdepth.md): REQUEST TO I-INT, one line
+pub mod epsdepth;
 pub mod modes;
 pub mod referee;
 // lane poles (interfaces/pole-diagnostics.md, B0): REQUEST TO I-INT, one line
