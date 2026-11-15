@@ -182,11 +182,43 @@ fn write_stream_to(
 
 /// Read an arrival-set file (schema, order, uniqueness, summary counts and lines digest verified).
 pub fn read(path: &Path) -> Result<ArrivalSet, String> {
-    let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut hs = Sha256::new();
-    let (mut header, mut summary) = (None, None);
     let mut lines: Vec<ArrivalLine> = vec![];
-    for (i, l) in std::io::BufReader::with_capacity(1 << 20, f)
+    let r = read_streamed(path, &mut |a| {
+        lines.push(a);
+        Ok(())
+    })?;
+    Ok(ArrivalSet {
+        header: r.header,
+        lines,
+        summary: r.summary,
+        sha256: r.sha256,
+    })
+}
+
+/// What `read_streamed` verified (the lines went to the caller).
+#[derive(Clone, Debug)]
+pub struct Streamed {
+    pub header: Value,
+    pub summary: Value,
+    /// sha256 of the file (hex).
+    pub sha256: String,
+    pub keys: u64,
+}
+
+/// Read an arrival-set file line by line, handing each verified arrival line to `f` (one line in memory at a time);
+/// the same checks as `read` (schema, canonical lines, strictly increasing keys, summary counts, lines digest). A file
+/// that fails a check returns Err AFTER `f` saw the lines before the failure: callers keep nothing on Err.
+pub fn read_streamed(
+    path: &Path,
+    f: &mut dyn FnMut(ArrivalLine) -> Result<(), String>,
+) -> Result<Streamed, String> {
+    let fh = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut hs = Sha256::new();
+    let mut ld = Sha256::new();
+    let (mut header, mut summary) = (None, None);
+    let mut prev: Option<Vec<i32>> = None;
+    let mut n = 0u64;
+    for (i, l) in std::io::BufReader::with_capacity(1 << 20, fh)
         .lines()
         .enumerate()
     {
@@ -227,15 +259,18 @@ pub fn read(path: &Path) -> Result<ArrivalSet, String> {
                 if a.senders == 0 {
                     return Err(format!("{}: a key without a sender", at()));
                 }
-                if canonical_json(&a.json()) != canonical_json(&v) {
+                let c = canonical_json(&a.json());
+                if c != canonical_json(&v) {
                     return Err(format!("{}: not a canonical arrival line", at()));
                 }
-                if let Some(p) = lines.last()
-                    && p.key >= a.key
-                {
+                if prev.as_ref().is_some_and(|p| *p >= a.key) {
                     return Err(format!("{}: keys not strictly increasing", at()));
                 }
-                lines.push(a);
+                ld.update(c.as_bytes());
+                ld.update(b"\n");
+                prev = Some(a.key.clone());
+                n += 1;
+                f(a)?;
             }
             Some("summary") if header.is_some() => summary = Some(v),
             _ => return Err(format!("{}: unexpected line kind {}", at(), v["kind"])),
@@ -243,22 +278,22 @@ pub fn read(path: &Path) -> Result<ArrivalSet, String> {
     }
     let header = header.ok_or_else(|| format!("{}: no header", path.display()))?;
     let summary = summary.ok_or_else(|| format!("{}: no summary (truncated?)", path.display()))?;
-    if summary["keys"].as_u64() != Some(lines.len() as u64) {
+    if summary["keys"].as_u64() != Some(n) {
         return Err(format!(
             "{}: summary keys {} != {} lines",
             path.display(),
             summary["keys"],
-            lines.len()
+            n
         ));
     }
-    if summary["lines_digest"].as_str() != Some(lines_digest(lines.iter()).as_str()) {
+    if summary["lines_digest"].as_str() != Some(format!("sha256:{}", ld.finish_hex()).as_str()) {
         return Err(format!("{}: lines_digest mismatch", path.display()));
     }
-    Ok(ArrivalSet {
+    Ok(Streamed {
         header,
-        lines,
         summary,
         sha256: hs.finish_hex(),
+        keys: n,
     })
 }
 

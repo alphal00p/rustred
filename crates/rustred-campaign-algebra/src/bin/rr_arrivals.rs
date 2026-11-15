@@ -1627,20 +1627,29 @@ fn closure_rows(a: &Args) {
     });
     let ev = Evidence::from_spec(&set, Path::new("/"))
         .unwrap_or_else(|e| die(&format!("evidence: {e}")));
-    let mut extra: Vec<Vec<i32>> = vec![];
+    // arrival files streamed (keys only: an arrival file can hold tens of millions of lines), packed per file
     let mut files = vec![];
+    let mut start = set.start.clone();
     for p in &a.arrivals {
-        let arr = format::read(Path::new(p)).unwrap_or_else(|e| die(&e));
-        files.push(json!({"path": p, "sha256": arr.sha256, "keys": arr.lines.len()}));
-        extra.extend(arr.lines.into_iter().map(|l| l.key));
+        let mut flat: Vec<i32> = vec![];
+        let r = format::read_streamed(Path::new(p), &mut |l| {
+            flat.extend_from_slice(&l.key);
+            Ok(())
+        })
+        .unwrap_or_else(|e| die(&e));
+        let n = set.arity();
+        let add =
+            rustred_campaign_core::closure::KeySet::from_keys(set.codec, flat.chunks(n.max(1)))
+                .unwrap_or_else(|e| {
+                    die(&format!(
+                        "{p}: arrival keys do not fit the node's codec: {e}"
+                    ))
+                });
+        drop(flat);
+        start = start.union(&add);
+        files.push(json!({"path": p, "sha256": r.sha256, "keys": r.keys}));
     }
     let n_box = set.start.len();
-    let add = rustred_campaign_core::closure::KeySet::from_keys(
-        set.codec,
-        extra.iter().map(|k| k.as_slice()),
-    )
-    .unwrap_or_else(|e| die(&format!("arrival keys do not fit the node's codec: {e}")));
-    let start = set.start.union(&add);
     let r = rustred_campaign_core::import::check::check_streamed_from(
         &set,
         &ev,
