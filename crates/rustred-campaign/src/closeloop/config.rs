@@ -93,6 +93,9 @@ pub struct FakeSolve {
     /// Program key of the fake child in `spec.programs` (default `rr_fake_child`).
     #[serde(default = "d_fake_program")]
     pub program: String,
+    /// lane t266run (tests): the resident memory the fake child grows to (bytes; reached in about 0.25 s); 0 = none.
+    #[serde(default)]
+    pub rss_bytes: u64,
 }
 
 fn d_fake_program() -> String {

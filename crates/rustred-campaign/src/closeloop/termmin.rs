@@ -1646,6 +1646,11 @@ impl WorkSource for TermminSource {
         self.inner.operator_decision(st)
     }
 
+    fn blocked_on_operator(&self, st: &CampaignState) -> Option<String> {
+        // lane t266run (L17): forwarded
+        self.inner.blocked_on_operator(st)
+    }
+
     fn finished(&self, st: &CampaignState) -> bool {
         self.inner.finished(st)
             && (0..self.nodes.len())

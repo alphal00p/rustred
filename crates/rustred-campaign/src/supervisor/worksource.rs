@@ -154,6 +154,12 @@ pub trait WorkSource {
     fn operator_decision(&self, _st: &CampaignState) -> Option<String> {
         None
     }
+    /// lane t266run (L17): the source is NOT finished but cannot progress until an operator acts (e.g. items that
+    /// ended at their memory cap wait for a session with a higher `--mem-cap`): the message; the supervisor ends with
+    /// the attention exit (8) when nothing runs and nothing is ready. Default: none.
+    fn blocked_on_operator(&self, _st: &CampaignState) -> Option<String> {
+        None
+    }
     /// Number of work units (for logs).
     fn describe(&self) -> String;
 }
