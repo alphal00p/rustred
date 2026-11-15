@@ -10,13 +10,19 @@ use std::path::Path;
 
 /// Every served rule row of the keys-only rows file whose winning record has no usable regularity fact (memory or
 /// store) and was not asked before goes into `missing` ((table, record) -> keys); keys of records with ELIDED witness
-/// loci are counted in `elided` instead (rr_proof instantiate refuses those records as a whole).
+/// loci (rr_proof instantiate refuses those records as a whole) go into `missing_exact` when the exact evaluation is
+/// configured (`exact_eval`) and they have no fact and were not asked, else they are counted in `elided`.
+/// lane zerosfix3 (audit-r2-zeros, item 5): exactly the in-memory rule of the pass (the streamed path counted every
+/// elided key and never asked its exact-evaluation fact in the keys-only pass).
+#[allow(clippy::too_many_arguments)]
 pub fn missing_facts_streamed(
     set: &ImportedSet,
     ev: &Evidence,
     rows: &Path,
     issued: &BTreeSet<(String, Vec<i32>)>,
+    exact_eval: bool,
     missing: &mut BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
+    missing_exact: &mut BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
     elided: &mut u64,
 ) -> Result<(), String> {
     let f = std::fs::File::open(rows).map_err(|e| format!("{}: {e}", rows.display()))?;
@@ -44,7 +50,13 @@ pub fn missing_facts_streamed(
         let key: Vec<i32> = serde_json::from_value(v["key"].clone())
             .map_err(|e| format!("{} line {}: key: {e}", rows.display(), i + 1))?;
         if set.rules[t][r].witness == WitnessKind::Elided {
-            *elided += 1;
+            if !exact_eval {
+                *elided += 1;
+            } else if !ev.has_fact(set, t, r, &key)
+                && !issued.contains(&(sha.to_string(), key.clone()))
+            {
+                missing_exact.entry((t, r)).or_default().insert(key);
+            }
             continue;
         }
         if !ev.has_lift(set, t, r, &key) && !issued.contains(&(sha.to_string(), key.clone())) {
