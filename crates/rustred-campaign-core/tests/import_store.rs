@@ -362,7 +362,9 @@ fn store_check_equals_in_memory_check_for_every_form() {
         },
     )
     .unwrap();
-    assert_eq!(ev.counts.stores[0].origin, "reused");
+    // int6: every spec evidence input is pinned (closeloop4, audit-closeloop M1), and a store whose inputs are pinned
+    // re-hashes them in full on reuse (t266run 1f1ea34b): reused, re-verified
+    assert_eq!(ev.counts.stores[0].origin, "reused_reverified");
     let mut t = std::fs::read_to_string(&pp).unwrap();
     t.push_str(&format!(
         "{}\n",
