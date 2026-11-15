@@ -134,20 +134,9 @@ fn real_node_composed_profiles() {
         .unwrap(),
         (Arith::Exact, Some(rb)) => {
             let ex = SymbolicaExact::new().unwrap();
-            let rows: Vec<Vec<String>> = rb["M"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|r| {
-                    r.as_array()
-                        .unwrap()
-                        .iter()
-                        .map(|x| x.as_str().unwrap().to_string())
-                        .collect()
-                })
-                .collect();
             let alg2 = SymbolicaAlgebra::new().unwrap();
-            let map = BasisMap::from_texts(&alg2, &lau, &ex, &rows).unwrap();
+            // int7: the record's digest is verified before M is read (core regbasis::record::verify)
+            let (map, _, _) = BasisMap::from_regbasis_record(&alg2, &lau, &ex, rb).unwrap();
             let mut ex2 = ex.clone();
             compose_streaming(
                 &mut src,

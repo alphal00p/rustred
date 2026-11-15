@@ -346,6 +346,9 @@ impl Laurent for SymbolicaExact {
     }
 }
 
+/// [`BasisMap::from_regbasis_record`]: (the map, R = `regular_set`, T = `terminals`).
+pub type RegularBasisRead = (BasisMap, Vec<Vec<i32>>, Vec<Vec<i32>>);
+
 /// An exact basis map for re-expressing composed vectors on another terminal set (lane regbasis' `M` with the convention
 /// `T_i = sum_j M[i][j] R_j`): entries are rational functions of d (texts), read exactly and shifted to t = d - d0.
 pub struct BasisMap {
@@ -378,6 +381,42 @@ impl BasisMap {
             m.push(row);
         }
         Ok(BasisMap { m })
+    }
+
+    /// int7 (wire-in, integration round 2): lane regbasis' record `rustred.campaign.regular-basis.v1`, VERIFIED before
+    /// its `M` is read: schema, then its BLAKE3 digest (core `regbasis::record::verify`: the canonical JSON without
+    /// `digest`); an altered or unsealed record is refused. Returns (the map, R = `regular_set`, T = `terminals`).
+    /// The record's `binding` (node, box, closure statement digest, d0) is returned to the caller unchecked here.
+    pub fn from_regbasis_record(
+        alg: &SymbolicaAlgebra,
+        lau: &SymbolicaLaurent,
+        ex: &SymbolicaExact,
+        rec: &serde_json::Value,
+    ) -> Result<RegularBasisRead, String> {
+        use rustred_campaign_core::regbasis::record::{RECORD_SCHEMA, verify};
+        if rec["schema"].as_str() != Some(RECORD_SCHEMA) {
+            return Err(format!(
+                "regular-basis record: schema {:?}, expected {RECORD_SCHEMA}",
+                rec["schema"]
+            ));
+        }
+        verify(rec).map_err(|e| format!("regular-basis record refused: {e}"))?;
+        let keys = |m: &str| -> Result<Vec<Vec<i32>>, String> {
+            serde_json::from_value(rec[m].clone())
+                .map_err(|e| format!("regular-basis record: `{m}`: {e}"))
+        };
+        let rows: Vec<Vec<String>> = serde_json::from_value(rec["M"].clone())
+            .map_err(|e| format!("regular-basis record: `M`: {e}"))?;
+        let (r, t) = (keys("regular_set")?, keys("terminals")?);
+        if rows.len() != t.len() || r.len() != t.len() {
+            return Err(format!(
+                "regular-basis record: M has {} rows for {} terminals and {} regular keys",
+                rows.len(),
+                t.len(),
+                r.len()
+            ));
+        }
+        Ok((BasisMap::from_texts(alg, lau, ex, &rows)?, r, t))
     }
 
     /// `c_R = c_T M` (row vector times matrix), exactly.
