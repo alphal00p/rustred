@@ -586,8 +586,18 @@ fn p3_mutant47_lit_status_fm_error_stays_varies() {
         names: vec!["a".into(), "b".into(), "c".into()],
     };
     assert!(fm_feasible(&cons, 3).is_err(), "the injected error");
-    // the literal t2 (linear): its cut keeps the overflowing constraints in (t0, t1)
-    let q = MPoly::var(3, 2);
+    // the literal t0 + t2 (linear in TWO parameters, so lit_status takes its multi-variable linear branch: cut, then
+    // Fourier-Motzkin on the cut region); the cut t0 = -t2 keeps the overflowing constraints in (t1, t2)
+    let q = MPoly::var(3, 0).add(&MPoly::var(3, 2)).unwrap();
+    assert_eq!(q.support().len(), 2);
+    let cut = r
+        .cut(&[1, 0, 1], 0)
+        .unwrap()
+        .expect("t0 + t2 = 0 has integer points");
+    assert!(
+        cut.feasible().is_err(),
+        "the cut region's Fourier-Motzkin errs"
+    );
     let (st, err) = lit_status(&r, &q);
     assert_eq!(st, Status::V, "an FM error is undecided, never NZ");
     assert!(err);
@@ -654,4 +664,94 @@ fn p3_fm_infeasible_with_non_unit_pivots_matches_brute_force() {
     }
     eprintln!("fm brute force: {checked} systems, {refuted} refuted, all integer-empty");
     assert!(refuted > 1_000);
+}
+
+/// P3-m3 (minor), partfix3: `gap_partition_levels` runs every level on ONE work budget (it used to restart
+/// `max_nodes` at each level): with a budget B the recorded levels together never use more than B recursion nodes.
+#[test]
+fn p3_m3_levels_share_one_budget() {
+    use rustred_campaign_core::partition::{Budget, gap_partition_levels};
+    let n = 6;
+    let f = NodeFrame::without_header_lines_first(n, n);
+    let mut d = CaseDomain::free(n, Some(vec![true; n]));
+    d.exceptions = vec![vec![
+        Poly::parse("n0-n1", n, false).unwrap(),
+        Poly::parse("n4-2", n, false).unwrap(),
+    ]];
+    let l = list(&[d], n);
+    // the unlimited run's work at the top level (all slots off floor allowed)
+    let full = gap_partition(&l, &f, &dispatch_opts(), None).unwrap();
+    let units = full.stats().nodes;
+    let o = PartitionOptions {
+        budget: Budget {
+            max_nodes: Some(units),
+            ..Default::default()
+        },
+        ..dispatch_opts()
+    };
+    let levels = gap_partition_levels(&l, &f, &o, n, None, None).unwrap();
+    let used: u64 = levels.iter().map(|x| x.nodes).sum();
+    assert!(used <= units, "levels used {used} > budget {units}");
+}
+
+/// partfix3 (found by the auditor's fuzz at arity 20): the exact WINDOW of an UNRESOLVED nonlinear locus piece (an L1
+/// ball in all parameters) is charged to the call's budget and capped: a fragile class on 20 slots whose live branch
+/// is a quadric in two slots (no linear cut) is resolved within the budget, never hangs, and is never a proof.
+#[test]
+fn p3_unresolved_window_at_arity_20_stays_in_the_budget() {
+    use rustred_campaign_core::partition::Budget;
+    let n = 20;
+    let f = NodeFrame::without_header_lines_first(n, 10);
+    let c: Vec<bool> = (0..n).map(|i| i < 10).collect();
+    let mut d = CaseDomain::free(n, Some(c));
+    d.exceptions = vec![vec![Poly::parse("n0*n1-n2*n3-7", n, false).unwrap()]];
+    let l = list(&[d], n);
+    let o = PartitionOptions {
+        budget: Budget {
+            max_nodes: Some(100_000),
+            ..Default::default()
+        },
+        ..dispatch_opts()
+    };
+    let t0 = std::time::Instant::now();
+    let rep = gap_partition(&l, &f, &o, None).unwrap();
+    let ms = t0.elapsed().as_millis();
+    eprintln!(
+        "arity 20 quadric locus: outcome {} in {ms} ms",
+        rep.outcome().tag()
+    );
+    assert!(rep.proves_no_gap(CoverageNotion::DispatchCoverage).is_err());
+    assert!(ms < 60_000, "{ms} ms");
+}
+
+/// P3-M2, partfix3: `PartitionReport::expand_with` charges ONE unit per cell and stops at the budget (it used to
+/// materialise all 2^k cells of a class with k `any` slots before any check): a class with 15 `any` slots expanded
+/// under a 100-unit meter yields at most 101 cells, and the meter is exhausted.
+#[test]
+fn p3_m2_expand_with_stops_at_the_meter() {
+    use rustred_campaign_core::partition::WorkMeter;
+    let n = 16;
+    let f = NodeFrame::without_header_lines_first(n, n);
+    let mut d = CaseDomain::free(n, Some(vec![true; n]));
+    d.fixed[0] = Some(1); // the class n0 >= 2 is uncovered with 15 `any` slots
+    let l = list(&[d], n);
+    let o = PartitionOptions {
+        resolve_loci: false,
+        budget: rustred_campaign_core::partition::Budget {
+            max_faces: Some(1),
+            ..Default::default()
+        },
+        ..dispatch_opts()
+    };
+    let rep = gap_partition(&l, &f, &o, None).unwrap();
+    let c = rep
+        .classes()
+        .iter()
+        .find(|c| c.states.iter().filter(|s| s.is_none()).count() == n - 1)
+        .expect("a class with 15 any slots");
+    let meter = WorkMeter::new(Some(100), None);
+    let cells = rep.expand_with(c, &meter).unwrap_or_default();
+    assert!(cells.len() <= 101, "{} cells", cells.len());
+    assert!(meter.exhausted());
+    assert_eq!(rep.expand(c).map(|v| v.len()), Some(1 << (n - 1)));
 }
