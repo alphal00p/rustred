@@ -2737,7 +2737,15 @@ impl Supervisor {
         // memory that still writes an `interrupted` OUTCOME is killed_time / killed_memory there (rows 11b / 11c).
         // lane closeloop2 (closeloop.md 13.1): the legacy rr_proof kinds are sealed by the wrapper before classification
         // procfix7 (gate6 MJ-B): nothing is read from a run directory that is not this campaign's: the attempt is lost
-        // (its work redone in a directory of our own) and the run ends with the typed refusal.
+        // (its work redone in a directory of our own) and the run ends with the typed refusal. A removed / replaced
+        // campaign directory is checked first: it keeps its own typed end (exit 70) and nothing is recorded here.
+        if workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
+            != workdir::RunDirOwner::Ours
+            && let Err(e) = self.dirs_intact()
+        {
+            self.dirs_gone(e);
+            return SettleEnd::Done;
+        }
         if workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key)
             != workdir::RunDirOwner::Ours
         {
@@ -3170,6 +3178,11 @@ impl Supervisor {
         job: &str,
         attempt: u32,
     ) -> Result<(), String> {
+        // A removed / replaced campaign directory is never re-created here: its own typed end (exit 70).
+        if let Err(e) = self.dirs_intact() {
+            self.dirs_gone(e.clone());
+            return Err(e);
+        }
         let key = self.ctx.campaign_key.clone();
         for _ in 0..2 {
             match workdir::create_run_dir(run_dir, &key) {
@@ -3237,10 +3250,22 @@ impl Supervisor {
                 run_dir.display().to_string()
             ),
         }]);
+        // ONE stop request (repeated requests would escalate to a forced stop and an immediate exit)
         if self.refusal_stop.is_none() {
             self.refusal_stop = Some(msg);
+            if self.signals.handle.level() == StopLevel::Running {
+                self.signals.handle.request_stop();
+            }
         }
-        self.signals.handle.request_stop();
+    }
+
+    /// The campaign directory (or its ledger directory / lock) was removed or replaced: the existing typed end (exit 70,
+    /// as `check_dirs`), never a verdict about a run directory.
+    fn dirs_gone(&mut self, e: String) {
+        if self.ledger_dead.is_none() {
+            self.log.line("ERROR", &format!("{e}; stopping (exit 70)"));
+            self.ledger_dead = Some(RunExit::Internal(e));
+        }
     }
 
     fn launch(&mut self, req: &JobRequest, lease: CpuLease) -> Result<(), String> {
@@ -4672,6 +4697,11 @@ impl Supervisor {
                             self.bypassed.remove(&r.job);
                             if let Err(e) = self.launch(r, lease) {
                                 self.log.line("WARN", &format!("{}: {e}", r.job));
+                                // procfix7: a refusal (a run directory not ours) or a removed campaign directory ends
+                                // the launching at once
+                                if self.refusal_stop.is_some() || self.ledger_dead.is_some() {
+                                    break;
+                                }
                                 if self.resource_backoff_until.is_some() {
                                     // gate-B M3: a supervisor resource failure ends this pass (back-off).
                                     break;
