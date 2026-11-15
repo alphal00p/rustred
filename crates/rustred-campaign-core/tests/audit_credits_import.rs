@@ -141,7 +141,7 @@ fn run(
     dir: &Path,
     tier: Tier,
 ) -> (import::ImportedSet, Evidence, import::CheckResult) {
-    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(spec)).unwrap();
     let set = load(&s, dir).unwrap();
     let ev = Evidence::from_spec(&set, dir).unwrap();
     let r = check(

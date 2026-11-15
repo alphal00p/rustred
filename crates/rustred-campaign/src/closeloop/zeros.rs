@@ -110,10 +110,7 @@ pub fn term_keys(
 
 /// The rule-served rows of a decided Tier C check: (key, applied, table, record). Table-rule rows come from the
 /// streamed rows file (every row; `server.kind == "rule"`), credits from the kept rows (their image).
-pub fn served_rule_rows(
-    set: &ImportedSet,
-    res: &CheckResult,
-) -> Result<Vec<(Vec<i32>, Vec<i32>, usize, usize)>, String> {
+pub fn served_rule_rows(set: &ImportedSet, res: &CheckResult) -> Result<Vec<ServedRow>, String> {
     let mut out = vec![];
     match &res.streamed {
         Some(st) => {
@@ -163,8 +160,13 @@ pub fn served_rule_rows(
     Ok(out)
 }
 
+/// A rule-served row: (key, applied key, table, record).
+pub type ServedRow = (Vec<i32>, Vec<i32>, usize, usize);
+/// Membership test of a closure.
+pub type Membership<'a> = Box<dyn Fn(&[i32]) -> bool + Sync + 'a>;
+
 /// Membership in the closure of a check (the packed key set of a streamed check, else the rows).
-pub fn closure_membership(res: &CheckResult) -> Box<dyn Fn(&[i32]) -> bool + Sync + '_> {
+pub fn closure_membership(res: &CheckResult) -> Membership<'_> {
     match &res.key_set {
         Some(ks) => Box::new(move |k: &[i32]| ks.contains(k)),
         None => {

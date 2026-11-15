@@ -161,7 +161,7 @@ fn base(dir: &Path) -> Value {
 }
 
 fn run(spec: &Value, dir: &Path) -> (import::ImportedSet, Evidence, import::CheckResult) {
-    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(spec)).unwrap();
     let set = load(&s, dir).unwrap();
     let ev = Evidence::from_spec(&set, dir).unwrap();
     let r = check(

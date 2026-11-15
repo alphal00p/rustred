@@ -842,7 +842,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         }
         // the pairs to confirm: every decisive zero's (record, applied key); with `elided`, every served pair of a
         // record with elided loci (its first route is the exact evaluation)
-        let mut pairs: BTreeMap<(String, Vec<i32>), (usize, usize, bool, bool)> = BTreeMap::new();
+        // (record sha, applied key) -> (table, record, decisive, elided)
+        type PairInfo = (usize, usize, bool, bool);
+        let mut pairs: BTreeMap<(String, Vec<i32>), PairInfo> = BTreeMap::new();
         for z in &scan.decisive {
             let sha = set.rules[z.table][z.record].record_sha256.clone();
             pairs

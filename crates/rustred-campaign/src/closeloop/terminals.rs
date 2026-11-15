@@ -7,6 +7,7 @@
 //!   FILE | --reject` records the decision (a ledger input) and lets the run continue to its verdict;
 //! - `auto` (explicit): at most `max_auto` (default 8) proposals are accepted automatically (recorded as such); more
 //!   wait for the operator as above.
+//!
 //! A decision covers every proposal of its round: listed keys are accepted, the others rejected (a rejected key stays
 //! open: blocker `terminal_proposals_rejected`). Accepted keys become a declared terminals source of the node's
 //! effective import spec (`decided-terminals`, keys inline) from the next pass on. Every terminal of a result records
