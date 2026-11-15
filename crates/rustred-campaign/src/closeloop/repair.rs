@@ -1313,6 +1313,8 @@ fn fake_gen_script(f: &FakeGen, face: &str) -> FakeScript {
 /// ROUTE 0 (pointwise): the node's spec with the verified symmetry-credit source added (when the policy asks and the
 /// spec has none). Returns (spec text, the added source if any).
 fn with_route0(text: &str, policy: &RepairPolicy) -> Result<(String, Option<Value>), String> {
+    let text = with_composites(text, policy)?;
+    let text = text.as_str();
     if !policy.route0.symmetry_credit {
         return Ok((text.to_string(), None));
     }
@@ -1339,6 +1341,33 @@ fn with_route0(text: &str, policy: &RepairPolicy) -> Result<(String, Option<Valu
         serde_json::to_string_pretty(&v).expect("json") + "\n",
         Some(src),
     ))
+}
+
+/// The pinned symmetry-composite result of the policy (`route0.composite_input`) as a `supplied_relations` source of
+/// the spec (once; placed before the default recipe): the import loads it, re-checks descent, cites the verification.
+fn with_composites(text: &str, policy: &RepairPolicy) -> Result<String, String> {
+    let Some(ci) = &policy.route0.composite_input else {
+        return Ok(text.to_string());
+    };
+    let mut v: Value = serde_json::from_str(text).map_err(|e| format!("import spec: {e}"))?;
+    let srcs = v
+        .get_mut("sources")
+        .and_then(Value::as_array_mut)
+        .ok_or("import spec: no sources")?;
+    if srcs.iter().any(|s| s["id"] == "rf:symmetry-composite") {
+        return Ok(text.to_string());
+    }
+    let at = srcs
+        .iter()
+        .position(|s| s["id"] == "default-recipe")
+        .unwrap_or(srcs.len());
+    srcs.insert(
+        at,
+        json!({"id": "rf:symmetry-composite", "kind": "supplied_relations", "class": "symmetry-composite",
+            "path": ci.table.path, "sha256": ci.table.sha256,
+            "verification": {"path": ci.verification.path, "sha256": ci.verification.sha256}}),
+    );
+    Ok(serde_json::to_string_pretty(&v).expect("json") + "\n")
 }
 
 /// P1: load + check the node's effective spec; faces of the uncovered open keys; shadowing test; the check record.

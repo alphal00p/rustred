@@ -17,6 +17,9 @@
 //! 31 / 32) and the `diagnostic_records` accept mode, which the safety predicate allows only for those two; OUTCOMEs
 //! naming a typed reader error (UNREADABLE_RECORD / UNKNOWN_RECORD_KIND) at exit 41 / 70 (row 13b for proof-instantiate
 //! and proof-instance-span).
+//! Extended by lane symjob (2026-11-15; interfaces/symmetry-composite-job.md 5): kind symmetry-composite (rows 33 / 34 /
+//! 35 from its results tally, exit 0 / 10 keys_unsolved only), row 36 (exit 41 naming PINNED_INPUTS_MISMATCH), and the
+//! `supplied_relations` accept mode, which the safety predicate allows only for that kind.
 
 mod common;
 use common::*;
@@ -132,6 +135,21 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                         _ => (22, ""),
                     };
                 }
+                // lane symjob: symmetry-composite: 33 / 34 / 35 from its tally (never a probe tally), else 22
+                if e.kind == JobKind::SymmetryComposite {
+                    let Some(t) = v.relations.as_ref().filter(|t| !t.probe) else {
+                        return (22, "");
+                    };
+                    let unsolved: u64 = t.unsolved.values().sum();
+                    return match (c, stop) {
+                        (0, _) if unsolved == 0 => (33, ""),
+                        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 && t.accepted >= 1 => {
+                            (34, "")
+                        }
+                        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => (35, ""),
+                        _ => (22, ""),
+                    };
+                }
                 // line 7: node-basis has exit 0 only (row 30)
                 if e.kind == JobKind::NodeBasis {
                     return if c == 0 { (30, "") } else { (22, "") };
@@ -209,6 +227,16 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 }
                 _ => {}
             }
+        }
+        // lane symjob: a symmetry-composite result bound to other inputs (OUTCOME error names the word) is row 36
+        if let O::Ok(j) = &o
+            && c == 41
+            && e.kind == JobKind::SymmetryComposite
+            && j.error
+                .as_ref()
+                .is_some_and(|x| x.message.contains("PINNED_INPUTS_MISMATCH"))
+        {
+            return (36, "");
         }
         // line 7: a legacy proof tool's typed reader error (in OUTCOME's error message) is the input refusal 13b
         if let O::Ok(j) = &o
@@ -303,6 +331,29 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
             "accept {accept:?} for kind {:?} (probe tally {probe})",
             e.kind
         ));
+    }
+    // lane symjob: supplied-relation candidates only from symmetry-composite (33 / 34), never another accept mode there
+    if (accept == Accept::SuppliedRelations) != (e.kind == JobKind::SymmetryComposite) {
+        return Err(format!("accept {accept:?} for kind {:?}", e.kind));
+    }
+    if e.kind == JobKind::SymmetryComposite {
+        let Some(t) = v.relations.as_ref().filter(|t| !t.probe) else {
+            return Err("symmetry-composite accepted without its results tally".into());
+        };
+        let unsolved: u64 = t.unsolved.values().sum();
+        return match c {
+            0 if unsolved == 0 => Ok(()),
+            10 if j.stop.code == Some(StopCode::KeysUnsolved)
+                && t.accepted >= 1
+                && unsolved >= 1 =>
+            {
+                Ok(())
+            }
+            _ => Err(format!(
+                "symmetry-composite accepted on exit {c} with {} relations / {unsolved} unsolved",
+                t.accepted
+            )),
+        };
     }
     if e.kind == JobKind::NodeBasis {
         return if c == 0 {
@@ -629,7 +680,20 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
             })
             .collect();
         outcomes.extend(errno);
-        let verified = if kind == JobKind::SolveRecipe {
+        // lane symjob: OUTCOMEs naming PINNED_INPUTS_MISMATCH at 41 (row 36 for symmetry-composite; 13 elsewhere)
+        let pinned: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| j.exit_code.code() == 41)
+            .filter_map(|mut j| {
+                j.error = Some(ErrorInfo::new(
+                    ErrorClass::Input,
+                    "PINNED_INPUTS_MISMATCH: result.request_sha256 differs",
+                ));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        outcomes.extend(pinned);
+        let verified = if kind == JobKind::SolveRecipe || kind == JobKind::SymmetryComposite {
             &with_tally
         } else {
             &base

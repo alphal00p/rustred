@@ -77,6 +77,13 @@ impl SymQd {
         out
     }
 
+    /// A coefficient text in d alone (no index variable), exactly (tests; constants of a spec).
+    pub fn parse_d(&self, alg: &SymbolicaAlgebra, text: &str) -> Result<Rd, String> {
+        let (n, d) = alg.parse_ratio(text, 0)?;
+        self.ratio(n, d)
+            .ok_or_else(|| format!("{text}: zero denominator"))
+    }
+
     fn constant(&self, n: Integer, d: Integer) -> Result<Rd, String> {
         let mut num = MultivariatePolynomial::new(&Z, None, self.vars.clone());
         num.append_monomial(n, &[0]);
@@ -196,6 +203,28 @@ impl<'a> SetCatalogue<'a> {
             .expect("cache")
             .insert((table, record), p.clone());
         p
+    }
+
+    /// The record line of (table, record), its sha256 checked against the import's.
+    pub fn record_line(&self, table: usize, record: usize) -> Result<Vec<u8>, String> {
+        let info = &self.set.rules[table][record];
+        if info.bytes > self.max_record_bytes {
+            return Err(format!(
+                "record of {} bytes above max_record_bytes {}",
+                info.bytes, self.max_record_bytes
+            ));
+        }
+        let mut f = std::fs::File::open(&info.path).map_err(|e| format!("{}: {e}", info.path))?;
+        f.seek(SeekFrom::Start(info.offset))
+            .map_err(|e| e.to_string())?;
+        let mut line = Vec::with_capacity(info.bytes as usize + 1);
+        BufReader::new(f)
+            .read_until(b'\n', &mut line)
+            .map_err(|e| e.to_string())?;
+        while line.last() == Some(&b'\n') || line.last() == Some(&b'\r') {
+            line.pop();
+        }
+        Ok(line)
     }
 
     fn parse(&self, table: usize, record: usize) -> Result<ParsedRecord, String> {

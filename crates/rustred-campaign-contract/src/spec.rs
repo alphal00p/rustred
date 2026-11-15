@@ -44,6 +44,11 @@ pub enum JobKind {
     /// elimination with the given terminals lowest, at fixed dimensions and primes, L1. A DIAGNOSTIC kind: its sealed
     /// records are never rule or relation evidence (accept mode `diagnostic_records`).
     NodeBasis,
+    /// `rr_rf_symflow run --request` (lane symjob; interfaces/symmetry-composite-job.md): the repair flow's symmetry
+    /// COMPOSITE step (exact Q(d) through Symbolica) as a LEGACY child like `coefficient-facts`; the supervisor-side
+    /// wrapper checks the child's own seal, seals `out/results.jsonl` and writes OUTCOME. Its shipped relations are
+    /// CANDIDATES accepted only through the import's verification (accept mode `supplied_relations`).
+    SymmetryComposite,
 }
 
 /// Compliance level (1.1).
@@ -59,7 +64,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 16] = [
+    pub const ALL: [JobKind; 17] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -76,6 +81,7 @@ impl JobKind {
         JobKind::ProofInstanceSpan,
         JobKind::CoefficientFacts,
         JobKind::NodeBasis,
+        JobKind::SymmetryComposite,
     ];
 
     pub const fn level(self) -> Level {
@@ -84,7 +90,8 @@ impl JobKind {
             JobKind::TableDump
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
-            | JobKind::CoefficientFacts => Level::Legacy,
+            | JobKind::CoefficientFacts
+            | JobKind::SymmetryComposite => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -108,6 +115,7 @@ impl JobKind {
             JobKind::TableDump => "table_dump",
             JobKind::Fake => "rr_fake_child",
             JobKind::CoefficientFacts => "rr_coef_facts",
+            JobKind::SymmetryComposite => "rr_rf_symflow",
         }
     }
 
@@ -139,7 +147,8 @@ impl JobKind {
             | JobKind::ProofInstantiate
             | JobKind::ProofInstanceSpan
             | JobKind::CoefficientFacts
-            | JobKind::NodeBasis => Some(&RESULT_OUTPUTS),
+            | JobKind::NodeBasis
+            | JobKind::SymmetryComposite => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -161,6 +170,9 @@ impl JobKind {
             // it passes `--elided-loci refuse|facts` through (coord-ec2-instantiate.md 2d)
             JobKind::ProofInstantiate => &PROOF_INSTANTIATE_ARGS,
             JobKind::ProofInstanceSpan | JobKind::CoefficientFacts => &[],
+            // lane symjob: EMPTY allow-list; every parameter is in the pinned `request` input
+            // (interfaces/symmetry-composite-job.md 1)
+            JobKind::SymmetryComposite => &[],
         }
     }
 
@@ -181,6 +193,11 @@ impl JobKind {
             JobKind::CoefficientFacts => Some(InputRoles {
                 required: &["requests", "table"],
                 optional: &[],
+            }),
+            // lane symjob: the tool's request (pins the others by sha256) and the inputs it pins
+            JobKind::SymmetryComposite => Some(InputRoles {
+                required: &["request", "import_spec"],
+                optional: &["keys", "policy"],
             }),
             // line 7: the presented family and the terminal keys (JSONL, put lowest)
             JobKind::NodeBasis => Some(InputRoles {
@@ -204,6 +221,7 @@ impl JobKind {
                 | JobKind::ProofInstantiate
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
+                | JobKind::SymmetryComposite
         )
     }
 
@@ -212,7 +230,10 @@ impl JobKind {
     pub const fn legacy_wrapped(self) -> bool {
         matches!(
             self,
-            JobKind::ProofInstantiate | JobKind::ProofInstanceSpan | JobKind::CoefficientFacts
+            JobKind::ProofInstantiate
+                | JobKind::ProofInstanceSpan
+                | JobKind::CoefficientFacts
+                | JobKind::SymmetryComposite
         )
     }
 
@@ -1169,6 +1190,7 @@ impl JobSpec {
                 | JobKind::ProofInstanceSpan
                 | JobKind::CoefficientFacts
                 | JobKind::NodeBasis
+                | JobKind::SymmetryComposite
         ) {
             return Ok(());
         }

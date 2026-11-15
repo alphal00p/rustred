@@ -38,6 +38,8 @@ pub mod resume;
 pub mod seal;
 pub mod spec;
 pub mod stop;
+// lane symjob's request (granted by int7): kind symmetry-composite's child seal, sealed results and tally
+pub mod symcomp;
 pub mod time;
 
 pub use canon::{CanonError, canonical_line};

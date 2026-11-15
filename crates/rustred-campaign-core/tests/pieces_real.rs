@@ -102,16 +102,15 @@ fn real_gate() {
         let (rep, stats) = match &zp {
             None => gate_check(&set, &ev, &res, cfg).unwrap(),
             Some((z, info)) => {
-                // strict (a proof valid only where the denominator is regular does not count) and lenient
-                let strict = ZeroProofFacts::new(&set, z, &ev, false);
-                let (r0, _) = gate_check_with(&set, &ev, &strict, &res, cfg.clone()).unwrap();
-                zero_info = json!({"proofs": info, "strict": {"verdict": r0.verdict, "edges": r0.edges,
-                    "zero_terms_skipped": r0.zero_terms_skipped, "non_descending": r0.non_descending,
+                // int7: zeros2 933cd8a1 has ONE key-checked semantics (a where_regular proof counts only where its
+                // denominator does not vanish at the key; the accept_where_regular flag is gone): one report, the
+                // non-descending edges by provenance listed as the strict report listed them
+                let facts = ZeroProofFacts::new(&set, z, &ev);
+                let (r0, s0) = gate_check_with(&set, &ev, &facts, &res, cfg).unwrap();
+                zero_info = json!({"proofs": info, "semantics": "key_checked (zeros2 933cd8a1)",
                     "by_provenance_non_descending": r0.by_provenance.iter().filter(|(_, v)| v[1] > 0)
-                        .map(|(k, v)| (k.clone(), v[1])).collect::<BTreeMap<_, _>>()},
-                    "lenient": "accept_where_regular = true (the report below)"});
-                let lenient = ZeroProofFacts::new(&set, z, &ev, true);
-                gate_check_with(&set, &ev, &lenient, &res, cfg).unwrap()
+                        .map(|(k, v)| (k.clone(), v[1])).collect::<BTreeMap<_, _>>()});
+                (r0, s0)
             }
         };
         let summary = json!({"spec": spec, "closure_keys": res.summary.keys_total, "open": res.summary.open_total,
@@ -162,7 +161,8 @@ fn candidates_from(
         let zpf;
         let facts: &dyn FactSource = match &zp {
             Some((z, _)) => {
-                zpf = ZeroProofFacts::new(&set, z, &ev, true);
+                // int7: zeros2's one key-checked semantics (no accept_where_regular flag since 933cd8a1)
+                zpf = ZeroProofFacts::new(&set, z, &ev);
                 &zpf
             }
             None => &ev,

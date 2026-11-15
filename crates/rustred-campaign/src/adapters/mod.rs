@@ -12,6 +12,8 @@ pub mod job;
 pub mod legacy;
 pub mod proof;
 pub mod solve_recipe;
+// lane symjob: kind symmetry-composite (rr_rf_symflow as a legacy child; import verification of its relations)
+pub mod symcomp;
 
 use crate::launch::LaunchSpec;
 use crate::supervisor::worksource::JobRequest;

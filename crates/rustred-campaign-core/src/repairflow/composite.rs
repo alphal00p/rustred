@@ -640,6 +640,24 @@ pub struct KeyChoices {
     pub refused: Vec<(usize, String)>,
     /// Index into `choices`.
     pub preferred: Option<usize>,
+    /// `ok`, or why the key could not be judged: `over_cap:row_expansion` (a spec bound, `route0.max_terms`: NEVER
+    /// "no relation"), `error:<message>`.
+    #[serde(default = "status_ok")]
+    pub status: String,
+}
+
+fn status_ok() -> String {
+    "ok".into()
+}
+
+/// The typed class of a per-key failure (`rows_by_element` / composition errors): `over_cap:row_expansion` when a
+/// symmetry row exceeded the expansion bound (spec parameter), else `error`.
+pub fn error_class(e: &str) -> &'static str {
+    if e.contains("symmetry row expansion bound") {
+        "over_cap:row_expansion"
+    } else {
+        "error"
+    }
 }
 
 impl Choice {
@@ -707,6 +725,21 @@ impl KeyChoices {
             choices,
             refused,
             preferred,
+            status: status_ok(),
         }
+    }
+
+    /// The record of a key that could not be judged (`status` = [`error_class`] + the message).
+    pub fn failed(key: &[i32], lines: &[bool], error: &str) -> KeyChoices {
+        let mut k = KeyChoices::of_composites::<()>(
+            key,
+            &KeyComposites {
+                outcomes: vec![],
+                best: None,
+            },
+            lines,
+        );
+        k.status = format!("{}: {error}", error_class(error));
+        k
     }
 }
