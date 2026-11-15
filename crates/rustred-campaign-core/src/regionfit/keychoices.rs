@@ -68,15 +68,21 @@ pub fn faces_from_key_choices(
         if !seen.insert(&r.key) {
             return Err(format!("key {:?} listed twice", r.key));
         }
-        let acceptable: BTreeSet<String> = r
-            .choices
-            .iter()
-            .filter(|c| kept(c, o))
-            .map(|c| choice_label(c, o.label))
-            .collect();
+        let mut acceptable: BTreeSet<String> = BTreeSet::new();
+        // audit r2-planners R1: every label keeps the composed form(s) (element + image rule) it stands for here
+        let mut image_rules: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        for c in r.choices.iter().filter(|c| kept(c, o)) {
+            let l = choice_label(c, o.label);
+            image_rules
+                .entry(l.clone())
+                .or_default()
+                .insert(c.form.clone());
+            acceptable.insert(l);
+        }
         by.entry(&r.face).or_default().push(FaceKey {
             key: r.key.clone(),
             acceptable,
+            image_rules,
         });
     }
     Ok(by
