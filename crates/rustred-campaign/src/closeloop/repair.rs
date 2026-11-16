@@ -187,6 +187,9 @@ struct FakeGen {
     /// wireflow (a): the fake child's script of the proof-symrows jobs.
     #[serde(default)]
     kernel_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
+    /// wireflow (f): the fake oracle of the seed-minimisation solves ([[key, [alts]], ..]).
+    #[serde(default)]
+    seedmin_oracle: Option<Vec<(Vec<i32>, Vec<super::seedmin::FakeAlt>)>>,
 }
 
 fn d_fake_program() -> String {
@@ -221,6 +224,8 @@ struct RfNode {
     fake: Option<FakeGen>,
     /// wireflow (a): the composite stage (rounds of symmetry-composite + proof-symrows jobs) before P1.
     comp: super::wire_composite::Stage,
+    /// wireflow (f): the seed minimisation of the closing face recipes at P5.
+    minst: super::wire_seedmin::MinStage,
 }
 
 pub struct RepairFlowSource<S: WorkSource> {
@@ -228,6 +233,8 @@ pub struct RepairFlowSource<S: WorkSource> {
     cdir: PathBuf,
     nodes: Vec<RfNode>,
     programs: BTreeMap<String, PathBuf>,
+    /// The licence variable's NAME (wireflow (f): passed to the seed-minimisation children).
+    licence_env: Option<String>,
 }
 
 /// Wrap the closing loop's source (transparent when the campaign has no input of role `repairflow`).
@@ -276,6 +283,7 @@ pub fn wrap<S: WorkSource>(
                 p1: None,
                 fake: fake.clone(),
                 comp: Default::default(),
+                minst: Default::default(),
             });
         }
     }
@@ -288,6 +296,7 @@ pub fn wrap<S: WorkSource>(
             .iter()
             .map(|(k, p)| (k.clone(), p.path.clone()))
             .collect(),
+        licence_env: spec.licence.env.clone(),
     })
 }
 
@@ -381,6 +390,33 @@ impl<S: WorkSource> RepairFlowSource<S> {
         };
         self.nodes[i].comp = comp;
         r.map(Some)
+    }
+
+    /// wireflow (f): the P5 seed minimisation of node `i` (true = done or off).
+    fn min_poll(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<bool, String> {
+        if !self.nodes[i].policy.seedmin.enabled {
+            return Ok(true);
+        }
+        let n = self.nodes[i].n.clone();
+        let fake = self.nodes[i]
+            .fake
+            .as_ref()
+            .and_then(|f| f.seedmin_oracle.clone().map(|o| (o, f.ms)));
+        let mut ms = std::mem::take(&mut self.nodes[i].minst);
+        let r = {
+            let c = super::wire_seedmin::MinCtx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                step: &self.nodes[i].policy.seedmin,
+                programs: &self.programs,
+                licence_env: self.licence_env.clone(),
+                fake,
+            };
+            ms.poll(st, &c, rt)
+        };
+        self.nodes[i].minst = ms;
+        r
     }
 
     fn stage_ready(&mut self, st: &CampaignState, i: usize) -> Vec<JobRequest> {
@@ -1266,6 +1302,41 @@ impl<S: WorkSource> RepairFlowSource<S> {
         ));
         rt.accepts
             .push(record(format!("{exp}/face_recipes.jsonl"), fj.into_bytes()));
+        // wireflow (f): the minimised face recipes are the SHIPPED ones (export/minimised/), the record next to them;
+        // nothing is added without the seed-minimisation input (byte-identical export otherwise)
+        let mut manifest = manifest;
+        let mut seedmin_v = Value::Null;
+        if st
+            .inputs
+            .contains_key(&super::wire_seedmin::input_seedmin(&n))
+        {
+            let sm: Value =
+                serde_json::from_slice(&read_input(st, &super::wire_seedmin::input_seedmin(&n))?)
+                    .map_err(|e| format!("seedmin record: {e}"))?;
+            let mut summary = vec![];
+            for e in sm["recipes"].as_array().into_iter().flatten() {
+                let mut line = json!({"source": e["source"], "keys": e["keys"], "full_seeds": e["full_seeds"],
+                    "min_seeds": e["min_seeds"], "shipped": e["shipped"], "skipped": e["skipped"],
+                    "error": e["error"]});
+                if let Some(p) = e["minimised_recipe"]["path"].as_str() {
+                    let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
+                    let name = Path::new(p)
+                        .file_name()
+                        .map(|x| x.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    sums.push_str(&format!("{}  minimised/{name}\n", sha256_hex(&b)));
+                    line["file"] = json!(format!("minimised/{name}"));
+                    rt.accepts
+                        .push(record(format!("{exp}/minimised/{name}"), b));
+                }
+                summary.push(line);
+            }
+            let sb = json_bytes(&sm);
+            sums.push_str(&format!("{}  seedmin.json\n", sha256_hex(&sb)));
+            rt.accepts.push(record(format!("{exp}/seedmin.json"), sb));
+            manifest["seedmin"] = json!(summary);
+            seedmin_v = json!(summary);
+        }
         let mb = json_bytes(&manifest);
         sums.push_str(&format!("{}  manifest.json\n", sha256_hex(&mb)));
         rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
@@ -1291,7 +1362,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let sym_keys = by_class.get("repair-symbolic").copied().unwrap_or(0);
         let face_keys = by_class.get("recipe-face").copied().unwrap_or(0);
         let def_keys = by_server.get("default-recipe").map(Vec::len).unwrap_or(0);
-        let rep = json!({
+        let mut rep = json!({
             "schema": REPORT_SCHEMA, "node": node,
             "policy": policy, "policy_digest": d.policy_digest,
             "faces": d.faces, "by_class_symbolic": d.by_class,
@@ -1310,6 +1381,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
             "closeloop_final": {"verdict": fin["verdict"], "keys": fin["keys"], "economy": fin["economy"], "blockers": fin["blockers"]},
             "outside_chart_open": d.outside_chart.len(),
         });
+        if !seedmin_v.is_null() {
+            rep["seedmin"] = seedmin_v;
+        }
         let rec = record(format!("{dir}/report.json"), json_bytes(&rep));
         self.reg(rt, input_report(&n), ROLE_RESULT, rec);
         Ok(())
@@ -2119,7 +2193,8 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                         let p = h.join().map_err(|_| "p1 thread panicked".to_string())??;
                         self.nodes[i].p1 = Some(Arc::new(p));
                     }
-                    if self.nodes[i].p1.is_some() {
+                    // wireflow (f): the seed minimisation of the closing face recipes first (policy seedmin)
+                    if self.nodes[i].p1.is_some() && self.min_poll(st, i, &mut rt)? {
                         self.report(st, i, &mut rt)?;
                     }
                 }

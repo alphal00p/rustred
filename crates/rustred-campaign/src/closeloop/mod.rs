@@ -30,6 +30,8 @@ pub mod seedmin;
 pub mod symcert;
 // lane wireflow (interfaces/repairflow.md 20): the composite step as child jobs + kernel certificates (FOR THE INTEGRATOR: one line)
 pub mod wire_composite;
+// lane wireflow (interfaces/repairflow.md 21): seed minimisation of the closing face recipes at P5
+pub mod wire_seedmin;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

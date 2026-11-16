@@ -29,6 +29,9 @@ pub struct RepairPolicy {
     /// wireflow (d): lane pieces' PLANNER on every composite round (default off; omitted from the digest while default).
     #[serde(skip_serializing_if = "PiecesStep::is_default")]
     pub pieces: PiecesStep,
+    /// wireflow (f): seed minimisation of the closing face recipes at P5 (default off; omitted from the digest).
+    #[serde(skip_serializing_if = "SeedMinStep::is_default")]
+    pub seedmin: SeedMinStep,
     pub regions: RegionsPolicy,
     /// Extra evidence added to every spec the flow composes (typed slot: zero-fact sources of lane zeros2).
     pub evidence: ExtraEvidence,
@@ -51,6 +54,7 @@ impl Default for RepairPolicy {
             composite: CompositePolicy::default(),
             tworow: TwoRowStep::default(),
             pieces: PiecesStep::default(),
+            seedmin: SeedMinStep::default(),
             regions: RegionsPolicy::default(),
             evidence: ExtraEvidence::default(),
             faces: FacesPolicy::default(),
@@ -231,6 +235,48 @@ pub struct PiecesStep {
     pub plan: bool,
     pub ranking: crate::pieces::plan::Ranking,
     pub options: crate::pieces::keychoices::KeyChoicesOptions,
+}
+
+/// wireflow (f), TRICKS 7 / 15 (iii): after the closing loop's final result (P5), lane seedmin's JOINT minimisation
+/// (`seedmin::minimise_joint`, pole objective per the minimiser policy: regular at d = 4 wins, a drop that worsens a
+/// key's pole order is refused) of the seed list of every EXPLICIT-OFFSET face recipe (the mixed-shell family) that
+/// certified at least `min_keys` keys, over exactly those keys, solved by the supervisor-side child solver
+/// (`closeloop::seedmin::ChildTrialSolver`, the solve-recipe contract, journaled). When ONE piece holds every key the
+/// minimised list becomes the recipe that is SHIPPED in the export (its every-key final verification is the claim);
+/// otherwise the full list is shipped and the pieces are recorded. The record compares the minimised and the full list
+/// per key (seeds, pole orders). Never changes a closure or a verdict.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct SeedMinStep {
+    pub enabled: bool,
+    pub policy: crate::seedmin::SeedMinPolicy,
+    /// Recipes that certified fewer keys are not minimised. Default 2 (a list minimised at one key overfits, TRICKS 5).
+    pub min_keys: usize,
+    /// Recipes minimised at most (largest key sets first). Default 16: a bound, no measurement.
+    pub max_recipes: usize,
+    /// Solve children at once. Default 4 (the host rule's thread cap).
+    pub jobs: usize,
+    /// Wall cap of one solve child (s). Default 1800 (the closing loop's per-key budget).
+    pub wall_cap_s: u64,
+}
+
+impl Default for SeedMinStep {
+    fn default() -> Self {
+        SeedMinStep {
+            enabled: false,
+            policy: Default::default(),
+            min_keys: 2,
+            max_recipes: 16,
+            jobs: 4,
+            wall_cap_s: 1800,
+        }
+    }
+}
+
+impl SeedMinStep {
+    pub fn is_default(&self) -> bool {
+        *self == SeedMinStep::default()
+    }
 }
 
 impl PiecesStep {
