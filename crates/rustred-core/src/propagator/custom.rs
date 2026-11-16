@@ -1154,6 +1154,16 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
+        // vk5l WP2 (manifest): a shipped entry with precedence `over_table`
+        // comes before the table's first match
+        if let Some(recipes) = &self.recipes
+            && let Some((relation, id)) = recipes.entry_over_table(powers)?
+        {
+            return Ok(KeyApplied::Children(
+                relation_children(&relation, &id)?,
+                KeyVia::Recipe,
+            ));
+        }
         if let Some(recipes) = &self.recipes
             && recipes.order() == RecipeDispatchOrder::RecipesFirst
             && !self.residuals.contains(integral)
@@ -1269,6 +1279,16 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
+        // (0) a shipped entry with precedence `over_table` (node manifest)
+        if let Some(recipes) = &self.recipes
+            && let Some((relation, id)) = recipes.entry_over_table(powers)?
+        {
+            super::recipes::count_outside_entry_hit();
+            return Ok(KeyApplied::Children(
+                relation_children(&relation, &id)?,
+                KeyVia::Recipe,
+            ));
+        }
         // (1) the table's first match (parametric, strictly lowering rules),
         // unless the node's settings forbid rules outside the set
         let rules_outside = self
@@ -2435,6 +2455,112 @@ pub fn custom_payload_recipe_prefill(
                             .ok()
                             .and_then(|(r, _)| r.relation_digest.clone()),
                         source: solved.map(|(_, source)| source),
+                    };
+                    progress(&entry);
+                    results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)[index] = Some(entry);
+                }
+            });
+        }
+    });
+    Ok(results
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
+/// vk5l WP2 producer: one key of [`custom_payload_relation_produce`].
+#[derive(Clone, Debug)]
+pub struct RelationProduceEntry {
+    /// The key in the TABLE frame (as given).
+    pub key_table: Vec<i64>,
+    pub outside_certified_set: bool,
+    /// The family id that solved it (or the source of a stored entry).
+    pub source: Result<Option<String>, PError>,
+    pub seconds: f64,
+    pub children: usize,
+    pub relation_digest: Option<String>,
+}
+
+/// vk5l WP2: the recipe dispatch of a boxed payload WITHOUT building its
+/// owner program (no chart is prepared, the certified set is not decoded):
+/// the bundle (records or the relation binding) from the payload's family
+/// source, its caches opened under the roots in force. `None` without one.
+pub fn custom_payload_recipe_dispatch(
+    presentation: &Presentation,
+    payload: &[u8],
+) -> Result<Option<RecipeDispatch>, PError> {
+    let source = custom_payload_family_source(payload)?;
+    match super::recipes::recipes_of_source(&source)? {
+        Some(bundle) => Ok(Some(RecipeDispatch::new(
+            bundle,
+            presentation.slots.len(),
+            presentation.family.fingerprint(),
+            presentation.family.coefficient_context(),
+            0,
+        )?)),
+        None => Ok(None),
+    }
+}
+
+/// vk5l WP2 producer (plan/ARTIFACT_MANIFEST.md): an explicit relation at
+/// every key of `keys_table` (TABLE frame) of a boxed payload,
+/// [`RecipeDispatch::produce`], `threads` workers, on the light dispatch
+/// ([`custom_payload_recipe_dispatch`]: the owner program is never built, so
+/// a node such as T266 needs its payload bytes only); `outside[i]` marks
+/// keys outside the certified set (entry diagnostics). Each winner is written
+/// to the writable relation cache root in force at once (the caller sets it
+/// and the solver), so a rerun resumes. With `closure` (the certified set)
+/// only relations whose top-sector right-hand side stays in it are kept.
+/// Failures are reported per key.
+#[allow(clippy::too_many_arguments)]
+pub fn custom_payload_relation_produce(
+    presentation: &Presentation,
+    payload: &[u8],
+    keys_table: &[Vec<i64>],
+    outside: &[bool],
+    depths: &[u8],
+    closure: Option<&CertifiedKeySet>,
+    threads: usize,
+    progress: &(dyn Fn(&RelationProduceEntry) + Sync),
+) -> Result<Vec<RelationProduceEntry>, PError> {
+    let recipes = custom_payload_recipe_dispatch(presentation, payload)?.ok_or_else(|| {
+        PError::Unsupported("the payload carries no recipe / relation binding".to_owned())
+    })?;
+    let recipes = &recipes;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<Option<RelationProduceEntry>>> =
+        std::sync::Mutex::new(vec![None; keys_table.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..threads.max(1).min(keys_table.len().max(1)) {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(key_table) = keys_table.get(index) else {
+                        break;
+                    };
+                    let key = recipes.bundle().to_presentation(key_table);
+                    let outside = outside.get(index).copied().unwrap_or(false);
+                    let started = std::time::Instant::now();
+                    let solved = recipes.produce(&key, depths, outside, closure);
+                    let entry = RelationProduceEntry {
+                        key_table: key_table.clone(),
+                        outside_certified_set: outside,
+                        seconds: started.elapsed().as_secs_f64(),
+                        children: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(Option::as_ref)
+                            .map_or(0, |(relation, _)| relation.children.len()),
+                        relation_digest: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(Option::as_ref)
+                            .and_then(|(relation, _)| relation.relation_digest.clone()),
+                        source: solved.map(|found| found.map(|(_, id)| id)),
                     };
                     progress(&entry);
                     results

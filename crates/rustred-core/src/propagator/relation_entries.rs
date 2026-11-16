@@ -286,7 +286,7 @@ pub fn bytes_on_disk(root: &Path) -> u64 {
         .filter_map(|node| std::fs::read_dir(node.path()).ok())
         .flatten()
         .filter_map(Result::ok)
-        .filter(|file| file.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .filter(|file| is_entry_file(&file.path()))
         .filter_map(|file| file.metadata().ok())
         .map(|meta| meta.len())
         .sum()
@@ -356,6 +356,7 @@ static SKIPPED_CAP: AtomicU64 = AtomicU64::new(0);
 static FOREIGN: AtomicU64 = AtomicU64::new(0);
 static CORRUPT: AtomicU64 = AtomicU64::new(0);
 static BYTES_WRITTEN: AtomicU64 = AtomicU64::new(0);
+static OVER_TABLE_HITS: AtomicU64 = AtomicU64::new(0);
 
 /// Process-wide counters of the relation caches.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -368,6 +369,8 @@ pub struct RelationCacheStatistics {
     pub foreign: u64,
     pub corrupt: u64,
     pub bytes_written: u64,
+    /// Shipped entries used BEFORE the table (manifest precedence `over_table`).
+    pub over_table_hits: u64,
 }
 
 impl RelationCacheStatistics {
@@ -383,8 +386,14 @@ impl RelationCacheStatistics {
             foreign: self.foreign - before.foreign,
             corrupt: self.corrupt - before.corrupt,
             bytes_written: self.bytes_written - before.bytes_written,
+            over_table_hits: self.over_table_hits - before.over_table_hits,
         }
     }
+}
+
+/// One shipped entry used before the table (manifest `over_table`).
+pub fn count_over_table_hit() {
+    OVER_TABLE_HITS.fetch_add(1, Ordering::Relaxed);
 }
 
 pub fn relation_cache_statistics() -> RelationCacheStatistics {
@@ -397,6 +406,7 @@ pub fn relation_cache_statistics() -> RelationCacheStatistics {
         foreign: FOREIGN.load(Ordering::Relaxed),
         corrupt: CORRUPT.load(Ordering::Relaxed),
         bytes_written: BYTES_WRITTEN.load(Ordering::Relaxed),
+        over_table_hits: OVER_TABLE_HITS.load(Ordering::Relaxed),
     }
 }
 
@@ -417,12 +427,17 @@ struct Located {
     rank: (u8, i64, i64),
     digest: String,
     writable: bool,
+    /// From a layer whose manifest says `over_table`.
+    over_table: bool,
 }
 
 #[derive(Debug)]
 struct Layer {
     directory: PathBuf,
     writable: bool,
+    precedence: EntryPrecedence,
+    /// The manifest's index file (absolute), if any.
+    index: Option<PathBuf>,
 }
 
 /// The relation entries of one node over its cache roots.
@@ -545,6 +560,99 @@ pub fn shipped_node_directory(root: &Path, node: &str, node_identity: &str) -> P
     }
 }
 
+// ----- per-node service manifest (plan/ARTIFACT_MANIFEST.md) -----
+
+/// Schema of a node directory's `MANIFEST.json`.
+pub const NODE_MANIFEST_SCHEMA: &str = "rustred.node-service-manifest.v1";
+/// The manifest file of a node directory.
+pub const MANIFEST_FILE: &str = "MANIFEST.json";
+/// The default index file of a node directory (one line per key:
+/// `{"key", "file", "offset", "len", "entry_digest", "rank"}`); never read as
+/// entries.
+pub const INDEX_FILE: &str = "index.jsonl";
+
+/// When a shipped entry is used at a key that a table rule also serves.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum EntryPrecedence {
+    /// Entries only for keys no rule takes (no manifest: the behaviour
+    /// before manifests).
+    #[default]
+    AfterTable,
+    /// At a key with an entry, the entry BEFORE the table's first match.
+    OverTable,
+}
+
+impl EntryPrecedence {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::AfterTable => "after_table",
+            Self::OverTable => "over_table",
+        }
+    }
+}
+
+/// The parts of `MANIFEST.json` the engine uses (the rest is diagnostics).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NodeManifest {
+    pub precedence: EntryPrecedence,
+    /// The index file (relative to the node directory), if any.
+    pub index: Option<String>,
+    pub revision: Option<String>,
+}
+
+/// `MANIFEST.json` of a node directory: `Ok(None)` without one; a manifest
+/// of another schema or node identity, or an unknown precedence, is `Err`
+/// (the directory is then not used).
+pub fn read_node_manifest(
+    directory: &Path,
+    node_identity: &str,
+) -> Result<Option<NodeManifest>, String> {
+    let path = directory.join(MANIFEST_FILE);
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(None);
+    };
+    let value: Value =
+        serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
+    if value["schema"] != NODE_MANIFEST_SCHEMA {
+        return Err(format!(
+            "{}: schema {} (expected {NODE_MANIFEST_SCHEMA})",
+            path.display(),
+            value["schema"]
+        ));
+    }
+    if value["node_identity"] != node_identity {
+        return Err(format!(
+            "{}: node identity {} (expected {node_identity})",
+            path.display(),
+            value["node_identity"]
+        ));
+    }
+    let entries = &value["entries"];
+    let precedence = match entries["precedence"].as_str() {
+        Some("over_table") => EntryPrecedence::OverTable,
+        Some("after_table") | None => EntryPrecedence::AfterTable,
+        Some(other) => {
+            return Err(format!(
+                "{}: unknown entries.precedence {other:?} (over_table, after_table)",
+                path.display()
+            ));
+        }
+    };
+    Ok(Some(NodeManifest {
+        precedence,
+        index: entries["index"].as_str().map(str::to_owned),
+        revision: value["revision"].as_str().map(str::to_owned),
+    }))
+}
+
+/// Whether `path` is a file of relation entries (`*.jsonl`, not an index).
+fn is_entry_file(path: &Path) -> bool {
+    path.extension().is_some_and(|ext| ext == "jsonl")
+        && !path
+            .file_name()
+            .is_some_and(|name| name.to_string_lossy().starts_with("index"))
+}
+
 /// The directory of a node under a cache root.
 pub fn node_directory(root: &Path, node: &str, node_identity: &str) -> PathBuf {
     let safe: String = node
@@ -580,15 +688,34 @@ impl RelationStore {
     ) -> Self {
         let mut layers: Vec<Layer> = shipped
             .iter()
-            .map(|root| Layer {
-                directory: shipped_node_directory(root, node, node_identity),
-                writable: false,
+            .filter_map(|root| {
+                let directory = shipped_node_directory(root, node, node_identity);
+                // the node directory's manifest (precedence, index); a
+                // manifest of another node / schema: the directory is not used
+                match read_node_manifest(&directory, node_identity) {
+                    Ok(manifest) => {
+                        let manifest = manifest.unwrap_or_default();
+                        Some(Layer {
+                            index: manifest.index.map(|index| directory.join(index)),
+                            precedence: manifest.precedence,
+                            directory,
+                            writable: false,
+                        })
+                    }
+                    Err(why) => {
+                        FOREIGN.fetch_add(1, Ordering::Relaxed);
+                        eprintln!("rustred: shipped relation directory not used: {why}");
+                        None
+                    }
+                }
             })
             .collect();
         if let Some(root) = cache {
             layers.push(Layer {
                 directory: node_directory(root, node, node_identity),
                 writable: true,
+                precedence: EntryPrecedence::AfterTable,
+                index: None,
             });
         }
         let max_bytes = options.max_bytes.or_else(max_bytes_from_env);
@@ -637,8 +764,26 @@ impl RelationStore {
             let mut files: Vec<PathBuf> = listing
                 .filter_map(Result::ok)
                 .map(|entry| entry.path())
-                .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+                .filter(|path| is_entry_file(path))
                 .collect();
+            let over_table = layer.precedence == EntryPrecedence::OverTable;
+            if let Some(index_path) = &layer.index {
+                match read_index(index_path, &layer.directory, over_table) {
+                    Ok(own) => {
+                        bytes += files
+                            .iter()
+                            .filter_map(|path| path.metadata().ok())
+                            .map(|meta| meta.len())
+                            .sum::<u64>();
+                        merge_layer(&mut index, own);
+                        continue;
+                    }
+                    Err(why) => eprintln!(
+                        "rustred: relation index {} not used ({why}); scanning the entries",
+                        index_path.display()
+                    ),
+                }
+            }
             // merged files first, then segments in name (time) order
             files.sort_by_key(|path| {
                 let name = path
@@ -693,6 +838,7 @@ impl RelationStore {
                         rank: rank(&entry),
                         digest: entry["entry_digest"].as_str().unwrap_or("").to_owned(),
                         writable: layer.writable,
+                        over_table,
                     };
                     let better = own.get(&key).is_none_or(|old| {
                         located.rank > old.rank
@@ -703,17 +849,30 @@ impl RelationStore {
                     }
                 }
             }
-            for (key, located) in own {
-                let replace = index
-                    .get(&key)
-                    .is_none_or(|old| located.rank.0 > old.rank.0);
-                if replace {
-                    index.insert(key, located);
-                }
-            }
+            merge_layer(&mut index, own);
         }
         self.disk_bytes.store(bytes, Ordering::Relaxed);
         index
+    }
+
+    /// Whether a shipped layer's manifest gives its entries precedence over
+    /// the table (no entry is read).
+    pub fn over_table(&self) -> bool {
+        self.layers
+            .iter()
+            .any(|layer| layer.precedence == EntryPrecedence::OverTable)
+    }
+
+    /// Whether `key_table` has an entry from an `over_table` layer (the
+    /// index only; the entry is read and checked by [`Self::get`]).
+    pub fn is_over_table(&self, key_table: &[i64]) -> bool {
+        self.over_table()
+            && self
+                .index()
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(key_table)
+                .is_some_and(|located| located.over_table)
     }
 
     /// The entry of `key_table` (TABLE frame), checked again on read.
@@ -794,6 +953,7 @@ impl RelationStore {
             rank: rank(entry),
             digest: entry["entry_digest"].as_str().unwrap_or("").to_owned(),
             writable: true,
+            over_table: false,
         };
         let mut index = self
             .index()
@@ -843,6 +1003,237 @@ impl RelationStore {
         }
         Err("no free segment name".to_owned())
     }
+}
+
+/// A later layer's entries over the index so far: an entry of a later (more
+/// writable) layer replaces one only with strictly better evidence.
+fn merge_layer(index: &mut HashMap<Vec<i64>, Located>, own: HashMap<Vec<i64>, Located>) {
+    for (key, located) in own {
+        let replace = index
+            .get(&key)
+            .is_none_or(|old| located.rank.0 > old.rank.0);
+        if replace {
+            index.insert(key, located);
+        }
+    }
+}
+
+/// A node directory's index file (one line per key, written by
+/// [`write_node_service`]); entry bodies are not read (each is checked on
+/// first use, so a stale index line only costs a miss).
+fn read_index(
+    path: &Path,
+    directory: &Path,
+    over_table: bool,
+) -> Result<HashMap<Vec<i64>, Located>, String> {
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let mut own = HashMap::new();
+    for (number, line) in BufReader::new(file).lines().enumerate() {
+        let line = line.map_err(|e| e.to_string())?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let row: Value =
+            serde_json::from_str(&line).map_err(|e| format!("line {}: {e}", number + 1))?;
+        let bad = || format!("line {}: missing key / file / offset / len", number + 1);
+        let key: Vec<i64> = serde_json::from_value(row["key"].clone()).map_err(|_| bad())?;
+        let file = row["file"].as_str().ok_or_else(bad)?;
+        if file.contains('/') || file.contains("..") {
+            return Err(format!(
+                "line {}: file {file:?} outside the node directory",
+                number + 1
+            ));
+        }
+        let rank = row["rank"]
+            .as_array()
+            .filter(|rank| rank.len() == 3)
+            .map_or((0, 0, 0), |rank| {
+                (
+                    rank[0].as_u64().unwrap_or(0) as u8,
+                    rank[1].as_i64().unwrap_or(0),
+                    rank[2].as_i64().unwrap_or(0),
+                )
+            });
+        own.insert(
+            key,
+            Located {
+                path: directory.join(file),
+                offset: row["offset"].as_u64().ok_or_else(bad)?,
+                len: row["len"].as_u64().ok_or_else(bad)? as usize,
+                rank,
+                digest: row["entry_digest"].as_str().unwrap_or("").to_owned(),
+                writable: false,
+                over_table,
+            },
+        );
+    }
+    Ok(own)
+}
+
+/// What [`write_node_service`] wrote.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NodeServiceSummary {
+    pub directory: PathBuf,
+    pub entries: usize,
+    pub bytes: u64,
+    pub merged_file: String,
+    pub merged_sha256: String,
+}
+
+/// vk5l WP2 (manifest, plan/ARTIFACT_MANIFEST.md): the shipped form of one
+/// node's relations. Reads every valid entry of `node` under the `sources`
+/// roots (cache or shipped roots, best entry per key as a lookup chooses
+/// it), writes `out_root/<node>-<id16>/merged-<revision>.jsonl` (sorted by
+/// key), `index.jsonl` and `MANIFEST.json` (`extra` fields are merged into
+/// the manifest: `table`, `verification`, ...). The output directory must not
+/// hold entries yet.
+pub fn write_node_service(
+    node: &str,
+    node_identity: &str,
+    sources: &[PathBuf],
+    out_root: &Path,
+    revision: &str,
+    precedence: EntryPrecedence,
+    extra: &Value,
+) -> Result<NodeServiceSummary, String> {
+    let store = RelationStore::with_options(
+        node,
+        node_identity,
+        sources,
+        None,
+        StoreOptions {
+            max_bytes: None,
+            allow_field: Some(true),
+        },
+    );
+    let mut keys: Vec<(Vec<i64>, Located)> = store
+        .index()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .map(|(key, located)| (key.clone(), located.clone()))
+        .collect();
+    keys.sort_by(|a, b| a.0.cmp(&b.0));
+    let directory = node_directory(out_root, node, node_identity);
+    std::fs::create_dir_all(&directory).map_err(|e| format!("{}: {e}", directory.display()))?;
+    if std::fs::read_dir(&directory)
+        .map_err(|e| e.to_string())?
+        .filter_map(Result::ok)
+        .any(|entry| is_entry_file(&entry.path()))
+    {
+        return Err(format!("{} already holds entries", directory.display()));
+    }
+    let safe_revision: String = revision
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '-' | '.' | '_') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let merged_file = format!("merged-{safe_revision}.jsonl");
+    let mut merged = Vec::new();
+    let mut index = Vec::new();
+    let (mut kinds, mut evidence) = (
+        std::collections::BTreeMap::<String, u64>::new(),
+        std::collections::BTreeMap::<String, u64>::new(),
+    );
+    for (key, located) in &keys {
+        let bytes = read_line(&located.path, located.offset, located.len)
+            .ok_or_else(|| format!("{}: unreadable entry", located.path.display()))?;
+        let entry: Value = serde_json::from_slice(&bytes).map_err(|e| e.to_string())?;
+        if check_entry_with(&entry, node_identity, true).as_deref() != Ok(key.as_slice()) {
+            return Err(format!(
+                "{}: entry of {key:?} changed while merging",
+                located.path.display()
+            ));
+        }
+        let kind = if entry["bound_to"]["determinism_id"]
+            .as_str()
+            .is_some_and(|id| id.starts_with(IMPORT_MAJOR))
+        {
+            "import"
+        } else {
+            "recipe_solve"
+        };
+        *kinds.entry(kind.to_owned()).or_default() += 1;
+        *evidence
+            .entry(
+                entry["evidence"]["level"]
+                    .as_str()
+                    .unwrap_or("none")
+                    .to_owned(),
+            )
+            .or_default() += 1;
+        let offset = merged.len() as u64;
+        merged.extend_from_slice(&bytes);
+        merged.push(b'\n');
+        let (a, b, c) = located.rank;
+        index.push(
+            json!({"key": key, "file": merged_file, "offset": offset, "len": bytes.len(),
+                   "entry_digest": located.digest, "rank": [a, b, c]})
+            .to_string(),
+        );
+    }
+    let merged_sha256 = sha256_hex(&merged);
+    let write = |name: &str, bytes: &[u8]| {
+        let path = directory.join(name);
+        let tmp = directory.join(format!(".{name}.tmp{}", std::process::id()));
+        std::fs::write(&tmp, bytes)
+            .and_then(|()| File::open(&tmp)?.sync_all())
+            .and_then(|()| std::fs::rename(&tmp, &path))
+            .map_err(|e| format!("{}: {e}", path.display()))
+    };
+    write(&merged_file, &merged)?;
+    let mut index_text = index.join("\n");
+    if !index_text.is_empty() {
+        index_text.push('\n');
+    }
+    write(INDEX_FILE, index_text.as_bytes())?;
+    write(
+        "NODE.json",
+        format!(
+            "{}\n",
+            json!({"node": node, "node_identity": node_identity})
+        )
+        .as_bytes(),
+    )?;
+    let mut manifest = json!({
+        "schema": NODE_MANIFEST_SCHEMA, "node": node, "node_identity": node_identity,
+        "key_frame": KEY_FRAME, "revision": revision, "created": utc_now(),
+        "entries": {"count": keys.len(), "bytes": merged.len(), "index": INDEX_FILE,
+                    "files": [{"file": merged_file, "sha256": merged_sha256, "entries": keys.len()}],
+                    "precedence": precedence.name(), "kinds": kinds, "evidence": evidence},
+    });
+    if let (Some(fields), Some(target)) = (extra.as_object(), manifest.as_object_mut()) {
+        for (name, value) in fields {
+            if name == "entries" {
+                if let (Some(more), Some(entries)) =
+                    (value.as_object(), target["entries"].as_object_mut())
+                {
+                    for (k, v) in more {
+                        entries.entry(k.clone()).or_insert_with(|| v.clone());
+                    }
+                }
+            } else if !matches!(
+                name.as_str(),
+                "schema" | "node" | "node_identity" | "key_frame"
+            ) {
+                target.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    let text = serde_json::to_string_pretty(&manifest).map_err(|e| e.to_string())?;
+    write(MANIFEST_FILE, format!("{text}\n").as_bytes())?;
+    Ok(NodeServiceSummary {
+        directory,
+        entries: keys.len(),
+        bytes: merged.len() as u64,
+        merged_file,
+        merged_sha256,
+    })
 }
 
 /// Write `value` to `path` only if it does not exist (tmp + rename).
@@ -991,5 +1382,82 @@ mod tests {
         let shipped = RelationStore::new("N", &id, std::slice::from_ref(&root), None);
         assert_eq!(shipped.get(&[2, 1]).unwrap().1, StoreSource::Shipped);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The manifest form (plan/ARTIFACT_MANIFEST.md): merged file + index +
+    /// MANIFEST.json written from a cache root; the store reads it through the
+    /// index (bodies checked on use), reports `over_table`, falls back to a
+    /// scan when the index is unreadable, and drops a directory whose manifest
+    /// names another node identity.
+    #[test]
+    fn node_service_manifest_index_and_precedence() {
+        let base = std::env::temp_dir().join(format!("rr-relmanifest-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (cache, out) = (base.join("cache"), base.join("ship"));
+        let id = node_identity("I(x)", &json!({"name": "o"}), 2);
+        let store = RelationStore::new("N", &id, &[], Some(&cache));
+        for (key, pole) in [([2, 1], Some(0)), ([1, 2], Some(1)), ([3, 1], Some(0))] {
+            store
+                .put(&build_entry(&meta(&id, pole), &key, body(&key, "1/(d-3)")))
+                .unwrap();
+        }
+        let summary = write_node_service(
+            "N",
+            &id,
+            std::slice::from_ref(&cache),
+            &out,
+            "test-rev",
+            EntryPrecedence::OverTable,
+            &json!({"table": {"removed": [7]}}),
+        )
+        .unwrap();
+        assert_eq!(summary.entries, 3);
+        let directory = node_directory(&out, "N", &id);
+        let manifest = read_node_manifest(&directory, &id).unwrap().unwrap();
+        assert_eq!(manifest.precedence, EntryPrecedence::OverTable);
+        assert_eq!(manifest.index.as_deref(), Some(INDEX_FILE));
+        let written: Value =
+            serde_json::from_str(&std::fs::read_to_string(directory.join(MANIFEST_FILE)).unwrap())
+                .unwrap();
+        assert_eq!(written["table"]["removed"], json!([7]));
+        assert_eq!(written["entries"]["count"], json!(3));
+        // a second write into the same directory is refused
+        assert!(
+            write_node_service(
+                "N",
+                &id,
+                std::slice::from_ref(&cache),
+                &out,
+                "x",
+                EntryPrecedence::OverTable,
+                &Value::Null
+            )
+            .is_err()
+        );
+        // read through the index: no corrupt line counted for index.jsonl
+        let before = relation_cache_statistics();
+        let shipped = RelationStore::new("N", &id, std::slice::from_ref(&out), None);
+        assert!(shipped.over_table());
+        assert!(shipped.is_over_table(&[1, 2]));
+        assert!(!shipped.is_over_table(&[9, 9]));
+        assert_eq!(shipped.get(&[3, 1]).unwrap().1, StoreSource::Shipped);
+        assert_eq!(relation_cache_statistics().since(&before).corrupt, 0);
+        assert_eq!(shipped.bytes_on_disk(), summary.bytes);
+        // the cache alone (no manifest): after_table
+        assert!(!RelationStore::new("N", &id, &[], Some(&cache)).over_table());
+        // a broken index: the entries are scanned instead
+        std::fs::write(directory.join(INDEX_FILE), "{not json\n").unwrap();
+        let scanned = RelationStore::new("N", &id, std::slice::from_ref(&out), None);
+        assert!(scanned.is_over_table(&[2, 1]));
+        assert!(scanned.get(&[2, 1]).is_some());
+        // a manifest of another node identity: the directory is not used
+        let other = node_identity("I(y)", &json!({"name": "o"}), 2);
+        let mut foreign = written.clone();
+        foreign["node_identity"] = json!(other);
+        std::fs::write(directory.join(MANIFEST_FILE), foreign.to_string()).unwrap();
+        let dropped = RelationStore::new("N", &id, std::slice::from_ref(&out), None);
+        assert!(dropped.layers().is_empty());
+        assert!(dropped.get(&[2, 1]).is_none());
+        let _ = std::fs::remove_dir_all(&base);
     }
 }
