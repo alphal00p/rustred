@@ -17,8 +17,11 @@
 //! polynomial; a claim that does not is never a proof, counted `claims_false` and named in `false_claims`
 //! (`NumeratorDoesNotVanish`); every claim is checked on its own); a `where_regular` line counts only
 //! when its `den` equals the record's own denominator text, which is then the one evaluated at each key (any other
-//! `den`: never a proof); a claim the core cannot re-check (case equations used, a text form the core parser refuses,
-//! a term above the record budget) is never a proof. Two DIFFERENT lines for one (record, term, locus) refuse the file
+//! `den`: never a proof); a claim the core cannot re-check (a text form the core parser refuses, a term above the
+//! record budget) is never a proof. lane zerosfix4: a claim that used the record's CASE EQUATIONS is re-checked as the
+//! prover derives it (each equation linear in a parameter with coefficient +-1 solved for it and substituted, core
+//! arithmetic: `claim_vanishes`); the record's constants come from its target map as in the prover
+//! (`record_constants`). Two DIFFERENT lines for one (record, term, locus) refuse the file
 //! (`ContradictingLines`). Refusals are typed ([`ZeroProofRefusal`]).
 //!
 //! Consumers: the closing loop's exact tier (the second route of every zero term), the ship gate, the repair flow's
@@ -405,6 +408,241 @@ pub fn vanishes_after(text: &str, arity: usize, subs: &[(usize, i64)]) -> Result
     Ok(acc.values().all(BigInt::is_zero))
 }
 
+/// lane zerosfix4: the constant PARAMETERS of a record's rule point, exactly as the structural prover fixes them
+/// (rustred-campaign-algebra zero_proofs RecordProver::new): a parameter a target slot maps (`n<p>+o`) whose key slot is
+/// fixed gets `fixed - o`; a parameter no slot maps gets its fixed value or 0.
+pub fn record_constants(dom: &crate::domain::CaseDomain) -> Vec<Option<i64>> {
+    use crate::domain::{TargetMap, TargetSlot};
+    let n = dom.arity;
+    let mut konst: Vec<Option<i64>> = vec![None; n];
+    let mut mapped = vec![false; n];
+    let mut bound = |q: usize, k: usize, off: i64, konst: &mut Vec<Option<i64>>| {
+        mapped[q] = true;
+        if let Some(v) = dom.fixed.get(k).copied().flatten() {
+            konst[q] = Some(v as i64 - off);
+        }
+    };
+    match &dom.target {
+        TargetMap::Canonical => {
+            for k in 0..n {
+                bound(k, k, 0, &mut konst);
+            }
+        }
+        TargetMap::Pattern(t) => {
+            for (k, s) in t.iter().enumerate() {
+                if let TargetSlot::Param { param, offset } = *s
+                    && param < n
+                {
+                    bound(param, k, offset, &mut konst);
+                }
+            }
+        }
+    }
+    for q in 0..n {
+        if !mapped[q] {
+            konst[q] = Some(dom.fixed.get(q).copied().flatten().unwrap_or(0) as i64);
+        }
+    }
+    konst
+}
+
+/// A sparse exact polynomial of the core (monomial = sorted (variable, exponent) list; no zero coefficient).
+type SPoly = BTreeMap<Vec<(u16, u32)>, crate::poly::BigInt>;
+
+fn sp_of(p: &Poly, subs: &HashMap<u16, i64>) -> SPoly {
+    use crate::poly::BigInt;
+    let mut acc: SPoly = BTreeMap::new();
+    for (m, c) in p.exact_terms() {
+        let mut c = c;
+        let mut rest = Vec::with_capacity(m.len());
+        for (var, e) in m {
+            match subs.get(&var) {
+                Some(&v) => {
+                    let b = BigInt::from_i128(v as i128);
+                    for _ in 0..e {
+                        c = c.mul(&b);
+                    }
+                }
+                None => rest.push((var, e)),
+            }
+        }
+        sp_add(&mut acc, rest, c);
+    }
+    acc
+}
+
+fn sp_add(acc: &mut SPoly, m: Vec<(u16, u32)>, c: crate::poly::BigInt) {
+    use std::collections::btree_map::Entry;
+    match acc.entry(m) {
+        Entry::Vacant(v) => {
+            if !c.is_zero() {
+                v.insert(c);
+            }
+        }
+        Entry::Occupied(mut o) => {
+            let sum = o.get().add(&c);
+            if sum.is_zero() {
+                o.remove();
+            } else {
+                *o.get_mut() = sum;
+            }
+        }
+    }
+}
+
+fn sp_mono_mul(a: &[(u16, u32)], b: &[(u16, u32)]) -> Vec<(u16, u32)> {
+    let mut out: Vec<(u16, u32)> = Vec::with_capacity(a.len() + b.len());
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() || j < b.len() {
+        match (a.get(i), b.get(j)) {
+            (Some(x), Some(y)) if x.0 == y.0 => {
+                out.push((x.0, x.1 + y.1));
+                i += 1;
+                j += 1;
+            }
+            (Some(x), Some(y)) if x.0 < y.0 => {
+                out.push(*x);
+                i += 1;
+            }
+            (Some(_), Some(y)) => {
+                out.push(*y);
+                j += 1;
+            }
+            (Some(x), None) => {
+                out.push(*x);
+                i += 1;
+            }
+            (None, Some(y)) => {
+                out.push(*y);
+                j += 1;
+            }
+            (None, None) => break,
+        }
+    }
+    out
+}
+
+fn sp_mul(a: &SPoly, b: &SPoly) -> SPoly {
+    let mut acc: SPoly = BTreeMap::new();
+    for (ma, ca) in a {
+        for (mb, cb) in b {
+            sp_add(&mut acc, sp_mono_mul(ma, mb), ca.mul(cb));
+        }
+    }
+    acc
+}
+
+/// `p` with the variable `x` replaced by the polynomial `q` (exact).
+fn sp_subst(p: &SPoly, x: u16, q: &SPoly) -> SPoly {
+    let mut powers: Vec<SPoly> =
+        vec![std::iter::once((vec![], crate::poly::BigInt::from_i128(1))).collect()];
+    let mut acc: SPoly = BTreeMap::new();
+    for (m, c) in p {
+        let e = m.iter().find(|(v, _)| *v == x).map_or(0, |t| t.1) as usize;
+        if e == 0 {
+            sp_add(&mut acc, m.clone(), c.clone());
+            continue;
+        }
+        while powers.len() <= e {
+            let next = sp_mul(powers.last().expect("powers"), q);
+            powers.push(next);
+        }
+        let rest: Vec<(u16, u32)> = m.iter().filter(|(v, _)| *v != x).copied().collect();
+        for (mq, cq) in &powers[e] {
+            sp_add(&mut acc, sp_mono_mul(&rest, mq), c.mul(cq));
+        }
+    }
+    acc
+}
+
+/// e = s*x + r with s = +-1 a constant and r free of x (x not d; the lowest such variable, as the prover's
+/// `unit_solution`): Some((x, -s*r)).
+fn sp_unit_solution(e: &SPoly) -> Option<(u16, SPoly)> {
+    use crate::poly::{BigInt, D_VAR};
+    let mut vars: Vec<u16> = e
+        .keys()
+        .flat_map(|m| m.iter().map(|t| t.0))
+        .filter(|v| *v != D_VAR)
+        .collect();
+    vars.sort_unstable();
+    vars.dedup();
+    for x in vars {
+        let deg = e
+            .keys()
+            .map(|m| m.iter().find(|t| t.0 == x).map_or(0, |t| t.1))
+            .max()
+            .unwrap_or(0);
+        if deg != 1 {
+            continue;
+        }
+        // the coefficient of x must be the constant +-1 (only the monomial [(x, 1)] carries x)
+        let with_x: Vec<(&Vec<(u16, u32)>, &BigInt)> = e
+            .iter()
+            .filter(|(m, _)| m.iter().any(|t| t.0 == x))
+            .collect();
+        if with_x.len() != 1 || *with_x[0].0 != vec![(x, 1)] {
+            continue;
+        }
+        let s = with_x[0].1.to_i128();
+        let r: SPoly = e
+            .iter()
+            .filter(|(m, _)| !m.iter().any(|t| t.0 == x))
+            .map(|(m, c)| (m.clone(), c.clone()))
+            .collect();
+        match s {
+            Some(1) => return Some((x, r.into_iter().map(|(m, c)| (m, c.neg())).collect())),
+            Some(-1) => return Some((x, r)),
+            _ => continue,
+        }
+    }
+    None
+}
+
+/// lane zerosfix4: the numerator text vanishes identically on the locus by the core's own exact arithmetic, as the
+/// structural prover decides it: the constants and the plane `subs` substituted; if not yet zero, every case equation
+/// (also substituted) that is linear in some parameter with coefficient +-1 is solved for it and substituted, one after
+/// the other. Sound: each case equation holds at every rule point of the record. Ok(false) also when an equation
+/// becomes a non-zero constant (the locus holds no rule point: the producer would have said `excluded`). Err: the core
+/// parser refuses a text.
+pub fn claim_vanishes(
+    num: &str,
+    arity: usize,
+    subs: &[(usize, i64)],
+    equations: &[Poly],
+) -> Result<bool, String> {
+    let val: HashMap<u16, i64> = subs.iter().map(|&(q, v)| (q as u16, v)).collect();
+    let p = Poly::parse_exact(num.trim(), arity, true).map_err(|e| format!("{e:?}"))?;
+    let mut n = sp_of(&p, &val);
+    if n.is_empty() {
+        return Ok(true);
+    }
+    let mut eqs: Vec<SPoly> = equations.iter().map(|e| sp_of(e, &val)).collect();
+    let nonzero_constant = |f: &SPoly| f.len() == 1 && f.keys().next().is_some_and(Vec::is_empty);
+    if eqs.iter().any(nonzero_constant) {
+        return Ok(false);
+    }
+    for i in 0..eqs.len() {
+        let e = eqs[i].clone();
+        if e.is_empty() {
+            continue;
+        }
+        if nonzero_constant(&e) {
+            return Ok(false);
+        }
+        let Some((x, sol)) = sp_unit_solution(&e) else {
+            continue;
+        };
+        n = sp_subst(&n, x, &sol);
+        for f in eqs.iter_mut() {
+            *f = sp_subst(f, x, &sol);
+        }
+        if eqs.iter().any(nonzero_constant) {
+            return Ok(false);
+        }
+    }
+    Ok(n.is_empty())
+}
+
 /// lane zerosfix3 (audit M3): after the integer substitutions `subs` some power of d has a non-zero CONSTANT
 /// coefficient in `text` (then the polynomial never vanishes identically in d on the locus). Err: the core parser
 /// refuses the text.
@@ -471,7 +709,7 @@ pub struct LoadStats {
     pub tools: BTreeSet<String>,
     /// lane zerosfix3: proved claims re-checked against the record text and held as proofs.
     pub claims_confirmed: u64,
-    /// lane zerosfix3: proved claims the core cannot re-check (case equations, a text form the core parser refuses, a
+    /// lane zerosfix3: proved claims the core cannot re-check (a text form the core parser refuses, a
     /// term above the record budget): never a proof.
     pub claims_unchecked: u64,
     /// lane zerosfix3: `where_regular` lines whose `den` is not the record's own denominator text (never a proof).
@@ -479,6 +717,9 @@ pub struct LoadStats {
     /// lane zerosfix3 (audit F1): proved claims whose numerator does NOT vanish on the locus by the record's own text
     /// (never a proof; named in [`ZeroProofs::false_claims`]).
     pub claims_false: u64,
+    /// lane zerosfix4: proved claims whose line says the producer used the record's case equations (re-checked by the
+    /// core: the equations solved for a unit parameter, as the prover).
+    pub claims_with_equations: u64,
     /// lane zerosfix3 (audit M3): `nowhere_zero` claims confirmed by the core for the whole locus (no denominator, or a
     /// non-zero constant d-coefficient) / re-checked by the core at each key (record denominator evaluated) / resting
     /// on the producer alone (the core parser refuses the denominator text).
@@ -682,23 +923,28 @@ impl ZeroProofs {
                     .ok()
                     .map(|(n, d)| (n.to_string(), d.map(|x| x.trim().to_string())))
             });
-            let (Some((num, den)), false) = (sides, c.equations) else {
+            let Some((num, den)) = sides else {
                 self.stats.claims_unchecked += 1;
                 continue;
             };
-            // the record's constant slots and the plane (a plane on a constant slot adds nothing)
-            let fixed = &set.disp.tables()[c.t as usize].domains[c.r as usize].fixed;
-            let mut subs: Vec<(usize, i64)> = fixed
+            // lane zerosfix4: the record's constant PARAMETERS (as the prover: through the target map, parameters no
+            // slot maps = fixed or 0) and the plane (a plane on a constant parameter adds nothing); claims that used
+            // the record's case equations are re-checked by solving them for a unit parameter (claim_vanishes)
+            let dom = &set.disp.tables()[c.t as usize].domains[c.r as usize];
+            let mut subs: Vec<(usize, i64)> = record_constants(dom)
                 .iter()
                 .enumerate()
-                .filter_map(|(q, v)| v.map(|x| (q, x as i64)))
+                .filter_map(|(q, v)| v.map(|x| (q, x)))
                 .collect();
             if let Locus::Plane { param, value } = c.locus
                 && !subs.iter().any(|(q, _)| *q == param as usize)
             {
                 subs.push((param as usize, value));
             }
-            match vanishes_after(&num, arity, &subs) {
+            if c.equations {
+                self.stats.claims_with_equations += 1;
+            }
+            match claim_vanishes(&num, arity, &subs, &dom.equations) {
                 Ok(true) => {}
                 // a FALSE claim (each claim is checked on its own: it never becomes a proof; the first few are named)
                 Ok(false) => {
