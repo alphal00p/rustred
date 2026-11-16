@@ -522,7 +522,7 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
             order.push(k);
             continue;
         }
-        if state.get(&k).is_some() {
+        if state.contains_key(&k) {
             continue;
         }
         state.insert(k, 1);
@@ -560,6 +560,7 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
         };
         let kk = src.key(k);
         let (t, r) = src.record_of(k).ok_or("served key without a record")?;
+        #[allow(clippy::map_entry)]
         if !rcache.contains_key(&(t, r)) {
             let info = set.rule(t, r);
             let (line, _) = line_at(Path::new(&info.path), info.offset)?;
@@ -742,12 +743,12 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
                         }
                     }
                     for tm in full.get(&k).map(|v| v.as_slice()).unwrap_or(&[]) {
-                        if let Tm::Top(c, _) = tm {
-                            if let Some(pl) = parents_left.get_mut(c) {
-                                *pl -= 1;
-                                if *pl == 0 && *c != root {
-                                    vecs.remove(c);
-                                }
+                        if let Tm::Top(c, _) = tm
+                            && let Some(pl) = parents_left.get_mut(c)
+                        {
+                            *pl -= 1;
+                            if *pl == 0 && *c != root {
+                                vecs.remove(c);
                             }
                         }
                     }
@@ -1109,6 +1110,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
     let mut top_cache: HashMap<usize, Vec<(usize, TCoeff)>> = HashMap::new();
     #[allow(clippy::type_complexity)]
     let mut rec_cache: HashMap<(usize, usize), (RuleText, Vec<Vec<RhsSlot>>)> = HashMap::new();
+    #[allow(clippy::type_complexity)]
     let mut coef_cache: HashMap<(usize, usize, usize), Result<(ZPolyN, ZPolyN), String>> =
         HashMap::new();
     let mut sub_cache: HashMap<usize, Result<Vec<(Key, TCoeff)>, String>> = HashMap::new();
@@ -1204,6 +1206,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
             let kk = src.key(k);
             let res: Result<Vec<(Key, TCoeff)>, String> = (|| {
                 let (t, r) = src.record_of(k).ok_or("served key without a record")?;
+                #[allow(clippy::map_entry)]
                 if !rec_cache.contains_key(&(t, r)) {
                     let info = set.rule(t, r);
                     let (line, _) = line_at(Path::new(&info.path), info.offset)?;
@@ -1312,7 +1315,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
         // top-down scalar weights (checkpointed)
         let big = i64::MAX / 8;
         let one = || {
-            let o = expand_t_ratio(
+            let _o = expand_t_ratio(
                 &rustred_campaign_algebra::regbasis::series::ZP::new(
                     &symbolica::domains::integer::Z,
                     None,
@@ -2007,6 +2010,7 @@ fn package_relations_cmd(args: &[String]) -> Result<(), String> {
                 .append(true)
                 .open(&vcache_path)
                 .map_err(|e| e.to_string())?;
+            #[allow(clippy::type_complexity)]
             let mut newv: Vec<(usize, Result<Vec<Option<String>>, String>)> = vec![];
             let mut sink_err: Option<String> = None;
             let comp = compose_streaming(

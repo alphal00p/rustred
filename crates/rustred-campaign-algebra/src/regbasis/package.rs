@@ -12,6 +12,7 @@
 //!   (the locus polynomial with the key's indices put in is identically zero in d); else the key is `Open` (blocked).
 //! - Only TOP-sector terms are returned (modulo sub-sectors, as lane epsdepth's statement source); positive-numerator
 //!   terms are skipped (their coefficients vanish in a certified package), sub-sector terms are dropped (counted).
+//!
 //! Generic (L8): arity, frame, terminals, files and loci are data.
 
 use std::collections::{HashMap, HashSet};
@@ -532,6 +533,7 @@ impl<'a> PackageSource<'a> {
     }
 
     /// Keys-only SUPERSET cone of `roots` (every top-sector term followed): (cone keys, open keys, height).
+    #[allow(clippy::type_complexity)]
     pub fn cone_keys_only(
         &mut self,
         roots: &[Key],
