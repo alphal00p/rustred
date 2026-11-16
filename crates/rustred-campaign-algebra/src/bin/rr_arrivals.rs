@@ -281,7 +281,13 @@ fn per_record<R: Send>(
 
 type RecordLines = Result<Option<(Vec<Value>, zero_proofs::HandDownCounts)>, String>;
 /// A re-derived record of the hand-down verifier: (record sha256, lines, lines, independent failures).
-type RederivedRecord = (String, usize, Vec<Value>, Vec<String>);
+type RederivedRecord = (
+    String,
+    usize,
+    Vec<Value>,
+    Vec<String>,
+    Vec<(usize, Value, bool)>,
+);
 /// A key set (support, exact) per child of the multi-map union.
 type KeySetB = BTreeSet<Vec<i32>>;
 /// An expansion with i128 coefficients (for the independent identity check).
@@ -458,6 +464,8 @@ fn verify_proofs(a: &Args) {
     let n_claims = claims.len();
     let mut rederived = 0u64;
     let mut independent = 0u64;
+    let mut excl_ok: Vec<String> = vec![];
+    let mut excl_unconfirmed = 0u64;
     let only = term_filter(a);
     for tp in &a.tables {
         let res = per_record(
@@ -486,6 +494,7 @@ fn verify_proofs(a: &Args) {
                     zero_proofs::prove_handdown_record_terms(&mut p, &mut c, a.all_lines, terms);
                 // independent re-checks of the re-derived claims
                 let mut bad = vec![];
+                let mut excl: Vec<(usize, Value, bool)> = vec![];
                 for v in &lines {
                     let eqs = v["equations"].as_array().is_some_and(|e| !e.is_empty());
                     let j = v["term"].as_u64().unwrap_or(0) as usize;
@@ -511,18 +520,81 @@ fn verify_proofs(a: &Args) {
                     if let Some(f) = failed {
                         bad.push(format!("independent: term {j} {} {f}", v["locus"]));
                     }
+                    // an EXCLUDED locus, re-checked with the core's exact polynomial on the record's own text: the plane's
+                    // parameter is fixed to another value, or every polynomial of some exception branch vanishes on it, or a
+                    // case equation becomes a non-zero constant there
+                    if v["verdict"] == "excluded" {
+                        let rec: Value = serde_json::from_slice(&line)
+                            .map_err(|e| format!("record json: {e}"))?;
+                        let mut ok = false;
+                        if let rustred_campaign_core::import::zero_proofs::Locus::Plane {
+                            param,
+                            value,
+                        } = locus
+                            && let Some(c) =
+                                rec["fixed"].get(param as usize).and_then(Value::as_i64)
+                        {
+                            ok = c != value;
+                        }
+                        if !ok {
+                            for b in rec["exceptions"].as_array().into_iter().flatten() {
+                                let texts: Vec<&str> = b
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter_map(Value::as_str)
+                                    .collect();
+                                if !texts.is_empty()
+                                    && texts.iter().all(|t| {
+                                        zero_proofs::core_vanishes(t, p.arity(), &subs)
+                                            .unwrap_or(false)
+                                    })
+                                {
+                                    ok = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if !ok {
+                            for e in rec["equations"]
+                                .as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(Value::as_str)
+                            {
+                                if let Ok(m) = zero_proofs::core_substitute(e, p.arity(), &subs)
+                                    && !m.is_empty()
+                                    && m.iter().all(|(k, c)| k.is_empty() || c.is_zero())
+                                    && m.iter().any(|(k, c)| k.is_empty() && !c.is_zero())
+                                {
+                                    ok = true;
+                                    break;
+                                }
+                            }
+                        }
+                        excl.push((j, v["locus"].clone(), ok));
+                    }
                 }
                 let sha = p.record_id().0.to_string();
-                Ok(Some((sha, lines.len(), lines, bad)))
+                Ok(Some((sha, lines.len(), lines, bad, excl)))
             },
         )
         .unwrap_or_else(|e| die(&e));
         for r in res {
             match r {
-                Ok(Some((sha, _, lines, bad))) => {
+                Ok(Some((sha, _, lines, bad, excl))) => {
                     for b in bad {
                         independent += 1;
                         mismatches.push(format!("{sha}: {b}"));
+                    }
+                    for (j, l, ok) in excl {
+                        if ok {
+                            excl_ok.push(canonical_json(
+                                &json!({"record_sha256": sha, "term": j, "locus": l}),
+                            ));
+                        } else {
+                            excl_unconfirmed += 1;
+                        }
                     }
                     for v in lines {
                         rederived += 1;
@@ -556,7 +628,17 @@ fn verify_proofs(a: &Args) {
             claim_of(&c)
         ));
     }
+    if let Some(sp) = &a.summary {
+        let p = PathBuf::from(format!("{}.excluded_confirmed.jsonl", sp.display()));
+        excl_ok.sort();
+        std::fs::write(
+            &p,
+            excl_ok.join("\n") + if excl_ok.is_empty() { "" } else { "\n" },
+        )
+        .unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+    }
     let s = json!({"schema": "rustred.campaign.handdown-proof-verify.v1", "verdict": if mismatches.is_empty() {"verified"} else {"mismatch"},
+        "excluded_confirmed": excl_ok.len(), "excluded_unconfirmed": excl_unconfirmed,
         "claims": n_claims, "rederived": rederived, "independent_failures": independent, "mismatches": mismatches.len(),
         "first_mismatches": mismatches.iter().take(20).collect::<Vec<_>>(), "seconds": t0.elapsed().as_secs_f64(),
         "tool": zero_proofs::tool()});
