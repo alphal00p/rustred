@@ -301,6 +301,7 @@ pub(crate) fn parse_args(
         "p-canary" => Ok(Command::P(PSubcommand::Canary, arguments.collect())),
         "p-import-table" => Ok(Command::P(PSubcommand::ImportTable, arguments.collect())),
         "p-certify" => Ok(Command::P(PSubcommand::Certify, arguments.collect())),
+        "p-recipes" => Ok(Command::P(PSubcommand::Recipes, arguments.collect())),
         "litered-reduce" => Ok(Command::LiteRedReduce(arguments.collect())),
         "sector-box-reduce" => Ok(Command::SectorBoxReduce(arguments.collect())),
         "candidate-inspect" => candidate_inspect::parse(arguments),

@@ -83,6 +83,11 @@ pub struct DescentReport {
     pub witnesses: BTreeMap<DescentWitness, usize>,
     /// Overlay rules (none in M2).
     pub overlays: usize,
+    /// vk5l WP6: owners of nodes the library declares not closed
+    /// (`PLibrary::open_node`): no program, not certified; any key reaching
+    /// one is `PError::NodeNotClosed` at run time, and a witness of another
+    /// owner that reaches one still fails this check.
+    pub open_nodes: usize,
 }
 
 /// Why a child of a Custom step is below its key (AD section 5.5 item 2).
@@ -338,6 +343,10 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
     // Items 1, 2, 4, 6, 7: owners and their programs.
     for owner in library.owners() {
         let spec = &owner.spec;
+        if library.open_node(spec.class).is_some() {
+            report.open_nodes += 1;
+            continue;
+        }
         let (id, support) = owner_sector(library, spec)?;
         let parent = presentation(id)?;
         let forced = parent.forced_axes();
@@ -556,6 +565,11 @@ fn check_custom_witnesses(
         presentation.forced_axes(),
     );
     for key in &keys {
+        // boxed-node: a boxed owner covers its box only; witness keys outside
+        // it are refused at run time (PError::OutsideBox), not stepped here.
+        if step.box_contains(key) == Some(false) {
+            continue;
+        }
         let order = step.order_key(&cx, key)?;
         let view = PKeyView {
             presentation: spec.presentation,
@@ -901,7 +915,10 @@ struct Refusal(TraceFailureKind, String);
 impl From<PError> for Refusal {
     fn from(error: PError) -> Self {
         let kind = match error {
-            PError::Uncovered { .. } => TraceFailureKind::Uncovered,
+            PError::Uncovered { .. }
+            | PError::OutsideBox { .. }
+            | PError::OutsideCertifiedSet { .. } => TraceFailureKind::Uncovered,
+            PError::NodeNotClosed { .. } => TraceFailureKind::MissingOwner,
             PError::MissingOwner { .. } => TraceFailureKind::MissingOwner,
             _ => TraceFailureKind::Other,
         };

@@ -250,6 +250,9 @@ fn solver_error(error: &SolverError) -> Value {
             json!({"kind":"search-exhausted","depth":depth,"rows":rows})
         }
         SolverError::UnluckySample => json!({"kind":"unlucky-modular-sample"}),
+        SolverError::RegionPoint(message) => {
+            json!({"kind":"region-point","message":bounded_message(message)})
+        }
         SolverError::Power(_) => json!({"kind":"compact-power-error"}),
         SolverError::Resources(error) => {
             json!({"kind":"resources","message":bounded_message(&error.to_string())})

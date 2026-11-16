@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "child-job-spec.schema.json",
+  "title": "Child-job spec RUN/job.json (contract rustred.child-job.v1)",
+  "description": "AS BUILT: rustred_campaign_contract::spec::JobSpec (interfaces/child-job.md 3.1.2). Every object REJECTS unknown fields (exit 40): written by a supervisor of the same contract version. This is the `job.json` the plan's WP-0a calls 'the recorded job directory job.json'.",
+  "x-rr-names": ["rustred.child-job.v1"],
+  "x-rr-owner": "I-ENG / package contract (co-signer C-SEED)",
+  "x-rr-struct": "rustred_campaign_contract::spec::JobSpec",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "job_id", "attempt", "kind", "run_dir", "program"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"const": "rustred.child-job.v1"},
+    "job_id": {"type": "string", "pattern": "^[A-Za-z0-9_-][A-Za-z0-9._-]{0,127}$"},
+    "attempt": {"type": "integer", "minimum": 1, "maximum": 4294967295},
+    "kind": {"$ref": "#/$defs/job_kind"},
+    "run_dir": {"$ref": "common.schema.json#/$defs/abs_path"},
+    "program": {"type": "object", "required": ["name", "blake3"], "additionalProperties": false, "properties": {
+      "name": {"type": "string", "minLength": 1}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+      "features_required": {"type": "array", "items": {"type": "string"}}}},
+    "inputs": {"type": "array", "items": {"type": "object", "required": ["role", "path", "blake3"], "additionalProperties": false, "properties": {
+      "role": {"type": "string", "minLength": 1}, "path": {"type": "string", "minLength": 1}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+      "upto": {"type": ["integer", "null"], "minimum": 0}}}},
+    "args": {"type": "array", "items": {"type": "string"}},
+    "seed": {"type": "object", "additionalProperties": false, "properties": {"sample_seed": {"$ref": "common.schema.json#/$defs/u64"}}},
+    "budgets": {"type": "object", "additionalProperties": false, "properties": {
+      "work": {"$ref": "common.schema.json#/$defs/work_budgets"},
+      "wall": {"$ref": "common.schema.json#/$defs/wall_budgets"},
+      "mem_soft_bytes": {"type": ["integer", "null"], "minimum": 1}}},
+    "on_case_budget": {"enum": ["stop", "open"]},
+    "determinism": {"enum": ["recorded", "strict"]},
+    "output": {"type": "object", "additionalProperties": false, "properties": {"elide_witness_loci": {"type": "boolean"}}},
+    "heartbeat_s": {"type": "integer", "minimum": 1},
+    "stop_grace_s": {"type": "integer", "minimum": 1},
+    "resume_every_s": {"type": "integer", "minimum": 0},
+    "resume": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/resume_ref"}]},
+    "env_allow": {"type": "array", "items": {"type": "string"}},
+    "fake": {"anyOf": [{"type": "null"}, {"$ref": "fake-script.schema.json"}]}
+  },
+  "$defs": {
+    "job_kind": {"enum": ["generate", "generate-auto", "descent", "replay", "witness", "laporta", "proof-span", "proof-exact", "proof-stream", "table-dump", "fake"]},
+    "resume_ref": {"type": "object", "required": ["from", "blake3"], "additionalProperties": false,
+      "description": "contract resume::ResumeRef (lane contractfix, audit A C1): the LAST RESUME record of the previous attempt by absolute path and digest; every committed size and digest comes from that record",
+      "properties": {
+      "from": {"type": "string", "pattern": "^/.*/RESUME\\.json$"}, "blake3": {"$ref": "common.schema.json#/$defs/blake3"}}}
+  }
+}

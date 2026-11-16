@@ -679,6 +679,32 @@ pub struct LibraryManifest {
     /// In class-id order.
     pub owners: Vec<OwnerRecord>,
     pub counts: CountsRecord,
+    /// vk5l WP6: the nodes this package declares NOT CLOSED (e.g. T266), in
+    /// class order. Absent (every package before it) = none. An older binary
+    /// refuses a package that has one (unknown field): fail closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub open_nodes: Vec<OpenNodeRecord>,
+}
+
+/// vk5l WP6: the version of [`OpenNodeRecord`]; a record of another version
+/// is refused at load.
+pub const P_OPEN_NODE_RECORD_VERSION: u32 = 1;
+
+/// vk5l WP6: one node the package declares not closed. Its owner (`class`,
+/// lane Custom) has no payload and no terminal; the loader gives it no
+/// program, so any key reaching it is `PError::NodeNotClosed` naming `node`,
+/// `status` and the key. Not part of the identity (no value depends on it).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenNodeRecord {
+    /// [`P_OPEN_NODE_RECORD_VERSION`].
+    pub version: u32,
+    /// Class label of the owner (`L<l>T<t>-<id hex>`).
+    pub class: String,
+    /// The node name of the effort's ledger (`T266`).
+    pub node: String,
+    /// Why it is open, shown in the refusal (`stuck: not closed`).
+    pub status: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -727,7 +753,66 @@ pub struct FamilyFileRecord {
 #[serde(deny_unknown_fields)]
 pub struct PayloadRecord {
     pub file: String,
+    /// Length of the stored file.
     pub bytes: u64,
+    /// p5l-library session 2: `"gzip"` when the stored file is the
+    /// gzip-compressed payload (`RUSTRED_P_PAYLOAD_ENCODING=gzip` at write);
+    /// absent for a raw payload (every package before it reads unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<String>,
+}
+
+/// The payload encoding of a package written now: `RUSTRED_P_PAYLOAD_ENCODING`
+/// (`gzip`, or raw by default).
+pub fn payload_encoding_for_write() -> Result<Option<String>, PError> {
+    match std::env::var("RUSTRED_P_PAYLOAD_ENCODING").as_deref() {
+        Err(_) | Ok("") | Ok("raw") => Ok(None),
+        Ok("gzip") => Ok(Some("gzip".to_owned())),
+        Ok(other) => Err(PError::Unsupported(format!(
+            "RUSTRED_P_PAYLOAD_ENCODING={other}: raw or gzip"
+        ))),
+    }
+}
+
+/// The payload of a stored file of `encoding`.
+pub fn decode_payload_file(
+    encoding: Option<&str>,
+    stored: Vec<u8>,
+    what: &str,
+) -> Result<Vec<u8>, PError> {
+    match encoding {
+        None => Ok(stored),
+        Some("gzip") => {
+            use std::io::Read;
+            let mut out = Vec::new();
+            flate2::bufread::GzDecoder::new(&stored[..])
+                .read_to_end(&mut out)
+                .map_err(|error| malformed(format!("{what}: gzip: {error}")))?;
+            Ok(out)
+        }
+        Some(other) => Err(malformed(format!(
+            "{what}: unknown payload encoding {other}"
+        ))),
+    }
+}
+
+/// `payload` stored in `encoding`.
+pub fn encode_payload_file(encoding: Option<&str>, payload: &[u8]) -> Result<Vec<u8>, PError> {
+    match encoding {
+        None => Ok(payload.to_vec()),
+        Some("gzip") => {
+            use std::io::Write;
+            let mut encoder =
+                flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::new(6));
+            encoder
+                .write_all(payload)
+                .and_then(|()| encoder.finish())
+                .map_err(|error| PError::Generation(format!("gzip: {error}")))
+        }
+        Some(other) => Err(PError::Unsupported(format!(
+            "unknown payload encoding {other}"
+        ))),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

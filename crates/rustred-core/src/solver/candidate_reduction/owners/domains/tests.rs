@@ -241,11 +241,11 @@ fn native_coupled_guards_whole_exceptions_and_all_original_denominators_are_borr
         assert_eq!(region.excluded_zero_conjunctions()[0].len(), 2);
         assert!(std::ptr::eq(
             region.coefficient(),
-            &prepared.rhs[region.term_ordinal()].coefficient
+            &*prepared.rhs[region.term_ordinal()].coefficient
         ));
         let denominators: Vec<_> = region.original_denominators().collect();
         assert_eq!(denominators.len(), 2);
-        assert!(std::ptr::eq(denominators[0], &prepared.rhs[0].denominator));
+        assert!(std::ptr::eq(denominators[0], &*prepared.rhs[0].denominator));
         assert!(std::ptr::eq(
             region.source_conditions(),
             programs.context.shared.source_conditions.as_slice()
@@ -509,19 +509,17 @@ fn minimum_wide_shift_keeps_mathematical_positive_tail_without_machine_endpoint_
             .unwrap(),
     )
     .unwrap();
-    Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0].rhs[0].shift[0] = i64::MIN;
+    // t162-export: prepared shifts are i8; the widest storable shift is -128.
+    Arc::get_mut(&mut owner.batches[0]).unwrap().rules[0].rhs[0].shift[0] = i8::MIN;
     let (_, regions) = collect(&programs, [true; 3], Some(0));
     assert_eq!(regions.len(), 2);
-    assert_eq!(regions[0].source_local_upper()[0], Some((1_u64 << 63) - 1));
-    assert_eq!(
-        regions[0].target_rank_upper_bound(),
-        Some((1_u128 << 63) - 1)
-    );
+    assert_eq!(regions[0].source_local_upper()[0], Some(127));
+    assert_eq!(regions[0].target_rank_upper_bound(), Some(127));
     assert_eq!(
         regions[0].transition(),
         OwnerSuccessorTransition::StrictPinch
     );
-    assert_eq!(regions[1].source_local_lower()[0], 1_u64 << 63);
+    assert_eq!(regions[1].source_local_lower()[0], 128);
     assert_eq!(regions[1].source_local_upper()[0], None);
     assert_eq!(regions[1].target_rank_upper_bound(), Some(0));
 }

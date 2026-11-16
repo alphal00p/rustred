@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "accept.schema.json",
+  "title": "Acceptance record (one per check run; CDIR/accept/<node>.jsonl lines or CDIR/accepted/<node>/<id>.json)",
+  "description": "NO AS-BUILT WRITER yet: plan 3.3.5 / 2.5 re-expressed against the as-built ledger (BLAKE3 digests, FileRefs, `large:` root; the ledger's three evidence words beside the plan's A0-A4). Binding (plan 2.5.3, R8, R9): the record is bound to the rule by table digest + rule-line digest + byte offset; FAIL only with a disproof; every credit names its rule; a symmetry credit names the group element and the mapped key; imported evidence carries `imported_from` provenance.",
+  "x-rr-names": ["rustred.campaign.accept.v1"],
+  "x-rr-owner": "I-LOOP (accept.rs) / C-EVID (imported examples)",
+  "x-rr-struct": "rustred_campaign_core::schema::accept::AcceptRecord",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["schema", "utc", "seq_ref", "rule", "check", "verdict", "cost", "artefact", "credits", "imported_from", "level_policy", "level_after", "evidence_level"],
+  "properties": {
+    "schema": {"const": "rustred.campaign.accept.v1"},
+    "utc": {"$ref": "common.schema.json#/$defs/utc"},
+    "seq_ref": {"type": ["integer", "null"], "minimum": 1, "description": "ledger seq of the intent that started the check"},
+    "rule": {
+      "type": "object", "required": ["id", "node", "table_blake3", "rule_line_blake3", "ordinal", "byte_offset", "chart", "producer"],
+      "properties": {
+        "id": {"type": "string", "description": "display id <node>:R:<table id>:<record index> (plan 3.3.0)"},
+        "node": {"type": "string"},
+        "table_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+        "rule_line_blake3": {"$ref": "common.schema.json#/$defs/blake3", "description": "BLAKE3 of the CANONICAL rule line (contract canon::canonical_line_blake3)"},
+        "ordinal": {"$ref": "common.schema.json#/$defs/u64"},
+        "byte_offset": {"$ref": "common.schema.json#/$defs/u64"},
+        "chart": {"type": "string", "pattern": "^[01]+$"},
+        "case_blake3": {"$ref": "common.schema.json#/$defs/blake3"},
+        "producer": {
+          "type": "object", "required": ["bin_blake3", "lift_primes"],
+          "description": "bin_blake3 null = the producing binary is unknown (historical import): then `provenance` is required (not `recorded`) and the line can never by itself yield a level above A0 (validate.py semantic check; the ledger's evidence_imported with producer_blake3 null is provenance only)",
+          "allOf": [{"if": {"properties": {"bin_blake3": {"type": "null"}}, "required": ["bin_blake3"]},
+                     "then": {"required": ["provenance"], "properties": {"provenance": {"not": {"const": "recorded"}}}}}],
+          "properties": {
+            "bin_blake3": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]},
+            "provenance": {"enum": ["recorded", "unknown: historical import", "unknown: not recorded by the producer"]},
+            "backend": {"type": ["string", "null"]},
+            "guard_version": {"type": "integer", "minimum": 1},
+            "lift_primes": {"anyOf": [{"const": "unknown"}, {"type": "array", "items": {"type": "integer", "minimum": 2}}]},
+            "seed_recipe": {"type": ["string", "null"]},
+            "seeds_blake3": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]}
+          }
+        }
+      }
+    },
+    "check": {
+      "type": "object", "required": ["kind", "tool", "tool_blake3", "arithmetic", "primes", "d_values", "scope", "keys", "drawn_before_start"],
+      "properties": {
+        "kind": {"enum": ["structural", "modular_span", "instance_span", "instance_exact", "streaming_eval", "stored_rule_exact", "generic_reelimination", "replay", "descent", "imported"]},
+        "tool": {"type": "string"},
+        "tool_blake3": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/blake3"}]},
+        "tool_version": {"type": "string"},
+        "arithmetic": {"enum": ["exact", "modular", "none"]},
+        "primes": {"type": "array", "items": {"type": "integer", "minimum": 2}},
+        "d_values": {"type": "array", "items": {"type": "string", "pattern": "^-?[0-9]+(/[0-9]+)?$"}},
+        "scope": {"enum": ["per_key", "generic", "structural"]},
+        "keys": {"$ref": "#/$defs/keyset"},
+        "drawn_before_start": {"type": "boolean"}
+      }
+    },
+    "verdict": {
+      "type": "object", "required": ["tool_word", "normalised", "per_key_counts", "disproof"],
+      "properties": {
+        "tool_word": {"type": "string"},
+        "normalised": {"enum": ["PASS", "FAIL", "UNKNOWN", "UNDECIDED", "REFUSED"]},
+        "per_key_counts": {"type": "object", "propertyNames": {"enum": ["PROVED", "IN_SPAN", "HIDDEN", "IRREGULAR", "ON_EXCEPTION_BRANCH", "NOT_IN_CASE", "NOT_IN_CHART", "POLE", "EXCEPTED", "NOT_IN_SPAN_MODULAR", "SPAN_FAIL", "UNKNOWN"]}, "additionalProperties": {"$ref": "common.schema.json#/$defs/u64"}},
+        "error_bound_log10": {"type": ["integer", "null"]},
+        "disproof": {"anyOf": [{"type": "null"}, {"type": "object", "required": ["key", "prime", "d"], "properties": {"key": {"$ref": "common.schema.json#/$defs/key"}, "prime": {"type": "integer"}, "d": {"type": "string"}, "column": {"type": ["integer", "null"]}, "artefact": {"$ref": "common.schema.json#/$defs/fileref_or_null"}}}]}
+      }
+    },
+    "cost": {"type": "object", "required": ["cpu_ms", "peak_rss_bytes"], "properties": {"cpu_ms": {"$ref": "common.schema.json#/$defs/u64"}, "peak_rss_bytes": {"$ref": "common.schema.json#/$defs/u64"}, "memory_class": {"type": "string"}}},
+    "artefact": {"$ref": "common.schema.json#/$defs/fileref_or_null"},
+    "credits": {
+      "type": "object", "required": ["keys", "via_symmetry"],
+      "description": "credited keys (side artefact so coverage is re-checkable); every credit names THIS rule; symmetry credits name the group element and the mapped key (R8, R9 (a))",
+      "properties": {
+        "keys": {"$ref": "#/$defs/keyset"},
+        "via_symmetry": {"type": "array", "items": {"type": "object", "required": ["key", "group_element", "mapped_key", "image_rule_lower"], "properties": {
+          "key": {"$ref": "common.schema.json#/$defs/key"},
+          "group_element": {"type": "array", "items": {"type": "integer", "minimum": 0}, "minItems": 1, "description": "slot permutation of the node's automorphism"},
+          "mapped_key": {"$ref": "common.schema.json#/$defs/key"},
+          "image_rule_lower": {"const": true, "description": "the image's rule lands strictly below the ORIGINAL key (descent check, R9 (b))"}}}}
+      }
+    },
+    "imported_from": {"anyOf": [{"type": "null"}, {
+      "type": "object", "required": ["source", "producer", "label", "file", "original_verdict"],
+      "properties": {
+        "source": {"type": "string", "description": "e.g. guard-audit out/*.jsonl, t162-cert rec.jsonl, Astra W*A products"},
+        "producer": {"type": "string"},
+        "label": {"type": "string", "description": "producer label, e.g. Astra's exact / sampled"},
+        "file": {"$ref": "common.schema.json#/$defs/fileref"},
+        "original_verdict": {"type": "string"},
+        "evidence_id": {"type": ["string", "null"], "description": "ledger evidence_imported id"}
+      }}]},
+    "level_policy": {"type": "string"},
+    "level_after": {"$ref": "common.schema.json#/$defs/acceptance_level"},
+    "evidence_level": {"anyOf": [{"type": "null"}, {"$ref": "common.schema.json#/$defs/evidence_level"}], "description": "the ledger word: A1 geometry_accepted, A2 identity_tested, A3 / A4 identity_proved, A0 null"},
+    "fixture_origin": {"enum": ["hand", "derived"]}
+  },
+  "$defs": {
+    "keyset": {"type": "object", "required": ["file", "count"], "properties": {"file": {"$ref": "common.schema.json#/$defs/fileref_or_null"}, "count": {"$ref": "common.schema.json#/$defs/u64"}, "sample": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/key"}, "maxItems": 20}}}
+  }
+}

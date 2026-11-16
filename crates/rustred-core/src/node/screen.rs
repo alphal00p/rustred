@@ -253,6 +253,31 @@ impl LiftScreen {
         Ok(())
     }
 
+    /// child-job (audit-engjob M5): an `auto` decision that rests on the cost estimate built from the MEASURED replay
+    /// time (the dense box fits, so [`Self::sampled_feasible`] compared that estimate with the budget) is a clock
+    /// decision: recorded as a `screen_sampled` time decision. A box beyond `max_box` (no clock) is not. No-op in
+    /// legacy mode.
+    fn note_auto(&self, m: &ScreenMeasure, d: &ScreenDecision) {
+        if !m.box_unknowns().is_some_and(|b| b <= self.max_box) {
+            return;
+        }
+        let wall = m
+            .sampled_cpu_seconds(self.est_primes)
+            .map_or(f64::MAX, |cpu| cpu / self.sampled_threads.max(1) as f64);
+        let taken = match d {
+            ScreenDecision::Pass => "exact lift",
+            ScreenDecision::Sampled => "sampled reconstruction",
+            ScreenDecision::Refuse(_) => "refused",
+        };
+        super::childjob::time_decision(
+            super::childjob::TimeWhat::ScreenSampled,
+            None,
+            self.sampled_budget_seconds as f64,
+            wall,
+            taken,
+        );
+    }
+
     /// Whether a trace is screened at all.
     pub fn screens(&self, rows: usize, target_block: usize) -> bool {
         rows >= self.min_rows || target_block >= self.min_target_block
@@ -307,17 +332,21 @@ impl LiftScreen {
                 HeavyAction::Refuse => ScreenDecision::Refuse(reason),
                 HeavyAction::Sampled => ScreenDecision::Sampled,
                 HeavyAction::Proceed => ScreenDecision::Pass,
-                HeavyAction::Auto => match self.sampled_feasible(m) {
-                    Ok(()) if m.variables > 0 => ScreenDecision::Sampled,
-                    Ok(()) => ScreenDecision::Pass,
-                    Err(why) => ScreenDecision::Refuse(format!("{reason}; class B: {why}")),
-                },
+                HeavyAction::Auto => {
+                    let d = match self.sampled_feasible(m) {
+                        Ok(()) if m.variables > 0 => ScreenDecision::Sampled,
+                        Ok(()) => ScreenDecision::Pass,
+                        Err(why) => ScreenDecision::Refuse(format!("{reason}; class B: {why}")),
+                    };
+                    self.note_auto(m, &d);
+                    d
+                }
             },
             None if self.sampled_from_rows.is_some_and(|r| m.rows >= r) && m.variables > 0 => {
                 if self.on_heavy != HeavyAction::Auto {
                     ScreenDecision::Sampled
                 } else {
-                    match self.sampled_feasible(m) {
+                    let d = match self.sampled_feasible(m) {
                         Ok(()) => ScreenDecision::Sampled,
                         // a LARGE trace of a relation whose box is beyond the reconstruction: class B, never lifted
                         // (T163/T182/T216 c3: 1882-3087-row exact lifts of degree <= 24 ran into the case budget)
@@ -328,7 +357,9 @@ impl LiftScreen {
                             ))
                         }
                         Err(_) => ScreenDecision::Pass,
-                    }
+                    };
+                    self.note_auto(m, &d);
+                    d
                 }
             }
             None => ScreenDecision::Pass,

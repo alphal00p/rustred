@@ -1,0 +1,1362 @@
+{
+  "head": "90696a084ac0d573f612ee3ee6d6384dd7b53780502524b27d0529a17b5f1b8d",
+  "schema": "rustred.campaign.snapshot.v2",
+  "seq": 103,
+  "state": {
+    "campaign_id": "test-campaign",
+    "controls": {
+      "c-0001": {
+        "by": "operator (tty)",
+        "done_seq": 91,
+        "done_utc": "2026-11-13T23:00:22.500Z",
+        "outcome": "launches paused",
+        "reason": "maintenance",
+        "requested_seq": 90,
+        "requested_utc": "2026-11-13T23:00:22.250Z",
+        "status": "applied",
+        "target": {
+          "scope": "campaign"
+        },
+        "verb": "pause"
+      },
+      "c-0002": {
+        "by": "operator (tty)",
+        "done_seq": 99,
+        "done_utc": "2026-11-13T23:00:24.500Z",
+        "outcome": "item already reassigned",
+        "reason": "BIGMEM authorised",
+        "requested_seq": 94,
+        "requested_utc": "2026-11-13T23:00:23.250Z",
+        "status": "refused",
+        "target": {
+          "item": "T162-item-00009",
+          "scope": "item"
+        },
+        "verb": "retry"
+      },
+      "c-0003": {
+        "by": "operator (tty)",
+        "done_seq": 93,
+        "done_utc": "2026-11-13T23:00:23.000Z",
+        "outcome": "launches resumed",
+        "reason": "maintenance done",
+        "requested_seq": 92,
+        "requested_utc": "2026-11-13T23:00:22.750Z",
+        "status": "applied",
+        "target": {
+          "scope": "campaign"
+        },
+        "verb": "resume"
+      }
+    },
+    "costs_ms": {
+      "L0": [
+        1000,
+        2000,
+        3000,
+        4000,
+        2500,
+        400
+      ]
+    },
+    "cpu_ms_total": 12900,
+    "crash_recoveries": 0,
+    "created_utc": "2026-11-13T23:00:00.000Z",
+    "done_ops": [
+      "op-accept-T162-job-00000-L0",
+      "op-accept-T162-job-00001-L0",
+      "op-accept-T162-job-00002-L0",
+      "op-accept-T162-job-00003-L0"
+    ],
+    "exports": {
+      "r1": "candidate"
+    },
+    "forced_recoveries": 0,
+    "inputs": {
+      "T162.bank": {
+        "blake3": "7f10a8a5ecb5d2ce424d28f0bca54e2109ebaaebc4b12b48c8b902fbc58bf12e",
+        "bytes": 1000,
+        "path": "inputs/T162.bank",
+        "registered_seq": 5,
+        "role": "table",
+        "versions": 1
+      },
+      "T162.box": {
+        "blake3": "95fc20052bebae2c1a61ff89ac810ad17fa8ce6b54bf711074a53cd000dc0e9f",
+        "bytes": 1000,
+        "path": "inputs/T162.box",
+        "registered_seq": 6,
+        "role": "box",
+        "versions": 1
+      },
+      "T162.family": {
+        "blake3": "9456b757701dbeb0d154659e41b3251b1f70400b61866ae8f5fce5228fa9be99",
+        "bytes": 1000,
+        "path": "inputs/T162.family",
+        "registered_seq": 4,
+        "role": "family",
+        "versions": 1
+      },
+      "rr_node": {
+        "blake3": "249c46a7daa9c3022897d643d72caae0e2f159baea768e07fc10ea3c2fbfd757",
+        "bytes": 1000,
+        "path": "inputs/rr_node",
+        "registered_seq": 3,
+        "role": "binary",
+        "versions": 1
+      },
+      "spec": {
+        "blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+        "bytes": 1000,
+        "path": "inputs/spec",
+        "registered_seq": 2,
+        "role": "spec",
+        "versions": 1
+      }
+    },
+    "items": {
+      "T162-item-00000": {
+        "accepted": {
+          "level": "identity_proved",
+          "record": {
+            "blake3": "00e89da7a6d82d1329b6ded3452604962cc789d9449a71c47258d7ed31920750",
+            "bytes": 2400,
+            "path": "accepted/T162/00000.json"
+          },
+          "round": 1,
+          "rule": "T162:R:campaign:0",
+          "seq": 22,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00000-L0",
+            "table_blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e"
+          }
+        },
+        "attention": null,
+        "cpu_ms": 1000,
+        "created_seq": 13,
+        "economy": {
+          "bytes": 90000,
+          "cases": 1,
+          "coefficient_degree": 12,
+          "monomials": 5000,
+          "rhs_terms": 700,
+          "rules": 1
+        },
+        "exclusions": [
+          "8c4c669d6273391433cc932b460280d93f833b7aa2309ee7d06a3f2de6091959"
+        ],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00000-L0"
+        ],
+        "kind": "face",
+        "label": "F000",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "identity_proved",
+          "phase": "accepted"
+        },
+        "produced": {
+          "attempt": 1,
+          "job": "T162-job-00000-L0",
+          "seq": 19,
+          "table": {
+            "blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00000-L0.a1/out/F.table.jsonl"
+          }
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 97,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00001": {
+        "accepted": {
+          "level": "geometry_accepted",
+          "record": {
+            "blake3": "8ff004fe44a6f1179647859a233a729e06d09d9e1943c31706e4c4be28ff12f3",
+            "bytes": 2400,
+            "path": "accepted/T162/00001.json"
+          },
+          "round": 1,
+          "rule": "T162:R:campaign:1",
+          "seq": 32,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00001-L0",
+            "table_blake3": "7a312d88253ad4325f1434d0c6e07e799ae5bf6a0be8f36c170a434c0d44dd61"
+          }
+        },
+        "attention": null,
+        "cpu_ms": 2000,
+        "created_seq": 23,
+        "economy": {
+          "bytes": 90001,
+          "cases": 1,
+          "coefficient_degree": 13,
+          "monomials": 10000,
+          "rhs_terms": 710,
+          "rules": 1
+        },
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00001-L0"
+        ],
+        "kind": "face",
+        "label": "F001",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "phase": "stale"
+        },
+        "produced": {
+          "attempt": 1,
+          "job": "T162-job-00001-L0",
+          "seq": 29,
+          "table": {
+            "blake3": "7a312d88253ad4325f1434d0c6e07e799ae5bf6a0be8f36c170a434c0d44dd61",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00001-L0.a1/out/F.table.jsonl"
+          }
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": "accepted",
+        "stale_input": "artefact:accepted/T162/00001.json",
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 102,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00002": {
+        "accepted": {
+          "level": "identity_proved",
+          "record": {
+            "blake3": "619e94845283dfecbaf8283c1455c93ae5d8edcdf36dbda06a27f836b20aefda",
+            "bytes": 2400,
+            "path": "accepted/T162/00002.json"
+          },
+          "round": 1,
+          "rule": "T162:R:campaign:2",
+          "seq": 42,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00002-L0",
+            "table_blake3": "1909ae8abf36ac072bb6afd5666219f554d9f73b07fc4a6e1be875ca7abe25dd"
+          }
+        },
+        "attention": null,
+        "cpu_ms": 3000,
+        "created_seq": 33,
+        "economy": {
+          "bytes": 90002,
+          "cases": 1,
+          "coefficient_degree": 14,
+          "monomials": 15000,
+          "rhs_terms": 720,
+          "rules": 1
+        },
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00002-L0"
+        ],
+        "kind": "face",
+        "label": "F002",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "identity_proved",
+          "phase": "accepted"
+        },
+        "produced": {
+          "attempt": 1,
+          "job": "T162-job-00002-L0",
+          "seq": 39,
+          "table": {
+            "blake3": "1909ae8abf36ac072bb6afd5666219f554d9f73b07fc4a6e1be875ca7abe25dd",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00002-L0.a1/out/F.table.jsonl"
+          }
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 42,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00003": {
+        "accepted": {
+          "level": "geometry_accepted",
+          "record": {
+            "blake3": "76bd8b3d8dcaae0a9939a65a5ff8b9aa070097ea11a47919ba17adb53e6bb934",
+            "bytes": 2400,
+            "path": "accepted/T162/00003.json"
+          },
+          "round": 1,
+          "rule": "T162:R:campaign:3",
+          "seq": 52,
+          "source": {
+            "attempt": 1,
+            "from": "job",
+            "job": "T162-job-00003-L0",
+            "table_blake3": "698d3240528fc607c7addceddd76bceab712166caf2843dc1b92fd602905eaec"
+          }
+        },
+        "attention": null,
+        "cpu_ms": 4000,
+        "created_seq": 43,
+        "economy": {
+          "bytes": 90003,
+          "cases": 1,
+          "coefficient_degree": 15,
+          "monomials": 20000,
+          "rhs_terms": 730,
+          "rules": 1
+        },
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00003-L0"
+        ],
+        "kind": "face",
+        "label": "F003",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "geometry_accepted",
+          "phase": "accepted"
+        },
+        "produced": {
+          "attempt": 1,
+          "job": "T162-job-00003-L0",
+          "seq": 49,
+          "table": {
+            "blake3": "698d3240528fc607c7addceddd76bceab712166caf2843dc1b92fd602905eaec",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00003-L0.a1/out/F.table.jsonl"
+          }
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 98,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00004": {
+        "accepted": null,
+        "attention": null,
+        "cpu_ms": 2500,
+        "created_seq": 53,
+        "economy": null,
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00004-L0"
+        ],
+        "kind": "locus",
+        "label": "F004",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "L1",
+          "phase": "escalated"
+        },
+        "produced": {
+          "attempt": 2,
+          "job": "T162-job-00004-L0",
+          "seq": 61,
+          "table": {
+            "blake3": "5d51dd15c99df3bda71c623d1ff20150a3f84885776178e93511e6299e6522f7",
+            "bytes": 4900,
+            "path": "large:jobs/T162-job-00004-L0.a2/out/F.table.jsonl"
+          }
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 63,
+        "weight": 3,
+        "children": [
+          "T162-item-00005"
+        ]
+      },
+      "T162-item-00005": {
+        "accepted": null,
+        "attention": null,
+        "cpu_ms": 0,
+        "created_seq": 64,
+        "economy": null,
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [],
+        "kind": "locus",
+        "label": "F005",
+        "ladder_exhausted": {
+          "blake3": "3945d93bbe0a49e97d705e51e680d6b2ac24a99c28c13f77962793c58e133483",
+          "bytes": 3900,
+          "path": "large:ladder/T162-item-5.exhausted.json"
+        },
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": "T162-item-00004",
+        "paused": false,
+        "phase": {
+          "phase": "terminal"
+        },
+        "produced": null,
+        "retired": null,
+        "rung": "L1",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": true,
+        "terminal_keys": 2,
+        "terminal_keyset": {
+          "blake3": "00be396c7d7690369a8dc00787d65cc05b0271a6f37fe36b5150ba8ee5a75924",
+          "bytes": 3500,
+          "path": "large:keysets/T162-terminals-1.keys"
+        },
+        "terminal_preferred": false,
+        "updated_seq": 66,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00006": {
+        "accepted": {
+          "level": "identity_tested",
+          "record": {
+            "blake3": "ff406e017be28419f4dee83098f6db5e83b7856e8dd596725f11537ac3f1575e",
+            "bytes": 2800,
+            "path": "accepted/T162/bank-1043.json"
+          },
+          "round": null,
+          "rule": "T162:R:bank:1043",
+          "seq": 73,
+          "source": {
+            "evidence": "astra-bank-20261113",
+            "from": "evidence"
+          }
+        },
+        "attention": null,
+        "cpu_ms": 400,
+        "created_seq": 67,
+        "economy": null,
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [
+          "T162-job-00006-L0"
+        ],
+        "kind": "face",
+        "label": "F006",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "identity_tested",
+          "phase": "accepted"
+        },
+        "produced": {
+          "attempt": 1,
+          "job": "T162-job-00006-L0",
+          "seq": 72,
+          "table": {
+            "blake3": "06830c322c27d4348d77764c57eb572a14c7ce7f7daf5077b62ddb999cefaf9c",
+            "bytes": 2600,
+            "path": "large:jobs/j6/verdict.json"
+          }
+        },
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 74,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00007": {
+        "accepted": null,
+        "attention": null,
+        "cpu_ms": 0,
+        "created_seq": 75,
+        "economy": null,
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [],
+        "kind": "point_set",
+        "label": "F007",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "phase": "terminal"
+        },
+        "produced": null,
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 1,
+        "terminal_keyset": {
+          "blake3": "401045707fe223e716572e685fbddc914067ec6f6c9b539b64756d1f949b6424",
+          "bytes": 3500,
+          "path": "large:keysets/T162-preferred-1.keys"
+        },
+        "terminal_preferred": true,
+        "updated_seq": 77,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00008": {
+        "accepted": {
+          "level": "identity_tested",
+          "record": {
+            "blake3": "16d38eb40382a2dd8eec4b96e6380be523b36946a66a9d7e20f8a478076ae063",
+            "bytes": 2900,
+            "path": "accepted/T162/imported-8.json"
+          },
+          "round": null,
+          "rule": "T162:R:imported:8",
+          "seq": 79,
+          "source": {
+            "from": "import",
+            "provenance": "earlier-campaign"
+          }
+        },
+        "attention": null,
+        "cpu_ms": 0,
+        "created_seq": 78,
+        "economy": null,
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [],
+        "kind": "face",
+        "label": "F008",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "identity_tested",
+          "phase": "accepted"
+        },
+        "produced": null,
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 79,
+        "weight": 3,
+        "children": []
+      },
+      "T162-item-00009": {
+        "accepted": null,
+        "attention": "the L2 run needs more memory than the policy allows",
+        "cpu_ms": 0,
+        "created_seq": 88,
+        "economy": null,
+        "exclusions": [],
+        "failed_attempts": 0,
+        "generation": 0,
+        "inputs": [],
+        "jobs": [],
+        "kind": "face",
+        "label": "F009",
+        "ladder_exhausted": null,
+        "node": "T162",
+        "operator_retries": 0,
+        "parent": null,
+        "paused": false,
+        "phase": {
+          "detail": "needs_bigmem",
+          "phase": "attention"
+        },
+        "produced": null,
+        "retired": null,
+        "rung": "L0",
+        "stale_from": null,
+        "stale_input": null,
+        "terminal_counted": false,
+        "terminal_keys": 0,
+        "terminal_keyset": null,
+        "terminal_preferred": false,
+        "updated_seq": 89,
+        "weight": 3,
+        "children": []
+      }
+    },
+    "jobs": {
+      "T162-job-00000-L0": {
+        "accept": "canonical",
+        "attempt": 1,
+        "attempt_spec": "e8fee4392710dca801283511cb9fa175e84611d980a9fc225543624c89860421",
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 1000,
+        "created_seq": 14,
+        "failures": 0,
+        "generation": 0,
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
+        "item": "T162-item-00000",
+        "kind": "generate",
+        "outcome": {
+          "blake3": "3351caf4fc38407c4394924736087e4f11f2e079537cfed03240e2c4966d6763",
+          "bytes": 4400,
+          "path": "large:jobs/T162-job-00000-L0.a1/OUTCOME.json"
+        },
+        "peak_rss_bytes": 419430400,
+        "pid": 10000,
+        "prev_attempt_spec": null,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00000-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "0277c132dc1e4394199f090e050f3671ef022a01cd833794af253a57c38a858e",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00000-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "e8fee4392710dca801283511cb9fa175e84611d980a9fc225543624c89860421",
+        "stale": null,
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false,
+        "launch_session": 1
+      },
+      "T162-job-00001-L0": {
+        "accept": "canonical",
+        "attempt": 1,
+        "attempt_spec": "1df35455431f519193225f9335a29f176b8575df4f5ac02d93b2206b504e8aa9",
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 2000,
+        "created_seq": 24,
+        "failures": 0,
+        "generation": 0,
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
+        "item": "T162-item-00001",
+        "kind": "generate",
+        "outcome": {
+          "blake3": "40b658c87fce6fcd76993d744ae87cbffc4746626b1221a446a0bcedcb577562",
+          "bytes": 4400,
+          "path": "large:jobs/T162-job-00001-L0.a1/OUTCOME.json"
+        },
+        "peak_rss_bytes": 419430400,
+        "pid": 10001,
+        "prev_attempt_spec": null,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00001-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "7a312d88253ad4325f1434d0c6e07e799ae5bf6a0be8f36c170a434c0d44dd61",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00001-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "1df35455431f519193225f9335a29f176b8575df4f5ac02d93b2206b504e8aa9",
+        "stale": null,
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false,
+        "launch_session": 1
+      },
+      "T162-job-00002-L0": {
+        "accept": "canonical",
+        "attempt": 1,
+        "attempt_spec": "e055773325558824fc2e088e3de6027cf20c6a5167b15aad279c185fb682f2fd",
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 3000,
+        "created_seq": 34,
+        "failures": 0,
+        "generation": 0,
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
+        "item": "T162-item-00002",
+        "kind": "generate",
+        "outcome": {
+          "blake3": "a7fe7d5fbe829edef022f2165636ab52adc9dd0bbef44f98d26e3d388949edf3",
+          "bytes": 4400,
+          "path": "large:jobs/T162-job-00002-L0.a1/OUTCOME.json"
+        },
+        "peak_rss_bytes": 419430400,
+        "pid": 10002,
+        "prev_attempt_spec": null,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00002-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "1909ae8abf36ac072bb6afd5666219f554d9f73b07fc4a6e1be875ca7abe25dd",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00002-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "e055773325558824fc2e088e3de6027cf20c6a5167b15aad279c185fb682f2fd",
+        "stale": null,
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false,
+        "launch_session": 1
+      },
+      "T162-job-00003-L0": {
+        "accept": "canonical",
+        "attempt": 1,
+        "attempt_spec": "a2a008a4a0d6f2c02953db2e116630e7493a3a22f3849ddff3506a3a4ba25ef0",
+        "binary": "rr_node",
+        "boot_id": "boot",
+        "cpu_ms": 4000,
+        "created_seq": 44,
+        "failures": 0,
+        "generation": 0,
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
+        "item": "T162-item-00003",
+        "kind": "generate",
+        "outcome": {
+          "blake3": "5392e8ebd8aafe96fc9303d3094f16aec585918aa8859c308c481b398f5bc1d4",
+          "bytes": 4400,
+          "path": "large:jobs/T162-job-00003-L0.a1/OUTCOME.json"
+        },
+        "peak_rss_bytes": 419430400,
+        "pid": 10003,
+        "prev_attempt_spec": null,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/T162-job-00003-L0.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "698d3240528fc607c7addceddd76bceab712166caf2843dc1b92fd602905eaec",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00003-L0.a1/out/F.table.jsonl"
+        },
+        "spec_blake3": "a2a008a4a0d6f2c02953db2e116630e7493a3a22f3849ddff3506a3a4ba25ef0",
+        "stale": null,
+        "start_ticks": 777,
+        "state": {
+          "class": "rule_found",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false,
+        "launch_session": 1
+      },
+      "T162-job-00004-L0": {
+        "accept": "committed_rules",
+        "attempt": 2,
+        "attempt_spec": "898acdde838a103b510bbceec9c79ae18d45d86c73c50c49cc889493249568f7",
+        "binary": "rr_node",
+        "boot_id": null,
+        "cpu_ms": 2500,
+        "created_seq": 54,
+        "failures": 0,
+        "generation": 0,
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
+        "item": "T162-item-00004",
+        "kind": "generate",
+        "outcome": {
+          "blake3": "e1d04fb07de30af4d3b788b9cfc98d3540e3a0a183dcd9355a7c061280b1ffdc",
+          "bytes": 4400,
+          "path": "large:jobs/T162-job-00004-L0.a2/OUTCOME.json"
+        },
+        "peak_rss_bytes": 419430400,
+        "pid": null,
+        "prev_attempt_spec": "898acdde838a103b510bbceec9c79ae18d45d86c73c50c49cc889493249568f7",
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/j4.a2",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "5d51dd15c99df3bda71c623d1ff20150a3f84885776178e93511e6299e6522f7",
+          "bytes": 4900,
+          "path": "large:jobs/T162-job-00004-L0.a2/out/F.table.jsonl"
+        },
+        "spec_blake3": "898acdde838a103b510bbceec9c79ae18d45d86c73c50c49cc889493249568f7",
+        "stale": null,
+        "start_ticks": null,
+        "state": {
+          "class": "no_rule",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false,
+        "launch_session": 1
+      },
+      "T162-job-00006-L0": {
+        "accept": "canonical",
+        "attempt": 1,
+        "attempt_spec": "0c1ca9904397720c6fc03a44c0d15ca4fb0c7422281611fe6a1c7e7128298114",
+        "binary": "rr_node",
+        "boot_id": null,
+        "cpu_ms": 400,
+        "created_seq": 69,
+        "failures": 0,
+        "generation": 0,
+        "inputs": [
+          "T162.bank",
+          "T162.box",
+          "T162.family",
+          "rr_node"
+        ],
+        "inputs_digest": "807aa7e3fc64621d2ca22130bf408f84132f9357921ba2178c39fe9e67108717",
+        "item": "T162-item-00006",
+        "kind": "descent",
+        "outcome": {
+          "blake3": "28668ea62524a7f27a67607bbc526f6a5f08b73a217c8248360d0f7efc3242e6",
+          "bytes": 4400,
+          "path": "large:jobs/T162-job-00006-L0.a1/OUTCOME.json"
+        },
+        "peak_rss_bytes": 419430400,
+        "pid": null,
+        "prev_attempt_spec": null,
+        "reserved_bytes": 2147483648,
+        "run_dir": "large:jobs/j6.a1",
+        "rung": "L0",
+        "sealed_table": {
+          "blake3": "06830c322c27d4348d77764c57eb572a14c7ce7f7daf5077b62ddb999cefaf9c",
+          "bytes": 2600,
+          "path": "large:jobs/j6/verdict.json"
+        },
+        "spec_blake3": "0c1ca9904397720c6fc03a44c0d15ca4fb0c7422281611fe6a1c7e7128298114",
+        "stale": null,
+        "start_ticks": null,
+        "state": {
+          "class": "complete",
+          "state": "succeeded_sealed"
+        },
+        "time_decided": false,
+        "launch_session": 1
+      }
+    },
+    "last_seq": 103,
+    "last_utc": "2026-11-13T23:00:25.500Z",
+    "last_verify": [
+      3,
+      true
+    ],
+    "mode": "close",
+    "nodes": {
+      "T162": {
+        "accepted_by_level": [
+          1,
+          2,
+          2
+        ],
+        "cpu_ms": 12900,
+        "inputs": [
+          "T162.family",
+          "T162.bank"
+        ],
+        "items_by_phase": [
+          0,
+          0,
+          0,
+          5,
+          0,
+          1,
+          0,
+          2,
+          1,
+          0,
+          1,
+          0
+        ],
+        "last_keyset": {
+          "blake3": "d28f0b8f276e6c5e24f35c559a528919b62f6f82d88f15d9fa1535bc1eea73dc",
+          "bytes": 3300,
+          "path": "large:keysets/T162-closure-1.keys"
+        },
+        "paused": false,
+        "reference": {
+          "name": "old ledger",
+          "terminals": "7"
+        },
+        "rule_set": {
+          "count": 5,
+          "sum": [
+            5993601108076682092,
+            3849405865637060504,
+            9912796473382166741,
+            20961910451377721
+          ]
+        },
+        "stale_reason": null,
+        "state": {
+          "assembled_manifest": {
+            "blake3": "1c0c4d8807bee6b9f584fcf01ff9619ce1ee0ce8eef88f52febe9875d45141dc",
+            "bytes": 3400,
+            "path": "large:tables/T162.r1.manifest.json"
+          },
+          "attempt_ended": false,
+          "box_blockers": null,
+          "closure": {
+            "closure_keys": 154783,
+            "defect_keys": 37,
+            "dispatch_order_digest": "85f66ea46d39dcd58bdff05fe1a7eef7927b0870ad42de296b572b046b736c24",
+            "envelope": "proved",
+            "envelope_tables": [
+              {
+                "blake3": "7e210af666b3557bedb585314cf0807dcc6806a69220722520b2a616a40c98b1",
+                "bytes": 3100,
+                "path": "large:handdown/T162.ranges.json"
+              }
+            ],
+            "round": 1,
+            "rule_set_digest": "3ce3248dc42833dd17ebed0165a508e36ee2a8553a936ff7bbb2804bc633c320"
+          },
+          "closure_keys": 154783,
+          "closure_rounds": 1,
+          "cpu_ms_on_target": 12900,
+          "dispatch_order": "85f66ea46d39dcd58bdff05fe1a7eef7927b0870ad42de296b572b046b736c24",
+          "fixer_rounds_on_target": 1,
+          "full_blockers": null,
+          "full_closed_ever": false,
+          "last_defect": 37,
+          "last_fixer_round": 1,
+          "phase": "closure_check",
+          "preferred_terminals": 1,
+          "reopen_cause": null,
+          "reopens": 0,
+          "rules_total": 6,
+          "rules_used": 5,
+          "spec": {
+            "certify_boxed": "per-key",
+            "certify_full": "replay",
+            "full_attempt_cpu_ms": 180000000,
+            "full_attempt_fixer_rounds": 2,
+            "preferred_count_against_bound": false,
+            "preferred_listed": 3,
+            "preferred_terminals": {
+              "blake3": "27f918bfc0362bd4323a5acad092d1a121e131db7e9a4435d1d439b467b3ef85",
+              "bytes": 2400,
+              "path": "spec/T162.preferred.json"
+            },
+            "terminal_rung": "L1"
+          },
+          "spec_box": "T162.box",
+          "target": {
+            "target": "full"
+          },
+          "terminal_bound": 100,
+          "terminals": 2
+        }
+      }
+    },
+    "orphans_killed": 1,
+    "paused": false,
+    "pending_ops": {},
+    "phase": "running",
+    "progress_records": 1,
+    "provenance": {
+      "astra-bank-20261113": {
+        "description": "bank of hand-made rules; imported as hand-made evidence (M4)",
+        "files": [
+          {
+            "blake3": "66bd233a15786d6953d4a62539da9214b8777eadd800a047a01fce6ef7a9a1ed",
+            "bytes": 3200,
+            "path": "large:handoff/bank/MANIFEST.json"
+          },
+          {
+            "blake3": "28dfd6424fcb077a0144460d3f9ea20a58f2c14266f69ef0fd4653ab1da1d126",
+            "bytes": 4300,
+            "path": "large:handoff/bank/NATIVE-RULE-BODIES.jsonl"
+          }
+        ],
+        "kind": "evidence_imported",
+        "level_claimed": "identity_tested",
+        "manifest": null,
+        "producer": "hand closure (reference)",
+        "producer_known": true,
+        "provenance_class": null,
+        "seq": 11,
+        "source_campaign": null
+      },
+      "earlier-campaign": {
+        "description": "",
+        "files": [
+          {
+            "blake3": "1ca5e2e255db09385c21aa9e1350b18daab339daaefad2bacc713d07fae74eb2",
+            "bytes": 4100,
+            "path": "large:imports/c-20261101/T162.table.jsonl"
+          }
+        ],
+        "kind": "tables_imported",
+        "level_claimed": "identity_tested",
+        "manifest": {
+          "blake3": "e93127edb75af39723cf1f634db1dcd27b00663a2e5b61e69ec5d372b897c448",
+          "bytes": 3800,
+          "path": "large:imports/c-20261101/MANIFEST.json"
+        },
+        "producer": "campaign c-20261101",
+        "producer_known": true,
+        "provenance_class": null,
+        "seq": 12,
+        "source_campaign": "c-20261101"
+      }
+    },
+    "recent": [
+      {
+        "kind": "campaign",
+        "seq": 8,
+        "text": "campaign starting (test)",
+        "utc": "2026-11-13T23:00:01.750Z"
+      },
+      {
+        "kind": "campaign",
+        "seq": 9,
+        "text": "campaign running (preflight ok)",
+        "utc": "2026-11-13T23:00:02.000Z"
+      },
+      {
+        "kind": "node",
+        "seq": 10,
+        "text": "T162: running (open)",
+        "utc": "2026-11-13T23:00:02.250Z"
+      },
+      {
+        "kind": "provenance",
+        "seq": 11,
+        "text": "evidence_imported astra-bank-20261113 by hand closure (reference) (2 files, level claimed identity_tested)",
+        "utc": "2026-11-13T23:00:02.500Z"
+      },
+      {
+        "kind": "provenance",
+        "seq": 12,
+        "text": "tables_imported earlier-campaign by campaign c-20261101 (1 files, level claimed identity_tested)",
+        "utc": "2026-11-13T23:00:02.750Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 18,
+        "text": "T162 F000 L0: job T162-job (rule_found, accept canonical)",
+        "utc": "2026-11-13T23:00:04.250Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 22,
+        "text": "T162 F000: rule T162:R:campaign:0 accepted (identity_proved)",
+        "utc": "2026-11-13T23:00:05.250Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 28,
+        "text": "T162 F001 L0: job T162-job (rule_found, accept canonical)",
+        "utc": "2026-11-13T23:00:06.750Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 32,
+        "text": "T162 F001: rule T162:R:campaign:1 accepted (geometry_accepted)",
+        "utc": "2026-11-13T23:00:07.750Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 38,
+        "text": "T162 F002 L0: job T162-job (rule_found, accept canonical)",
+        "utc": "2026-11-13T23:00:09.250Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 42,
+        "text": "T162 F002: rule T162:R:campaign:2 accepted (identity_proved)",
+        "utc": "2026-11-13T23:00:10.250Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 48,
+        "text": "T162 F003 L0: job T162-job (rule_found, accept canonical)",
+        "utc": "2026-11-13T23:00:11.750Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 52,
+        "text": "T162 F003: rule T162:R:campaign:3 accepted (geometry_accepted)",
+        "utc": "2026-11-13T23:00:12.750Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 60,
+        "text": "T162 F004 L0: job T162-job (no_rule, accept committed_rules)",
+        "utc": "2026-11-13T23:00:14.750Z"
+      },
+      {
+        "kind": "item_rejected",
+        "seq": 62,
+        "text": "T162 F004: rejected (rule_covers_none)",
+        "utc": "2026-11-13T23:00:15.250Z"
+      },
+      {
+        "kind": "item_escalated",
+        "seq": 63,
+        "text": "T162 F004: escalated to L1 (rule_covers_none)",
+        "utc": "2026-11-13T23:00:15.500Z"
+      },
+      {
+        "kind": "terminal_proposed",
+        "seq": 65,
+        "text": "T162 F005: terminal candidate (terminal_after_ladder)",
+        "utc": "2026-11-13T23:00:16.000Z"
+      },
+      {
+        "kind": "terminal_declared",
+        "seq": 66,
+        "text": "T162 F005: 2 terminal key(s) declared",
+        "utc": "2026-11-13T23:00:16.250Z"
+      },
+      {
+        "kind": "job_finished",
+        "seq": 71,
+        "text": "T162 F006 L0: job T162-job (complete, accept canonical)",
+        "utc": "2026-11-13T23:00:17.500Z"
+      },
+      {
+        "kind": "item_accepted",
+        "seq": 73,
+        "text": "T162 F006: rule T162:R:bank:1043 accepted (geometry_accepted)",
+        "utc": "2026-11-13T23:00:18.000Z"
+      },
+      {
+        "kind": "item_upgraded",
+        "seq": 74,
+        "text": "T162 F006: evidence -> identity_tested",
+        "utc": "2026-11-13T23:00:18.250Z"
+      },
+      {
+        "kind": "terminal_proposed",
+        "seq": 76,
+        "text": "T162 F007: terminal candidate (preferred terminal of the spec)",
+        "utc": "2026-11-13T23:00:18.750Z"
+      },
+      {
+        "kind": "terminal_declared",
+        "seq": 77,
+        "text": "T162 F007: 1 terminal key(s) declared (preferred)",
+        "utc": "2026-11-13T23:00:19.000Z"
+      },
+      {
+        "kind": "item_imported",
+        "seq": 79,
+        "text": "T162 F008: rule T162:R:imported:8 imported from earlier-campaign (identity_tested)",
+        "utc": "2026-11-13T23:00:19.500Z"
+      },
+      {
+        "kind": "node",
+        "seq": 80,
+        "text": "T162: fixer round 1 begins",
+        "utc": "2026-11-13T23:00:19.750Z"
+      },
+      {
+        "kind": "node",
+        "seq": 81,
+        "text": "T162: table set assembled (round 1)",
+        "utc": "2026-11-13T23:00:20.000Z"
+      },
+      {
+        "kind": "node",
+        "seq": 82,
+        "text": "T162: closure round 1, defect 37 of 154783 keys (Proved envelope)",
+        "utc": "2026-11-13T23:00:20.250Z"
+      },
+      {
+        "kind": "rule_retired",
+        "seq": 87,
+        "text": "T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (replaced_by)",
+        "utc": "2026-11-13T23:00:21.500Z"
+      },
+      {
+        "kind": "attention",
+        "seq": 89,
+        "text": "T162 F009: needs attention (needs_bigmem): the L2 run needs more memory than the policy allows",
+        "utc": "2026-11-13T23:00:22.000Z"
+      },
+      {
+        "kind": "control",
+        "seq": 90,
+        "text": "operator (tty) requests Pause of Campaign (maintenance)",
+        "utc": "2026-11-13T23:00:22.250Z"
+      },
+      {
+        "kind": "control",
+        "seq": 91,
+        "text": "control c-0001 applied: launches paused",
+        "utc": "2026-11-13T23:00:22.500Z"
+      },
+      {
+        "kind": "control",
+        "seq": 92,
+        "text": "operator (tty) requests Resume of Campaign (maintenance done)",
+        "utc": "2026-11-13T23:00:22.750Z"
+      },
+      {
+        "kind": "control",
+        "seq": 93,
+        "text": "control c-0003 applied: launches resumed",
+        "utc": "2026-11-13T23:00:23.000Z"
+      },
+      {
+        "kind": "control",
+        "seq": 94,
+        "text": "operator (tty) requests Retry of Item { item: \"T162-item-00009\" } (BIGMEM authorised)",
+        "utc": "2026-11-13T23:00:23.250Z"
+      },
+      {
+        "kind": "key_excluded",
+        "seq": 97,
+        "text": "T162 T162-item-00000: keys excluded",
+        "utc": "2026-11-13T23:00:24.000Z"
+      },
+      {
+        "kind": "rule_reinstated",
+        "seq": 98,
+        "text": "T162 F003: rule reinstated (replacement withdrawn)",
+        "utc": "2026-11-13T23:00:24.250Z"
+      },
+      {
+        "kind": "control",
+        "seq": 99,
+        "text": "control c-0002 refused: item already reassigned",
+        "utc": "2026-11-13T23:00:24.500Z"
+      },
+      {
+        "kind": "orphan_killed",
+        "seq": 100,
+        "text": "orphan pid 31337 killed (job T162-job-00004-L0)",
+        "utc": "2026-11-13T23:00:24.750Z"
+      },
+      {
+        "kind": "artefact_lost",
+        "seq": 102,
+        "text": "artefact accepted/T162/00001.json lost: 1 items marked stale",
+        "utc": "2026-11-13T23:00:25.250Z"
+      }
+    ],
+    "recoveries": [],
+    "rules": {
+      "accepted": 5,
+      "imported": 1,
+      "rejected": 1,
+      "rejected_by_reason": {
+        "rule_covers_none": 1
+      },
+      "replaced": 0,
+      "retired": 1,
+      "upgrades": 1
+    },
+    "segments_opened": 0,
+    "sessions": 1,
+    "spec_blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+    "takeovers": 0,
+    "terminal_bound": 100,
+    "terminals_total": 3,
+    "torn_tail_recoveries": 0
+  }
+}

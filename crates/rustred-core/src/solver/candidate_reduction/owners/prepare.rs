@@ -8,9 +8,10 @@ use crate::solver::FiniteCasePolicy;
 
 use super::super::CandidateReductionError;
 use super::super::preparation::shared::{
-    prepare_family, prepare_records, prepare_shifted_p_family,
+    prepare_batch_from, prepare_family, prepare_shifted_p_family, validate_solution_order,
 };
 use super::model::*;
+use crate::solver::SectorRule;
 
 impl<const N: usize> CandidateOwnerContext<N> {
     pub fn try_new(
@@ -68,64 +69,36 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         inputs: impl IntoIterator<Item = CandidateOwnerInput<N>>,
     ) -> Result<Self, CandidateReductionError> {
         let mut owners = BTreeMap::new();
-        for input in inputs {
-            if owners.contains_key(&input.sector) {
-                return Err(CandidateReductionError::InvalidInput(
-                    "duplicate candidate owner sector".into(),
-                ));
-            }
-            if input
-                .sector
-                .iter()
-                .zip(input.saved_root)
-                .any(|(&active, root)| active && !root)
-            {
-                return Err(CandidateReductionError::InvalidInput(
-                    "candidate owner lies outside its saved root".into(),
-                ));
-            }
-            if input.solution.max_numerator_rank != context.scope.max_numerator_rank {
-                return Err(CandidateReductionError::InconsistentNumeratorRank {
-                    expected: context.scope.max_numerator_rank,
-                    actual: input.solution.max_numerator_rank,
-                });
-            }
-            if input.solution.finite_case_policy != context.scope.finite_case_policy {
-                return Err(CandidateReductionError::InconsistentFiniteCasePolicy {
-                    expected: context.scope.finite_case_policy,
-                    actual: input.solution.finite_case_policy,
-                });
-            }
-            input
-                .ordering
-                .compare(
-                    &vec![0; context.coefficient_context().index_count()],
-                    &vec![0; context.coefficient_context().index_count()],
-                )
-                .map_err(ReductionError::Ordering)?;
-            let mut prepared = prepare_records(
-                &context.shared,
-                BTreeMap::from([(input.sector, input.solution)]),
-                &input.ordering,
-                context.limits,
-            )?;
-            let rules = prepared
-                .rules
-                .remove(&input.sector)
-                .expect("one admitted sector");
-            owners.insert(
-                input.sector,
-                Arc::new(PreparedOwner {
-                    root: input.saved_root,
-                    ordering: input.ordering,
-                    batches: vec![Arc::new(PreparedOwnerBatch::new(
-                        rules,
-                        prepared.terminals,
-                        None,
-                    ))],
-                }),
-            );
+        for mut input in inputs {
+            let rules = std::mem::take(&mut input.solution.rules);
+            insert_owner(&mut owners, &context, input, rules.into_iter().map(Ok))?;
         }
+        Self::from_owners(context, owners)
+    }
+
+    /// [`Self::try_new`] of ONE owner whose rules are restored one at a time
+    /// (t162-export: a multi-GB payload is never held in restored form next
+    /// to its prepared form). `input.solution.rules` must be empty; the rules
+    /// come from `rules`, in order. Same checks, same prepared owner.
+    pub(crate) fn try_new_streamed(
+        context: Arc<CandidateOwnerContext<N>>,
+        input: CandidateOwnerInput<N>,
+        rules: impl IntoIterator<Item = Result<SectorRule<N>, CandidateReductionError>>,
+    ) -> Result<Self, CandidateReductionError> {
+        if !input.solution.rules.is_empty() {
+            return Err(CandidateReductionError::InvalidInput(
+                "a streamed candidate owner carries its rules in the stream only".into(),
+            ));
+        }
+        let mut owners = BTreeMap::new();
+        insert_owner(&mut owners, &context, input, rules)?;
+        Self::from_owners(context, owners)
+    }
+
+    fn from_owners(
+        context: Arc<CandidateOwnerContext<N>>,
+        owners: BTreeMap<[bool; N], Arc<PreparedOwner<N>>>,
+    ) -> Result<Self, CandidateReductionError> {
         if owners.is_empty() {
             return Err(CandidateReductionError::InvalidInput(
                 "candidate owner collection is empty".into(),
@@ -138,4 +111,67 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
             overlay_usage: Default::default(),
         })
     }
+}
+
+/// The checks and preparation of one owner input (its rules from `rules`).
+fn insert_owner<const N: usize>(
+    owners: &mut BTreeMap<[bool; N], Arc<PreparedOwner<N>>>,
+    context: &CandidateOwnerContext<N>,
+    input: CandidateOwnerInput<N>,
+    rules: impl IntoIterator<Item = Result<SectorRule<N>, CandidateReductionError>>,
+) -> Result<(), CandidateReductionError> {
+    if owners.contains_key(&input.sector) {
+        return Err(CandidateReductionError::InvalidInput(
+            "duplicate candidate owner sector".into(),
+        ));
+    }
+    if input
+        .sector
+        .iter()
+        .zip(input.saved_root)
+        .any(|(&active, root)| active && !root)
+    {
+        return Err(CandidateReductionError::InvalidInput(
+            "candidate owner lies outside its saved root".into(),
+        ));
+    }
+    if input.solution.max_numerator_rank != context.scope.max_numerator_rank {
+        return Err(CandidateReductionError::InconsistentNumeratorRank {
+            expected: context.scope.max_numerator_rank,
+            actual: input.solution.max_numerator_rank,
+        });
+    }
+    if input.solution.finite_case_policy != context.scope.finite_case_policy {
+        return Err(CandidateReductionError::InconsistentFiniteCasePolicy {
+            expected: context.scope.finite_case_policy,
+            actual: input.solution.finite_case_policy,
+        });
+    }
+    input
+        .ordering
+        .compare(
+            &vec![0; context.coefficient_context().index_count()],
+            &vec![0; context.coefficient_context().index_count()],
+        )
+        .map_err(ReductionError::Ordering)?;
+    // = prepare_records of the one sector, with the rules streamed.
+    validate_solution_order(&input.sector, &input.ordering, &input.solution.order)?;
+    let mut ordinal = 0_usize;
+    let (rules, terminals) = prepare_batch_from(
+        &context.shared,
+        input.sector,
+        rules,
+        input.solution.finite_residuals,
+        context.limits,
+        &mut ordinal,
+    )?;
+    owners.insert(
+        input.sector,
+        Arc::new(PreparedOwner {
+            root: input.saved_root,
+            ordering: input.ordering,
+            batches: vec![Arc::new(PreparedOwnerBatch::new(rules, terminals, None))],
+        }),
+    );
+    Ok(())
 }

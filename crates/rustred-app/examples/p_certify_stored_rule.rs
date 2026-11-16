@@ -47,7 +47,9 @@ mod app {
     use symbolica::domains::finite_field::{
         FiniteFieldCore, FiniteFieldElement, ToFiniteField, Zp64,
     };
-    use symbolica::domains::rational_polynomial::RationalPolynomialField;
+    use symbolica::domains::rational_polynomial::{
+        FromNumeratorAndDenominator, RationalPolynomialField,
+    };
     use symbolica::domains::{Field, Ring, RingOps, SelfRing};
     use symbolica::prelude::{IntegerRing, Q, Rational, Z};
     use symbolica::tensors::sparse::{LuLMode, SparseMatrix, SparseRowReducer};
@@ -139,6 +141,23 @@ mod app {
         pub limits: Limits,
         #[serde(default)]
         pub source_support: Option<SourceSupport>,
+        /// sym-gen (2026-11-13, opt-in; absent = unchanged behaviour): add EXACT ONE-TERM SYMMETRY ROWS
+        /// e_y - e_{g y} as extra original source rows, built here from the table's `symmetry_group` record (read
+        /// from the origin table at this address) and the presented family text: every element's slot images are
+        /// RECOMPUTED from the family momenta and the element's matrix (the record's `action` is only compared),
+        /// a row is formed at a stored NUMERIC chart seed y only when every slot with y_i != 0 is exact.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub symmetry_rows: Option<SymmetryRowsRequest>,
+        /// sym-gen (opt-in, default false): a FULLY FIXED Case with zero recenter has a trivial frame (the raw pivot
+        /// is the target key), so a numeric rule without `raw_pivot_encoded` is accepted. Implied by `symmetry_rows`.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        pub numeric_case_frame: bool,
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct SymmetryRowsRequest {
+        pub byte_offset: u64,
+        pub record_bytes: usize,
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(rename_all = "snake_case")]
@@ -146,10 +165,17 @@ mod app {
         NumericCircuit,
     }
     #[derive(Clone, Debug, Deserialize, Serialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum WeightSolver {
+        DirectMinor,
+    }
+    #[derive(Clone, Debug, Deserialize, Serialize)]
     #[serde(deny_unknown_fields)]
     pub struct SourceSupport {
         pub mode: SourceSupportMode,
         pub max_rows: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub weight_solver: Option<WeightSolver>,
     }
     impl SourceSupport {
         fn validate(&self, limits: &Limits) -> Result<()> {
@@ -1318,6 +1344,317 @@ mod app {
         Err("UNKNOWN_NUMERIC_SUPPORT_NO_TARGET: bounded fresh numeric proposal only; not generic nonmembership".into())
     }
 
+    // C selects equations for a proposed weight solve only. FULL U remains
+    // the final product domain; no integral-column quotient is introduced.
+    fn select_original_pivot_minor(
+        original: &[Row],
+        selected: &[usize],
+        columns: &[IndexShift],
+        residues: &[u64],
+        p: &Prepared,
+    ) -> Result<(Vec<usize>, Value)> {
+        validate_source_selection(selected, original.len())?;
+        require(
+            columns.len() <= u32::MAX as usize
+                && columns.iter().collect::<BTreeSet<_>>().len() == columns.len(),
+            "UNKNOWN_DIRECT_MINOR_COLUMNS: invalid full original column registry",
+        )?;
+        let field = Zp64::new((1u64 << 61) - 1);
+        require(
+            residues.len() == p.variables.len() && residues.iter().all(|v| *v < field.get_prime()),
+            "UNKNOWN_DIRECT_MINOR_POINT: same admitted scout point required",
+        )?;
+        let point: Vec<_> = residues.iter().map(|v| field.to_element(*v)).collect();
+        let registry = columns
+            .iter()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i as u32))
+            .collect();
+        let rows: Vec<_> = selected.iter().map(|i| original[*i].clone()).collect();
+        let numeric = numeric_rows(&rows, &registry, &point, &field)?
+            .ok_or("UNKNOWN_DIRECT_MINOR_POINT: original source denominator at scout point")?;
+        let mut reducer = SparseRowReducer::new(columns.len() as u32, field, LuLMode::None);
+        for row in numeric {
+            let (ids, values): (Vec<_>, Vec<_>) = row.into_iter().unzip();
+            require(
+                reducer.add_row(&values, &ids).is_some(),
+                "UNKNOWN_DIRECT_MINOR_RANK: selected original sources dependent at point",
+            )?;
+        }
+        let minor: Vec<_> = reducer
+            .pivots()
+            .iter()
+            .enumerate()
+            .filter_map(|(i, v)| v.is_some().then_some(i))
+            .collect();
+        require(
+            minor.len() == selected.len(),
+            "UNKNOWN_DIRECT_MINOR_RANK: incomplete minor",
+        )?;
+        let report = json!({"solver":"direct_minor","field":"native_rational_polynomial",
+            "same_scout_point_residues":residues,"minor_original_column_ids":minor,
+            "minor_integral_columns":minor.iter().map(|i| columns[*i].values()).collect::<Vec<_>>(),
+            "selected_original_source_ordinals":selected,"numeric_original_A_rank":minor.len(),
+            "full_original_column_count":columns.len(),"minor_is_rule_authority":false,
+            "exact_solve_executed":false,"reconstruction_executed":false,
+            "no_alternate_point_minor_support_or_backend_fallback":true});
+        Ok((minor, report))
+    }
+
+    // Same injective absent-variable compaction as the native exact frame:
+    // no substitution or quotient occurs here. The existing full Case has
+    // already been applied to A and R before this representation boundary.
+    struct DirectVariables {
+        original: std::sync::Arc<Vec<symbolica::poly::PolyVariable>>,
+        active: std::sync::Arc<Vec<symbolica::poly::PolyVariable>>,
+        active_original_positions: Vec<usize>,
+    }
+    impl DirectVariables {
+        fn new(original: &[Row], written: &Row, p: &Prepared) -> Result<Self> {
+            let variables = p.context.one().raw().numerator.variables().clone();
+            let mut used = vec![false; variables.len()];
+            for value in original
+                .iter()
+                .flat_map(BTreeMap::values)
+                .chain(written.values())
+            {
+                require(
+                    value.raw().numerator.variables() == &variables
+                        && value.raw().denominator.variables() == &variables,
+                    "UNKNOWN_DIRECT_MINOR_VARIABLE_MAP: input context",
+                )?;
+                for (i, present) in used.iter_mut().enumerate() {
+                    *present |=
+                        value.raw().numerator.contains(i) || value.raw().denominator.contains(i);
+                }
+            }
+            let positions: Vec<_> = used
+                .iter()
+                .enumerate()
+                .filter_map(|(i, used)| used.then_some(i))
+                .collect();
+            let active =
+                std::sync::Arc::new(positions.iter().map(|i| variables[*i].clone()).collect());
+            Ok(Self {
+                original: variables,
+                active,
+                active_original_positions: positions,
+            })
+        }
+        fn remap(
+            value: &Coefficient,
+            from: &std::sync::Arc<Vec<symbolica::poly::PolyVariable>>,
+            to: &std::sync::Arc<Vec<symbolica::poly::PolyVariable>>,
+        ) -> Result<Coefficient> {
+            require(
+                value.numerator.variables() == from && value.denominator.variables() == from,
+                "UNKNOWN_DIRECT_MINOR_VARIABLE_MAP: native coefficient",
+            )?;
+            if from == to {
+                return Ok(value.clone());
+            }
+            let numerator = value.numerator.rearrange_with_growth(to).map_err(err)?;
+            let denominator = value.denominator.rearrange_with_growth(to).map_err(err)?;
+            Ok(Coefficient::from_num_den(numerator, denominator, &Z, false))
+        }
+        fn map(&self, value: &Coefficient) -> Result<Coefficient> {
+            let mapped = Self::remap(value, &self.original, &self.active)?;
+            require(
+                Self::remap(&mapped, &self.active, &self.original)? == *value,
+                "UNKNOWN_DIRECT_MINOR_VARIABLE_MAP: noninjective roundtrip",
+            )?;
+            Ok(mapped)
+        }
+        fn restore(&self, value: &Coefficient) -> Result<Coefficient> {
+            Self::remap(value, &self.active, &self.original)
+        }
+    }
+
+    fn admit_direct_coefficient(
+        raw: Coefficient,
+        p: &Prepared,
+        limits: &Limits,
+    ) -> Result<IndexedCoefficient> {
+        let value = p
+            .context
+            .admit_native_result_with_limits(raw, limits.arithmetic())
+            .map_err(err)?;
+        p.roundtrip(&value, limits)?;
+        let profile = coefficient_profile(std::iter::once(&value));
+        require(
+            profile["max_numerator_total_degree"]
+                .as_u64()
+                .unwrap_or(u64::MAX)
+                <= u64::from(limits.max_degree)
+                && profile["max_denominator_total_degree"]
+                    .as_u64()
+                    .unwrap_or(u64::MAX)
+                    <= u64::from(limits.max_degree),
+            "UNKNOWN_DIRECT_MINOR_BUDGET: exact coefficient degree",
+        )?;
+        Ok(value)
+    }
+
+    fn direct_native<T>(operation: &str, f: impl FnOnce() -> T) -> Result<T> {
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(f))
+            .map_err(|_| format!("UNKNOWN_DIRECT_MINOR_NATIVE: {operation}"))
+    }
+
+    fn solve_direct_minor_weights(
+        original: &[Row],
+        selected: &[usize],
+        columns: &[IndexShift],
+        minor: &[usize],
+        written: &Row,
+        p: &Prepared,
+        limits: &Limits,
+        events: &mut Vec<Value>,
+    ) -> Result<(BTreeMap<usize, IndexedCoefficient>, Value)> {
+        validate_source_selection(selected, original.len())?;
+        let k = selected.len();
+        require(
+            k <= limits.max_weight_slots
+                && k <= limits.max_raw_rows
+                && k < u32::MAX as usize
+                && columns.len() <= limits.max_columns
+                && minor.len() == k
+                && minor.iter().all(|c| *c < columns.len())
+                && minor.windows(2).all(|w| w[0] < w[1]),
+            "UNKNOWN_DIRECT_MINOR_COLUMNS: empty, repeated, reordered, out-of-range or over budget",
+        )?;
+        let variables = DirectVariables::new(original, written, p)?;
+        let field = RationalPolynomialField::<IntegerRing, u16>::new(Z);
+        // Full L permits exporting every actual native pivot inversion before
+        // back_substitute clears L. It is never an external matrix authority.
+        let mut reducer = SparseRowReducer::new(k as u32 + 1, field.clone(), LuLMode::Full);
+        let mut pivots = Vec::new();
+        let mut solve_conditions = BTreeSet::new();
+        let mut peak_live_terms = 0usize;
+        let mut observe = |value: Value| {
+            eprintln!("{value}");
+            events.push(value);
+        };
+        observe(
+            json!({"event":"direct_minor_started","rows":k,"full_original_columns":columns.len()}),
+        );
+        for (equation, &column) in minor.iter().enumerate() {
+            let mut ids = Vec::new();
+            let mut values = Vec::new();
+            for (local, &source) in selected.iter().enumerate() {
+                if let Some(value) = original[source].get(&columns[column]) {
+                    if !value.raw().is_zero() {
+                        ids.push(local as u32);
+                        values.push(variables.map(value.raw())?);
+                    }
+                }
+            }
+            if let Some(value) = written.get(&columns[column]) {
+                if !value.raw().is_zero() {
+                    ids.push(k as u32);
+                    values.push(variables.map(value.raw())?);
+                }
+            }
+            let before = reducer.u().nrows() as usize;
+            let pivot = direct_native("exact augmented row", || reducer.add_row(&values, &ids))?
+                .ok_or("UNKNOWN_DIRECT_MINOR_RANK: exact dependent equation")?
+                as usize;
+            require(
+                pivot < k && reducer.u().nrows() as usize == before + 1,
+                "UNKNOWN_DIRECT_MINOR_RANK: missing variable pivot or augmented-only pivot",
+            )?;
+            let l = reducer.l();
+            require(
+                l.nrows() as usize == before + 1,
+                "UNKNOWN_DIRECT_MINOR_RANK: native L embedding",
+            )?;
+            let diagonal = (l.row_ptrs()[before]..l.row_ptrs()[before + 1])
+                .find(|i| l.col_idcs()[*i] as usize == before)
+                .ok_or("UNKNOWN_DIRECT_MINOR_RANK: missing native pivot diagonal")?;
+            let leading =
+                admit_direct_coefficient(variables.restore(&l.values()[diagonal])?, p, limits)?;
+            require(
+                !leading.raw().is_zero(),
+                "UNKNOWN_DIRECT_MINOR_RANK: zero exact pivot",
+            )?;
+            for polynomial in [&leading.raw().numerator, &leading.raw().denominator] {
+                if !polynomial.is_constant() {
+                    solve_conditions.insert(poly_text(polynomial, &p.variables));
+                }
+            }
+            pivots.push(
+                json!({"equation":equation,"original_integral_column":column,
+                "weight_variable":pivot,"native_pivot":text(&leading,&p.variables)}),
+            );
+            let mut live_terms = 0usize;
+            for value in reducer.u().values().iter().chain(reducer.l().values()) {
+                let admitted = admit_direct_coefficient(variables.restore(value)?, p, limits)?;
+                charge(
+                    &mut live_terms,
+                    count(&admitted),
+                    limits.max_coefficient_terms,
+                )?;
+                if !admitted.raw().denominator.is_constant() {
+                    solve_conditions.insert(poly_text(&admitted.raw().denominator, &p.variables));
+                }
+            }
+            peak_live_terms = peak_live_terms.max(live_terms);
+            observe(
+                json!({"event":"direct_minor_row_finished","equation":equation,
+                "weight_variable_pivot":pivot,"exact_U_nonzeros":reducer.u().nvalues(),
+                "exact_L_nonzeros":reducer.l().nvalues(),"live_coefficient_terms":live_terms}),
+            );
+        }
+        require(
+            reducer.pivots()[..k].iter().all(Option::is_some) && reducer.pivots()[k].is_none(),
+            "UNKNOWN_DIRECT_MINOR_RANK: incomplete exact variable rank",
+        )?;
+        direct_native("exact back substitution", || reducer.back_substitute())?;
+        let mut final_terms = 0usize;
+        for value in reducer.u().values() {
+            let admitted = admit_direct_coefficient(variables.restore(value)?, p, limits)?;
+            charge(
+                &mut final_terms,
+                count(&admitted),
+                limits.max_coefficient_terms,
+            )?;
+            if !admitted.raw().denominator.is_constant() {
+                solve_conditions.insert(poly_text(&admitted.raw().denominator, &p.variables));
+            }
+        }
+        peak_live_terms = peak_live_terms.max(final_terms);
+        let mut weights = BTreeMap::new();
+        for variable in 0..k {
+            let row = reducer.pivots()[variable]
+                .ok_or("UNKNOWN_DIRECT_MINOR_RANK: weight pivot absent")?
+                as usize;
+            for position in reducer.u().row_ptrs()[row]..reducer.u().row_ptrs()[row + 1] {
+                let column = reducer.u().col_idcs()[position] as usize;
+                let value = &reducer.u().values()[position];
+                if column == k {
+                    let admitted = admit_direct_coefficient(variables.restore(value)?, p, limits)?;
+                    if !admitted.raw().is_zero() {
+                        weights.insert(variable, admitted);
+                    }
+                } else {
+                    require(
+                        column == variable && field.is_one(value),
+                        "UNKNOWN_DIRECT_MINOR_NATIVE: unsolved exact coefficient",
+                    )?;
+                }
+            }
+        }
+        observe(json!({"event":"direct_minor_weights_finished","nonzero_weights":weights.len()}));
+        Ok((
+            weights,
+            json!({"exact_solve_executed":true,"reconstruction_executed":false,
+            "exact_rank":k,"original_variables":variables.original.len(),"active_variables":variables.active.len(),
+            "active_original_variable_positions":variables.active_original_positions,"injective_variable_map_roundtrip_checked":true,
+            "Case_substitution_reused":true,"no_additional_quotient_or_substitution":true,"native_exact_pivots":pivots,"solve_local_nonzero_conditions":solve_conditions,
+            "peak_admitted_live_coefficient_terms":peak_live_terms,
+            "scope":"minor solves propose weights only; FULL original product mandatory"}),
+        ))
+    }
+
     fn embed_original_weights(
         selected: &[usize],
         weights: &BTreeMap<usize, IndexedCoefficient>,
@@ -1480,6 +1817,287 @@ mod app {
         source_support: Option<&SourceSupport>,
         forced_point: Option<&[u64]>,
     ) -> Result<Value> {
+        certify_with_support_sym(
+            p,
+            header,
+            rule,
+            limits,
+            profile_only,
+            source_support,
+            forced_point,
+            None,
+            false,
+            &mut Value::Null,
+        )
+    }
+
+    /// sym-gen: the momentum vectors (over loops + externals) and line flags of the presented family text.
+    fn family_momenta(text: &str) -> Result<(Vec<Vec<i64>>, Vec<bool>, usize)> {
+        let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+        let list = |name: &str| -> Result<Vec<String>> {
+            let a = t
+                .find(&format!("{name}("))
+                .ok_or(format!("family without {name}"))?
+                + name.len()
+                + 1;
+            let b = a + t[a..].find(')').ok_or("unterminated list")?;
+            Ok(t[a..b]
+                .split(',')
+                .filter(|x| !x.is_empty())
+                .map(str::to_string)
+                .collect())
+        };
+        let mut vars = list("loops")?;
+        let nloops = vars.len();
+        vars.extend(list("externals")?);
+        let mut moms = Vec::new();
+        let mut lines = Vec::new();
+        let mut rest = t.as_str();
+        while let Some(i) = rest.find("prop(") {
+            let body = &rest[i + 5..];
+            let mut depth = 1i32;
+            let mut end = None;
+            for (j, ch) in body.char_indices() {
+                if ch == '(' {
+                    depth += 1;
+                }
+                if ch == ')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = Some(j);
+                        break;
+                    }
+                }
+            }
+            let end = end.ok_or("unterminated prop")?;
+            let inner = &body[..end];
+            let c1 = inner.find(',').ok_or("prop without momentum")?;
+            let c2 = inner.rfind(',').ok_or("prop without flag")?;
+            let mom = &inner[c1 + 1..c2];
+            let flag = &inner[c2 + 1..];
+            let mom = mom
+                .strip_prefix('(')
+                .and_then(|m| m.strip_suffix(")^2"))
+                .ok_or("prop momentum is not a square")?;
+            let mut v = vec![0i64; vars.len()];
+            let mut term = String::new();
+            let push = |term: &str, v: &mut Vec<i64>| -> Result<()> {
+                if term.is_empty() {
+                    return Ok(());
+                }
+                let (sign, body) = match term.as_bytes()[0] {
+                    b'-' => (-1, &term[1..]),
+                    b'+' => (1, &term[1..]),
+                    _ => (1, term),
+                };
+                let (c, name) = match body.find('*') {
+                    Some(k) => (body[..k].parse::<i64>().map_err(err)?, &body[k + 1..]),
+                    None => (1, body),
+                };
+                let k = vars
+                    .iter()
+                    .position(|x| x == name)
+                    .ok_or(format!("unknown momentum {name}"))?;
+                v[k] += sign * c;
+                Ok(())
+            };
+            for ch in mom.chars() {
+                if (ch == '+' || ch == '-') && !term.is_empty() {
+                    push(&term, &mut v)?;
+                    term.clear();
+                }
+                term.push(ch);
+            }
+            push(&term, &mut v)?;
+            moms.push(v);
+            lines.push(flag == "1");
+            rest = &body[end..];
+        }
+        Ok((moms, lines, nloops))
+    }
+
+    fn det_i128(mut a: Vec<Vec<i128>>) -> i128 {
+        // Bareiss fraction-free elimination (exact for integer matrices)
+        let n = a.len();
+        let mut sign = 1i128;
+        let mut prev = 1i128;
+        for k in 0..n {
+            if a[k][k] == 0 {
+                match (k + 1..n).find(|&r| a[r][k] != 0) {
+                    Some(r) => {
+                        a.swap(k, r);
+                        sign = -sign;
+                    }
+                    None => return 0,
+                }
+            }
+            for i in k + 1..n {
+                for j in k + 1..n {
+                    a[i][j] = (a[i][j] * a[k][k] - a[i][k] * a[k][j]) / prev;
+                }
+            }
+            prev = a[k][k];
+        }
+        sign * a[n - 1][n - 1]
+    }
+
+    /// sym-gen: exact one-term symmetry rows at the stored numeric chart seeds, as extra original rows.
+    #[allow(clippy::type_complexity)]
+    fn symmetry_rows(
+        group: &Value,
+        chart: &str,
+        seeds: &[String],
+        seed_offsets: &[Vec<i64>],
+        p: &Prepared,
+        first_ordinal: usize,
+    ) -> Result<(Vec<RawRow>, Vec<SourceDescriptor>, Value)> {
+        let (moms, lines, nloops) = family_momenta(&p.family_text)?;
+        let n = moms.len();
+        let nv = moms.first().map_or(0, Vec::len);
+        let chart_lines: Vec<bool> = chart.chars().map(|c| c == '1').collect();
+        require(
+            chart_lines == lines,
+            "symmetry: chart differs from the family's line flags",
+        )?;
+        require(
+            group["type"] == "symmetry_group" && group["chart"].as_str() == Some(chart),
+            "symmetry: record is not the chart's symmetry_group",
+        )?;
+        let elements = group["group"]["elements"]
+            .as_array()
+            .ok_or("symmetry: record without elements")?;
+        let mut pis: Vec<(i64, Vec<Option<usize>>)> = Vec::new();
+        let mut verdicts = Vec::new();
+        for e in elements {
+            let id = e["element"].as_i64().ok_or("symmetry: element id")?;
+            let flat: Vec<i64> = e["matrix"]
+                .as_array()
+                .ok_or("symmetry: matrix")?
+                .iter()
+                .map(|x| {
+                    x.as_i64()
+                        .ok_or_else(|| "symmetry: matrix entry".to_string())
+                })
+                .collect::<Result<_>>()?;
+            require(flat.len() == nv * nv, "symmetry: matrix size")?;
+            let tm = |i: usize, j: usize| flat[nv * i + j];
+            // q -> +-q (row convention u -> u T: the external row of T is +-e_q), |det(loop block)| = 1
+            let q_ok = (0..nv).all(|j| if j < nloops { tm(nv - 1, j) == 0 } else { true })
+                && nv == nloops + 1
+                && tm(nv - 1, nv - 1).abs() == 1;
+            let det = det_i128(
+                (0..nloops)
+                    .map(|i| (0..nloops).map(|j| tm(i, j) as i128).collect())
+                    .collect(),
+            );
+            let mut pi: Vec<Option<usize>> = vec![None; n];
+            for (i, u) in moms.iter().enumerate() {
+                let w: Vec<i64> = (0..nv)
+                    .map(|j| (0..nv).map(|r| u[r] * tm(r, j)).sum())
+                    .collect();
+                let neg: Vec<i64> = w.iter().map(|x| -x).collect();
+                pi[i] = moms.iter().position(|v| *v == w || *v == neg);
+            }
+            let lines_ok = (0..n).all(|i| !lines[i] || pi[i].is_some_and(|t| lines[t]));
+            let action = e["action"].as_array().ok_or("symmetry: action")?;
+            let record_ok = action.len() == n
+                && action
+                    .iter()
+                    .enumerate()
+                    .all(|(i, a)| a.is_null() || a[0].as_u64().map(|t| t as usize) == pi[i]);
+            let ok = q_ok && det.abs() == 1 && lines_ok && record_ok;
+            verdicts.push(json!({"element": id, "q_to_pm_q": q_ok, "loop_det": det.to_string(), "lines_onto_lines": lines_ok, "record_action_equals_geometry": record_ok,
+                "exact_slots": pi.iter().enumerate().filter(|(_, x)| x.is_some()).map(|(i, _)| i).collect::<Vec<_>>(), "pass": ok}));
+            require(
+                ok,
+                &format!("SYMMETRY_ELEMENT_REJECTED: element {id} fails the geometry check"),
+            )?;
+            pis.push((id, pi));
+        }
+        let mut rows = Vec::new();
+        let mut descs = Vec::new();
+        let mut seen = BTreeSet::new();
+        let mut list = Vec::new();
+        for (s, seed) in seeds.iter().enumerate() {
+            let parts = integral_parts(seed, n)?;
+            let Ok(y) = parts
+                .iter()
+                .map(|x| x.parse::<i64>())
+                .collect::<std::result::Result<Vec<i64>, _>>()
+            else {
+                return Err("SYMMETRY_ROWS_NUMERIC_SEEDS_ONLY: a stored seed is symbolic".into());
+            };
+            if (0..n).any(|i| chart_lines[i] && y[i] < 1) {
+                continue;
+            }
+            for (id, pi) in &pis {
+                let mut gy = vec![0i64; n];
+                let mut exact = true;
+                for i in 0..n {
+                    if y[i] == 0 {
+                        continue;
+                    }
+                    match pi[i] {
+                        Some(t) => gy[t] = y[i],
+                        None => {
+                            exact = false;
+                            break;
+                        }
+                    }
+                }
+                if !exact || gy == y {
+                    continue;
+                }
+                let pair = if y <= gy {
+                    (y.clone(), gy.clone())
+                } else {
+                    (gy.clone(), y.clone())
+                };
+                if !seen.insert(pair) {
+                    continue;
+                }
+                let o = &seed_offsets[s];
+                let o2: Vec<i64> = (0..n).map(|i| o[i] + gy[i] - y[i]).collect();
+                let mut row = RawRow::new();
+                row.insert(o.clone(), p.context.integer(1));
+                row.insert(o2, p.context.integer(-1));
+                let image = format!(
+                    "I({})",
+                    gy.iter().map(i64::to_string).collect::<Vec<_>>().join(",")
+                );
+                descs.push(SourceDescriptor {
+                    original_ordinal: first_ordinal + rows.len(),
+                    stored_seed_ordinal: s,
+                    raw_seed: seed.clone(),
+                    written_frame_offset: o.clone(),
+                    differentiated_loop: usize::MAX,
+                    contraction: format!("symmetry_row:element={id}:image={image}:sign=+1"),
+                });
+                list.push(json!({"seed": seed, "element": id, "image": image, "sign": 1}));
+                rows.push(row);
+            }
+        }
+        Ok((
+            rows,
+            descs,
+            json!({"elements": verdicts, "rows": list.len(), "pairs": list,
+            "statement": "rows e_y - e_{g y} at stored numeric chart seeds; slot images recomputed from the presented family text (u -> u T); exact on the support of y; squares only (sign +1)"}),
+        ))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn certify_with_support_sym(
+        p: &Prepared,
+        header: &Value,
+        rule: &Value,
+        limits: &Limits,
+        profile_only: bool,
+        source_support: Option<&SourceSupport>,
+        forced_point: Option<&[u64]>,
+        symmetry: Option<&Value>,
+        numeric_case_frame: bool,
+        symmetry_report: &mut Value,
+    ) -> Result<Value> {
         let start = Instant::now();
         limits.validate()?;
         if let Some(options) = source_support {
@@ -1534,10 +2152,16 @@ mod app {
             recenter.len() == p.context.index_count(),
             "recenter arity mismatch",
         )?;
+        let trivial_numeric_frame = (numeric_case_frame || symmetry.is_some())
+            && case.fixed.iter().all(Option::is_some)
+            && case.equations.is_empty()
+            && recenter.iter().all(|&x| x == 0)
+            && rule["raw_pivot_encoded"].is_null();
         require(
-            rule["raw_pivot_encoded"]
-                .as_array()
-                .is_some_and(|a| a.len() == recenter.len()),
+            trivial_numeric_frame
+                || rule["raw_pivot_encoded"]
+                    .as_array()
+                    .is_some_and(|a| a.len() == recenter.len()),
             "missing raw-pivot frame binding",
         )?;
         let substitutions = case_substitution(&case, p, limits)?;
@@ -1582,7 +2206,7 @@ mod app {
             "nonunit written pivot: no silent normalization or division on a Case layer",
         )?;
         let seeds = strings(&rule["seeds"], "stored raw seed integrals")?;
-        let (raw_rows, descriptors, mut raw_universe, seed_offsets) = sources(
+        let (mut raw_rows, mut descriptors, mut raw_universe, seed_offsets) = sources(
             &seeds,
             &recenter,
             &substitutions,
@@ -1590,6 +2214,50 @@ mod app {
             limits,
             &mut source_conditions,
         )?;
+        if let Some(group) = symmetry {
+            let chart = rule["chart"].as_str().ok_or("rule without chart")?;
+            let (rows, descs, report) =
+                symmetry_rows(group, chart, &seeds, &seed_offsets, p, raw_rows.len())?;
+            for r in &rows {
+                raw_universe.extend(r.keys().cloned());
+            }
+            require(
+                raw_rows.len() + rows.len() <= limits.max_raw_rows,
+                "raw source-row budget exceeded (with symmetry rows)",
+            )?;
+            raw_rows.extend(rows);
+            descriptors.extend(descs);
+            *symmetry_report = report;
+            // a written rule that IS one geometry-checked symmetry row (all weights constant: the projected weight API
+            // refuses constant-only frames) is certified by exact equality of the two rows on every column
+            for (i, row) in raw_rows.iter().enumerate() {
+                if descriptors[i].differentiated_loop != usize::MAX {
+                    continue;
+                }
+                let negated: RawRow = row
+                    .iter()
+                    .map(|(k, v)| {
+                        Ok((
+                            k.clone(),
+                            p.context
+                                .neg_with_limits(v, limits.arithmetic())
+                                .map_err(err)?,
+                        ))
+                    })
+                    .collect::<Result<_>>()?;
+                let same = *row == written_raw;
+                if same || negated == written_raw {
+                    return Ok(
+                        json!({"schema":"rustred.stored-rule-certificate.v1","status":"S2_ONLY_EXACT_STORED_MEMBERSHIP",
+                        "certificate_kind":"written rule equals ONE geometry-checked symmetry row exactly (constant frame; no weight reconstruction)",
+                        "original_all_column_exact_product":true,"quotient_used":false,"zero_census_generated_or_used":false,
+                        "archived_matrix_coefficients_used":false,"checked_original_columns":written_raw.len(),"raw_source_rows":raw_rows.len(),
+                        "exhibited_weights":[{"original_source":descriptors[i],"coefficient":if same {"1"} else {"-1"}}],
+                        "stored_native_rule":{"index":rule["index"],"target":rule["target"],"chart":rule["chart"]}}),
+                    );
+                }
+            }
+        }
         let mut terms = 0;
         for row in &raw_rows {
             for value in row.values() {
@@ -1695,6 +2363,43 @@ mod app {
             "{}",
             json!({"phase":"scout_finished","selected_rows":selected.len(),"shared_host_seconds":scout_seconds})
         );
+        let direct_enabled = matches!(
+            source_support.and_then(|o| o.weight_solver.as_ref()),
+            Some(WeightSolver::DirectMinor)
+        );
+        let mut direct_info = None;
+        let minor = if direct_enabled {
+            for profile in profiles
+                .as_object()
+                .ok_or("invalid coefficient profiles")?
+                .values()
+            {
+                require(
+                    profile["max_numerator_total_degree"]
+                        .as_u64()
+                        .unwrap_or(u64::MAX)
+                        <= u64::from(limits.max_degree)
+                        && profile["max_denominator_total_degree"]
+                            .as_u64()
+                            .unwrap_or(u64::MAX)
+                            <= u64::from(limits.max_degree),
+                    "UNKNOWN_DIRECT_MINOR_BUDGET: original input coefficient degree",
+                )?;
+            }
+            let residues: Vec<u64> =
+                serde_json::from_value(scout_report["raw_point_residues"].clone()).map_err(err)?;
+            let (minor, mut report) =
+                select_original_pivot_minor(&original, &selected, &columns, &residues, p)?;
+            let variables = DirectVariables::new(&original, &written, p)?;
+            report["original_variables"] = json!(variables.original.len());
+            report["active_variables"] = json!(variables.active.len());
+            report["active_original_variable_positions"] =
+                json!(variables.active_original_positions);
+            direct_info = Some(report);
+            Some(minor)
+        } else {
+            None
+        };
         if profile_only {
             let mut result = json!({"schema":"rustred.stored-rule-profile.v1","status":"PROFILE_ONLY_NO_CERTIFICATE","S2_credit":false,
                 "family_blake3":p.family_digest,"family_fingerprint":p.family.fingerprint(),"stored_native_rule":rule,
@@ -1709,6 +2414,9 @@ mod app {
             if let Some(options) = source_support {
                 result["source_support"] = json!({"options":options,"proposal":scout_report});
             }
+            if let Some(info) = direct_info {
+                result["direct_minor"] = info;
+            }
             return Ok(result);
         }
         let selected_b = selected
@@ -1722,7 +2430,24 @@ mod app {
         let forbidden = universe.iter().filter(|k| **k != target).cloned().collect();
         let recon_start = Instant::now();
         let mut events = Vec::new();
-        let proposal = reconstruct_projected_source_weights(&p.context,&selected_b,&target,&forbidden,limits.projected(),|event| {
+        let (proposal_weights, weight_slots) = if let Some(minor) = minor.as_ref() {
+            let (weights, report) = solve_direct_minor_weights(
+                &original,
+                &selected,
+                &columns,
+                minor,
+                &written,
+                p,
+                limits,
+                &mut events,
+            )?;
+            let info = direct_info.as_mut().ok_or("missing direct minor report")?;
+            for (key, value) in report.as_object().ok_or("invalid direct minor report")? {
+                info[key] = value.clone();
+            }
+            (weights, selected.len())
+        } else {
+            let proposal = reconstruct_projected_source_weights(&p.context,&selected_b,&target,&forbidden,limits.projected(),|event| {
             let value = match event {
                 ProjectedSourceWeightEvent::FramePrepared { rows,columns,target_column,original_variables,active_variables } => json!({"event":"frame","rows":rows,"columns":columns,"target_column":target_column,"original_variables":original_variables,"active_variables":active_variables}),
                 ProjectedSourceWeightEvent::Coefficient { column,probes,primes } => json!({"event":"coefficient","column":column,"probes":probes,"primes":primes}),
@@ -1733,17 +2458,19 @@ mod app {
                 ProjectedSourceWeightEvent::ExactProductFinished { output_terms } => json!({"event":"transformed_exact_product_finished","output_terms":output_terms}),
             }; eprintln!("{value}"); events.push(value);
         }).map_err(|e| format!("UNKNOWN_RECONSTRUCTION: {e}"))?;
+            require(
+                proposal.image.len() == 1
+                    && proposal
+                        .image
+                        .get(&target)
+                        .is_some_and(|v| v.raw().is_one()),
+                "transformed full-image result is not exactly e_T",
+            )?;
+            (proposal.weights, proposal.prefix_rows)
+        };
         let reconstruction_seconds = recon_start.elapsed().as_secs_f64();
-        require(
-            proposal.image.len() == 1
-                && proposal
-                    .image
-                    .get(&target)
-                    .is_some_and(|v| v.raw().is_one()),
-            "transformed full-image result is not exactly e_T",
-        )?;
         let mut witness_conditions = BTreeSet::new();
-        for value in proposal.weights.values() {
+        for value in proposal_weights.values() {
             charge(&mut terms, count(value), limits.max_coefficient_terms)?;
             p.roundtrip(value, limits)?;
             if !value.raw().denominator.is_constant() {
@@ -1752,13 +2479,13 @@ mod app {
         }
         let product_start = Instant::now();
         let full_weights = if source_support.is_some() {
-            let mapped = embed_original_weights(&selected, &proposal.weights, original.len())?;
+            let mapped = embed_original_weights(&selected, &proposal_weights, original.len())?;
             validate_original_product(&original, &mapped, &columns, &written, p, limits)?;
             Some(mapped)
         } else {
             validate_original_product(
                 &selected_a,
-                &proposal.weights,
+                &proposal_weights,
                 &columns,
                 &written,
                 p,
@@ -1767,7 +2494,7 @@ mod app {
             None
         };
         let product_seconds = product_start.elapsed().as_secs_f64();
-        let weights = proposal.weights.iter().map(|(i,w)| json!({"selected_ordinal":i,"original_source":descriptors[selected[*i]],"coefficient":text(w,&p.variables)})).collect::<Vec<_>>();
+        let weights = proposal_weights.iter().map(|(i,w)| json!({"selected_ordinal":i,"original_source":descriptors[selected[*i]],"coefficient":text(w,&p.variables)})).collect::<Vec<_>>();
         let source_rows = selected.iter().map(|i| json!({"descriptor":descriptors[*i],"terms":raw_rows[*i].iter().map(|(k,v)| json!([k,text(v,&p.variables)])).collect::<Vec<_>>()})).collect::<Vec<_>>();
         let encoded_substitutions = substitutions
             .iter()
@@ -1788,10 +2515,10 @@ mod app {
             "full_original_columns":columns.iter().map(|k| k.values()).collect::<Vec<_>>(),"full_original_column_count":columns.len(),
             "raw_source_rows":raw_rows.len(),"raw_source_nonzeros":raw_rows.iter().map(BTreeMap::len).sum::<usize>(),
             "selected_source_rows":selected.len(),"all_source_descriptors":descriptors,"selected_original_source_rows":source_rows,
-            "exhibited_weights":weights,"reconstructed_weight_slots":proposal.prefix_rows,"aggregate_retained_coefficient_terms":terms,
-            "transformed_product_validated_by_public_API":true,"original_all_column_exact_product":true,
+            "exhibited_weights":weights,"reconstructed_weight_slots":if direct_enabled {0}else{weight_slots},"aggregate_retained_coefficient_terms":terms,
+            "transformed_product_validated_by_public_API":!direct_enabled,"original_all_column_exact_product":true,
             "checked_original_columns":columns.len(),"column_transform":{"P":"I-e_T*R_rest","P_inverse":"I+e_T*R_rest","R_T_exactly_one":true,"R_rest_T_exactly_zero":true,"nilpotent_square_exactly_zero":true},
-            "coefficient_profiles":profiles,"witness_coefficient_profile":coefficient_profile(proposal.weights.values()),
+            "coefficient_profiles":profiles,"witness_coefficient_profile":coefficient_profile(proposal_weights.values()),
             "variable_map_roundtrip_checked":true,"pivot_normalized_without_division":true,
             "input_source_nonzero_conditions":source_conditions,"witness_denominator_obligations":witness_conditions,
             "written_coefficient_nonzero_conditions":written_conditions,"existing_literal_full_AND_guards":rule["exceptions"],
@@ -1806,6 +2533,11 @@ mod app {
                 "chosen_zero_omitted_source_count":original.len()-selected.len(),
                 "exact_nonzero_original_source_ordinals":full_weights.as_ref().ok_or("missing original weight embedding")?.keys().copied().collect::<Vec<_>>(),
                 "reconstruction_local_to_original":selected,"full_original_A_used_for_final_product":true});
+        }
+        if let Some(mut info) = direct_info {
+            info["original_full_product_validated"] = json!(true);
+            result["direct_minor"] = info;
+            result["directly_solved_weight_slots"] = json!(weight_slots);
         }
         Ok(result)
     }
@@ -1831,7 +2563,37 @@ mod app {
             cache.insert(digest.clone(), prepare(family_text, &request.limits)?);
         }
         let (header, rule, provenance) = origin(request)?;
-        let mut result = certify_with_support(
+        let group = match &request.symmetry_rows {
+            None => None,
+            Some(sr) => {
+                require(
+                    sr.record_bytes <= request.limits.max_input_bytes,
+                    "symmetry_group record byte limit",
+                )?;
+                let mut file = File::open(&request.origin.table).map_err(err)?;
+                if sr.byte_offset > 0 {
+                    file.seek(SeekFrom::Start(sr.byte_offset - 1))
+                        .map_err(err)?;
+                    let mut byte = [0];
+                    file.read_exact(&mut byte).map_err(err)?;
+                    require(
+                        byte[0] == b'\n',
+                        "symmetry_group address is not a record boundary",
+                    )?;
+                }
+                file.seek(SeekFrom::Start(sr.byte_offset)).map_err(err)?;
+                let mut bytes = vec![0; sr.record_bytes];
+                file.read_exact(&mut bytes).map_err(err)?;
+                require(
+                    bytes.last() == Some(&b'\n'),
+                    "symmetry_group record must include its LF boundary",
+                )?;
+                let v: Value = serde_json::from_slice(&bytes).map_err(err)?;
+                Some((v, blake3::hash(&bytes).to_hex().to_string()))
+            }
+        };
+        let mut symmetry_report = Value::Null;
+        let mut result = certify_with_support_sym(
             &cache[&digest],
             &header,
             &rule,
@@ -1839,7 +2601,15 @@ mod app {
             profile_only,
             request.source_support.as_ref(),
             None,
+            group.as_ref().map(|g| &g.0),
+            request.numeric_case_frame,
+            &mut symmetry_report,
         )?;
+        if let Some((_, h)) = &group {
+            symmetry_report["record_blake3"] = json!(h);
+            symmetry_report["record_address"] = json!(request.symmetry_rows);
+            result["symmetry_rows"] = symmetry_report;
+        }
         result["app_source_blake3"] = json!(
             blake3::hash(include_str!("p_certify_stored_rule.rs").as_bytes())
                 .to_hex()
@@ -1947,6 +2717,7 @@ mod app {
             SourceSupport {
                 mode: SourceSupportMode::NumericCircuit,
                 max_rows,
+                weight_solver: None,
             }
         }
         fn reversed_seed_rule(rhs: Value) -> Value {
@@ -2257,6 +3028,416 @@ mod app {
                 )
                 .unwrap()
                 .is_none()
+            );
+        }
+
+        fn direct_support(max_rows: usize) -> SourceSupport {
+            SourceSupport {
+                weight_solver: Some(WeightSolver::DirectMinor),
+                ..support(max_rows)
+            }
+        }
+
+        #[test]
+        fn direct_minor_is_off_for_absent_null_and_existing_support_options() {
+            let absent: SourceSupport =
+                serde_json::from_value(json!({"mode":"numeric_circuit","max_rows":2})).unwrap();
+            let null: SourceSupport = serde_json::from_value(
+                json!({"mode":"numeric_circuit","max_rows":2,"weight_solver":null}),
+            )
+            .unwrap();
+            assert!(absent.weight_solver.is_none() && null.weight_solver.is_none());
+            assert_eq!(
+                serde_json::to_value(&absent).unwrap(),
+                json!({"mode":"numeric_circuit","max_rows":2})
+            );
+            assert_eq!(
+                serde_json::to_value(&absent).unwrap(),
+                serde_json::to_value(&null).unwrap()
+            );
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            let a = certify_with_support(&p, &h, &r2(), &l, false, Some(&absent), Some(&[13, 5]))
+                .unwrap();
+            let b = certify_with_support(&p, &h, &r2(), &l, false, Some(&null), Some(&[13, 5]))
+                .unwrap();
+            for key in [
+                "stored_native_rule",
+                "source_support",
+                "exhibited_weights",
+                "events",
+                "full_original_columns",
+                "original_all_column_exact_product",
+                "transformed_product_validated_by_public_API",
+            ] {
+                assert_eq!(a[key], b[key], "default changed {key}");
+            }
+            assert!(a.get("direct_minor").is_none());
+            for illegal in [
+                json!({"mode":"numeric_circuit","max_rows":2,"weight_solver":"other"}),
+                json!({"mode":"numeric_circuit","max_rows":2,"weight_solver":"direct_minor","minor_columns":[0]}),
+            ] {
+                assert!(serde_json::from_value::<SourceSupport>(illegal).is_err());
+            }
+        }
+
+        #[test]
+        fn direct_minor_certifies_two_literal_geometry_relations_without_reconstruction() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            for r in [r1(), r2()] {
+                let proof = certify_with_support(
+                    &p,
+                    &h,
+                    &r,
+                    &l,
+                    false,
+                    Some(&direct_support(2)),
+                    Some(&[13, 5]),
+                )
+                .unwrap();
+                let reconstructed =
+                    certify_with_support(&p, &h, &r, &l, false, Some(&support(2)), Some(&[13, 5]))
+                        .unwrap();
+                for key in [
+                    "stored_native_rule",
+                    "full_original_Case",
+                    "full_original_columns",
+                    "written_signed_row",
+                    "exhibited_weights",
+                    "input_source_nonzero_conditions",
+                    "witness_denominator_obligations",
+                    "written_coefficient_nonzero_conditions",
+                    "existing_literal_full_AND_guards",
+                ] {
+                    assert_eq!(
+                        proof[key], reconstructed[key],
+                        "different literal proof {key}"
+                    );
+                }
+                assert_eq!(proof["original_all_column_exact_product"], true);
+                assert_eq!(proof["transformed_product_validated_by_public_API"], false);
+                assert_eq!(
+                    proof["direct_minor"]["original_full_product_validated"],
+                    true
+                );
+                assert_eq!(proof["direct_minor"]["reconstruction_executed"], false);
+                assert_eq!(proof["reconstructed_weight_slots"], 0);
+                assert_eq!(
+                    proof["directly_solved_weight_slots"],
+                    proof["selected_source_rows"]
+                );
+                assert!(
+                    proof["events"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|v| v["event"].as_str().unwrap().starts_with("direct_minor_"))
+                );
+                let profile = certify_with_support(
+                    &p,
+                    &h,
+                    &r,
+                    &l,
+                    true,
+                    Some(&direct_support(2)),
+                    Some(&[13, 5]),
+                )
+                .unwrap();
+                assert_eq!(profile["direct_minor"]["exact_solve_executed"], false);
+                assert_eq!(profile["S2_credit"], false);
+            }
+        }
+
+        #[test]
+        fn direct_minor_nonunit_swapped_pivots_and_minor_only_wrong_row() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let keys = public_keys(&[vec![-2], vec![-1]], &p).unwrap();
+            let columns: Vec<_> = [-2, -1, 0]
+                .iter()
+                .map(|i| keys[&vec![*i]].clone())
+                .collect();
+            let row = |values: [&str; 3]| -> Row {
+                columns
+                    .iter()
+                    .cloned()
+                    .zip(values.map(|v| p.parse(v, &l).unwrap()))
+                    .filter(|(_, v)| !v.raw().is_zero())
+                    .collect()
+            };
+            let original = vec![row(["0", "8", "1"]), row(["7", "0", "1"])];
+            let (minor, _) =
+                select_original_pivot_minor(&original, &[0, 1], &columns, &[13, 5], &p).unwrap();
+            assert_eq!(minor, vec![0, 1]);
+            for (desired, expected) in [
+                (row(["7/2", "4", "1"]), ["1/2", "1/2"]),
+                (row(["14/3", "8/3", "1"]), ["1/3", "2/3"]),
+            ] {
+                let (w, info) = solve_direct_minor_weights(
+                    &original,
+                    &[0, 1],
+                    &columns,
+                    &minor,
+                    &desired,
+                    &p,
+                    &l,
+                    &mut Vec::new(),
+                )
+                .unwrap();
+                assert_eq!(info["active_variables"], 0);
+                assert_eq!(info["injective_variable_map_roundtrip_checked"], true);
+                assert_eq!(info["native_exact_pivots"][0]["weight_variable"], 1);
+                assert_eq!(info["native_exact_pivots"][1]["weight_variable"], 0);
+                assert_equal(
+                    &p.parse(
+                        info["native_exact_pivots"][0]["native_pivot"]
+                            .as_str()
+                            .unwrap(),
+                        &l,
+                    )
+                    .unwrap(),
+                    &p.parse("7", &l).unwrap(),
+                );
+                assert_equal(
+                    &p.parse(
+                        info["native_exact_pivots"][1]["native_pivot"]
+                            .as_str()
+                            .unwrap(),
+                        &l,
+                    )
+                    .unwrap(),
+                    &p.parse("8", &l).unwrap(),
+                );
+                for (i, value) in expected.iter().enumerate() {
+                    assert_equal(&w[&i], &p.parse(value, &l).unwrap());
+                }
+                validate_original_product(&original, &w, &columns, &desired, &p, &l).unwrap();
+            }
+            // This mutant is freshly solved on C, not tested with old weights.
+            let mutant = row(["9/2", "4", "1"]);
+            let (w, _) = solve_direct_minor_weights(
+                &original,
+                &[0, 1],
+                &columns,
+                &minor,
+                &mutant,
+                &p,
+                &l,
+                &mut Vec::new(),
+            )
+            .unwrap();
+            assert_equal(&w[&0], &p.parse("1/2", &l).unwrap());
+            assert_equal(&w[&1], &p.parse("9/14", &l).unwrap());
+            assert!(
+                validate_original_product(&original, &w, &columns, &mutant, &p, &l)
+                    .unwrap_err()
+                    .contains("UNKNOWN_ORIGINAL_PRODUCT_MISMATCH")
+            );
+        }
+
+        #[test]
+        fn direct_minor_rejects_bad_support_columns_and_budgets() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let keys = public_keys(&[vec![-2], vec![-1]], &p).unwrap();
+            let columns: Vec<_> = [-2, -1, 0]
+                .iter()
+                .map(|i| keys[&vec![*i]].clone())
+                .collect();
+            let row = |values: [&str; 3]| -> Row {
+                columns
+                    .iter()
+                    .cloned()
+                    .zip(values.map(|v| p.parse(v, &l).unwrap()))
+                    .filter(|(_, v)| !v.raw().is_zero())
+                    .collect()
+            };
+            let original = vec![row(["0", "8", "1"]), row(["7", "0", "1"])];
+            let desired = row(["7/2", "4", "1"]);
+            for ids in [vec![], vec![0, 0], vec![1, 0], vec![2]] {
+                assert!(
+                    select_original_pivot_minor(&original, &ids, &columns, &[13, 5], &p).is_err()
+                );
+            }
+            assert!(
+                select_original_pivot_minor(
+                    &[original[0].clone(), original[0].clone()],
+                    &[0, 1],
+                    &columns,
+                    &[13, 5],
+                    &p
+                )
+                .unwrap_err()
+                .contains("RANK")
+            );
+            assert!(
+                select_original_pivot_minor(&[Row::new()], &[0], &columns, &[13, 5], &p).is_err()
+            );
+            for c in [vec![], vec![0, 0], vec![1, 0], vec![0, 3]] {
+                assert!(
+                    solve_direct_minor_weights(
+                        &original,
+                        &[0, 1],
+                        &columns,
+                        &c,
+                        &desired,
+                        &p,
+                        &l,
+                        &mut Vec::new()
+                    )
+                    .is_err()
+                );
+            }
+            let (c, _) =
+                select_original_pivot_minor(&original, &[0], &columns, &[13, 5], &p).unwrap();
+            let (w, _) = solve_direct_minor_weights(
+                &original,
+                &[0],
+                &columns,
+                &c,
+                &desired,
+                &p,
+                &l,
+                &mut Vec::new(),
+            )
+            .unwrap();
+            let embedded = embed_original_weights(&[0], &w, original.len()).unwrap();
+            assert!(
+                validate_original_product(&original, &embedded, &columns, &desired, &p, &l)
+                    .is_err()
+            );
+            let mut small = l.clone();
+            small.max_weight_slots = 1;
+            assert!(
+                solve_direct_minor_weights(
+                    &original,
+                    &[0, 1],
+                    &columns,
+                    &[0, 1],
+                    &desired,
+                    &p,
+                    &small,
+                    &mut Vec::new()
+                )
+                .is_err()
+            );
+            small = l.clone();
+            small.max_coefficient_terms = 3;
+            assert!(
+                solve_direct_minor_weights(
+                    &original,
+                    &[0, 1],
+                    &columns,
+                    &[0, 1],
+                    &desired,
+                    &p,
+                    &small,
+                    &mut Vec::new()
+                )
+                .is_err()
+            );
+            small = l.clone();
+            small.max_degree = 1;
+            let high = vec![row(["0", "n0^2+8", "1"]), original[1].clone()];
+            assert!(
+                solve_direct_minor_weights(
+                    &high,
+                    &[0, 1],
+                    &columns,
+                    &[0, 1],
+                    &desired,
+                    &p,
+                    &small,
+                    &mut Vec::new()
+                )
+                .unwrap_err()
+                .contains("degree")
+            );
+        }
+
+        #[test]
+        fn direct_minor_preserves_full_case_and_conditions() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            let mut r = r2();
+            r["equations"] = json!(["n0-5"]);
+            r["exceptions"] = json!([["n0-3", "d-2"], ["n0-4"]]);
+            let proof = certify_with_support(
+                &p,
+                &h,
+                &r,
+                &l,
+                false,
+                Some(&direct_support(2)),
+                Some(&[13, 5]),
+            )
+            .unwrap();
+            assert_eq!(
+                proof["full_original_Case"],
+                json!({"fixed":[null],"equations":["n0-5"]})
+            );
+            assert_eq!(proof["existing_literal_full_AND_guards"], r["exceptions"]);
+            assert_eq!(proof["direct_minor"]["original_variables"], 2);
+            assert_eq!(proof["direct_minor"]["active_variables"], 1);
+            assert_eq!(
+                proof["direct_minor"]["injective_variable_map_roundtrip_checked"],
+                true
+            );
+            assert_eq!(
+                proof["direct_minor"]["no_additional_quotient_or_substitution"],
+                true
+            );
+            assert_eq!(proof["original_all_column_exact_product"], true);
+            assert_eq!(proof["guard_transfer"], false);
+            assert_eq!(proof["guards_source_pole_layers_closed"], false);
+            r["fixed"] = json!([4]);
+            assert!(
+                certify_with_support(
+                    &p,
+                    &h,
+                    &r,
+                    &l,
+                    false,
+                    Some(&direct_support(2)),
+                    Some(&[13, 5])
+                )
+                .is_err()
+            );
+        }
+
+        #[test]
+        fn direct_minor_bad_numeric_support_and_fresh_geometry_mutant_fail_closed() {
+            let l = limits();
+            let p = prepare(TADPOLE.into(), &l).unwrap();
+            let h = header(TADPOLE, "1");
+            let bad = certify_with_support(
+                &p,
+                &h,
+                &r2(),
+                &l,
+                false,
+                Some(&direct_support(2)),
+                Some(&[0, 2]),
+            )
+            .unwrap_err();
+            assert!(bad.contains("UNKNOWN_ORIGINAL_PRODUCT_MISMATCH"), "{bad}");
+            let mut mutant = r1();
+            mutant["rhs"][0][1] = json!("-(d-2*n0+2)/(2*n0-2)+1");
+            assert!(
+                certify_with_support(
+                    &p,
+                    &h,
+                    &mutant,
+                    &l,
+                    false,
+                    Some(&direct_support(2)),
+                    Some(&[13, 5])
+                )
+                .is_err()
             );
         }
 

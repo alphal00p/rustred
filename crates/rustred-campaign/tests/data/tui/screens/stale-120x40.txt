@@ -1,0 +1,40 @@
+rr_campaign  p5l-boxed-final  STALE  hb 10m06s  age 1d04h  seq 18,402  sessions 2  dir tests/data/tui/stale
+ STALE since 08:15:04 UTC (no heartbeat for 10m06s, > 60 s): supervisor not running? Resume with the same command.
+NODES 1  FULL 0  BOXED 1  OPEN 0  items done #################... 86% (1,414 of 1,640)  last event 10m07s ago
+ETA ? (supervisor not running; last estimate 54m-2.6h, 10m06s old)  cpu-h 61.4 used
+NEXT  campaign: 1 pending operation(s), 0 unsettled job(s): resume with the same command
+CPU 21/32 in use (10m06s old)   jobs 21 running, 4 queued (old)   RAM 9.8/30.0 GiB (22.0 reserved) (old)
+CERTIFIED at the level asked: 0 of 1 nodes (levels not stated: certified flag); rules: 569 per-key, 32 pending
+ITEMS 1,640  open 226  run 21  acc 1,144  esc 210  rej 31  term 3  stale 4
+RULES accepted 1,201  rejected 31  DEFECT 0 keys (0/1 checked nodes)  TERMINALS 3 (cand 2, bound 100/node)
+-[ Nodes (1) ]---------------------------------------------------------------------------------- Enter: node detail ----
+node coverage           cert phase  open open by rung  term defect rules  used%     RHS proved% CPU-h
+T162 [BOXED T162.rstar] -    closed    0 -            2/100      0 1,308  42.5% 765,004   94.7%  38.2
+-[ Work list by ladder level ]---------------------------------  -[ Rules and certificates ]----------------------------
+rung open run prod acc rej esc tcand term stale ret  jobs med s  accepted 1,201  rejected 31  upgrades 640  retired 282
+L0    125   9    3 740  12 120     -    -     4  40 1,001  41.0  rejected: other 19, rule_covers_none 5, irregular_poin~
+L1     53   6    - 210   9  61     -    -     -  12   288  96.0  evidence: geometry 61  tested 96  proved 987
+L2     27   4    - 151   6  22     -    -     -   5   184  38.0  per-key proved 987 of 1,144 accepted (86.3%)
+L3      3   -    -  24   1   6     -    -     -   -    31 140.0  economy: rules 3,402->3,120  RHS 2,310,455->2,093,318
+L4     18   2    -  19   3   1     2    -     -   -    25 210.0  closure defect 0 keys
+L5      -   -    -   -   -   -     -    3     -   -     -     -  jobs 1,904 settled: rule_found 1,290, complete 311, no~
+-[ Running jobs 21 ]----------------------------------------------------------------------------------- j: all jobs ----
+job     node item       rung cpu GiB RSS / cap elapsed / budget     hb phase
+J000917 T178 F041 n9=-1 L1     1     0.5 / 2.0    1m42s / 5m00s 10m07s lift
+J000921 T178 F112       L0     1     0.3 / 2.0      12s / 5m00s 10m06s seeds
+J000922 T266 F009 a8=2  L4     1     1.8 / 2.0  26m50s / 30m00s 10m12s solve
+-[ Recent events ]----------------------------------------------------------------------------------- e: all events ----
+08:15:02 ok   T178 F012: evidence -> identity_proved
+08:14:55 ok   T178 F087: rule T178:R:campaign:640 accepted (identity_proved), diag n2=n6 covers 11/11 points
+08:14:31 esc  T178 F019: escalated to L2 (rule_covers_none)
+08:14:10 FAIL T178 F044: rejected (irregular_point)
+08:13:02 FAIL T178 F033 L4: job J000903 (killed_memory) at 5.0 GB
+08:12:01 esc  T178 F033 a0=2: terminal candidate (terminal_after_ladder)
+08:09:30 esc  T178 F019: escalated to L1 (refused_spill, 300 s)
+08:02:12 .    input T266.joined changed (version 2): 4 items stale
+07:58:40 box  T162: closed (boxed), defect 0 of 61210 keys
+07:50:11 box  T162: fall back to box T162.rstar (full attempt ended: 9 faces, 3 loci, 1820 keys)
+
+
+
+n/N select node  Enter node detail  j jobs  e events  a attention(1)  ?help  q/Ctrl-C close viewer (campaign unaffected)

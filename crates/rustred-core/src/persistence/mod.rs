@@ -27,8 +27,8 @@ pub use catalog::{ExactTerminalCatalog, TerminalCatalogCoverage};
 pub use compare::equivalent_generated_programs;
 pub(crate) use compare::same_native_coefficient;
 pub use envelope::{
-    BINARY_PROGRAM_VERSION, BinaryProgramKind, BinarySection, ProgramEnvelope, SectionTag,
-    encode_program, inspect_program,
+    BINARY_PROGRAM_VERSION, BinaryProgramKind, BinarySection, CountingWriter, ProgramEnvelope,
+    SectionTag, encode_program, encode_program_streamed, inspect_program,
 };
 pub use error::BinaryIoError;
 pub(crate) use error::{
@@ -37,7 +37,7 @@ pub(crate) use error::{
 pub(crate) use error::{native_error, resource_failure};
 pub use factored::{
     FACTOR_TERM_CAP, FACTORED_TABLE_MAGIC, FACTORED_TABLE_VERSION, encode_factored_table,
-    is_factored_table,
+    encode_shared_table, is_factored_table,
 };
 pub use family::NativeFamilyRecord;
 pub use lazy::LazyDecodedCoefficientTable;

@@ -10,6 +10,7 @@ pub mod generate;
 pub mod loader;
 pub mod ordering;
 pub mod package;
+pub mod seed;
 
 pub use assemble::{AssembleOptions, AssembledLibrary, assemble_library};
 pub use generate::{CustomOwnerOptions, CustomOwnerPayload, generate_custom_owner};
@@ -42,13 +43,23 @@ pub enum CustomPayloads {
     Imported {
         provided: BTreeMap<String, CustomOwnerPayload>,
         imported: BTreeMap<Vec<u8>, ImportedCustomNode>,
+        /// vk5l WP6: Custom nodes declared NOT CLOSED, by graph key: (node
+        /// name, status). Their owner has no payload (`OwnerProgram::Missing`)
+        /// and the package records them in `library.json` `open_nodes`; a key
+        /// reaching one is `PError::NodeNotClosed`. A node both imported and
+        /// open is refused.
+        open: BTreeMap<Vec<u8>, (String, String)>,
     },
 }
 
 /// One imported Custom node: the presentation its payload is bound to (its id
-/// and node reference are set by assembly) and the payload.
+/// and node reference are set by assembly), the payload and its record. The
+/// payload may stay on disk (`CustomPayloadRef::File`, p5l-library session 2):
+/// assembly then reads it once for its residuals, the package writer copies
+/// it, and its program is built on use.
 #[derive(Clone, Debug)]
 pub struct ImportedCustomNode {
     pub presentation: rustred::propagator::presentation::Presentation,
-    pub payload: CustomOwnerPayload,
+    pub payload: rustred::propagator::programs::CustomPayloadRef,
+    pub meta: rustred::propagator::library::CustomOwnerMeta,
 }

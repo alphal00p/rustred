@@ -1,0 +1,24 @@
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1
+NODES 1  FULL 0  BOXED 0  OPEN 1  items done #######... 69% (9 of 13)
+ETA ~ 1s-3s  done ~ 23:10 UTC  cpu-h 0.0/200 used  escalations not counted
+NEXT  T162-item-00009: needs_bigmem -> rr_campaign retry T162-item-000~  (+1: a)
+CPU 21/48 in use   jobs 1 running   RAM 1.1/30.0 GiB (3.0 reserved)
+CERTIFIED at the level asked: 0 of 1 nodes; rules: 2 per-key, 3 pending
+ITEMS 13  open 4  run 1  acc 5  esc 1  rej 0  term 2  stale 0
+RULES accepted 5  rejected 1  DEFECT 37 keys (1/1 checked nodes)
+-[ Nodes (1) ]--------------------------------------------- Tab: next table ----
+node coverage cert asked/got phase         open  term defect rules  used%
+T162 OPEN     replay/-       closure_check    4 2/100     37     5  83.3%
+-[ Recent events ]-------------------------------------------------- e: all ----
+23:00:23 .    operator (tty) requests Retry of Item { item: "T162-item-00009" }~
+23:00:23 .    control c-0003 applied: launches resumed
+23:00:22 .    operator (tty) requests Resume of Campaign (maintenance done)
+23:00:22 .    control c-0001 applied: launches paused
+23:00:22 .    operator (tty) requests Pause of Campaign (maintenance)
+23:00:22 .    T162 F009: needs attention (needs_bigmem): the L2 run needs more ~
+23:00:21 .    T162 F003: rule T162:R:campaign:3 superseded by T162-item-00002 (~
+23:00:20 .    T162: closure round 1, defect 37 of 154783 keys (Proved envelope)
+23:00:20 .    T162: table set assembled (round 1)
+23:00:19 .    T162: fixer round 1 begins
+23:00:19 .    T162 F008: rule T162:R:imported:8 imported from earlier-campaign ~
+Tab table  n/N node  Enter detail  a attention(2)  ?help  q/Ctrl-C close viewer~

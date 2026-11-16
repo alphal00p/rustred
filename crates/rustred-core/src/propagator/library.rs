@@ -1,7 +1,7 @@
 //! `PLibrary`, its builder and the reduction request (types and builder:
 //! M2-I0 rr-iface; reduce, step-cache binding and onto-masters bodies:
 //! M2-T6 rr-plib).
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -19,8 +19,9 @@ use crate::solver::{CandidateOrderedReductionProgress, UnresolvedPolicy};
 use super::census::{PCensus, PSectorFate};
 use super::custom::PRuleOrder;
 use super::engine::{PEngine, merge};
-use super::error::PError;
+use super::error::{PError, PRequestContext, PRequestInput};
 use super::lane::{LaneRoles, OwnerLane};
+use super::payload_cache::PProgramBudget;
 use super::presentation::{EdgeMap, Presentation, PresentationKind, verify_edge_map};
 use super::programs::{CustomPayloadRef, lane_program};
 use super::saved_orbits::PSavedOrbits;
@@ -120,10 +121,33 @@ impl POwner {
         }
     }
 
+    /// The program if it is already built (never builds it).
+    pub fn loaded_program(&self) -> Option<&OwnerProgram> {
+        self.program.get().and_then(|program| program.as_ref().ok())
+    }
+
     /// The owner's program: the seeded one, or built once through [`lane_program`].
     pub fn program(&self, library: &PLibrary) -> Result<&OwnerProgram, PError> {
         self.program
-            .get_or_init(|| lane_program(library, &self.spec))
+            .get_or_init(|| {
+                // b7-schemeload: RUSTRED_P_PROGRAM_TIMING=1 prints every
+                // program build (lane, owner, seconds) on stderr.
+                static TIMING: OnceLock<bool> = OnceLock::new();
+                if !*TIMING.get_or_init(|| {
+                    std::env::var("RUSTRED_P_PROGRAM_TIMING").is_ok_and(|v| v == "1")
+                }) {
+                    return lane_program(library, &self.spec);
+                }
+                let started = std::time::Instant::now();
+                let program = lane_program(library, &self.spec);
+                eprintln!(
+                    "p program {:?} owner {:016x}: {:.3} s",
+                    self.spec.lane,
+                    self.spec.class.0,
+                    started.elapsed().as_secs_f64()
+                );
+                program
+            })
             .as_ref()
             .map_err(Clone::clone)
     }
@@ -177,9 +201,20 @@ pub struct PReductionRequest<'a> {
     pub inspector: Option<&'a mut dyn PInspector>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum PUncoveredPolicy {
+    /// A key no rule covers is the request's typed error (the default).
+    #[default]
     Reject,
+    /// vk5l WP1 (plan VK5L §3.2, decision Q9), the vacuum path's Retain
+    /// mirror: a key the library cannot reduce ([`PError::Uncovered`],
+    /// [`PError::OutsideBox`], [`PError::OutsideCertifiedSet`],
+    /// [`PError::NodeNotClosed`]) stays in the result as a residual terminal
+    /// ([`PBasis::Residual`]; [`PLibrary::residual_terminal`] names it and
+    /// gives the refusal in [`PResidualTerminal::retained`]). Never a master,
+    /// never a value. A Retain request uses no step cache (a retained
+    /// terminal's id is local to the process) and skips the early box check.
+    Retain,
 }
 
 /// A Masters.prc name, e.g. `no`, `t105`.
@@ -190,6 +225,36 @@ pub enum PBasis {
     Unit,
     Master(PMasterName),
     Residual(PTerminalId),
+}
+
+/// [`PLibrary::residual_terminal`]: a residual terminal as a consumer names it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PResidualTerminal {
+    /// The boxed node (`T162`) or the owner presentation's family name.
+    pub node: String,
+    /// The key in the owner presentation's slots.
+    pub key: IntegralKey,
+    /// A terminal of a BOXED node: an unknown integral, never evaluated.
+    pub boxed: bool,
+    /// vk5l WP1: a key kept by [`PUncoveredPolicy::Retain`]: the refusal
+    /// it would have been (`None` for a terminal of the library).
+    pub retained: Option<PError>,
+}
+
+/// vk5l WP1: a node the package declares not closed (no table, e.g. T266):
+/// a key reaching its owner is [`PError::NodeNotClosed`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct POpenNode {
+    pub node: String,
+    pub status: String,
+}
+
+/// vk5l WP1: the keys retained by Retain requests of one library, ids after
+/// the library's terminals (process-local, never persisted).
+#[derive(Debug, Default)]
+struct PRetained {
+    ids: BTreeMap<(OwnerClassId, IntegralKey), PTerminalId>,
+    records: Vec<(OwnerClassId, IntegralKey, PError)>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -212,6 +277,22 @@ pub struct PReduction {
     pub terms: Vec<PTerm>,
     pub nonzero_conditions: Vec<Coefficient>,
     pub statistics: PStatistics,
+    /// vk5l WP2: the keys of boxed nodes OUTSIDE their certified sets that
+    /// this request reduced at run time (rules, then recipe families at the
+    /// key); empty when every key stayed inside. Sorted.
+    pub outside_certified: Vec<POutsideKey>,
+    /// vk5l WP2: the relation caches during this request (process-wide
+    /// counters before / after: approximate when requests run concurrently).
+    pub relation_cache: super::relation_entries::RelationCacheStatistics,
+}
+
+/// vk5l WP2: one key of a boxed node outside its certified set, reduced at
+/// run time.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct POutsideKey {
+    pub node: String,
+    pub presentation: PresentationId,
+    pub powers: Vec<i64>,
 }
 
 /// One library program: presentations, census, owners, edge maps and
@@ -242,6 +323,16 @@ pub struct PLibrary {
     /// restored on a sector's first canonicalised key instead of searching
     /// and authenticating them ([`super::saved_orbits`]).
     saved_orbits: Option<Arc<PSavedOrbits>>,
+    /// p5l-library session 2: the memory budget of the programs of Custom
+    /// owners whose payload is not held in memory ([`super::payload_cache`]).
+    program_budget: Option<Arc<PProgramBudget>>,
+    /// vk5l WP1: nodes declared not closed, by owner class.
+    open_nodes: BTreeMap<OwnerClassId, POpenNode>,
+    /// vk5l WP1: keys retained by Retain requests.
+    retained: std::sync::Mutex<PRetained>,
+    /// vk5l WP1: where the library was loaded from (a package directory),
+    /// for the reproduction line of a typed refusal.
+    source: OnceLock<String>,
     engine: OnceLock<Result<PEngine, PError>>,
     /// Orbit canonicalisation of Apply keys (M5 R0 A2); off by default
     /// (M5 batch 2: opt-in until the coordinator switches it on).
@@ -250,6 +341,10 @@ pub struct PLibrary {
     route_canonicalization: AtomicBool,
     /// The greatest exact image represents an orbit (the default), or the least.
     orbit_prefer_high: AtomicBool,
+    /// b7-schemeload: the Scheme owners' stored certificates are trusted at
+    /// program build (set by the package loader only, see
+    /// [`super::scheme::package_trusts_scheme_certificates`]); off by default.
+    scheme_certificates_trusted: AtomicBool,
 }
 
 impl fmt::Debug for PLibrary {
@@ -282,6 +377,7 @@ impl PLibrary {
             revision: None,
             saved_routes: None,
             saved_orbits: None,
+            open_nodes: BTreeMap::new(),
         }
     }
 
@@ -323,6 +419,17 @@ impl PLibrary {
     /// if the library has an ordering.
     pub fn rule_order(&self, class: OwnerClassId) -> Option<&PRuleOrder> {
         self.rule_orders.get(&class).map(Arc::as_ref)
+    }
+
+    /// [`Self::rule_order`], shared.
+    pub fn rule_order_arc(&self, class: OwnerClassId) -> Option<Arc<PRuleOrder>> {
+        self.rule_orders.get(&class).cloned()
+    }
+
+    /// The budget of the programs of Custom owners whose payload is read on
+    /// use (`RUSTRED_P_PROGRAM_BUDGET_GB`, [`super::payload_cache`]).
+    pub fn program_budget(&self) -> Option<&Arc<PProgramBudget>> {
+        self.program_budget.as_ref()
     }
 
     /// The ordering tag `<P_ORDERING_VERSION>:<heuristic>` of the library's
@@ -376,6 +483,15 @@ impl PLibrary {
         if !prune_zero_children_enabled() {
             identity.push_str(",P_PRUNE_ZERO_CHILDREN=off");
         }
+        // vk5l WP2: recipe steps (boxed nodes, 5L only) are steps of their
+        // Custom owners; their semantics version joins the cache binding of a
+        // library that reaches 5 loops (scope 1-4 bindings unchanged).
+        if *self.scope.end() >= 5 {
+            identity.push_str(&format!(
+                ",P_RECIPE_VERSION={}",
+                super::recipes::P_RECIPE_VERSION
+            ));
+        }
         identity
     }
 
@@ -397,6 +513,22 @@ impl PLibrary {
     /// Whether requests canonicalise Apply keys under owner automorphisms.
     pub fn orbit_canonicalization(&self) -> bool {
         self.orbit_canonicalization.load(Ordering::Relaxed)
+    }
+
+    /// b7-schemeload: trust the stored certificates of the embedded Scheme
+    /// owners at program build instead of re-verifying them (the trust rule is
+    /// [`super::scheme::certificate_check`]). The package loader sets it for a
+    /// package whose identity carries this binary's
+    /// `P_SCHEME_TEMPLATE_VERSION` and a `P_PACKAGE_REVISION`; no value
+    /// depends on it (the verdicts are the verified ones, gate test).
+    pub fn set_scheme_certificates_trusted(&self, on: bool) {
+        self.scheme_certificates_trusted
+            .store(on, Ordering::Relaxed);
+    }
+
+    /// Whether [`Self::set_scheme_certificates_trusted`] is on.
+    pub fn scheme_certificates_trusted(&self) -> bool {
+        self.scheme_certificates_trusted.load(Ordering::Relaxed)
     }
 
     /// With orbit canonicalisation on, canonicalise the Route keys of routed
@@ -475,6 +607,265 @@ impl PLibrary {
         self.basis_map.as_ref()
     }
 
+    /// t162-export: what a consumer prints for the residual terminal `id`
+    /// (`None` for `Unit` or an unknown id): the node (the box record's node
+    /// of a BOXED owner, else the family name of the owner's presentation),
+    /// the key in that presentation's slots, and whether the owner is boxed
+    /// (its terminal is an "unknown integral", not a master). Reads only the
+    /// provenance prefix of a Custom owner's payload.
+    pub fn residual_terminal(&self, id: PTerminalId) -> Result<Option<PResidualTerminal>, PError> {
+        let Some(PTerminal::Residual { owner, key }) = self.terminals.get(id.0 as usize) else {
+            return self.retained_terminal(id);
+        };
+        let owner_record = self
+            .owners
+            .get(owner)
+            .ok_or_else(|| malformed(format!("residual {} of an unknown owner", id.0)))?;
+        let spec = &owner_record.spec;
+        // A built program knows its box; else read the payload's prefix (a
+        // lazy payload is read once more: name terminals after a reduction).
+        let boxed = match (owner_record.program.get(), &spec.payload) {
+            (Some(Ok(OwnerProgram::Lane(step))), _) => {
+                step.boxed_record().map(|record| record.node.clone())
+            }
+            (_, Some(payload)) if spec.lane == OwnerLane::Custom => {
+                super::custom::custom_payload_boxed_node(&payload.bytes()?)?
+                    .map(|record| record.node)
+            }
+            _ => None,
+        };
+        Ok(Some(PResidualTerminal {
+            node: boxed.clone().unwrap_or_else(|| {
+                self.presentation(spec.presentation)
+                    .family
+                    .name()
+                    .to_owned()
+            }),
+            key: key.clone(),
+            boxed: boxed.is_some(),
+            retained: None,
+        }))
+    }
+
+    /// vk5l WP1: [`Self::residual_terminal`] of a key retained by a Retain
+    /// request (`id` after the library's terminals).
+    fn retained_terminal(&self, id: PTerminalId) -> Result<Option<PResidualTerminal>, PError> {
+        let Some(index) = (id.0 as usize).checked_sub(self.terminals.len()) else {
+            return Ok(None);
+        };
+        let retained = self.retained.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((class, key, refusal)) = retained.records.get(index) else {
+            return Ok(None);
+        };
+        let node = match refusal {
+            PError::OutsideBox { node, .. }
+            | PError::OutsideCertifiedSet { node, .. }
+            | PError::NodeNotClosed { node, .. } => node.clone(),
+            _ => match self.owners.get(class) {
+                Some(owner) => self
+                    .presentation(owner.spec.presentation)
+                    .family
+                    .name()
+                    .to_owned(),
+                None => format!("{:016x}", class.0),
+            },
+        };
+        Ok(Some(PResidualTerminal {
+            node,
+            key: key.clone(),
+            boxed: matches!(
+                refusal,
+                PError::OutsideBox { .. } | PError::OutsideCertifiedSet { .. }
+            ),
+            retained: Some(refusal.clone()),
+        }))
+    }
+
+    /// vk5l WP1: the id of a retained key (one id per (owner, key)).
+    pub(crate) fn retain(
+        &self,
+        class: OwnerClassId,
+        key: IntegralKey,
+        refusal: PError,
+    ) -> Result<PTerminalId, PError> {
+        let mut retained = self.retained.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(&id) = retained.ids.get(&(class, key.clone())) {
+            return Ok(id);
+        }
+        let id = u32::try_from(self.terminals.len() + retained.records.len())
+            .ok()
+            .filter(|&id| id < PTerminalCodec::ID_LIMIT)
+            .map(PTerminalId)
+            .ok_or_else(|| malformed("too many retained keys"))?;
+        retained.ids.insert((class, key.clone()), id);
+        retained.records.push((class, key, refusal));
+        Ok(id)
+    }
+
+    /// vk5l WP1: the first terminal id without a terminal: the library's
+    /// terminals, then the keys retained so far.
+    pub(crate) fn terminal_limit(&self) -> usize {
+        self.terminals.len()
+            + self
+                .retained
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .records
+                .len()
+    }
+
+    /// vk5l WP1: the node `class` declares not closed.
+    pub fn open_node(&self, class: OwnerClassId) -> Option<&POpenNode> {
+        self.open_nodes.get(&class)
+    }
+
+    /// vk5l WP1: the nodes declared not closed.
+    pub fn open_nodes(&self) -> &BTreeMap<OwnerClassId, POpenNode> {
+        &self.open_nodes
+    }
+
+    /// vk5l WP1: record where the library was loaded from (the package
+    /// directory of the reproduction line); the first call wins.
+    pub fn set_source(&self, source: impl Into<String>) {
+        let _ = self.source.set(source.into());
+    }
+
+    /// vk5l WP1: the original request of a typed refusal and its
+    /// reproduction command line (`p5l_library reduce`).
+    pub fn request_context(
+        &self,
+        inputs: &[(PresentationId, IntegralKey, Coefficient)],
+    ) -> PRequestContext {
+        let inputs: Vec<PRequestInput> = inputs
+            .iter()
+            .map(|(id, key, _)| PRequestInput {
+                presentation: *id,
+                family: self
+                    .presentations
+                    .get(id.0 as usize)
+                    .map_or_else(|| "?".to_owned(), |p| p.family.name().to_owned()),
+                powers: key.powers().to_vec(),
+            })
+            .collect();
+        let package = self.source.get().map_or("<package dir>", String::as_str);
+        let keys: Vec<String> = inputs
+            .iter()
+            .map(|input| {
+                let powers: Vec<String> = input.powers.iter().map(i64::to_string).collect();
+                format!("p{}:{}", input.presentation.0, powers.join(","))
+            })
+            .collect();
+        PRequestContext {
+            library: self.identity(),
+            reproduce: format!(
+                "cargo run --release -p rustred-app --example p5l_library -- reduce '{package}' {}",
+                keys.join(" ")
+            ),
+            inputs,
+        }
+    }
+
+    /// vk5l WP2: a recipe failure with one rule chain from a request input
+    /// to the failing key, searched inside the boxed owner (its rules and the
+    /// recipe relations solved so far, no new solve, at most
+    /// [`RECIPE_CHAIN_BUDGET`] keys): only from inputs that lie on that owner
+    /// directly; otherwise the failure says why no chain is given.
+    fn with_recipe_chain(&self, engine: &PEngine, error: PError) -> PError {
+        let PError::RecipeFailed(mut failure) = error else {
+            return error;
+        };
+        if failure.rule_chain.is_some() {
+            return PError::RecipeFailed(failure);
+        }
+        let Some(request) = failure.request.clone() else {
+            return PError::RecipeFailed(failure);
+        };
+        let mut direct = 0;
+        for input in &request.inputs {
+            let Some(class) = engine.direct_owner(input.presentation, &input.powers) else {
+                continue;
+            };
+            let Some(owner) = self.owners.get(&class) else {
+                continue;
+            };
+            let Ok(OwnerProgram::Lane(step)) = owner.program(self) else {
+                continue;
+            };
+            if step
+                .boxed_record()
+                .is_none_or(|record| record.node != failure.node)
+            {
+                continue;
+            }
+            direct += 1;
+            if let Some(chain) = step.recipe_chain(&input.powers, &failure.key, RECIPE_CHAIN_BUDGET)
+            {
+                failure.rule_chain = Some(chain);
+                return PError::RecipeFailed(failure);
+            }
+        }
+        failure.rule_chain_note = Some(if direct == 0 {
+            format!(
+                "not reconstructed: no request input lies directly on node {} (it is reached through routes \
+                 from other sectors)",
+                failure.node
+            )
+        } else {
+            format!(
+                "not found within {RECIPE_CHAIN_BUDGET} keys from the {direct} request input(s) on node {}",
+                failure.node
+            )
+        });
+        PError::RecipeFailed(failure)
+    }
+
+    /// vk5l WP1 (plan VK5L §3.4, decision Q7): the early check of a request
+    /// against the box of a boxed node: an input on a sector a boxed Custom
+    /// owner owns directly must lie in its box, else [`PError::OutsideBox`]
+    /// naming node, key and the violated bound (before any step). Inputs on
+    /// routed sectors are left to the dispatch check (the authoritative one).
+    fn check_boxed_inputs(
+        &self,
+        engine: &PEngine,
+        inputs: &[(PresentationId, IntegralKey, Coefficient)],
+    ) -> Result<(), PError> {
+        for (presentation, key, _) in inputs {
+            let Some(class) = engine.direct_owner(*presentation, key.powers()) else {
+                continue;
+            };
+            let Some(owner) = self.owners.get(&class) else {
+                continue;
+            };
+            if owner.spec.lane != OwnerLane::Custom || self.open_nodes.contains_key(&class) {
+                continue;
+            }
+            let Ok(OwnerProgram::Lane(step)) = owner.program(self) else {
+                continue;
+            };
+            let Some(record) = step.boxed_record() else {
+                continue;
+            };
+            // vk5l WP2 (user ruling 2026-11-14): under the Solve policy a key
+            // outside the box is reduced at run time, not refused early.
+            if super::recipes::outside_policy_of(&record.node)
+                == super::recipes::POutsidePolicy::Solve
+            {
+                continue;
+            }
+            if let Some(violated) = record.violation(key.powers()) {
+                return Err(PError::OutsideBox {
+                    class,
+                    key: key.clone(),
+                    node: record.node.clone(),
+                    definition: record.describe(),
+                    violated: Some(Box::new(violated)),
+                    request: None,
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Reduce one weighted sum of inputs of one loop count onto the terminals
     /// (`onto_masters = false`), or onto the masters in Forcer's G-scheme: the
     /// sum times `(eps G(1,1))^-L` with each terminal mapped through the
@@ -489,12 +880,18 @@ impl PLibrary {
             arithmetic,
             scheduler,
             step_cache,
-            uncovered: PUncoveredPolicy::Reject,
+            uncovered,
             onto_masters,
             limits,
             inspector,
         } = request;
+        let retain = uncovered == PUncoveredPolicy::Retain;
+        // vk5l WP1: a retained terminal's id is local to this process.
+        let step_cache = if retain { None } else { step_cache };
         let loops = self.request_loops(&inputs)?;
+        // vk5l WP1: the original request, recorded on a typed refusal.
+        let context = Arc::new(self.request_context(&inputs));
+        let with_request = |error: PError| error.with_request(&context);
         if let Some(cache) = &step_cache {
             let binding = self.step_cache_binding()?;
             cache.check_binding(
@@ -509,22 +906,33 @@ impl PLibrary {
             .get_or_init(|| PEngine::new(self))
             .as_ref()
             .map_err(Clone::clone)?;
+        if !retain {
+            self.check_boxed_inputs(engine, &inputs)
+                .map_err(with_request)?;
+        }
         let initial = engine.initial(self, inputs, &limits)?;
-        let output = engine.run(
-            self,
-            initial,
-            arithmetic,
-            scheduler,
-            step_cache.as_deref(),
-            limits,
-            inspector,
-        )?;
+        let cache_before = super::relation_entries::relation_cache_statistics();
+        let mut outside = BTreeSet::new();
+        let output = engine
+            .run_reporting(
+                self,
+                initial,
+                arithmetic,
+                scheduler,
+                step_cache.as_deref(),
+                limits,
+                inspector,
+                retain,
+                &mut outside,
+            )
+            .map_err(with_request)
+            .map_err(|error| self.with_recipe_chain(engine, error))?;
         let mut terms = PTermSum::default();
         let raw = output
             .terms
             .iter()
             .map(|(key, coefficient)| {
-                let (terminal, tag) = engine.decode_terminal(key)?;
+                let (terminal, tag) = engine.decode_terminal(key, self.terminal_limit())?;
                 Ok((terminal, tag, coefficient.clone()))
             })
             .collect::<Result<Vec<_>, PError>>()?;
@@ -543,6 +951,9 @@ impl PLibrary {
                 work: output.work,
                 progress: output.progress,
             },
+            outside_certified: outside.into_iter().collect(),
+            relation_cache: super::relation_entries::relation_cache_statistics()
+                .since(&cache_before),
         })
     }
 
@@ -611,7 +1022,12 @@ impl PLibrary {
             let coefficient = context
                 .try_mul(&coefficient, &factor, exact)
                 .map_err(algebra)?;
-            let Some(map) = &self.basis_map else {
+            // vk5l WP1: a retained key has no basis row: it stays residual.
+            let Some(map) = self
+                .basis_map
+                .as_ref()
+                .filter(|_| (terminal.0 as usize) < self.terminals.len())
+            else {
                 terms.add(self, Self::plain_basis(terminal), tag, coefficient, limits)?;
                 continue;
             };
@@ -717,7 +1133,11 @@ pub struct PLibraryBuilder {
     revision: Option<String>,
     saved_routes: Option<Arc<PSavedRoutes>>,
     saved_orbits: Option<Arc<PSavedOrbits>>,
+    open_nodes: BTreeMap<OwnerClassId, POpenNode>,
 }
+
+/// vk5l WP2: keys a rule-chain search of a recipe failure may expand.
+pub const RECIPE_CHAIN_BUDGET: usize = 200_000;
 
 /// p5l-library-6: the identity key of a package content revision.
 pub const P_PACKAGE_REVISION_KEY: &str = "P_PACKAGE_REVISION";
@@ -908,6 +1328,34 @@ impl PLibraryBuilder {
         Ok(())
     }
 
+    /// vk5l WP1 (plan VK5L §3.6, decision Q8): declare the node of owner
+    /// `class` NOT CLOSED (its owner is added as usual, typically with an
+    /// `OwnerProgram::Missing` program): any key reaching it is
+    /// [`PError::NodeNotClosed`] naming `node` and `status`. Not part of the
+    /// identity (it changes no value: such a key never reduces).
+    pub fn declare_open_node(
+        &mut self,
+        class: OwnerClassId,
+        node: &str,
+        status: &str,
+    ) -> Result<(), PError> {
+        if node.is_empty() {
+            return Err(malformed("an open node without a name"));
+        }
+        let open = POpenNode {
+            node: node.to_owned(),
+            status: status.to_owned(),
+        };
+        if self.open_nodes.contains_key(&class) {
+            return Err(malformed(format!(
+                "the open node of class {:016x} is declared twice",
+                class.0
+            )));
+        }
+        self.open_nodes.insert(class, open);
+        Ok(())
+    }
+
     /// p artefact v2: saved route verifications (`routes.rrbin`). Values do
     /// not depend on them (a restored map is the verified one), so they are
     /// not part of the identity.
@@ -939,6 +1387,16 @@ impl PLibraryBuilder {
         self.check_sectors(&census)?;
         self.check_owners(&census)?;
         self.check_terminals(&census)?;
+        if let Some(class) = self
+            .open_nodes
+            .keys()
+            .find(|class| !self.owners.contains_key(class))
+        {
+            return Err(malformed(format!(
+                "the open node of class {:016x} has no owner",
+                class.0
+            )));
+        }
         let mut tops = BTreeMap::new();
         for presentation in &self.presentations {
             if let PresentationKind::Top { name } = &presentation.kind
@@ -953,6 +1411,7 @@ impl PLibraryBuilder {
         } else {
             P_ORBIT_CANON_DEFAULT
         };
+        let max_loops = *self.scope.end();
         Ok(PLibrary {
             context: self.context,
             scope: self.scope,
@@ -969,10 +1428,15 @@ impl PLibraryBuilder {
             revision: self.revision,
             saved_routes: self.saved_routes,
             saved_orbits: self.saved_orbits,
+            program_budget: PProgramBudget::from_env(max_loops),
+            open_nodes: self.open_nodes,
+            retained: Default::default(),
+            source: OnceLock::new(),
             engine: OnceLock::new(),
             orbit_canonicalization: AtomicBool::new(orbit_default),
             route_canonicalization: AtomicBool::new(true),
             orbit_prefer_high: AtomicBool::new(true),
+            scheme_certificates_trusted: AtomicBool::new(false),
         })
     }
 

@@ -1,0 +1,739 @@
+//! Streaming readers of rule records.
+//!
+//! Formats:
+//! - **rr_node `table_dump.v1`** (`F.table.jsonl`): one JSON object per line with a `type` field (`header`, `rule`,
+//!   `chart`, `residual`, `zero_sectors`, `end`, ...). Rule fields used here: `chart`, `index`, `fixed`, `equations`,
+//!   `exceptions`, `dispatch`, `numerical`, `target`, `rhs` (keys only, never coefficients), `witness_loci`,
+//!   `recenter`. Written by `rustred-core/src/node/driver.rs` `write_rule`.
+//! - **case-domain export** (`cases/*.jsonl`): `{"header":{...}}`, `{"other":{...}}`, `{"summary":{...}}` lines and rule
+//!   lines `{i, index, chart, fixed, equations, exceptions, dispatch, numerical}` (no `type`).
+//! - **T162 bank predicates** (`RULE-PREDICATES2440.json`): one JSON array; see [`BankPredicate`].
+//!
+//! Robustness (DESIGN-COMMENTS B5): a line may be 123 MB (a rule's `rhs`). The line reader scans the top-level object
+//! byte by byte, records the byte span of each value and parses ONLY the fields it needs; `rhs` is either skipped or
+//! scanned for its keys with the coefficient strings skipped unparsed ([`RhsMode`]). `witness_loci` may contain the
+//! literal `"elided"` (the engine elides witness poles longer than 4000 characters); it is kept verbatim here and turned
+//! into an explicit `Elided` verdict by the domain module.
+//!
+//! Strictness (audit A m4; the engine reads every line with `serde_json` into a `Value`): a duplicate top-level key
+//! and any byte after the closing `}` are format errors (serde_json would keep the LAST duplicate; refusing is the
+//! fail-closed choice). A rule must carry `exceptions` as an array (the engine's load fails with "rule without
+//! exceptions" otherwise; also required of case-domain exports). A `table_dump.v1` rule (`"type":"rule"`) must also
+//! carry `target` (a string) and `rhs` (an array), as `Table::load` requires. `chart` lines are returned as
+//! [`TableLine::Chart`] so that the loader can refuse a chart other than the node mask, as the engine does.
+
+use std::fmt;
+use std::io::BufRead;
+
+use serde::Deserialize;
+use serde_json::Value;
+
+/// Errors of the readers.
+#[derive(Debug)]
+pub enum RecordError {
+    Io(std::io::Error),
+    /// Malformed JSON or an unexpected field type, with the 1-based line number.
+    Format {
+        line: usize,
+        msg: String,
+    },
+}
+
+impl fmt::Display for RecordError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RecordError::Io(e) => write!(f, "io: {e}"),
+            RecordError::Format { line, msg } => write!(f, "line {line}: {msg}"),
+        }
+    }
+}
+impl std::error::Error for RecordError {}
+impl From<std::io::Error> for RecordError {
+    fn from(e: std::io::Error) -> Self {
+        RecordError::Io(e)
+    }
+}
+
+/// What to do with a rule's `rhs` field.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum RhsMode {
+    /// Skip it entirely (domain-only reads).
+    #[default]
+    Skip,
+    /// Collect the RHS key strings (`I(...)` patterns); coefficient strings are skipped unparsed.
+    KeysOnly,
+}
+
+/// Options of the line reader.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ReadOptions {
+    pub rhs: RhsMode,
+}
+
+/// Parsed table header (both formats). `raw` keeps the whole header object.
+#[derive(Clone, Debug)]
+pub struct TableHeader {
+    pub schema: Option<String>,
+    pub family: Option<String>,
+    /// `denominators` = arity.
+    pub denominators: Option<usize>,
+    pub mask: Option<String>,
+    /// Verbatim, informational (non-strings rendered as JSON). The frame reads `raw.power_shifts` itself
+    /// ([`crate::key::NodeFrame::from_header`]).
+    pub power_shifts: Vec<String>,
+    pub charts: Vec<String>,
+    pub order_name: Option<String>,
+    /// `node_order.coordinate_priority` (what the engine uses), else `order.coordinate_priority`. Informational.
+    pub coordinate_priority: Option<Vec<usize>>,
+    /// Per-slot flags of `order.two_sided`, read as the engine's `table_import` reads them (a boolean, or a number
+    /// meaning `true` iff it is 1); empty when absent. Informational.
+    pub two_sided: Vec<bool>,
+    pub guard_version: Option<i64>,
+    pub raw: Value,
+}
+
+impl TableHeader {
+    /// Parse a header object (errors on a malformed `two_sided` or `coordinate_priority`).
+    pub fn from_value(v: Value) -> Result<Self, String> {
+        let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+        let strs = |x: Option<&Value>| -> Vec<String> {
+            x.and_then(Value::as_array)
+                .map(|a| {
+                    a.iter()
+                        .map(|e| {
+                            e.as_str()
+                                .map(str::to_string)
+                                .unwrap_or_else(|| e.to_string())
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let usizes = |x: Option<&Value>| -> Result<Option<Vec<usize>>, String> {
+            match x {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::Array(a)) => a
+                    .iter()
+                    .map(|e| {
+                        e.as_u64()
+                            .and_then(|u| usize::try_from(u).ok())
+                            .ok_or_else(|| format!("coordinate_priority entry {e}"))
+                    })
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(Some),
+                Some(o) => Err(format!("coordinate_priority {o}")),
+            }
+        };
+        let two_sided: Vec<bool> = match v.get("order").and_then(|o| o.get("two_sided")) {
+            None | Some(Value::Null) => vec![],
+            Some(Value::Array(a)) => a
+                .iter()
+                .map(|f| match f {
+                    Value::Bool(b) => Ok(*b),
+                    Value::Number(n) => Ok(n.as_u64() == Some(1)),
+                    o => Err(format!("order.two_sided flag {o}")),
+                })
+                .collect::<Result<_, _>>()?,
+            Some(o) => return Err(format!("order.two_sided {o}")),
+        };
+        let coordinate_priority = match usizes(
+            v.get("node_order")
+                .and_then(|o| o.get("coordinate_priority")),
+        )? {
+            Some(p) => Some(p),
+            None => usizes(v.get("order").and_then(|o| o.get("coordinate_priority")))?,
+        };
+        Ok(TableHeader {
+            schema: s("schema"),
+            family: s("family"),
+            denominators: v
+                .get("denominators")
+                .and_then(Value::as_u64)
+                .map(|x| x as usize),
+            mask: s("mask"),
+            power_shifts: strs(v.get("power_shifts")),
+            charts: strs(v.get("charts")),
+            order_name: s("order_name"),
+            coordinate_priority,
+            two_sided,
+            guard_version: v.get("guard_version").and_then(Value::as_i64),
+            raw: v,
+        })
+    }
+}
+
+/// Which JSONL format a rule record came from.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RecordFormat {
+    /// rr_node `table_dump.v1` (`"type":"rule"`): carries `target` and `rhs`.
+    #[default]
+    TableDump,
+    /// Case-domain export (rule line without `type`): carries NO target.
+    CaseExport,
+}
+
+/// One rule record (domain fields; RHS keys only on request).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct RuleRecord {
+    /// 1-based line number in the file.
+    pub line_no: usize,
+    /// The format of the line.
+    pub format: RecordFormat,
+    /// Case-domain export: record number `i`.
+    pub i: Option<i64>,
+    /// `index` field (engine rule index within the chart).
+    pub index: Option<i64>,
+    pub chart: Option<String>,
+    /// `null` = free slot.
+    pub fixed: Vec<Option<i64>>,
+    pub equations: Vec<String>,
+    /// OR-list of AND-lists of polynomial strings.
+    pub exceptions: Vec<Vec<String>>,
+    pub dispatch: Option<String>,
+    pub numerical: Option<bool>,
+    pub target: Option<String>,
+    /// RHS key strings ([`RhsMode::KeysOnly`]); `None` when skipped or absent.
+    pub rhs_keys: Option<Vec<String>>,
+    /// Verbatim; may contain the literal `"elided"`. `None` when the record has no such field.
+    pub witness_loci: Option<Vec<String>>,
+    pub recenter: Option<Vec<i64>>,
+}
+
+/// One line of a table file.
+#[derive(Clone, Debug)]
+pub enum TableLine {
+    Header(Box<TableHeader>),
+    Rule(Box<RuleRecord>),
+    /// A `chart` line (`table_dump.v1` `{"type":"chart",..}` or export `{"other":{"type":"chart",..}}`): the chart
+    /// mask and its guards.
+    Chart {
+        chart: String,
+        guards: Vec<String>,
+    },
+    /// Any other line, with its kind (`type` value, or `other` / `summary` in the case-domain export).
+    Other {
+        kind: String,
+    },
+}
+
+/// Streaming reader: one [`TableLine`] per non-empty input line.
+pub struct RecordReader<R: BufRead> {
+    inner: R,
+    buf: Vec<u8>,
+    line_no: usize,
+    opts: ReadOptions,
+}
+
+impl<R: BufRead> RecordReader<R> {
+    pub fn new(inner: R, opts: ReadOptions) -> Self {
+        RecordReader {
+            inner,
+            buf: Vec::with_capacity(1 << 16),
+            line_no: 0,
+            opts,
+        }
+    }
+}
+
+impl RecordReader<std::io::BufReader<std::fs::File>> {
+    pub fn open(path: impl AsRef<std::path::Path>, opts: ReadOptions) -> Result<Self, RecordError> {
+        let f = std::fs::File::open(path)?;
+        Ok(RecordReader::new(
+            std::io::BufReader::with_capacity(1 << 20, f),
+            opts,
+        ))
+    }
+}
+
+impl<R: BufRead> Iterator for RecordReader<R> {
+    type Item = Result<TableLine, RecordError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            self.buf.clear();
+            match self.inner.read_until(b'\n', &mut self.buf) {
+                Err(e) => return Some(Err(e.into())),
+                Ok(0) => return None,
+                Ok(_) => {}
+            }
+            self.line_no += 1;
+            if self.buf.iter().all(|c| c.is_ascii_whitespace()) {
+                continue;
+            }
+            return Some(parse_line(&self.buf, self.line_no, self.opts));
+        }
+    }
+}
+
+/// A whole table file read into memory (domains only unless `opts` asks for RHS keys).
+#[derive(Clone, Debug, Default)]
+pub struct TableFile {
+    pub header: Option<TableHeader>,
+    pub rules: Vec<RuleRecord>,
+    /// `chart` lines (mask, guards) in file order.
+    pub charts: Vec<(String, Vec<String>)>,
+    /// Count of other lines by kind.
+    pub others: Vec<(String, usize)>,
+}
+
+/// Read a table file (either JSONL format).
+///
+/// The header must come before every rule and chart line (re-audit RB m2: the engine's `Table::load` reads the
+/// arity from the header, so a rule line before it is parsed with arity 0 and the load fails); a header after a rule
+/// or chart line, and a second header, are format errors.
+pub fn read_table_file(
+    path: impl AsRef<std::path::Path>,
+    opts: ReadOptions,
+) -> Result<TableFile, RecordError> {
+    let mut t = TableFile::default();
+    let mut rd = RecordReader::open(path, opts)?;
+    while let Some(l) = rd.next() {
+        match l? {
+            TableLine::Header(h) => {
+                if t.header.is_some() {
+                    return Err(RecordError::Format {
+                        line: rd.line_no,
+                        msg: "second header line".into(),
+                    });
+                }
+                if !t.rules.is_empty() || !t.charts.is_empty() {
+                    return Err(RecordError::Format {
+                        line: rd.line_no,
+                        msg: "header after rule or chart lines (the engine reads the arity from the header first)"
+                            .into(),
+                    });
+                }
+                t.header = Some(*h)
+            }
+            TableLine::Rule(r) => t.rules.push(*r),
+            TableLine::Chart { chart, guards } => t.charts.push((chart, guards)),
+            TableLine::Other { kind } => match t.others.iter_mut().find(|(k, _)| *k == kind) {
+                Some(e) => e.1 += 1,
+                None => t.others.push((kind, 1)),
+            },
+        }
+    }
+    Ok(t)
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// Byte scanner
+// ------------------------------------------------------------------------------------------------------------------
+
+/// Top-level object fields: (key, byte span of the unparsed value).
+type FieldSpans = Vec<(String, (usize, usize))>;
+
+struct Scan<'a> {
+    s: &'a [u8],
+    pos: usize,
+    line: usize,
+}
+
+impl<'a> Scan<'a> {
+    fn err(&self, msg: impl Into<String>) -> RecordError {
+        RecordError::Format {
+            line: self.line,
+            msg: format!("{} (byte {})", msg.into(), self.pos),
+        }
+    }
+    fn ws(&mut self) {
+        while self.pos < self.s.len() && self.s[self.pos].is_ascii_whitespace() {
+            self.pos += 1;
+        }
+    }
+    fn expect(&mut self, c: u8) -> Result<(), RecordError> {
+        self.ws();
+        if self.s.get(self.pos) == Some(&c) {
+            self.pos += 1;
+            Ok(())
+        } else {
+            Err(self.err(format!("expected {:?}", c as char)))
+        }
+    }
+    fn peek(&mut self) -> Option<u8> {
+        self.ws();
+        self.s.get(self.pos).copied()
+    }
+    /// Span of a string including quotes.
+    fn string_span(&mut self) -> Result<(usize, usize), RecordError> {
+        self.ws();
+        let start = self.pos;
+        if self.s.get(self.pos) != Some(&b'"') {
+            return Err(self.err("expected a string"));
+        }
+        self.pos += 1;
+        while self.pos < self.s.len() {
+            match self.s[self.pos] {
+                b'\\' => self.pos += 2,
+                b'"' => {
+                    self.pos += 1;
+                    return Ok((start, self.pos));
+                }
+                _ => self.pos += 1,
+            }
+        }
+        Err(self.err("unterminated string"))
+    }
+    /// Skip any value; returns its span.
+    fn skip_value(&mut self) -> Result<(usize, usize), RecordError> {
+        self.ws();
+        let start = self.pos;
+        match self.s.get(self.pos) {
+            None => Err(self.err("unexpected end of line")),
+            Some(b'"') => self.string_span(),
+            Some(b'{') | Some(b'[') => {
+                let mut depth = 0usize;
+                while self.pos < self.s.len() {
+                    match self.s[self.pos] {
+                        b'"' => {
+                            self.string_span()?;
+                            continue;
+                        }
+                        b'{' | b'[' => depth += 1,
+                        b'}' | b']' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                self.pos += 1;
+                                return Ok((start, self.pos));
+                            }
+                        }
+                        _ => {}
+                    }
+                    self.pos += 1;
+                }
+                Err(self.err("unterminated object or array"))
+            }
+            Some(_) => {
+                while self.pos < self.s.len() && !matches!(self.s[self.pos], b',' | b'}' | b']') {
+                    self.pos += 1;
+                }
+                let mut end = self.pos;
+                while end > start && self.s[end - 1].is_ascii_whitespace() {
+                    end -= 1;
+                }
+                Ok((start, end))
+            }
+        }
+    }
+    /// Top-level object: (key, value span) pairs, values skipped (not parsed).
+    fn object_fields(&mut self) -> Result<FieldSpans, RecordError> {
+        self.expect(b'{')?;
+        let mut out = vec![];
+        if self.peek() == Some(b'}') {
+            self.pos += 1;
+            return Ok(out);
+        }
+        loop {
+            let (a, b) = self.string_span()?;
+            let k: String =
+                serde_json::from_slice(&self.s[a..b]).map_err(|e| self.err(e.to_string()))?;
+            self.expect(b':')?;
+            let span = self.skip_value()?;
+            if out.iter().any(|(n, _)| *n == k) {
+                return Err(self.err(format!("duplicate key {k:?}")));
+            }
+            out.push((k, span));
+            match self.peek() {
+                Some(b',') => self.pos += 1,
+                Some(b'}') => {
+                    self.pos += 1;
+                    return Ok(out);
+                }
+                _ => return Err(self.err("expected ',' or '}'")),
+            }
+        }
+    }
+}
+
+/// Keys of an `rhs` array `[[key, coef], ...]`, coefficients skipped unparsed.
+fn rhs_keys(s: &[u8], line: usize) -> Result<Vec<String>, RecordError> {
+    let mut sc = Scan { s, pos: 0, line };
+    let mut out = vec![];
+    sc.expect(b'[')?;
+    if sc.peek() == Some(b']') {
+        return Ok(out);
+    }
+    loop {
+        sc.expect(b'[')?;
+        let (a, b) = sc.string_span()?;
+        out.push(serde_json::from_slice(&s[a..b]).map_err(|e| sc.err(e.to_string()))?);
+        while sc.peek() == Some(b',') {
+            sc.pos += 1;
+            sc.skip_value()?;
+        }
+        sc.expect(b']')?;
+        match sc.peek() {
+            Some(b',') => sc.pos += 1,
+            Some(b']') => return Ok(out),
+            _ => return Err(sc.err("expected ',' or ']' in rhs")),
+        }
+    }
+}
+
+fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, RecordError> {
+    let mut sc = Scan {
+        s: buf,
+        pos: 0,
+        line,
+    };
+    let fields = sc.object_fields()?;
+    sc.ws();
+    if sc.pos != buf.len() {
+        return Err(sc.err("trailing bytes after the object"));
+    }
+    let get = |k: &str| {
+        fields
+            .iter()
+            .find(|(n, _)| n == k)
+            .map(|(_, sp)| &buf[sp.0..sp.1])
+    };
+    let fmt = |m: String| RecordError::Format { line, msg: m };
+    fn de<'a, T: Deserialize<'a>>(b: &'a [u8], field: &str, line: usize) -> Result<T, RecordError> {
+        serde_json::from_slice(b).map_err(|e| RecordError::Format {
+            line,
+            msg: format!("field {field}: {e}"),
+        })
+    }
+    let kind: Option<String> = match get("type") {
+        Some(b) => Some(de(b, "type", line)?),
+        None => None,
+    };
+    let chart_line = |v: &Value| -> Result<TableLine, RecordError> {
+        let chart = v
+            .get("chart")
+            .and_then(Value::as_str)
+            .ok_or_else(|| fmt("chart line without chart".into()))?
+            .to_string();
+        let guards = match v.get("guards") {
+            None | Some(Value::Null) => vec![],
+            Some(g) => serde_json::from_value::<Vec<String>>(g.clone())
+                .map_err(|e| fmt(format!("chart guards: {e}")))?,
+        };
+        Ok(TableLine::Chart { chart, guards })
+    };
+    let format = if kind.is_some() {
+        RecordFormat::TableDump
+    } else {
+        RecordFormat::CaseExport
+    };
+    match kind.as_deref() {
+        Some("header") => {
+            let v: Value = serde_json::from_slice(buf).map_err(|e| fmt(e.to_string()))?;
+            return Ok(TableLine::Header(Box::new(
+                TableHeader::from_value(v).map_err(fmt)?,
+            )));
+        }
+        Some("chart") => {
+            let v: Value = serde_json::from_slice(buf).map_err(|e| fmt(e.to_string()))?;
+            return chart_line(&v);
+        }
+        Some("rule") => {}
+        Some(k) => {
+            return Ok(TableLine::Other {
+                kind: k.to_string(),
+            });
+        }
+        None => {
+            if let Some(h) = get("header") {
+                let v: Value = de(h, "header", line)?;
+                return Ok(TableLine::Header(Box::new(
+                    TableHeader::from_value(v).map_err(fmt)?,
+                )));
+            }
+            if let Some(o) = get("other") {
+                let v: Value = de(o, "other", line)?;
+                if v.get("type").and_then(Value::as_str) == Some("chart") {
+                    return chart_line(&v);
+                }
+            }
+            // case-domain export: the only non-rule lines are the single-key wrappers `other` / `summary`;
+            // anything else must be a rule and carry `fixed` (audit B M2: never drop a malformed rule silently)
+            if fields.len() == 1 && matches!(fields[0].0.as_str(), "other" | "summary") {
+                return Ok(TableLine::Other {
+                    kind: fields[0].0.clone(),
+                });
+            }
+            if get("fixed").is_none() {
+                return Err(fmt(format!(
+                    "line without type, not a header/other/summary wrapper and without fixed (keys {:?})",
+                    fields.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>()
+                )));
+            }
+        }
+    }
+    let mut r = RuleRecord {
+        line_no: line,
+        format,
+        ..Default::default()
+    };
+    let opt_i64 = |k: &str| -> Result<Option<i64>, RecordError> {
+        match get(k) {
+            Some(b) => de::<Option<i64>>(b, k, line),
+            None => Ok(None),
+        }
+    };
+    r.i = opt_i64("i")?;
+    r.index = opt_i64("index")?;
+    if let Some(b) = get("chart") {
+        r.chart = de(b, "chart", line)?;
+    }
+    r.fixed = de(
+        get("fixed").ok_or_else(|| fmt("rule without fixed".into()))?,
+        "fixed",
+        line,
+    )?;
+    // stricter than the engine (which reads a missing `equations` as none): every record at hand carries it, and a
+    // record without it is malformed (audit B M1)
+    r.equations = de::<Vec<String>>(
+        get("equations").ok_or_else(|| fmt("rule without equations".into()))?,
+        "equations",
+        line,
+    )?;
+    // the engine: `v["exceptions"].as_array().ok_or("rule without exceptions")`
+    r.exceptions = de::<Vec<Vec<String>>>(
+        get("exceptions").ok_or_else(|| fmt("rule without exceptions".into()))?,
+        "exceptions",
+        line,
+    )?;
+    if let Some(b) = get("dispatch") {
+        r.dispatch = de(b, "dispatch", line)?;
+    }
+    if let Some(b) = get("numerical") {
+        r.numerical = de(b, "numerical", line)?;
+    }
+    if let Some(b) = get("target") {
+        r.target = de(b, "target", line)?;
+    }
+    if format == RecordFormat::TableDump {
+        // `Table::load`: `parse_pat(v["target"])` and `v["rhs"].as_array().ok_or("rule without rhs")`
+        if r.target.is_none() {
+            return Err(fmt("table_dump.v1 rule without target".into()));
+        }
+        match get("rhs") {
+            Some(b) if b.first() == Some(&b'[') => {}
+            _ => return Err(fmt("table_dump.v1 rule without an rhs array".into())),
+        }
+    }
+    if let Some(b) = get("witness_loci") {
+        r.witness_loci = de(b, "witness_loci", line)?;
+    }
+    if let Some(b) = get("recenter") {
+        r.recenter = de(b, "recenter", line)?;
+    }
+    if opts.rhs == RhsMode::KeysOnly
+        && let Some(b) = get("rhs")
+    {
+        r.rhs_keys = Some(rhs_keys(b, line)?);
+    }
+    Ok(TableLine::Rule(Box::new(r)))
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// T162 bank predicates
+// ------------------------------------------------------------------------------------------------------------------
+
+/// A field that must be present (it may be `null`): serde's default for a missing `Option` would be `None`.
+fn required<'de, D, T>(d: D) -> Result<T, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(d)
+}
+
+/// A field that must be present AND a list (`null` is an error; re-audit RB m3). Kept as `Option` (always `Some`)
+/// so that the field types stay as they were.
+fn required_list<'de, D, T>(d: D) -> Result<Option<Vec<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Vec::<T>::deserialize(d).map(Some)
+}
+
+/// One rule of `RULE-PREDICATES2440.json` (schema `t162-exact-written-domain-complement.v1`; fields as listed in the
+/// helper's TOOLS-INVENTORY "partition / Inputs"). Every domain field must be PRESENT (audit B M3: a predicate without
+/// `domain_atoms` used to load with no chart/recenter bounds) and a LIST: `null` is an error everywhere except in
+/// `cached_domain_exception_or_pole_AND_loci`, the one field where the real bank writes `null` (2,415 of 2,440
+/// records) and where it reads as an empty list (re-audit RB m3: a `null` exception list used to read as "no
+/// exception", i.e. fail open). Unused fields are ignored.
+#[derive(Clone, Debug, Deserialize)]
+pub struct BankPredicate {
+    pub global_ordinal0: i64,
+    #[serde(default)]
+    pub source_id: Option<String>,
+    /// 20 values or null.
+    pub raw_fixed20: Vec<Option<i64>>,
+    #[serde(deserialize_with = "required_list", rename = "all_raw_Case_equations")]
+    pub case_equations: Option<Vec<String>>,
+    /// `[rel, text]` with rel `EQ` (= 0) or `GE` (>= 0): the chart/recenter bounds and fixed slots. REQUIRED, not null.
+    pub domain_atoms: Vec<(String, String)>,
+    #[serde(
+        deserialize_with = "required_list",
+        rename = "raw_written_exceptions_OR_of_AND"
+    )]
+    pub exceptions: Option<Vec<Vec<String>>>,
+    /// The only field where `null` is accepted (= empty list), as the real bank writes it.
+    #[serde(
+        deserialize_with = "required",
+        rename = "cached_domain_exception_or_pole_AND_loci"
+    )]
+    pub cached_loci: Option<Vec<Vec<String>>>,
+    /// d-polynomials; forbidden where all d-coefficients vanish.
+    #[serde(
+        deserialize_with = "required_list",
+        rename = "literal_written_denominators_generic_d_nonzero"
+    )]
+    pub denominators: Option<Vec<String>>,
+    #[serde(
+        deserialize_with = "required_list",
+        rename = "raw_header_source_conditions_generic_d_nonzero"
+    )]
+    pub source_conditions: Option<Vec<String>>,
+    #[serde(
+        deserialize_with = "required_list",
+        rename = "raw_rule_witness_loci_generic_d_nonzero"
+    )]
+    pub witness_loci: Option<Vec<String>>,
+    /// Must be `true` for the domain loader (the bank's own statement that its slots are the canonical ones).
+    #[serde(default)]
+    pub no_recenter_or_permutation_applied: Option<bool>,
+}
+
+/// Read the T162 bank predicate file (one JSON array).
+pub fn read_bank_predicates(
+    path: impl AsRef<std::path::Path>,
+) -> Result<Vec<BankPredicate>, RecordError> {
+    let f = std::io::BufReader::new(std::fs::File::open(path)?);
+    serde_json::from_reader(f).map_err(|e| RecordError::Format {
+        line: e.line(),
+        msg: e.to_string(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_rule_line_skips_rhs() {
+        let line = br#"{"type":"rule","chart":"110","index":3,"fixed":[null,1,null],"equations":["n0=n2"],"target":"I(n0,1,n2)","rhs":[["I(n0-1,1,n2)","n0/(n2-1) \"q\""],["I(n0,1,n2-1)","[1]"]],"exceptions":[["-1+n0"],["n2","n0"]],"dispatch":"Partition","witness_loci":["elided"],"recenter":[0,0,1]}"#;
+        let o = ReadOptions {
+            rhs: RhsMode::KeysOnly,
+        };
+        let TableLine::Rule(r) = parse_line(line, 7, o).unwrap() else {
+            panic!()
+        };
+        assert_eq!(r.index, Some(3));
+        assert_eq!(r.fixed, vec![None, Some(1), None]);
+        assert_eq!(
+            r.exceptions,
+            vec![vec!["-1+n0".to_string()], vec!["n2".into(), "n0".into()]]
+        );
+        assert_eq!(r.rhs_keys.as_ref().unwrap().len(), 2);
+        assert_eq!(r.witness_loci, Some(vec!["elided".to_string()]));
+        let TableLine::Rule(r2) = parse_line(line, 7, ReadOptions::default()).unwrap() else {
+            panic!()
+        };
+        assert_eq!(r2.rhs_keys, None);
+    }
+}

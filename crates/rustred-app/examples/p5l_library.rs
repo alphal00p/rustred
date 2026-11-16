@@ -7,9 +7,18 @@
 //! p5l_library assemble <families.json> <max_loops> <provided package dir> <imports.tsv> <out dir> <threads>
 //!     assemble with CustomPayloads::Imported (provided payloads by class label from the package,
 //!     imported nodes by graph key from p-import-table records), write the package (no basis layer).
-//!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>.  P5L_VERIFY=0 skips the descent certificate.
+//!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>, or (vk5l WP6) <TID> \t OPEN \t <graph key hex> \t
+//!     <status> for a node declared not closed.  P5L_VERIFY=0 skips the descent certificate.
+//!     RUSTRED_P_ASSEMBLE_CENSUS_SEED=<package dir> starts the census from an earlier package's (vk5l WP6).
 //! p5l_library load <package dir> <verify 0|1>
 //!     load time and peak RSS.
+//! p5l_library encoding <sample> <payload .rrbin>...
+//!     per payload: read, structure and decode time, decode RSS, coefficient terms, and the digits of an
+//!     expanded vs a factored coefficient encoding on a sample (session 2).
+//! p5l_library reduce <package dir> p<presentation>:<powers,...> ...
+//!     vk5l WP1: the reproduction line of a typed refusal (OutsideBox, OutsideCertifiedSet, NodeNotClosed):
+//!     the inputs at weight one reduced onto the terminals (Exact arithmetic, one thread); prints the terms, or the
+//!     error and exits 3. P_RETAIN=1 uses PUncoveredPolicy::Retain.
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -33,8 +42,10 @@ use rustred::propagator::families::load_p_families;
 use rustred::propagator::library::{
     CustomOwnerMeta, PBasis, PLibrary, PReduction, PReductionRequest, PTerminal, PUncoveredPolicy,
 };
+use rustred::propagator::payload_cache::PPayloadFile;
 use rustred::propagator::present::top_topology;
 use rustred::propagator::presentation::{Presentation, PresentationKind, Slot, SlotIsp, SlotLine};
+use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::topology::Action;
 use rustred::propagator::topology::{ChildMode, Normalised, TopologyService, canonical, normalise};
 use rustred::reduction::{
@@ -44,8 +55,8 @@ use rustred::reduction::{
 use rustred_app::propagator::assemble::SplitMix;
 use rustred_app::propagator::loader::read_custom_payloads;
 use rustred_app::propagator::{
-    AssembleOptions, CustomOwnerPayload, CustomPayloads, ImportedCustomNode, PLibraryOptions,
-    PLibrarySource, assemble_library, load_p_library, write_p_library,
+    AssembleOptions, CustomPayloads, ImportedCustomNode, PLibraryOptions, PLibrarySource,
+    assemble_library, load_p_library, write_p_library,
 };
 use serde_json::{Value, json};
 
@@ -81,6 +92,17 @@ fn main() {
             load(&args[2], args[3] == "1");
         }
         Some("check") => check(&args[2..]),
+        Some("reduce") => reduce_cli(&args[2..]),
+        Some("encoding") => encoding(&args[2..]),
+        // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
+        Some("seed-fingerprints") => {
+            let count = rustred_app::propagator::seed::write_seed_fingerprints(
+                std::path::Path::new(&args[2]),
+                std::path::Path::new(&args[3]),
+            )
+            .unwrap();
+            println!("{count} family fingerprints written to {}", args[3]);
+        }
         Some("edges") => edges(
             &args[2],
             args[3].parse().unwrap(),
@@ -237,25 +259,49 @@ fn assemble(args: &[String]) {
     let mut imported = BTreeMap::new();
     let mut bytes_total = 0usize;
     let mut labels = BTreeMap::new();
+    let mut open = BTreeMap::new();
     for line in imports
         .lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
     {
         let fields: Vec<&str> = line.split('\t').collect();
+        // vk5l WP6: `<TID> \t OPEN \t <graph key hex> \t <status>` declares the
+        // node not closed (no payload; library.json `open_nodes`).
+        if fields.get(1) == Some(&"OPEN") {
+            let key = unhex(fields[2].trim());
+            labels.insert(key.clone(), fields[0].to_owned());
+            open.insert(
+                key,
+                (
+                    fields[0].to_owned(),
+                    fields.get(3).map_or("not closed", |s| s.trim()).to_owned(),
+                ),
+            );
+            continue;
+        }
         let record: Value =
             serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
-        let bytes: Arc<[u8]> = std::fs::read(fields[2]).unwrap().into();
-        bytes_total += bytes.len();
+        // Session 2: the payload stays on disk (read once by assembly for its
+        // residuals, copied by the writer, built on use); P5L_EAGER=1 reads it here.
+        let length = std::fs::metadata(fields[2]).unwrap().len();
+        bytes_total += length as usize;
+        let payload = if std::env::var("P5L_EAGER").is_ok_and(|v| v == "1") {
+            CustomPayloadRef::Bytes(std::fs::read(fields[2]).unwrap().into())
+        } else {
+            CustomPayloadRef::File(Arc::new(PPayloadFile::new(
+                PathBuf::from(fields[2]),
+                length,
+                None,
+            )))
+        };
         let key = unhex(record["graph_key"].as_str().unwrap());
         labels.insert(key.clone(), fields[0].to_owned());
         imported.insert(
             key,
             ImportedCustomNode {
                 presentation: record_presentation(&record, &context),
-                payload: CustomOwnerPayload {
-                    bytes,
-                    meta: record_meta(&record),
-                },
+                payload,
+                meta: record_meta(&record),
             },
         );
     }
@@ -270,7 +316,11 @@ fn assemble(args: &[String]) {
     let assembled = assemble_library(
         &families,
         max_loops,
-        CustomPayloads::Imported { provided, imported },
+        CustomPayloads::Imported {
+            provided,
+            imported,
+            open,
+        },
         &AssembleOptions {
             threads,
             verify_descent: verify,
@@ -328,6 +378,7 @@ fn assemble(args: &[String]) {
         "owners": library.owners().len(), "lanes": lanes, "terminals": library.terminals().len(),
         "census_sectors": library.census().sectors.len(), "classes": library.census().classes.len(),
         "dag_nodes": assembled.dag.nodes.len(), "imported_owners": used,
+        "open_nodes": library.open_nodes().values().map(|o| o.node.clone()).collect::<Vec<_>>(),
         "assemble_seconds": assemble_seconds, "write_seconds": write_seconds,
         "timings": assembled.timings.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
         "verify_descent": verify, "peak_rss_gb": rss().1,
@@ -339,6 +390,108 @@ fn assemble(args: &[String]) {
 // ---------------------------------------------------------------------------
 // load
 // ---------------------------------------------------------------------------
+
+/// `reduce <package dir> p<id>:<powers> ...` (vk5l WP1 reproduction line).
+fn reduce_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let one = library.coefficient_context().one();
+    let inputs: Vec<Input> = args[1..]
+        .iter()
+        .map(|spec| {
+            let (id, powers) = spec
+                .strip_prefix('p')
+                .and_then(|rest| rest.split_once(':'))
+                .unwrap_or_else(|| panic!("input {spec:?}: p<presentation>:<powers,...>"));
+            let powers: Vec<i64> = powers
+                .split(',')
+                .map(|power| power.trim().parse().expect("an integer power"))
+                .collect();
+            (
+                PresentationId(id.parse().expect("a presentation id")),
+                IntegralKey::try_new(powers).expect("a key"),
+                one.clone(),
+            )
+        })
+        .collect();
+    let uncovered = if std::env::var("P_RETAIN").as_deref() == Ok("1") {
+        PUncoveredPolicy::Retain
+    } else {
+        PUncoveredPolicy::Reject
+    };
+    let result = library.reduce(PReductionRequest {
+        inputs,
+        arithmetic: OrderedWeightArithmetic::Exact,
+        scheduler: OrderedSchedulerOptions::default(),
+        step_cache: None,
+        uncovered,
+        onto_masters: false,
+        limits: ReductionLimits::default(),
+        inspector: None,
+    });
+    match result {
+        Ok(reduction) => {
+            // vk5l WP2: the recipe / relation-cache counters of this request
+            let stats = reduction.relation_cache;
+            let recipes = rustred::propagator::recipes::recipe_statistics();
+            eprintln!(
+                "p-reduce counters: outside_certified {} | outside_rule_steps {} outside_entry_hits {} outside_budget_hits {} \
+                 outside_failures {} | relation_cache shipped_hits {} cache_hits {} misses {} inserts {} \
+                 bytes_written {} | recipe solves {} outside_solves {} | bytes_on_disk {}",
+                reduction.outside_certified.len(),
+                recipes.outside_rule_steps,
+                recipes.outside_entry_hits,
+                recipes.outside_budget_hits,
+                recipes.outside_failures,
+                stats.shipped_hits,
+                stats.cache_hits,
+                stats.misses,
+                stats.inserts,
+                stats.bytes_written,
+                recipes.solves,
+                recipes.outside_solves,
+                rustred::propagator::recipes::relation_cache_bytes_on_disk()
+            );
+            for term in &reduction.terms {
+                let basis = match &term.basis {
+                    PBasis::Residual(id) => match library.residual_terminal(*id) {
+                        Ok(Some(named)) => format!(
+                            "PResidual({}, {:?}){}",
+                            named.node,
+                            named.key.powers(),
+                            if named.retained.is_some() {
+                                " [retained]"
+                            } else {
+                                ""
+                            }
+                        ),
+                        _ => format!("{:?}", term.basis),
+                    },
+                    other => format!("{other:?}"),
+                };
+                println!("{basis} {:?} : {}", term.tag, term.coefficient);
+            }
+        }
+        Err(error) => {
+            let recipes = rustred::propagator::recipes::recipe_statistics();
+            let stats = rustred::propagator::relation_entries::relation_cache_statistics();
+            eprintln!(
+                "p-reduce counters (refused): outside_rule_steps {} outside_entry_hits {} outside_budget_hits {} \
+                 outside_failures {} | relation_cache shipped_hits {} cache_hits {} inserts {} | recipe solves {} outside_solves {}",
+                recipes.outside_rule_steps,
+                recipes.outside_entry_hits,
+                recipes.outside_budget_hits,
+                recipes.outside_failures,
+                stats.shipped_hits,
+                stats.cache_hits,
+                stats.inserts,
+                recipes.solves,
+                recipes.outside_solves
+            );
+            eprintln!("error: {error}");
+            std::process::exit(3);
+        }
+    }
+}
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
     let started = Instant::now();
@@ -360,9 +513,66 @@ fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
     println!(
         "{}",
         json!({"load_seconds": seconds, "verify": verify, "load_peak_rss_gb": rss().1,
-               "presentations": library.presentations().len(), "owners": library.owners().len()})
+               "presentations": library.presentations().len(), "owners": library.owners().len(),
+               "program_budget": budget_json(&library)})
     );
     (library, seconds)
+}
+
+/// The program budget's counters (session 2), or null without a budget.
+fn budget_json(library: &PLibrary) -> Value {
+    library.program_budget().map_or(Value::Null, |budget| {
+        let stats = budget.stats();
+        json!({"limit_gb": stats.limit_bytes as f64 / 1e9,
+               "resident_gb": stats.resident_bytes as f64 / 1e9,
+               "peak_resident_gb": stats.peak_resident_bytes as f64 / 1e9,
+               "builds": stats.builds, "rebuilds": stats.rebuilds, "evictions": stats.evictions,
+               "build_seconds": stats.build_seconds_millis as f64 / 1e3})
+    })
+}
+
+// ---------------------------------------------------------------------------
+// encoding (session 2)
+// ---------------------------------------------------------------------------
+
+fn encoding(args: &[String]) {
+    let sample: usize = args[0].parse().unwrap();
+    for file in &args[1..] {
+        let started = Instant::now();
+        let bytes = std::fs::read(file).unwrap();
+        let read_seconds = started.elapsed().as_secs_f64();
+        let started = Instant::now();
+        let summary = rustred::propagator::custom::inspect_custom_payload(&bytes).unwrap();
+        let inspect_seconds = started.elapsed().as_secs_f64();
+        let envelope = rustred::persistence::inspect_program(
+            &bytes,
+            rustred::persistence::BinaryIoLimits::default(),
+        )
+        .unwrap();
+        let sections: Vec<Value> = (envelope.sections().iter())
+            .map(|section| json!([format!("{:?}", section.tag), section.bytes.len()]))
+            .collect();
+        let before = rss().0;
+        let stats =
+            rustred::propagator::custom::custom_payload_coefficient_stats(&bytes, sample).unwrap();
+        let after = rss();
+        println!(
+            "{}",
+            json!({"file": file, "bytes": bytes.len(), "rules": summary.rules(), "sections": sections,
+                   "read_seconds": read_seconds, "inspect_seconds": inspect_seconds,
+                   "decode_seconds": stats.decode_seconds, "rss_after_decode_gb": after.0,
+                   "rss_before_decode_gb": before, "peak_gb": after.1,
+                   "coefficients": stats.coefficients, "numerator_terms": stats.numerator_terms,
+                   "denominator_terms": stats.denominator_terms,
+                   "max_numerator_degree": stats.max_numerator_degree,
+                   "max_denominator_degree": stats.max_denominator_degree,
+                   "sampled": stats.sampled, "sampled_expanded_digits": stats.sampled_expanded_digits,
+                   "sampled_factored_digits": stats.sampled_factored_digits,
+                   "sampled_expanded_terms": stats.sampled_expanded_terms,
+                   "sampled_factored_terms": stats.sampled_factored_terms,
+                   "sampled_factors": stats.sampled_factors, "factor_seconds": stats.factor_seconds})
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

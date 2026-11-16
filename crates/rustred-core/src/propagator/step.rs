@@ -22,6 +22,52 @@ pub trait PLaneStep: Send + Sync {
     fn order_key(&self, cx: &PStepContext<'_>, powers: &[i64]) -> Result<POrderKey, PError> {
         default_order_key(&cx.owner.spec, powers)
     }
+    /// boxed-node: `Some(inside)` for an owner whose table covers only a box
+    /// of its keys (a boxed Custom owner), `None` for every other owner. The
+    /// load-time descent check steps only witness keys inside the box.
+    fn box_contains(&self, _powers: &[i64]) -> Option<bool> {
+        None
+    }
+
+    /// t162-export: the node named by the box record of a boxed Custom owner
+    /// (`None` for every other owner).
+    fn boxed_node(&self) -> Option<&str> {
+        None
+    }
+
+    /// vk5l WP1: the box record of a boxed Custom owner (`None` for every
+    /// other owner); forwarded by an evictable (lazy) program, unlike
+    /// [`Self::boxed_node`].
+    fn boxed_record(&self) -> Option<std::sync::Arc<super::table_import::BoxedNodeRecord>> {
+        None
+    }
+
+    /// vk5l WP2: [`Self::boxed_record`] when it is known WITHOUT building
+    /// the program (a lazy program answers from its memory of an earlier
+    /// build, else `None`); every resident program answers as
+    /// [`Self::boxed_record`].
+    fn boxed_record_if_known(
+        &self,
+    ) -> Option<std::sync::Arc<super::table_import::BoxedNodeRecord>> {
+        self.boxed_record()
+    }
+
+    /// vk5l WP2: the size of a boxed owner's certified key set.
+    fn certified_keys(&self) -> Option<u64> {
+        None
+    }
+
+    /// vk5l WP2: one rule chain of a boxed Custom owner from `from` to `to`
+    /// (owner keys) through its rules and the recipe relations solved so far,
+    /// at most `budget` keys expanded (`None`: not found, or no such owner).
+    fn recipe_chain(
+        &self,
+        _from: &[i64],
+        _to: &[i64],
+        _budget: usize,
+    ) -> Option<Vec<super::recipes::PChainLink>> {
+        None
+    }
 }
 
 /// The entries of [`POrderKey::Lexicographic`].

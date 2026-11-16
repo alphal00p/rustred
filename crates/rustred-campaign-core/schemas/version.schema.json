@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "version.schema.json",
+  "title": "The line printed by `<program> version --json`",
+  "description": "AS BUILT: rustred_campaign_contract::VersionInfo (child-job.md 3.2.1). No `schema` field (detected by form).",
+  "x-rr-names": [],
+  "x-rr-owner": "I-ENG / package contract",
+  "x-rr-struct": "rustred_campaign_contract::VersionInfo",
+  "x-rr-freeze": "M0",
+  "type": "object",
+  "required": ["program", "package_version", "git_commit", "contract", "features", "job_kinds"],
+  "properties": {
+    "program": {"type": "string", "minLength": 1},
+    "package_version": {"type": "string"},
+    "git_commit": {"type": "string", "minLength": 1},
+    "contract": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "features": {"type": "array", "items": {"type": "string"}},
+    "job_kinds": {"type": "array", "items": {"$ref": "child-job-spec.schema.json#/$defs/job_kind"}},
+    "arities": {"type": "array", "items": {"$ref": "common.schema.json#/$defs/u32"}}
+  }
+}

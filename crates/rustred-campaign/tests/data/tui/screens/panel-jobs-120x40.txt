@@ -1,0 +1,40 @@
+rr_campaign  test-campaign  RUNNING  hb 2s  up 10m03s  seq 102  sessions 1  mode close  dir memory
+-[ Running jobs 1 ]---------------------------------------------------------------------------------------- q: back ----
+running 1 (no job list in the progress files; ledger fallback not available)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+arrows/PgUp/PgDn scroll  q back  q/Ctrl-C close viewer (campaign unaffected)

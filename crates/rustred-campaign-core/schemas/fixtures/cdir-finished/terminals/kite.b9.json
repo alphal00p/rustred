@@ -1,0 +1,62 @@
+{
+  "campaign_id": "fixture-finished",
+  "compatible_with": "p5l-terminals.v1",
+  "fixture_origin": "hand",
+  "nodes": [
+    {
+      "bound": 100,
+      "box": null,
+      "box_id": "kite.b9.box",
+      "certification": "pending",
+      "closure_kind": "boxed",
+      "graph": null,
+      "id": "kite.b9",
+      "keys_covered": 811,
+      "keys_in_box": 812,
+      "lane": "rr-campaign",
+      "provisional": true,
+      "reference": null,
+      "source": "campaign p5l-boxed-example (ledger seq 17550)",
+      "table": null,
+      "terminals": [
+        {
+          "drawing": {
+            "dots": {},
+            "numerators": [],
+            "pinched_lines": [],
+            "present_lines": [
+              0,
+              1,
+              2,
+              3,
+              4
+            ]
+          },
+          "evaluation_status": "unknown integral",
+          "frame": "census",
+          "id": "kite.b9:top",
+          "item": "kite.b9:I0004",
+          "key": [
+            1,
+            1,
+            1,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "label": "top sector",
+          "origin": "ladder_exhausted",
+          "presented_key": null,
+          "reason": "terminal_after_ladder"
+        }
+      ]
+    }
+  ],
+  "schema": "rustred.campaign.terminals.v1",
+  "seq": 97,
+  "source_of_truth": "ledger",
+  "written_utc": "2026-11-20T08:15:04Z"
+}

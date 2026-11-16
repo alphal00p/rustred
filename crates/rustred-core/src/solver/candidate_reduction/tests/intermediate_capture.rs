@@ -393,8 +393,8 @@ fn optional_factorized_intermediate_record_refusal_does_not_abort_a_cancelling_p
         .iter_mut()
         .skip(1)
     {
-        rule.rhs[0].coefficient = lifted.clone();
-        rule.rhs[0].denominator = denominator.clone();
+        rule.rhs[0].coefficient = lifted.clone().into();
+        rule.rhs[0].denominator = denominator.clone().into();
     }
     let mut ordinary = source.fork_empty();
     let (reference, guards, _) = ordinary

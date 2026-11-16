@@ -1,0 +1,286 @@
+{
+ "schema": "rustred.campaign.progress.v1",
+ "file": "campaign",
+ "fixture_origin": "hand",
+ "fixture_now_utc": "2026-11-20T08:25:10.000Z",
+ "campaign_id": "p5l-boxed-final",
+ "written_utc": "2026-11-20T08:15:04.000Z",
+ "source_of_truth": "ledger",
+ "ledger": {
+  "seq": 18402,
+  "head": "5d1fe2aa00000000000000000000000000000000000000000000000000000000",
+  "last_utc": "2026-11-20T08:15:03.250Z"
+ },
+ "campaign": {
+  "phase": "running",
+  "created_utc": "2026-11-19T04:03:10.000Z",
+  "spec_blake3": "27b4a909df84b7e16dfa4e36bd17e1b64b67f2e1dd9e56ee3397c549e2955d79",
+  "sessions": 2,
+  "crash_recoveries": 0,
+  "lock_takeovers": 0,
+  "torn_tail_recoveries": 0,
+  "segments_opened": 1,
+  "pending_operations": 1,
+  "unsettled_jobs": 0
+ },
+ "resources": {
+  "cpus_allowed": 32,
+  "cpus_in_use": 21,
+  "host_floor_bytes": 53687091200,
+  "host_mem_available_bytes": 64424509440,
+  "live_jobs": 21,
+  "measured_rss_bytes": 10522669875,
+  "mem_cap_bytes": 32212254720,
+  "reserved_bytes": 23622320128,
+  "sampled_utc": "2026-11-20T08:15:04.000Z"
+ },
+ "jobs": {
+  "total": 1904,
+  "reserved_bytes_running": 23622320128,
+  "by_state": {
+   "queued": 4,
+   "launching": 0,
+   "running": 21,
+   "succeeded_sealed": 1801,
+   "failed": 3,
+   "budget_stopped": 61,
+   "interrupted": 12,
+   "lost": 0,
+   "cancelled": 2
+  },
+  "settled_by_class": {
+   "rule_found": 1290,
+   "complete": 311,
+   "no_rule": 200,
+   "spill": 40,
+   "killed_time": 18,
+   "killed_memory": 3,
+   "crashed": 3
+  }
+ },
+ "nodes": {
+  "total": 1,
+  "by_closure": {
+   "full": 0,
+   "boxed": 1,
+   "open": 0
+  },
+  "certified": 0,
+  "by_phase": {
+   "registered": 0,
+   "running": 0,
+   "closure_check": 0,
+   "closed": 1,
+   "certified": 0,
+   "open": 0,
+   "stale": 0
+  }
+ },
+ "economy": {
+  "rules_before": 3402,
+  "rules_after": 3120,
+  "retired": 282,
+  "before": {
+   "bytes": 912000000,
+   "cases": 3402,
+   "coefficient_degree": 22,
+   "monomials": 9100000,
+   "rhs_terms": 2310455,
+   "rules": 3402
+  },
+  "after": {
+   "bytes": 801000000,
+   "cases": 3120,
+   "coefficient_degree": 22,
+   "monomials": 8200000,
+   "rhs_terms": 2093318,
+   "rules": 3120
+  }
+ },
+ "items": {
+  "total": 1640,
+  "by_phase": {
+   "open": 165,
+   "in_progress": 21,
+   "produced": 3,
+   "accepted": 1144,
+   "rejected": 31,
+   "escalated": 210,
+   "terminal_candidate": 2,
+   "terminal": 3,
+   "stale": 4,
+   "retired": 57
+  },
+  "by_level": {
+   "L0": {
+    "open": 97,
+    "in_progress": 9,
+    "produced": 3,
+    "accepted": 740,
+    "rejected": 12,
+    "escalated": 120,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 4,
+    "retired": 40
+   },
+   "L1": {
+    "open": 38,
+    "in_progress": 6,
+    "produced": 0,
+    "accepted": 210,
+    "rejected": 9,
+    "escalated": 61,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 12
+   },
+   "L2": {
+    "open": 17,
+    "in_progress": 4,
+    "produced": 0,
+    "accepted": 151,
+    "rejected": 6,
+    "escalated": 22,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 5
+   },
+   "L3": {
+    "open": 2,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 24,
+    "rejected": 1,
+    "escalated": 6,
+    "terminal_candidate": 0,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   },
+   "L4": {
+    "open": 11,
+    "in_progress": 2,
+    "produced": 0,
+    "accepted": 19,
+    "rejected": 3,
+    "escalated": 1,
+    "terminal_candidate": 2,
+    "terminal": 0,
+    "stale": 0,
+    "retired": 0
+   },
+   "L5": {
+    "open": 0,
+    "in_progress": 0,
+    "produced": 0,
+    "accepted": 0,
+    "rejected": 0,
+    "escalated": 0,
+    "terminal_candidate": 0,
+    "terminal": 3,
+    "stale": 0,
+    "retired": 0
+   }
+  }
+ },
+ "rules": {
+  "accepted": 1201,
+  "rejected": 31,
+  "upgrades": 640,
+  "rejected_by_reason": {
+   "rule_covers_none": 5,
+   "irregular_point": 3,
+   "exception_unknown": 2,
+   "cert_failed": 2,
+   "other": 19
+  },
+  "accepted_items_by_evidence": {
+   "geometry_accepted": 61,
+   "identity_tested": 96,
+   "identity_proved": 987
+  }
+ },
+ "terminals": {
+  "declared": 3,
+  "candidates": 2,
+  "bound_per_node_default": 100
+ },
+ "certified": {
+  "share": 0.863,
+  "identity_proved": 987,
+  "accepted": 1144,
+  "basis": "accepted items at identity_proved / all accepted items"
+ },
+ "closure": {
+  "defect_keys": 0,
+  "nodes_checked": 1,
+  "nodes_with_defect": 0
+ },
+ "cost": {
+  "cpu_seconds": 221040.0,
+  "by_level": {
+   "L0": {
+    "jobs": 1001,
+    "cpu_seconds": 41041.0,
+    "p25_s": 22.0,
+    "p50_s": 41.0,
+    "p75_s": 77.0
+   },
+   "L1": {
+    "jobs": 288,
+    "cpu_seconds": 27648.0,
+    "p25_s": 51.0,
+    "p50_s": 96.0,
+    "p75_s": 210.0
+   },
+   "L2": {
+    "jobs": 184,
+    "cpu_seconds": 6992.0,
+    "p25_s": 20.0,
+    "p50_s": 38.0,
+    "p75_s": 49.0
+   },
+   "L3": {
+    "jobs": 31,
+    "cpu_seconds": 4340.0,
+    "p25_s": 90.0,
+    "p50_s": 140.0,
+    "p75_s": 160.0
+   },
+   "L4": {
+    "jobs": 25,
+    "cpu_seconds": 5250.0,
+    "p25_s": 133.0,
+    "p50_s": 210.0,
+    "p75_s": 1787.0
+   }
+  }
+ },
+ "eta": {
+  "estimator": "sum over levels of remaining items (open + in_progress) x CPU-seconds quantile (p25 / p50 / p75) of finished jobs at that level, divided by live parallelism",
+  "remaining_items": 186,
+  "by_level": {},
+  "cpu_seconds": {
+   "low": 64800.0,
+   "mid": 120000.0,
+   "high": 198000.0
+  },
+  "wall_seconds": {
+   "low": 3240.0,
+   "mid": 6000.0,
+   "high": 9360.0
+  },
+  "parallelism": 21,
+  "pooled_levels": [],
+  "reason": null
+ },
+ "files": {"jobs": "jobs.json", "heartbeat": "heartbeat.json", 
+  "events": "events.json",
+  "nodes": {
+   "T162": "nodes/T162.json"
+  }
+ }
+}

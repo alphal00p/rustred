@@ -59,7 +59,8 @@ use rustred::propagator::custom::inspect_custom_payload;
 use rustred::propagator::descent;
 use rustred::propagator::error::PError;
 use rustred::propagator::families::PFamiliesFile;
-use rustred::propagator::library::{PLibrary, POwnerSpec};
+use rustred::propagator::library::{OwnerProgram, PLibrary, POwnerSpec};
+use rustred::propagator::payload_cache::{PPayloadCheck, PPayloadFile};
 use rustred::propagator::presentation::{Presentation, PresentationKind};
 use rustred::propagator::programs::CustomPayloadRef;
 use rustred::propagator::{
@@ -69,9 +70,9 @@ use rustred::propagator::{
 
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CountsRecord, FAMILIES_FILE, LAYER_FILE, LIBRARY_FILE,
-    LaneRecord, LibraryManifest, OwnerRecord, SYMBOLICA_SAVE_FORMAT, TOPOLOGY_FILE, TerminalRecord,
-    check_save_format, decode_census, decode_family_file, decode_topology, family_file, malformed,
-    owner_file,
+    LaneRecord, LibraryManifest, OwnerRecord, P_OPEN_NODE_RECORD_VERSION, SYMBOLICA_SAVE_FORMAT,
+    TOPOLOGY_FILE, TerminalRecord, check_save_format, decode_census, decode_family_file,
+    decode_payload_file, decode_topology, family_file, malformed, owner_file,
 };
 use super::generate::CustomOwnerPayload;
 use super::ordering::{ORBITS_FILE, ORDERING_FILE, ROUTES_FILE, read_ordering};
@@ -241,8 +242,96 @@ fn owner_payload(files: &Files<'_>, owner: &OwnerRecord) -> Result<Option<Arc<[u
         )));
     }
     let bytes = files.read_sized(&payload.file, payload.bytes)?;
+    let bytes = match payload.encoding.as_deref() {
+        None => bytes,
+        encoding => Cow::Owned(decode_payload_file(
+            encoding,
+            bytes.into_owned(),
+            &payload.file,
+        )?),
+    };
     check_save_format(payload_save_format(&bytes, &payload.file)?, &payload.file)?;
     Ok(Some(Arc::from(bytes.as_ref())))
+}
+
+/// p5l-library session 2: payloads read on use. `RUSTRED_P_LAZY_PAYLOADS`:
+/// `on`, `off`, or `auto` (the default: on for a package directory whose scope
+/// reaches 5 loops). The package load then only checks each payload file's
+/// length; its structural check ([`check_payload`]) runs on its first read.
+fn lazy_payloads(source: &PLibrarySource, max_loops: u8) -> bool {
+    if !matches!(source, PLibrarySource::Directory(_)) {
+        return false;
+    }
+    match std::env::var("RUSTRED_P_LAZY_PAYLOADS").as_deref() {
+        Ok("on") | Ok("1") => true,
+        Ok("off") | Ok("0") => false,
+        _ => max_loops >= 5,
+    }
+}
+
+/// [`owner_payload`] read on use: the file's length now, the save format and
+/// [`check_payload`] on its first read.
+fn owner_payload_lazy(
+    directory: &std::path::Path,
+    owner: &OwnerRecord,
+    terminals: &[TerminalRecord],
+    fingerprint: Option<&str>,
+) -> Result<Option<CustomPayloadRef>, PError> {
+    check_owner_record(owner)?;
+    let Some(payload) = &owner.payload else {
+        return Ok(None);
+    };
+    let expected = owner_file(&owner.class)?;
+    if payload.file != expected {
+        return Err(malformed(format!(
+            "the payload of {} is {}, not {expected}",
+            owner.class, payload.file
+        )));
+    }
+    Files::check_name(&payload.file)?;
+    let path = directory.join(&payload.file);
+    let length = std::fs::metadata(&path)
+        .map_err(|error| malformed(format!("reading {}: {error}", path.display())))?
+        .len();
+    if length != payload.bytes {
+        return Err(malformed(format!(
+            "{} has {length} bytes, library.json records {}",
+            payload.file, payload.bytes
+        )));
+    }
+    let record = owner.clone();
+    let named = named_residuals(owner, terminals);
+    let fingerprint = fingerprint.map(str::to_owned);
+    let file = payload.file.clone();
+    let check: PPayloadCheck = Arc::new(move |bytes: &[u8]| {
+        check_save_format(payload_save_format(bytes, &file)?, &file)?;
+        check_payload_named(&record, bytes, named.clone(), fingerprint.as_deref())
+    });
+    let file = match payload.encoding.clone() {
+        None => PPayloadFile::new(path, payload.bytes, Some(check)),
+        Some(encoding) => {
+            let what = payload.file.clone();
+            PPayloadFile::with_decode(
+                path,
+                payload.bytes,
+                Some(check),
+                Arc::new(move |stored| decode_payload_file(Some(&encoding), stored, &what)),
+            )
+        }
+    };
+    Ok(Some(CustomPayloadRef::File(Arc::new(file))))
+}
+
+/// The residual keys of `owner` among the package terminals.
+fn named_residuals(owner: &OwnerRecord, terminals: &[TerminalRecord]) -> Vec<Vec<i64>> {
+    (owner.terminals.iter())
+        .filter_map(|&id| match terminals.get(id as usize) {
+            Some(TerminalRecord::Residual { owner: class, key }) if *class == owner.class => {
+                Some(key.clone())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// A payload is the one its record describes: its structure (charts,
@@ -253,6 +342,16 @@ fn check_payload(
     owner: &OwnerRecord,
     bytes: &[u8],
     terminals: &[TerminalRecord],
+    fingerprint: Option<&str>,
+) -> Result<(), PError> {
+    check_payload_named(owner, bytes, named_residuals(owner, terminals), fingerprint)
+}
+
+/// [`check_payload`] with the owner's residual terminals already named.
+fn check_payload_named(
+    owner: &OwnerRecord,
+    bytes: &[u8],
+    mut named: Vec<Vec<i64>>,
     fingerprint: Option<&str>,
 ) -> Result<(), PError> {
     let summary = inspect_custom_payload(bytes)?;
@@ -284,14 +383,6 @@ fn check_payload(
             owner.class, owner.presentation
         )));
     }
-    let mut named: Vec<Vec<i64>> = (owner.terminals.iter())
-        .filter_map(|&id| match terminals.get(id as usize) {
-            Some(TerminalRecord::Residual { owner: class, key }) if *class == owner.class => {
-                Some(key.clone())
-            }
-            _ => None,
-        })
-        .collect();
     let mut residuals = summary.residual_keys();
     named.sort_unstable();
     residuals.sort_unstable();
@@ -724,6 +815,59 @@ fn check_layer_derivation(library: &PLibrary, layer: &PBasisLayer) -> Result<(),
     Ok(())
 }
 
+/// vk5l WP4: the optional sidecar of a package directory that declares nodes
+/// NOT CLOSED (plan VK5L §3.6, decision Q8; the package format record is WP6):
+/// `{"schema": "rustred.p-open-nodes.v1", "nodes": [{"class": "<owner class
+/// label of library.json>", "node": "T266", "status": "stuck: not closed"}]}`.
+/// A key reaching such a class is `PError::NodeNotClosed` naming the node.
+pub const OPEN_NODES_FILE: &str = "open-nodes.json";
+/// The schema (version constant) of [`OPEN_NODES_FILE`].
+pub const P_OPEN_NODES_SCHEMA: &str = "rustred.p-open-nodes.v1";
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenNodesFile {
+    schema: String,
+    nodes: Vec<OpenNodeRecord>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OpenNodeRecord {
+    class: String,
+    node: String,
+    status: String,
+}
+
+/// The records of [`OPEN_NODES_FILE`] as (class, node, status); an unknown
+/// schema or class label is refused.
+fn read_open_nodes(
+    bytes: &[u8],
+    classes: &BTreeMap<String, OwnerClassId>,
+) -> Result<Vec<(OwnerClassId, String, String)>, PError> {
+    let file: OpenNodesFile = serde_json::from_slice(bytes)
+        .map_err(|error| malformed(format!("{OPEN_NODES_FILE}: {error}")))?;
+    if file.schema != P_OPEN_NODES_SCHEMA {
+        return Err(PError::VersionMismatch {
+            name: "P_OPEN_NODES_SCHEMA".to_owned(),
+            found: file.schema,
+            expected: P_OPEN_NODES_SCHEMA.to_owned(),
+        });
+    }
+    file.nodes
+        .into_iter()
+        .map(|record| {
+            let class = *classes.get(&record.class).ok_or_else(|| {
+                malformed(format!(
+                    "{OPEN_NODES_FILE}: the node {} names {}, no class of the census",
+                    record.node, record.class
+                ))
+            })?;
+            Ok((class, record.node, record.status))
+        })
+        .collect()
+}
+
 /// Load a written p library, failing closed: see the module docs.
 pub fn load_p_library(
     source: PLibrarySource,
@@ -804,7 +948,51 @@ pub fn load_p_library(
             )));
         }
     }
+    // vk5l WP6: the nodes the package declares not closed.
+    let mut open: BTreeMap<OwnerClassId, (String, String)> = BTreeMap::new();
+    for record in &manifest.open_nodes {
+        if record.version != P_OPEN_NODE_RECORD_VERSION {
+            return Err(version_mismatch(
+                "P_OPEN_NODE_RECORD_VERSION",
+                record.version.to_string(),
+                P_OPEN_NODE_RECORD_VERSION.to_string(),
+            ));
+        }
+        let class = *classes.get(&record.class).ok_or_else(|| {
+            malformed(format!(
+                "the open node {} names the class {}, not in the census",
+                record.node, record.class
+            ))
+        })?;
+        let owner = manifest
+            .owners
+            .iter()
+            .find(|owner| owner.class == record.class);
+        match owner {
+            Some(owner)
+                if owner.lane == LaneRecord::Custom
+                    && owner.payload.is_none()
+                    && owner.custom.is_none()
+                    && owner.terminals.is_empty() => {}
+            _ => {
+                return Err(malformed(format!(
+                    "the open node {} ({}) needs a Custom owner without payload or terminals",
+                    record.node, record.class
+                )));
+            }
+        }
+        if open
+            .insert(class, (record.node.clone(), record.status.clone()))
+            .is_some()
+        {
+            return Err(malformed(format!(
+                "the open node {} is listed twice",
+                record.node
+            )));
+        }
+    }
     let mut owners = Vec::with_capacity(manifest.owners.len());
+    let lazy = lazy_payloads(&source, last);
     for record in &manifest.owners {
         let class = *classes.get(&record.class).ok_or_else(|| {
             malformed(format!(
@@ -812,18 +1000,34 @@ pub fn load_p_library(
                 record.class
             ))
         })?;
-        let payload = owner_payload(&files, record)?;
-        if let Some(bytes) = &payload {
-            let fingerprint = fingerprints
+        let fingerprint = || {
+            fingerprints
                 .get(record.presentation as usize)
                 .ok_or_else(|| {
                     malformed(format!(
                         "the owner {} is on the unknown presentation {}",
                         record.class, record.presentation
                     ))
-                })?;
-            check_payload(record, bytes, &manifest.terminals, Some(fingerprint))?;
-        }
+                })
+                .map(String::as_str)
+        };
+        let payload = match &source {
+            PLibrarySource::Directory(directory) if lazy => {
+                let fingerprint = if record.payload.is_some() {
+                    Some(fingerprint()?)
+                } else {
+                    None
+                };
+                owner_payload_lazy(directory, record, &manifest.terminals, fingerprint)?
+            }
+            _ => {
+                let payload = owner_payload(&files, record)?;
+                if let Some(bytes) = &payload {
+                    check_payload(record, bytes, &manifest.terminals, Some(fingerprint()?))?;
+                }
+                payload.map(CustomPayloadRef::Bytes)
+            }
+        };
         owners.push(POwnerSpec {
             class,
             lane: record.lane.lane(),
@@ -831,14 +1035,21 @@ pub fn load_p_library(
             node: record.node.map(NodeIndex),
             roles: record.roles.roles(),
             edge_maps: record.edge_maps.clone(),
-            payload: payload.map(CustomPayloadRef::Bytes),
+            payload,
             custom: record.custom.as_ref().map(|custom| custom.meta()),
             terminals: record.terminals.iter().map(|&id| PTerminalId(id)).collect(),
         });
     }
     builder.set_census(census)?;
     for owner in owners {
-        builder.add_owner(owner)?;
+        if open.contains_key(&owner.class) {
+            builder.add_owner_with_program(owner, OwnerProgram::Missing { ledger: 0 })?;
+        } else {
+            builder.add_owner(owner)?;
+        }
+    }
+    for (class, (node, status)) in &open {
+        builder.declare_open_node(*class, node, status)?;
     }
     if let Some(layer) = &layer {
         builder.set_basis_map(Arc::new(layer.clone()))?;
@@ -868,6 +1079,15 @@ pub fn load_p_library(
             builder.set_saved_orbits(PSavedOrbits::decode(&files.read(ORBITS_FILE)?)?);
         }
     }
+    // vk5l WP4: nodes the package declares NOT CLOSED (optional sidecar
+    // `open-nodes.json`; not part of the identity: such a key never reduces).
+    if let PLibrarySource::Directory(directory) = &source
+        && directory.join(OPEN_NODES_FILE).is_file()
+    {
+        for (class, node, status) in read_open_nodes(&files.read(OPEN_NODES_FILE)?, &classes)? {
+            builder.declare_open_node(class, &node, &status)?;
+        }
+    }
     // p5l-library-6: a content revision recorded as the last part of the
     // identity (`,P_PACKAGE_REVISION=<name>`) joins the library's identity.
     if let Some((_, name)) = manifest.identity.rsplit_once(&format!(
@@ -893,6 +1113,14 @@ pub fn load_p_library(
             library.identity()
         )));
     }
+    // b7-schemeload: the identity equals this binary's (checked above); a
+    // revisioned package of this P_SCHEME_TEMPLATE_VERSION trusts the Scheme
+    // certificates (verified at its gate) unless this is the verified load.
+    if !options.verify_descent
+        && rustred::propagator::scheme::package_trusts_scheme_certificates(&manifest.identity)
+    {
+        library.set_scheme_certificates_trusted(true);
+    }
     if counts_of(&library, families_file.families.len()) != manifest.counts {
         return Err(malformed(format!(
             "{LIBRARY_FILE}: the counts disagree with the files"
@@ -909,6 +1137,10 @@ pub fn load_p_library(
         if let Some(layer) = &layer {
             check_layer_derivation(&library, layer)?;
         }
+    }
+    // vk5l WP1: the package directory of a typed refusal's reproduction line.
+    if let PLibrarySource::Directory(directory) = &source {
+        library.set_source(directory.display().to_string());
     }
     Ok(Arc::new(library))
 }

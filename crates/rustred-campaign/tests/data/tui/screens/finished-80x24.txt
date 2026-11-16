@@ -1,0 +1,24 @@
+rr_campaign  p5l-boxed-final  FINISHED  hb 2s  age 8d06h  seq 91,233  sessions 4
+NODES 3  FULL 0  BOXED 3  OPEN 0  items done ########## 100% (1,634 of 1,634)
+ETA: finished  cpu-h 417.0 used
+NEXT  nothing needs you
+CPU 0/32 in use   jobs 0 running   RAM 0.0/30.0 GiB (0.0 reserved)
+CERTIFIED at the level asked: 2 of 3 nodes; rules: 1,002 per-key, 0 pending
+ITEMS 1,634  open 0  run 0  acc 1,333  esc 241  rej 0  term 3  stale 0
+RULES accepted 1,201  rejected 31  DEFECT 0 keys (0/3 checked nodes)
+-[ Nodes (3) ]--------------------------------------------- Tab: next table ----
+node coverage           cert asked/got  open  term defect  rules  used%
+T162 [BOXED T162.rstar] per-key/per-key    0 2/100      0  1,308  42.5%
+T178 [BOXED T178.rstar] per-key/per-key    0 1/100      0  1,381  23.3%
+T266 [BOXED T266.rstar] per-key/-          0 2/100      0 12,658  37.6%
+-[ Recent events ]-------------------------------------------------- e: all ----
+10:59:59 .    campaign finished
+10:59:58 box  T178: certified (boxed)
+10:40:00 box  T266: closed (boxed), defect 0 of 13951428 keys
+08:15:02 ok   T178 F012: evidence -> identity_proved
+08:14:55 ok   T178 F087: rule T178:R:campaign:640 accepted (identity_proved), d~
+08:14:31 esc  T178 F019: escalated to L2 (rule_covers_none)
+08:14:10 FAIL T178 F044: rejected (irregular_point)
+
+
+Tab table  n/N node  Enter detail  a attention(0)  ?help  q/Ctrl-C close viewer~

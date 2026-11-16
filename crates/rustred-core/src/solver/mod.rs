@@ -22,6 +22,7 @@ mod instantiate;
 pub mod litered;
 mod numeric;
 mod precondition;
+pub mod region_probe;
 mod row;
 mod search;
 mod sector;
@@ -122,13 +123,13 @@ pub use execution::{
 };
 pub use geometry::GeometryError;
 pub use index::{Integral, IntegralOrder, Power, PowerError};
-pub use numeric::{NumericResult, NumericStats, NumericalExactBackend};
+pub use numeric::{NumericResult, NumericStats, NumericalExactBackend, SYMMETRY_ROW};
 pub(crate) use precondition::PreconditionProvenance;
 pub use precondition::{precondition, precondition_with_variable_order};
 pub use row::{ExactRow, PolynomialRow, Row, Term};
 pub use search::{
-    RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig, SectorSolver, SeedSource,
-    StudyRow, TraceStudy,
+    ProofCapture, RuleCandidate, SearchEvent, SearchOptions, SearchStats, SectorConfig,
+    SectorSolver, SeedSource, StudyRow, TraceStudy, with_proof_capture,
 };
 pub use sector::{
     CaseQueue, CaseQueueEvent, CaseQueueSolution, CaseQueueStats, CoverRule, DeferredExitScan,
@@ -142,7 +143,10 @@ pub use sector::{
     RuleSelectionPolicy, RuleSelectionStats, RuleTrialBudget, RuleTrialDescriptor, RuleTrialLimits,
     RuleTrialOutcome, RuleTrialStats, RuleTrialSummary,
 };
-pub use seed::{CaseSeedSchedule, ScheduledSeeds, Seed, SeedSchedule, Seeds, ShellSeedSource};
+pub use seed::{
+    CaseSeedSchedule, ScheduledSeeds, Seed, SeedLayerCap, SeedRecipe, SeedSchedule, Seeds,
+    ShellSeedSource, explicit_seeds, seed_recipe_override, with_explicit_seeds, with_seed_recipe,
+};
 pub use source::SourceSystem;
 pub use table_export::{BasisDerivation, FrameEntry, OriginalEntry, RuleFrame};
 

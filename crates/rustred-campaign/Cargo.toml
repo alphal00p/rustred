@@ -1,0 +1,24 @@
+[package]
+name = "rustred-campaign"
+version.workspace = true
+authors.workspace = true
+edition = "2024"
+rust-version = "1.89"
+description = "Supervisor of the automatic node campaign: ledger, job state machines, child processes, progress files (no engine linkage)"
+license = "MIT"
+
+[lib]
+name = "rustred_campaign"
+path = "src/lib.rs"
+
+# Deliberately dependency-light: no rustred core, no Symbolica.
+[dependencies]
+rustred-campaign-contract = { path = "../rustred-campaign-contract" }
+rustred-campaign-core = { path = "../rustred-campaign-core" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+blake3 = "1"
+libc = "0.2"
+signal-hook = "0.3"
+crossterm = "0.28"
+ratatui = { version = "0.29", default-features = false, features = ["crossterm"] }

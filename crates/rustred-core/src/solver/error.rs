@@ -33,6 +33,9 @@ pub enum SolverError {
     /// off its expected count after growth, or an unstable system), now or
     /// earlier in the same session.
     MasterCheck(String),
+    /// The region probe refused to place the discovery point on the run's region (region-restricted runs only;
+    /// `solver::region_probe::RegionRefusal`, e.g. a quotient ring above its cap).
+    RegionPoint(String),
 }
 
 impl fmt::Display for SolverError {
@@ -62,6 +65,7 @@ impl fmt::Display for SolverError {
                 write!(f, "sector-box seeding invariant violated: {message}")
             }
             Self::MasterCheck(message) => write!(f, "sector-box master check failed: {message}"),
+            Self::RegionPoint(message) => write!(f, "region point not placed: {message}"),
         }
     }
 }

@@ -1,0 +1,161 @@
+{
+  "complete": false,
+  "rules": 1,
+  "job": {
+    "schema": "rustred.child-job.outcome.v1",
+    "job_id": "a71d0c9e",
+    "attempt": 1,
+    "kind": "generate",
+    "spec_blake3": "0000000000000000000000000000000000000000000000000000000000000000",
+    "status": "incomplete",
+    "exit_code": 10,
+    "stop": {
+      "code": "max_cases",
+      "detail": null,
+      "source": null,
+      "graceful": true
+    },
+    "program": {
+      "name": "rr_node",
+      "version": "0.1.0",
+      "git_commit": "unknown",
+      "features": [
+        "initial_presented"
+      ],
+      "exe": {
+        "path": "/abs/bin/rr_node",
+        "dev": 64769,
+        "ino": 1234,
+        "size": 98765432,
+        "mtime": 1794614400
+      }
+    },
+    "effective": {
+      "subcommand": "generate",
+      "args": [
+        "--order",
+        "{\"name\":\"phys_swap_0_3_rot7\"}",
+        "--symmetry-rows"
+      ],
+      "node_options": {
+        "max_rule_monomials": 1000000
+      },
+      "order": {
+        "name": "phys_swap_0_3_rot7"
+      },
+      "env": {
+        "SYMBOLICA_LICENSE": "<present>"
+      },
+      "blake3": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "seed": {
+      "sample_seed": 0,
+      "point_source": "seed"
+    },
+    "inputs": [
+      {
+        "role": "family",
+        "path": "/abs/T162.sym",
+        "bytes": 4242,
+        "blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+        "verified": true
+      }
+    ],
+    "counters": {
+      "cases": 1,
+      "seeds": 40000,
+      "rows": 900000,
+      "probe_evals": 0,
+      "reducer_rows": 0,
+      "trace_rows_max": 0,
+      "lift_monomials": 0,
+      "rhs_terms": 0,
+      "numeric_points": 0,
+      "rules_committed": 1
+    },
+    "budgets": {
+      "work": {
+        "cases": 1,
+        "seeds_per_case": 200000,
+        "rows_per_case": null,
+        "probe_evals_per_case": null,
+        "trace_rows_max": null
+      },
+      "wall": {
+        "case_s": 300,
+        "job_s": 10800
+      },
+      "mem_soft_bytes": 4500000000,
+      "hit": null
+    },
+    "time_decisions": [],
+    "time_decided": false,
+    "per_case": [
+      {
+        "ordinal": 0,
+        "case": {
+          "fixed": [
+            1,
+            null
+          ],
+          "frame": "PRESENTED"
+        },
+        "result": "rule",
+        "rule": 0,
+        "children_open": 3
+      }
+    ],
+    "outputs": {
+      "table": {
+        "path": "out/F.table.jsonl",
+        "bytes": 10,
+        "blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+        "records": 2,
+        "rules": 0,
+        "rules_committed": 0,
+        "committed_bytes": 0,
+        "prefix_blake3": null,
+        "sealed": true,
+        "end": "partial",
+        "canonical_blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+        "witness_loci_elided": 0
+      },
+      "cert": null,
+      "queue": {
+        "bytes": 300
+      },
+      "events": {
+        "last_seq": 41
+      },
+      "resume": {
+        "path": "RESUME.json",
+        "valid": true
+      },
+      "extra": [
+        {
+          "role": "witness",
+          "path": "out/WITNESS.jsonl",
+          "bytes": 10,
+          "blake3": "0000000000000000000000000000000000000000000000000000000000000000",
+          "records": 2,
+          "canonical_blake3": "1111111111111111111111111111111111111111111111111111111111111111",
+          "end": "end",
+          "sealed": true
+        }
+      ]
+    },
+    "timing": {
+      "started_utc": "2026-11-13T23:00:00.000Z",
+      "finished_utc": "2026-11-13T23:00:18.100Z",
+      "wall_s": 18.1,
+      "cpu_s": 17.4
+    },
+    "memory": {
+      "vmhwm_kb": 431000,
+      "rss_kb_at_end": 400000,
+      "helpers_peak_rss_kb": 0
+    },
+    "error": null,
+    "resumed": false
+  }
+}

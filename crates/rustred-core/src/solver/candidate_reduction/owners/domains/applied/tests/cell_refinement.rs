@@ -183,7 +183,7 @@ fn application_cell_refinement_keeps_original_denominators_and_child_validity() 
     let mut p = fixture();
     let c = p.context.coefficient_context().clone();
     let mut r = rule(0, vec![term(&c, [-1, 0, 0], c.integer(1))]);
-    r.rhs[0].denominator = poly(&c, &c.sub(&c.index(0).unwrap(), &c.integer(3)).unwrap());
+    r.rhs[0].denominator = poly(&c, &c.sub(&c.index(0).unwrap(), &c.integer(3)).unwrap()).into();
     batch(&mut p).rules = vec![r];
     let (out, stats) = run(&p, [1, 0, 0], [Some(3), Some(0), Some(0)], refined(3));
     assert!(

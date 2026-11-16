@@ -8,10 +8,13 @@
 //!   whole node;
 //! * [`domain`]: integer domain of a queued case (empty / finite / infinite) before any lift;
 //! * [`predict`]: the depth-1 oracle (IBP rows at radius 1, mod p) and the order predictor of one node from its cases;
+//! * [`domaincheck`]: the engine's own rule matcher key by key (EC-15, read-only; `rr_node domaincheck`);
 //! * [`descent`]: strict-descent check of an assembled rule set under its one declared order;
 //! * [`mastermap`]: table reduction at exact / symbolic `d` and exact old <-> new master maps of a node (with an
 //!   independent Laporta and a few-integral cross-check);
 //! * [`symmasters`]: masters modulo the node's symmetry group (IBP + exact symmetry rows, trace certificate);
+//! * [`symmetry`]: the chart's authenticated automorphism group and symmetry rules (sym-gen, default off);
+//! * [`recipe`]: recipe rules (R48): solve an explicit seed recipe at integer keys, deterministically, exact proof;
 //! * [`replay`]: the independent numeric replay of a table (P61, three values of d, all physical columns, independent
 //!   IBP-span witness, mutation control), semantics of Astra's `p5l-replay.v1`.
 //!
@@ -22,12 +25,22 @@
 
 pub mod affine;
 pub mod auto;
+pub mod bounds;
+pub mod childjob;
+pub mod choice;
 pub mod descent;
 pub mod domain;
+pub mod domaincheck;
 pub mod driver;
 pub mod mastermap;
 pub mod order;
 pub mod predict;
+pub mod recipe;
+pub mod recipe_job;
+pub mod records;
+pub mod registry;
 pub mod replay;
 pub mod screen;
+pub mod symface;
 pub mod symmasters;
+pub mod symmetry;

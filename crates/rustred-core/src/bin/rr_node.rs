@@ -8,16 +8,28 @@
 //!                  [--symfirst-from-rows R|none] [--sampled-budget S] [--max-box K] [--min-target-block K] [--sampled-threads K]
 //!                  [--case-seed-priority symbolic-isp-first|affine-coupled-first] [--affine-rung]
 //!                  [--max-rule-monomials K|none] [--fallback-rule-monomials K|none] [--fallback-after K] [--no-refused-bank]
-//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE --unsafe-shared-registry]
+//!                  [--adopt-bank F.refused.jsonl]... [--union-cover-depth K] [--registry DIR:PIECE [--unsafe-shared-registry]] [--no-registry-lease]
+//!                  [--lease-wait S] [--pool DIR] [--open-on-refusal] [--initial-presented CASES.json] [--case-seed-rung JSON] [--slim-rules]
 //!                  [--seed-schedule spired|symfirst] [--case-seed-schedule JSON] [--no-symbolic-first-rung] [--no-empty-domain-check] [--pose-probe PROBES.jsonl]
 //!                  [--seed-pose-rung [--seed-pose-keep C] [--seed-pose-trigger C|none] [--seed-pose-min-rows R]
 //!                   [--seed-pose-fixed-dot K] [--seed-pose-fixed-dot-lines K] [--seed-pose-fixed-dot-seeds M]
 //!                   [--seed-pose-fixed-dot-first] [--seed-pose-fixed-dot-no-static-skip]]
 //!                  [--case-budget S] [--max-attempts K] [--attempt-cap S] [--probe-cap S] [--probe-depth K]
 //!                  [--probe-fallback-depth K|none] [--probe-parallel P] [--probe-portfolio K] [--probe-follow-on K]
-//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--known-terminals FILE] [--numeric-depth K] [--numeric-depth-max K]
+//!                  [--cover PATH:UPTO]... [--cand-dump] [--strict-numeric-search] [--numeric-depth K] [--numeric-depth-max K]
 //!                  [--stop-before-numeric]   (finish symbolic work; numeric endpoints stay OPEN, never searched)
 //!                  [--no-witness-guards]   (A/B only: drop the source-weight-pole guards, table guard_version 1)
+//!                  [--known-terminals FILE]   (Astra: declared masters, never searched; with --registry: refused)
+//!                  [--symmetry] [--symmetry-rows] [--symmetry-symbolic]
+//!                  [--seed-centre-offset 'SLOT:DELTA[,..][;SLOT:DELTA[,..]]..'] [--seed-face-floor K]   (seed-centre: shells
+//!                  around target + offset, ';' = several centres, seed set = union; per case "seed_centre_offset":[..] or
+//!                  [[..],..] in --initial-presented; drop seeds below target - K on a face line; default off)
+//! rr_node symmetry --family F.sym [--chart MASK]   (authenticated automorphism group of the chart, JSON)
+//! rr_node first-match --table T (--key K,.. | --keys FILE)   (first applicable rule per key, table reducer dispatch)
+//! rr_node solve-recipe --family F.sym --order JSON|NAME --recipe RECIPE.json (--keys KEYS.jsonl | --key K,..) --out DIR
+//!                  [--threads T] [--max-trace-rows R] [--key-budget-s S] [--expect DIGESTS.jsonl] [--no-proof]
+//!                  (R48 recipe rules, node::recipe); job mode: rr_node job RUN/job.json (kind solve-recipe;
+//!                  `rr_node solve-recipe --job RUN/job.json` is an alias of the same dispatcher)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
 //! rr_node variants --family F.sym --case 'SPEC [EQS]'
 //! rr_node predict  --family F.sym (--table F.table.jsonl | --cases CASES.jsonl) --out PREDICT.json [--base-order JSON|NAME]
@@ -34,10 +46,23 @@
 //!                  listed locus; every valid case point with free coordinates in the box |n| <= K, at most M = 2000)
 //!                  [--dump-weights]   (per cell weights-<d>-<P|P2>.json: rows, pivot rows, weights mod p, columns, zero keys)
 //!                  [--fixed-d] [--single-prime]   (default: d random in F_p per cell unless --dimensions; primes P and P2 = 2^61-31)
+//! rr_node cover-index --table F.table.jsonl --out F.cover.jsonl [--upto K]
+//! rr_node obligations --family F.sym --order NAME|JSON --run DIR --out F.obligations.json   (rebuild from F.queue.jsonl)
+//! rr_node join     --run DIR[:OBLIGATIONS[:COVER_INDEX]]... --out DIR [--expect-residuals K] [--region-proof F.json]...
+//!                  [--union-depth K] [--no-table]
 //! rr_node reduce   --table F.table.jsonl --keys 'K1;K2' --out OUT.json [--masters 'K;..'] [--dims 37/7,-11/5,9/13]
 //!                  [--primes N] [--lower] [--symbolic [--points 80] [--first-d 1001]]
 //!                  (reduce keys with the table's rules to its masters (+ lower-sector keys): exact rationals per d, or
 //!                   N(d)/D(d) with --symbolic; node::mastermap)
+//! rr_node domaincheck --table F.table.jsonl --keys FILE|'K1;K2' --out OUT.jsonl [--masters 'K;..'] [--point-valid [--dims 37/7,-11/5,9/13]]
+//!                  (EC-15, read-only: per key the engine's own decision without reducing: in_sector, zero sector, master,
+//!                   the rule find_rule selects with its rule point, rejection counts, ambiguity markers; schema
+//!                   rustred.domaincheck.v1, node::domaincheck; exit 0 ok / 3 internal / 41 input / 51 io)
+//! rr_node --capabilities   (JSON list of verbs and the domaincheck options)
+//! rr_node job RUN/job.json   (child-job contract rustred.child-job.v1: one generate job described by a job spec;
+//!                  exit codes of the contract 0/10/20/21/22/30/40/41/42/50/51/70; node::childjob)
+//! rr_node version --json | rr_node --version --json   (program, version, build commit, contract, features, job kinds)
+//! rr_node generate|witness ... --no-elide-witness-loci   (opt-in: witness loci written in full whatever their size)
 //! rr_node mastermap --old OLD.table.jsonl --new NEW.table.jsonl --out MAP.json [--old-masters 'K;..'] [--new-masters 'K;..']
 //!                  [--dims ..] [--primes N] [--no-symbolic] [--points 80] [--sym-primes 8] [--symbolic-lower]
 //!                  [--laporta DOTS,RANK|none] [--check-keys auto|'K;..'|none]
@@ -57,7 +82,7 @@
 //!                   reductions red(m) - red(g m), symbolic in d, with (d-4) orders; node::symmasters;
 //!                   exit 0 certificate holds / 1 not)
 //! ```
-//! Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
+//! Exit status: join 0 closed / 1 open / 3 rejected. Exit status: generate 0 complete / 1 not complete / 2 usage; replay 0 PASS / 1 FAIL / 2 UNKNOWN; descent 0 pass / 1 fail.
 
 #![allow(
     clippy::field_reassign_with_default,
@@ -76,6 +101,9 @@ use rustred::node::driver::{
 use rustred::node::order::{NodeOrder, SourceOrder, variants};
 use rustred::node::replay::{self, ReplayArgs};
 use rustred::node::screen::{HeavyAction, LiftScreen};
+
+#[path = "rr_node_job/job.rs"]
+mod job;
 
 struct Args {
     items: Vec<String>,
@@ -123,7 +151,15 @@ impl Args {
     }
 }
 
+/// Job mode (`solve-recipe --job`): what `die` does instead of exit 2 (an error OUTCOME, exit 40).
+type DieHook = Box<dyn Fn(&str) + Send + Sync>;
+static DIE_HOOK: std::sync::OnceLock<DieHook> = std::sync::OnceLock::new();
+
 fn die(msg: &str) -> ! {
+    job::on_die(msg);
+    if let Some(h) = DIE_HOOK.get() {
+        h(msg);
+    }
     eprintln!("rr_node: {msg}");
     std::process::exit(2)
 }
@@ -175,6 +211,34 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
         o.exact_backend = b;
     }
     o.max_depth = a.parse("--max-depth");
+    // t266-tight: seed layer cap D,R[,B] (default off): seeds above the target by more than D dots (D+B when the
+    // target is dot-free) or R ranks are not offered (solver::SeedLayerCap); needs a finite --max-depth
+    if let Some(v) = a.take("--seed-layer-cap") {
+        let p: Vec<i32> = v
+            .split(',')
+            .map(|x| {
+                x.trim()
+                    .parse()
+                    .unwrap_or_else(|_| die("--seed-layer-cap D,R[,B]"))
+            })
+            .collect();
+        if !(2..=3).contains(&p.len()) {
+            die("--seed-layer-cap D,R[,B]");
+        }
+        let cap = rustred::solver::SeedLayerCap {
+            dots_above: p[0],
+            rank_above: p[1],
+            dot_free_bonus: p.get(2).copied().unwrap_or(1),
+        };
+        if !cap.install() {
+            die("--seed-layer-cap given twice with different values");
+        }
+        o.seed_layer_cap = Some([cap.dots_above, cap.rank_above, cap.dot_free_bonus]);
+        if o.max_depth.is_none() {
+            die("--seed-layer-cap needs a finite --max-depth");
+        }
+        eprintln!("seed_layer_cap {cap:?}");
+    }
     o.max_cases = a.parse("--max-cases");
     if let Some(s) = a.take("--native-try") {
         o.native_try = if s == "none" {
@@ -352,9 +416,88 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
             .unwrap_or_else(|| die("--registry DIR:PIECE"));
         o.registry = Some((dir.to_string(), piece.to_string()));
     }
-    // M5 batch 3: the shared case registry is experimental and refused without this flag.
+    // the M5 batch 3 opt-in of the old registry: accepted, without effect (the registry is proof-bearing now)
     if a.flag("--unsafe-shared-registry") {
         o.unsafe_shared_registry = true;
+    }
+    if a.flag("--no-registry-lease") {
+        o.registry_lease = false;
+    }
+    if let Some(v) = a.parse("--lease-wait") {
+        o.lease_wait = v;
+    }
+    o.pool = a.take("--pool");
+    if a.flag("--slim-rules") {
+        o.slim_rules = true;
+    }
+    if a.flag("--open-on-refusal") {
+        o.open_on_refusal = true;
+    }
+    if let Some(f) = a.take("--initial-presented") {
+        let text = read(&f);
+        o.initial_presented = serde_json::from_str(&text)
+            .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
+        // seed-centre: optional per-case field "seed_centre_offset" ([ints], PRESENTED slots)
+        let raw: Vec<serde_json::Value> = serde_json::from_str(&text)
+            .unwrap_or_else(|e| die(&format!("--initial-presented {f}: {e}")));
+        for (spec, v) in o.initial_presented.iter().zip(&raw) {
+            if let Some(off) = v.get("seed_centre_offset").filter(|x| !x.is_null()) {
+                // one centre [ints] or several [[ints], ..] (union of their shells)
+                let mut offs: Vec<Vec<i64>> = match serde_json::from_value::<Vec<i64>>(off.clone())
+                {
+                    Ok(one) => vec![one],
+                    Err(_) => serde_json::from_value(off.clone()).unwrap_or_else(|e| {
+                        die(&format!("--initial-presented {f}: seed_centre_offset: {e}"))
+                    }),
+                };
+                if offs.is_empty() {
+                    die(&format!(
+                        "--initial-presented {f}: empty seed_centre_offset"
+                    ));
+                }
+                let first = offs.remove(0);
+                o.case_seed_centres
+                    .push(rustred::node::driver::CaseSeedCentre {
+                        case: spec.clone(),
+                        seed_centre_offset: first,
+                        extra: offs,
+                    });
+            }
+        }
+    }
+    // seed-centre: global shell centre offset and face floor (default off)
+    if let Some(v) = a.take("--seed-centre-offset") {
+        let mut all = rustred::node::driver::parse_seed_centre_offsets(
+            &v,
+            rustred::node::order::family_props(family).len(),
+        )
+        .unwrap_or_else(|e| die(&format!("--seed-centre-offset: {e}")));
+        o.seed_centre_offset = Some(all.remove(0));
+        o.seed_centre_extra = all;
+    }
+    if let Some(v) = a.take("--seed-face-floor") {
+        o.seed_face_floor = Some(v.parse().unwrap_or_else(|_| die("--seed-face-floor <k>")));
+    }
+    // t266-regions: a region-restricted run on ONE deferred region {chart (PRESENTED), conjunction}; the chart is
+    // added to the initial cases and the run owns that region only
+    if let Some(f) = a.take("--region") {
+        let v: serde_json::Value =
+            serde_json::from_str(&read(&f)).unwrap_or_else(|e| die(&format!("--region {f}: {e}")));
+        let chart: rustred::node::driver::CaseSpec = serde_json::from_value(v["chart"].clone())
+            .unwrap_or_else(|e| die(&format!("--region {f}: chart: {e}")));
+        let conj: Vec<String> = serde_json::from_value(v["conjunction"].clone())
+            .unwrap_or_else(|e| die(&format!("--region {f}: conjunction: {e}")));
+        if conj.is_empty() {
+            die(&format!("--region {f}: empty conjunction"));
+        }
+        o.initial_presented.push(chart);
+        o.region = Some(conj);
+    }
+    if let Some(v) = a.take("--case-seed-rung") {
+        o.case_seed_rung = Some(
+            parse_case_seed_schedule(&v, rustred::node::order::family_props(family).len())
+                .unwrap_or_else(|e| die(&format!("--case-seed-rung: {e}"))),
+        );
     }
     if a.flag("--no-empty-domain-check") {
         o.empty_domain_check = false;
@@ -420,6 +563,12 @@ fn node_options(a: &mut Args, family: &str) -> NodeOptions {
     if let Some(d) = a.parse("--numeric-depth-max") {
         o.numeric_depth_max = Some(d);
     }
+    // sym-gen (default off): symmetry rules / zero records for cases the chart's automorphisms lower
+    o.symmetry = a.flag("--symmetry");
+    // sym-gen step 2 (default off): exact one-term symmetry rows in the shared numeric bulk solve
+    o.symmetry_rows = a.flag("--symmetry-rows");
+    // sym-7master (default off): symmetry rows also in the symbolic case search (case-stabilising elements)
+    o.symmetry_symbolic = a.flag("--symmetry-symbolic");
     let _ = family;
     o
 }
@@ -458,6 +607,9 @@ fn probe_options(a: &mut Args) -> ProbeOptions {
 }
 
 fn cmd_generate(mut a: Args) -> i32 {
+    if a.flag("--no-elide-witness-loci") {
+        rustred::node::childjob::set_legacy_no_elision();
+    }
     let family_path = a.need("--family");
     let family = read(&family_path);
     let out = PathBuf::from(a.need("--out"));
@@ -729,6 +881,38 @@ fn utc() -> String {
     format!("{:02}:{:02}:{:02}Z", s / 3600 % 24, s / 60 % 60, s % 60)
 }
 
+fn cmd_cover_index(mut a: Args) -> i32 {
+    let table = a.need("--table");
+    let out = a.need("--out");
+    let upto = a.parse("--upto").unwrap_or(usize::MAX);
+    a.done();
+    let k =
+        rustred::node::registry::write_cover_index(&table, upto, &out).unwrap_or_else(|e| die(&e));
+    println!("{}", serde_json::json!({"cover_index": out, "rules": k}));
+    0
+}
+
+fn cmd_obligations(mut a: Args) -> i32 {
+    let family = read(&a.need("--family"));
+    let order = a.need("--order");
+    let run = PathBuf::from(a.need("--run"));
+    let out = PathBuf::from(a.need("--out"));
+    a.done();
+    let order = order_arg(&order, &family, None);
+    let o = rustred::node::registry::obligations_from_queue(&family, &order, &run)
+        .unwrap_or_else(|e| die(&e));
+    o.write(&out).unwrap_or_else(|e| die(&e));
+    let mut kinds: std::collections::BTreeMap<&str, usize> = Default::default();
+    for x in &o.open {
+        *kinds.entry(x.kind.as_str()).or_default() += 1;
+    }
+    println!(
+        "{}",
+        serde_json::json!({"state": o.state, "open": o.open.len(), "kinds": kinds, "rules": o.rules, "math_key": o.math_key, "stop": o.stop})
+    );
+    0
+}
+
 fn read_cases(path: &str) -> Vec<rustred::node::predict::WeightedCase> {
     read(path)
         .lines()
@@ -850,6 +1034,54 @@ fn cmd_predict(mut a: Args) -> i32 {
     0
 }
 
+fn cmd_join(mut a: Args) -> i32 {
+    use rustred::node::registry::{JoinOptions, JoinRun, join};
+    let runs: Vec<JoinRun> = a
+        .take_all("--run")
+        .iter()
+        .map(|r| {
+            let mut it = r.split(':');
+            let dir = PathBuf::from(it.next().unwrap_or_default());
+            let obligations = it
+                .next()
+                .filter(|s| !s.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| dir.join("F.obligations.json"));
+            let cover_index = it.next().filter(|s| !s.is_empty()).map(PathBuf::from);
+            JoinRun {
+                dir,
+                obligations,
+                cover_index,
+            }
+        })
+        .collect();
+    let opts = JoinOptions {
+        runs,
+        out: PathBuf::from(a.need("--out")),
+        expect_residuals: a.parse("--expect-residuals"),
+        region_proofs: a
+            .take_all("--region-proof")
+            .into_iter()
+            .map(PathBuf::from)
+            .collect(),
+        union_depth: a.parse("--union-depth").unwrap_or(3),
+        write_table: !a.flag("--no-table"),
+    };
+    a.done();
+    let r = join(&opts).unwrap_or_else(|e| die(&e));
+    println!(
+        "{}",
+        serde_json::json!({"verdict": r.verdict, "rules": r.rules, "unresolved": r.unresolved.len(),
+        "cycles": r.cycles.len(), "residuals": r.residual_keys.len(), "residuals_ok": r.residuals_ok,
+        "discharged": r.discharged, "reasons": r.reasons, "table": r.table, "seconds": r.seconds})
+    );
+    match r.verdict.as_str() {
+        "closed" => 0,
+        "open" => 1,
+        _ => 3,
+    }
+}
+
 fn cmd_oracle(mut a: Args) -> i32 {
     use rustred::node::predict::{OracleCase, OracleFamily, relation_profile};
     let family = read(&a.need("--family"));
@@ -969,6 +1201,9 @@ fn cmd_affine(mut a: Args) -> i32 {
 /// options recorded in the table header, with the witness guards on; when the new rule equals the table rule (same
 /// target, RHS and seeds) its witness poles are the table rule's hidden poles.
 fn cmd_witness(mut a: Args) -> i32 {
+    if a.flag("--no-elide-witness-loci") {
+        rustred::node::childjob::set_legacy_no_elision();
+    }
     let table = a.need("--table");
     let out = PathBuf::from(a.need("--out"));
     let rules = ReplayArgs::parse_rules(&a.need("--rules")).unwrap_or_else(|e| die(&e));
@@ -1098,6 +1333,352 @@ fn cmd_witness(mut a: Args) -> i32 {
     0
 }
 
+/// `rr_node symmetry --family F.sym [--chart MASK]`: the authenticated automorphism group of the chart (default: the
+/// physical lines of the family) as JSON (sym-gen census).
+fn cmd_symmetry(mut a: Args) -> i32 {
+    let text = read(&a.need("--family"));
+    let chart = a.take("--chart");
+    a.done();
+    let chart: Vec<bool> = match chart {
+        Some(m) => m.chars().map(|c| c == '1').collect(),
+        None => rustred::node::order::physical_slots(&text),
+    };
+    let t = std::time::Instant::now();
+    match rustred::node::symmetry::node_group(&text, &chart) {
+        Ok(g) => {
+            let json = g.to_json();
+            println!(
+                "{{\"ok\":true,\"seconds\":{:.3},\"group\":{json}}}",
+                t.elapsed().as_secs_f64()
+            );
+            0
+        }
+        Err(e) => {
+            println!("{}", serde_json::json!({"ok": false, "error": e}));
+            1
+        }
+    }
+}
+
+/// `rr_node solve-recipe` (engine line, R48 recipe rules): one recipe, many keys; see node::recipe and
+/// plan/auto-campaign/interfaces/coord-recipe-solve.md. Exit 0 all SOLVED, 10 some not (typed records), 30
+/// interrupted (sealed partial), 40 usage, 41 input, 42 refused (job mode), 70 internal.
+/// Job mode: `rr_node solve-recipe --job RUN/job.json` (child-job contract subset, kind "solve-recipe").
+fn cmd_solve_recipe(mut a: Args) -> i32 {
+    use rustred::node::{recipe, recipe_job};
+    // lane engbase2: ONE job entry. `solve-recipe --job RUN/job.json` is the same dispatcher as `rr_node job
+    // RUN/job.json` (contract preflight, signal flags, sealing, spec-digest binding); the verb's own job reader below
+    // is no longer reached.
+    if let Some(jp) = a.take("--job") {
+        a.done();
+        return job::cmd_job_at(&jp);
+    }
+    let fail = |code: i32, m: &str| -> ! {
+        eprintln!("rr_node solve-recipe: {m}");
+        std::process::exit(code)
+    };
+    let usage = |m: &str| -> ! { fail(40, m) };
+    let input = |m: &str| -> ! { fail(41, m) };
+    let digest = |p: &str| -> (u64, String) {
+        let b = std::fs::read(p).unwrap_or_else(|e| input(&format!("{p}: {e}")));
+        (b.len() as u64, blake3::hash(&b).to_hex().to_string())
+    };
+    let job_path = a.take("--job");
+    // (family, order, recipe, keys, key inline, expect, out, threads, max trace rows, key budget, no proof, job, outcome)
+    let (
+        family_path,
+        order_text,
+        recipe_path,
+        keys_path,
+        key_inline,
+        expect_path,
+        out,
+        threads,
+        max_trace_rows,
+        key_budget_s,
+        no_proof,
+        job,
+        outcome_path,
+    );
+    // job mode: the stop file RUN/STOP, the grace and heartbeat periods of the spec, paths relative to RUN
+    let (mut stop_file, mut stop_grace_s, mut heartbeat_s, mut path_base, mut events_path) =
+        (None, 20.0f64, 10.0f64, None, None);
+    if let Some(jp) = job_path {
+        a.done();
+        // the contract's pre-flight (strict spec, run directory, program digest, features, gated env, input digests)
+        let prep = recipe_job::preflight(std::path::Path::new(&jp), &|k| std::env::var(k).ok())
+            .unwrap_or_else(|r| r.exit());
+        let spec = &prep.spec;
+        let run_dir = prep.run_dir.clone();
+        let refuse = |code: i32, m: &str| -> ! {
+            recipe_job::Refusal {
+                code,
+                message: m.to_string(),
+                outcome: Some((Box::new(spec.clone()), prep.spec_blake3.clone())),
+            }
+            .exit()
+        };
+        let mut args = Args {
+            items: spec.args.clone(),
+        };
+        order_text = args
+            .take("--order")
+            .unwrap_or_else(|| refuse(40, "job: --order in args"));
+        threads = args.parse("--threads").unwrap_or(1);
+        max_trace_rows = args.parse("--max-trace-rows");
+        // the per-key wall budget: integer seconds (`--key-budget-s` or `budgets.wall.case_s`, never both)
+        key_budget_s = args
+            .parse::<u64>("--key-budget-s")
+            .or(spec.budgets.wall.case_s)
+            .map(|b| b as f64);
+        no_proof = false;
+        if !args.items.is_empty() {
+            refuse(
+                40,
+                &format!("job: args outside the allow-list: {:?}", args.items),
+            );
+        }
+        let role = |r: &str| prep.inputs.get(r).cloned();
+        family_path = role("family").unwrap_or_else(|| refuse(40, "job: input role family"));
+        recipe_path = role("recipe").unwrap_or_else(|| refuse(40, "job: input role recipe"));
+        keys_path = Some(role("keys").unwrap_or_else(|| refuse(40, "job: input role keys")));
+        key_inline = None;
+        expect_path = role("expect");
+        out = run_dir.join("out").display().to_string();
+        outcome_path = Some(run_dir.join("OUTCOME.json"));
+        job = Some(
+            serde_json::json!({"schema": recipe_job::OUTCOME_SCHEMA, "job_id": spec.job_id,
+            "attempt": spec.attempt, "kind": "solve-recipe", "spec_blake3": prep.spec_blake3,
+            "inputs": prep.echo, "args": spec.args, "started_utc": recipe::utc_now()}),
+        );
+        stop_file = Some(run_dir.join("STOP"));
+        stop_grace_s = spec.stop_grace_s as f64;
+        heartbeat_s = spec.heartbeat_s as f64;
+        path_base = Some(run_dir.clone());
+        events_path = Some(run_dir.join("EVENTS.jsonl"));
+    } else {
+        family_path = a
+            .take("--family")
+            .unwrap_or_else(|| usage("missing --family"));
+        order_text = a
+            .take("--order")
+            .unwrap_or_else(|| usage("missing --order"));
+        recipe_path = a
+            .take("--recipe")
+            .unwrap_or_else(|| usage("missing --recipe"));
+        keys_path = a.take("--keys");
+        key_inline = a.take("--key");
+        expect_path = a.take("--expect");
+        out = a.take("--out").unwrap_or_else(|| usage("missing --out"));
+        threads = a.parse("--threads").unwrap_or(1);
+        max_trace_rows = a.parse("--max-trace-rows");
+        key_budget_s = a.parse("--key-budget-s");
+        no_proof = a.flag("--no-proof");
+        job = None;
+        outcome_path = None;
+        a.done();
+    }
+    // job mode: every later refusal or error writes an error OUTCOME (no-clobber) before its exit
+    let job_ctx = job.clone().zip(path_base.clone());
+    if let Some((j, b)) = job_ctx.clone() {
+        let _ = DIE_HOOK.set(Box::new(move |m: &str| {
+            eprintln!("rr_node solve-recipe: {m}");
+            let _ = recipe_job::error_outcome_job(&j, &b, 40, m);
+            std::process::exit(40)
+        }));
+    }
+    let fail = |code: i32, m: &str| -> ! {
+        eprintln!("rr_node solve-recipe: {m}");
+        if let Some((j, b)) = &job_ctx {
+            let _ = recipe_job::error_outcome_job(j, b, code, m);
+        }
+        std::process::exit(code)
+    };
+    let usage = |m: &str| -> ! { fail(40, m) };
+    let input = |m: &str| -> ! { fail(41, m) };
+    let family = std::fs::read_to_string(&family_path)
+        .unwrap_or_else(|e| input(&format!("{family_path}: {e}")));
+    let recipe_text = std::fs::read_to_string(&recipe_path)
+        .unwrap_or_else(|e| input(&format!("{recipe_path}: {e}")));
+    let keys = match (&keys_path, key_inline) {
+        (Some(p), None) => {
+            let text = std::fs::read_to_string(p).unwrap_or_else(|e| input(&format!("{p}: {e}")));
+            recipe::parse_keys(&text).unwrap_or_else(|e| input(&e))
+        }
+        (None, Some(k)) => vec![recipe::KeyInput {
+            key: k
+                .split(',')
+                .map(|x| {
+                    x.trim()
+                        .parse::<i64>()
+                        .unwrap_or_else(|_| usage("--key: integers"))
+                })
+                .collect(),
+            tag: None,
+        }],
+        _ => usage("give exactly one of --keys FILE / --key K1,K2,.."),
+    };
+    // --expect FILE: certified digests, JSONL {"key":[..],"relation_digest":".."} (results.jsonl lines qualify)
+    let mut expect = std::collections::BTreeMap::new();
+    if let Some(p) = &expect_path {
+        let text = std::fs::read_to_string(p).unwrap_or_else(|e| input(&format!("{p}: {e}")));
+        for (i, l) in text
+            .lines()
+            .enumerate()
+            .filter(|(_, l)| !l.trim().is_empty())
+        {
+            let v: serde_json::Value =
+                serde_json::from_str(l).unwrap_or_else(|e| input(&format!("{p}:{}: {e}", i + 1)));
+            if let (Some(k), Some(d)) = (v.get("key"), v["relation_digest"].as_str()) {
+                let k: Vec<i64> = serde_json::from_value(k.clone())
+                    .unwrap_or_else(|e| input(&format!("{p}:{}: {e}", i + 1)));
+                expect.insert(k, d.to_string());
+            }
+        }
+    }
+    let outp = std::path::Path::new(&out);
+    if outp.exists()
+        && std::fs::read_dir(outp)
+            .map(|mut d| d.next().is_some())
+            .unwrap_or(true)
+    {
+        usage(&format!("--out {out} exists and is not empty"));
+    }
+    if let Err(e) = recipe::Recipe::parse(&recipe_text) {
+        usage(&e);
+    }
+    let order = order_arg(&order_text, &family, None);
+    recipe::install_stop_handler();
+    let canon = |p: &str| {
+        std::fs::canonicalize(p)
+            .map(|p| p.display().to_string())
+            .unwrap_or(p.to_string())
+    };
+    let mut inputs = vec![];
+    for (role, p) in [
+        ("family", Some(family_path.clone())),
+        ("recipe", Some(recipe_path.clone())),
+        ("keys", keys_path.clone()),
+        ("expect", expect_path.clone()),
+    ] {
+        if let Some(p) = p {
+            let (bytes, d) = digest(&p);
+            inputs.push(
+                serde_json::json!({"role": role, "path": canon(&p), "bytes": bytes, "blake3": d}),
+            );
+        }
+    }
+    let opts = recipe::BatchOptions {
+        threads,
+        max_trace_rows,
+        proof: !no_proof,
+        family_path: canon(&family_path),
+        recipe_path: canon(&recipe_path),
+        order_text: order.to_json(),
+        binary: recipe::binary_identity(),
+        key_budget_s,
+        expect,
+        inputs: serde_json::json!(inputs),
+        job,
+        outcome_path: outcome_path.clone(),
+        stop: None,
+        stop_file: stop_file.clone(),
+        stop_grace_s,
+        path_base: path_base.clone(),
+        events_path: events_path.clone(),
+        heartbeat_s,
+        on_end: None,
+    };
+    let single = keys.len() == 1;
+    match recipe::run_batch(&family, &order, &recipe_text, &keys, outp, &opts) {
+        Ok(code) => {
+            if single && code != 0 {
+                // stand-alone reproduction: the failure object on stderr as one line
+                if let Ok(text) = std::fs::read_to_string(outp.join("results.jsonl")) {
+                    if let Some(first) = text.lines().next() {
+                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(first) {
+                            eprintln!("{}", v["failure"]);
+                        }
+                    }
+                }
+            }
+            let op = outcome_path.unwrap_or_else(|| outp.join("OUTCOME.json"));
+            println!(
+                "{}",
+                std::fs::read_to_string(op)
+                    .map(|t| serde_json::from_str::<serde_json::Value>(&t)
+                        .map(|v| serde_json::json!({"exit_code": v["exit_code"], "counts": v["counts"], "out": out}).to_string())
+                        .unwrap_or_default())
+                    .unwrap_or_default()
+            );
+            code
+        }
+        Err(e) => {
+            let code = if e.starts_with(recipe_job::IO_ERROR_PREFIX) {
+                51
+            } else if e.starts_with("recipe") || e.contains("arity") || e.contains("two-sided") {
+                41
+            } else {
+                70
+            };
+            fail(code, &e)
+        }
+    }
+}
+
+/// `rr_node first-match --table T (--key K1,..,Kn | --keys FILE)`: the first applicable rule of every key under the
+/// table reducer's dispatch (node::mastermap::Table::find_rule: fixed slots, target pattern, case equations, exception
+/// branches incl. the optional `domain_bounds`), one JSON line per key {key, position, label}; label = the record's
+/// `index` (a set label for converted banks), null when no rule applies.
+fn cmd_first_match(mut a: Args) -> i32 {
+    let table = a.need("--table");
+    let key = a.take("--key");
+    let keys_file = a.take("--keys");
+    a.done();
+    let t = rustred::node::mastermap::Table::load(&table).unwrap_or_else(|e| die(&e));
+    let mut keys: Vec<Vec<i64>> = Vec::new();
+    if let Some(k) = key {
+        keys.push(
+            k.split(',')
+                .map(|x| x.trim().parse().unwrap_or_else(|_| die("--key: integers")))
+                .collect(),
+        );
+    }
+    if let Some(p) = keys_file {
+        for l in read(&p).lines().filter(|l| !l.trim().is_empty()) {
+            let v: serde_json::Value =
+                serde_json::from_str(l).unwrap_or_else(|e| die(&format!("{p}: {e}")));
+            let k = if v.is_array() { v } else { v["key"].clone() };
+            keys.push(serde_json::from_value(k).unwrap_or_else(|e| die(&format!("{p}: {e}"))));
+        }
+    }
+    for k in keys {
+        let (pos, label) = match t.first_match(&k) {
+            Some((p, l)) => (serde_json::json!(p), serde_json::json!(l)),
+            None => (serde_json::Value::Null, serde_json::Value::Null),
+        };
+        println!(
+            "{}",
+            serde_json::json!({"key": k, "position": pos, "label": label})
+        );
+    }
+    0
+}
+
+/// `rr_node version --json` / `rr_node --version --json`: one JSON line (child-job contract 3.2.1: program, package
+/// version, build commit, contract, features, job kinds, arities).
+/// Merged build (lane engfix4): superseded by `job::cmd_version` (ONE job entry, both kinds generate and solve-recipe);
+/// kept unchanged for the next engine-line merge.
+#[allow(dead_code)]
+fn cmd_version(mut a: Args) -> i32 {
+    if !a.flag("--json") {
+        die("usage: rr_node version --json");
+    }
+    a.done();
+    println!("{}", rustred::node::recipe_job::version_json());
+    0
+}
+
 fn dims_arg(a: &mut Args) -> Vec<rustred::node::replay::arith::Q> {
     use rustred::node::replay::arith::Q;
     match a.take("--dims") {
@@ -1191,6 +1772,76 @@ fn cmd_laporta(mut a: Args) -> i32 {
         "cells": cells, "all_ok": ok, "seconds": t0.elapsed().as_secs_f64()}),
     );
     if ok { 0 } else { 1 }
+}
+
+/// Every subcommand `main` dispatches (reported by `rr_node --capabilities`).
+const VERBS: [&str; 24] = [
+    "generate",
+    "probe",
+    "variants",
+    "descent",
+    "replay",
+    "cover-index",
+    "obligations",
+    "join",
+    "predict",
+    "oracle",
+    "affine",
+    "witness",
+    "locus-rank",
+    "symmetry",
+    "first-match",
+    "solve-recipe",
+    "reduce",
+    "mastermap",
+    "mapcheck",
+    "symmasters",
+    "laporta",
+    "domaincheck",
+    "job",
+    "version",
+];
+
+/// `rr_node --capabilities`: see the header.
+fn cmd_capabilities(a: Args) -> i32 {
+    use rustred::node::domaincheck::{OPTIONS, SCHEMA};
+    a.done();
+    println!(
+        "{}",
+        serde_json::json!({"schema": "rustred.capabilities.v1", "program": "rr_node", "verbs": VERBS,
+            "domaincheck": {"schema": SCHEMA, "options": OPTIONS}, "version": job::version_json()})
+    );
+    0
+}
+
+/// `rr_node domaincheck` (EC-15): see the header and node::domaincheck.
+fn cmd_domaincheck(mut a: Args) -> i32 {
+    use rustred::node::domaincheck::{DomainCheckArgs, run};
+    let table = a.need("--table");
+    let keys = a.need("--keys");
+    let out = a.need("--out");
+    let masters = a.take("--masters").map(|m| keys_arg(&m));
+    let point_valid = a.flag("--point-valid");
+    let dims = dims_arg(&mut a);
+    a.done();
+    let args = DomainCheckArgs {
+        table,
+        keys,
+        out,
+        masters,
+        point_valid,
+        dims,
+    };
+    match run(&args) {
+        Ok(n) => {
+            eprintln!("[domaincheck] {n} keys -> {}", args.out);
+            0
+        }
+        Err(e) => {
+            eprintln!("rr_node domaincheck: {}", e.message());
+            e.exit_code()
+        }
+    }
 }
 
 /// `rr_node reduce`: see the header.
@@ -1339,6 +1990,118 @@ fn cmd_mastermap(mut a: Args) -> i32 {
 }
 
 /// `rr_node symmasters`: see the header.
+/// `rr_node symface --family F.sym --order ORDER --face DOTTED/NUMERATORS [--chart MASK] [--slice-max 12]
+/// [--slice-bound each|total] [--element K] --out DIR`: multi-term symmetry face rules as slice rules
+/// (node::symface; interface coord-pole-engine.md 9b-9c). DOTTED / NUMERATORS: comma-separated 0-based slots, `-`
+/// for none (e.g. `-/10,11,16`, `9/11,13,14,15`).
+fn cmd_symface(mut a: Args) -> i32 {
+    use rustred::node::symface::{Face, RunOptions, run};
+    let family = a.need("--family");
+    let text = std::fs::read_to_string(&family).unwrap_or_else(|e| die(&format!("{family}: {e}")));
+    let order_text = a.need("--order");
+    let order = order_arg(&order_text, &text, None);
+    let point_keys: Option<Vec<Vec<i64>>> = a.take("--point-keys").map(|p| {
+        std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| die(&format!("{p}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value =
+                    serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--point-keys: {e}")));
+                let k = if v.is_array() { v } else { v["key"].clone() };
+                serde_json::from_value::<Vec<i64>>(k)
+                    .unwrap_or_else(|e| die(&format!("--point-keys key: {e}")))
+            })
+            .collect()
+    });
+    let pair = a
+        .take("--pair-shift")
+        .map(|t| rustred::node::symface::PairShift::parse(&t).unwrap_or_else(|e| die(&e)));
+    let face_arg = a.take("--face").unwrap_or_else(|| {
+        if point_keys.is_some() {
+            "-/-".into()
+        } else {
+            die("missing --face (or --point-keys FILE)")
+        }
+    });
+    let (d, nu) = face_arg
+        .split_once('/')
+        .unwrap_or_else(|| die("--face DOTTED/NUMERATORS"));
+    let list = |t: &str| -> Vec<usize> {
+        if t == "-" || t.is_empty() {
+            return vec![];
+        }
+        t.split(',')
+            .map(|x| x.trim().parse().unwrap_or_else(|_| die("--face slot")))
+            .collect()
+    };
+    let chart: Vec<bool> = match a.take("--chart") {
+        Some(m) => m.chars().map(|c| c == '1').collect(),
+        None => rustred::node::order::physical_slots(&text),
+    };
+    let slice_max: i64 = a.parse("--slice-max").unwrap_or(12);
+    let total_bound = match a.take("--slice-bound").as_deref() {
+        None | Some("each") => false,
+        Some("total") => true,
+        Some(o) => die(&format!("--slice-bound each|total, not {o}")),
+    };
+    // --element K (one element) or `auto` / absent (every element; the smallest relation that passes wins)
+    let element: Option<usize> = match a.take("--element").as_deref() {
+        None | Some("auto") | Some("all") => None,
+        Some(k) => Some(
+            k.parse()
+                .unwrap_or_else(|_| die("--element K (an index) or auto")),
+        ),
+    };
+    let max_expansion: u128 = a.parse("--max-expansion").unwrap_or(2_000_000);
+    let check_keys: Vec<Vec<i64>> = match a.take("--check-keys") {
+        None => vec![],
+        Some(p) => std::fs::read_to_string(&p)
+            .unwrap_or_else(|e| die(&format!("{p}: {e}")))
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| {
+                let v: serde_json::Value =
+                    serde_json::from_str(l).unwrap_or_else(|e| die(&format!("--check-keys: {e}")));
+                let k = if v.is_array() { v } else { v["key"].clone() };
+                serde_json::from_value::<Vec<i64>>(k)
+                    .unwrap_or_else(|e| die(&format!("--check-keys key: {e}")))
+            })
+            .collect(),
+    };
+    let out = a.need("--out");
+    a.done();
+    let o = RunOptions {
+        family_text: text,
+        order,
+        face: Face {
+            chart,
+            dotted: list(d),
+            numerators: list(nu),
+        },
+        slice_max,
+        total_bound,
+        element,
+        out: out.into(),
+        max_expansion,
+        check_keys,
+        point_keys,
+        pair,
+    };
+    match run(&o) {
+        Ok(r) => {
+            println!("{}", serde_json::to_string(&serde_json::json!({"verdict": if r["chosen"].is_null() { "NO_ELEMENT" } else { "DONE" }, "served": r["served"],
+                "chosen": r["chosen"], "rules": r["rules"], "rhs_terms": r["rhs_terms"], "max_terms_per_rule": r["max_terms_per_rule"],
+                "seconds": r["seconds"]})).unwrap());
+            if r["chosen"].is_null() { 10 } else { 0 }
+        }
+        Err(e) => {
+            eprintln!("symface: {e}");
+            2
+        }
+    }
+}
+
 fn cmd_symmasters(mut a: Args) -> i32 {
     use rustred::node::replay::family::Family;
     use rustred::node::symmasters::{Options, run};
@@ -1494,7 +2257,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|predict|oracle|affine|witness|locus-rank|reduce|mastermap|mapcheck|symmasters|laporta ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|first-match|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|job|version|--capabilities ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -1505,6 +2268,9 @@ fn main() {
         "variants" => cmd_variants(a),
         "descent" => cmd_descent(a),
         "replay" => cmd_replay(a),
+        "cover-index" => cmd_cover_index(a),
+        "obligations" => cmd_obligations(a),
+        "join" => cmd_join(a),
         "predict" => cmd_predict(a),
         "oracle" => cmd_oracle(a),
         "affine" => cmd_affine(a),
@@ -1514,7 +2280,15 @@ fn main() {
         "mastermap" => cmd_mastermap(a),
         "mapcheck" => cmd_mapcheck(a),
         "symmasters" => cmd_symmasters(a),
+        "symface" => cmd_symface(a),
         "laporta" => cmd_laporta(a),
+        "symmetry" => cmd_symmetry(a),
+        "solve-recipe" => cmd_solve_recipe(a),
+        "first-match" => cmd_first_match(a),
+        "domaincheck" => cmd_domaincheck(a),
+        "--capabilities" => cmd_capabilities(a),
+        "job" => job::cmd_job(a),
+        "version" | "--version" => job::cmd_version(a),
         other => die(&format!("unknown command {other}")),
     };
     let _ = Path::new(".");
