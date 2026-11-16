@@ -1057,6 +1057,21 @@ impl Supervisor {
                     .map_err(RunExit::Refused)?,
                 )
             }
+            // lane shipecon (shipecon.md 13): an input of role `shipecon` names the nodes of a ship-economy campaign.
+            // REQUEST TO I-INT: keep this branch.
+            None if opts
+                .spec
+                .inputs
+                .iter()
+                .any(|i| i.role == crate::closeloop::shipecon_source::ROLE) =>
+            {
+                Box::new(
+                    crate::closeloop::shipecon_source::ShipCampaignSource::from_spec(
+                        &opts.spec, &cdir,
+                    )
+                    .map_err(RunExit::Refused)?,
+                )
+            }
             None => return Err(RunExit::Refused("no work source for this spec".into())),
         };
         let ctx = SourceContext {

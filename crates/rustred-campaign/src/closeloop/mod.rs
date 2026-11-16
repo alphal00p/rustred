@@ -30,6 +30,8 @@ pub mod seedmin;
 pub mod symcert;
 // lane shipecon: the ship economy of a closed node (interfaces/shipecon.md). REQUEST TO I-INT: keep this line.
 pub mod shipecon;
+// lane shipecon: the ship economy's guard as supervised work items (interfaces/shipecon.md 13). REQUEST TO I-INT: keep.
+pub mod shipecon_source;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

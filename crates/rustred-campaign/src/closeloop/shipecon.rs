@@ -43,6 +43,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// What the driver needs (all data).
+#[derive(Clone)]
 pub struct ShipRunConfig {
     pub node: String,
     pub import_spec: PathBuf,
@@ -145,7 +146,11 @@ pub struct ShipFake {
 }
 
 impl ShipFake {
-    fn script(&self, step: &str, keys: &[Vec<i32>]) -> rustred_campaign_contract::fake::FakeScript {
+    pub fn script(
+        &self,
+        step: &str,
+        keys: &[Vec<i32>],
+    ) -> rustred_campaign_contract::fake::FakeScript {
         use rustred_campaign_contract::classify::recipe::Verdict;
         use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
         let mut ops = vec![FakeOp::Prepare { ms: 5 }];
@@ -1457,6 +1462,35 @@ impl ShipState {
                 }
             }
         }
+        // recipe files of reused trials, before the decisions (their bytes enter the recipe kind): this run's own
+        // `recipes/` (a resumed supervised campaign), else the previous run's, each verified by its recorded sha256
+        let prev_dir = cfg.previous.as_ref().and_then(|p| p.parent());
+        for t in trials.values().flatten().filter(|t| t.certified) {
+            if recipe_files.contains_key(&t.recipe_id) {
+                continue;
+            }
+            let name = format!("{}.json", crate::closeloop::ids::safe(&t.recipe_id));
+            let local = cfg.out_dir.join("recipes").join(&name);
+            if let Ok(b) = std::fs::read(&local)
+                && sha256_hex(&b) == t.recipe_sha256
+            {
+                recipe_files.insert(
+                    t.recipe_id.clone(),
+                    (local, t.recipe_sha256.clone(), b.len() as u64),
+                );
+                continue;
+            }
+            if let Some(prev_dir) = prev_dir
+                && let Ok(b) = std::fs::read(prev_dir.join("recipes").join(&name))
+                && sha256_hex(&b) == t.recipe_sha256
+            {
+                write(&local, &b)?;
+                recipe_files.insert(
+                    t.recipe_id.clone(),
+                    (local, t.recipe_sha256.clone(), b.len() as u64),
+                );
+            }
+        }
         let guard_s = t0.elapsed().as_secs_f64() - load_s;
         // decisions
         let mut decisions: Vec<RuleDecision> = vec![];
@@ -1493,31 +1527,6 @@ impl ShipState {
             }
         }
         // the closing check of the shipped spec, reverting the rules behind a failure
-        // recipe files of reused trials: the previous run's `recipes/` directory, each verified by its recorded sha256
-        if let Some(prev_dir) = cfg.previous.as_ref().and_then(|p| p.parent()) {
-            for t in trials.values().flatten().filter(|t| t.certified) {
-                if recipe_files.contains_key(&t.recipe_id) {
-                    continue;
-                }
-                let p = prev_dir.join("recipes").join(format!(
-                    "{}.json",
-                    crate::closeloop::ids::safe(&t.recipe_id)
-                ));
-                if let Ok(b) = std::fs::read(&p)
-                    && sha256_hex(&b) == t.recipe_sha256
-                {
-                    let local = cfg.out_dir.join("recipes").join(format!(
-                        "{}.json",
-                        crate::closeloop::ids::safe(&t.recipe_id)
-                    ));
-                    write(&local, &b)?;
-                    recipe_files.insert(
-                        t.recipe_id.clone(),
-                        (local, t.recipe_sha256.clone(), b.len() as u64),
-                    );
-                }
-            }
-        }
         let solved_path = cfg.out_dir.join("ship/solved.jsonl");
         let mut solved_text = String::new();
         for l in &solved_lines {
