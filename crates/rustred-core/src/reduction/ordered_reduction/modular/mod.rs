@@ -34,6 +34,7 @@ mod field;
 mod lift;
 mod polynomial;
 mod replay;
+mod simd;
 mod sampled;
 
 use std::collections::BTreeMap;

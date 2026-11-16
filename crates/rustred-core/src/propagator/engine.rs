@@ -953,6 +953,18 @@ impl PEngine {
 /// takes them right after the step (`take_light`) and maps a handle to a
 /// value only once per request (`light_value`). `RUSTRED_P_LIGHT_STEPS=off`
 /// disables it. Value-neutral (the same terms, the same coefficients).
+/// `RUSTRED_P_RAW_ZERO=0|off|false` disables zero pruning on the raw sector
+/// of a routed child ([`PStepper::raw_known_zero`]); default on.
+fn raw_zero_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        !matches!(
+            std::env::var("RUSTRED_P_RAW_ZERO").as_deref(),
+            Ok("0" | "off" | "false")
+        )
+    })
+}
+
 pub(crate) mod light {
     use std::cell::{Cell, RefCell};
     use std::sync::OnceLock;
@@ -1986,7 +1998,13 @@ impl<'l> PStepper<'l> {
                         .zip(relative)
                         .map(|(base, &relative)| base + i64::from(relative)),
                 );
-                let (child, negative) = if shape.support(&target) == owner.support {
+                let target_support = shape.support(&target);
+                if target_support != owner.support
+                    && self.raw_known_zero(owner.presentation, target_support)
+                {
+                    continue;
+                }
+                let (child, negative) = if target_support == owner.support {
                     self.apply_key_with(class, &target, &tag, false, |b| !b)?
                 } else {
                     self.route_child_with(owner.presentation, &target, &tag, false, |b| !b)?
@@ -2040,6 +2058,13 @@ impl<'l> PStepper<'l> {
                         .zip(relative)
                         .map(|(base, &relative)| base + i64::from(relative)),
                 );
+                let target_support = shape.support(&target);
+                if target_support != owner.support
+                    && self.raw_known_zero(owner.presentation, target_support)
+                    && !values(coefficient).is_zero()
+                {
+                    continue;
+                }
                 let (child, coefficient) = child(&target, values(coefficient))?;
                 if self.keep_canonical_child(&child, &coefficient)? {
                     pairs.push((child, coefficient));
@@ -2603,6 +2628,33 @@ impl<'l> PStepper<'l> {
             return Ok(true); // The existing merge erases literal zero weights.
         }
         self.keep_canonical_key(child, counters)
+    }
+
+    /// vk5l-physrun: zero pruning of a routed child before its
+    /// canonicalisation. The census sector of the child's raw powers decides:
+    /// a presentation automorphism maps a sector onto an isomorphic one, so
+    /// the canonical image lies in a zero sector exactly when the raw sector
+    /// is one. Only a census verdict `Zero` prunes (a gap, an owner or a
+    /// routed sector go through the canonical check as before). The counters
+    /// of [`Self::keep_canonical_key`] are kept as if it had pruned the child.
+    /// `RUSTRED_P_RAW_ZERO=off` disables it.
+    fn raw_known_zero(&self, presentation: PresentationId, support: u64) -> bool {
+        let Some(counters) = self.zero_pruning else {
+            return false;
+        };
+        if !raw_zero_enabled()
+            || !matches!(
+                self.engine.sector(self.library, presentation, support),
+                Ok(Sector::Zero)
+            )
+        {
+            return false;
+        }
+        counters
+            .canonical_candidates
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        counters.known_zero.fetch_add(1, AtomicOrdering::Relaxed);
+        true
     }
 
     /// `keep_canonical_child` of a child with a nonzero weight (fwd-opt).
@@ -3300,6 +3352,14 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
 
     fn step_cache_refresh(&self, step: OrderedStep<PKey>) -> Result<OrderedStep<PKey>, PError> {
         self.stepper.refresh_canonical(step)
+    }
+
+    fn step_cache_refresh_is_identity(&self) -> bool {
+        !self.stepper.canonical
+            || REFRESH_CLASSES
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
     }
 }
 
