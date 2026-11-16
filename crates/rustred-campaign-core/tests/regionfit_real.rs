@@ -62,6 +62,7 @@ fn per_element(f: &FaceInput, e: &str) -> FaceInput {
                 acceptable: [if k.acceptable.contains(e) { e } else { "other" }.to_string()]
                     .into_iter()
                     .collect(),
+                image_rules: Default::default(),
             })
             .collect(),
     }

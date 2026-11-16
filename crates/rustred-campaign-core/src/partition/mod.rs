@@ -656,6 +656,9 @@ pub struct PartitionReport {
 pub(crate) enum RunMode {
     Describe,
     Prove,
+    /// lane parametric: as `Describe` (classes, loci, blocked sub-partitions, outcome) but WITHOUT the face list (its
+    /// any-slot expansion costs work and memory; the cone coverage reads classes and loci only)
+    Cells,
 }
 
 /// TOKEN of a run that may support a no-gap proof (audit-part3 C1 / C3): returned only by
@@ -741,6 +744,20 @@ pub fn gap_partition(
     let t0 = Instant::now();
     let meter = Rc::new(WorkMeter::of_budget(&opts.budget, t0));
     gap_partition_with(src, frame, opts, progress, &meter, RunMode::Describe)
+}
+
+/// [`gap_partition`] without the face list (lane parametric, `RunMode::Cells`): the same classes, locus resolution,
+/// blocked sub-partitions and outcome; `faces()` is empty. For callers that read the classes and loci only (the cone
+/// coverage, `crate::parametric::cone`); the face expansion of classes with free slots is what costs there.
+pub fn gap_partition_cells(
+    src: &dyn DomainSource,
+    frame: &NodeFrame,
+    opts: &PartitionOptions,
+    progress: Option<&dyn Fn(&Progress)>,
+) -> Result<PartitionReport, PartitionError> {
+    let t0 = Instant::now();
+    let meter = Rc::new(WorkMeter::of_budget(&opts.budget, t0));
+    gap_partition_with(src, frame, opts, progress, &meter, RunMode::Cells)
 }
 
 /// [`gap_partition`] charged to an external meter (one budget for several calls: `gap_partition_levels`, the

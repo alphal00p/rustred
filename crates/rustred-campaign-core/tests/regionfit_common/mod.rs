@@ -10,6 +10,7 @@ pub fn fk(key: &[i32], acc: &[&str]) -> FaceKey {
     FaceKey {
         key: key.to_vec(),
         acceptable: acc.iter().map(|s| s.to_string()).collect(),
+        image_rules: Default::default(),
     }
 }
 

@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use rustred_campaign_core::closure::{
     ClosureConfig, ClosureError, CoefFact, DispatchSlot, FactSource, HandDowns, KeyCodec, KeySet,
-    LeafBinding, LeafSet, LeafSetBuilder, NoFacts, RegFact, RelationSet, RelationStoreBuilder,
-    RuleBodies, RuleId, Tier, VERDICT_CERTIFIED, Verdict, closure,
+    LeafBinding, LeafProducer, LeafSet, LeafSetBuilder, NoFacts, RegFact, RelationSet,
+    RelationStoreBuilder, RuleBodies, RuleId, Tier, VERDICT_CERTIFIED, Verdict, closure,
 };
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
@@ -97,6 +97,8 @@ fn leafset(c: &rustred_campaign_core::closure::Closure, verdict: &str, certified
         walk: c.leaf_walk().clone(),
         relative_to: vec![],
         provenance: BTreeMap::new(),
+        // format 2 (audit r2-planners L1): certified at per-key, exact tier, strict basis
+        producer: Some(LeafProducer::new("per-key", Tier::C, true)),
     })
     .unwrap()
 }
@@ -378,6 +380,7 @@ fn an_edge_into_a_leaf_is_still_checked_strictly_lower() {
             statement_digest: "x".into(),
             source_verdict: "closed".into(),
             walk: probe.leaf_walk().clone(),
+            producer: Some(LeafProducer::new("per-key", Tier::C, true)),
             ..Default::default()
         })
         .unwrap(),

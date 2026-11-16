@@ -7,7 +7,8 @@
 //!   these numerators < 0), "max_keys": n (optional), "centre": [..] (default zero), "shells": [..] (harder unit, all
 //!   slots, no floor, around the centre) | "list": [[offset], ..] (explicit start list, centre-relative, row order kept),
 //!   "domain": {recipe domain} (optional), "verify_keys_file": "<I(..) per line>" + "verify_chunk": n (optional: every
-//!   piece list is then also solved at those keys, "valid at N of N"), "policy": {seedmin policy}, "relation_rule", "cpus": [..] | null (HELD_CPUS),
+//!   piece list is then also solved at those keys and, unless "verify_compare_full": false, compared key by key with the
+//!   full start list: `seedmin::verify_beyond_piece`, planfix S1), "policy": {seedmin policy}, "relation_rule", "cpus": [..] | null (HELD_CPUS),
 //!   "pin_cpus": bool (default true; false = the CPUs are only a pool size, rule L21),
 //!   "threads_per_job", "cap_bytes", "key_budget_s", "wall_cap_s", "work_root", "out_dir", "records_cap_bytes"}`.
 //! Writes `out_dir/report.json`: the start list, the joint record (per-key minimisations at the spread keys, pieces,
@@ -20,8 +21,7 @@ use rustred_campaign::closeloop::seedmin::{
 use rustred_campaign::resources::{Sampler, SamplerConfig};
 use rustred_campaign_core::coreseed::seeds::{shell_offsets, valid_at};
 use rustred_campaign_core::seedmin::{
-    LocalValuationJudge, SeedMinPolicy, StubSystemPoles, Trial, TrialMode, TrialSolver, add,
-    minimise_joint, rule_candidate,
+    LocalValuationJudge, SeedMinPolicy, StubSystemPoles, add, minimise_joint, rule_candidate,
 };
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -162,6 +162,7 @@ fn real_joint_seed_minimisation_on_one_face() {
         fake: None,
         poles: None,
         verbose: true,
+        site: Default::default(),
     };
     let sampler = Arc::new(
         Sampler::spawn(SamplerConfig {
@@ -194,48 +195,20 @@ fn real_joint_seed_minimisation_on_one_face() {
             .filter_map(parse_key)
             .collect();
         let chunk = c["verify_chunk"].as_u64().unwrap_or(40).max(1) as usize;
+        // planfix S1: compared key by key with the FULL start list (default on; "verify_compare_full": false skips it)
+        let compare = c["verify_compare_full"].as_bool().unwrap_or(true);
         for p in &jm.pieces {
-            let own: BTreeSet<&Vec<i32>> = p.keys.iter().collect();
-            let extra: Vec<Vec<i32>> = vkeys.iter().filter(|k| !own.contains(k)).cloned().collect();
-            let trials: Vec<Trial> = extra
-                .chunks(chunk)
-                .enumerate()
-                .map(|(i, ks)| Trial {
-                    label: format!("seedmin/verify/{}/{i}", p.label),
-                    centre: centre.clone(),
-                    list: p.list.clone(),
-                    keys: ks.to_vec(),
-                    mode: TrialMode::Solve,
-                    engine_minimise: None,
-                })
-                .collect();
-            let ans = solver.solve(&trials).unwrap();
-            let all: Vec<_> = ans.into_iter().flatten().collect();
-            let ok: Vec<_> = all.iter().filter_map(|a| a.relation()).collect();
-            let terms: Vec<u64> = ok.iter().map(|f| f.rhs_count).collect();
-            let mut poles: std::collections::BTreeMap<String, usize> = Default::default();
-            for f in &ok {
-                *poles
-                    .entry(serde_json::to_string(&f.pole).unwrap())
-                    .or_default() += 1;
-            }
-            let failed: Vec<Value> = extra
-                .iter()
-                .zip(&all)
-                .filter(|(_, a)| a.relation().is_none())
-                .map(|(k, a)| json!([k, a.word()]))
-                .collect();
-            eprintln!(
-                "[seedmin] VERIFY piece {}: valid at {} of {} keys",
-                p.label,
-                p.keys.len() + ok.len(),
-                p.keys.len() + extra.len()
-            );
-            verify.push(json!({"piece": p.label, "seeds": p.list.len(),
-                "valid": format!("{} of {} keys", p.keys.len() + ok.len(), p.keys.len() + extra.len()),
-                "extra_keys": extra.len(), "extra_solved": ok.len(),
-                "extra_terms": [terms.iter().min(), terms.iter().max()], "extra_poles": poles,
-                "failed": failed.iter().take(50).collect::<Vec<_>>(), "failed_count": failed.len()}));
+            let r = rustred_campaign_core::seedmin::verify_beyond_piece(
+                p,
+                &centre,
+                compare.then_some(list.as_slice()),
+                &vkeys,
+                chunk,
+                &mut solver,
+            )
+            .unwrap();
+            eprintln!("[seedmin] VERIFY piece {}: {}", p.label, r.claim);
+            verify.push(serde_json::to_value(&r).unwrap());
         }
     }
     let wall = t0.elapsed().as_secs_f64();

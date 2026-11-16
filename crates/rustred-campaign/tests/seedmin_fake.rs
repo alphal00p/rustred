@@ -61,6 +61,7 @@ fn config(dir: &Path, oracle: FakeOracle) -> ChildConfig {
         fake: Some(oracle),
         poles: None,
         verbose: false,
+        site: Default::default(),
     }
 }
 

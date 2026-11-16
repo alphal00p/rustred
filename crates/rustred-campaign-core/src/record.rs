@@ -353,6 +353,10 @@ pub const RULE_MEMBERS_READ: &[&str] = &[
     "witness_loci",
     "recenter",
     "domain_bounds",
+    // lane parametric (decision C as answered by the engine lane, COORDINATOR-ANSWERS-20261116-1.md): INFORMATIONAL for
+    // dispatch (the engine dispatches by case + domain_bounds + exceptions) but CHECKED: it must be implied by those
+    // members, else the record is refused ([`check_domain_member`])
+    "domain",
 ];
 
 /// Rule-record members known to carry no dispatch meaning (see [`RULE_RECORD_MEMBERS`]).
@@ -397,7 +401,136 @@ pub const RULE_MEMBERS_INFORMATIONAL: &[&str] = &[
     "symface",
     "relation_digest",
     "relation_rule",
+    // lane parametric (coordinator decision C): provenance of symmetry / face rules, informational
+    "source_rows",
+    "verification",
+    // lane parametric: a free-text note of re-serialised symmetry records (T162 ship table), informational (classified
+    // by analogy with `verification`; not named in decision C)
+    "case_note",
 ];
+
+/// A rule record's `domain` member (lane parametric; coordinator decision C as answered by the engine lane): an object
+/// `{"n<p>": "<= v" | ">= v", ..}` of inclusive bounds on the case variables `n_p` (the parameters of the target pattern).
+/// The engine dispatches a RULE record by its case (fixed slots, equations), `domain_bounds` and exceptions only, so the
+/// member is INFORMATIONAL, and it must AGREE: every bound it states must be IMPLIED by the record's own members (the
+/// fixed value of the slot, its chart side, `domain_bounds` min / max, and one-slot exception branches that exclude single
+/// values at the ends of the slot's range). `Ok(())` = implied; `Err` = another value form, a variable outside the arity,
+/// or a bound the record's members do not imply (refuse: the writer's intent and the shipped behaviour differ).
+pub fn check_domain_member(
+    v: &Value,
+    fixed: &[Option<i64>],
+    chart: Option<&[bool]>,
+    bounds: Option<&DomainBounds>,
+    exceptions: &[Vec<String>],
+) -> Result<(), String> {
+    let n = fixed.len();
+    let o = v
+        .as_object()
+        .ok_or_else(|| format!("domain is not an object: {v}"))?;
+    // single values excluded by a one-member exception branch `a*n_p + c` (linear, one slot, integer root)
+    let excluded = |p: usize| -> Vec<i64> {
+        let mut out = Vec::new();
+        for b in exceptions {
+            if b.len() != 1 {
+                continue;
+            }
+            if let Ok(poly) = crate::poly::Poly::parse_d_free_exact(&b[0], n)
+                && poly.support() == vec![p]
+                && poly.degree() == 1
+                && let Some(t) = poly.small_terms()
+            {
+                let (mut a, mut c) = (0i128, 0i128);
+                for (m, k) in t {
+                    if m.is_empty() {
+                        c = *k;
+                    } else {
+                        a = *k;
+                    }
+                }
+                if a != 0
+                    && c % a == 0
+                    && let Ok(r) = i64::try_from(-c / a)
+                {
+                    out.push(r);
+                }
+            }
+        }
+        out
+    };
+    for (k, c) in o {
+        let p: usize = k
+            .strip_prefix('n')
+            .and_then(|d| d.parse().ok())
+            .filter(|&p| p < n)
+            .ok_or_else(|| {
+                format!(
+                    "domain: {k:?} is not a case variable n0..n{}",
+                    n.saturating_sub(1)
+                )
+            })?;
+        let t = c
+            .as_str()
+            .ok_or_else(|| format!("domain.{k}: a string \"<= v\" or \">= v\" expected, got {c}"))?
+            .trim();
+        let (upper, rest) = if let Some(r) = t.strip_prefix("<=") {
+            (true, r)
+        } else if let Some(r) = t.strip_prefix(">=") {
+            (false, r)
+        } else {
+            return Err(format!(
+                "domain.{k}: {t:?} is neither \"<= v\" nor \">= v\""
+            ));
+        };
+        let val: i64 = rest
+            .trim()
+            .parse()
+            .map_err(|_| format!("domain.{k}: {t:?}: the bound is not an integer"))?;
+        // the slot's allowed range from the record's own members
+        let (mut lo, mut hi): (Option<i64>, Option<i64>) = match fixed.get(p).copied().flatten() {
+            Some(f) => (Some(f), Some(f)),
+            None => match chart.and_then(|ch| ch.get(p).copied()) {
+                Some(true) => (Some(1), None),
+                Some(false) => (None, Some(0)),
+                None => (None, None),
+            },
+        };
+        if let Some(b) = bounds {
+            if let Some(Some(m)) = b.min.get(p) {
+                lo = Some(lo.map_or(*m, |l| l.max(*m)));
+            }
+            if let Some(Some(m)) = b.max.get(p) {
+                hi = Some(hi.map_or(*m, |h| h.min(*m)));
+            }
+        }
+        let ex = excluded(p);
+        // shrink the finite ends past excluded single values
+        while let Some(l) = lo
+            && ex.contains(&l)
+            && hi.is_none_or(|h| l <= h)
+        {
+            lo = Some(l + 1);
+        }
+        while let Some(h) = hi
+            && ex.contains(&h)
+            && lo.is_none_or(|l| l <= h)
+        {
+            hi = Some(h - 1);
+        }
+        let implied = if upper {
+            hi.is_some_and(|h| h <= val) || matches!((lo, hi), (Some(l), Some(h)) if l > h)
+        } else {
+            lo.is_some_and(|l| l >= val) || matches!((lo, hi), (Some(l), Some(h)) if l > h)
+        };
+        if !implied {
+            return Err(format!(
+                "domain.{k} {t:?} is not implied by the record's case / domain_bounds / exceptions (slot range {} .. {}): the member disagrees with what the engine dispatches",
+                lo.map_or("-inf".into(), |l| l.to_string()),
+                hi.map_or("inf".into(), |h| h.to_string())
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Is `name` a member of [`RULE_RECORD_MEMBERS`]?
 pub fn is_known_rule_member(name: &str) -> bool {
@@ -836,6 +969,26 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
         let v: Value = de(b, "domain_bounds", line)?;
         if !v.is_null() {
             r.domain_bounds = Some(DomainBounds::from_value(&v, r.fixed.len()).map_err(fmt)?);
+        }
+    }
+    // lane parametric (decision C, engine lane's answer): `domain` is informational for dispatch but must be IMPLIED by
+    // the record's own case / bounds / exceptions; a disagreement refuses the record (the writer's intent and the shipped
+    // behaviour would differ)
+    if let Some(b) = get("domain") {
+        let v: Value = de(b, "domain", line)?;
+        if !v.is_null() {
+            let chart: Option<Vec<bool>> = r
+                .chart
+                .as_deref()
+                .map(|c| c.chars().map(|x| x == '1').collect());
+            check_domain_member(
+                &v,
+                &r.fixed,
+                chart.as_deref(),
+                r.domain_bounds.as_ref(),
+                &r.exceptions,
+            )
+            .map_err(fmt)?;
         }
     }
     r.unknown_members = fields

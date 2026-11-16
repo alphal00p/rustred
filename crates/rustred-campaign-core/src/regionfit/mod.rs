@@ -32,6 +32,11 @@ pub const RECORD_SCHEMA: &str = "rustred.campaign.regionfit.v1";
 pub struct FaceKey {
     pub key: Vec<i32>,
     pub acceptable: BTreeSet<String>,
+    /// audit r2-planners R1: per acceptable label, the IMAGE RULE(S) it stands for at this key (the composed form,
+    /// element + image rule, of the producer's choice): a label that does not fix the image rule (e.g. the element
+    /// alone) keeps it here, and every region / residual record names it. Empty: the input states none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub image_rules: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// ALL keys of one unserved sub-face inside the box (any order, no duplicate key, one arity).
@@ -42,28 +47,34 @@ pub struct FaceInput {
     pub keys: Vec<FaceKey>,
 }
 
-/// Every threshold is policy data; the defaults are documented in interfaces/regionfit.md.
+/// Every threshold is policy data; the defaults are documented in interfaces/regionfit.md. planfix (audit r2-planners
+/// ITEM 6): each field states its default and what backs it; "default not yet backed by an experiment" = a number
+/// chosen by the lane, not measured.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RegionPolicy {
     pub atoms: AtomFamily,
-    /// Atoms per condition.
+    /// Atoms per condition. Default 2: the hand's region conditions use at most two atoms (TRICKS 2); not measured
+    /// against 1 or 3 (default not yet backed by an experiment).
     pub max_atoms: usize,
-    /// A candidate region holds at least this many face keys.
+    /// A candidate region holds at least this many face keys. Default 2. Default not yet backed by an experiment.
     pub min_region_keys: usize,
     /// Pieces charged per key served per key (a region costs 1).
     pub residual_key_cost: u64,
     /// Preferred choices first; unlisted choices after, in label order.
     pub ranking: Vec<String>,
-    /// Exact search only when the candidate regions (after dominance) are at most this many ...
+    /// Exact search only when the candidate regions (after dominance) are at most this many ... Default 400. Default
+    /// not yet backed by an experiment (the T178 key-choice faces all fitted "exact" under it, regions notes; no sweep).
     pub exact_max_candidates: usize,
-    /// ... and the keys at most this many.
+    /// ... and the keys at most this many. Default 4000. Default not yet backed by an experiment.
     pub exact_max_keys: usize,
-    /// Branch-and-bound node budget.
+    /// Branch-and-bound node budget. Default 200000. Default not yet backed by an experiment.
     pub exact_node_budget: u64,
-    /// Dominance pruning only up to this many candidates (it is quadratic).
+    /// Dominance pruning only up to this many candidates (it is quadratic). Default 20000. Default not yet backed by an
+    /// experiment.
     pub dominance_max_candidates: usize,
-    /// Conditions enumerated at most (deterministic cut; the record says when it was hit).
+    /// Conditions enumerated at most (deterministic cut; the record says when it was hit). Default 5000000. Default
+    /// not yet backed by an experiment.
     pub max_conditions: u64,
     /// The deeper key list breaks ties among conditions with the same truth set on the face.
     pub prefer_extending: bool,
@@ -164,6 +175,9 @@ pub struct Region {
     /// Conditions with the same truth set on the face (>= 1).
     pub equivalent_conditions: usize,
     pub alternatives: Vec<String>,
+    /// audit r2-planners R1: the image rules (composed forms) the choice stands for at the face keys satisfying the
+    /// condition (sorted; empty = the input states none). More than one: the label does not fix the composed relation.
+    pub image_rules: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -181,6 +195,8 @@ pub struct RegionFit {
     pub regions: Vec<Region>,
     /// (key, best ranked acceptable choice), keys in sorted order.
     pub residual: Vec<(Vec<i32>, String)>,
+    /// audit r2-planners R1: the image rules of each residual key's choice (parallel to `residual`).
+    pub residual_rules: Vec<Vec<String>>,
     /// Keys with no acceptable choice.
     pub unservable: Vec<Vec<i32>>,
 }
@@ -510,8 +526,12 @@ pub fn fit_regions(
         };
         // soundness: atom by atom over the complete list
         let mut verified = 0;
+        let mut image_rules: BTreeSet<String> = BTreeSet::new();
         for fk in &keys {
             if shown.iter().all(|a| a.eval(&fk.key)) {
+                if let Some(f) = fk.image_rules.get(&choice) {
+                    image_rules.extend(f.iter().cloned());
+                }
                 if !fk.acceptable.contains(&choice) {
                     return Err(RegionFitError::Internal(format!(
                         "region {} / {choice} fails at {:?}",
@@ -549,16 +569,26 @@ pub fn fit_regions(
             verified,
             equivalent_conditions: eq.len(),
             alternatives,
+            image_rules: image_rules.into_iter().collect(),
         });
     }
     let mut residual = vec![];
+    let mut residual_rules: Vec<Vec<String>> = vec![];
     let mut unservable = vec![];
     for (k, fk) in keys.iter().enumerate() {
         if assigned.get(k) {
             continue;
         }
         match key_best[k] {
-            Some(u) => residual.push((fk.key.clone(), universe[u].clone())),
+            Some(u) => {
+                residual_rules.push(
+                    fk.image_rules
+                        .get(&universe[u])
+                        .map(|f| f.iter().cloned().collect())
+                        .unwrap_or_default(),
+                );
+                residual.push((fk.key.clone(), universe[u].clone()));
+            }
             None => unservable.push(fk.key.clone()),
         }
     }
@@ -577,6 +607,7 @@ pub fn fit_regions(
         conditions_truncated: !complete,
         regions,
         residual,
+        residual_rules,
         unservable,
     })
 }
@@ -594,6 +625,9 @@ impl RegionFit {
                     "verified_on": format!("verified on {} keys of the box", self.keys),
                     "extends": r.extends.map(|e| json!({"n": e.n, "m": e.m})),
                     "equivalent_conditions": r.equivalent_conditions, "alternatives": r.alternatives,
+                    // audit r2-planners R1: what the choice label stands for (null: the input states no image rule)
+                    "image_rules": (!r.image_rules.is_empty()).then_some(&r.image_rules),
+                    "image_rule_uniform": (!r.image_rules.is_empty()).then_some(r.image_rules.len() == 1),
                 })
             })
             .collect();
@@ -607,7 +641,13 @@ impl RegionFit {
                 "atoms": self.cost.atoms, "candidates": self.candidates, "exact_nodes": self.exact_nodes,
                 "conditions_truncated": self.conditions_truncated},
             "regions": regions,
-            "residual": self.residual.iter().map(|(k, c)| json!({"key": k, "choice": c})).collect::<Vec<_>>(),
+            "residual": self.residual.iter().zip(&self.residual_rules).map(|((k, c), f)| {
+                let mut e = json!({"key": k, "choice": c});
+                if !f.is_empty() {
+                    e["image_rules"] = json!(f);
+                }
+                e
+            }).collect::<Vec<_>>(),
             "unservable": self.unservable,
         });
         let d = crate::closure::sha256::sha256_tag(canon(&v).as_bytes());

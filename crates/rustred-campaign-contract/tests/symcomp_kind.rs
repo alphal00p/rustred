@@ -842,7 +842,8 @@ fn rows_33_to_36_are_in_the_table_with_their_columns() {
             Action::ItemAttentionNoRetry
         )
     );
-    assert_eq!(ROWS.len(), 43);
+    // int7: 39 + symjob's 33-36 + coreseed's 37-39 (kind pole-regular-at)
+    assert_eq!(ROWS.len(), 46);
     assert!(classify::decision_table_markdown().contains("| supplied_relations |"));
     assert!(symcomp::names_pinned_mismatch("PINNED_INPUTS_MISMATCH: x"));
     assert!(!symcomp::names_pinned_mismatch(
