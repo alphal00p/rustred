@@ -2117,8 +2117,8 @@ fn handdown_witness(a: &Args) {
                             format!("another record ({}, {})", rr.table, rr.record)
                         }
                     }
-                    Ok(d) => format!("{d:?}").chars().take(60).collect(),
-                    Err(x) => format!("error {x:?}").chars().take(60).collect(),
+                    Ok(d) => format!("{d:?}").chars().take(400).collect(),
+                    Err(x) => format!("error {x:?}").chars().take(400).collect(),
                 };
                 let dr: i64 = key
                     .iter()
