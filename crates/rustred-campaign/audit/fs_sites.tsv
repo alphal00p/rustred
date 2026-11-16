@@ -1976,20 +1976,20 @@ X	tests/procfix10.rs	58	test			let _ = Command::new("sh")
 E	tests/procfix10.rs	106	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
 W	tests/procfix10.rs	109	test			let _ = s1.wait();
 R	tests/procfix10.rs	110	test			let dp: u32 = std::fs::read_to_string(&dpf)
-O	tests/procfix10.rs	220	test			let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK) };
-W	tests/procfix10.rs	311	test			let _ = s1.wait();
-E	tests/procfix10.rs	360	test			assert!(!t.path.join("started.rec").exists(), "nothing launched");
-E	tests/procfix10.rs	403	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
-W	tests/procfix10.rs	406	test			let _ = s1.wait();
-R	tests/procfix10.rs	407	test			let dp: u32 = std::fs::read_to_string(&dpf)
-R	tests/procfix10.rs	493	test			let up: u32 = std::fs::read_to_string(&upf)
-E	tests/procfix10.rs	540	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
-W	tests/procfix10.rs	543	test			let _ = s1.wait();
-R	tests/procfix10.rs	544	test			let dp: u32 = std::fs::read_to_string(&dpf)
-D	tests/procfix10.rs	703	test			std::fs::write(&files.hand, hand).unwrap();
-R	tests/procfix10.rs	723	test			let result: Option<serde_json::Value> = std::fs::read(fin.join("result.json"))
-X	tests/procfix10.rs	723	test			let result: Option<serde_json::Value> = std::fs::read(fin.join("result.json"))
-E	tests/procfix10.rs	734	test			.filter(|rel| fin.join(rel).is_file() && !registry.iter().any(|k| k == rel))
+O	tests/procfix10.rs	241	test			let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK) };
+W	tests/procfix10.rs	332	test			let _ = s1.wait();
+E	tests/procfix10.rs	381	test			assert!(!t.path.join("started.rec").exists(), "nothing launched");
+E	tests/procfix10.rs	424	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
+W	tests/procfix10.rs	427	test			let _ = s1.wait();
+R	tests/procfix10.rs	428	test			let dp: u32 = std::fs::read_to_string(&dpf)
+R	tests/procfix10.rs	514	test			let up: u32 = std::fs::read_to_string(&upf)
+E	tests/procfix10.rs	561	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
+W	tests/procfix10.rs	564	test			let _ = s1.wait();
+R	tests/procfix10.rs	565	test			let dp: u32 = std::fs::read_to_string(&dpf)
+D	tests/procfix10.rs	724	test			std::fs::write(&files.hand, hand).unwrap();
+R	tests/procfix10.rs	744	test			let result: Option<serde_json::Value> = std::fs::read(fin.join("result.json"))
+X	tests/procfix10.rs	744	test			let result: Option<serde_json::Value> = std::fs::read(fin.join("result.json"))
+E	tests/procfix10.rs	755	test			.filter(|rel| fin.join(rel).is_file() && !registry.iter().any(|k| k == rel))
 L	tests/procfix10_dirs.rs	43	test			let mut v: Vec<String> = fs::read_dir(p)
 D	tests/procfix10_dirs.rs	57	test			fs::remove_file(ldir.join(ledger::MANIFEST_FILE)).unwrap(); // a lost manifest
 D	tests/procfix10_dirs.rs	86	test			fs::remove_file(ldir.join(ledger::MANIFEST_FILE)).unwrap();
