@@ -22,7 +22,9 @@ fn in_ns() -> bool {
     if rustred_campaign::launch::in_private_namespace() {
         return true;
     }
-    eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+    eprintln!(
+        "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+    );
     false
 }
 
@@ -77,12 +79,23 @@ fn crashed_session_with_daemon(t: &Tmp) -> (PathBuf, PathBuf, u32) {
     v["programs"]["rr_fake_child"]["path"] = serde_json::json!(wrap);
     let sp = write_spec(t, "spec.json", &v);
     let d = t.cdir("c");
-    let mut s1 = start(&sp, &d, &["--plain"], &[("PATH", path_env().to_str().unwrap())]);
-    wait_until("the marked daemon", Duration::from_secs(60), || rec.exists());
+    let mut s1 = start(
+        &sp,
+        &d,
+        &["--plain"],
+        &[("PATH", path_env().to_str().unwrap())],
+    );
+    wait_until("the marked daemon", Duration::from_secs(60), || {
+        rec.exists()
+    });
     std::thread::sleep(Duration::from_millis(500));
     signal(&s1, libc::SIGKILL);
     let _ = s1.wait();
-    let dp: u32 = std::fs::read_to_string(&rec).unwrap().trim().parse().unwrap();
+    let dp: u32 = std::fs::read_to_string(&rec)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
     assert!(alive(dp), "precondition: the daemon lives");
     (sp, d, dp)
 }
@@ -116,7 +129,11 @@ fn g9_b1_unreadable_manifest_never_creates_a_new_ledger_over_a_campaign() {
     for (tag, errno) in [("g9-mf-eio", "5"), ("g9-mf-enomem", "12")] {
         let t = Tmp::new(tag);
         let (sp, d, dp) = crashed_session_with_daemon(&t);
-        assert_eq!(supervisor_sessions(&d), 1, "precondition: session 1 recorded");
+        assert_eq!(
+            supervisor_sessions(&d),
+            1,
+            "precondition: session 1 recorded"
+        );
         let m = d.join("ledger");
         let m_s = m.to_str().unwrap().to_string();
         let log = t.path.join("fault.log");
@@ -140,7 +157,10 @@ fn g9_b1_unreadable_manifest_never_creates_a_new_ledger_over_a_campaign() {
             .lines()
             .filter(|l| l.ends_with("FAILED"))
             .count();
-        assert!(failed >= 2, "precondition: the injector failed the manifest stats");
+        assert!(
+            failed >= 2,
+            "precondition: the injector failed the manifest stats"
+        );
         let survivor = alive(dp);
         let sessions = supervisor_sessions(&d);
         kill_pid(dp);
