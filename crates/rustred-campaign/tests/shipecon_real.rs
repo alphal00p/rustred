@@ -63,6 +63,7 @@ fn real_ship_economy() {
         resume_trials: opt("resume_trials"),
         previous_solved: opt("previous_solved"),
         previous_work: opt("previous_work"),
+        fake: None,
         verbose: true,
     };
     let rep = run_ship(&cfg).unwrap();

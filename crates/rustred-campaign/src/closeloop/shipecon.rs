@@ -90,6 +90,9 @@ pub struct ShipRunConfig {
     /// results streams, for the engine records of reused certified trials).
     pub previous_solved: Option<PathBuf>,
     pub previous_work: Option<PathBuf>,
+    /// Test stand: the program is `rr_fake_child`; per step and key the right-hand side of a SOLVED answer (absent:
+    /// NO_RELATION_IN_SEEDS).
+    pub fake: Option<ShipFake>,
     /// `rr_node first-match --table ship/probe/table.jsonl --keys ship/probe/keys.jsonl` output of an earlier run's
     /// probe (compared key by key with the import's dispatch of the shipped spec).
     pub engine_first_match: Option<PathBuf>,
@@ -128,6 +131,47 @@ fn jsonl<T: serde::Serialize>(items: &[T]) -> Vec<u8> {
         out.push(b'\n');
     }
     out
+}
+
+/// Test stand of the driver (the fake child emulates kind solve-recipe).
+#[derive(Clone, Debug, Default)]
+pub struct ShipFake {
+    pub answers: BTreeMap<String, BTreeMap<Vec<i32>, Vec<Vec<i64>>>>,
+    pub ms: u64,
+}
+
+impl ShipFake {
+    fn script(&self, step: &str, keys: &[Vec<i32>]) -> rustred_campaign_contract::fake::FakeScript {
+        use rustred_campaign_contract::classify::recipe::Verdict;
+        use rustred_campaign_contract::fake::{FakeOp, FakeScript, OnSigterm, RssPlan};
+        let mut ops = vec![FakeOp::Prepare { ms: 5 }];
+        for k in keys {
+            let (verdict, rhs) = match self.answers.get(step).and_then(|m| m.get(k)) {
+                Some(rhs) => (Verdict::Solved, rhs.clone()),
+                None => (Verdict::NoRelationInSeeds, vec![]),
+            };
+            ops.push(FakeOp::Relation {
+                ms: self.ms,
+                verdict,
+                rhs,
+            });
+        }
+        ops.push(FakeOp::End {
+            stop: None,
+            verdict: None,
+        });
+        FakeScript {
+            script: ops,
+            on_sigterm: OnSigterm::Graceful,
+            slow_ms: 0,
+            start_delay_ms: 0,
+            rss: RssPlan::default(),
+            helpers: vec![],
+            faults: vec![],
+            time_scale: 1.0,
+            volatile_jitter: false,
+        }
+    }
 }
 
 /// One solve job: one recipe (one explicit seed set, common slots fixed) at the keys of one rule it is assigned.
@@ -491,7 +535,7 @@ fn launch(
         package: None,
         live_repair: false,
         licence_env: cfg.licence_env.clone(),
-        fake: None,
+        fake: cfg.fake.as_ref().map(|f| f.script(&job.step, &job.keys)),
     };
     let reqs: Vec<AdReq> = job
         .keys
