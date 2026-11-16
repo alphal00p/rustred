@@ -692,6 +692,14 @@ impl GenChoiceSource {
         st.jobs.get(&a.job).map_or(0, |j| j.cpu_ms)
     }
 
+    /// The engine's own wall time of a run (end record `seconds`), 0 when unknown.
+    fn wall_of(a: &Answer) -> u64 {
+        a.measure
+            .as_ref()
+            .and_then(|m| m.engine_seconds)
+            .map_or(0, |s| (s * 1000.0) as u64)
+    }
+
     fn acceptable(a: &Answer) -> bool {
         a.status == gc::RunStatus::Complete
             && a.measure
@@ -738,6 +746,7 @@ impl GenChoiceSource {
                         cand: c.index,
                         acceptable: Self::acceptable(a),
                         cpu_ms: Self::cpu_of(st, a),
+                        wall_ms: Self::wall_of(a),
                         measure: a.measure.clone(),
                         alternative: false,
                     },
@@ -754,6 +763,7 @@ impl GenChoiceSource {
                                 cand: c.index,
                                 acceptable: Self::acceptable(&a),
                                 cpu_ms: Self::cpu_of(st, &a),
+                                wall_ms: Self::wall_of(&a),
                                 measure: a.measure.clone(),
                                 alternative: alt,
                             },
@@ -765,6 +775,7 @@ impl GenChoiceSource {
                                 cand: c.index,
                                 acceptable: false,
                                 cpu_ms: 0,
+                                wall_ms: 0,
                                 measure: None,
                                 alternative: alt,
                             },

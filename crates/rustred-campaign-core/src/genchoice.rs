@@ -1108,6 +1108,10 @@ pub struct FullRun {
     pub cand: usize,
     pub acceptable: bool,
     pub cpu_ms: u64,
+    /// Wall time of the run (the engine's own, 0 = unknown): the alternatives' WALL caps are factor x this (v1.7: on a
+    /// shared host wall / CPU reached 2.6 on blind T218, so a wall cap of factor x CPU starved the alternatives).
+    #[serde(default)]
+    pub wall_ms: u64,
     pub measure: Option<TableMeasure>,
     /// Ran as an economy alternative (its CPU counts against the budget).
     pub alternative: bool,
@@ -1146,7 +1150,7 @@ pub fn next_step_with(
     for &c in first_order {
         match get(c) {
             Some(r) if r.acceptable && !r.alternative => {
-                first = Some((c, r.cpu_ms));
+                first = Some((c, if r.wall_ms > 0 { r.wall_ms } else { r.cpu_ms }));
                 break;
             }
             Some(r) if !r.alternative => {

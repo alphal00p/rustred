@@ -239,6 +239,7 @@ fn run(cand: usize, ok: bool, cpu: u64, bytes: u64, alt: bool) -> FullRun {
         cand,
         acceptable: ok,
         cpu_ms: cpu,
+        wall_ms: 0,
         measure: Some(tm(10, bytes, bytes / 10, bytes / 100)),
         alternative: alt,
     }
@@ -475,5 +476,18 @@ fn deep_cases_sample_every_case_type_round_robin() {
         free_lines(&d[0]),
         free_lines(&d[1]),
         "one case of each type before a second of any: {d:?}"
+    );
+}
+
+#[test]
+fn alternative_caps_follow_the_first_runs_wall_time_when_known() {
+    let p = Policy::default();
+    let r = vec![0, 1, 2];
+    let mut first = run(0, true, 100_000, 100, false);
+    first.wall_ms = 260_000;
+    // two alternatives share 2 x 260 s of wall (CPU 100 s: a shared host ran at wall / cpu = 2.6)
+    assert_eq!(
+        next_step(&r, &[first], &p),
+        NextStep::Alternatives(vec![(1, Some(260)), (2, Some(260))])
     );
 }
