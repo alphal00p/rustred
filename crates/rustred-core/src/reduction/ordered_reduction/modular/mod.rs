@@ -235,6 +235,49 @@ impl Trace {
 }
 
 impl Trace {
+    /// helper-vh2: the slot discipline on which the replays agree. The
+    /// sampled replay COPIES a slot on `Pop` and leaves an erased slot as it
+    /// was; the polynomial and t-adic replays TAKE it (empty = exact zero).
+    /// They agree iff no slot is read (`Add`, `Pop`, `Cancel`; terminals:
+    /// `TermAdd`, `TermCancel`, or being an output) after its `Pop`/erasure
+    /// and before a `New`/`Init` (`TermNew`) overwrites it. A slot never
+    /// written reads as zero in every replay. Returns the first violation.
+    pub(super) fn slot_discipline(&self, outputs: &[usize]) -> Result<(), String> {
+        // 0 = never written, 1 = live, 2 = taken (popped or erased).
+        let mut weights = vec![0u8; self.slots];
+        let mut terminals = vec![0u8; self.terminal_slots];
+        for (index, op) in self.ops.iter().enumerate() {
+            let slot = op.slot();
+            let tag = op.tag();
+            let state = match tag {
+                OpTag::TermNew | OpTag::TermAdd | OpTag::TermCancel => terminals.get_mut(slot),
+                _ => weights.get_mut(slot),
+            }
+            .ok_or_else(|| format!("op {index} ({tag:?}) names slot {slot} beyond the trace"))?;
+            match tag {
+                OpTag::Init | OpTag::New | OpTag::TermNew => *state = 1,
+                OpTag::Add | OpTag::TermAdd => {
+                    if *state == 2 {
+                        return Err(format!("op {index} ({tag:?}) accumulates into slot {slot} after its pop/erasure"));
+                    }
+                    *state = 1;
+                }
+                OpTag::Pop | OpTag::Cancel | OpTag::TermCancel => {
+                    if *state == 2 {
+                        return Err(format!("op {index} ({tag:?}) reads slot {slot} after its pop/erasure"));
+                    }
+                    *state = 2;
+                }
+            }
+        }
+        for &slot in outputs {
+            if terminals.get(slot) == Some(&2) {
+                return Err(format!("output terminal {slot} was erased before the end"));
+            }
+        }
+        Ok(())
+    }
+
     /// rr-par diagnostics: the dataflow structure of the trace. A step is a
     /// `Pop` with the products that follow it; it can run once every write
     /// (`Init`, `New`, `Add`) into the popped value has run. Reports the
@@ -1376,7 +1419,17 @@ impl ModularRecorder {
         }
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
+        // helper-vh2: copy-on-pop (sampled) and take-on-pop (polynomial,
+        // t-adic) replays agree only under this discipline; checked on every
+        // trace in debug builds, and always before a t-adic replay below.
+        #[cfg(debug_assertions)]
+        if let Err(violation) = trace.slot_discipline(&slots) {
+            panic!("trace slot discipline violated: {violation}");
+        }
         if let Lifter::Tadic(options) = self.lifter {
+            trace.slot_discipline(&slots).map_err(|violation| {
+                error(format!("the t-adic replay refuses the trace: {violation}"))
+            })?;
             // helper-vh2: no composition, no lift. TODO(helper-vh2): a saved
             // application's composer (compose before lift) could be applied
             // to the series exactly as `PLibrary::reduce_tadic` applies its

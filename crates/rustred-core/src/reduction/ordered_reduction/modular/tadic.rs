@@ -1382,6 +1382,31 @@ mod tests {
         assert_eq!(images[0].terminals[0].coefficients[0], u(-2));
     }
 
+    /// The copy-on-pop / take-on-pop agreement condition (`slot_discipline`).
+    #[test]
+    fn slot_discipline_flags_reads_after_a_pop() {
+        let trace = cancelling_trace();
+        assert_eq!(trace.slot_discipline(&[0]), Ok(()));
+        // Accumulating into w1 after its pop: sampled adds to the old value,
+        // the take-on-pop replays to zero.
+        let mut trace = cancelling_trace();
+        trace.ops.push(Op::new(OpTag::Add, 1, polynomial(2)));
+        assert!(trace.slot_discipline(&[0]).is_err());
+        // Popping a slot twice.
+        let mut trace = cancelling_trace();
+        trace.ops.push(Op::new(OpTag::Pop, 2, constant(0)));
+        assert!(trace.slot_discipline(&[0]).is_err());
+        // An erased terminal used as an output.
+        let mut trace = cancelling_trace();
+        trace.ops.push(Op::new(OpTag::TermCancel, 0, constant(0)));
+        assert!(trace.slot_discipline(&[0]).is_err());
+        // A New after the pop makes the slot live again.
+        let mut trace = cancelling_trace();
+        trace.ops.push(Op::new(OpTag::New, 1, polynomial(2)));
+        trace.ops.push(Op::new(OpTag::Add, 1, polynomial(2)));
+        assert_eq!(trace.slot_discipline(&[0]), Ok(()));
+    }
+
     #[test]
     fn scaling_and_adding_public_series() {
         let context = CoefficientContext::try_new(["d"]).unwrap();
