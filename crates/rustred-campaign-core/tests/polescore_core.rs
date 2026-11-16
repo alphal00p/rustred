@@ -98,8 +98,10 @@ fn ignore_switch_is_bit_identical() {
     let c = [cand(0, 100, 5, Some(score(Some(1), 3))), cand(1, 900, 5, Some(score(Some(0), 0)))];
     assert_eq!(choose_poles(&c, Some(0), &off).unwrap(), None, "ignored: the caller keeps its size choice");
     // the effective policy of an ignoring run serialises exactly as before the pole objective existed
-    let mut p = Policy::default();
-    p.poles = off;
+    let p = Policy {
+        poles: off,
+        ..Default::default()
+    };
     let v = serde_json::to_value(&p).unwrap();
     assert!(v.get("poles").is_none());
     let mut legacy = v.clone();

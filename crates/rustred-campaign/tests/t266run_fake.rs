@@ -832,7 +832,9 @@ fn first_diff(a: &Value, b: &Value, path: &str) -> Option<String> {
 #[test]
 fn thread_counts_are_launch_time_resources_and_never_change_the_check_record() {
     let _g = serial();
-    let mut reference: Option<(BTreeSet<(String, String, String)>, Vec<(String, String)>, Vec<Value>, Vec<u8>)> = None;
+    // (accepted set, dispositions, check records, statement bytes) of the first thread setting
+    type Reference = (BTreeSet<(String, String, String)>, Vec<(String, String)>, Vec<Value>, Vec<u8>);
+    let mut reference: Option<Reference> = None;
     // (threads, store block cache): the read-path cache (lane t266run) must not change a result either
     for (t, cache) in [("1", "64"), ("4", "64"), ("16", "64"), ("4", "0"), ("16", "1")] {
         let (_t, sp, cdir) = setup(&format!("t2th{t}c{cache}"), 3, Some(2), true, 20);
@@ -947,7 +949,7 @@ fn prior_manifest(cdir: &Path, out: &Path) -> String {
     let st = state(cdir);
     let mut files: std::collections::BTreeMap<&str, Vec<Value>> = Default::default();
     let mut rows: Vec<(u64, String, String)> =
-        st.inputs.iter().map(|(_, r)| (r.registered_seq, r.role.clone(), r.path.clone())).collect();
+        st.inputs.values().map(|r| (r.registered_seq, r.role.clone(), r.path.clone())).collect();
     rows.sort();
     for (_, role, path) in rows {
         let key = match role.as_str() {

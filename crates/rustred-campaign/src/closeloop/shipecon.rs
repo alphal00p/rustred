@@ -991,6 +991,9 @@ impl ShipState {
             key_budget_s: p.recipe.key_budget_s,
             // the user's pole objective (regular at d = 4 wins by default): the SOLVED lines carry its annotation
             pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
+            // int8 (wireflow x shipecon): wireflow (h) added the engine's per-key pole order as the choice's profile,
+            // default false = "no profile"; the guard's annotation stays as lane shipecon built and tested it
+            pole_profiles: false,
         };
         let mut resumed: BTreeMap<(String, String, Vec<i32>), KeyTrial> = BTreeMap::new();
         if let Some(rp) = &cfg.resume_trials {

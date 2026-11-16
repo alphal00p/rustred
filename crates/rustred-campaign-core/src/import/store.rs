@@ -1271,10 +1271,10 @@ impl EvidenceStore {
         let mut p = 0usize;
         let mut k = Vec::with_capacity(self.meta.arity);
         while p < buf.len() {
-            let r = decode_head(&buf, &mut p, self.meta.arity, &mut k)?;
+            let r = decode_head(buf, &mut p, self.meta.arity, &mut k)?;
             match cmp_rk((r, &k), (rec, key)) {
-                Ordering::Less => skip_payload(&buf, &mut p)?,
-                Ordering::Equal => return decode_payload(&buf, &mut p),
+                Ordering::Less => skip_payload(buf, &mut p)?,
+                Ordering::Equal => return decode_payload(buf, &mut p),
                 Ordering::Greater => return None,
             }
         }
