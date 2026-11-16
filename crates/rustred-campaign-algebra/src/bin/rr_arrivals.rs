@@ -779,8 +779,8 @@ fn prepare(a: &Args) -> Prepared {
 /// The parent's imported set, its edge files and the frame checks (both sides of every edge).
 fn prepare_base(a: &Args) -> (ImportedSet, Vec<EdgeFile>, Value) {
     let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
-    if a.edges.is_empty() {
-        die("--edge missing");
+    if a.edges.is_empty() && !a.closure_only {
+        die("--edge missing (only --closure-only runs without an edge)");
     }
     let (set, _) = load_spec(&spec, &a.index_dir, |_| {});
     let edges: Vec<EdgeFile> = a
