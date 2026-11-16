@@ -1626,27 +1626,15 @@ fn with_family_analyzer<R>(
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
 ///
-/// Engine threading (batch 10): the subsectors are analysed independently, so on a worker of a
-/// request's pool (a multi-threaded request) they are analysed in parallel on that pool, each
-/// worker with its own analyzer (its Symanzik polynomials on that thread's polynomial context).
-/// The proofs are collected in the sequential order (descending subsets) and the first error in
-/// that order is returned: the result is identical to the sequential loop. Outside a pool (a
-/// one-thread request, the calling thread) the loop is sequential as before.
+/// SEQUENTIAL on the calling thread. This runs while an owner program's `OnceLock` is being initialised
+/// (`POwner::program` -> `lane_program` -> `build_custom_step_with`): a `par_iter` on the request's rayon pool
+/// here let the waiting thread steal another step that waits on the same `OnceLock` (deadlock, batch-10 gate,
+/// p_path_census P4L_J11 at 4 / 16 threads). The analyzer comes from this thread's per-family cache
+/// ([`with_family_analyzer`]), so a family's Symanzik polynomials are built once per thread, not per owner.
 fn zero_certificates(
     presentation: &Presentation,
     support: u64,
 ) -> Result<Vec<zero::Certificate>, PError> {
-    /// Below this many subsectors the sequential loop is used.
-    const PARALLEL_MIN_SUBSETS: usize = 64;
-    zero_certificates_with(presentation, support, PARALLEL_MIN_SUBSETS)
-}
-
-fn zero_certificates_with(
-    presentation: &Presentation,
-    support: u64,
-    parallel_min_subsets: usize,
-) -> Result<Vec<zero::Certificate>, PError> {
-    use rayon::prelude::*;
     let family = &presentation.family;
     let arity = presentation.slots.len();
     let decide =
@@ -1663,33 +1651,18 @@ fn zero_certificates_with(
                 ))),
             }
         };
-    let mut subsets = Vec::new();
-    let mut subset = support;
-    loop {
-        subsets.push(subset);
-        if subset == 0 {
-            break;
+    with_family_analyzer(family, |analyzer| {
+        let mut proofs = Vec::new();
+        let mut subset = support;
+        loop {
+            proofs.extend(decide(analyzer, subset)?);
+            if subset == 0 {
+                break;
+            }
+            subset = (subset - 1) & support;
         }
-        subset = (subset - 1) & support;
-    }
-    let mut proofs = Vec::new();
-    if rayon::current_thread_index().is_some() && subsets.len() >= parallel_min_subsets {
-        let decided: Vec<Result<Option<zero::Certificate>, PError>> = subsets
-            .par_iter()
-            .with_min_len(16)
-            .map(|&subset| with_family_analyzer(family, |analyzer| decide(analyzer, subset)))
-            .collect();
-        for result in decided {
-            proofs.extend(result?);
-        }
-    } else {
-        for subset in subsets {
-            proofs.extend(with_family_analyzer(family, |analyzer| {
-                decide(analyzer, subset)
-            })?);
-        }
-    }
-    Ok(proofs)
+        Ok(proofs)
+    })
 }
 
 /// The explicit application order of a Custom owner's rules (p artefact v2,
@@ -2826,26 +2799,28 @@ pub fn replay_custom_payload(
 mod tests {
     use super::*;
 
-    /// Engine threading: the parallel zero analysis (on a pool worker) gives the sequential proofs,
-    /// in the same order.
+    /// The per-(thread, family) analyzer cache gives the proofs of a fresh analyzer, also on a pool worker
+    /// (where the zero analysis must stay sequential: it runs under an owner program's OnceLock).
     #[test]
-    fn parallel_zero_certificates_equal_the_sequential_ones() {
+    fn cached_analyzer_zero_certificates_equal_a_fresh_analysis() {
         let library = super::super::testing::boxed_kite_library().unwrap();
         let presentation = (library.presentations().iter())
             .max_by_key(|p| p.slots.len())
             .unwrap()
             .clone();
         let support = (1_u64 << presentation.slots.len()) - 1;
-        let sequential = zero_certificates_with(&presentation, support, usize::MAX).unwrap();
+        let first = zero_certificates(&presentation, support).unwrap();
+        let again = zero_certificates(&presentation, support).unwrap();
         let pool = rayon::ThreadPoolBuilder::new()
             .num_threads(4)
             .build()
             .unwrap();
-        let parallel = pool
-            .install(|| zero_certificates_with(&presentation, support, 1))
+        let on_pool = pool
+            .install(|| zero_certificates(&presentation, support))
             .unwrap();
-        assert!(!sequential.is_empty());
-        assert_eq!(format!("{sequential:?}"), format!("{parallel:?}"));
+        assert!(!first.is_empty());
+        assert_eq!(format!("{first:?}"), format!("{again:?}"));
+        assert_eq!(format!("{first:?}"), format!("{on_pool:?}"));
     }
 
     fn keys(powers: &[&[i64]]) -> Vec<IntegralKey> {
