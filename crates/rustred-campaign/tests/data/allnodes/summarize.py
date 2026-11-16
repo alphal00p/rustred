@@ -17,6 +17,12 @@ not_run = [json.loads(l) for l in open(sys.argv[3])]
 outp = sys.argv[4]
 runs = sys.argv[5:]
 cen_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(sys.argv[2]))), "census.jsonl")
+RES = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/reports/TABLES-NO-END.resolution.json"
+noend = {}
+if os.path.exists(RES):
+    for x in json.load(open(RES))["tables"]:
+        if x["status"].startswith("flagged"):
+            noend[x["path"]] = x["status"]
 census = {}
 if os.path.exists(cen_path):
     for l in open(cen_path):
@@ -64,7 +70,10 @@ for sp in specs:
     lt, lfrom = ledger_terminals(n)
     row = {"node": n, "tables": 1, "table_bytes": sp["bytes"], "box": f"BOXDEF.v3 A ({sp['support_class']}, L={sp['L']})",
            "box_keys_expected": sp["box_keys_expected"], "table_terminals": sp["table_terminals"],
-           "ledger_terminals": lt, "ledger_terminals_from": lfrom, "sha_from": sp["sha_from"]}
+           "ledger_terminals": lt, "ledger_terminals_from": lfrom, "sha_from": sp["sha_from"],
+           "table": sp["table"], "table_source": sp["why"]}
+    if sp["why"] == "BOXED-TABLES.json ship_table":
+        row["table_note"] = "the ship table (single file reproducing the statement's closure), not the statement's multi-table set"
     cb = census.get(sp["table"])
     row["rules_with_domain_bounds"] = cb["rules_with_domain_bounds"] if cb else None
     row["domain_bounds_nontrivial_target"] = cb["with_nontrivial_target"] if cb else None
@@ -113,6 +122,8 @@ for sp in specs:
     else:
         row["end_record"] = "yes" if sp.get("kinds", {}).get("end") else "no"
         row["end_record_from"] = "record-kind scan"
+    if row["end_record"] == "no" and sp["table"] in noend:
+        row["end_override"] = f"accept_missing_end per TABLES-NO-END.resolution.json ({noend[sp['table']]})"
     row["records"] = k.get("records")
     row["box_keys"] = k.get("keys_in_start")
     row["closure_keys_k"] = k.get("keys")
@@ -151,14 +162,22 @@ for sp in specs:
             row["zeros"] = f"single-route zeros: {dz} (second route {fin['second_route']})"
             tc = f"open (single-route decisive zeros: {dz})"
     else:
-        tc = {"over_budget": "Tier K only (budget)", "tier_k_only_by_brief": "Tier K only (brief: cheap tier)",
+        elided_refusal = any("elided witness locus" in open(os.path.join(nd, f)).read()
+                             for f in os.listdir(nd) if f.startswith("proof.") and f.endswith(".log"))
+        if fin["stop"].startswith("proof_failed") and elided_refusal:
+            tc = ("Tier C not run by this driver (rr_proof instantiate refuses a job with an elided-witness record; those keys need "
+                  "the closing loop's instance-span routing)")
+        else:
+          tc = {"over_budget": "Tier K only (budget)", "tier_k_only_by_brief": "Tier K only (brief: cheap tier)",
               "max_rounds": "Tier K only (max rounds)"}.get(fin["stop"], f"Tier K only ({fin['stop']})")
+    if tc.startswith("Tier C not run by this driver"):
+        pass
     row["tier_c"] = tc
     row["terminals_tool"] = term
     reasons = []
     if tc == "closed":
         level = "Tier C"
-    elif tc.startswith("Tier K only"):
+    elif tc.startswith("Tier K only") or tc.startswith("Tier C not run"):
         level = "Tier K"
         if row["tier_k"] != "superset_clean" or row["tier_k_open"]:
             reasons.append(f"Tier K {row['tier_k']} open {row['tier_k_open']} {row['tier_k_open_by_status']}")
@@ -185,7 +204,9 @@ CAVEAT = ("CAVEAT (implementer 2026-11-15T07:10Z; WS/notes/implementer.reaudit-p
           "drops rule-level domain_bounds and the engine reads bounds with target patterns differently from the core; whether "
           "the IMPORT dispatcher used here is affected is being established by lane partfix4. Column 'dom.bounds' = rule records "
           "carrying domain_bounds (of them with a non-trivial target pattern): the nodes that could be affected.")
-out = [CAVEAT, "", "Box: BOXDEF.v3 dataset A_integer, enlarged form (L=5 clean: 0<=D<=4, r<=E-7 at every D, power<=5). "
+PARAMS = ("Parameters: budget per node = 1.05 x Tier K closure keys, cap 8,000,000 (main sweep) / 10,500,000 (re-run phase) / 12,000,000 (T270 second re-run; implementer 2026-11-16); "
+          "rr_proof child jobs <= 500,000 keys; prefetch of outside-box winners (round 1); MAXR 6; temporary facts in flight <= 200 GB.")
+out = [CAVEAT, "", PARAMS, "", "Box: BOXDEF.v3 dataset A_integer, enlarged form (L=5 clean: 0<=D<=4, r<=E-7 at every D, power<=5). "
        "Tier K = keys-only superset (witness check off, diagnostic). Tier C = strict, rr_proof 7b facts.", "",
        "| " + " | ".join(hdr) + " |", "|" + "---|" * len(hdr)]
 for r in rows:
@@ -195,7 +216,7 @@ for r in rows:
     ck = r.get("closure_keys_c") or r.get("closure_keys_k")
     tk = f"{r.get('tier_k')} open {r.get('tier_k_open')}" if r.get("load") == "ok" else "refused"
     out.append("| " + " | ".join(str(v) for v in [
-        r["node"], round(r["table_bytes"] / 1e6, 1), r.get("box_keys"), ck, tk,
+        r["node"] + (" (ship table)" if r.get("table_note") else ""), round(r["table_bytes"] / 1e6, 1), r.get("box_keys"), ck, tk,
         f"{r.get('terminals_tool')}/{r['ledger_terminals']}", r.get("tier_c", r.get("error", ""))[:90],
         r.get("requested_keys"), r.get("zeros", "-"), r.get("wall_s"), r.get("peak_rss_gb"),
         f"{r.get('loader_bounds_records', '?')}/{r.get('rules_with_domain_bounds')} ({r.get('domain_bounds_nontrivial_target')})",

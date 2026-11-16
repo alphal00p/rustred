@@ -12,6 +12,7 @@ node=$1
 while [ -e "$WS/ops/DISK_LOW" ]; do echo "$(date -u +%FT%TZ) $node waits: DISK_LOW" >> "$W/sweep.log"; sleep 120; done
 # at most BIG_MAX nodes with E >= BIG_E in flight (temporary facts bounded): hold one of the slot locks while the unit runs
 E=$(grep -F "\"node\": \"$node\"" "$SPECS/nodes.jsonl" | python3 -I -c 'import json,sys;print(json.loads(sys.stdin.read())["E"])')
+[ -f "$W/node_mem_gb" ] && NODE_MEM_GB=$(cat "$W/node_mem_gb")   # live override (implementer: <= 40 GB per job in the re-runs)
 [ -f "$W/big_max" ] && BIG_MAX=$(cat "$W/big_max")   # live override (implementer ruling 2026-11-15T09:5xZ: 4)
 if [ "$E" -ge "${BIG_E:-99}" ]; then
   got=""
@@ -27,7 +28,9 @@ if [ "$E" -ge "${BIG_E:-99}" ]; then
 fi
 while :; do
   avail=$(awk '/^MemAvailable:/{print int($2/1048576)}' /proc/meminfo)
-  [ $((avail - NODE_MEM_GB)) -ge 100 ] && break
+  # L17: the start must not bring "available" under 100 GB: judged on the node's EXPECTED peak (measured: <= ~15 GB per node with
+  # chunked child jobs; NODE_EXPECT_GB, default 16), the unit cap NODE_MEM_GB stays the hard limit
+  [ $((avail - ${NODE_EXPECT_GB:-16})) -ge 100 ] && break
   echo "$(date -u +%FT%TZ) $node waits for memory (available ${avail} GB)" >> "$W/sweep.log"; sleep 60
 done
 cpus=$(python3 -I -c '
@@ -42,6 +45,6 @@ mkdir -p "$W/nodes/$node"
 systemd-run --user --wait --collect --unit="impl-allnodes-$PASS-$node" \
   -p CPUQuota="$NODE_QUOTA" -p AllowedCPUs="$cpus" -p MemoryMax="${NODE_MEM_GB}G" -p MemorySwapMax=0 -p Nice=10 \
   --setenv=W="$W" --setenv=SPECS="$SPECS" --setenv=BIN="$BIN" --setenv=PROOF="$PROOF" --setenv=COEF="$COEF" \
-  --setenv=BUDGET="$BUDGET" --setenv=BUDGET_MARGIN="${BUDGET_MARGIN:-}" --setenv=BUDGET_CAP="${BUDGET_CAP:-}" --setenv=MAXR="$MAXR" --setenv=THREADS="$THREADS" --setenv=KONLY="$KONLY" --setenv=PREFETCH="${PREFETCH:-1}" --setenv=CHUNK_KEYS="${CHUNK_KEYS:-500000}" --setenv=FACTS_LIMIT="${FACTS_LIMIT:-50000000000}" --setenv=FACTS_BYTES_PER_KEY="${FACTS_BYTES_PER_KEY:-7000}" \
+  --setenv=BUDGET="$BUDGET" --setenv=BUDGET_MARGIN="${BUDGET_MARGIN:-}" --setenv=BUDGET_CAP="${BUDGET_CAP:-}" --setenv=MAXR="$MAXR" --setenv=THREADS="$THREADS" --setenv=KONLY="$KONLY" --setenv=PREFETCH="${PREFETCH:-1}" --setenv=CHUNK_KEYS="${CHUNK_KEYS:-500000}" --setenv=FACTS_LIMIT="${FACTS_LIMIT:-200000000000}" --setenv=FACTS_BYTES_PER_KEY="${FACTS_BYTES_PER_KEY:-7000}" \
   -- unshare -Urpf --mount-proc -- bash "$SWEEP_DIR/node.sh" "$node" > "$W/nodes/$node/unit.$PASS.txt" 2>&1
 echo "$(date -u +%FT%TZ) end $node rc=$? $(cat "$W/nodes/$node/final.json" 2>/dev/null)" >> "$W/sweep.log"
