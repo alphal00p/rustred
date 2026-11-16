@@ -374,3 +374,49 @@ fn strict_refuses_an_unstable_system() {
         "{refused:?}"
     );
 }
+
+/// A session that `Strict` refused stays refused (re-audit of #29): a
+/// second `extend`, which seeds nothing new and so does not re-run the
+/// stability check, is refused with the earlier verdict, as is an `extend`
+/// with more targets. In `Report` mode a second `extend` keeps reporting
+/// the earlier verdict (`stable == Some(false)`), not `None`.
+#[test]
+fn a_strict_refusal_fails_the_session() {
+    const K: usize = 5;
+    let kite = Arc::new(rustred::node::driver::compile_family(KITE).unwrap());
+    let targets: [[i16; K]; 2] = [[2, 1, 1, 1, 1], [1, 2, 1, 1, 2]];
+    let session = |master_check: MasterCheckMode| {
+        let router: Arc<dyn SectorRouter<K>> =
+            Arc::new(CensusRouter::discover(kite.clone(), &[true; K]).unwrap());
+        BoxLaportaSession::<K>::new(
+            kite.clone(),
+            &CutConstraint::none(K).unwrap(),
+            router,
+            BoxOptions {
+                seeding: Seeding::KiraBox { r: 6, s: 0, d: 1 },
+                stability: Some((1, 1, 1)),
+                master_check,
+                workers: 1,
+                lp_gate: false,
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    };
+    let mut strict = session(MasterCheckMode::Strict);
+    assert!(matches!(
+        strict.extend(&targets, &[]),
+        Err(SolverError::MasterCheck(_))
+    ));
+    for again in [&targets[..], &targets[..1]] {
+        let refused = strict.extend(again, &[]);
+        assert!(
+            matches!(&refused, Err(SolverError::MasterCheck(message))
+                if message.contains("refused under Strict earlier") && message.contains("stability")),
+            "{refused:?}"
+        );
+    }
+    let mut report = session(MasterCheckMode::Report);
+    assert_eq!(report.extend(&targets, &[]).unwrap().stable, Some(false));
+    assert_eq!(report.extend(&targets, &[]).unwrap().stable, Some(false));
+}
