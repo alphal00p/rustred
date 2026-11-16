@@ -701,8 +701,14 @@ fn check_inner(
         }),
         ..Default::default()
     };
+    let t_check = std::time::Instant::now();
     let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)
         .map_err(|e| ImportError::Core(format!("closure: {e}")))?;
+    crate::closure::phase_log(format_args!(
+        "check: closure returned ({} keys), {:.1} s",
+        c.len(),
+        t_check.elapsed().as_secs_f64()
+    ));
     let summary = c.summary();
     // name -> table index; open info by key
     let tindex: HashMap<&str, usize> = set
@@ -1134,6 +1140,10 @@ fn check_inner(
         })
         .collect();
     let streaming = sink.is_some();
+    crate::closure::phase_log(format_args!(
+        "check: rows done, {:.1} s",
+        t_check.elapsed().as_secs_f64()
+    ));
     let leaf_hits = summary.leaves.clone().map(|s| {
         leaf_in_start.sort();
         LeafHits {

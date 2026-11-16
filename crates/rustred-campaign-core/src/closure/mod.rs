@@ -40,6 +40,19 @@ use crate::cover::{CoverError, Dispatch, Dispatcher, RuleRef};
 use crate::order::NodeComparator;
 use crate::symmetry::{CreditPolicy, Refusal};
 use credit::{CreditC, Server};
+
+/// Phase timings on stderr when `RUSTRED_PHASE_LOG` is set (lane t266run: where a long pass spends its time; never
+/// changes a result, never written to a record).
+pub fn phase_log(args: std::fmt::Arguments) {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| std::env::var_os("RUSTRED_PHASE_LOG").is_some()) {
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        eprintln!("PHASE {t} {args}");
+    }
+}
 use store::{ExitAcc, ReqStore};
 
 pub use bodies::{
@@ -2789,6 +2802,13 @@ fn run(
             witness_absent: format!("{:?}", cfg.witness_absent),
         }),
     };
+    phase_log(format_args!(
+        "closure: reach done: {} keys, {} edges, {} rounds, {:.1} s",
+        cl.table.len(),
+        cl.edges,
+        cl.rounds,
+        t0.elapsed().as_secs_f64()
+    ));
     // lane layers (closure.md 18): the walk components of THIS run's own keys (and credit images), for a leaf set built
     // from this result
     let leaf_walk = {
@@ -2810,9 +2830,12 @@ fn run(
         )
     };
     cl.leaf_walk = leaf_walk;
+    phase_log(format_args!("closure: leaf walk done, {:.1} s", t0.elapsed().as_secs_f64()));
     cl.n_requests = cl.count_requests().map_err(io_err)?;
+    phase_log(format_args!("closure: requests counted, {:.1} s", t0.elapsed().as_secs_f64()));
     if cfg.longest_chain && !cl.truncated {
         chain_pass(&ctx, &mut cl)?;
+        phase_log(format_args!("closure: chain pass done, {:.1} s", t0.elapsed().as_secs_f64()));
     }
     cl.memory_estimate_bytes = cl.table.memory_bytes()
         + cl.res.capacity() * 4
@@ -3091,6 +3114,9 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
             continue;
         }
         let (s0, l0) = succ_of(root)?;
+        if counter.is_multiple_of(1 << 20) {
+            phase_log(format_args!("chain pass: {counter} of {n} keys visited"));
+        }
         state[root as usize] = 1;
         a[root as usize] = counter;
         b[root as usize] = counter;
@@ -3105,6 +3131,9 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
                 match state[u as usize] {
                     0 => {
                         let (su, lu) = succ_of(u)?;
+                        if counter.is_multiple_of(1 << 20) {
+                            phase_log(format_args!("chain pass: {counter} of {n} keys visited"));
+                        }
                         state[u as usize] = 1;
                         a[u as usize] = counter;
                         b[u as usize] = counter;
