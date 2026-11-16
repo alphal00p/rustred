@@ -571,6 +571,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
                     "steps": replay.steps,
                     "residuals": terms(&replay.residuals),
                     "boundary": terms(&replay.boundary),
+                    "open": terms(&replay.open),
                 })
             })
             .collect();
