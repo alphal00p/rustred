@@ -37,6 +37,8 @@ use super::edge::{EdgeFile, SlotSub};
 #[derive(Clone, Debug)]
 pub struct RulePat {
     pub index: i64,
+    /// sha256 (hex) of the raw record line (the zero proofs' `record_sha256`).
+    pub sha256: String,
     /// The record's chart ('1' = line slot) as written; compared with the frame.
     pub chart: Vec<bool>,
     pub fixed: Vec<Option<i64>>,
@@ -112,8 +114,11 @@ pub fn read_rules(path: &Path) -> Result<(Vec<bool>, Vec<RulePat>), String> {
                 if fixed.len() != n || chart.len() != n {
                     return Err(format!("{}: fixed / chart of the wrong length", at()));
                 }
+                let mut h = crate::closure::sha256::Sha256::new();
+                h.update(l.as_bytes());
                 out.push(RulePat {
                     index: v.index.unwrap_or(-1),
+                    sha256: h.finish_hex(),
                     chart,
                     fixed,
                     target,
@@ -334,6 +339,70 @@ pub fn term_excess(
         out.push((mask, total));
     }
     Ok(out)
+}
+
+/// The drop planes of a term under a drop mask: per dropped line slot, (slot, rule-point parameter, lowest value, highest
+/// value) of the parameter where that slot is <= 0 on the record's range (the hand-down locus of zero-proofs.md section 6
+/// is the union of the planes n_p = v of each dropped slot); a constant dropped slot is `None` (the whole domain).
+pub type DropPlanes = Vec<(usize, Option<(usize, Option<i64>, Option<i64>)>)>;
+
+/// The terms of a record with one of `masks` feasible, with the drop planes of each such mask.
+pub fn terms_with_masks(
+    rule: &RulePat,
+    lines: &[bool],
+    masks: &std::collections::BTreeSet<u64>,
+) -> Vec<(usize, u64, DropPlanes)> {
+    let n = lines.len();
+    let mut out = vec![];
+    for (j, t) in rule.terms.iter().enumerate() {
+        let Ok(ms) = term_excess(rule, t, lines) else {
+            continue;
+        };
+        for (m, _) in ms {
+            if !masks.contains(&m) {
+                continue;
+            }
+            // the parameter range from the target (chart) and fixed slots, as in term_excess
+            let mut base = vec![Iv::ALL; n];
+            let mut used = vec![false; n];
+            for (s, ts) in rule.target.iter().enumerate() {
+                if let RhsSlot::Param { param, offset } = *ts {
+                    let o = i64::from(offset);
+                    used[param] = true;
+                    base[param] = base[param].meet(if rule.chart[s] {
+                        Iv::ge(1 - o)
+                    } else {
+                        Iv::le(-o)
+                    });
+                }
+            }
+            for (q, f) in rule.fixed.iter().enumerate() {
+                if let Some(v) = f {
+                    base[q] = base[q].meet(Iv::at(*v));
+                }
+            }
+            for q in 0..n {
+                if !used[q] {
+                    base[q] = base[q].meet(Iv::at(rule.fixed[q].unwrap_or(0)));
+                }
+            }
+            let mut planes: DropPlanes = vec![];
+            for (s, ts) in t.iter().enumerate() {
+                if m >> s & 1 == 0 {
+                    continue;
+                }
+                match *ts {
+                    RhsSlot::Param { param, offset } => {
+                        let r = base[param].meet(Iv::le(-i64::from(offset)));
+                        planes.push((s, Some((param, r.lo, r.hi))));
+                    }
+                    RhsSlot::Const(_) => planes.push((s, None)),
+                }
+            }
+            out.push((j, m, planes));
+        }
+    }
+    out
 }
 
 /// Per node (the union of its tables' rule records): per drop mask the max excess and the number of (record, term) pairs,
@@ -576,6 +645,7 @@ mod tests {
         let n = lines.len();
         RulePat {
             index: 0,
+            sha256: String::new(),
             chart: lines.to_vec(),
             fixed,
             target: parse_rhs_pattern(target, n).unwrap(),

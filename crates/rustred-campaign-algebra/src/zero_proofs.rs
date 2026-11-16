@@ -22,7 +22,7 @@
 //! semantics: denominator identically zero in d at the rule point -> `unknown`, numerator -> `zero` / `nonzero`).
 //! Generic (L8): loci come from the record's target map, the frame's chart and the rhs patterns; budgets are parameters.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::Instant;
 
 use rustred_campaign_core::accept::facts::split_ratio;
@@ -1455,10 +1455,23 @@ pub fn prove_handdown_record(
     c: &mut HandDownCounts,
     all: bool,
 ) -> Vec<Value> {
+    prove_handdown_record_terms(p, c, all, None)
+}
+
+/// `prove_handdown_record` restricted to the terms in `only` (None = every term).
+pub fn prove_handdown_record_terms(
+    p: &mut RecordProver<'_>,
+    c: &mut HandDownCounts,
+    all: bool,
+    only: Option<&BTreeSet<usize>>,
+) -> Vec<Value> {
     c.records += 1;
     let mut out = vec![];
     let (sha, rule) = (p.sha.clone(), p.rule.index());
     for j in 0..p.n_terms() {
+        if only.is_some_and(|s| !s.contains(&j)) {
+            continue;
+        }
         let (loci, refused) = p.handdown_loci(j);
         if loci.is_empty() && refused.is_empty() {
             continue;

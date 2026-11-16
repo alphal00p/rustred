@@ -81,6 +81,9 @@ struct Args {
     closed_sets: Vec<String>,
     services: Option<PathBuf>,
     in_memory: bool,
+    terms: Option<PathBuf>,
+    terms_out: Option<PathBuf>,
+    masks: Vec<String>,
     record_budget_mb: usize,
     map_budget: usize,
     spill_dir: Option<PathBuf>,
@@ -142,6 +145,9 @@ fn parse(args: &[String]) -> Args {
             "--closed-set" => a.closed_sets.push(val(&mut i)),
             "--services" => a.services = Some(val(&mut i).into()),
             "--in-memory" => a.in_memory = true,
+            "--terms" => a.terms = Some(val(&mut i).into()),
+            "--terms-out" => a.terms_out = Some(val(&mut i).into()),
+            "--masks" => a.masks = val(&mut i).split(',').map(str::to_string).collect(),
             "--record-budget-mb" => a.record_budget_mb = num(val(&mut i)),
             "--map-budget" => a.map_budget = num(val(&mut i)),
             "--spill-dir" => a.spill_dir = Some(val(&mut i).into()),
@@ -287,9 +293,17 @@ fn prove_record(
     tp: &Path,
     off: u64,
     all: bool,
+    only: Option<&TermFilter>,
 ) -> RecordLines {
     let (frame, _) = coef_facts::table_frame(tp)?;
-    let (line, _) = coef_facts::line_at(tp, off)?;
+    let (line, sha) = coef_facts::line_at(tp, off)?;
+    let terms = match only {
+        Some(f) => match f.get(&sha) {
+            Some(s) => Some(s),
+            None => return Ok(None),
+        },
+        None => None,
+    };
     let rt = match rustred_campaign_core::accept::rule::RuleText::parse(&line, &frame) {
         Ok(rt) => rt,
         Err(rustred_campaign_core::accept::rule::RuleTextError::NotARule(_)) => return Ok(None),
@@ -298,8 +312,33 @@ fn prove_record(
     let mut c = zero_proofs::HandDownCounts::default();
     let mut p = zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask())
         .map_err(|e| format!("{}@{off}: {e}", tp.display()))?;
-    let lines = zero_proofs::prove_handdown_record(&mut p, &mut c, all);
+    let lines = zero_proofs::prove_handdown_record_terms(&mut p, &mut c, all, terms);
     Ok(Some((lines, c)))
+}
+
+/// record sha256 -> the terms to prove / verify (`--terms FILE`: JSON lines `{record_sha256, term}`).
+type TermFilter = HashMap<String, BTreeSet<usize>>;
+
+fn term_filter(a: &Args) -> Option<TermFilter> {
+    let p = a.terms.as_ref()?;
+    let text = std::fs::read_to_string(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
+    let mut m: TermFilter = HashMap::new();
+    for (i, l) in text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| !l.trim().is_empty())
+    {
+        let v: Value = serde_json::from_str(l)
+            .unwrap_or_else(|e| die(&format!("{} line {}: {e}", p.display(), i + 1)));
+        let sha = v["record_sha256"]
+            .as_str()
+            .unwrap_or_else(|| die(&format!("{} line {}: record_sha256", p.display(), i + 1)));
+        let j = v["term"]
+            .as_u64()
+            .unwrap_or_else(|| die(&format!("{} line {}: term", p.display(), i + 1)));
+        m.entry(sha.to_string()).or_default().insert(j as usize);
+    }
+    Some(m)
 }
 
 /// `prove-handdowns`: every hand-down locus of every rule record of the tables.
@@ -320,9 +359,10 @@ fn prove(a: &Args) {
     writeln!(w, "{}", canonical_json(&header)).unwrap_or_else(|e| die(&e.to_string()));
     let mut total = zero_proofs::HandDownCounts::default();
     let mut errors = vec![];
+    let only = term_filter(a);
     for tp in &a.tables {
         let res = per_record(tp, a.threads, |off| {
-            prove_record(alg, &cfg, tp, off, a.all_lines)
+            prove_record(alg, &cfg, tp, off, a.all_lines, only.as_ref())
         })
         .unwrap_or_else(|e| die(&e));
         for r in res {
@@ -418,13 +458,21 @@ fn verify_proofs(a: &Args) {
     let n_claims = claims.len();
     let mut rederived = 0u64;
     let mut independent = 0u64;
+    let only = term_filter(a);
     for tp in &a.tables {
         let res = per_record(
             tp,
             a.threads,
             |off| -> Result<Option<RederivedRecord>, String> {
                 let (frame, _) = coef_facts::table_frame(tp)?;
-                let (line, _) = coef_facts::line_at(tp, off)?;
+                let (line, sha) = coef_facts::line_at(tp, off)?;
+                let terms = match only.as_ref() {
+                    Some(f) => match f.get(&sha) {
+                        Some(s) => Some(s),
+                        None => return Ok(None),
+                    },
+                    None => None,
+                };
                 let rt = match rustred_campaign_core::accept::rule::RuleText::parse(&line, &frame) {
                     Ok(rt) => rt,
                     Err(rustred_campaign_core::accept::rule::RuleTextError::NotARule(_)) => {
@@ -434,7 +482,7 @@ fn verify_proofs(a: &Args) {
                 };
                 let mut c = zero_proofs::HandDownCounts::default();
                 let mut p = zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask())?;
-                let lines = zero_proofs::prove_handdown_record(&mut p, &mut c, false);
+                let lines = zero_proofs::prove_handdown_record_terms(&mut p, &mut c, false, terms);
                 // independent re-checks of the re-derived claims
                 let mut bad = vec![];
                 for v in &lines {
@@ -1684,6 +1732,7 @@ fn cone_excess(a: &Args) {
     let mut ne = NodeExcess::default();
     let mut frame: Option<Vec<bool>> = None;
     let mut tables = vec![];
+    let mut term_lines: Vec<String> = vec![];
     for p in &a.tables {
         let (fr, rules) = read_rules(p).unwrap_or_else(|e| die(&e));
         match &frame {
@@ -1697,10 +1746,42 @@ fn cone_excess(a: &Args) {
         for r in &rules {
             ne.add_rule(r, &fr);
         }
+        if !a.masks.is_empty() {
+            let want: BTreeSet<u64> = a
+                .masks
+                .iter()
+                .map(|m| {
+                    m.bytes()
+                        .enumerate()
+                        .filter(|(_, b)| *b == b'1')
+                        .map(|(i, _)| 1u64 << i)
+                        .sum()
+                })
+                .collect();
+            for r in &rules {
+                for (j, m, planes) in
+                    rustred_campaign_core::import::arrivals::cone::terms_with_masks(r, &fr, &want)
+                {
+                    term_lines.push(canonical_json(&json!({"record_sha256": r.sha256, "rule": r.index, "term": j,
+                        "mask": rustred_campaign_core::import::arrivals::cone::mask_string(m, fr.len()),
+                        "planes": planes.iter().map(|(s, pl)| match pl {
+                            Some((q, lo, hi)) => json!({"slot": s, "param": q, "lo": lo, "hi": hi}),
+                            None => json!({"slot": s, "constant": true}),
+                        }).collect::<Vec<_>>(), "table": p})));
+                }
+            }
+        }
         let (sha, bytes) = file_sha256(p).unwrap_or_else(|e| die(&e));
         tables.push(json!({"path": p, "sha256": sha, "bytes": bytes, "records": rules.len()}));
     }
     let frame = frame.expect("frame");
+    if let Some(tp) = &a.terms_out {
+        std::fs::write(
+            tp,
+            term_lines.join("\n") + if term_lines.is_empty() { "" } else { "\n" },
+        )
+        .unwrap_or_else(|e| die(&format!("{}: {e}", tp.display())));
+    }
     let s = json!({"schema": "rustred.campaign.cone-excess.v1", "tables": tables,
         "frame": frame.iter().map(|&l| if l { '1' } else { '0' }).collect::<String>(), "excess": ne,
         "definition": "excess = D + r(sub) of the hand-down term (dropped lines counted as numerators) - D + r of the target, max over the record's rule-point range per drop mask; equations and exception branches ignored (sound)",
