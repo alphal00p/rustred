@@ -446,7 +446,10 @@ fn reduce_cli(args: &[String]) {
     print_reduction(&library, result);
 }
 
-fn print_reduction(library: &PLibrary, result: Result<PReduction, rustred::propagator::error::PError>) {
+fn print_reduction(
+    library: &PLibrary,
+    result: Result<PReduction, rustred::propagator::error::PError>,
+) {
     match result {
         Ok(reduction) => {
             // vk5l WP2: the recipe / relation-cache counters of this request
@@ -517,8 +520,16 @@ fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
     for term in &reduction.terms {
         let basis = match &term.basis {
             PBasis::Residual(id) => match library.residual_terminal(*id) {
-                Ok(Some(named)) => format!("PResidual({}, {:?}){}", named.node, named.key.powers(),
-                    if named.retained.is_some() { " [retained]" } else { "" }),
+                Ok(Some(named)) => format!(
+                    "PResidual({}, {:?}){}",
+                    named.node,
+                    named.key.powers(),
+                    if named.retained.is_some() {
+                        " [retained]"
+                    } else {
+                        ""
+                    }
+                ),
                 _ => format!("{:?}", term.basis),
             },
             other => format!("{other:?}"),
@@ -537,28 +548,43 @@ fn reduce_files_cli(args: &[String]) {
     let binding = library.step_cache_binding().expect("step cache binding");
     let options = rustred::reduction::OrderedStepCacheOptions {
         populate: true,
-        max_resident_bytes: std::env::var("P_STEP_CACHE_MAX_GB").ok().map(|g| (g.parse::<f64>().unwrap() * 1e9) as usize),
+        max_resident_bytes: std::env::var("P_STEP_CACHE_MAX_GB")
+            .ok()
+            .map(|g| (g.parse::<f64>().unwrap() * 1e9) as usize),
         ..Default::default()
     };
     let cache = match std::env::var("P_STEP_CACHE") {
-        Ok(dir) => rustred::reduction::OrderedStepCache::open(&dir, binding, options).expect("open the step cache"),
+        Ok(dir) => rustred::reduction::OrderedStepCache::open(&dir, binding, options)
+            .expect("open the step cache"),
         Err(_) => rustred::reduction::OrderedStepCache::in_memory(binding, options),
     };
     let list = std::fs::read_to_string(&args[1]).expect("list file");
     for line in list.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
         let (input, output) = line.split_once('\t').expect("<inputs> TAB <output>");
-        if std::path::Path::new(output).exists() { continue; }
+        if std::path::Path::new(output).exists() {
+            continue;
+        }
         let started = Instant::now();
         let inputs = read_inputs(context, input);
         let n = inputs.len();
-        let arithmetic = if modular { modular_polynomial(threads) } else { OrderedWeightArithmetic::Exact };
+        let arithmetic = if modular {
+            modular_polynomial(threads)
+        } else {
+            OrderedWeightArithmetic::Exact
+        };
         let result = library.reduce(PReductionRequest {
             inputs,
             arithmetic,
             scheduler: OrderedSchedulerOptions::default(),
-            step_cache: if pruning { None } else { Some(Arc::clone(&cache)) },
+            step_cache: if pruning {
+                None
+            } else {
+                Some(Arc::clone(&cache))
+            },
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: false,
             limits: ReductionLimits::default(),
@@ -571,27 +597,48 @@ fn reduce_files_cli(args: &[String]) {
         let tmp = format!("{output}.tmp");
         std::fs::write(&tmp, text).expect("write output");
         std::fs::rename(&tmp, output).expect("rename output");
-        let saved = if std::env::var("P_STEP_CACHE").is_ok() { format!("{:?}", cache.save().map(|_| "saved")) } else { "mem".into() };
+        let saved = if std::env::var("P_STEP_CACHE").is_ok() {
+            format!("{:?}", cache.save().map(|_| "saved"))
+        } else {
+            "mem".into()
+        };
         let st = cache.statistics();
-        eprintln!("chunk {input}: {n} inputs, {} in {:.1} s {} pruned {} cache {saved} {st:?}",
-            if result.is_ok() { "ok" } else { "ERROR" }, started.elapsed().as_secs_f64(), stamp(),
-            rustred::propagator::engine::target_pruned_count());
+        eprintln!(
+            "chunk {input}: {n} inputs, {} in {:.1} s {} pruned {} cache {saved} {st:?}",
+            if result.is_ok() { "ok" } else { "ERROR" },
+            started.elapsed().as_secs_f64(),
+            stamp(),
+            rustred::propagator::engine::target_pruned_count()
+        );
     }
 }
 
 /// needs-compose: P_TARGET_KEEP=<file of owner class names, one per line> turns on target-master descent pruning
 /// (rustred::propagator::engine::set_target_keep_classes); returns whether it is on.
 fn target_keep_from_env() -> bool {
-    let Ok(path) = std::env::var("P_TARGET_KEEP") else { return false };
+    let Ok(path) = std::env::var("P_TARGET_KEEP") else {
+        return false;
+    };
     let mut set = std::collections::HashSet::new();
-    for line in std::fs::read_to_string(&path).expect("P_TARGET_KEEP file").lines() {
+    for line in std::fs::read_to_string(&path)
+        .expect("P_TARGET_KEEP file")
+        .lines()
+    {
         let line = line.trim();
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let hex = line.rsplit('-').next().unwrap();
         set.insert(u64::from_str_radix(hex, 16).expect("a class name ending in -<16 hex>"));
     }
-    eprintln!("target pruning ON: {} kept owner classes from {path}", set.len());
-    assert!(rustred::propagator::engine::set_target_keep_classes(set), "target set twice");
+    eprintln!(
+        "target pruning ON: {} kept owner classes from {path}",
+        set.len()
+    );
+    assert!(
+        rustred::propagator::engine::set_target_keep_classes(set),
+        "target set twice"
+    );
     true
 }
 
@@ -602,7 +649,10 @@ fn big_integer(context: &CoefficientContext, text: &str) -> Coefficient {
         Some(rest) => (true, rest),
         None => (false, text.strip_prefix('+').unwrap_or(text)),
     };
-    assert!(!digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()), "integer {text:?}");
+    assert!(
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()),
+        "integer {text:?}"
+    );
     let base = context.integer(1_000_000_000);
     let mut value = context.zero();
     let head = digits.len() % 9;
@@ -620,7 +670,11 @@ fn big_integer(context: &CoefficientContext, text: &str) -> Coefficient {
         value = context.try_mul(&value, &base, limits).unwrap();
         value = context.try_add(&value, &part, limits).unwrap();
     }
-    if negative { context.try_neg(&value, limits).unwrap() } else { value }
+    if negative {
+        context.try_neg(&value, limits).unwrap()
+    } else {
+        value
+    }
 }
 
 /// needs-compose: `power:integer power:integer ...` -> polynomial in d (empty = 1).
@@ -633,7 +687,9 @@ fn poly_in_d(context: &CoefficientContext, text: &str) -> Coefficient {
     let d = context.parameter("d").expect("the library's parameter d");
     let mut value = context.zero();
     for mono in text.split_whitespace() {
-        let (power, integer) = mono.split_once(':').unwrap_or_else(|| panic!("monomial {mono:?}: power:integer"));
+        let (power, integer) = mono
+            .split_once(':')
+            .unwrap_or_else(|| panic!("monomial {mono:?}: power:integer"));
         let mut term = big_integer(context, integer);
         for _ in 0..power.parse::<u32>().expect("a power") {
             term = context.try_mul(&term, &d, limits).unwrap();
@@ -659,7 +715,10 @@ fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
             .strip_prefix('p')
             .and_then(|rest| rest.split_once(':'))
             .unwrap_or_else(|| panic!("input {spec:?}: p<presentation>:<powers,...>"));
-        let powers: Vec<i64> = powers.split(',').map(|p| p.trim().parse().expect("an integer power")).collect();
+        let powers: Vec<i64> = powers
+            .split(',')
+            .map(|p| p.trim().parse().expect("an integer power"))
+            .collect();
         inputs.push((
             PresentationId(id.parse().expect("a presentation id")),
             IntegralKey::try_new(powers).expect("a key"),
@@ -680,7 +739,12 @@ fn reduce_file_cli(args: &[String]) {
     };
     let started = Instant::now();
     let inputs = read_inputs(context, &args[1]);
-    eprintln!("reduce-file: {} inputs parsed in {:.2} s {}", inputs.len(), started.elapsed().as_secs_f64(), stamp());
+    eprintln!(
+        "reduce-file: {} inputs parsed in {:.2} s {}",
+        inputs.len(),
+        started.elapsed().as_secs_f64(),
+        stamp()
+    );
     let uncovered = if std::env::var("P_RETAIN").as_deref() == Ok("1") {
         PUncoveredPolicy::Retain
     } else {
@@ -696,8 +760,12 @@ fn reduce_file_cli(args: &[String]) {
         limits: ReductionLimits::default(),
         inspector: None,
     });
-    eprintln!("reduce-file: reduced in {:.2} s {} (target pruning {pruning}: {} keys dropped)", started.elapsed().as_secs_f64(), stamp(),
-        rustred::propagator::engine::target_pruned_count());
+    eprintln!(
+        "reduce-file: reduced in {:.2} s {} (target pruning {pruning}: {} keys dropped)",
+        started.elapsed().as_secs_f64(),
+        stamp(),
+        rustred::propagator::engine::target_pruned_count()
+    );
     print_reduction(&library, result);
 }
 

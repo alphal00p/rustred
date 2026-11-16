@@ -657,8 +657,15 @@ impl PEngine {
     }
 
     /// needs-compose: whether a key on the sector of `powers` on `presentation` survives [`TARGET_KEEP`].
-    fn target_kept_sector(&self, library: &PLibrary, presentation: PresentationId, powers: &[i64]) -> Result<bool, PError> {
-        let Some(keep) = TARGET_KEEP.get() else { return Ok(true) };
+    fn target_kept_sector(
+        &self,
+        library: &PLibrary,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Result<bool, PError> {
+        let Some(keep) = TARGET_KEEP.get() else {
+            return Ok(true);
+        };
         let support = self.shape(presentation)?.support(powers);
         Ok(match self.sector(library, presentation, support)? {
             Sector::Zero => true,
@@ -2646,7 +2653,11 @@ impl<'l> PStepper<'l> {
             }
             if target_pruning_on() {
                 let kept = match child.stage {
-                    PStage::Route => self.engine.target_kept_sector(self.library, child.presentation, &child.powers)?,
+                    PStage::Route => self.engine.target_kept_sector(
+                        self.library,
+                        child.presentation,
+                        &child.powers,
+                    )?,
                     PStage::Apply => true, // checked on the key below
                 };
                 if !kept {
@@ -2682,7 +2693,10 @@ impl<'l> PStepper<'l> {
             // materialised and summed, the others stay light.
             let mut light_pairs: Vec<(PKey, u64)> = Vec::with_capacity(children.len());
             for (powers, handle) in children {
-                if !self.engine.target_kept_sector(self.library, presentation, &powers)? {
+                if !self
+                    .engine
+                    .target_kept_sector(self.library, presentation, &powers)?
+                {
                     TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     super::step_memo::put_powers(powers);
                     continue;
@@ -3301,7 +3315,8 @@ static REFRESH_CLASSES: std::sync::RwLock<BTreeSet<u64>> = std::sync::RwLock::ne
 /// contains a target terminal's sector as a contraction minor), because the decomposition onto the terminals is unique and a
 /// terminal enters only the reduction of keys whose sector contains it. The coefficients of all other terminals are then
 /// WRONG by design. Process-wide, set once; unset = no pruning. Never use with a persistent step cache.
-static TARGET_KEEP: std::sync::OnceLock<std::collections::HashSet<u64>> = std::sync::OnceLock::new();
+static TARGET_KEEP: std::sync::OnceLock<std::collections::HashSet<u64>> =
+    std::sync::OnceLock::new();
 static TARGET_PRUNED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Set the kept owner classes of [`TARGET_KEEP`] (once per process).
