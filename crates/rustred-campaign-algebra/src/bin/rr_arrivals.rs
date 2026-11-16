@@ -482,7 +482,7 @@ fn verify_proofs(a: &Args) {
                 };
                 let mut c = zero_proofs::HandDownCounts::default();
                 let mut p = zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask())?;
-                let lines = zero_proofs::prove_handdown_record_terms(&mut p, &mut c, false, terms);
+                let lines = zero_proofs::prove_handdown_record_terms(&mut p, &mut c, a.all_lines, terms);
                 // independent re-checks of the re-derived claims
                 let mut bad = vec![];
                 for v in &lines {
