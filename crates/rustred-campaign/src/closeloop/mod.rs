@@ -36,6 +36,8 @@ pub mod wire_seedmin;
 pub mod wire_regions;
 // lane wireflow (g), interfaces/repairflow.md 23: the regular terminal set R as a phase-D diagnostic job at P5
 pub mod wire_regbasis;
+// lane wireflow (e), interfaces/repairflow.md 24: coreseed's budgeted variant phase after close-first, at P5
+pub mod wire_variants;
 // lane wireflow (b), closeloop.md 26: facts from the frontier + the facts budget
 pub mod frontier;
 

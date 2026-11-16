@@ -39,6 +39,9 @@ pub struct RepairPolicy {
     /// wireflow (g): the regular terminal set R as a phase-D diagnostic job at P5 (default off; omitted from the digest).
     #[serde(skip_serializing_if = "RegBasisStep::is_default")]
     pub regbasis: RegBasisStep,
+    /// wireflow (e): coreseed's budgeted VARIANT PHASE after the close-first solves, at P5 (default off; omitted).
+    #[serde(skip_serializing_if = "VariantsStep::is_default")]
+    pub variants: VariantsStep,
     pub regions: RegionsPolicy,
     /// Extra evidence added to every spec the flow composes (typed slot: zero-fact sources of lane zeros2).
     pub evidence: ExtraEvidence,
@@ -64,6 +67,7 @@ impl Default for RepairPolicy {
             seedmin: SeedMinStep::default(),
             ship_regions: ShipRegionsStep::default(),
             regbasis: RegBasisStep::default(),
+            variants: VariantsStep::default(),
             regions: RegionsPolicy::default(),
             evidence: ExtraEvidence::default(),
             faces: FacesPolicy::default(),
@@ -349,6 +353,50 @@ impl Default for RegBasisStep {
             wall_s: 3600,
             max_attempts: 1,
         }
+    }
+}
+
+/// wireflow (e), POLES_OBJECTIVE.md 1 (closing first) / polefix's split: the BUDGETED VARIANT PHASE of the face cores
+/// after close-first. The closing loop closed every face key with the FIRST certifying face-recipe step (close-first);
+/// at P5, for each closing explicit-offset face recipe with >= `min_keys` certified keys, the face's OTHER
+/// explicit-offset steps of the composed spec (the mixed-shell variants: up centres, extra shells; `steps` narrows them)
+/// are solved at exactly those keys through the child solver (journaled), within `max_requests` trials per node. Per key
+/// the alternatives are ranked by the pole objective (regular at d0 first, then lower pole order, then fewer terms; the
+/// closing relation wins ties). When ONE variant is preferred at EVERY key of the face and solved them all, it is
+/// SHIPPED as the face's recipe in the export; otherwise the record lists the alternatives. Never changes a closure or a
+/// verdict.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct VariantsStep {
+    pub enabled: bool,
+    /// Variant step names to try (empty = every other explicit-offset step of the face in the composed spec).
+    pub steps: Vec<String>,
+    /// Trials (one child solve of one variant at the face's keys) per node. Default 64: a bound, no measurement.
+    pub max_requests: u64,
+    /// Faces with fewer certified keys are skipped. Default 1.
+    pub min_keys: usize,
+    /// Solve children at once. Default 2.
+    pub jobs: usize,
+    /// Wall cap of one solve child (s). Default 1800.
+    pub wall_cap_s: u64,
+}
+
+impl Default for VariantsStep {
+    fn default() -> Self {
+        VariantsStep {
+            enabled: false,
+            steps: vec![],
+            max_requests: 64,
+            min_keys: 1,
+            jobs: 2,
+            wall_cap_s: 1800,
+        }
+    }
+}
+
+impl VariantsStep {
+    pub fn is_default(&self) -> bool {
+        *self == VariantsStep::default()
     }
 }
 

@@ -229,6 +229,8 @@ struct RfNode {
     comp: super::wire_composite::Stage,
     /// wireflow (f): the seed minimisation of the closing face recipes at P5.
     minst: super::wire_seedmin::MinStage,
+    /// wireflow (e): the P5 variant phase (thread state).
+    varst: super::wire_variants::VarStage,
 }
 
 pub struct RepairFlowSource<S: WorkSource> {
@@ -287,6 +289,7 @@ pub fn wrap<S: WorkSource>(
                 fake: fake.clone(),
                 comp: Default::default(),
                 minst: Default::default(),
+                varst: Default::default(),
             });
         }
     }
@@ -419,6 +422,33 @@ impl<S: WorkSource> RepairFlowSource<S> {
             ms.poll(st, &c, rt)
         };
         self.nodes[i].minst = ms;
+        r
+    }
+
+    /// wireflow (e): the P5 variant phase of node `i` (true = done or off).
+    fn var_poll(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<bool, String> {
+        if !self.nodes[i].policy.variants.enabled {
+            return Ok(true);
+        }
+        let n = self.nodes[i].n.clone();
+        let fake = self.nodes[i]
+            .fake
+            .as_ref()
+            .and_then(|f| f.seedmin_oracle.clone().map(|o| (o, f.ms)));
+        let mut vs = std::mem::take(&mut self.nodes[i].varst);
+        let r = {
+            let c = super::wire_variants::VarCtx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                step: &self.nodes[i].policy.variants,
+                programs: &self.programs,
+                licence_env: self.licence_env.clone(),
+                fake,
+            };
+            vs.poll(st, &c, rt)
+        };
+        self.nodes[i].varst = vs;
         r
     }
 
@@ -1340,6 +1370,37 @@ impl<S: WorkSource> RepairFlowSource<S> {
             manifest["seedmin"] = json!(summary);
             seedmin_v = json!(summary);
         }
+        // wireflow (e): the variant phase's shipped face recipes (export/variants/) and its record; nothing without its input
+        let mut variants_v = Value::Null;
+        if st
+            .inputs
+            .contains_key(&super::wire_variants::input_variants(&n))
+        {
+            let vr: Value =
+                serde_json::from_slice(&read_input(st, &super::wire_variants::input_variants(&n))?)
+                    .map_err(|e| format!("variants record: {e}"))?;
+            let mut summary = vec![];
+            for e in vr["faces"].as_array().into_iter().flatten() {
+                let mut line = json!({"face": e["face"], "closing": e["closing"], "keys": e["keys"],
+                    "tried": e["tried"], "improved_keys": e["improved_keys"], "shipped": e["shipped"]["step"]});
+                if let Some(p) = e["shipped"]["path"].as_str() {
+                    let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
+                    let name = Path::new(p)
+                        .file_name()
+                        .map(|x| x.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    sums.push_str(&format!("{}  variants/{name}\n", sha256_hex(&b)));
+                    line["file"] = json!(format!("variants/{name}"));
+                    rt.accepts.push(record(format!("{exp}/variants/{name}"), b));
+                }
+                summary.push(line);
+            }
+            let vb = json_bytes(&vr);
+            sums.push_str(&format!("{}  variants.json\n", sha256_hex(&vb)));
+            rt.accepts.push(record(format!("{exp}/variants.json"), vb));
+            manifest["variants"] = json!(summary);
+            variants_v = json!(summary);
+        }
         // wireflow (c): the shipped case domains (export/regions/) and the record; nothing without the regions input
         let mut regions_v = Value::Null;
         if let Some((summary, files)) = super::wire_regions::export(st, &self.cdir, &n)? {
@@ -1402,6 +1463,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
         }
         if !regions_v.is_null() {
             rep["regions_shipped"] = regions_v;
+        }
+        if !variants_v.is_null() {
+            rep["variants"] = variants_v;
         }
         // wireflow (g): the regular-basis diagnostic's record (R next to the statement), only with its input
         if st
@@ -2255,6 +2319,7 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                     // then the composite rounds' region fits shipped as case domains (policy ship_regions)
                     if self.nodes[i].p1.is_some()
                         && self.min_poll(st, i, &mut rt)?
+                        && self.var_poll(st, i, &mut rt)?
                         && super::wire_regions::poll(
                             st,
                             &self.cdir,
