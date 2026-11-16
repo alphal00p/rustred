@@ -874,14 +874,30 @@ impl Stage {
                             rec(format!("{}/settled.json", round_dir(c.n, k)), b),
                         );
                     }
-                    rt.events.push(Event::Item {
-                        item: done.item.clone(),
-                        ev: ItemEvent::Produce {
-                            job: done.job.clone(),
-                            attempt: done.attempt,
-                            table: t.clone(),
-                        },
-                    });
+                    // a sealed result that ships relations -> produce; one that ships none (row 35: per-key outcomes
+                    // only, the row accepts nothing) -> the item ends (escalated: no further rung exists), the
+                    // round goes on from the settled record
+                    if cl.accept == rustred_campaign_contract::classify::Accept::SuppliedRelations {
+                        rt.events.push(Event::Item {
+                            item: done.item.clone(),
+                            ev: ItemEvent::Produce {
+                                job: done.job.clone(),
+                                attempt: done.attempt,
+                                table: t.clone(),
+                            },
+                        });
+                    } else {
+                        rt.events.push(Event::Item {
+                            item: done.item.clone(),
+                            ev: ItemEvent::Escalate {
+                                to: Rung(1),
+                                reason: format!(
+                                    "repairflow: the composite round shipped no relation (row {}{}: {})",
+                                    cl.row, cl.sub, cl.why
+                                ),
+                            },
+                        });
+                    }
                 }
                 _ => {
                     let attempts = it.jobs.len() as u32;
