@@ -474,6 +474,8 @@ fn io_error(what: &str, e: std::io::Error) -> String {
 #[derive(Clone)]
 pub struct BatchOptions {
     pub threads: usize,
+    /// `--max-trace-rows`: an OUTPUT GATE applied after the exact lift (a relation whose trace has more rows is
+    /// refused as BUDGET_WORK); it does NOT bound the time or memory of a solve (the solver has no pre-lift row cap).
     pub max_trace_rows: Option<usize>,
     pub proof: bool,
     /// paths and texts echoed into failure records (reproduction line)
@@ -1886,7 +1888,7 @@ fn solve_one<const N: usize>(ctx: &Ctx<'_, N>, key: &[i64]) -> Value {
                 key,
                 "BUDGET_WORK",
                 "budget_work",
-                "trace rows above --max-trace-rows",
+                "trace rows above --max-trace-rows (an output gate after the exact lift; it does not bound the solve)",
                 json!({"counter":"trace_rows","limit":limit,"value":main.trace_rows}),
             );
         }

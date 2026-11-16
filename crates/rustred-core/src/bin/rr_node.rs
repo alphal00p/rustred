@@ -28,6 +28,7 @@
 //! rr_node first-match --table T (--key K,.. | --keys FILE)   (first applicable rule per key, table reducer dispatch)
 //! rr_node solve-recipe --family F.sym --order JSON|NAME --recipe RECIPE.json (--keys KEYS.jsonl | --key K,..) --out DIR
 //!                  [--threads T] [--max-trace-rows R] [--key-budget-s S] [--expect DIGESTS.jsonl] [--no-proof]
+//!                  (--max-trace-rows R: an output gate applied AFTER the exact lift; it bounds no time or memory)
 //!                  (R48 recipe rules, node::recipe); job mode: rr_node job RUN/job.json (kind solve-recipe;
 //!                  `rr_node solve-recipe --job RUN/job.json` is an alias of the same dispatcher)
 //! rr_node probe    --family F.sym --case 'SPEC [EQS]' --out DIR [--variants all|NAME,..] [--cap S] [--depth K] [--parallel P] [--portfolio K]
