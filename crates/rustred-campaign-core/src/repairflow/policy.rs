@@ -36,6 +36,9 @@ pub struct RepairPolicy {
     /// digest while default).
     #[serde(skip_serializing_if = "ShipRegionsStep::is_default")]
     pub ship_regions: ShipRegionsStep,
+    /// wireflow (g): the regular terminal set R as a phase-D diagnostic job at P5 (default off; omitted from the digest).
+    #[serde(skip_serializing_if = "RegBasisStep::is_default")]
+    pub regbasis: RegBasisStep,
     pub regions: RegionsPolicy,
     /// Extra evidence added to every spec the flow composes (typed slot: zero-fact sources of lane zeros2).
     pub evidence: ExtraEvidence,
@@ -60,6 +63,7 @@ impl Default for RepairPolicy {
             pieces: PiecesStep::default(),
             seedmin: SeedMinStep::default(),
             ship_regions: ShipRegionsStep::default(),
+            regbasis: RegBasisStep::default(),
             regions: RegionsPolicy::default(),
             evidence: ExtraEvidence::default(),
             faces: FacesPolicy::default(),
@@ -309,6 +313,52 @@ impl Default for ShipRegionsStep {
 impl ShipRegionsStep {
     pub fn is_default(&self) -> bool {
         *self == ShipRegionsStep::default()
+    }
+}
+
+/// wireflow (g), POLES_OBJECTIVE.md 2 (B) / 3.5: lane regbasis' REGULAR TERMINAL SET R of a CLOSED node as a phase-D
+/// DIAGNOSTIC: at P5 one job of kind `regular-basis` (`rr_regbasis`, legacy-wrapped) on the closing loop's final
+/// statement and effective import spec; its export object (R + the exact map) and tower record are written NEXT TO THE
+/// STATEMENT (`final/regbasis/`). Never changes a closure, a statement or a verdict; a job that gives nothing leaves the
+/// node without R (never attention).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct RegBasisStep {
+    pub enabled: bool,
+    /// Key of `spec.programs` (default `rr_regbasis`).
+    pub program: String,
+    /// rr_regbasis' bounds (allow-list: `--max-depth`, `--exact-max-keys`, `--cache-mb`).
+    pub args: Vec<String>,
+    /// Memory cap / expected peak of the job. Defaults 4 GiB / 2 GiB: bounds, no measurement.
+    pub cap_bytes: u64,
+    pub expected_peak_bytes: u64,
+    /// Wall cap of the legacy child (s); the silence timeout follows it. Default 3600: a bound, no measurement.
+    pub wall_s: u64,
+    /// Attempts before the diagnostic gives up (no R; never attention). Default 1.
+    pub max_attempts: u32,
+}
+
+impl Default for RegBasisStep {
+    fn default() -> Self {
+        RegBasisStep {
+            enabled: false,
+            program: "rr_regbasis".into(),
+            args: vec![],
+            cap_bytes: 4 << 30,
+            expected_peak_bytes: 2 << 30,
+            wall_s: 3600,
+            max_attempts: 1,
+        }
+    }
+}
+
+impl RegBasisStep {
+    pub fn is_default(&self) -> bool {
+        *self == RegBasisStep::default()
+    }
+    /// The legacy child's heartbeat (its silence = the wall cap).
+    pub fn heartbeat_s(&self) -> u32 {
+        (self.wall_s.saturating_sub(5) / 3).clamp(1, u32::MAX as u64) as u32
     }
 }
 

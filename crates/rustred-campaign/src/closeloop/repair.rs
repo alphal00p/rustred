@@ -190,6 +190,9 @@ struct FakeGen {
     /// wireflow (f): the fake oracle of the seed-minimisation solves ([[key, [alts]], ..]).
     #[serde(default)]
     seedmin_oracle: Option<Vec<(Vec<i32>, Vec<super::seedmin::FakeAlt>)>>,
+    /// wireflow (g): the fake child's script of the regular-basis job (None = the real program).
+    #[serde(default)]
+    regbasis_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
 }
 
 fn d_fake_program() -> String {
@@ -1400,6 +1403,15 @@ impl<S: WorkSource> RepairFlowSource<S> {
         if !regions_v.is_null() {
             rep["regions_shipped"] = regions_v;
         }
+        // wireflow (g): the regular-basis diagnostic's record (R next to the statement), only with its input
+        if st
+            .inputs
+            .contains_key(&super::wire_regbasis::input_regbasis(&n))
+        {
+            rep["regular_basis"] =
+                serde_json::from_slice(&read_input(st, &super::wire_regbasis::input_regbasis(&n))?)
+                    .map_err(|e| format!("regbasis record: {e}"))?;
+        }
         let rec = record(format!("{dir}/report.json"), json_bytes(&rep));
         self.reg(rt, input_report(&n), ROLE_RESULT, rec);
         Ok(())
@@ -1963,6 +1975,22 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     fn ready(&mut self, st: &CampaignState, ctx: &SourceContext, limit: usize) -> Vec<JobRequest> {
         let mut out = vec![];
         for i in 0..self.nodes.len() {
+            // wireflow (g): the P5 regular-basis diagnostic's job
+            let rb_fake = self.nodes[i]
+                .fake
+                .as_ref()
+                .and_then(|f| f.regbasis_ops.clone());
+            match super::wire_regbasis::ready(
+                st,
+                &self.cdir,
+                &self.nodes[i].n,
+                &self.nodes[i].policy.regbasis,
+                rb_fake.as_deref(),
+            ) {
+                Some(Ok(r)) => out.push(r),
+                Some(Err(e)) => eprintln!("repairflow: no regular-basis job: {e}"),
+                None => {}
+            }
             // wireflow (a): the composite stage's jobs (before P1)
             if self.nodes[i].policy.route0.composite_jobs.enabled
                 && !st
@@ -2045,6 +2073,20 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     ) -> Result<Routing, String> {
         if let Some(i) = self.stage_node_of_item(st, &done.item) {
             return self.stage_route(st, i, done);
+        }
+        // wireflow (g): the regular-basis diagnostic
+        if let Some(it) = st.items.get(&done.item)
+            && it.kind == super::wire_regbasis::KIND_REGBASIS
+            && let Some(i) = self.nodes.iter().position(|r| r.cfg.node == it.node)
+        {
+            return super::wire_regbasis::route(
+                st,
+                &self.cdir,
+                &self.nodes[i].n,
+                &self.nodes[i].cfg.node,
+                &self.nodes[i].policy.regbasis,
+                done,
+            );
         }
         let Some(i) = self.node_of_item(st, &done.item) else {
             return self.inner.route(st, ctx, done);
@@ -2218,6 +2260,14 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                             &self.cdir,
                             &n,
                             &self.nodes[i].policy.ship_regions,
+                            &mut rt,
+                        )?
+                        && super::wire_regbasis::poll(
+                            st,
+                            &self.cdir,
+                            &n,
+                            &self.nodes[i].cfg.node,
+                            &self.nodes[i].policy.regbasis,
                             &mut rt,
                         )?
                     {

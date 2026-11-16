@@ -407,7 +407,7 @@ pub const ROWS: [RowSpec; 50] = {
         rs(
             37,
             "",
-            "c=0, O, S, kind pole-regular-at (diagnostic, legacy-wrapped: one answer per request of the pinned requests input, each checked against its request; pole orders, never evidence)",
+            "c=0, O, S, kind pole-regular-at (diagnostic, legacy-wrapped: one answer per request of the pinned requests input, each checked against its request; pole orders, never evidence) or kind regular-basis (the export object R + exact map bound to the pinned statement; never evidence)",
             Complete,
             DiagnosticRecords,
             ItemDone,
@@ -415,7 +415,7 @@ pub const ROWS: [RowSpec; 50] = {
         rs(
             38,
             "",
-            "kind pole-regular-at, c in {0, 10, 20} with O but the answers not sealed / not verified against the requests (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided (evaluated before 22 for this kind)",
+            "kind pole-regular-at or regular-basis, c in {0, 10, 20} with O but the answers / the record not sealed / not verified against the pinned inputs (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided / the node gets no regular basis (evaluated before 22 for these kinds)",
             Undecided,
             Nothing,
             DiagnosticsUndecided,
@@ -529,7 +529,7 @@ pub const ROWS: [RowSpec; 50] = {
         rs(
             39,
             "",
-            "c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH): nothing is read, the relations stay undecided",
+            "c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH) or regular-basis (a pinned input unreadable or not the spec's: REGBASIS_INPUT_MISMATCH): nothing is read, the relations stay undecided / no regular basis",
             Refused,
             Nothing,
             DiagnosticsUndecided,
@@ -832,13 +832,17 @@ fn decide(
                         ),
                     );
                 }
-                // lane coreseed: a diagnostic job whose answers are not verified gives nothing, never attention (38)
-                if e.kind == JobKind::PoleRegularAt && (e.verified.is_none() || c != 0) {
+                // lane coreseed: a diagnostic job whose answers are not verified gives nothing, never attention (38);
+                // lane wireflow (g): kind regular-basis alike
+                if matches!(e.kind, JobKind::PoleRegularAt | JobKind::RegularBasis)
+                    && (e.verified.is_none() || c != 0)
+                {
                     return row(
                         38,
                         "",
                         format!(
-                            "pole-regular-at: exit {c}, answers not read: {}",
+                            "{:?}: exit {c}, answers not read: {}",
+                            e.kind,
                             e.unsealed_why.as_deref().unwrap_or("not verified")
                         ),
                     );
@@ -882,6 +886,14 @@ fn decide(
                             37,
                             "",
                             "pole-regular-at: exit 0, OUTCOME, answers sealed and checked (diagnostic records)",
+                        );
+                    }
+                    // lane wireflow (g): the export object sealed and bound to the pinned statement
+                    JobKind::RegularBasis => {
+                        return row(
+                            37,
+                            "",
+                            "regular-basis: exit 0, OUTCOME, record sealed and bound to the statement (diagnostic records)",
                         );
                     }
                     // lane symcert: exit 0 with the certificate sealed and bound (everything else is row 43 above)
@@ -1033,6 +1045,14 @@ fn decide(
                 39,
                 "",
                 "pole-regular-at: requests input refused; the relations stay undecided",
+            );
+        }
+        // lane wireflow (g): the regular-basis diagnostic's refused input (row 39): nothing read, never attention
+        if c == 41 && e.kind == JobKind::RegularBasis {
+            return row(
+                39,
+                "",
+                "regular-basis: input refused; the node gets no regular basis",
             );
         }
         // lane symcert: the kernel's typed refusal of a symmetry row (41) and its reader errors (42), before 13 / 13b
@@ -1267,6 +1287,47 @@ pub fn pole_regular_at_answers(
         .ok_or("no requests input")?;
     let bytes = std::fs::read(spec.input_path(rq)).map_err(|e| format!("requests input: {e}"))?;
     poleat::check_results(&lines, &bytes, spec)
+}
+
+/// S of kind regular-basis (lane wireflow (g)): the verified results stream (through its handle) re-checked against
+/// the pinned `statement` input (raw digest = the spec's; the record's `closure_statement_digest` = its sha256).
+pub fn regular_basis_records(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    v: &VerifiedOutputs,
+) -> Result<(serde_json::Value, Option<serde_json::Value>), String> {
+    let rel = RunLayout::out_rel(crate::layout::RESULTS);
+    let s = v
+        .streams
+        .iter()
+        .find(|s| s.rel == rel)
+        .ok_or("no verified results stream")?;
+    let lines = crate::seal::VerifiedHandle::reopen(&layout.root, s)
+        .and_then(|h| h.canonical_lines())
+        .map_err(|e| format!("results: {e}"))?;
+    let st = spec
+        .inputs
+        .iter()
+        .find(|i| i.role == "statement")
+        .ok_or("no statement input")?;
+    let bytes = std::fs::read(spec.input_path(st)).map_err(|e| format!("statement input: {e}"))?;
+    if crate::blake3_hex(&bytes) != st.blake3 {
+        return Err("the statement input is not the spec's".into());
+    }
+    let lines: Vec<String> = lines
+        .into_iter()
+        .map(|l| String::from_utf8(l).map_err(|e| e.to_string()))
+        .collect::<Result<_, _>>()?;
+    let (rec, tower) = crate::regbasis::records_of(&lines)?;
+    let sha = crate::symcert::sha256_hex(&bytes);
+    if rec["closure_statement_digest"]
+        .as_str()
+        .map(|d| d.trim_start_matches("sha256:"))
+        != Some(sha.as_str())
+    {
+        return Err("the record is not bound to the pinned statement".into());
+    }
+    Ok((rec, tower))
 }
 
 /// S of kind solve-recipe (lane adapters): the verified results stream (read through its [`crate::seal::VerifiedHandle`],
@@ -1587,6 +1648,12 @@ pub fn assess(
                     && let Err(why) = pole_regular_at_answers(layout, spec, &v)
                 {
                     unsealed_why = Some(format!("pole-regular-at answers: {why}"));
+                }
+                // lane wireflow (g): kind regular-basis: the sealed record re-checked against the pinned statement
+                if spec.kind == JobKind::RegularBasis
+                    && let Err(why) = regular_basis_records(layout, spec, &v)
+                {
+                    unsealed_why = Some(format!("regular-basis results: {why}"));
                 }
                 // lane symcert: kind proof-symrows: the sealed certificate re-checked against the pinned request,
                 // table and symrows input (a valid seal on another relation's certificate is refused: row 43)

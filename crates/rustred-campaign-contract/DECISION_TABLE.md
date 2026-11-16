@@ -23,8 +23,8 @@ order of `ROWS`.
 | 33 | c=0, O, S, kind symmetry-composite (legacy-wrapped; the child's own seal checked by the wrapper), every key has a shipped relation (candidates) | complete | supplied_relations | item_done |
 | 34 | c=10, O, S, kind symmetry-composite, stop keys_unsolved, shipped relations >= 1 and >= 1 key none / over_cap / error (typed per-key outcomes) | rule_found | supplied_relations | queue_failures |
 | 35 | c=10, O, S, kind symmetry-composite, stop keys_unsolved, no shipped relation | no_rule | nothing | queue_failures |
-| 37 | c=0, O, S, kind pole-regular-at (diagnostic, legacy-wrapped: one answer per request of the pinned requests input, each checked against its request; pole orders, never evidence) | complete | diagnostic_records | item_done |
-| 38 | kind pole-regular-at, c in {0, 10, 20} with O but the answers not sealed / not verified against the requests (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided (evaluated before 22 for this kind) | undecided | nothing | diagnostics_undecided |
+| 37 | c=0, O, S, kind pole-regular-at (diagnostic, legacy-wrapped: one answer per request of the pinned requests input, each checked against its request; pole orders, never evidence) or kind regular-basis (the export object R + exact map bound to the pinned statement; never evidence) | complete | diagnostic_records | item_done |
+| 38 | kind pole-regular-at or regular-basis, c in {0, 10, 20} with O but the answers / the record not sealed / not verified against the pinned inputs (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided / the node gets no regular basis (evaluated before 22 for these kinds) | undecided | nothing | diagnostics_undecided |
 | 40 | c=0, O, S, kind proof-symrows (legacy-wrapped rr_proof --symrows: one certificate per requested key, each bound to the pinned request: relation digest, record digests, key, symrows digest, group, elements, catalogue records, kernel sha256) | complete | certificates | item_done |
 | 43 | kind proof-symrows, c in {0, 10, 20} with O but the certificate not sealed / not bound to the pinned request (another relation, record, key, symrows input or kernel: a forged or misattributed certificate), or c in {10, 20} (evaluated before 22 for this kind) | crashed | nothing | attention |
 | 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
@@ -40,7 +40,7 @@ order of `ROWS`.
 | 12 | c=40 | usage_error | nothing | stop_launching_kind |
 | 13b | c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span | refused | nothing | table_unreadable_by_tool |
 | 36 | c=41, O whose error names PINNED_INPUTS_MISMATCH, kind symmetry-composite (the child's sealed result is bound to other inputs: request digest, input pins, tool digest) | refused | nothing | item_attention_no_retry |
-| 39 | c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH): nothing is read, the relations stay undecided | refused | nothing | diagnostics_undecided |
+| 39 | c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH) or regular-basis (a pinned input unreadable or not the spec's: REGBASIS_INPUT_MISMATCH): nothing is read, the relations stay undecided / no regular basis | refused | nothing | diagnostics_undecided |
 | 41 | c=41, kind proof-symrows, O whose error names SYMROW_REFUSED (the kernel refused a symmetry row of the request: a decided answer, never evidence) | refused | nothing | certificate_refused |
 | 42 | c in {41, 70}, kind proof-symrows, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND) | refused | nothing | table_unreadable_by_tool |
 | 13 | c=41 | refused | nothing | item_attention_no_retry |

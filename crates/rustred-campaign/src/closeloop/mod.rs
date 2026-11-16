@@ -34,6 +34,8 @@ pub mod wire_composite;
 pub mod wire_seedmin;
 // lane wireflow (c), interfaces/repairflow.md 22: the composite rounds' region fits shipped as case domains at P5
 pub mod wire_regions;
+// lane wireflow (g), interfaces/repairflow.md 23: the regular terminal set R as a phase-D diagnostic job at P5
+pub mod wire_regbasis;
 // lane wireflow (b), closeloop.md 26: facts from the frontier + the facts budget
 pub mod frontier;
 

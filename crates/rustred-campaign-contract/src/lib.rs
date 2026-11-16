@@ -36,6 +36,8 @@ pub mod poleat;
 pub mod preflight;
 // lane adapters' request (granted by lane int5): kind solve-recipe's records and per-key outcomes
 pub mod recipe;
+// lane wireflow (g): kind regular-basis (rr_regbasis as a diagnostic legacy child)
+pub mod regbasis;
 pub mod resume;
 pub mod seal;
 pub mod spec;

@@ -186,7 +186,7 @@ pub struct FakeOps {
     pub kernel: Option<Vec<FakeOp>>,
 }
 
-fn script(ops: &[FakeOp]) -> FakeScript {
+pub fn script(ops: &[FakeOp]) -> FakeScript {
     FakeScript {
         script: ops.to_vec(),
         on_sigterm: OnSigterm::Graceful,
