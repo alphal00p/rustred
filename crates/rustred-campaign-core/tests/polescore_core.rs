@@ -20,6 +20,7 @@ fn score(max: Option<u32>, kwp: u64) -> PoleScore {
         keys_by_order: BTreeMap::new(),
         rules_with_pole: None,
         composed_max_order: None,
+        form: ScoreForm::Count,
     }
 }
 
@@ -283,4 +284,33 @@ fn rechoice_of_a_finished_choice() {
     assert_eq!(v["candidates"][1]["score"], "undecided");
     let v = rechoice(&ch, &s[..1], &pol("2")).unwrap().unwrap();
     assert_eq!((v["decision"]["winner"].clone(), v["decision"]["reason"].clone()), (json!(1), json!("size_guard")));
+}
+
+#[test]
+fn score_form_is_named_and_rank_is_refused_until_the_replay_exists() {
+    let p = PolePolicy::default();
+    assert_eq!(p.score, ScoreForm::Count);
+    let v = serde_json::to_value(&p).unwrap();
+    assert_eq!(v["score"], "count", "the settings name the form");
+    let rank = PolePolicy { score: ScoreForm::Rank, ..PolePolicy::default() };
+    assert!(rank.check().unwrap_err().starts_with(RANK_NOT_AVAILABLE));
+    let c = [cand(0, 1, 1, Some(score(Some(1), 1)))];
+    assert!(choose_poles(&c, Some(0), &rank).unwrap_err().starts_with(RANK_NOT_AVAILABLE));
+    let d = choose_poles(&c, Some(0), &p).unwrap().unwrap();
+    assert_eq!(d.score_form, ScoreForm::Count);
+    // a score without `form` (files written before the field) reads as count form; scores carry their form
+    let s: PoleScore = serde_json::from_value(
+        json!({"keys": 1, "keys_with_pole": 0, "undecided": 0, "max_order": 0, "composed_max_order": null}),
+    )
+    .unwrap();
+    assert_eq!(s.form, ScoreForm::Count);
+    assert_eq!(serde_json::to_value(&s).unwrap()["form"], "count");
+    // a rank-form score never mixes with a count-form objective
+    let mut r = score(Some(0), 0);
+    r.form = ScoreForm::Rank;
+    assert!(choose_poles(&[cand(0, 1, 1, Some(r))], Some(0), &p).is_err());
+    // genchoice and improve configs refuse rank at load
+    let g: rustred_campaign_core::economy::genchoice::Policy =
+        serde_json::from_str(r#"{"poles":{"score":"rank"}}"#).unwrap();
+    assert!(g.check().unwrap_err().contains(RANK_NOT_AVAILABLE));
 }

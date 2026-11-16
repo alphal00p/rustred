@@ -298,6 +298,7 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
         if tag == "gcpoles" {
             let d = &c["poles"]["decision"];
             assert_eq!((d["reason"].clone(), d["changed"].clone()), (json!("regular"), json!(true)), "{d:#}");
+            assert_eq!((d["score_form"].clone(), c["policy"]["poles"]["score"].clone()), (json!("count"), json!("count")));
             assert!(c["poles"]["scores"].as_array().unwrap().iter().any(|s| s["score"] == "undecided"),
                 "unscored acceptable tables are recorded as undecided");
         } else {

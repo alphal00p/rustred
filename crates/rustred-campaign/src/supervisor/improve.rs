@@ -675,6 +675,7 @@ impl ImproveSource {
             spent_cpu_ms: Self::spent_ms(st, &node),
             totals: json!({"targets": targets.len(), "candidates": targets.iter().map(|(_, c)| c.len()).sum::<usize>(),
                 "objective": if p.poles_on() { "poles" } else { "size" },
+                "score_form": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.score.word()),
                 "decided_from_scores": self.nodes[i].decisions.len(), "unscored_rules": self.nodes[i].unscored.len(),
                 "replaced": repl.len(), "table_bytes_before": self.nodes[i].table_bytes, "table_bytes_after": out_bytes,
                 "targets_bytes_before": tb, "targets_bytes_after": after.iter().map(|e| e.bytes).sum::<u64>(),

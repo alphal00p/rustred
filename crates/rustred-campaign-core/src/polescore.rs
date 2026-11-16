@@ -24,6 +24,31 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub const SCORE_SCHEMA: &str = "rustred.campaign.pole-score.v1";
+
+/// The score's FORM (TRICKS items 20-22, implementer 2026-11-16). `count`: today's proxy, counts of route poles (max order,
+/// keys / rules with a pole). `rank`: the exact objective, the rank of rho (box keys -> eps^0 free-symbol rows = the polar
+/// parts of the COMPOSED coefficients) after substituting printed dependences among symbols; it needs helper VH 2's
+/// t-adic replay (REPORT-19 section 11 item 3) and is refused until then ([`RANK_NOT_AVAILABLE`]). Every score, decision
+/// and record names its form, so count-form records are never mistaken for the exact objective.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreForm {
+    #[default]
+    Count,
+    Rank,
+}
+
+impl ScoreForm {
+    pub fn word(&self) -> &'static str {
+        match self {
+            ScoreForm::Count => "count",
+            ScoreForm::Rank => "rank",
+        }
+    }
+}
+
+/// The typed refusal of `poles.score: rank` (the error text starts with it).
+pub const RANK_NOT_AVAILABLE: &str = "rank_not_available";
 pub const DECISION_SCHEMA: &str = "rustred.campaign.pole-choice.v1";
 
 /// The route-pole score of a candidate table (box keys) or rule (the keys it serves).
@@ -47,6 +72,9 @@ pub struct PoleScore {
     /// The composed per-terminal maximum after composition down to the terminals: None = not computed (undecided).
     #[serde(default)]
     pub composed_max_order: Option<u32>,
+    /// The score's form (always `count` today: route-pole counts, a proxy of the exact rank form).
+    #[serde(default)]
+    pub form: ScoreForm,
 }
 
 fn u(v: &Value, k: &str) -> Result<u64, String> {
@@ -86,6 +114,7 @@ impl PoleScore {
             keys_by_order,
             rules_with_pole: b.get("rules_with_pole").and_then(Value::as_u64),
             composed_max_order: None,
+            form: ScoreForm::Count,
         })
     }
 
@@ -101,6 +130,7 @@ impl PoleScore {
             keys_by_order: BTreeMap::new(),
             rules_with_pole: None,
             composed_max_order: None,
+            form: ScoreForm::Count,
         })
     }
 
@@ -170,6 +200,8 @@ pub struct PolePolicy {
     /// false = poles IGNORED (the size choice exactly as before; nothing about poles is written).
     #[serde(rename = "use")]
     pub use_poles: bool,
+    /// The score form (`count` today; `rank` refused: [`RANK_NOT_AVAILABLE`]).
+    pub score: ScoreForm,
     /// Lexicographic measures of `poles::select` (words: regular, max_pole_order, sum_pole_orders, singular_terms, size);
     /// time (cpu ms) and the candidate index break the remaining ties.
     pub measures: Vec<String>,
@@ -189,6 +221,7 @@ impl Default for PolePolicy {
     fn default() -> Self {
         PolePolicy {
             use_poles: true,
+            score: ScoreForm::Count,
             measures: vec!["regular".into(), "max_pole_order".into(), "size".into()],
             max_size_ratio: Value::String(DEFAULT_MAX_SIZE_RATIO.into()),
         }
@@ -208,6 +241,13 @@ impl PolePolicy {
         .map_err(|e| format!("poles policy: {}", e.0))
     }
     pub fn check(&self) -> Result<(), String> {
+        if self.score == ScoreForm::Rank {
+            return Err(format!(
+                "{RANK_NOT_AVAILABLE}: poles.score rank (the rank of rho over the box after substituting printed \
+                 dependences, TRICKS items 20-22) needs the t-adic replay of helper VH 2 (REPORT-19 section 11 item 3), \
+                 not available yet: use score count"
+            ));
+        }
         self.objective().map(|_| ())
     }
 }
@@ -227,6 +267,8 @@ pub struct PoleCand {
 /// The result of [`choose_poles`].
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct PoleDecision {
+    /// The score form the decision was made with (`count` today).
+    pub score_form: ScoreForm,
     pub winner: usize,
     pub size_winner: Option<usize>,
     /// The pole objective chose another candidate than the size choice.
@@ -260,6 +302,13 @@ pub fn choose_poles(
     if pol.is_ignored() {
         return Ok(None);
     }
+    pol.check()?;
+    if cands.iter().any(|c| c.score.as_ref().is_some_and(|s| s.form != pol.score)) {
+        return Err(format!(
+            "pole objective: a score of another form than poles.score {} (count-form and rank-form scores never mix)",
+            pol.score.word()
+        ));
+    }
     let obj = pol.objective()?;
     let adm: Vec<&PoleCand> = cands.iter().filter(|c| c.admissible).collect();
     if adm.is_empty() {
@@ -276,6 +325,7 @@ pub fn choose_poles(
             .filter(|w| adm.iter().any(|c| c.cand == *w))
             .unwrap_or(adm[0].cand);
         return Ok(Some(PoleDecision {
+            score_form: pol.score,
             winner: w,
             size_winner,
             changed: false,
@@ -317,6 +367,7 @@ pub fn choose_poles(
         .collect();
     let tied = adm.len() > 1 && pv.iter().all(|v| v.is_some() && *v == pv[0]);
     Ok(Some(PoleDecision {
+        score_form: pol.score,
         winner,
         size_winner,
         changed: size_winner.is_some_and(|w| w != winner),
@@ -457,6 +508,6 @@ pub fn rechoice(choice: &Value, scores: &[ScoreLine], pol: &PolePolicy) -> Resul
             _ => None,
         });
     let d = choose_poles(&pc, size_winner, pol)?;
-    Ok(Some(json!({"schema": DECISION_SCHEMA, "node": node, "select": select, "policy": pol,
+    Ok(Some(json!({"schema": DECISION_SCHEMA, "node": node, "select": select, "score_form": pol.score.word(), "policy": pol,
         "candidates": rows, "decision": d})))
 }
