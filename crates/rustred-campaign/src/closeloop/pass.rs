@@ -1474,7 +1474,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     if let (Some(pp), false) = (&inp.proof, closed) {
         // lane t266run: per-key proofs only for the closure that is decided (the exact tier when it is wanted): the
         // keys-only superset holds keys reached only through zero terms
-        if pp.import_requests && (decided_tier || inp.scale.is_none()) {
+        // lane wireflow (b): the FRONTIER walk reaches only keys whose path runs through keys with their facts (a zero term
+        // is no edge, an unknown fact stops the walk): its per-key proof requests are needed exactly as the decided
+        // tier's; without them a key blocked for its per-key proof would hold the frontier forever
+        if pp.import_requests && (decided_tier || inp.scale.is_none() || frontier.is_some()) {
             for r in &res.proof_requests {
                 let keys: Vec<Vec<i32>> = r
                     .keys
