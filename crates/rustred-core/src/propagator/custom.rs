@@ -2097,6 +2097,9 @@ trait CustomOwnerOps: Sync {
     fn rules_take(&self, powers: &[i64]) -> bool;
 }
 
+/// One chunk of the threaded certified-key check: (chunk index, checked keys or (key index, error)).
+type ChunkCheck = (usize, Result<usize, (usize, PError)>);
+
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
     fn support(&self) -> u64 {
         self.support
@@ -2599,7 +2602,7 @@ pub fn verify_custom_payload(
         };
         let chunk = keys.len().div_ceil(threads).max(1);
         let failed = std::sync::atomic::AtomicUsize::new(usize::MAX);
-        let results: Vec<(usize, Result<usize, (usize, PError)>)> = std::thread::scope(|scope| {
+        let results: Vec<ChunkCheck> = std::thread::scope(|scope| {
             let handles: Vec<_> = keys
                 .chunks(chunk)
                 .enumerate()
