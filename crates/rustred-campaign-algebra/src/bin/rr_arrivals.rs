@@ -89,6 +89,8 @@ struct Args {
     fast: bool,
     closure_chunk: usize,
     local_flush: usize,
+    /// merge-keys: the cone bound D + r <= S for the outside count
+    cone_s: Option<i64>,
     no_structural: bool,
     structural_min_keys: usize,
     decide_all_handdowns: bool,
@@ -162,6 +164,7 @@ fn parse(args: &[String]) -> Args {
             "--closure-only" => a.closure_only = true,
             "--fast" => a.fast = true,
             "--closure-chunk" => a.closure_chunk = num(val(&mut i)),
+            "--cone" => a.cone_s = Some(num(val(&mut i)) as i64),
             "--local-flush" => a.local_flush = num(val(&mut i)),
             "--closure-out" => a.closure_out = Some(PathBuf::from(val(&mut i))),
             "--shard" => {
@@ -2151,6 +2154,162 @@ fn arrivals_bin_fast(src: &str, out: &Path) {
     );
 }
 
+/// `merge-keys --arrivals F.keys.bin[=PARENT] [..] --out B [--cone S]`: the k-way merge of per-parent key files (RRKEYS01, sorted
+/// by the signed key): per key depth = min over the files, parents = number of distinct PARENT labels holding it (default label: the
+/// file); writes B (same record format, parents capped 255) and prints counts per depth / D+r / (depth, D+r) / parent and the keys
+/// above the cone D+r <= S.
+fn merge_keys(a: &Args) {
+    use std::io::{BufReader, Read, Write};
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    struct In {
+        rd: BufReader<std::fs::File>,
+        label: usize,
+        cur: Option<(Vec<i8>, u8)>,
+    }
+    let mut labels: Vec<String> = vec![];
+    let mut ins: Vec<In> = vec![];
+    let (mut arity, mut frame) = (0usize, String::new());
+    for spec in &a.arrivals {
+        let (path, label) = spec
+            .split_once('=')
+            .map_or((spec.as_str(), spec.as_str()), |(p, l)| (p, l));
+        let mut rd = BufReader::with_capacity(
+            1 << 22,
+            std::fs::File::open(path).unwrap_or_else(|e| die(&format!("{path}: {e}"))),
+        );
+        let mut m = [0u8; 8];
+        rd.read_exact(&mut m)
+            .unwrap_or_else(|e| die(&format!("{path}: {e}")));
+        if &m != b"RRKEYS01" {
+            die(&format!("{path}: not a key file"));
+        }
+        let mut l4 = [0u8; 4];
+        rd.read_exact(&mut l4)
+            .unwrap_or_else(|e| die(&format!("{path}: {e}")));
+        let mut hb = vec![0u8; u32::from_le_bytes(l4) as usize];
+        rd.read_exact(&mut hb)
+            .unwrap_or_else(|e| die(&format!("{path}: {e}")));
+        let h: Value = serde_json::from_slice(&hb).unwrap_or_else(|e| die(&format!("{path}: {e}")));
+        let n = h["arity"].as_u64().unwrap_or(0) as usize;
+        if arity == 0 {
+            arity = n;
+            frame = h["frame"].as_str().unwrap_or("").to_string();
+        } else if n != arity {
+            die(&format!("{path}: arity {n} != {arity}"));
+        }
+        let li = labels.iter().position(|x| x == label).unwrap_or_else(|| {
+            labels.push(label.to_string());
+            labels.len() - 1
+        });
+        ins.push(In {
+            rd,
+            label: li,
+            cur: None,
+        });
+    }
+    let lines: Vec<bool> = frame.chars().map(|c| c == '1').collect();
+    let n = arity;
+    let next = |x: &mut In| -> Option<(Vec<i8>, u8)> {
+        let mut rec = vec![0u8; n + 2];
+        match x.rd.read_exact(&mut rec) {
+            Ok(()) => Some((rec[..n].iter().map(|&b| b as i8).collect(), rec[n])),
+            Err(_) => None,
+        }
+    };
+    let mut heap: std::collections::BinaryHeap<std::cmp::Reverse<(Vec<i8>, usize)>> =
+        Default::default();
+    for (i, x) in ins.iter_mut().enumerate() {
+        x.cur = next(x);
+        if let Some((k, _)) = &x.cur {
+            heap.push(std::cmp::Reverse((k.clone(), i)));
+        }
+    }
+    let hdr = json!({"schema": "rustred.campaign.arrival-keys.v1", "frame": frame, "arity": n,
+        "record": format!("{n} x i8 key (target table frame), u8 chain depth, u8 sending parents (capped 255)"),
+        "built_from": a.arrivals});
+    let hb = hdr.to_string().into_bytes();
+    let tmp = out.with_extension("partial");
+    let mut w = std::io::BufWriter::with_capacity(
+        1 << 22,
+        std::fs::File::create(&tmp).unwrap_or_else(|e| die(&format!("{}: {e}", tmp.display()))),
+    );
+    let wr = |w: &mut std::io::BufWriter<std::fs::File>, b: &[u8]| {
+        w.write_all(b).unwrap_or_else(|e| die(&e.to_string()))
+    };
+    wr(&mut w, b"RRKEYS01");
+    wr(&mut w, &(hb.len() as u32).to_le_bytes());
+    wr(&mut w, &hb);
+    let cone = a.cone_s;
+    let (mut keys, mut outside, mut max_dr) = (0u64, 0u64, i64::MIN);
+    let mut by_depth: BTreeMap<u8, u64> = BTreeMap::new();
+    let mut by_dr: BTreeMap<i64, u64> = BTreeMap::new();
+    let mut by_both: BTreeMap<(u8, i64), u64> = BTreeMap::new();
+    let mut by_parent = vec![0u64; labels.len()];
+    let mut seen = vec![false; labels.len()];
+    while let Some(std::cmp::Reverse((k, _))) = heap.peek().cloned() {
+        let mut d = u8::MAX;
+        let mut held: Vec<usize> = vec![];
+        while let Some(std::cmp::Reverse((k2, i))) = heap.peek().cloned() {
+            if k2 != k {
+                break;
+            }
+            heap.pop();
+            let x = &mut ins[i];
+            let (_, di) = x.cur.take().expect("current");
+            d = d.min(di);
+            by_parent[x.label] += 1;
+            if !seen[x.label] {
+                seen[x.label] = true;
+                held.push(x.label);
+            }
+            x.cur = next(x);
+            if let Some((kn, _)) = &x.cur {
+                if *kn <= k {
+                    die("an input key file is not strictly increasing");
+                }
+                heap.push(std::cmp::Reverse((kn.clone(), i)));
+            }
+        }
+        for l in &held {
+            seen[*l] = false;
+        }
+        let t: i64 = k
+            .iter()
+            .zip(&lines)
+            .map(|(&x, &l)| if l { i64::from(x) - 1 } else { -i64::from(x) })
+            .sum();
+        let mut rec: Vec<u8> = k.iter().map(|&x| x as u8).collect();
+        rec.push(d);
+        rec.push(held.len().min(255) as u8);
+        wr(&mut w, &rec);
+        keys += 1;
+        *by_depth.entry(d).or_default() += 1;
+        *by_dr.entry(t).or_default() += 1;
+        *by_both.entry((d, t)).or_default() += 1;
+        if cone.is_some_and(|s| t > s) {
+            outside += 1;
+        }
+        max_dr = max_dr.max(t);
+    }
+    w.flush().unwrap_or_else(|e| die(&e.to_string()));
+    drop(w);
+    std::fs::rename(&tmp, &out).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    let (sha, bytes) = file_sha256(&out).unwrap_or_else(|e| die(&e));
+    let bp: BTreeMap<&String, u64> = labels
+        .iter()
+        .zip(&by_parent)
+        .map(|(l, c)| (l, *c))
+        .collect();
+    println!(
+        "{}",
+        canonical_json(
+            &json!({"out": out, "sha256": sha, "bytes": bytes, "keys": keys, "by_depth": by_depth,
+        "by_dr": by_dr, "by_depth_dr": by_both.iter().map(|((d, t), c)| (format!("{d}/{t}"), *c)).collect::<BTreeMap<_, _>>(),
+        "by_parent": bp, "max_dr": max_dr, "cone_S": cone, "outside": outside})
+        )
+    );
+}
+
 /// `cone-excess --tables T [..] --out F`: per node (the union of its tables' rule records) the exact hand-down excess per
 /// drop mask, the top terms' excess, the largest feasible mask (core `import::arrivals::cone`). Frames must agree.
 fn cone_excess(a: &Args) {
@@ -2522,6 +2681,7 @@ fn main() {
         "compare-engine" => compare_engine(&a),
         "closure-rows" => closure_rows(&a),
         "arrivals-bin" => arrivals_bin(&a),
+        "merge-keys" => merge_keys(&a),
         "cone-excess" => cone_excess(&a),
         "edge-cone" => edge_cone(&a),
         "arrival-dr" => arrival_dr(&a),
