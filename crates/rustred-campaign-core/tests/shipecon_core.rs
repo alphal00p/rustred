@@ -758,3 +758,21 @@ fn dead_entries_are_never_shipped() {
     let mut tbl = decide_unexamined(&svc, &Candidacy::NotExamined { reason: "x".into() });
     assert_eq!(drop_dead_entries(&mut tbl, &all), 0);
 }
+
+#[test]
+fn a_rule_first_matching_uncertified_keys_is_never_kept_aside() {
+    let p = policy();
+    let mut b = CensusBuilder::new(vec![(rule(0, "a"), 5000), (rule(1, "b"), 6000)], 8).unwrap();
+    // rule a: the first match of an OPEN (blocked) key only; rule b: serves nothing at all
+    b.add(&[1, 1, 0], true, None);
+    b.add_open("a");
+    let c = b.finish();
+    assert_eq!(c.rules[0].matched_uncertified, 1);
+    let k = candidacy(&p, &c);
+    assert!(
+        matches!(&k[0], Candidacy::NotExamined { reason } if reason.contains("uncertified")),
+        "{:?}",
+        k[0]
+    );
+    assert_eq!(k[1], Candidacy::KeptAside);
+}

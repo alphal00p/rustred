@@ -35,7 +35,7 @@ pub const GUARD_SCHEMA: &str = "rustred.campaign.shipecon-guard.v1";
 /// Schema of the report of one run.
 pub const REPORT_SCHEMA: &str = "rustred.campaign.shipecon-report.v1";
 /// Version of the decision procedure (bumped when [`decide`] changes meaning: old records are then re-decided).
-pub const DECISION_VERSION: u32 = 4;
+pub const DECISION_VERSION: u32 = 5;
 
 fn sha256_hex(b: &[u8]) -> String {
     let mut h = Sha256::new();
@@ -423,6 +423,10 @@ pub struct RuleService {
     /// The keys (kept only while the rule serves at most the builder's key cap; else empty and `keys_complete` false).
     pub keys: Vec<(Vec<i32>, bool)>,
     pub keys_complete: bool,
+    /// Closure keys this rule is the FIRST MATCH of without certifying them (open / blocked keys of the statement):
+    /// such a rule is never kept aside (its removal would change their dispatch).
+    #[serde(default)]
+    pub matched_uncertified: u64,
     /// Optional record measures (from the record when the caller read them).
     pub rhs_terms: Option<u64>,
     pub monomials: Option<u64>,
@@ -464,6 +468,7 @@ impl CensusBuilder {
                 served_outside_start: 0,
                 keys: vec![],
                 keys_complete: true,
+                matched_uncertified: 0,
                 rhs_terms: None,
                 monomials: None,
             });
@@ -503,6 +508,13 @@ impl CensusBuilder {
                 r.keys.clear();
                 r.keys_complete = false;
             }
+        }
+    }
+
+    /// An OPEN closure row whose first-matching (blocked / uncertified) record is `open_rule_sha256`.
+    pub fn add_open(&mut self, open_rule_sha256: &str) {
+        if let Some(&i) = self.by_sha.get(open_rule_sha256) {
+            self.rules[i].matched_uncertified += 1;
         }
     }
 
@@ -588,6 +600,13 @@ pub fn candidacy(p: &ShipPolicy, census: &Census) -> Vec<Candidacy> {
             if p.coverage.target == Target::Full {
                 Candidacy::NotExamined {
                     reason: "full-coverage node (coverage.target = full): no rule leaves the shipped table".into(),
+                }
+            } else if r.served() == 0 && r.matched_uncertified > 0 {
+                Candidacy::NotExamined {
+                    reason: format!(
+                        "first match of {} uncertified closure keys (open in the statement): never kept aside",
+                        r.matched_uncertified
+                    ),
                 }
             } else if r.served() == 0 {
                 if p.kept_aside.enabled && r.bytes >= p.kept_aside.min_bytes {

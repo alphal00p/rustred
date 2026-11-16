@@ -339,6 +339,11 @@ fn census_and_before(
                     .then(|| r["server"]["record_sha256"].as_str())
                     .flatten();
                 b.add(&key, in_start, sha);
+                if r["status"] == "open"
+                    && let Some(os) = r["open"]["rule"]["record_sha256"].as_str()
+                {
+                    b.add_open(os);
+                }
                 if keep_served {
                     match r["status"].as_str() {
                         Some("terminal") => {
@@ -403,6 +408,11 @@ fn census_and_before(
                     _ => None,
                 };
                 b.add(&r.key, r.in_start, sha);
+                if r.status == RowStatus::Open
+                    && let Some((t, rr)) = r.open_rule
+                {
+                    b.add_open(&set.rules[t][rr].record_sha256);
+                }
             }
             v = view_of(set, &res)?;
             source = json!({"check": {"spec_digest": res.spec_digest, "blocking": res.blocking(),
@@ -1371,6 +1381,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     let mut closing: Option<ClosingCheck> = None;
     let mut final_spec: Option<TableSetSpec> = None;
     let mut probe: Option<Value> = None;
+    let mut services = Value::Null;
     let local = cfg.check_mode == "local";
     if local && !p.coverage.require_rhs_in_certified_set {
         return Err("check_mode local needs coverage.require_rhs_in_certified_set".into());
@@ -1569,6 +1580,30 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
                     )?;
                     sspec.evidence.expected_recipe_binary = Some(bits.binary_sha256.clone());
                 }
+                // services per kind over the shipped closure (the manifest's `services`)
+                let (recipes_now, _) = shipped_recipes(cfg, &decisions, &recipe_files)?;
+                let form_of: BTreeMap<&str, &str> = recipes_now
+                    .iter()
+                    .map(|r| (r.id.as_str(), r.form.as_str()))
+                    .collect();
+                let mut sv: BTreeMap<&str, u64> = BTreeMap::new();
+                for r in &rows_main {
+                    let k = match (&r.status, &r.server) {
+                        (RowStatus::Served, Some(Server::Rule { .. })) => "table",
+                        (RowStatus::Served, Some(Server::Relation { set, .. })) => {
+                            match form_of.get(set.as_str()) {
+                                Some(&"stored") => "entry",
+                                Some(_) => "recipe_record",
+                                None => "other_relation",
+                            }
+                        }
+                        (RowStatus::Served, _) => "credit",
+                        (RowStatus::Terminal, _) => "terminal",
+                        (RowStatus::Open, _) => "open",
+                    };
+                    *sv.entry(k).or_default() += 1;
+                }
+                services = json!(sv);
                 probe = Some(engine_probe(cfg, &set_s, &res, &decisions)?);
                 check_log.push(entry);
                 closing = Some(cc);
@@ -1730,6 +1765,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             final_spec.as_ref(),
             &records_by_key,
             &set0,
+            &json!({"services": services, "certified_keys": before.keys.len(), "source": census_source}),
         )?)
     } else {
         None
@@ -1817,6 +1853,11 @@ pub fn proposal_after_close(
                 _ => None,
             };
             b.add(&r.key, r.in_start, sha);
+            if r.status == RowStatus::Open
+                && let Some((t, rr)) = r.open_rule
+            {
+                b.add_open(&set.rules[t][rr].record_sha256);
+            }
         }
         let census = b.finish();
         let cand = ship::candidacy(&p, &census);
@@ -2081,6 +2122,7 @@ fn write_artifact(
     spec: Option<&TableSetSpec>,
     records_by_key: &BTreeMap<Vec<i32>, Value>,
     set: &ImportedSet,
+    extra: &Value,
 ) -> Result<Value, String> {
     let dir = cfg.out_dir.join("ship");
     let mut sums = String::new();
@@ -2163,6 +2205,80 @@ fn write_artifact(
     let rr: Vec<&Value> = recipe_records.values().collect();
     put("recipes.records.jsonl", &jsonl(&rr))?;
     put("relations.entries.jsonl", &jsonl(&entries))?;
+    // plan/ARTIFACT_MANIFEST.md (rustred.node-service-manifest.v1, draft of vk5l-wp2): relations/<node>-<id16>/ with the
+    // merged entry file, its index (key, file, offset, len, entry_digest) and MANIFEST.json
+    let rel = format!(
+        "relations/{}-{}",
+        crate::closeloop::ids::safe(&cfg.node),
+        node_identity.get(..16).unwrap_or(&node_identity)
+    );
+    let mut merged = Vec::new();
+    let mut index = Vec::new();
+    for e in &entries {
+        let line = serde_json::to_string(e).map_err(|x| x.to_string())?;
+        index.push(
+            json!({"key": e["key"], "file": "merged-shipecon.jsonl", "offset": merged.len(),
+            "len": line.len(), "entry_digest": e["entry_digest"]}),
+        );
+        merged.extend_from_slice(line.as_bytes());
+        merged.push(b'\n');
+    }
+    put(&format!("{rel}/merged-shipecon.jsonl"), &merged)?;
+    put(&format!("{rel}/index.jsonl"), &jsonl(&index))?;
+    let pole_regular = entries
+        .iter()
+        .filter(|e| e["diagnostics"]["pole_order_at"]["4"] == 0)
+        .count();
+    let archive: Vec<Value> = removed
+        .iter()
+        .filter_map(|r| r["table_path"].as_str())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|p| {
+            let rules = set.rules.iter().flatten().filter(|i| i.path == p).count();
+            json!({"path": p, "sha256": set.rules.iter().flatten().find(|i| i.path == p)
+                .and_then(|i| set.table_digests.get(&i.table_name)), "rules": rules})
+        })
+        .collect();
+    let removed_labels: Vec<Value> = removed.iter().map(|r| r["rule"]["label"].clone()).collect();
+    let removed_bytes: u64 = removed.iter().filter_map(|r| r["bytes"].as_u64()).sum();
+    let total_rules: usize = set.rules.iter().map(Vec::len).sum();
+    let manifest = json!({
+        "schema": "rustred.node-service-manifest.v1",
+        "node": cfg.node, "node_identity": node_identity, "key_frame": "table",
+        "revision": format!("shipecon-{}", cfg.policy.decision_digest().get(..12).unwrap_or("")),
+        "certified_set": {"keys": extra["certified_keys"], "source": extra["source"],
+                          "encoding": "the owner payload's certified key set (unchanged by the ship economy)"},
+        "table": {"shipped_rules": total_rules - removed.len(),
+                  "archive": if archive.len() == 1 { archive[0].clone() } else { json!(archive) },
+                  "removed": removed_labels, "removed_bytes": removed_bytes, "flagged": []},
+        "entries": {"count": entries.len(), "bytes": merged.len(), "index": "index.jsonl",
+                    "files": [{"file": "merged-shipecon.jsonl", "sha256": sha256_hex(&merged), "entries": entries.len()}],
+                    "precedence": match cfg.policy.stored.precedence {
+                        ship::Precedence::AfterTable => "after_table",
+                        ship::Precedence::OverTable => "over_table",
+                    },
+                    "kinds": {"recipe_solve": entries.len(), "import": 0}},
+        "recipes": {"records": rr.len(), "in_payload": false, "outside_families": true,
+                    "file": "recipes.records.jsonl"},
+        "services": extra["services"],
+        "verification": {"entries_checked": entries.len(),
+            "full_reduction_identical": null,
+            "full_reduction_note": "not computed by the ship economy: each entry is the CERTIFIED relation of its key (exact \
+                proof, regular, strictly lower, rhs inside the certified set) and the shipped closure was re-checked \
+                (same start, same terminals, every originally served key served at the same or a higher level)",
+            "rhs_inside_closure": if cfg.policy.coverage.require_rhs_in_certified_set {
+                json!(entries.len())
+            } else {
+                Value::Null
+            },
+            "d4": {"entry_regular": pole_regular, "entry_pole": entries.len() - pole_regular, "rule_pole_at_key": null},
+            "tool": format!("rustred-campaign shipecon (frozen engine {})", cfg.program.path.display())},
+    });
+    put(
+        &format!("{rel}/MANIFEST.json"),
+        &serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+    )?;
     std::fs::write(dir.join("SHA256SUMS"), sums.as_bytes()).map_err(|e| e.to_string())?;
     Ok(
         json!({"dir": dir.display().to_string(), "kept_aside": kept.len(), "removed": removed.len(),

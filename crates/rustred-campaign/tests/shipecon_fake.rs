@@ -183,6 +183,19 @@ fn the_ship_economy_migrates_a_heavy_point_rule_and_a_rerun_changes_nothing() {
     assert_eq!(rep["applied"]["removed"], 2, "{}", rep["applied"]);
     let out = dir.join("r1").join("out");
     assert!(out.join("ship/SHA256SUMS").is_file());
+    // the per-node service manifest (plan/ARTIFACT_MANIFEST.md)
+    let rel = std::fs::read_dir(out.join("ship/relations"))
+        .unwrap()
+        .flatten()
+        .next()
+        .unwrap()
+        .path();
+    let m: Value =
+        serde_json::from_slice(&std::fs::read(rel.join("MANIFEST.json")).unwrap()).unwrap();
+    assert_eq!(m["schema"], "rustred.node-service-manifest.v1");
+    assert_eq!(m["table"]["removed"].as_array().unwrap().len(), 2, "{m}");
+    assert_eq!(m["entries"]["precedence"], "after_table");
+    assert!(rel.join("index.jsonl").is_file());
     let records = out.join("records.jsonl");
     assert!(out.join("trials.jsonl").is_file());
     // the iteration rule: same settings, the previous records -> nothing to solve, the same decisions
