@@ -375,6 +375,18 @@ struct Cand {
 /// Emptiness of a sub-locus with its witness and the reason of an `Unknown`.
 pub type CellState = (EmptyState, Option<Vec<i32>>, Option<String>);
 
+/// `origin.record_sha256` of the table line at `offset` (a derived copy names its original line there).
+fn origin_record_sha(path: &Path, offset: u64, bytes: u64) -> Option<String> {
+    let mut f = std::fs::File::open(path).ok()?;
+    f.seek(SeekFrom::Start(offset)).ok()?;
+    let mut b = vec![0u8; usize::try_from(bytes).ok()?];
+    f.read_exact(&mut b).ok()?;
+    let v: Value = serde_json::from_slice(&b).ok()?;
+    v["origin"]["record_sha256"]
+        .as_str()
+        .map(|s| s.to_ascii_lowercase())
+}
+
 /// One record's evidence line and verdict (`None`: the record could not be read).
 pub type JobResult = (Value, Option<RuleDescent>);
 
@@ -1178,18 +1190,34 @@ pub fn run_jobs(
                             None,
                         ),
                         Ok((target, rhs, sha)) => {
+                            // a DERIVED copy of a record (a shipped table line whose informational members were
+                            // edited, rhs unchanged) carries the original line's sha in origin.record_sha256: the
+                            // zero proofs of that original bind (flagged in the line)
+                            let mut proof_sha = sha.clone();
+                            let mut via_origin = false;
+                            if let Some(z) = zeros
+                                && !z.has_record(&sha)
+                                && let Some(o) = origin_record_sha(Path::new(&job.path), job.offset, job.bytes)
+                                && z.has_record(&o)
+                            {
+                                proof_sha = o;
+                                via_origin = true;
+                            }
                             let d = rule_descent(
                                 &ctx,
                                 &RuleInput {
                                     domain: &job.domain,
                                     target: &target,
                                     rhs: &rhs,
-                                    record_sha256: Some(&sha),
+                                    record_sha256: Some(&proof_sha),
                                 },
                             );
                             let mut line = record_line(&job.meta, &d);
                             if let Some(z) = zeros {
-                                line["zero_proofs_bound"] = json!(z.has_record(&sha));
+                                line["zero_proofs_bound"] = json!(z.has_record(&proof_sha));
+                                if via_origin {
+                                    line["zero_proofs_bound_via_origin"] = json!(proof_sha);
+                                }
                             }
                             (line, Some(d))
                         }
