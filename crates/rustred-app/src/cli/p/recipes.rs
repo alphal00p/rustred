@@ -9,6 +9,7 @@
 //!                           [--recipe-cache <dir>] [--recipe-prefilled <dir>[,..]] [--recipe-workers <n>]
 //! rustred p-recipes produce --record <dir>/<label>.json --keys <K.jsonl> --out <cache root> [--threads <t>]
 //!                           [--depths 2,3] [--bound-s <s>] [--key-bound-s <s>] [--max-trace-rows <n>]
+//!                           [--certified <keys.jsonl | RRCK1>]
 //! rustred p-recipes index   (--record <dir>/<label>.json | --node <N> --identity <id>) --from <root>[,..]
 //!                           --out <root> --revision <name> [--precedence over_table|after_table]
 //!                           [--manifest-extra <fields.json>]
@@ -29,7 +30,10 @@
 //! plan/ARTIFACT_MANIFEST.md) solves an explicit relation at every key of
 //! `--keys` (TABLE frame; one JSON array, or an object with `key` and optional
 //! `rule` / `outside`, per line; the owner program is not built) with the checker families of `--depths` (default 2,3)
-//! then the outside families, bounded per solve / per key, into the cache
+//! then the outside families, bounded per solve / per key (with `--certified`:
+//! a relation counts only when its top-sector right-hand side stays in that
+//! TABLE-frame key set, and each checker depth also tries its variant without
+//! symmetry rows), into the cache
 //! root `--out` (resumable: stored keys are hits), writes
 //! `<node dir>/PRODUCE-<utc>.json` and exits 10 when a key failed. `index` writes the shipped form of one node's
 //! relations (plan/ARTIFACT_MANIFEST.md) from cache / shipped roots:
@@ -143,6 +147,7 @@ fn produce(arguments: Vec<OsString>) -> Result<(), CliError> {
             "--bound-s",
             "--key-bound-s",
             "--max-trace-rows",
+            "--certified",
         ],
     )?;
     let record_path = PathBuf::from(options.need("--record")?);
@@ -197,6 +202,22 @@ fn produce(arguments: Vec<OsString>) -> Result<(), CliError> {
     let bundle = recipes_of_source(&source)
         .map_err(failed)?
         .ok_or_else(|| usage("the payload carries no recipe / relation binding"))?;
+    let closure = match options.get("--certified") {
+        Some(path) => {
+            let bytes =
+                std::fs::read(path).map_err(|error| CliError::Input(format!("{path}: {error}")))?;
+            Some(
+                rustred::propagator::certified_keys::CertifiedKeySet::read(
+                    &bytes,
+                    &bundle.node,
+                    bundle.table_to_presentation.len(),
+                    "table",
+                )
+                .map_err(failed)?,
+            )
+        }
+        None => None,
+    };
     // Only the producer's own cache: never read another root while filling it.
     set_recipe_cache_roots(RecipeCacheRoots {
         user: Some(root.clone()),
@@ -238,6 +259,7 @@ fn produce(arguments: Vec<OsString>) -> Result<(), CliError> {
         &keys,
         &outside,
         &depths,
+        closure.as_ref(),
         threads,
         &progress,
     )

@@ -996,9 +996,12 @@ const JOB_ABANDONED: u8 = 2;
 /// interrupted: its thread ends when the lift does).
 static ABANDONED_RUNNING: AtomicU64 = AtomicU64::new(0);
 
-/// At most this many abandoned lifts may run at once (default 1): while the
-/// cap is reached a bounded solve is refused at once (typed BUDGET), so
-/// abandoned lifts never pile up on the CPUs and memory of a request.
+/// At most this many abandoned lifts may run at once (default: the solver's
+/// worker count, at least 1): while the cap is reached a bounded solve is
+/// refused at once (typed BUDGET), so abandoned lifts never pile up on the
+/// CPUs and memory of a request. (A default of 1 made ONE timeout refuse
+/// every later bounded solve of a parallel run: 1,191 of 1,343 keys of the
+/// first T266 producer run, 2026-11-16.)
 pub const OUTSIDE_MAX_ABANDONED_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_ABANDONED";
 
 /// Abandoned lifts still running in this process.
@@ -1145,7 +1148,7 @@ impl PRecipeSolver for EngineRecipeSolver {
         budget: Option<std::time::Duration>,
     ) -> Result<Value, String> {
         if budget.is_some() {
-            let cap = env_cap(OUTSIDE_MAX_ABANDONED_ENV, 1) as u64;
+            let cap = env_cap(OUTSIDE_MAX_ABANDONED_ENV, self.workers.max(1)) as u64;
             let running = ABANDONED_RUNNING.load(Ordering::Relaxed);
             if running >= cap {
                 return Err(format!(
@@ -1334,8 +1337,9 @@ pub fn relation_cache_bytes_on_disk() -> u64 {
 /// artefacts/size/recipe_vs_table_T266.json): one centre one step DOWN the
 /// first dotted line (else one step UP the first negative numerator, else the
 /// key), `min_offset` -1 on every dotted line, sector filter, symmetry rows,
-/// relation rule `m1_first`, shells S0..S2 (depth 2) or S0..S3 (depth >= 3).
-pub fn checker_family(node: &str, key_table: &[i64], depth: u8) -> Value {
+/// relation rule `m1_first`, shells S0..S2 (depth 2) or S0..S3 (depth >= 3);
+/// `symmetry_rows: false` gives the `-nosym` variant.
+pub fn checker_family(node: &str, key_table: &[i64], depth: u8, symmetry_rows: bool) -> Value {
     let mut centre = vec![0_i64; key_table.len()];
     let dotted: Vec<usize> = (0..key_table.len())
         .filter(|&slot| key_table[slot] > 1)
@@ -1358,11 +1362,12 @@ pub fn checker_family(node: &str, key_table: &[i64], depth: u8) -> Value {
         .iter()
         .map(|slot| (slot.to_string(), json!(-1)))
         .collect();
-    json!({"schema": "rustred.recipe.v1", "id": format!("{node}/checker-d{depth}"),
+    let variant = if symmetry_rows { "" } else { "-nosym" };
+    json!({"schema": "rustred.recipe.v1", "id": format!("{node}/checker-d{depth}{variant}"),
         "arity": key_table.len(), "chart": chart, "domain": {"keys": [key_table]},
         "seeds": {"centres": [centre], "generator": {"shells": shells}, "min_offset": min_offset,
                   "sector_filter": true},
-        "symmetry_rows": true, "relation_rule": "m1_first"})
+        "symmetry_rows": symmetry_rows, "relation_rule": "m1_first"})
 }
 
 /// The node identity of a bundle (relation entries; family text + node
@@ -1782,7 +1787,7 @@ impl RecipeDispatch {
             OUTSIDE_ENTRY_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(Some(found));
         }
-        self.solve_at_key(key, Vec::new(), true)
+        self.solve_at_key(key, Vec::new(), true, None)
     }
 
     /// vk5l WP2 producer (plan/ARTIFACT_MANIFEST.md): an EXPLICIT relation at
@@ -1793,11 +1798,17 @@ impl RecipeDispatch {
     /// families, under the node's [`POutsideSettings`] (bounds, d = 4
     /// preference); the winner is written to the writable cache root with
     /// `outside_certified_set = outside`. `Ok(None)`: no family at all.
+    /// With `closure` (the certified set, TABLE frame) a relation counts only
+    /// when every top-sector key of its right-hand side is in the set (else
+    /// the attempt is `RHS_OUTSIDE_CERTIFIED` and the next family is tried;
+    /// each checker depth then also has a variant without symmetry rows,
+    /// whose relations do not trade a key for its mirror image).
     pub fn produce(
         &self,
         key: &[i64],
         depths: &[u8],
         outside: bool,
+        closure: Option<&super::certified_keys::CertifiedKeySet>,
     ) -> Result<Option<(Arc<Relation>, String)>, PError> {
         if let Some(found) = self.served_entry(key)? {
             return Ok(Some(found));
@@ -1806,13 +1817,39 @@ impl RecipeDispatch {
         let settings = outside_settings_of(&self.bundle.node);
         let mut first = Vec::new();
         for &depth in depths {
-            let recipe = checker_family(&self.bundle.node, &key_table, depth);
-            let id = recipe["id"].as_str().unwrap_or("").to_owned();
-            let mut record = RecipeBundle::record_of(&recipe.to_string())?;
-            record.max_trace_rows = Some(settings.max_trace_rows.max(1));
-            first.push((id, record));
+            let variants: &[bool] = if closure.is_some() {
+                &[true, false]
+            } else {
+                &[true]
+            };
+            for &symmetry_rows in variants {
+                let recipe = checker_family(&self.bundle.node, &key_table, depth, symmetry_rows);
+                let id = recipe["id"].as_str().unwrap_or("").to_owned();
+                let mut record = RecipeBundle::record_of(&recipe.to_string())?;
+                record.max_trace_rows = Some(settings.max_trace_rows.max(1));
+                first.push((id, record));
+            }
         }
-        self.solve_at_key(key, first, outside)
+        self.solve_at_key(key, first, outside, closure)
+    }
+
+    /// The top-sector keys of `relation` (TABLE frame) that `closure` does not
+    /// hold (`key` in presentation slots).
+    fn rhs_outside(
+        &self,
+        key: &[i64],
+        relation: &Relation,
+        closure: &super::certified_keys::CertifiedKeySet,
+    ) -> Vec<Vec<i64>> {
+        let sector = |powers: &[i64]| powers.iter().map(|&p| p > 0).collect::<Vec<bool>>();
+        let top = sector(key);
+        relation
+            .children
+            .iter()
+            .filter(|(child, _)| sector(child) == top)
+            .map(|(child, _)| self.bundle.to_table(child))
+            .filter(|child| !closure.contains(child))
+            .collect()
     }
 
     /// The bounded family loop of [`Self::solve_outside`] /
@@ -1822,6 +1859,7 @@ impl RecipeDispatch {
         key: &[i64],
         first: Vec<(String, RecipeRecord)>,
         outside: bool,
+        closure: Option<&super::certified_keys::CertifiedKeySet>,
     ) -> Result<Option<(Arc<Relation>, String)>, PError> {
         let key_table = self.bundle.to_table(key);
         let chart: String = key_table
@@ -1893,6 +1931,14 @@ impl RecipeDispatch {
             };
             match verified {
                 Ok(relation) => {
+                    if let Some(closure) = closure {
+                        let leaving = self.rhs_outside(key, &relation, closure);
+                        if !leaving.is_empty() {
+                            attempts.push(json!({"recipe": id, "kind": "RHS_OUTSIDE_CERTIFIED",
+                                "keys": leaving.len(), "first": leaving[0]}));
+                            continue;
+                        }
+                    }
                     let relation = Arc::new(relation);
                     let value = solved.unwrap_or(Value::Null);
                     let regular = relation.pole_order_at_4 == Some(0);
@@ -1971,7 +2017,7 @@ impl RecipeDispatch {
                 self.bundle.node
             )
         };
-        let detail = json!({"outside_certified_set": true, "chart": chart, "families": families.len(),
+        let detail = json!({"outside_certified_set": outside, "chart": chart, "families": families.len(),
             "tried": tried, "max_recipes": max_recipes, "max_trace_rows": max_rows, "attempts": attempts});
         let error = match first_failure {
             Some(mut failed) => {
@@ -3636,6 +3682,7 @@ mod kite_tests {
                 std::slice::from_ref(&three),
                 &[false],
                 &[2, 3],
+                None,
                 1,
                 &|_| {},
             )
@@ -3681,6 +3728,51 @@ mod kite_tests {
         )
         .unwrap();
         assert_eq!(summary.entries, 1);
+        // a closure holding only the key itself: every relation's top-sector
+        // right-hand side leaves it, so every family is refused, typed
+        let node_c = "KITE-produce-closure";
+        set_recipe_cache_roots_for(
+            node_c,
+            RecipeCacheRoots {
+                user: Some(root.join("closure")),
+                prefilled: vec![],
+                ..Default::default()
+            },
+        );
+        let imported_c = import(node_c, &[], None).unwrap();
+        let closure = super::super::certified_keys::CertifiedKeySet::new(
+            node_c,
+            5,
+            "table",
+            vec![three.clone()],
+        )
+        .unwrap();
+        let refused = custom_payload_relation_produce(
+            &imported_c.presentation,
+            &imported_c.payload,
+            std::slice::from_ref(&three),
+            &[false],
+            &[2],
+            Some(&closure),
+            1,
+            &|_| {},
+        )
+        .unwrap();
+        match &refused[0].source {
+            Err(PError::RecipeFailed(failed)) => {
+                let attempts = &failed.failure["outside"]["attempts"];
+                assert_eq!(
+                    attempts[0]["kind"],
+                    json!("RHS_OUTSIDE_CERTIFIED"),
+                    "{attempts}"
+                );
+                assert_eq!(
+                    attempts[1]["recipe"],
+                    json!("KITE-produce-closure/checker-d2-nosym")
+                );
+            }
+            other => panic!("expected a typed refusal, got {other:?}"),
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 

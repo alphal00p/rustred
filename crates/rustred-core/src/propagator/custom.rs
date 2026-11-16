@@ -2367,13 +2367,17 @@ pub fn custom_payload_recipe_dispatch(
 /// a node such as T266 needs its payload bytes only); `outside[i]` marks
 /// keys outside the certified set (entry diagnostics). Each winner is written
 /// to the writable relation cache root in force at once (the caller sets it
-/// and the solver), so a rerun resumes. Failures are reported per key.
+/// and the solver), so a rerun resumes. With `closure` (the certified set)
+/// only relations whose top-sector right-hand side stays in it are kept.
+/// Failures are reported per key.
+#[allow(clippy::too_many_arguments)]
 pub fn custom_payload_relation_produce(
     presentation: &Presentation,
     payload: &[u8],
     keys_table: &[Vec<i64>],
     outside: &[bool],
     depths: &[u8],
+    closure: Option<&CertifiedKeySet>,
     threads: usize,
     progress: &(dyn Fn(&RelationProduceEntry) + Sync),
 ) -> Result<Vec<RelationProduceEntry>, PError> {
@@ -2395,7 +2399,7 @@ pub fn custom_payload_relation_produce(
                     let key = recipes.bundle().to_presentation(key_table);
                     let outside = outside.get(index).copied().unwrap_or(false);
                     let started = std::time::Instant::now();
-                    let solved = recipes.produce(&key, depths, outside);
+                    let solved = recipes.produce(&key, depths, outside, closure);
                     let entry = RelationProduceEntry {
                         key_table: key_table.clone(),
                         outside_certified_set: outside,
