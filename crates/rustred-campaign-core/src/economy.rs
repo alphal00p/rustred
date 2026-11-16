@@ -1409,3 +1409,7 @@ pub mod improve;
 /// Lane sizegen ITEM 2 (interfaces/genchoice.md 6): pole score and pole objective of the generation choice and improve.
 #[path = "polescore.rs"]
 pub mod polescore;
+
+/// Lane sizegen (TRICKS 31 / 35): the effective derivation of every generated / replaced rule.
+#[path = "derivation.rs"]
+pub mod derivation;

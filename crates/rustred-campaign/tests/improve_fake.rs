@@ -172,6 +172,22 @@ fn improve_replaces_only_verified_smaller_rules_records_everything_and_iterates(
         v.contains(&"replaced") && v.iter().any(|x| x.starts_with("exceptions_not_subset")),
         "{v:?}"
     );
+    // TRICKS 31 / 35: every generated candidate points at its effective derivation, written beside the record
+    let t0 = e0["tried"].as_array().unwrap().iter().find(|t| t["verdict"] == "replaced").unwrap();
+    let dptr = t0["derivation"].as_str().unwrap();
+    let (dfile, djob) = dptr.split_once('#').unwrap();
+    let ders: Vec<Value> = std::fs::read_to_string(d1.join(dfile))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let dl = ders.iter().find(|d| format!("{}.a{}", d["job"].as_str().unwrap(), d["attempt"]) == djob).unwrap();
+    assert_eq!(dl["schema"], "rustred.campaign.rule-derivation.v1");
+    assert!(dl["rule"]["committed"]["canon_blake3"].is_string(), "{dl:#}");
+    assert_eq!(dl["replay_args"], dl["args"], "replay = the producing job's own args (deterministic): {dl:#}");
+    assert!(dl["relation_retries"].is_array() && dl["attempt_that_produced"].is_string());
+    assert!(dl["engine"]["sha256"].as_str().unwrap().len() == 64);
+    assert_eq!(rec["runs"][0]["totals"]["derivations"]["lines"].as_u64().unwrap(), ders.len() as u64);
     let e1 = rec["rules"]
         .as_array()
         .unwrap()

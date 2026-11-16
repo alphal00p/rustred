@@ -23,6 +23,8 @@ pub const USAGE: &str = "usage:
   rr_campaign verify CDIR
   rr_campaign result CDIR
   rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)
+  rr_campaign derivations --run-dir JOBDIR --engine RR_NODE --out OUT.jsonl
+      (lane sizegen: the effective derivation of every rule a finished generate job sealed; TRICKS 31 / 35)
   rr_campaign poles-choose --choice CHOICE.json --scores SCORES.jsonl [--policy POLES.json] --out OUT.json
       (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)";
 
@@ -93,6 +95,16 @@ pub fn main_with(args: &[String]) -> i32 {
         "watch" | "dashboard" => cmd_watch(rest),
         "result" => cmd_result(rest),
         "rebuild-manifest" => cmd_rebuild_manifest(rest),
+        "derivations" => match supervisor::genchoice::derivations_cmd(rest) {
+            Ok(t) => {
+                outln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("derivations: {e}");
+                exit::USAGE
+            }
+        },
         "poles-choose" => match supervisor::genchoice::poles_choose(rest) {
             Ok(t) => {
                 outln!("{t}");

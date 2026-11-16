@@ -218,6 +218,7 @@ fn pole_targets_decide_from_scores_and_never_regenerate() {
         verdict: "pole_score_pending".into(),
         table: Some("/x/rung.jsonl".into()),
         pole: None,
+        derivation: None,
     });
     let mut sc = own(0, Some(0));
     sc.cand = "tight".into();
@@ -242,6 +243,7 @@ fn pole_targets_decide_from_scores_and_never_regenerate() {
             verdict: "poles_not_better".into(),
             table: None,
             pole: None,
+            derivation: None,
         });
     }
     let (t, _) = pole_targets(&rules, &rec, &p, &scores);

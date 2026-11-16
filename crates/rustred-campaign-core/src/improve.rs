@@ -178,6 +178,10 @@ pub struct Tried {
     /// Its route-pole score at the keys the table's rule serves (scope `rule_poles`; section 6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole: Option<crate::economy::polescore::PoleScore>,
+    /// Pointer to the EFFECTIVE DERIVATION of the candidate's rule(s): `<derivations file>#<job>.a<attempt>`
+    /// (`rustred.campaign.rule-derivation.v1` lines; TRICKS 31 / 35).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation: Option<String>,
 }
 
 /// The record of one rule target.
@@ -901,6 +905,7 @@ pub fn generation_record(
             verdict: "winner".into(),
             table: None,
             pole: None,
+            derivation: None,
         });
         for ((id, _), m) in others.iter().zip(&maps) {
             let r = m.get(&e.case);
@@ -921,6 +926,7 @@ pub fn generation_record(
                 verdict: "lost_node_choice".into(),
                 table: None,
                 pole: None,
+                derivation: None,
             });
         }
         e.untried = untried.to_vec();

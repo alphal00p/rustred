@@ -112,6 +112,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
             verdict: "not_smaller".into(),
             table: None,
             pole: None,
+            derivation: None,
         });
     }
     assert_eq!(
