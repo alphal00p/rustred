@@ -491,3 +491,14 @@ fn alternative_caps_follow_the_first_runs_wall_time_when_known() {
         NextStep::Alternatives(vec![(1, Some(260)), (2, Some(260))])
     );
 }
+
+#[test]
+fn probe_stage_only_runs_no_full_job() {
+    let mut p = Policy::default();
+    p.full.max_first_attempts = 0;
+    p.check().unwrap();
+    match next_step(&[2, 0, 1], &[], &p) {
+        NextStep::NoCandidate(w) => assert!(w.contains("probe stage only"), "{w}"),
+        o => panic!("{o:?}"),
+    }
+}

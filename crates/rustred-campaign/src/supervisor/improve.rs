@@ -20,6 +20,7 @@ use rustred_campaign_contract::classify::OutcomeKind;
 use rustred_campaign_contract::spec::{Budgets, InputRef, JobKind, WallBudgets, WorkBudgets};
 use rustred_campaign_core::economy::genchoice as gc;
 use rustred_campaign_core::economy::improve as im;
+use rustred_campaign_core::economy::polescore as ps;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -75,6 +76,9 @@ pub struct ImproveAnswer {
     pub sub_rules: Option<u64>,
     /// Ok = qualifies as a replacement; else why not.
     pub verdict: String,
+    /// The job's sealed table (absolute), when it sealed one: what a pole scorer evaluates.
+    #[serde(default)]
+    pub table_path: Option<String>,
 }
 
 struct NodeRt {
@@ -86,8 +90,14 @@ struct NodeRt {
     order: String,
     rules: Vec<im::TableRule>,
     record: im::ImproveRecord,
-    /// (rule position, candidates) to try in this run.
+    /// (rule position, candidates) to GENERATE in this run.
     targets: Vec<(usize, Vec<String>)>,
+    /// IMPROVE POLES: (rule position, candidate, its rule-scope score line) to DECIDE in this run (no job).
+    decisions: Vec<(usize, String, ps::ScoreLine)>,
+    /// IMPROVE POLES: rule-scope score lines of the node (`original` per index, candidates).
+    pole_scores: Vec<ps::ScoreLine>,
+    /// IMPROVE POLES: rule indices without a decided own score (not targeted).
+    unscored: Vec<i64>,
 }
 
 pub struct ImproveSource {
@@ -199,7 +209,51 @@ impl ImproveSource {
                 None => im::ImproveRecord::empty(&e.node, &ts2, &rules),
             };
             record.align(&rules);
-            let targets = im::targets(&rules, &record, &cfg.improve);
+            let pole_scores = match &e.pole_scores {
+                Some(f) => {
+                    let (_, _, h) = file_digests(Path::new(&f.path))?;
+                    if h != f.sha256 {
+                        return Err(format!(
+                            "improve: {}: pole scores {} sha256 {h} differs from the config's",
+                            e.node, f.path
+                        ));
+                    }
+                    let t = std::fs::read_to_string(&f.path).map_err(|er| format!("{}: {er}", f.path))?;
+                    // an `original` line describes the rule of the table it was computed on: a line bound to
+                    // another table (an earlier, since improved one) is not this table's score
+                    ps::parse_scores(&t)?
+                        .into_iter()
+                        .filter(|l| l.node == e.node)
+                        .filter(|l| {
+                            !(l.cand == "original" && l.table.as_ref().is_some_and(|t| t.sha256 != ts2))
+                        })
+                        .collect()
+                }
+                None => vec![],
+            };
+            let (targets, decisions, unscored) = if cfg.improve.poles_on() {
+                let (t, unscored) = im::pole_targets(&rules, &record, &cfg.improve, &pole_scores);
+                let mut gen_t = vec![];
+                let mut dec = vec![];
+                for (pos, steps) in t {
+                    let g: Vec<String> = steps
+                        .iter()
+                        .filter(|(_, s)| *s == im::PoleStep::Generate)
+                        .map(|(c, _)| c.clone())
+                        .collect();
+                    for (c, st) in steps {
+                        if let im::PoleStep::Decide(l) = st {
+                            dec.push((pos, c, l));
+                        }
+                    }
+                    if !g.is_empty() {
+                        gen_t.push((pos, g));
+                    }
+                }
+                (gen_t, dec, unscored)
+            } else {
+                (im::targets(&rules, &record, &cfg.improve), vec![], vec![])
+            };
             nodes.push(NodeRt {
                 e: e.clone(),
                 family_blake3: fb3,
@@ -210,6 +264,9 @@ impl ImproveSource {
                 rules,
                 record,
                 targets,
+                decisions,
+                pole_scores,
+                unscored,
             });
         }
         Ok(ImproveSource {
@@ -347,6 +404,82 @@ impl ImproveSource {
                 chosen.insert(*idx, b.cand.clone());
             }
         }
+        // IMPROVE POLES: decide the scored candidates (generated in an earlier run; never generated again)
+        let mut pole_tried: BTreeMap<i64, Vec<im::Tried>> = BTreeMap::new();
+        let mut pole_new: BTreeMap<i64, (ps::PoleScore, String)> = BTreeMap::new();
+        if let Some(pol) = p.poles.as_ref().filter(|_| p.poles_on()) {
+            let decisions = self.nodes[i].decisions.clone();
+            let mut best: BTreeMap<i64, (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule)> =
+                BTreeMap::new();
+            for (pos, cand, line) in &decisions {
+                let old = self.nodes[i].rules[*pos].clone();
+                let own = self.nodes[i]
+                    .pole_scores
+                    .iter()
+                    .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(old.index))
+                    .map(|s| s.score.clone());
+                let t = line.table.as_ref().expect("decide steps carry a table");
+                let (_, _, h) = file_digests(Path::new(&t.path))?;
+                let (verdict, new) = if h != t.sha256 {
+                    (format!("table_changed (sha256 {h} vs the score's {})", t.sha256), None)
+                } else {
+                    // the candidate's rule as the CANONICAL line (what a size-mode replacement writes and measures)
+                    let raw = std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
+                    let mut found = None;
+                    for l in raw.lines() {
+                        let Ok(c) = rustred_campaign_contract::canon::canonical_line(l.as_bytes()) else {
+                            continue;
+                        };
+                        let c = String::from_utf8_lossy(&c).into_owned();
+                        if let Some(r) = im::TableRule::from_line(&c)?.filter(|r| r.case == old.case) {
+                            found = Some((r, c));
+                            break;
+                        }
+                    }
+                    match found {
+                        Some((n, l)) => match ps::rule_pole_verdict(
+                            &old,
+                            own.as_ref(),
+                            &n,
+                            Some(&line.score),
+                            p.min_gain,
+                            pol,
+                        ) {
+                            Ok(v) => (v, Some((n, l))),
+                            Err(w) => (w, None),
+                        },
+                        None => ("no_rule_for_the_case".to_string(), None),
+                    }
+                };
+                pole_tried.entry(old.index).or_default().push(im::Tried {
+                    cand: cand.clone(),
+                    scope: "rule_poles".into(),
+                    run,
+                    args: vec![],
+                    status: "scored".into(),
+                    monomials: new.as_ref().map(|(n, _)| n.monomials),
+                    bytes: new.as_ref().map(|(n, _)| n.bytes),
+                    cpu_ms: None,
+                    verdict: verdict.clone(),
+                    table: Some(t.path.clone()),
+                    pole: Some(line.score.clone()),
+                });
+                if let Some((n, l)) = new {
+                    let key = (ps::pole_values(&line.score, pol), n.monomials, cand.clone());
+                    let better = best
+                        .get(&old.index)
+                        .is_none_or(|b| (&key.0, key.1, &key.2) < (&b.0, b.1, &b.2));
+                    if better {
+                        best.insert(old.index, (key.0, key.1, key.2, l, line.score.clone(), n));
+                    }
+                }
+            }
+            for (idx, (_, _, cand, l, sc, _)) in best {
+                repl.insert(idx, vec![l]);
+                chosen.insert(idx, cand.clone());
+                pole_new.insert(idx, (sc, cand));
+            }
+        }
         let tin = self.nodes[i].e.table.sha256.clone();
         let (out_sha, out_path) = if repl.is_empty() {
             (tin.clone(), self.nodes[i].e.table.path.clone())
@@ -443,18 +576,52 @@ impl ImproveSource {
                         monomials: a.sub_monomials.or(a.new_rule.as_ref().map(|r| r.monomials)),
                         bytes: a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes)),
                         cpu_ms: j.map(|j| j.cpu_ms),
-                        verdict: if chosen.get(&e.index) == Some(&a.cand) {
+                        verdict: if chosen.get(&e.index) == Some(&a.cand) && !p.poles_on() {
                             "replaced".into()
                         } else {
                             a.verdict.clone()
                         },
+                        table: a.table_path.clone(),
+                        pole: None,
                     });
                 }
+            }
+            let own_score = self.nodes[i]
+                .pole_scores
+                .iter()
+                .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index))
+                .map(|s| s.score.clone());
+            if let Some(v) = pole_tried.remove(&e.index) {
+                e.tried.extend(v);
+            }
+            if p.poles_on() {
+                e.pole = match pole_new.get(&e.index) {
+                    Some((sc, _)) => Some(sc.clone()),
+                    None => own_score.or(e.pole.take()),
+                };
             }
             if let Some(c) = chosen.get(&e.index) {
                 let old = &old_by_index[&e.index];
                 e.chosen = format!("rule:{c}");
-                e.why = if self.cfg.improve.subtree {
+                e.why = if p.poles_on() {
+                    let own = self.nodes[i]
+                        .pole_scores
+                        .iter()
+                        .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index))
+                        .map(|s| s.score.clone());
+                    let tag = |s: Option<&ps::PoleScore>| {
+                        s.map_or("undecided".to_string(), |s| {
+                            format!("max order {} on {} of {} keys", s.max_order.map_or("?".into(), |m| m.to_string()), s.keys_with_pole, s.keys)
+                        })
+                    };
+                    format!(
+                        "improve run {run} (pole objective): route poles {} -> {}; {} -> {} monomials; exceptions a subset of the old rule's; same dispatch position",
+                        tag(own.as_ref()),
+                        tag(pole_new.get(&e.index).map(|x| &x.0)),
+                        old.monomials,
+                        e.monomials
+                    )
+                } else if self.cfg.improve.subtree {
                     format!(
                         "improve run {run}: rule of {} monomials / {} bytes replaced at its dispatch position by a COMPLETE sub-table of {} rule(s) (first: {} monomials); the sub-table covers the whole case domain",
                         old.monomials,
@@ -501,6 +668,8 @@ impl ImproveSource {
             budget_cpu_ms: p.budget_cpu_s.map(|b| b * 1000),
             spent_cpu_ms: Self::spent_ms(st, &node),
             totals: json!({"targets": targets.len(), "candidates": targets.iter().map(|(_, c)| c.len()).sum::<usize>(),
+                "objective": if p.poles_on() { "poles" } else { "size" },
+                "decided_from_scores": self.nodes[i].decisions.len(), "unscored_rules": self.nodes[i].unscored.len(),
                 "replaced": repl.len(), "table_bytes_before": self.nodes[i].table_bytes, "table_bytes_after": out_bytes,
                 "targets_bytes_before": tb, "targets_bytes_after": after.iter().map(|e| e.bytes).sum::<u64>(),
                 "targets_monomials_before": tm, "targets_monomials_after": after.iter().map(|e| e.monomials).sum::<u64>()}),
@@ -533,7 +702,7 @@ impl ImproveSource {
             "table_out": {"path": out_path, "sha256": out_sha, "bytes": out_bytes},
             "replaced": repl.len(), "record": {"path": self.cdir.join(&rec_rel).display().to_string(), "sha256": rec_sha},
             "import_spec": import.as_ref().map(|_| self.cdir.join(format!("{}/import.r{run}.json", dir(&node))).display().to_string()),
-            "nothing_to_try": targets.is_empty()});
+            "nothing_to_try": targets.is_empty() && self.nodes[i].decisions.is_empty()});
         let r = AcceptedRecord {
             path: format!("{}/result.r{run}.json", dir(&node)),
             bytes: json_bytes(&res),
@@ -681,7 +850,7 @@ impl WorkSource for ImproveSource {
                     args.extend(cand.map(|k| k.args.clone()).unwrap_or_default());
                     // only the target case is solved; an exhausted search is "no rule" (open obligation), not an
                     // engine error (found on the real engine: `tight` exhausts at depth 3 on some cases -> exit 70)
-                    if !self.cfg.improve.subtree {
+                    if self.cfg.improve.single() {
                         args.extend(["--descend".to_string(), "open".to_string()]);
                     }
                     if !args.iter().any(|a| a == "--open-on-refusal") {
@@ -724,10 +893,7 @@ impl WorkSource for ImproveSource {
                         depends_on: vec![input_family(&node), input_table(&node)],
                         budgets: Budgets {
                             work: WorkBudgets {
-                                cases: self
-                                    .cfg
-                                    .improve
-                                    .subtree
+                                cases: (!self.cfg.improve.single())
                                     .then_some(self.cfg.improve.subtree_max_cases),
                                 ..WorkBudgets::default()
                             },
@@ -794,7 +960,7 @@ impl WorkSource for ImproveSource {
             OutcomeKind::KilledTime => "wall".to_string(),
             k => format!("{k:?}").to_lowercase(),
         };
-        let subtree = self.cfg.improve.subtree;
+        let subtree = !self.cfg.improve.single();
         let sub_rules: Vec<im::TableRule> = all.iter().map(|(r, _)| r.clone()).collect();
         let verdict = match &new_rule {
             Some(_) if subtree && c.kind != OutcomeKind::Complete => format!(
@@ -821,6 +987,19 @@ impl WorkSource for ImproveSource {
         } else {
             (None, None, None)
         };
+        // IMPROVE POLES: a fresh candidate waits for its rule-scope score (never replaces on size alone)
+        let verdict = if self.cfg.improve.poles_on() && new_rule.is_some() {
+            format!("pole_score_pending (size: {verdict})")
+        } else {
+            verdict
+        };
+        let run_dir = st
+            .jobs
+            .get(&done.job)
+            .and_then(|j| j.run_dir.clone())
+            .unwrap_or_default();
+        let table_path = (done.table.is_some() && !run_dir.is_empty())
+            .then(|| Path::new(&run_dir).join("out").join("F.table.jsonl").display().to_string());
         let mut new_lines = Vec::new();
         if verdict != "ok" {
             new_line = None;
@@ -844,6 +1023,7 @@ impl WorkSource for ImproveSource {
             sub_bytes,
             sub_rules: sub_n,
             verdict,
+            table_path,
         };
         let mut rt = Routing::default();
         let rec = AcceptedRecord {

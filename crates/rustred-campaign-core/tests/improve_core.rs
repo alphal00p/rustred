@@ -91,6 +91,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
         filter: RuleFilter {
             largest: Some(2),
             min_monomials: None,
+            by: RankBy::Monomials,
         },
         ..ImprovePolicy::default()
     };
@@ -109,6 +110,8 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
             bytes: Some(1),
             cpu_ms: Some(1),
             verdict: "not_smaller".into(),
+            table: None,
+            pole: None,
         });
     }
     assert_eq!(
@@ -121,6 +124,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
     p.filter = RuleFilter {
         largest: None,
         min_monomials: Some(3000),
+        by: RankBy::Monomials,
     };
     assert_eq!(
         targets(&rules, &rec, &p)
@@ -246,4 +250,20 @@ fn legacy_header_is_the_identity_order_and_subtrees_replace_whole_domains() {
     assert_eq!(end["rules"], 4, "completion markers restated");
     let ce: serde_json::Value = serde_json::from_str(&out[out.len() - 2]).unwrap();
     assert_eq!(ce["rules"], 4);
+}
+
+#[test]
+fn filter_ranks_by_bytes_when_asked() {
+    // rule 0: many monomials, short record; rule 1: few monomials, a long record
+    let mut a = rule(&line(0, "[null,1,0]", "I(n0,1,0)", "[]", 5000));
+    let mut b = rule(&line(1, "[1,1,0]", "I(1,1,0)", "[]", 10));
+    a.bytes = 100;
+    b.bytes = 9000;
+    let rules = vec![a, b];
+    let rec = ImproveRecord::empty("T", &"0".repeat(64), &rules);
+    let mut p = ImprovePolicy::default();
+    p.filter.largest = Some(1);
+    assert_eq!(targets(&rules, &rec, &p)[0].0, 0, "default: by monomials");
+    p.filter.by = RankBy::Bytes;
+    assert_eq!(targets(&rules, &rec, &p)[0].0, 1, "by bytes");
 }

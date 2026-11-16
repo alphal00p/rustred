@@ -201,7 +201,9 @@ impl Default for DeepPolicy {
 pub struct FullPolicy {
     pub wall_case_s: Option<u64>,
     pub wall_job_s: Option<u64>,
-    /// Full runs tried until the first acceptable table (in ranking order).
+    /// Full runs tried until the first acceptable table (in ranking order). 0 = PROBE STAGE ONLY (probes + deep stage,
+    /// ranking, no full run: a cost estimate before a whole-node regeneration is authorised; the choice records
+    /// `no_candidate: probe stage only`).
     pub max_first_attempts: u32,
 }
 
@@ -412,6 +414,10 @@ pub struct Policy {
     pub cost: CostModel,
     pub select: Select,
     pub job: JobPolicy,
+    /// POLE OBJECTIVE (interfaces/genchoice.md 6): among the acceptable full tables with table-scope pole scores
+    /// (node entry `pole_scores`); `use: false` = ignored, not serialised: the choice and its record bit-identical.
+    #[serde(skip_serializing_if = "crate::economy::polescore::PolePolicy::is_ignored")]
+    pub poles: crate::economy::polescore::PolePolicy,
 }
 
 impl Default for Policy {
@@ -449,6 +455,7 @@ impl Default for Policy {
             cost: CostModel::default(),
             select: Select::UseCost,
             job: JobPolicy::default(),
+            poles: crate::economy::polescore::PolePolicy::default(),
         }
     }
 }
@@ -458,6 +465,9 @@ impl Policy {
     pub fn check(&self) -> Result<(), String> {
         if self.orders.is_empty() || self.poses.is_empty() || self.ladders.is_empty() {
             return Err("genchoice policy: orders, poses and ladders must be non-empty".into());
+        }
+        if !self.poles.is_ignored() {
+            self.poles.check().map_err(|e| format!("genchoice {e}"))?;
         }
         let mut seen = std::collections::BTreeSet::new();
         for o in &self.orders {
@@ -489,9 +499,6 @@ impl Policy {
         }
         if self.probe.cases == 0 {
             return Err("genchoice policy: probe.cases must be >= 1".into());
-        }
-        if self.full.max_first_attempts == 0 {
-            return Err("genchoice policy: full.max_first_attempts must be >= 1".into());
         }
         if !self.economy.factor.is_finite() && !self.economy.optimise {
             return Err(
@@ -1144,6 +1151,9 @@ pub fn next_step_with(
     done: &[FullRun],
     p: &Policy,
 ) -> NextStep {
+    if p.full.max_first_attempts == 0 {
+        return NextStep::NoCandidate("probe stage only (full.max_first_attempts = 0): no full run".into());
+    }
     let get = |c: usize| done.iter().find(|r| r.cand == c);
     let mut first_attempts = 0u32;
     let mut first: Option<(usize, u64)> = None;
@@ -1218,6 +1228,15 @@ pub fn alternative_caps(c1_ms: u64, n: usize, p: &Policy) -> Option<u64> {
     }
     let s = (p.economy.factor * c1_ms as f64 / n.max(1) as f64 / 1000.0).floor();
     Some(if s >= 1.0 { s as u64 } else { 1 })
+}
+
+/// The size measure of a table under `select` (the primary key of [`choose`]; the pole objective's `size`).
+pub fn select_size(m: &TableMeasure, select: Select) -> u64 {
+    match select {
+        Select::UseCost => m.use_cost_ns.round() as u64,
+        Select::Bytes => m.table_bytes,
+        Select::MaxMonomials => m.max_monomials,
+    }
 }
 
 /// The winner among acceptable runs under `select` (ties: bytes, largest rule, candidate index).
@@ -1359,6 +1378,9 @@ pub struct NodeEntry {
     pub family_sha256: String,
     #[serde(default)]
     pub r#box: Option<FileEntry>,
+    /// Table-scope pole scores of this node's candidates (`rustred.campaign.pole-score.v1` lines; section 6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_scores: Option<FileEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1408,6 +1430,7 @@ impl Config {
             for (what, h) in [
                 ("family_sha256", Some(&n.family_sha256)),
                 ("box.sha256", n.r#box.as_ref().map(|b| &b.sha256)),
+                ("pole_scores.sha256", n.pole_scores.as_ref().map(|b| &b.sha256)),
             ] {
                 if let Some(h) = h
                     && (h.len() != 64

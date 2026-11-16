@@ -169,8 +169,15 @@ pub struct Tried {
     pub monomials: Option<u64>,
     pub bytes: Option<u64>,
     pub cpu_ms: Option<u64>,
-    /// `replaced`, `winner`, or why not (`not_smaller`, `exceptions_not_subset`, `no_rule`, `lost`, ...).
+    /// `replaced`, `winner`, or why not (`not_smaller`, `exceptions_not_subset`, `no_rule`, `lost`, ...); pole objective:
+    /// `pole_score_pending (...)`, `replaced_poles`, `replaced_size`, `poles_not_better (...)`, `size_guard (...)`.
     pub verdict: String,
+    /// The candidate job's sealed table (rule scope; what a pole scorer evaluates).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table: Option<String>,
+    /// Its route-pole score at the keys the table's rule serves (scope `rule_poles`; section 6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole: Option<crate::economy::polescore::PoleScore>,
 }
 
 /// The record of one rule target.
@@ -189,6 +196,9 @@ pub struct RuleEntry {
     /// Candidates known but not tried (economy, filter, budget), with the reason.
     #[serde(default)]
     pub untried: Vec<String>,
+    /// The route-pole score of the rule now in the table (pole objective runs; None = not scored).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole: Option<crate::economy::polescore::PoleScore>,
 }
 
 /// One run that wrote / appended the record.
@@ -241,6 +251,7 @@ impl ImproveRecord {
                     chosen: "original".into(),
                     why: "no improvement record: the table's own rule, nothing tried".into(),
                     untried: vec![],
+                    pole: None,
                 })
                 .collect(),
             ranking_by_bytes: vec![],
@@ -310,6 +321,7 @@ impl ImproveRecord {
                     chosen: "original".into(),
                     why: "not in the record: nothing tried".into(),
                     untried: vec![],
+                    pole: None,
                 },
             };
             out.push(e);
@@ -326,6 +338,16 @@ impl ImproveRecord {
 pub struct RuleFilter {
     pub largest: Option<usize>,
     pub min_monomials: Option<u64>,
+    /// What "largest" ranks by: `monomials` (default) or `bytes` (the record size: the heaviest rules of a legacy
+    /// table such as T266 have huge coefficients but few monomials).
+    pub by: RankBy,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RankBy {
+    Monomials,
+    Bytes,
 }
 
 impl Default for RuleFilter {
@@ -333,6 +355,7 @@ impl Default for RuleFilter {
         RuleFilter {
             largest: Some(20),
             min_monomials: None,
+            by: RankBy::Monomials,
         }
     }
 }
@@ -358,6 +381,23 @@ pub struct ImprovePolicy {
     /// Cases budget of a sub-tree job (`budgets.work.cases`; a sub-tree that does not complete within it never
     /// replaces anything).
     pub subtree_max_cases: u64,
+    /// IMPROVE POLES (section 6): the pole objective instead of size (None = size). Targets = the rules whose own
+    /// rule-scope score has a pole (worst first); candidates run single-case (`--descend open`); a fresh candidate is
+    /// `pole_score_pending` until its rule-scope score is supplied (node `pole_scores`), then decided by
+    /// [`crate::economy::polescore::rule_pole_verdict`] without being generated again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub poles: Option<crate::economy::polescore::PolePolicy>,
+}
+
+impl ImprovePolicy {
+    /// The pole objective is in force (configured and not ignored).
+    pub fn poles_on(&self) -> bool {
+        self.poles.as_ref().is_some_and(|p| !p.is_ignored())
+    }
+    /// Candidate jobs solve the target case only (single mode): sub-tree off, or the pole objective.
+    pub fn single(&self) -> bool {
+        !self.subtree || self.poles_on()
+    }
 }
 
 impl Default for ImprovePolicy {
@@ -387,6 +427,7 @@ impl Default for ImprovePolicy {
             min_gain: 1.0,
             subtree: true,
             subtree_max_cases: 64,
+            poles: None,
         }
     }
 }
@@ -399,7 +440,11 @@ pub fn targets(
     p: &ImprovePolicy,
 ) -> Vec<(usize, Vec<String>)> {
     let mut idx: Vec<usize> = (0..rules.len()).collect();
-    idx.sort_by(|&a, &b| rules[b].monomials.cmp(&rules[a].monomials).then(a.cmp(&b)));
+    let size = |i: usize| match p.filter.by {
+        RankBy::Monomials => rules[i].monomials,
+        RankBy::Bytes => rules[i].bytes,
+    };
+    idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     let idx: Vec<usize> = idx
         .into_iter()
         .filter(|&i| {
@@ -423,9 +468,92 @@ pub fn targets(
         .collect()
 }
 
-/// May `new` replace `old` at old's dispatch position? Same target and case, exception set a subset (domain contains
-/// the old domain), strictly fewer monomials (and <= old x min_gain), not more bytes.
-pub fn replacement_verdict(old: &TableRule, new: &TableRule, min_gain: f64) -> Result<(), String> {
+/// What an IMPROVE POLES run does with one (rule, candidate).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PoleStep {
+    /// Generate the candidate (not tried on this rule yet).
+    Generate,
+    /// Decide from its supplied rule-scope score (generated earlier; never generated again).
+    Decide(crate::economy::polescore::ScoreLine),
+    /// Generated earlier, no score supplied yet: nothing to do in this run (listed as untried).
+    AwaitScore,
+}
+
+/// IMPROVE POLES targets: the rules whose own score (`original` line of `scores` at their index) is decided with a
+/// pole, worst first (max order, keys with a pole, monomials, index), at most `filter.largest`; per rule the candidates
+/// with something to do. A (rule, candidate) already decided under the pole objective (scope `rule_poles`) is done:
+/// a second run with unchanged scores does nothing. Rules without a decided own score are returned in `unscored`.
+pub fn pole_targets(
+    rules: &[TableRule],
+    rec: &ImproveRecord,
+    p: &ImprovePolicy,
+    scores: &[crate::economy::polescore::ScoreLine],
+) -> (Vec<(usize, Vec<(String, PoleStep)>)>, Vec<i64>) {
+    let own = |idx: i64| {
+        scores
+            .iter()
+            .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(idx))
+            .map(|s| &s.score)
+    };
+    let mut unscored = vec![];
+    let mut idx: Vec<(usize, u32, u64)> = vec![];
+    for (i, r) in rules.iter().enumerate() {
+        match own(r.index) {
+            Some(s) if s.decided() => {
+                let m = s.max_order.unwrap_or(0);
+                if m > 0 {
+                    idx.push((i, m, s.keys_with_pole));
+                }
+            }
+            _ => unscored.push(r.index),
+        }
+    }
+    idx.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then(b.2.cmp(&a.2))
+            .then(rules[b.0].monomials.cmp(&rules[a.0].monomials))
+            .then(rules[a.0].index.cmp(&rules[b.0].index))
+    });
+    let out = idx
+        .into_iter()
+        .take(p.filter.largest.unwrap_or(usize::MAX))
+        .filter_map(|(i, _, _)| {
+            let key = rules[i].key();
+            let e = rec.entry(&key);
+            let steps: Vec<(String, PoleStep)> = p
+                .candidates
+                .iter()
+                .filter(|c| {
+                    !e.is_some_and(|e| {
+                        e.tried.iter().any(|t| t.scope == "rule_poles" && t.cand == c.name)
+                    })
+                })
+                .map(|c| {
+                    let sc = scores.iter().find(|s| {
+                        s.scope == "rule" && s.cand == c.name && s.rule_index == Some(rules[i].index)
+                            && s.table.is_some()
+                    });
+                    let step = match sc {
+                        Some(s) => PoleStep::Decide(s.clone()),
+                        None if rec.tried(&key, &c.name) => PoleStep::AwaitScore,
+                        None => PoleStep::Generate,
+                    };
+                    (c.name.clone(), step)
+                })
+                .collect();
+            // a rule whose candidates all await a score has nothing to do in this run
+            steps
+                .iter()
+                .any(|(_, s)| *s != PoleStep::AwaitScore)
+                .then_some((i, steps))
+        })
+        .collect();
+    (out, unscored)
+}
+
+/// The STRUCTURAL half of a replacement (shared by the size and the pole objective): same target and case, exception
+/// set a subset of the old one (its domain contains the old domain).
+pub fn structural_verdict(old: &TableRule, new: &TableRule) -> Result<(), String> {
     if new.target != old.target {
         return Err(format!("other_target ({} vs {})", new.target, old.target));
     }
@@ -436,6 +564,13 @@ pub fn replacement_verdict(old: &TableRule, new: &TableRule, min_gain: f64) -> R
     if let Some(x) = new.exceptions.iter().find(|x| !olde.contains(x)) {
         return Err(format!("exceptions_not_subset (new branch {x})"));
     }
+    Ok(())
+}
+
+/// May `new` replace `old` at old's dispatch position? Same target and case, exception set a subset (domain contains
+/// the old domain), strictly fewer monomials (and <= old x min_gain), not more bytes.
+pub fn replacement_verdict(old: &TableRule, new: &TableRule, min_gain: f64) -> Result<(), String> {
+    structural_verdict(old, new)?;
     if new.monomials >= old.monomials || (new.monomials as f64) > old.monomials as f64 * min_gain {
         return Err(format!(
             "not_smaller ({} vs {} monomials)",
@@ -627,6 +762,8 @@ pub fn generation_record(
             bytes: Some(e.bytes),
             cpu_ms: None,
             verdict: "winner".into(),
+            table: None,
+            pole: None,
         });
         for ((id, _), m) in others.iter().zip(&maps) {
             let r = m.get(&e.case);
@@ -645,6 +782,8 @@ pub fn generation_record(
                 bytes: r.map(|r| r.bytes),
                 cpu_ms: None,
                 verdict: "lost_node_choice".into(),
+                table: None,
+                pole: None,
             });
         }
         e.untried = untried.to_vec();
@@ -671,6 +810,10 @@ pub struct ImproveNode {
     pub record: Option<crate::economy::genchoice::FileEntry>,
     #[serde(default)]
     pub r#box: Option<crate::economy::genchoice::FileEntry>,
+    /// Rule-scope pole scores (`rustred.campaign.pole-score.v1`: `original` per rule index of this table, and
+    /// candidates with their sealed table) for the pole objective (section 6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_scores: Option<crate::economy::genchoice::FileEntry>,
 }
 
 /// The improve config (campaign input of role `genchoice`, schema [`IMPROVE_CONFIG_SCHEMA`]).
@@ -712,6 +855,11 @@ impl ImproveConfig {
                     k.name
                 ));
             }
+        }
+        if let Some(p) = &c.improve.poles
+            && !p.is_ignored()
+        {
+            p.check().map_err(|e| format!("improve config: {e}"))?;
         }
         Ok(c)
     }

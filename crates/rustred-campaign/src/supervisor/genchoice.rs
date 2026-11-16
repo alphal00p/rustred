@@ -24,6 +24,7 @@ use rustred_campaign_contract::spec::{
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
 use rustred_campaign_core::economy::genchoice as gc;
 use rustred_campaign_core::economy::improve as im;
+use rustred_campaign_core::economy::polescore as ps;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -86,6 +87,44 @@ pub(crate) fn blake3_hex(b: &[u8]) -> String {
 }
 
 /// (bytes, BLAKE3, SHA-256) of a file, streamed.
+/// `rr_campaign poles-choose --choice C --scores S [--policy P] --out O` (interfaces/genchoice.md 6): the pole
+/// objective on a FINISHED generation choice (its acceptable full tables, their table-scope pole scores); writes the
+/// `rustred.campaign.pole-choice.v1` decision to O and returns a one-line summary. Pure: reads files, starts nothing.
+pub fn poles_choose(rest: &[String]) -> Result<String, String> {
+    let mut m: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut it = rest.iter();
+    while let Some(f) = it.next() {
+        let k = match f.as_str() {
+            "--choice" | "--scores" | "--policy" | "--out" => f.as_str(),
+            o => return Err(format!("unknown flag {o:?}")),
+        };
+        m.insert(k, it.next().ok_or_else(|| format!("{k} needs a value"))?);
+    }
+    let get = |k: &str| m.get(k).copied().ok_or_else(|| format!("{k} is required"));
+    let rd = |p: &str| std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"));
+    let choice: Value = serde_json::from_str(&rd(get("--choice")?)?).map_err(|e| e.to_string())?;
+    let scores = ps::parse_scores(&rd(get("--scores")?)?)?;
+    let pol: ps::PolePolicy = match m.get("--policy") {
+        Some(p) => serde_json::from_str(&rd(p)?).map_err(|e| format!("{p}: {e}"))?,
+        None => ps::PolePolicy::default(),
+    };
+    pol.check()?;
+    let out = get("--out")?;
+    let Some(v) = ps::rechoice(&choice, &scores, &pol)? else {
+        return Ok("poles ignored (policy use = false): the size choice stands".into());
+    };
+    crate::atomic::write_atomic(Path::new(out), &json_bytes(&v)).map_err(|e| e.to_string())?;
+    let d = &v["decision"];
+    Ok(format!(
+        "{}: winner {} (size winner {}), reason {}, changed {}",
+        v["node"].as_str().unwrap_or("?"),
+        d["winner"],
+        d["size_winner"],
+        d["reason"].as_str().unwrap_or("?"),
+        d["changed"]
+    ))
+}
+
 pub(crate) fn file_digests(p: &Path) -> Result<(u64, String, String), String> {
     let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
     let mut b3 = blake3::Hasher::new();
@@ -301,6 +340,8 @@ struct NodeRt {
     shape: gc::FamilyShape,
     family_bytes: u64,
     family_blake3: String,
+    /// Table-scope pole scores of the node (config `pole_scores`, sha256-checked; section 6).
+    pole_scores: Option<Vec<ps::ScoreLine>>,
 }
 
 /// The generation-choice work source.
@@ -440,6 +481,20 @@ impl GenChoiceSource {
                     ));
                 }
             }
+            let pole_scores = match &e.pole_scores {
+                Some(f) => {
+                    let (_, _, h) = file_digests(Path::new(&f.path))?;
+                    if h != f.sha256 {
+                        return Err(format!(
+                            "genchoice: {}: pole scores {} sha256 {h} differs from the config's {}",
+                            e.node, f.path, f.sha256
+                        ));
+                    }
+                    let t = std::fs::read_to_string(&f.path).map_err(|er| format!("{}: {er}", f.path))?;
+                    Some(ps::parse_scores(&t).map_err(|er| format!("genchoice: {}: {er}", e.node))?)
+                }
+                None => None,
+            };
             let text = std::fs::read_to_string(p).map_err(|er| format!("{}: {er}", e.family))?;
             let shape = gc::family_shape(&text)?;
             nodes.push(NodeRt {
@@ -447,6 +502,7 @@ impl GenChoiceSource {
                 shape,
                 family_bytes: bytes,
                 family_blake3: b3,
+                pole_scores,
             });
         }
         Ok(GenChoiceSource {
@@ -893,6 +949,38 @@ impl GenChoiceSource {
         } else {
             gc::choose(&fr, p.select)
         };
+        // the POLE OBJECTIVE (section 6) among the acceptable full tables; ignored = nothing changes, nothing written
+        let mut poles_section: Option<Value> = None;
+        let winner = if p.poles.is_ignored() || winner.is_none() {
+            winner
+        } else {
+            let scores = self.nodes[i].pole_scores.as_deref().unwrap_or(&[]);
+            let pc: Vec<ps::PoleCand> = fr
+                .iter()
+                .filter(|r| r.acceptable)
+                .filter_map(|r| {
+                    let m = r.measure.as_ref()?;
+                    Some(ps::PoleCand {
+                        cand: r.cand,
+                        admissible: true,
+                        size: gc::select_size(m, p.select),
+                        time_ms: r.cpu_ms,
+                        score: scores
+                            .iter()
+                            .find(|s| s.scope == "table" && s.node == node && s.cand == cands[r.cand].id)
+                            .map(|s| s.score.clone()),
+                    })
+                })
+                .collect();
+            let d = ps::choose_poles(&pc, winner, &p.poles)?;
+            poles_section = Some(json!({
+                "scores_file": self.nodes[i].e.pole_scores,
+                "scores": pc.iter().map(|c| json!({"cand": cands[c.cand].id, "size": c.size,
+                    "cpu_ms": c.time_ms, "score": c.score.as_ref().map_or(json!("undecided"), |s| json!(s))}))
+                    .collect::<Vec<_>>(),
+                "decision": d}));
+            d.map_or(winner, |d| Some(d.winner))
+        };
         let job_info = |a: &Answer| {
             let j = st.jobs.get(&a.job);
             json!({"job": a.job, "attempt": a.attempt, "row": a.row, "class": a.class, "status": a.status,
@@ -1103,6 +1191,10 @@ impl GenChoiceSource {
             "winner_table": wa.as_ref().and_then(|a| a.table_path.clone()),
             "no_candidate": no_candidate, "files": extra_files,
             "select": p.select});
+        let mut v = v;
+        if let Some(ps) = poles_section {
+            v["poles"] = ps;
+        }
         let rec = AcceptedRecord {
             path: format!("{}/choice.json", node_dir(&node)),
             bytes: json_bytes(&v),

@@ -1405,3 +1405,7 @@ pub mod genchoice;
 /// Lane sizegen (interfaces/genchoice.md 5): the improvement record and improve mode (same I-INT request as genchoice).
 #[path = "improve.rs"]
 pub mod improve;
+
+/// Lane sizegen ITEM 2 (interfaces/genchoice.md 6): pole score and pole objective of the generation choice and improve.
+#[path = "polescore.rs"]
+pub mod polescore;

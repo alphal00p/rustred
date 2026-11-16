@@ -278,3 +278,129 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
     // rule 0's regeneration is larger: kept
     assert_eq!(rules[0]["monomials"], 5000);
 }
+
+/// IMPROVE POLES (interfaces/genchoice.md 6): the pole objective's two-run protocol. Own route-pole scores: rule 0
+/// regular (not targeted), rule 1 order 2, rule 2 order 1. Run 1 generates (pending, nothing replaced); the candidates are
+/// scored (here: given); run 2 decides from the scores without generating again: rule 1 <- `rung` (regular, larger but
+/// within the tolerance 2), rule 2 <- `rung` (equal poles, smaller), rule 2's `tight` (order 2) refused. Run 3 on the
+/// improved table: the old `original` scores are bound to the old table, nothing to do.
+#[test]
+fn improve_poles_generates_then_decides_from_scores_and_never_regenerates() {
+    let _g = serial();
+    let t = Tmp::new("improvepl");
+    let m = t.path.join("material");
+    std::fs::create_dir_all(&m).unwrap();
+    let tab = table(&m);
+    let fam = m.join("TOY.sym");
+    std::fs::write(&fam, FAMILY).unwrap();
+    let tab_sha = sha256_file(&tab);
+    let sc = |m: Option<u32>, kwp: u64| {
+        json!({"keys": 100, "keys_with_pole": kwp, "undecided": u64::from(m.is_none()), "max_order": m,
+            "composed_max_order": null})
+    };
+    let own = |i: i64, m: u32| {
+        json!({"schema":"rustred.campaign.pole-score.v1","node":"toy","scope":"rule","cand":"original","rule_index":i,
+            "table":{"path":tab.display().to_string(),"sha256":tab_sha},"score":sc(Some(m), u64::from(m) * 3)})
+    };
+    let write_scores = |name: &str, lines: &[Value]| {
+        let p = m.join(name);
+        std::fs::write(&p, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+        p
+    };
+    let run = |rules: Vec<Value>, stop: Value| json!({"rules": rules, "stop": stop});
+    let runs = json!({
+        "1": {"rung": run(vec![rec(json!([1,null,null]), "I(1,n1,n2)", json!([]), 4000)], json!("max_cases")),
+              "tight": run(vec![], json!("budget_wall"))},
+        "2": {"rung": run(vec![rec(json!([1,1,null]), "I(1,1,n2)", json!([]), 5)], json!("max_cases")),
+              "tight": run(vec![rec(json!([1,1,null]), "I(1,1,n2)", json!([]), 9)], json!("max_cases"))},
+    });
+    let cfg = |name: &str, table: &Path, record: Option<&Path>, scores: &Path| {
+        let mut node = json!({"node":"toy","family":fam.display().to_string(),"family_sha256":sha256_file(&fam),
+            "table":{"path":table.display().to_string(),"sha256":sha256_file(table)},
+            "pole_scores":{"path":scores.display().to_string(),"sha256":sha256_file(scores)}});
+        if let Some(r) = record {
+            node["record"] = json!({"path": r.display().to_string(), "sha256": sha256_file(r)});
+        }
+        let c = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node","nodes":[node],
+            "improve":{"filter":{"largest":3},"poles":{},
+                       "candidates":[{"name":"rung","args":["--seed-pose-rung"]},{"name":"tight","args":["--seed-layer-cap","0,0,1","--max-depth","3"]}]},
+            "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
+                   "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
+            "fake":{"program":"rr_fake_child","ms":5,"runs":runs}});
+        let p = m.join(name);
+        std::fs::write(&p, serde_json::to_vec_pretty(&c).unwrap()).unwrap();
+        p
+    };
+    let originals = [own(0, 0), own(1, 2), own(2, 1)];
+    // run 1: generate, everything pending
+    let s1p = write_scores("s1.jsonl", &originals);
+    let c1 = cfg("p1.json", &tab, None, &s1p);
+    let d1 = t.cdir("cdirp1");
+    let codes = run_to_end(&spec(&t, "sp1.json", &c1), &d1, &["--plain"]);
+    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d1));
+    let res1 = read_json(&d1.join("genchoice/toy/improve/result.r1.json"));
+    assert_eq!((res1["replaced"].clone(), res1["nothing_to_try"].clone()), (json!(0), json!(false)), "{res1:#}");
+    let rec1p = PathBuf::from(res1["record"]["path"].as_str().unwrap());
+    let rec1 = read_json(&rec1p);
+    let entry = |rec: &Value, i: i64| rec["rules"].as_array().unwrap().iter().find(|e| e["index"] == i).unwrap().clone();
+    assert!(entry(&rec1, 0)["tried"].as_array().unwrap().is_empty(), "regular rule 0 not targeted");
+    let tried = |rec: &Value, i: i64, c: &str| {
+        entry(rec, i)["tried"].as_array().unwrap().iter().find(|t| t["cand"] == c && t["scope"] == "rule").unwrap().clone()
+    };
+    let t1r = tried(&rec1, 1, "rung");
+    assert!(t1r["verdict"].as_str().unwrap().starts_with("pole_score_pending"), "{t1r}");
+    assert!(tried(&rec1, 1, "tight")["verdict"].as_str().unwrap().starts_with("no_rule"));
+    // the scorer's lines for the generated candidates (rule 1 rung regular; rule 2 rung order 1, tight order 2)
+    let cand_line = |i: i64, c: &str, m: u32| {
+        let tp = tried(&rec1, i, c)["table"].as_str().unwrap().to_string();
+        json!({"schema":"rustred.campaign.pole-score.v1","node":"toy","scope":"rule","cand":c,"rule_index":i,
+            "table":{"path":tp,"sha256":sha256_file(Path::new(&tp))},"score":sc(Some(m), u64::from(m))})
+    };
+    let mut lines = originals.to_vec();
+    lines.extend([cand_line(1, "rung", 0), cand_line(2, "rung", 1), cand_line(2, "tight", 2)]);
+    let s2p = write_scores("s2.jsonl", &lines);
+    // run 2: decide from the scores, no job
+    let c2 = cfg("p2.json", &tab, Some(&rec1p), &s2p);
+    let d2 = t.cdir("cdirp2");
+    let codes = run_to_end(&spec(&t, "sp2.json", &c2), &d2, &["--plain"]);
+    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d2));
+    assert!(!d2.join("jobs").exists() || std::fs::read_dir(d2.join("jobs")).unwrap().next().is_none(), "no job");
+    let res2 = read_json(&d2.join("genchoice/toy/improve/result.r2.json"));
+    let dbg = read_json(Path::new(res2["record"]["path"].as_str().unwrap()));
+    assert_eq!(res2["replaced"], 2, "{res2:#} {:#}", dbg["rules"]);
+    let out = res2["table_out"]["path"].as_str().unwrap().to_string();
+    let rules: Vec<Value> = std::fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap())
+        .filter(|l| l["type"] == "rule")
+        .collect();
+    assert_eq!(
+        rules.iter().map(|r| r["monomials"].as_u64().unwrap()).collect::<Vec<_>>(),
+        vec![5000, 4000, 5],
+        "rule 1 <- regular rung (larger, within tolerance 2), rule 2 <- rung (equal poles, smaller)"
+    );
+    let rec2p = PathBuf::from(res2["record"]["path"].as_str().unwrap());
+    let rec2 = read_json(&rec2p);
+    let v2: Vec<(String, String)> = entry(&rec2, 2)["tried"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["scope"] == "rule_poles")
+        .map(|t| (t["cand"].as_str().unwrap().to_string(), t["verdict"].as_str().unwrap().to_string()))
+        .collect();
+    assert!(v2.contains(&("rung".into(), "replaced_size".into())), "{v2:?}");
+    assert!(v2.iter().any(|(c, v)| c == "tight" && v.starts_with("poles_not_better")), "{v2:?}");
+    let e1 = entry(&rec2, 1);
+    assert_eq!(e1["chosen"], "rule:rung");
+    assert_eq!(e1["pole"]["max_order"], 0, "the record carries the new rule's score");
+    assert!(e1["why"].as_str().unwrap().contains("pole objective"));
+    assert_eq!(rec2["runs"][1]["totals"]["objective"], "poles");
+    // run 3: the improved table, unchanged scores: the `original` lines describe the old table: nothing to do
+    let c3 = cfg("p3.json", Path::new(&out), Some(&rec2p), &s2p);
+    let d3 = t.cdir("cdirp3");
+    let codes = run_to_end(&spec(&t, "sp3.json", &c3), &d3, &["--plain"]);
+    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d3));
+    let res3 = read_json(&d3.join("genchoice/toy/improve/result.r3.json"));
+    assert_eq!((res3["nothing_to_try"].clone(), res3["replaced"].clone()), (json!(true), json!(0)), "{res3:#}");
+}

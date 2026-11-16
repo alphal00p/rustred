@@ -245,3 +245,64 @@ fn a_job_cap_above_the_campaign_memory_total_is_refused_at_start_not_waited_for(
     let log = log_tail(&cdir);
     assert!(log.contains("exceeds the campaign memory total"), "{log}");
 }
+
+/// POLE OBJECTIVE (interfaces/genchoice.md 6) in the decision step: optimise mode gives every candidate a full table;
+/// table-scope pole scores make the regular `bfi-rung-std` win over the smallest `isp_rev-default-std` (order 2) under an
+/// unbounded tolerance; with `poles.use = false` the choice and its record are those of the size choice, with nothing
+/// about poles written.
+#[test]
+fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_choice() {
+    let _g = serial();
+    for (tag, poles, want) in [
+        ("gcpoles", json!({"max_size_ratio": "unbounded"}), "bfi-rung-std"),
+        ("gcpolesoff", json!({"use": false}), "isp_rev-default-std"),
+    ] {
+        let t = Tmp::new(tag);
+        let m = t.path.join("material");
+        let cfg = material(&m, true);
+        let sc = |id: &str, max: u32| {
+            json!({"schema":"rustred.campaign.pole-score.v1","node":"toy","scope":"table","cand":id,
+                "score":{"keys":100,"keys_with_pole":u64::from(max) * 7,"undecided":0,"max_order":max,"composed_max_order":null}})
+        };
+        let scores = m.join("scores.jsonl");
+        std::fs::write(
+            &scores,
+            [sc("isp_rev-default-std", 2), sc("bfi-rung-std", 0), sc("id-rung-std", 1)]
+                .iter()
+                .map(|l| format!("{l}\n"))
+                .collect::<String>(),
+        )
+        .unwrap();
+        let mut v: Value = serde_json::from_slice(&std::fs::read(&cfg).unwrap()).unwrap();
+        v["nodes"][0]["pole_scores"] =
+            json!({"path": scores.display().to_string(), "sha256": sha256_file(&scores)});
+        v["policy"]["poles"] = poles;
+        std::fs::write(&cfg, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+        let spec = json!({
+            "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
+            "programs": {"rr_fake_child": {"path": FAKE}, "rr_node": {"path": FAKE}},
+            "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+                          "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
+                          "start_timeout_s": 120},
+            "progress": {"cadence_seconds": 1},
+            "inputs": [{"id": "genchoice-config", "role": "genchoice", "path": cfg.display().to_string(),
+                        "blake3": blake3_file(&cfg)}]
+        });
+        let sp = write_spec(&t, "spec.json", &spec);
+        let cdir = t.cdir("cdir");
+        let codes = run_to_end(&sp, &cdir, &["--plain"]);
+        assert_eq!(codes.last(), Some(&0), "{}", log_tail(&cdir));
+        let c = read_json(&cdir.join("genchoice/toy/choice.json"));
+        assert_eq!(c["winner"], want, "{tag}: {:#}", c["poles"]);
+        assert_eq!(cand(&c, want)["verdict"], "winner");
+        if tag == "gcpoles" {
+            let d = &c["poles"]["decision"];
+            assert_eq!((d["reason"].clone(), d["changed"].clone()), (json!("regular"), json!(true)), "{d:#}");
+            assert!(c["poles"]["scores"].as_array().unwrap().iter().any(|s| s["score"] == "undecided"),
+                "unscored acceptable tables are recorded as undecided");
+        } else {
+            assert!(c.get("poles").is_none(), "ignored: nothing about poles in the choice");
+            assert!(c["policy"].get("poles").is_none(), "ignored: the effective policy as before");
+        }
+    }
+}
