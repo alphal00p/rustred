@@ -314,6 +314,22 @@ pub enum MaterializationEvent<const N: usize> {
     },
 }
 
+/// A harder-first total order on integral columns.
+///
+/// [`IntegralOrder`] is the solver's own order. The sector-box engine supplies
+/// other presets (and preferred masters at the easy end) through this trait,
+/// so one discovery implementation serves every column order.
+pub(crate) trait ColumnComparator<const N: usize>: fmt::Debug {
+    /// `Less` when `left` is harder (further left) than `right`.
+    fn compare(&self, left: &Integral<N>, right: &Integral<N>) -> Ordering;
+}
+
+impl<const N: usize> ColumnComparator<N> for IntegralOrder<N> {
+    fn compare(&self, left: &Integral<N>, right: &Integral<N>) -> Ordering {
+        IntegralOrder::compare(self, left, right)
+    }
+}
+
 /// Incremental SpIRed GPLU over all integral columns in harder-first order.
 ///
 /// The caller retains an original exact row only when [`Self::add_row`]
@@ -321,15 +337,20 @@ pub enum MaterializationEvent<const N: usize> {
 /// used by [`Self::trace`]. Whether a pivot solves a case belongs to the caller:
 /// discovery does not collapse case matches into a distinguished target column.
 ///
-/// Unlike C++ SpIRed, the current native reducer retains the L patterns of
-/// dependent inputs. The accepted-row mapping preserves trace correctness,
-/// but cannot reclaim those patterns through the available public API. For
-/// `m` inputs and rank `r`, retained L can therefore grow as `O(m * r)` even
-/// when the basis stops growing. [`Self::stats`] reports this storage separately
-/// from accepted dependency edges; its entry counts are not allocation bytes.
+/// Unlike C++ SpIRed, the native reducer retains the L patterns of dependent
+/// inputs. The accepted-row mapping preserves trace correctness, but for `m`
+/// inputs and rank `r` retained L can grow as `O(m * r)` even when the basis
+/// stops growing. [`Self::stats`] reports this storage separately from
+/// accepted dependency edges; its entry counts are not allocation bytes.
+/// (Dropping those patterns needs a reducer option that the pinned
+/// Symbolica/numerica revision does not have; it is proposed upstream and is a
+/// future option here.)
+///
+/// Basis ordinals are also native U row indices: the reducer appends a U row
+/// exactly when it accepts an input.
 #[derive(Debug)]
-pub struct Discovery<const N: usize> {
-    order: IntegralOrder<N>,
+pub struct Discovery<const N: usize, O = IntegralOrder<N>> {
+    order: O,
     columns: Vec<Integral<N>>,
     reducer: SparseRowReducer<Zp64>,
     /// Native L also records dependent input rows, whereas its column indices
@@ -337,10 +358,12 @@ pub struct Discovery<const N: usize> {
     accepted_l_rows: Vec<usize>,
     rows_seen: usize,
     dependency_edges: usize,
+    /// Native `add_cols` calls; each one remaps every stored U column index.
+    column_batches: usize,
 }
 
-impl<const N: usize> Discovery<N> {
-    pub fn new(order: IntegralOrder<N>, field: Zp64) -> Self {
+impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
+    pub fn new(order: O, field: Zp64) -> Self {
         Self {
             order,
             columns: Vec::new(),
@@ -350,7 +373,12 @@ impl<const N: usize> Discovery<N> {
             accepted_l_rows: Vec::new(),
             rows_seen: 0,
             dependency_edges: 0,
+            column_batches: 0,
         }
+    }
+
+    pub(crate) fn order(&self) -> &O {
+        &self.order
     }
 
     /// Add terms with distinct integral keys in this discovery's order.
@@ -360,16 +388,51 @@ impl<const N: usize> Discovery<N> {
         debug_assert!(terms.windows(2).all(|pair| {
             self.order.compare(&pair[0].integral, &pair[1].integral) == Ordering::Less
         }));
-        self.rows_seen += 1;
         self.register_columns(terms);
+        self.add_registered_row(terms)
+    }
 
+    /// Batch insertion: register every new column of `rows` with one native
+    /// `add_cols` call, then forward-solve the rows in the given order.
+    ///
+    /// Row order, pivots, L patterns and accepted ordinals are exactly those
+    /// of calling [`Self::add_row`] on each row in turn; only the column
+    /// registration is batched, so one U remap serves the whole batch.
+    pub(crate) fn add_rows<R: AsRef<[Term<N, NumericalCoefficient>]>>(
+        &mut self,
+        rows: &[R],
+    ) -> Vec<Option<Integral<N>>> {
+        let mut additions = Vec::new();
+        for row in rows {
+            let terms = row.as_ref();
+            debug_assert!(terms.windows(2).all(|pair| {
+                self.order.compare(&pair[0].integral, &pair[1].integral) == Ordering::Less
+            }));
+            for term in terms {
+                if self.column_index(&term.integral).is_none() {
+                    additions.push(term.integral);
+                }
+            }
+        }
+        additions.sort_unstable_by(|left, right| self.order.compare(left, right));
+        additions.dedup();
+        self.insert_sorted_columns(additions);
+        rows.iter()
+            .map(|row| self.add_registered_row(row.as_ref()))
+            .collect()
+    }
+
+    fn add_registered_row(
+        &mut self,
+        terms: &[Term<N, NumericalCoefficient>],
+    ) -> Option<Integral<N>> {
+        self.rows_seen += 1;
         let mut values = Vec::with_capacity(terms.len());
         let mut column_ids = Vec::with_capacity(terms.len());
         for term in terms {
             if !self.reducer.u().field().is_zero(&term.coefficient) {
                 let column = self
-                    .columns
-                    .binary_search_by(|column| self.order.compare(column, &term.integral))
+                    .column_index(&term.integral)
                     .expect("every row integral was registered");
                 values.push(term.coefficient);
                 column_ids.push(column as u32);
@@ -407,6 +470,63 @@ impl<const N: usize> Discovery<N> {
         }
     }
 
+    /// Registered integral columns, hardest first. Positions are live column
+    /// indices; they shift when later batches register harder columns.
+    pub(crate) fn columns(&self) -> &[Integral<N>] {
+        &self.columns
+    }
+
+    /// Live column index of a registered integral.
+    pub(crate) fn column_index(&self, integral: &Integral<N>) -> Option<usize> {
+        self.columns
+            .binary_search_by(|column| self.order.compare(column, integral))
+            .ok()
+    }
+
+    /// `(live column, basis ordinal)` of every pivot, in column order.
+    pub(crate) fn pivot_columns(&self) -> impl Iterator<Item = (usize, usize)> + '_ {
+        self.reducer.pivots()[..self.columns.len()]
+            .iter()
+            .enumerate()
+            .filter_map(|(column, row)| row.map(|row| (column, row as usize)))
+    }
+
+    /// Basis ordinal (U row) whose pivot is the live column `column`.
+    pub(crate) fn pivot_row(&self, column: usize) -> Option<usize> {
+        self.reducer.pivots()[column].map(|row| row as usize)
+    }
+
+    /// Live column indices of one U row, pivot first, harder first.
+    pub(crate) fn u_row_columns(&self, basis_row: usize) -> &[u32] {
+        let u = self.reducer.u();
+        &u.col_idcs()[u.row_ptrs()[basis_row]..u.row_ptrs()[basis_row + 1]]
+    }
+
+    /// Normalized values of one U row, aligned with [`Self::u_row_columns`].
+    pub(crate) fn u_row_values(&self, basis_row: usize) -> &[NumericalCoefficient] {
+        let u = self.reducer.u();
+        &u.values()[u.row_ptrs()[basis_row]..u.row_ptrs()[basis_row + 1]]
+    }
+
+    /// Stored U entries, including pivot diagonals.
+    pub(crate) fn u_nnz(&self) -> usize {
+        self.reducer.u().values().len()
+    }
+
+    /// Retained native L pattern entries.
+    pub(crate) fn l_entries(&self) -> usize {
+        self.reducer.l().col_idcs().len()
+    }
+
+    /// Native `add_cols` calls so far.
+    pub(crate) fn column_batches(&self) -> usize {
+        self.column_batches
+    }
+
+    pub(crate) fn field(&self) -> &Zp64 {
+        self.reducer.u().field()
+    }
+
     /// Original accepted-row ordinals needed for `root`, in pivot-column order.
     ///
     /// This is SpIRed's `optimizeSystem`: close the L dependencies, retain
@@ -423,6 +543,48 @@ impl<const N: usize> Discovery<N> {
     pub fn trace_many(&self, roots: &[usize]) -> Vec<usize> {
         self.trace_many_checked(roots, |_| Ok::<_, std::convert::Infallible>(()))
             .unwrap_or_else(|never| match never {})
+    }
+
+    /// The same union as [`Self::trace_many`] in one dependency walk.
+    ///
+    /// Forward solving subtracts only pivot rows strictly left of the pivot
+    /// it finally accepts, so every L ancestor of an accepted row already lies
+    /// left of that row's pivot and the per-root column filter of
+    /// `trace_many` never removes a row. One shared visited set therefore
+    /// gives the identical result in `O(rows + dependency edges)`, instead of
+    /// one walk per root. Debug builds assert the ancestor property.
+    pub(crate) fn trace_union(&self, roots: &[usize]) -> Vec<usize> {
+        assert!(roots.iter().all(|&root| root < self.basis_len()));
+        let u = self.reducer.u();
+        let l = self.reducer.l();
+        let mut needed = vec![false; self.basis_len()];
+        let mut pending = Vec::new();
+        for &root in roots {
+            if !needed[root] {
+                needed[root] = true;
+                pending.push(root);
+            }
+        }
+        while let Some(row) = pending.pop() {
+            let l_row = self.accepted_l_rows[row];
+            for &dependency in &l.col_idcs()[l.row_ptrs()[l_row]..l.row_ptrs()[l_row + 1]] {
+                let dependency = dependency as usize;
+                debug_assert!(
+                    dependency == row
+                        || u.col_idcs()[u.row_ptrs()[dependency]] < u.col_idcs()[u.row_ptrs()[row]]
+                );
+                if !needed[dependency] {
+                    needed[dependency] = true;
+                    pending.push(dependency);
+                }
+            }
+        }
+        self.reducer
+            .pivots()
+            .iter()
+            .filter_map(|&row| row.map(|row| row as usize))
+            .filter(|&row| needed[row])
+            .collect()
     }
 
     /// Optional search-input cap, using the same exact dependency walk and
@@ -492,23 +654,43 @@ impl<const N: usize> Discovery<N> {
             .collect())
     }
 
+    /// Register integrals as columns without adding rows (for example
+    /// demanded integrals that no row has reached yet), with one `add_cols`.
+    pub(crate) fn register(&mut self, mut integrals: Vec<Integral<N>>) {
+        integrals.retain(|integral| self.column_index(integral).is_none());
+        integrals.sort_unstable_by(|left, right| self.order.compare(left, right));
+        integrals.dedup();
+        self.insert_sorted_columns(integrals);
+    }
+
     fn register_columns(&mut self, terms: &[Term<N, NumericalCoefficient>]) {
-        // Positions are relative to the old registry, as required by native
-        // add_cols. Several new columns may have the same insertion position.
-        let mut positions = Vec::new();
-        let mut additions = Vec::new();
-        for term in terms {
-            if let Err(position) = self
-                .columns
-                .binary_search_by(|column| self.order.compare(column, &term.integral))
-            {
-                positions.push(position as u32);
-                additions.push(term.integral);
-            }
-        }
+        let additions = terms
+            .iter()
+            .filter(|term| self.column_index(&term.integral).is_none())
+            .map(|term| term.integral)
+            .collect();
+        self.insert_sorted_columns(additions);
+    }
+
+    /// Register distinct new integrals, already sorted harder first, with a
+    /// single native `add_cols` call.
+    fn insert_sorted_columns(&mut self, additions: Vec<Integral<N>>) {
         if additions.is_empty() {
             return;
         }
+        // Positions are relative to the old registry, as required by native
+        // add_cols. Several new columns may have the same insertion position.
+        let positions: Vec<u32> = additions
+            .iter()
+            .map(|integral| {
+                let position = self
+                    .columns
+                    .binary_search_by(|column| self.order.compare(column, integral))
+                    .expect_err("only unregistered integrals are inserted");
+                position as u32
+            })
+            .collect();
+        debug_assert!(positions.windows(2).all(|pair| pair[0] <= pair[1]));
         let next_len = self
             .columns
             .len()
@@ -519,6 +701,7 @@ impl<const N: usize> Discovery<N> {
             "native sparse integral columns and sentinel must fit in u32"
         );
         self.reducer.add_cols(&positions);
+        self.column_batches += 1;
 
         let mut merged = Vec::with_capacity(next_len);
         let mut old_position = 0;

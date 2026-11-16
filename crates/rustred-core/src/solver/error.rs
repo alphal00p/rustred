@@ -1,6 +1,7 @@
 use std::fmt;
 
 use super::PowerError;
+use super::sector_box::{BoxPhase, LimitKind};
 
 #[derive(Debug)]
 pub enum SolverError {
@@ -15,6 +16,23 @@ pub enum SolverError {
     ExactReplay(String),
     /// A solution failed an independent certificate check.
     Certification(String),
+    /// A sector-box cap (opt-in, see `BoxLimits`) was exceeded.
+    Limit {
+        kind: LimitKind,
+        estimate: u64,
+        cap: u64,
+    },
+    /// A sector-box modular sample was unlucky in `phase`; resample.
+    UnluckyBoxSample {
+        phase: BoxPhase,
+    },
+    /// A sector-box seeding invariant failed, e.g. a representative sector
+    /// carries columns but was never seeded.
+    SeedingInvariant(String),
+    /// The strict sector-box master check failed (extra masters, a class
+    /// off its expected count after growth, or an unstable system), now or
+    /// earlier in the same session.
+    MasterCheck(String),
     /// The region probe refused to place the discovery point on the run's region (region-restricted runs only;
     /// `solver::region_probe::RegionRefusal`, e.g. a quotient ring above its cap).
     RegionPoint(String),
@@ -35,6 +53,18 @@ impl fmt::Display for SolverError {
             Self::UnluckySample => write!(f, "the modular sample lies on a coefficient pole"),
             Self::ExactReplay(message) => write!(f, "exact pivot replay failed: {message}"),
             Self::Certification(message) => write!(f, "certification failed: {message}"),
+            Self::Limit {
+                kind,
+                estimate,
+                cap,
+            } => write!(f, "sector-box limit on {kind}: {estimate} exceeds {cap}"),
+            Self::UnluckyBoxSample { phase } => {
+                write!(f, "unlucky sector-box modular sample in {phase}")
+            }
+            Self::SeedingInvariant(message) => {
+                write!(f, "sector-box seeding invariant violated: {message}")
+            }
+            Self::MasterCheck(message) => write!(f, "sector-box master check failed: {message}"),
             Self::RegionPoint(message) => write!(f, "region point not placed: {message}"),
         }
     }

@@ -83,6 +83,79 @@ kinematics, higher-even-rank projector, or closed three- or higher-loop family.
 The Rust API may change directly as these owners and callers are extended;
 obsolete facades are not retained for compatibility.
 
+## Sector-box solution exchange format
+
+`rustred::solver::sector_box` writes and reads reductions of its
+finite-field lane as JSON with schema `rustred-harness-solution.v1`
+(`BoxSolution::to_harness_json`, `BoxSolution::from_harness_json`; the
+constant `HARNESS_SOLUTION_SCHEMA`). One file holds every requested target
+of one session reduced onto the session's masters, with coefficients exact
+in one free parameter at fixed exact values of the others (for example one
+eta-DE at one value `d0` of the dimension). Exact-lane solutions
+(`ExactSolution`, any number of free parameters) are not written in v1.
+
+```json
+{
+ "schema": "rustred-harness-solution.v1",
+ "family": {"name": "...", "arity": 6, "fingerprint": "rustred-integral-family-v2;...", "router_fingerprint": "<hex blake3>"},
+ "parameters": ["d", "eta"],
+ "fixed": {"d": "37/11"},
+ "coefficient_field": {"kind": "Q"},
+ "masters": [[1,1,1,1,1,0], ...],
+ "rules": [
+  {"target": [2,1,1,1,1,1], "terms": [{"integral": [1,1,1,1,1,0], "coefficient": "(-2/33)/(1-5/6*eta+1/6*eta^2)"}, ...]},
+  ...
+ ],
+ "content_blake3": "<hex blake3>",
+ "stats": {"rows": 66, ..., "primes": [{"prime": 4611686018427387847, ...}], "verifications": [{"prime": 4611686018427387787, ...}], ...},
+ "certificates": [{"mode": "probabilistic", "prime": 9223372036854775783, "rows": 66, "rules": 9}],
+ "provenance": {"lane": "FiniteField", "free": "eta", "selected_hash": "...", "master_hash": "...", "unseeded_master_sectors": [], "extra": {...}}
+}
+```
+
+- `family`: the family fingerprint (`IntegralFamily::fingerprint`), its
+  arity and the hex blake3 fingerprint of the sector router
+  (`BoxLaportaSession::harness_family`). A reader accepts a file only for
+  the same fingerprint and arity, and the same router fingerprint when both
+  give one.
+- `parameters`: the family parameters in coefficient-variable order.
+  `fixed` maps every parameter except `provenance.free` to its exact value
+  (canonical `p/q` or integer string).
+- `masters`: integrals (one index per family denominator) in column order,
+  hardest first. Each rule reduces `target` to `sum terms[i].coefficient *
+  terms[i].integral`; every integral of a term is a master, at most once per
+  rule; terms with a zero coefficient are omitted. A target that is a master
+  has the single term `1` on itself.
+- Coefficients are univariate rational functions over Q in the free
+  parameter, printed in lowest terms as `numerator` or
+  `(numerator)/(denominator)`; polynomials are dense sums of `c`, `c*x`,
+  `x`, `c*x^k`, `x^k` in ascending degree, the denominator's lowest-degree
+  nonzero coefficient is `1`. The reader accepts only this canonical form.
+- `content_blake3`: blake3 of the compact JSON of `[parameters, fixed,
+  masters, rules]` (the mathematical content). A reader refuses a file whose
+  digest does not match; files without it (older v1 writers) are read, and
+  `HarnessRecord::content_checked` is `false` for them. The digest detects
+  corruption, not forgery: certify a file against a session before using it.
+- `stats.primes[].prime` are the reconstruction primes (in order),
+  `stats.verifications[].prime` the fresh verification primes;
+  `stats.skipped` lists primes the black box refused. A reader refuses a
+  file whose verification prime is a reconstruction prime, or that records
+  no reconstruction or no verification prime. The other `stats` keys are
+  statistics (counts, degrees, seconds); keys a reader does not know are
+  ignored, and optional keys absent from older v1 files read as zero.
+- `certificates` (optional; absent means none): certificates checked
+  before writing, `mode` `exact` or `probabilistic`, with the prime of a
+  probabilistic one. A certificate prime must not be a reconstruction or
+  verification prime; `BoxLaportaSession::certify` refuses such a prime and
+  `DEFAULT_CERTIFICATE_PRIME` (`2^63 - 25`, above every reconstruction
+  prime) is always independent.
+- `provenance`: the lane, the free parameter, the blake3 hashes of the
+  modular selection and of the masters, the sectors of masters without a
+  seeded box, and `extra`, a caller object (job name, producer, ...).
+
+Every value file used downstream must pass verification at a prime that is
+not one of its reconstruction primes, with all primes stated in the file.
+
 ## Shared application API
 
 `rustred-app` exposes transport-neutral derivation, campaign, artifact, and
