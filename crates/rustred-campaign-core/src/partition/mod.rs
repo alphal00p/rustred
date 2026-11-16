@@ -630,6 +630,8 @@ pub struct PartitionReport {
     /// dispatch position). Their regions are open: the point oracle stays exact (`uncovered`), `class_of` answers
     /// `Unexplored` there, the outcome is `Partial` (aborted).
     blocked_skipped: Vec<(usize, usize)>,
+    /// Work spent per blocked sub-partition, in computation order: (source, units, classes, complete). Diagnostic only.
+    blocked_work: Vec<(usize, u64, usize, bool)>,
     /// Why the call's work budget was exhausted (main recursion, a sub-partition or the loci), if it was.
     budget_exhausted: Option<String>,
     /// Main report: per rule the smallest dispatch position of its sources (for the blocked regions' oracle).
@@ -849,7 +851,14 @@ pub(crate) fn gap_partition_with(
                     _ => None,
                 })
                 .collect();
+            let u0 = meter.used();
             let mut b = partition_nf(sub, opts, None, meter, mode)?;
+            rep.blocked_work.push((
+                e,
+                meter.used().saturating_sub(u0),
+                b.classes.len(),
+                b.outcome.is_complete(),
+            ));
             b.coverage = opts.coverage;
             b.blocked_stop = which;
             if !inexact.is_empty() {
@@ -1046,6 +1055,7 @@ fn partition_nf(
         blocked: vec![],
         blocked_empty: 0,
         blocked_skipped: vec![],
+        blocked_work: vec![],
         budget_exhausted: None,
         rule_min_pos: vec![],
         blocked_pos: 0,
@@ -1207,6 +1217,10 @@ impl PartitionReport {
     /// (partfix2, re-audit RA2-M5).
     pub fn blocked_skipped(&self) -> &[(usize, usize)] {
         &self.blocked_skipped
+    }
+    /// Work spent per blocked sub-partition, in computation order: (source, units, classes, complete).
+    pub fn blocked_work(&self) -> &[(usize, u64, usize, bool)] {
+        &self.blocked_work
     }
     /// Why the call's work budget was exhausted, if it was (partfix2).
     pub fn budget_exhausted(&self) -> Option<&str> {

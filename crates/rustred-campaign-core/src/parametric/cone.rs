@@ -1044,6 +1044,19 @@ pub fn partition_for_cones_traced(
         sizes(&report),
         blocked
     ));
+    {
+        let mut w: Vec<(usize, u64, usize, bool)> = report.blocked_work().to_vec();
+        let total: u64 = w.iter().map(|x| x.1).sum();
+        w.sort_by_key(|x| std::cmp::Reverse(x.1));
+        w.truncate(25);
+        trace(&format!(
+            "blocked sub-partitions: {} computed, {} units; skipped {:?}; largest (source, units, classes, complete) {:?}",
+            report.blocked_work().len(),
+            total,
+            report.blocked_skipped(),
+            w
+        ));
+    }
     let mut flags = Vec::new();
     if let Err(e) = report.complete_run() {
         flags.push(format!("not a complete run: {e}"));

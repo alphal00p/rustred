@@ -1379,6 +1379,12 @@ fn b2_face_by_face() {
     let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
         .ok()
         .map(|f| restore_loci(&mut ld, &f));
+    let bank_loci = std::env::var("PARAMETRIC_BANK_LOCI")
+        .ok()
+        .map(|f| restore_bank_loci(&mut ld, &f));
+    if let Some(b) = &bank_loci {
+        eprintln!("bank witness loci: {b}");
+    }
     // PARAMETRIC_NOTCARRIED=engine: records whose source carries NO witness loci (status NotCarried: T162's converted
     // bank tables) are treated as the ENGINE treats them (its matcher never tests witness loci; it writes their
     // vanishing sets into the exceptions): their witness check is disabled (Assurance::CheckDisabled, labelled in the
@@ -1428,6 +1434,12 @@ fn b2_face_by_face() {
         let mut l2 = load_any(Path::new(rs), None);
         if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
             restore_loci(&mut l2, &f);
+        }
+        if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+            eprintln!(
+                "re-dispatcher bank witness loci: {}",
+                restore_bank_loci(&mut l2, &f)
+            );
         }
         if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
             use rustred_campaign_core::cover::{Assurance, WitnessStatus};
@@ -1868,6 +1880,7 @@ fn b2_face_by_face() {
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "restored_loci": restored, "fall_through": ft_mode, "fall_through_stats": ft_stats, "factor_exceptions": opts.factor_exceptions,
         "notcarried_witness_check_disabled": notcarried_disabled, "elided_engine": elided_engine, "residual_redispatch_spec": redispatch_spec,
+        "bank_witness_loci": bank_loci,
         "budget_per_piece": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo, "rss_gb": rss_max >> 30},
         "pieces": {"done": done.len(), "refined": refined, "failed": failed.iter().map(|v| v["piece"].clone()).collect::<Vec<_>>(), "run_now": n_run},
     });
@@ -2553,4 +2566,135 @@ fn drill_core_first_match() {
     }
     f.flush().unwrap();
     eprintln!("drill: {n} keys dispatched");
+}
+
+/// T162 bank witness loci (reports/T162-WITNESS-LOCI.md; witness-loci-bank.jsonl, one line per bank record): RESTORED /
+/// RESTORED_WITH_HIDDEN_BRANCHES records get their witness loci as pole loci (status Complete) and the hidden exception
+/// branches; NOT_ESTABLISHED records are left as they are (no witness loci: they BLOCK under the strict reading). Matched
+/// by the raw line's sha256 (import jobs: `record_sha256`, bank-conv tables) or, for catalogue tables built by lane
+/// parametric, by `origin.source == "bank#<index>"`.
+fn restore_bank_loci(ld: &mut Loaded, file: &str) -> serde_json::Value {
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    use std::io::{Read, Seek, SeekFrom};
+    let mut by_sha: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut by_index: BTreeMap<i64, serde_json::Value> = BTreeMap::new();
+    for l in std::fs::read_to_string(file)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+    {
+        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+        by_sha.insert(v["record_sha256"].as_str().unwrap().to_string(), v.clone());
+        by_index.insert(v["index"].as_i64().unwrap(), v);
+    }
+    let n = ld.frame.arity();
+    let mut tables: Vec<Table> = ld.disp.tables().to_vec();
+    let (mut restored, mut hidden, mut not_est, mut matched) = (0usize, 0usize, 0usize, 0usize);
+    let mut elided_kept = 0usize;
+    let mut unproven: Vec<serde_json::Value> = Vec::new();
+    let unproven_engine = std::env::var("PARAMETRIC_BANK_UNPROVEN").as_deref() == Ok("engine");
+    let mut seen: std::collections::BTreeSet<i64> = std::collections::BTreeSet::new();
+    for j in &mut ld.jobs {
+        let mut entry = by_sha.get(&j.record_sha256).cloned();
+        if entry.is_none() {
+            let mut f = std::fs::File::open(&j.path).unwrap();
+            f.seek(SeekFrom::Start(j.offset)).unwrap();
+            let mut b = vec![0u8; j.bytes as usize];
+            f.read_exact(&mut b).unwrap();
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b)
+                && let Some(s) = v["origin"]["source"].as_str()
+                && let Some(ix) = s.strip_prefix("bank#").and_then(|x| x.parse::<i64>().ok())
+            {
+                entry = by_index.get(&ix).cloned();
+            }
+        }
+        let Some(e) = entry else { continue };
+        matched += 1;
+        seen.insert(e["index"].as_i64().unwrap());
+        let status = e["status"].as_str().unwrap_or("");
+        let ix = e["index"].as_i64().unwrap();
+        let t = &mut tables[j.table];
+        let d = &mut t.domains[j.record];
+        // hidden exception branches (the re-lift's rule has them): added where not already present; this only
+        // removes domain
+        if let Some(hb) = e["hidden_branches"].as_array() {
+            for br in hb {
+                let members: Vec<rustred_campaign_core::poly::Poly> = match br {
+                    serde_json::Value::Array(a) => a
+                        .iter()
+                        .map(|m| {
+                            rustred_campaign_core::poly::Poly::parse_d_free_exact(
+                                m.as_str().unwrap(),
+                                n,
+                            )
+                            .unwrap()
+                        })
+                        .collect(),
+                    serde_json::Value::String(s) => {
+                        vec![rustred_campaign_core::poly::Poly::parse_d_free_exact(s, n).unwrap()]
+                    }
+                    _ => continue,
+                };
+                if !d.exceptions.contains(&members) {
+                    d.exceptions.push(members);
+                    hidden += 1;
+                }
+            }
+        }
+        let loci: Vec<String> = e["witness_loci"]
+            .as_array()
+            .map(|a| a.iter().map(|x| x.as_str().unwrap().to_string()).collect())
+            .unwrap_or_default();
+        let elided = loci.iter().any(|x| x.trim() == "elided");
+        if status == "NOT_ESTABLISHED" || elided {
+            // strict: unusable wherever selected (NotCarried / Elided); PARAMETRIC_BANK_UNPROVEN=engine applies them as
+            // the engine does (to measure their cost by difference)
+            if status == "NOT_ESTABLISHED" {
+                not_est += 1;
+                unproven.push(json!({"bank": ix, "status": status, "why": "not established"}));
+            } else {
+                elided_kept += 1;
+                d.witness_elided = true;
+                t.meta[j.record].witness = rustred_campaign_core::cover::WitnessStatus::Elided;
+                unproven.push(json!({"bank": ix, "status": status, "why": "restored loci are the literal elided (ruling F1)"}));
+            }
+            if unproven_engine {
+                d.witness_elided = false;
+                t.meta[j.record].witness_basis =
+                    rustred_campaign_core::cover::Assurance::CheckDisabled;
+            }
+            j.domain = d.clone();
+            continue;
+        }
+        d.poles.retain(|p| p.kind != PoleKind::Witness);
+        for s in &loci {
+            let p = rustred_campaign_core::poly::Poly::parse_exact(s, n, true).unwrap();
+            d.poles.push(PoleLocus::new(PoleKind::Witness, &p));
+        }
+        d.witness_elided = false;
+        t.meta[j.record].witness = rustred_campaign_core::cover::WitnessStatus::Complete;
+        t.meta[j.record].witness_basis = rustred_campaign_core::cover::Assurance::Record;
+        j.domain = d.clone();
+        restored += 1;
+    }
+    let still_notcarried = tables
+        .iter()
+        .flat_map(|t| t.meta.iter())
+        .filter(|m| m.witness == rustred_campaign_core::cover::WitnessStatus::NotCarried)
+        .count();
+    let still_elided = tables
+        .iter()
+        .flat_map(|t| t.domains.iter())
+        .filter(|d| d.witness_elided)
+        .count();
+    let pr = ld.disp.priority().to_vec();
+    ld.disp = Dispatcher::new(tables, pr)
+        .unwrap()
+        .with_chart(ld.frame.mask().to_vec())
+        .unwrap();
+    json!({"file": file, "sha256": sha256_file(Path::new(file)), "lines": by_sha.len(), "records_matched": matched,
+           "distinct_bank_indices_matched": seen.len(), "restored": restored, "hidden_branches_added": hidden,
+           "not_established": not_est, "elided_loci": elided_kept, "unproven": unproven,
+           "unproven_applied_as_engine": unproven_engine,
+           "records_still_notcarried": still_notcarried, "records_still_elided": still_elided})
 }
