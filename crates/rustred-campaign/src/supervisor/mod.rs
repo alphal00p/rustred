@@ -964,6 +964,25 @@ impl Supervisor {
         admission.floor_bytes = opts.spec.resources.host_floor.0;
         admission.campaign_mem_cap_bytes =
             Some(opts.mem_total.unwrap_or(opts.spec.resources.mem_total.0));
+        // lane wireflow (zerosfix finding): the most admission can ever see here; a configuration under which nothing
+        // can ever be admitted is a TYPED refusal at start, not a silent wait
+        if let Ok(m) = host_memory() {
+            let lim = crate::resources::cgroup_limit();
+            admission.host_ceiling_bytes = Some(admission::host_ceiling(
+                m.mem_total,
+                lim,
+                admission.floor_bytes,
+            ));
+            if let Some(why) = admission::never_admits(
+                m.mem_total,
+                lim,
+                admission.floor_bytes,
+                admission.campaign_mem_cap_bytes,
+            ) {
+                log.line("ERROR", &format!("admission: {why}"));
+                return Err(RunExit::Refused(format!("admission: {why}")));
+            }
+        }
         let mut programs = BTreeMap::new();
         for (name, p) in &opts.spec.programs {
             match file_digest(&p.path) {
@@ -4355,7 +4374,10 @@ impl Supervisor {
             .collect();
         let now = base.elapsed();
         let host = HostView {
-            mem_available_bytes: host_memory().map(|m| m.effective_available()).unwrap_or(0),
+            // lane wireflow (zerosfix finding): the cgroup headroom gets the SPEC's floor, the one it is compared with
+            mem_available_bytes: host_memory()
+                .map(|m| m.effective_available_for(self.admission.floor_bytes))
+                .unwrap_or(0),
             measured_at: now,
             now,
         };
@@ -4500,7 +4522,8 @@ impl Supervisor {
             ),
             measured_rss_bytes: rss,
             mem_cap_bytes: self.admission.campaign_mem_cap_bytes,
-            host_mem_available_bytes: mem.map(|m| m.effective_available()),
+            host_mem_available_bytes: mem
+                .map(|m| m.effective_available_for(self.admission.floor_bytes)),
             host_floor_bytes: Some(self.admission.floor_bytes),
             disk_free_bytes: statvfs_avail(&self.cdir),
             large_free_bytes: statvfs_avail(&self.work_root),

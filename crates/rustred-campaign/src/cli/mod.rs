@@ -542,7 +542,8 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
     }
     match crate::resources::host_memory() {
         Ok(m) => {
-            let avail = m.effective_available();
+            // lane wireflow (zerosfix finding): the cgroup headroom with the SPEC's floor (the one compared below)
+            let avail = m.effective_available_for(r.host_floor.0);
             let first_cap = spec.synthetic.as_ref().map_or(0, |s| s.mem_cap_mb << 20);
             if avail < r.host_floor.0 + first_cap {
                 pf(
