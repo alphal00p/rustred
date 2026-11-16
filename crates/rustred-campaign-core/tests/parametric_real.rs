@@ -513,7 +513,7 @@ fn b2_cone_coverage_on_a_real_set() {
                 unsized_cells += 1;
                 continue;
             }
-            match cell_keys_each(&el.region, &cone, &ld.frame, 1_000_000, &mut |k| {
+            match cell_keys_each(&el.region(), &cone, &ld.frame, 1_000_000, &mut |k| {
                 keys_here.push(k.to_vec())
             }) {
                 Some(()) => {
@@ -1340,7 +1340,7 @@ fn b2_face_by_face() {
     use rustred_campaign_core::parametric::check::check_cone_certificate;
     use rustred_campaign_core::parametric::cone::{
         ConeOptions, capped_dispatcher, cell_keys_each, certificate, coverage_from_partition,
-        face_piece, partition_for_cones_with,
+        face_piece, partition_for_cones_traced,
     };
     use rustred_campaign_core::partition::face_of;
     use std::cell::Cell;
@@ -1461,6 +1461,7 @@ fn b2_face_by_face() {
         opts.budget.max_memo = Some(m);
     }
     opts.factor_exceptions = std::env::var("PARAMETRIC_FACTOR_EXCEPTIONS").as_deref() == Ok("1");
+    opts.describe = std::env::var("PARAMETRIC_DESCRIBE").as_deref() == Ok("1");
     let dir = PathBuf::from(format!("{out}.pieces"));
     std::fs::create_dir_all(&dir).unwrap();
     let lines_path = format!("{out}.pieces.jsonl");
@@ -1553,7 +1554,9 @@ fn b2_face_by_face() {
             }
         };
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            partition_for_cones_with(&capped, &frame, &opts, Some(&cb))
+            partition_for_cones_traced(&capped, &frame, &opts, Some(&cb), &|m: &str| {
+                eprintln!("  [{id}] {m}; rss {:.1} GB", rss_bytes() as f64 / 1e9)
+            })
         }));
         let cp = match res {
             Err(payload) => {
@@ -1624,7 +1627,7 @@ fn b2_face_by_face() {
                     continue;
                 }
                 let mut keys_here = Vec::new();
-                match cell_keys_each(&el.region, &cone, &frame, 1_000_000, &mut |k| {
+                match cell_keys_each(&el.region(), &cone, &frame, 1_000_000, &mut |k| {
                     keys_here.push(k.to_vec())
                 }) {
                     Some(()) => {

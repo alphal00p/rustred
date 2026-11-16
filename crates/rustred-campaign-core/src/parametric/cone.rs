@@ -130,6 +130,8 @@ pub struct ConeOptions {
     /// AND(f, h) OR AND(g, h), linear factors first); default off (the minting options). For dispatchers whose
     /// exception branches are products of linear factors (e.g. pole loci moved by [`fall_through_poles`]).
     pub factor_exceptions: bool,
+    /// Run the partition in Describe mode (with the face list) instead of Cells mode (diagnostics).
+    pub describe: bool,
 }
 
 impl Default for ConeOptions {
@@ -144,6 +146,7 @@ impl Default for ConeOptions {
             point_tries: 48,
             enumeration: 200_000,
             factor_exceptions: false,
+            describe: false,
         }
     }
 }
@@ -366,12 +369,31 @@ pub struct GapElement {
     pub kind: &'static str,
     /// The blocking record (dispatch position) of a blocked sub-partition, if the element is one.
     pub blocked_by: Option<usize>,
-    /// The element's region (cells: one parameter per slot, interval constraints).
-    pub region: Region,
+    /// A CELL (uncovered / unexplored class): its per-slot intervals `(lo, hi)` (chart bounds included); the region
+    /// (identity parameter map) is built on demand by [`GapElement::region`]. Compact: a real partition lists
+    /// hundreds of thousands of cells (T162: 770,709), whose full regions do not fit in memory.
+    pub cell: Option<Vec<(Option<i64>, Option<i64>)>>,
+    /// The region of a non-cell element (resolved locus piece, unresolved part): a lattice region.
+    pub lattice: Option<Region>,
     /// Uncovered keys the partition found in it (oracle witnesses, never a decision).
     pub seeds: Vec<Vec<i32>>,
-    /// Text for the report (state intervals, cut trail, reason).
+    /// Text for the report (cut trail, reason; empty for a cell: its intervals are the text).
     pub note: String,
+}
+
+impl GapElement {
+    /// The element's region (a cell's is built from its intervals).
+    pub fn region(&self) -> std::borrow::Cow<'_, Region> {
+        match (&self.lattice, &self.cell) {
+            (Some(r), _) => std::borrow::Cow::Borrowed(r),
+            (None, Some(c)) => {
+                let lo: Vec<Option<i64>> = c.iter().map(|x| x.0).collect();
+                let hi: Vec<Option<i64>> = c.iter().map(|x| x.1).collect();
+                std::borrow::Cow::Owned(identity_region(c.len(), &lo, &hi))
+            }
+            (None, None) => unreachable!("a gap element is a cell or a lattice region"),
+        }
+    }
 }
 
 /// The verdict of one element within the cone.
@@ -449,15 +471,13 @@ fn identity_region(n: usize, lo: &[Option<i64>], hi: &[Option<i64>]) -> Region {
 }
 
 /// The cell of a class: per slot its state interval intersected with the chart side.
-fn class_cell(
+fn class_box(
     rep: &PartitionReport,
     frame: &NodeFrame,
     states: &[Option<u16>],
-) -> (Region, String) {
+) -> Vec<(Option<i64>, Option<i64>)> {
     let n = frame.arity();
-    let mut lo = vec![None; n];
-    let mut hi = vec![None; n];
-    let mut text = Vec::with_capacity(n);
+    let mut out = Vec::with_capacity(n);
     for s in 0..n {
         let (cl, ch) = if frame.is_line(s) {
             (Some(1i64), None)
@@ -471,21 +491,17 @@ fn class_cell(
             }
             None => (None, None),
         };
-        lo[s] = match (l, cl) {
+        let lo = match (l, cl) {
             (Some(a), Some(b)) => Some(a.max(b)),
             (a, b) => a.or(b),
         };
-        hi[s] = match (h, ch) {
+        let hi = match (h, ch) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         };
-        text.push(format!(
-            "[{},{}]",
-            lo[s].map_or("-inf".into(), |v| v.to_string()),
-            hi[s].map_or("inf".into(), |v| v.to_string())
-        ));
+        out.push((lo, hi));
     }
-    (identity_region(n, &lo, &hi), text.join(" "))
+    out
 }
 
 /// Every gap element of `rep` and of its blocked sub-partitions.
@@ -501,13 +517,13 @@ pub fn gap_elements(
             Label::Unexplored => "unexplored",
             Label::Fragile => continue,
         };
-        let (region, note) = class_cell(rep, frame, &c.states);
         out.push(GapElement {
             kind,
             blocked_by,
-            region,
+            cell: Some(class_box(rep, frame, &c.states)),
+            lattice: None,
             seeds: vec![],
-            note,
+            note: String::new(),
         });
     }
     if let Some(res) = rep.resolution() {
@@ -516,7 +532,8 @@ pub fn gap_elements(
                 out.push(GapElement {
                     kind: "locus",
                     blocked_by,
-                    region: p.region.clone(),
+                    cell: None,
+                    lattice: Some(p.region.clone()),
                     seeds: p.witness.clone(),
                     note: format!(
                         "locus {} face {:?}: trail {:?} minus {:?}{}",
@@ -536,7 +553,8 @@ pub fn gap_elements(
                 out.push(GapElement {
                     kind: "unresolved",
                     blocked_by,
-                    region: u.region.clone(),
+                    cell: None,
+                    lattice: Some(u.region.clone()),
                     seeds: u.points.clone(),
                     note: format!("locus {}: {} ({})", l.id, u.reason, u.equation),
                 });
@@ -660,7 +678,7 @@ pub fn decide_element(
             return ElementVerdict::Uncovered { witness: s.clone() };
         }
     }
-    let Some(reg) = with_cone(&el.region, cone) else {
+    let Some(reg) = with_cone(&el.region(), cone) else {
         return ElementVerdict::Undecided {
             reason: "overflow while adding the cone constraints".into(),
         };
@@ -860,6 +878,17 @@ pub fn partition_for_cones_with(
     opts: &ConeOptions,
     progress: Option<&dyn Fn(&Progress)>,
 ) -> Result<ConePartition, String> {
+    partition_for_cones_traced(disp, frame, opts, progress, &|_| {})
+}
+
+/// [`partition_for_cones_with`] with a trace callback (one line after the partition, one after the gap elements).
+pub fn partition_for_cones_traced(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    opts: &ConeOptions,
+    progress: Option<&dyn Fn(&Progress)>,
+    trace: &dyn Fn(&str),
+) -> Result<ConePartition, String> {
     let src = DispatcherSource::new(disp);
     if src.arity() != frame.arity() {
         return Err(format!(
@@ -874,8 +903,18 @@ pub fn partition_for_cones_with(
     let t0 = std::time::Instant::now();
     let mut po = partition_options(&opts.budget);
     po.factor_exceptions = opts.factor_exceptions;
-    let report =
-        gap_partition_cells(&src, frame, &po, progress).map_err(|e| format!("partition: {e:?}"))?;
+    let report = if opts.describe {
+        crate::partition::gap_partition(&src, frame, &po, progress)
+    } else {
+        gap_partition_cells(&src, frame, &po, progress)
+    }
+    .map_err(|e| format!("partition: {e:?}"))?;
+    trace(&format!(
+        "partition report in {:.1} s: {} classes, {} blocked sub-reports",
+        t0.elapsed().as_secs_f64(),
+        report.classes().len(),
+        report.blocked().len()
+    ));
     let mut flags = Vec::new();
     if let Err(e) = report.complete_run() {
         flags.push(format!("not a complete run: {e}"));
@@ -885,6 +924,11 @@ pub fn partition_for_cones_with(
     }
     let mut elements = Vec::new();
     gap_elements(&report, frame, None, &mut elements);
+    trace(&format!(
+        "gap elements in {:.1} s: {}",
+        t0.elapsed().as_secs_f64(),
+        elements.len()
+    ));
     Ok(ConePartition {
         report,
         elements,
@@ -895,7 +939,16 @@ pub fn partition_for_cones_with(
 
 /// Membership with a fast path for cells (identity parameter map: the constraints are evaluated at the key).
 fn element_contains(el: &GapElement, key: &[i32]) -> Option<bool> {
-    let r = &el.region;
+    if let Some(c) = &el.cell {
+        return Some(
+            c.len() == key.len()
+                && c.iter().zip(key).all(|((lo, hi), &v)| {
+                    lo.is_none_or(|l| i64::from(v) >= l) && hi.is_none_or(|h| i64::from(v) <= h)
+                }),
+        );
+    }
+    let r = el.region();
+    let r = r.as_ref();
     let identity = r.k == key.len()
         && r.x.iter().enumerate().all(|(s, a)| {
             a.c == 0
@@ -942,14 +995,18 @@ pub fn coverage_from_partition(
         }
         if v != ElementVerdict::OutsideCone {
             // a CELL (identity parameter map, one-slot constraints) is listed compactly as its per-slot intervals
-            let entry = match cell_box(&el.region) {
-                Some(bx) => json!({
-                    "element": i, "kind": el.kind, "blocked_by": el.blocked_by, "box": bx, "v": v,
+            let entry = match &el.cell {
+                Some(c) => json!({
+                    "element": i, "kind": el.kind, "blocked_by": el.blocked_by,
+                    "box": c.iter().map(|(l, h)| json!([l, h])).collect::<Vec<_>>(), "v": v,
                 }),
-                None => json!({
-                    "element": i, "kind": el.kind, "blocked_by": el.blocked_by, "note": el.note,
-                    "x": el.region.render_x(), "constraints": el.region.render_cons(), "region": region_json(&el.region), "v": v,
-                }),
+                None => {
+                    let r = el.region();
+                    json!({
+                        "element": i, "kind": el.kind, "blocked_by": el.blocked_by, "note": el.note,
+                        "x": r.render_x(), "constraints": r.render_cons(), "region": region_json(&r), "v": v,
+                    })
+                }
             };
             listed.push(entry);
         }
