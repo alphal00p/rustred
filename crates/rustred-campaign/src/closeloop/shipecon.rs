@@ -838,6 +838,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         order: cfg.order.clone(),
         max_trace_rows: p.recipe.max_trace_rows,
         key_budget_s: p.recipe.key_budget_s,
+        // the user's pole objective (regular at d = 4 wins by default): the SOLVED lines carry its annotation
+        pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
     };
     let sampler = Arc::new(
         Sampler::spawn(SamplerConfig {
