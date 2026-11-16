@@ -386,7 +386,8 @@ pub const EVIDENCE_MANIFEST_SCHEMA: &str = "rustred.campaign.evidence-manifest.v
 /// is read.
 pub fn resolve_evidence(base: &Path, r: &FileRef) -> Result<Vec<(PathBuf, String)>, ImportError> {
     let p = super::spec::resolve(base, &r.path);
-    if !p.is_dir() {
+    // procfix7 round 5 (gate9 G9-B1 class): a stat error is an error, never "not a directory" / "not a file"
+    if !super::store::is_dir_typed(&p)? {
         let Some(want) = r.sha256.as_deref() else {
             return Err(ImportError::Spec(format!(
                 "evidence file {} is not pinned: give its sha256 (unpinned evidence is never read)",
@@ -448,7 +449,9 @@ pub fn resolve_evidence(base: &Path, r: &FileRef) -> Result<Vec<(PathBuf, String
     for e in std::fs::read_dir(&p).map_err(|e| io_err(&p, e))? {
         let e = e.map_err(|er| io_err(&p, er))?;
         let q = e.path();
-        let ok = q.is_file()
+        // procfix7 round 5: the entry's type from the listing (a symlink is followed by a TYPED stat): an entry whose
+        // type cannot be read fails the listing (it was skipped: an unlisted file escaped the manifest check)
+        let ok = super::store::entry_is_file(&e, &q)?
             && q.extension()
                 .and_then(|x| x.to_str())
                 .is_some_and(|x| x == "json" || x == "jsonl");
@@ -507,7 +510,7 @@ fn evidence_files(
 ) -> Result<Vec<(PathBuf, String)>, ImportError> {
     if ledger_verified && r.sha256.is_none() && r.manifest.is_none() {
         let p = super::spec::resolve(base, &r.path);
-        if p.is_file() {
+        if super::store::is_file_typed(&p)? {
             let d = verify_file(&p, None)?;
             return Ok(vec![(p, d)]);
         }

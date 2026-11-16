@@ -195,8 +195,12 @@ impl CampaignLock {
     pub fn is_intact(&self) -> bool {
         use std::os::unix::fs::MetadataExt;
         let Some(f) = &self.file else { return false };
-        match (f.metadata(), fs::metadata(self.dir.join(LOCK_FILE))) {
-            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        // procfix7 round 5: a lock file that cannot be checked is NOT intact (conservative)
+        match (
+            f.metadata(),
+            crate::fsx::presence("lock.file", &self.dir.join(LOCK_FILE)),
+        ) {
+            (Ok(a), crate::fsx::Presence::Present(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
             _ => false,
         }
     }
@@ -206,7 +210,22 @@ impl CampaignLock {
     }
     fn release_inner(&mut self) -> io::Result<()> {
         if let Some(file) = self.file.take() {
-            let r = fs::remove_file(self.dir.join(OWNER_FILE));
+            // procfix7 round 5 (destructive action, positive proof): LOCK.json is removed only when, read back now, it
+            // names OUR token (a record another holder wrote after a replaced lock file is never removed by us)
+            let r = match read_owner(&self.dir) {
+                Ok(Some(o)) if o.token == self.owner.token => {
+                    fs::remove_file(self.dir.join(OWNER_FILE))
+                }
+                Ok(None) => Ok(()),
+                Ok(Some(_)) => Err(io::Error::other(format!(
+                    "{}: names another holder: left in place",
+                    self.dir.join(OWNER_FILE).display()
+                ))),
+                Err(e) => Err(io::Error::other(format!(
+                    "{}: cannot be read ({e}): left in place",
+                    self.dir.join(OWNER_FILE).display()
+                ))),
+            };
             drop(file);
             r.or_else(|e| {
                 if e.kind() == io::ErrorKind::NotFound {
@@ -239,8 +258,18 @@ pub fn acquire(
         source: e,
     })?;
     let lock_path = dir.join(LOCK_FILE);
-    if fs::symlink_metadata(&lock_path).is_ok_and(|m| m.file_type().is_symlink()) {
-        return Err(LockError::Symlink { path: lock_path });
+    // procfix7 round 5: a lock path that cannot be checked is refused (never "not a symlink")
+    match crate::fsx::presence_lstat("lock.file", &lock_path) {
+        crate::fsx::Presence::Present(m) if m.file_type().is_symlink() => {
+            return Err(LockError::Symlink { path: lock_path });
+        }
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Unknown(e) => {
+            return Err(LockError::Io {
+                path: lock_path,
+                source: e,
+            });
+        }
     }
     // std opens with O_CLOEXEC: the descriptor is not inherited across exec.
     let file = OpenOptions::new()
@@ -488,6 +517,7 @@ pub fn holders_of(path: &Path) -> Vec<u32> {
     out
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

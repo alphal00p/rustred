@@ -4,6 +4,7 @@
 //! the audited code (run them with `--ignored`); the others are regression tests that pass.
 //! B1 (exit 0 with a marked survivor when one ledger read fails at recovery) needs a fault injector (LD_PRELOAD): its
 //! reproduction is the script audit/gate7/scripts/g7_partial_inner.sh with audit/gate7/src/g7fault.c.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

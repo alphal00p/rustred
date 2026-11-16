@@ -1,6 +1,7 @@
 //! procfix3 regressions at the supervisor level (real `rr_campaign` + `rr_fake_child`, LIGHT_PIDNS=1, rule L10):
 //! item 6 (unconfirmed launch = execution unknown), item 4 (supervisor resource errors at launch), gate-B m1 (control
 //! order), gate-B m2 (verify reasons).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

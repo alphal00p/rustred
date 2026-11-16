@@ -7,6 +7,7 @@
 //!   "key_budget_s"}`.
 //! Writes `out_dir/report.json`: per recipe the adapter row, the sealed record's verdict / sizes / digests / proof,
 //! and the containment of each explicit list in the generic family at the key.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::termmin::direct::{DirectConfig, solve_recipe_once};

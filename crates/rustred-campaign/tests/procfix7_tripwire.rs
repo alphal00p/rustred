@@ -8,6 +8,7 @@
 //!    the count raised here;
 //! 2. the three module roots deny `clippy::let_underscore_must_use` and `unused_must_use`;
 //! 3. no ledger pass (`for_each_record`) has its result dropped.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

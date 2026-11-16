@@ -10,6 +10,7 @@
 //! decoys therefore run with an EMPTY capability bounding set (as the user's processes on the host), and a decoy is made
 //! non-dumpable the way the kernel does it for any exec of a file its caller cannot read (an execute-only copy of
 //! `sleep`, exec'd by a capability-less shell).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

@@ -413,13 +413,14 @@ pub struct IntentLine {
 pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
     std::fs::create_dir_all(log_dir)?;
     let path = log_dir.join(INTENT_LOG_FILE);
-    let new = !path.exists();
+    // only the directory sync depends on it: a log that cannot be checked counts as new (synced)
+    let new = !crate::fsx::presence_lstat("guard.fallback", &path).is_present();
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)?;
     let reserve = log_dir.join(INTENT_RESERVE_FILE);
-    if std::fs::symlink_metadata(&reserve).is_err() {
+    if !crate::fsx::presence_lstat("guard.reserve", &reserve).is_present() {
         // Best effort: the reserve only helps a later write on a full disk.
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create_new(true)
@@ -493,18 +494,24 @@ pub fn intent_fallback_base() -> PathBuf {
 /// first is never used: the remedy procfix3 gave the id lock).
 fn private_dir(dir: &Path, create: bool) -> io::Result<()> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
-    match std::fs::symlink_metadata(dir) {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound && create => {
+    match crate::fsx::presence_lstat("guard.fallback", dir) {
+        crate::fsx::Presence::Present(_) => {}
+        crate::fsx::Presence::Absent if create => {
             match std::fs::DirBuilder::new().mode(0o700).create(dir) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
                 Err(e) => return Err(e),
             }
         }
-        Err(e) => return Err(e),
+        crate::fsx::Presence::Absent => {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{}: not found", dir.display()),
+            ));
+        }
+        crate::fsx::Presence::Unknown(e) => return Err(e),
     }
-    let m = std::fs::symlink_metadata(dir)?;
+    let m = crate::fsx::presence_lstat("guard.fallback", dir).metadata()?;
     if !m.file_type().is_dir() {
         return Err(io::Error::other(format!(
             "{}: not a directory (or a symlink)",
@@ -533,7 +540,7 @@ fn private_dir(dir: &Path, create: bool) -> io::Result<()> {
 /// `create`, created. Err: no usable fallback directory (NotFound when it does not exist and `create` is false).
 pub fn intent_fallback_dir_checked(cdir: &Path, create: bool) -> io::Result<PathBuf> {
     use std::os::unix::fs::MetadataExt;
-    let md = std::fs::metadata(cdir)?;
+    let md = crate::fsx::presence("guard.fallback", cdir).metadata()?;
     let base = intent_fallback_base();
     if create && !on_tmpfs(Path::new("/dev/shm")) {
         return Err(io::Error::other("/dev/shm is not a tmpfs"));
@@ -545,10 +552,10 @@ pub fn intent_fallback_dir_checked(cdir: &Path, create: bool) -> io::Result<Path
 }
 
 /// The fallback directory of `cdir` (not created, not checked; see [`intent_fallback_dir_checked`]).
-pub fn intent_fallback_dir(cdir: &Path) -> Option<PathBuf> {
+pub fn intent_fallback_dir(cdir: &Path) -> io::Result<PathBuf> {
     use std::os::unix::fs::MetadataExt;
-    let md = std::fs::metadata(cdir).ok()?;
-    Some(intent_fallback_base().join(format!("{}-{}", md.dev(), md.ino())))
+    let md = crate::fsx::presence("guard.fallback", cdir).metadata()?;
+    Ok(intent_fallback_base().join(format!("{}-{}", md.dev(), md.ino())))
 }
 
 /// procfix7 (gate6 m3-a): give the INSTALLED intent log its tmpfs fallback for this session (`<dir>/<session>.jsonl`,
@@ -612,7 +619,7 @@ pub fn install_intent_fallback(cdir: &Path, campaign_id: &str) -> io::Result<Pat
 /// a log of an older binary: never merged).
 pub fn read_fallback_header(path: &Path) -> io::Result<Option<(String, String)>> {
     use std::io::BufRead;
-    let f = std::fs::File::open(path)?;
+    let f = crate::fsx::open("guard.fallback", path).required(path)?;
     let mut first = String::new();
     std::io::BufReader::new(f).read_line(&mut first)?;
     Ok(serde_json::from_str::<IntentLine>(first.trim())
@@ -629,11 +636,11 @@ pub fn intent_fallback_logs(cdir: &Path) -> io::Result<Vec<PathBuf>> {
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(e) => return Err(e),
     };
+    // a COMPLETE listing (an entry error fails it: never "no fallback log")
     let mut v = Vec::new();
-    for e in std::fs::read_dir(&dir)? {
-        let p = e?.path();
-        if p.extension().is_some_and(|x| x == "jsonl") {
-            v.push(p);
+    for e in crate::fsx::list_required("guard.fallback", &dir)? {
+        if e.path.extension().is_some_and(|x| x == "jsonl") {
+            v.push(e.path);
         }
     }
     v.sort();
@@ -642,7 +649,9 @@ pub fn intent_fallback_logs(cdir: &Path) -> io::Result<Vec<PathBuf>> {
 
 /// procfix7 (gate6 m3-a, gate7 m-fb): remove exactly these fallback logs (earlier sessions of THIS campaign whose
 /// intents are in the ledger now); never this session's own. Returns how many were removed.
-pub fn remove_intent_fallbacks(paths: &[PathBuf]) -> usize {
+/// procfix7 round 5 (destructive action, positive proof): each file is removed only when, read back IMMEDIATELY before,
+/// it is a regular file (not a symlink) whose header names `campaign_id` and the session its name carries.
+pub fn remove_intent_fallbacks(paths: &[PathBuf], campaign_id: &str) -> usize {
     let own = INTENTS
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -651,8 +660,18 @@ pub fn remove_intent_fallbacks(paths: &[PathBuf]) -> usize {
     paths
         .iter()
         .filter(|p| Some(*p) != own.as_ref())
+        .filter(|p| fallback_removable(p, campaign_id))
         .filter(|p| std::fs::remove_file(p).is_ok())
         .count()
+}
+
+/// The positive proof before a fallback log's removal (see [`remove_intent_fallbacks`]).
+fn fallback_removable(p: &Path, campaign_id: &str) -> bool {
+    if !crate::fsx::presence_lstat("guard.fallback", p).is_file() {
+        return false;
+    }
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned());
+    matches!(read_fallback_header(p), Ok(Some((c, s))) if c == campaign_id && Some(&s) == stem.as_ref())
 }
 
 /// procfix7 (gate6 m3-a): at the end of a session, remove its own fallback log if it was never used (a used one stays
@@ -663,7 +682,22 @@ pub fn retire_own_intent_fallback() {
     if log.on_fallback {
         return;
     }
-    if let Some((_, p)) = log.fallback.take() {
+    if let Some((f, p)) = log.fallback.take() {
+        // procfix7 round 5 (positive proof): the path is still the file this session created and holds open (same
+        // device and inode, read back now); anything else is left alone
+        use std::os::unix::fs::MetadataExt;
+        let same = match (
+            f.metadata(),
+            crate::fsx::presence_lstat("guard.fallback", &p),
+        ) {
+            (Ok(a), crate::fsx::Presence::Present(b)) => {
+                b.is_file() && a.dev() == b.dev() && a.ino() == b.ino()
+            }
+            _ => false,
+        };
+        if !same {
+            return;
+        }
         #[allow(clippy::let_underscore_must_use)]
         // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
         let _ = std::fs::remove_file(&p);
@@ -694,6 +728,16 @@ pub fn uninstall_intent_log() {
 /// Is an intent log installed in this process?
 pub fn intent_log_installed() -> bool {
     INTENTS.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+}
+
+/// procfix7 round 5 (destructive action, positive proof): the reserve is freed only when, read back now, it is a regular
+/// file (not a symlink) of ours of exactly the reserve's size (what [`install_intent_log`] writes).
+fn reserve_removable(p: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    matches!(crate::fsx::presence_lstat("guard.reserve", p),
+        crate::fsx::Presence::Present(m) if m.is_file()
+            && m.len() == INTENT_RESERVE_BYTES as u64
+            && m.uid() == crate::resources::our_uid())
 }
 
 fn is_disk_full(e: &io::Error) -> bool {
@@ -903,7 +947,11 @@ fn write_intents_to(
     let word = |e: &io::Error| if is_disk_full(e) { DISK_FULL_WORD } else { "" };
     let r = match attempt(log, false) {
         Ok(()) => Ok(ids.clone()),
-        Err(e) if is_disk_full(&e) && std::fs::remove_file(&log.reserve).is_ok() => {
+        Err(e)
+            if is_disk_full(&e)
+                && reserve_removable(&log.reserve)
+                && std::fs::remove_file(&log.reserve).is_ok() =>
+        {
             attempt(log, true).map(|()| ids.clone()).map_err(|e2| {
                 format!(
                     "signal intent not durable: {e2} (after freeing the reserve; first: {e}) {}",
@@ -2340,6 +2388,47 @@ pub fn set_child_subreaper(on: bool) -> io::Result<()> {
     }
 }
 
+/// procfix7 round 5 (gate9 G9-B2): the children of THIS process by the kernel's ATOMIC answer (waitid P_ALL with WNOHANG
+/// | WNOWAIT | __WALL: nothing is reaped). With the supervisor a child subreaper (or pid 1), every live descendant is
+/// in its children tree, so `NoChildren` (ECHILD) proves that NO descendant exists, whatever forks and exits during a
+/// scan; a /proc listing cannot prove that.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnChildren {
+    /// ECHILD: no child at all (live or zombie).
+    NoChildren,
+    /// At least one child: `zombie` = a waitable (exited, unreaped) child if the kernel named one, else None (a live
+    /// child exists).
+    Exist { zombie: Option<u32> },
+}
+
+pub fn own_children_state() -> io::Result<OwnChildren> {
+    loop {
+        // SAFETY: waitid fills a zeroed siginfo through a valid pointer; WNOWAIT leaves every child waitable.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let r = unsafe {
+            libc::waitid(
+                libc::P_ALL,
+                0,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT | libc::__WALL,
+            )
+        };
+        if r == 0 {
+            // SAFETY: reading the SIGCHLD union field of a filled (or zeroed) siginfo.
+            let pid = unsafe { info.si_pid() };
+            return Ok(OwnChildren::Exist {
+                zombie: (pid > 0).then_some(pid as u32),
+            });
+        }
+        let e = io::Error::last_os_error();
+        match e.raw_os_error() {
+            Some(libc::ECHILD) => return Ok(OwnChildren::NoChildren),
+            Some(libc::EINTR) => continue,
+            _ => return Err(e),
+        }
+    }
+}
+
 pub fn is_child_subreaper() -> bool {
     let mut v: libc::c_int = 0;
     // SAFETY: PR_GET_CHILD_SUBREAPER writes an int through the pointer.
@@ -2359,6 +2448,7 @@ pub fn is_child_subreaper() -> bool {
 pub const CAMPAIGN_MARKER_VAR: &str = MARKER_VAR;
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

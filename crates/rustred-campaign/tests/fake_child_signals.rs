@@ -1,6 +1,7 @@
 //! Fake child, termination (child-job.md 3.4, section 4: F3, F4, F10, the brief's scenarios 4, 5, 11): SIGTERM at a
 //! safe point, slow and ignored SIGTERM, second signal, STOP file, hang (hard-safe stop), stopped heartbeat, wall
 //! budget; resumed runs end with the canonical table of an uninterrupted run (R5 drill, ruling R-b).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "fake_child_common/mod.rs"]
 mod common;

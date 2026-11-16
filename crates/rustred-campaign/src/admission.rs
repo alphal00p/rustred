@@ -596,6 +596,7 @@ pub fn escalate_cap(prev_cap: u64, observed_peak: u64, factor: f64, ceiling: u64
     Some(next.max(prev_cap.saturating_add(1)).min(ceiling))
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

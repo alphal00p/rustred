@@ -1,5 +1,6 @@
 //! Regression tests of the dashboard audit (WS/notes/implementer.audit-tui-A.md), one per finding id: each failed
 //! before the fix (lane tuifix) and passes after. The pseudo-terminal halves of C1, M1 and M7 are in tui_pty.rs.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod tui_support;
 

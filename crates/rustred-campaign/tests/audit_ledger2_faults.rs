@@ -2,6 +2,7 @@
 //! (ENOSPC with a short write, EROFS, EIO), hand-forged records, swapped / deleted / foreign segments, a copied
 //! campaign directory, the two lock layers, concurrent readers during rotation, and (process tests, run with
 //! LIGHT_PIDNS=1) concurrent appender processes and a real full / read-only tmpfs in a private mount namespace.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::collections::BTreeMap;

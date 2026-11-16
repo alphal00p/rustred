@@ -62,7 +62,17 @@ impl Drop for IdLock {
     fn drop(&mut self) {
         // An ad-hoc id is unique to this process: remove its file while still holding the lock. A campaign's file stays
         // (removing a lock file another process may be opening would split the lock).
-        if self.adhoc {
+        // procfix7 round 5 (positive proof): only while the path still names the file we hold (same device and inode,
+        // read back now)
+        use std::os::unix::fs::MetadataExt;
+        let ours = match (
+            self.file.metadata(),
+            crate::fsx::presence_lstat("idlock", &self.path),
+        ) {
+            (Ok(a), crate::fsx::Presence::Present(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        };
+        if self.adhoc && ours {
             #[allow(clippy::let_underscore_must_use)]
             // ignored-ok (procfix7): the flock is the lock; the file is only removed as a courtesy
             let _ = fs::remove_file(&self.path);
@@ -90,9 +100,9 @@ fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {
         path: dir.to_path_buf(),
         why,
     };
-    match fs::symlink_metadata(dir) {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+    match crate::fsx::presence_lstat("idlock", dir) {
+        crate::fsx::Presence::Present(_) => {}
+        crate::fsx::Presence::Absent => {
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(dir)
@@ -105,9 +115,11 @@ fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {
                 })
                 .map_err(|e| unusable(format!("create: {e}")))?;
         }
-        Err(e) => return Err(unusable(e.to_string())),
+        crate::fsx::Presence::Unknown(e) => return Err(unusable(e.to_string())),
     }
-    let m = fs::symlink_metadata(dir).map_err(|e| unusable(e.to_string()))?;
+    let m = crate::fsx::presence_lstat("idlock", dir)
+        .metadata()
+        .map_err(|e| unusable(e.to_string()))?;
     if !m.file_type().is_dir() {
         return Err(unusable("not a directory (or a symlink)".into()));
     }

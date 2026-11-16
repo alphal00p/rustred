@@ -1089,8 +1089,11 @@ pub fn node_basis_records(
 
 fn read_layout_file(layout: &RunLayout, rel: &str) -> Result<Option<Vec<u8>>, String> {
     use std::io::Read;
-    if std::fs::symlink_metadata(layout.root.join(rel)).is_err() {
-        return Ok(None);
+    // procfix7 round 5 (gate9 G9-B1 class): absent ONLY on NotFound; a stat error is an error (never "no such file")
+    match std::fs::symlink_metadata(layout.root.join(rel)) {
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("{rel}: {e}")),
     }
     let (mut f, _, _) = open_in_run(&layout.root, rel).map_err(|e| e.to_string())?;
     let mut b = Vec::new();

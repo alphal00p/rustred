@@ -1,5 +1,6 @@
 //! Segment rotation, manifest, snapshots: state from snapshot + tail == state from full replay; sealed
 //! segments immutable and digest-checked; leftovers of a crash during rotation are removed.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

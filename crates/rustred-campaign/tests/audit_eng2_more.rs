@@ -2,6 +2,7 @@
 //! relation rule of solve-recipe against the frozen engine-line4 binary, options-off identity of legacy `generate`
 //! against the frozen binary, and `domain_bounds` (engine first match / domaincheck vs the campaign core's domain code).
 //! All `#[ignore]`; env as the other audit_eng2 tests, plus `RR_FROZEN_BIN` (frozen engine-line4 rr_node).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod audit_eng2_common;
 use audit_eng2_common::*;

@@ -8,6 +8,7 @@
 //! The node is the TOY of closeloop_support (arity 3) WITHOUT its recipe sources: the start key's table rule hands
 //! [top,1,0] down; every key [k,1,0] below is uncovered and goes through the escalation; the fake child solves the
 //! first step at k >= 2 and nothing at [1,1,0], which ends as the one terminal proposal.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

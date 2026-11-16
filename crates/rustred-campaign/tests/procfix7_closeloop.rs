@@ -11,6 +11,7 @@
 //! The node is the toy of closeloop_support (arity 3) without recipe sources, as in tests/t266run_fake.rs: the start
 //! key's table rule hands [top,1,0] down, every key [k,1,0] below is uncovered and goes through the escalation
 //! (symmetry at the key, per-key step recipes, recipe-solve jobs routed back, proofs), [1,1,0] ends as the terminal.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

@@ -55,7 +55,6 @@ pub use scan::{
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -146,22 +145,48 @@ pub fn read_stat(pid: u32) -> ProcResult<ProcStat> {
 pub enum LiveThread {
     /// A live thread: its id and its stat (the pid field is the process's pid).
     Found(u32, ProcStat),
-    /// Every thread was read completely and is dead (a zombie without live threads).
+    /// The kernel's ATOMIC thread count (`/proc/<pid>/status` `Threads:`) is 1 with the leader a zombie: no other
+    /// thread exists, and none can appear (only a live thread can create one).
     NoneAlive,
 }
 
-/// The first live thread of `pid` under `root`. Gone: the process is gone. procfix8: a thread that vanished between the
-/// listing and its read (ENOENT / ESRCH of ITS stat) is skipped; any other failed read is Unreadable (never "no live
-/// thread", which would read as dead).
+/// Task listings [`live_thread_at`] tries to catch a live thread in while the atomic count says the group has more
+/// than its zombie leader.
+pub const LIVE_THREAD_LISTINGS: usize = 8;
+
+/// The first live thread of `pid` under `root`. Gone: the process is gone.
+///
+/// procfix7 round 5 (gate9 G9-B2, a NON-ATOMIC observation taken as a proof of absence): "every thread of ONE task
+/// listing reads dead or gone" is NOT "no live thread": a thread created after the listing began by a listed thread that
+/// then exits is never examined (a zombie leader whose threads replace themselves every 50 us was "a zombie without a
+/// live thread" for every scan, and its kill was dropped). The proof of absence is the kernel's ATOMIC count:
+/// `Threads:` (signal->nr_threads, one read) == 1 with the leader a zombie => [`LiveThread::NoneAlive`] (sound: the
+/// zombie leader stays counted until every other thread is released, and no thread can appear without a live thread to
+/// create it). Any larger count: the group may live; up to [`LIVE_THREAD_LISTINGS`] listings look for a live thread
+/// (whose id the environ is read through); none caught => Unreadable ("possibly ours": inconclusive, named), NEVER
+/// NoneAlive. A thread that vanished between a listing and its read (ENOENT / ESRCH of ITS stat) is skipped; any other
+/// failed read is Unreadable.
 pub fn live_thread_at(root: &ProcRoot, pid: u32) -> ProcResult<LiveThread> {
-    for tid in root.tasks(pid)? {
-        match root.task_stat(pid, tid) {
-            Ok(st) if !st.is_dead() => return Ok(LiveThread::Found(tid, st)),
-            Ok(_) | Err(ProcError::Gone) => {}
-            Err(e) => return Err(e),
+    let mut counted = 0;
+    for _ in 0..LIVE_THREAD_LISTINGS {
+        let status = root.status(pid)?;
+        counted = status.threads()?;
+        let leader_dead = matches!(status.state()?, 'Z' | 'X' | 'x');
+        if leader_dead && counted <= 1 {
+            return Ok(LiveThread::NoneAlive);
+        }
+        for tid in root.tasks(pid)? {
+            match root.task_stat(pid, tid) {
+                Ok(st) if !st.is_dead() => return Ok(LiveThread::Found(tid, st)),
+                Ok(_) | Err(ProcError::Gone) => {}
+                Err(e) => return Err(e),
+            }
         }
     }
-    Ok(LiveThread::NoneAlive)
+    Err(ProcError::Unreadable(format!(
+        "pid {pid}: the kernel counts {counted} thread(s) (status Threads:) but no live thread was caught in \
+         {LIVE_THREAD_LISTINGS} task listings (threads replacing themselves?): possibly alive, possibly ours"
+    )))
 }
 
 /// [`live_thread_at`] on the real /proc.
@@ -325,13 +350,28 @@ fn cgroup_headroom() -> io::Result<Option<u64>> {
     let root = Path::new("/sys/fs/cgroup");
     let mut path = root.join(group.trim_start_matches('/'));
     let mut best: Option<u64> = None;
+    // procfix7 round 5: a level's file that is proven absent (the root has none) or says "max" sets no limit; a file
+    // that cannot be read or holds anything else is an ERROR (never "no limit": admission would over-admit)
+    let read = |p: &Path| -> io::Result<Option<u64>> {
+        match crate::fsx::read_to_string("cgroup", p) {
+            crate::fsx::Read::Content(t) if t.trim() == "max" => Ok(None),
+            crate::fsx::Read::Content(t) => t.trim().parse::<u64>().map(Some).map_err(|e| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
+            }),
+            crate::fsx::Read::Absent => Ok(None),
+            crate::fsx::Read::Failed(e) => {
+                Err(io::Error::new(e.kind(), format!("{}: {e}", p.display())))
+            }
+        }
+    };
     loop {
-        if let (Ok(max), Ok(current)) = (
-            fs::read_to_string(path.join("memory.max")),
-            fs::read_to_string(path.join("memory.current")),
-        ) && let (Ok(max), Ok(current)) =
-            (max.trim().parse::<u64>(), current.trim().parse::<u64>())
-        {
+        if let Some(max) = read(&path.join("memory.max"))? {
+            let Some(current) = read(&path.join("memory.current"))? else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}: memory.max without memory.current", path.display()),
+                ));
+            };
             let h = max.saturating_sub(current);
             best = Some(best.map_or(h, |b| b.min(h)));
         }
@@ -543,6 +583,7 @@ pub fn own_cgroup_dir() -> Result<PathBuf, String> {
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

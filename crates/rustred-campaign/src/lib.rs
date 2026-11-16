@@ -3,22 +3,23 @@
 //! `resources`, `launch`, `signals`, `cpu_policy`, `admission` are the process layer (package "proc").
 //! The ladder, acceptance and certificate logic does NOT live here: it is library code without any supervisor or
 //! ledger assumption (requirement R22), in `rustred-campaign-core`.
+pub mod adapters;
 pub mod admission;
 pub mod atomic;
+pub mod cli;
 pub mod clock;
 pub mod cpu_policy;
+pub mod export;
+pub mod fsx;
 pub mod launch;
 pub mod ledger;
 pub mod lock;
 pub mod progress;
+pub mod publish;
 pub mod resources;
 pub mod signals;
 pub mod state;
 pub mod supervisor;
-pub mod export;
-pub mod publish;
-pub mod adapters;
-pub mod cli;
 pub mod tui;
 // lane closeloop (interfaces/closeloop.md)
 pub mod closeloop;

@@ -1,5 +1,6 @@
 //! Disk full: atomic writes (with /dev/full and a quota-like failing writer) and ledger appends fail with a
 //! typed error, leave the old file / the ledger valid, and leave no stray temporary.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

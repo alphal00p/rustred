@@ -2,6 +2,7 @@
 //! Pure tests on a fake proc tree (no process is spawned or signalled; no namespace needed). They pass on 452d0207: they
 //! document the inputs whose completeness / integrity the rule needs, so that a fix of B1 (recover() ignores an error of
 //! the ledger read that collects the sessions, supervisor/mod.rs:1372) can be checked against them.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::resources::lineage::{
     Hidden, LineageRules, RecordedSession, SessionLineage, classify_hidden_at,

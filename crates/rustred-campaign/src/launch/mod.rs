@@ -42,14 +42,14 @@ pub use fake::{
 pub(crate) use guard::reap_adopted;
 pub use guard::{
     DELIVERY_LOG_MAX, Delivery, INTENT_LOG_FILE, INTENT_RESERVE_FILE, INTENT_SCHEMA, IntentLine,
-    LoggedIntent, NotSignalled, PidfdProbe, ProcessTarget, Proof, Refusal, SigchldSetup, StartRule,
-    Verdict, delivered_total, ensure_sigchld_default, ignore_sigxfsz, install_intent_fallback,
-    install_intent_log, intent_disk_full, intent_fallback_base, intent_fallback_dir,
-    intent_fallback_dir_checked, intent_fallback_logs, intent_id_in, intent_log_installed,
-    intent_on_fallback, is_child_subreaper, kill_orphan, pidfd_probe, pidfd_supported,
-    read_fallback_header, read_intent_log, remove_intent_fallbacks, retire_own_intent_fallback,
-    set_child_subreaper, sigchld_autoreaps, signal_verified_process, take_deliveries,
-    take_not_signalled, uninstall_intent_log,
+    LoggedIntent, NotSignalled, OwnChildren, PidfdProbe, ProcessTarget, Proof, Refusal,
+    SigchldSetup, StartRule, Verdict, delivered_total, ensure_sigchld_default, ignore_sigxfsz,
+    install_intent_fallback, install_intent_log, intent_disk_full, intent_fallback_base,
+    intent_fallback_dir, intent_fallback_dir_checked, intent_fallback_logs, intent_id_in,
+    intent_log_installed, intent_on_fallback, is_child_subreaper, kill_orphan, own_children_state,
+    pidfd_probe, pidfd_supported, read_fallback_header, read_intent_log, remove_intent_fallbacks,
+    retire_own_intent_fallback, set_child_subreaper, sigchld_autoreaps, signal_verified_process,
+    take_deliveries, take_not_signalled, uninstall_intent_log,
 };
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
@@ -635,6 +635,7 @@ pub trait ChildLauncher {
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7,6 +7,7 @@
 //! The process tests spawn the supervisor and fake children and send signals: run ONLY inside a private pid namespace
 //! (`LIGHT_PIDNS=1 .../light_build.sh audit-closeloop test -p rustred-campaign --test audit_closeloop_sup`). Tests that
 //! assert the CORRECT behaviour and fail on the audited code (0ceb9e79) are `#[ignore]`d with the finding id.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

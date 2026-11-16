@@ -8,6 +8,7 @@
 //! pid namespace (LIGHT_PIDNS=1). Ignored: run with `--ignored` under a CPU quota (e.g. 30 %).
 //! `GATE8_TRIALS` (default 2000) sets the number of spawns. It asserts only that every missed child was found later
 //! (the window closes): a miss is the mechanism, not a failure.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::lock;
 use std::process::{Command, Stdio};

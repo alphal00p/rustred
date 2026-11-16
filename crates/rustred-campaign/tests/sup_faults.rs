@@ -4,6 +4,7 @@
 //! a stale lock after SIGKILL with DECOYS (a process without the marker whose identity is recorded as an attempt's, a
 //! process with another campaign key's marker), and a changed binary between stop and resume (refused, then stale
 //! marking with --accept-binary-change). Every run ends equal to its reference (accepted set, dispositions, terminals).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

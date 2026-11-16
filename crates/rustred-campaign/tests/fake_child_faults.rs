@@ -1,6 +1,7 @@
 //! Fake child, faults (child-job.md section 4: F5, F6, F7, F8, F11, F12; the brief's scenarios 6-10, 15): torn
 //! table line, death between table and OUTCOME, OUTCOME over an unsealed table, ENOSPC, I/O error, panic, abort,
 //! memory, helpers that die with the child and one that escapes.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "fake_child_common/mod.rs"]
 mod common;

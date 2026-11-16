@@ -10,6 +10,7 @@
 //! elided loci) x table (absent / unsealed / sealed-valid / sealed-digest-mismatch) x RESUME (absent / valid).
 //! Checks: totality (no panic), safety (accept only when W, OUTCOME and a verified seal agree), and an independent
 //! oracle written from child-job.md 6.5 + its "precisions" (disagreements are listed in results/t4_disagree.txt).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod fake_child_common;
 use fake_child_common::drill::*;

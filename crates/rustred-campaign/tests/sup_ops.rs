@@ -2,6 +2,7 @@
 //! (pause, resume, skip / retry, stop -> exit 140), pre-flight refusals each with its exit code, the heartbeat timeout
 //! killing a silent child (class killed_time, the item escalates), and memory-cap kills (killed_memory) with the
 //! admission budgets read back from the ledger.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

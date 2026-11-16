@@ -530,6 +530,9 @@ pub struct Supervisor {
     /// procfix7 (gate7 MJ-1): quarantined attempts whose unproven end exceeded `unproven_end_limit_s` (named, lease
     /// released, in `survivors`).
     unproven_given_up: BTreeSet<String>,
+    /// procfix7 round 5 (gate8 m8-persist, gate9 m9-pn): per given-up attempt, WHAT could not be read or named (the exit-8
+    /// message says it instead of an empty pid list).
+    unproven_why: BTreeMap<String, String>,
 }
 
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
@@ -603,13 +606,15 @@ fn errno_name(c: i32) -> &'static str {
     }
 }
 
-/// (dev, inode) of a directory (following symlinks), if it exists.
-fn dir_id(p: &Path) -> Option<(u64, u64)> {
+/// (dev, inode) of a directory (following symlinks): Ok(Some) a directory, Ok(None) PROVEN absent or not a directory,
+/// Err when it cannot be checked (procfix7 round 5: never "absent" on a failed stat).
+fn dir_id(p: &Path) -> std::io::Result<Option<(u64, u64)>> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(p)
-        .ok()
-        .filter(|m| m.is_dir())
-        .map(|m| (m.dev(), m.ino()))
+    match crate::fsx::presence("supervisor.dirs", p) {
+        crate::fsx::Presence::Present(m) if m.is_dir() => Ok(Some((m.dev(), m.ino()))),
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => Ok(None),
+        crate::fsx::Presence::Unknown(e) => Err(e),
+    }
 }
 
 fn statvfs_avail(p: &Path) -> Option<u64> {
@@ -774,10 +779,26 @@ impl Supervisor {
             );
         }
         let cfg = LedgerConfig::default();
-        let manifest = crate::ledger::ledger_dir(&cdir).join(crate::ledger::MANIFEST_FILE);
         let ops: Arc<dyn FileOps> = fp.ledger_ops().unwrap_or_else(|| Arc::new(RealOps));
+        // procfix7 round 5 (gate9 G9-B1): open or create by the manifest's PROVEN presence: a stat error of MANIFEST.json
+        // (EIO, ENOMEM, ...) is a typed stop (71 for a resource limit, else 70), never "no ledger" (it created a new
+        // ledger over a crashed campaign, deleted its history and ended 0 with the crashed session's live daemon).
+        let manifest_present = match crate::ledger::manifest_state(&cdir) {
+            Ok(p) => p,
+            Err(LedgerError::Io { path, op, source }) => {
+                let msg = format!(
+                    "the ledger's manifest {} cannot be checked ({op}: {source}): nothing was opened, created or deleted; run the same command once the file system answers",
+                    path.display()
+                );
+                return Err(match io_resource_errno(&source) {
+                    Some(_) => RunExit::Resources(msg),
+                    None => RunExit::Internal(msg),
+                });
+            }
+            Err(e) => return Err(RunExit::Refused(format!("ledger: {e}"))),
+        };
         // Every write handle is opened with the HELD campaign lock (ledger interface 4, audit-ledger-A M6).
-        let mut ledger = if manifest.exists() {
+        let mut ledger = if manifest_present {
             let (l, rep) = Ledger::open_with(
                 &cdir,
                 &lock,
@@ -788,7 +809,20 @@ impl Supervisor {
                     accept_truncation_to: opts.accept_truncation_to,
                 },
             )
-            .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
+            .map_err(|e| match e {
+                // procfix7 round 5: a read that failed while opening is typed (71 / 70), never a refusal to decide on
+                LedgerError::Io { path, op, source } => {
+                    let msg = format!(
+                        "ledger open: {op} on {} failed ({source}): nothing was changed; run the same command once the file system answers",
+                        path.display()
+                    );
+                    match io_resource_errno(&source) {
+                        Some(_) => RunExit::Resources(msg),
+                        None => RunExit::Internal(msg),
+                    }
+                }
+                e => RunExit::Refused(format!("ledger: {e}")),
+            })?;
             if let Some(r) = rep.recovery {
                 log.line(
                     "WARN",
@@ -822,8 +856,20 @@ impl Supervisor {
             Ledger::create_with(&cdir, &lock, Arc::clone(&clock), cfg, ops, genesis).map_err(
                 |e| match e {
                     LedgerError::NoSpace { .. } => RunExit::DiskFull,
-                    // ledgerfix2 M1: files of a ledger without its manifest: a damaged ledger, never a new campaign
+                    // ledgerfix2 M1 / procfix7 round 5: files of a ledger without its manifest (anything in the
+                    // ledger directory): a damaged ledger, never a new campaign, nothing deleted
                     e @ LedgerError::ManifestMissing { .. } => RunExit::Refused(format!("{e}")),
+                    // procfix7 round 5: a stat / listing that failed while deciding to create: typed (71 / 70)
+                    LedgerError::Io { path, op, source } => {
+                        let msg = format!(
+                            "ledger create: {op} on {} failed ({source}): nothing was created or deleted; run the same command once the file system answers",
+                            path.display()
+                        );
+                        match io_resource_errno(&source) {
+                            Some(_) => RunExit::Resources(msg),
+                            None => RunExit::Internal(msg),
+                        }
+                    }
                     e => RunExit::Refused(format!("ledger: {e}")),
                 },
             )?
@@ -1186,10 +1232,25 @@ impl Supervisor {
         // procfix8-ok: of this boot and stops typed before deciding anything
         let boot_id = crate::resources::boot_id().unwrap_or_default();
         let started_utc = clock.now_utc().to_iso();
-        let dir_ids = dir_id(&cdir).zip(dir_id(&crate::ledger::ledger_dir(&cdir)));
-        let work_dir_id = workdir::is_external(&work_root, &cdir)
-            .then(|| dir_id(&work_root))
-            .flatten();
+        // procfix7 round 5: the identities the run compares against; a directory that cannot be identified stops typed
+        let ident = |p: &Path| -> Result<Option<(u64, u64)>, RunExit> {
+            dir_id(p).map_err(|e| {
+                let msg = format!(
+                    "{} cannot be identified ({e}): nothing was started; run the same command once the file system answers",
+                    p.display()
+                );
+                match io_resource_errno(&e) {
+                    Some(_) => RunExit::Resources(msg),
+                    None => RunExit::Internal(msg),
+                }
+            })
+        };
+        let dir_ids = ident(&cdir)?.zip(ident(&crate::ledger::ledger_dir(&cdir))?);
+        let work_dir_id = if workdir::is_external(&work_root, &cdir) {
+            ident(&work_root)?
+        } else {
+            None
+        };
         Ok(Supervisor {
             cdir,
             work_root,
@@ -1250,6 +1311,7 @@ impl Supervisor {
             refusal_stop: None,
             end_unproven: Vec::new(),
             unproven_given_up: BTreeSet::new(),
+            unproven_why: BTreeMap::new(),
             opts,
         })
     }
@@ -1653,6 +1715,13 @@ impl Supervisor {
             Err(e) if io_resource_errno(&e).is_some() => {
                 return Err(format!("the fallback directory: {e}"));
             }
+            // procfix7 round 5: an OS error (EIO, EACCES, ...) of the fallback directory or its listing is UNKNOWN (the
+            // end is unproven), never "a foreign directory, nothing of ours"
+            Err(e) if e.raw_os_error().is_some() => {
+                out.unreadable
+                    .push(format!("fallback directory (tmpfs): {e}"));
+                Vec::new()
+            }
             Err(e) => {
                 // a fallback directory that is not ours (owner / mode / symlink) holds nothing we wrote
                 out.foreign
@@ -1744,7 +1813,7 @@ impl Supervisor {
             self.log.line(
                 "INFO",
                 &format!(
-                    "recovery: marker sweep: {} marked process(es) seen, {} killed, {} left, {} round(s){}",
+                    "recovery: marker sweep: {} marked process(es) seen, {} killed, {} left, {} round(s){}{}",
                     report.seen,
                     report.killed.len(),
                     report.left.len(),
@@ -1753,9 +1822,24 @@ impl Supervisor {
                         .reason
                         .as_ref()
                         .map(|r| format!("; NOT PROVEN: {r}"))
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| format!(
+                            "; {}",
+                            crate::launch::sweep::proof_words(crate::launch::sweep::PROOF_SCANS)
+                        )),
+                    if report.vanished.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "; WARNING: marked process(es) {:?} seen alive exited before they could be stopped (a successor may run unseen; the final sweep re-checks)",
+                            report.vanished.iter().map(|p| p.pid).collect::<Vec<_>>()
+                        )
+                    }
                 ),
             );
+            if !report.vanished.is_empty() {
+                let pids: Vec<u32> = report.vanished.iter().map(|p| p.pid).collect();
+                self.note(format!("recovery_sweep_vanished {{\"pids\":{pids:?}}}"));
+            }
         }
         for k in &report.killed {
             self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "recovery sweep");
@@ -2363,8 +2447,8 @@ impl Supervisor {
         if barrier_launch {
             // procfix7 (gate7 B1, the class): an OUTCOME that cannot be ruled out counts as present (never "not spawned")
             let outcome_absent = matches!(
-                std::fs::symlink_metadata(layout.outcome()),
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound
+                crate::fsx::presence_lstat("supervisor.outcome", &layout.outcome()),
+                crate::fsx::Presence::Absent
             );
             if !outcome_absent {
                 self.execution_unknown(
@@ -2399,8 +2483,8 @@ impl Supervisor {
             self.commit(ev);
             return;
         }
-        match std::fs::symlink_metadata(&sentinel) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        match crate::fsx::presence_lstat("supervisor.sentinel", &sentinel) {
+            crate::fsx::Presence::Absent => {
                 let ev = vec![
                     Event::Job {
                         job: job.into(),
@@ -2427,7 +2511,7 @@ impl Supervisor {
                 self.commit(ev);
                 return;
             }
-            Err(e) => {
+            crate::fsx::Presence::Unknown(e) => {
                 self.execution_unknown(
                     job,
                     attempt,
@@ -2435,7 +2519,7 @@ impl Supervisor {
                 );
                 return;
             }
-            Ok(_) => {}
+            crate::fsx::Presence::Present(_) => {}
         }
         let ev = classify::assess(
             &layout,
@@ -2738,7 +2822,7 @@ impl Supervisor {
         let all_read = unreadable.is_empty();
         if intents.is_empty() && bad == 0 {
             if all_read {
-                crate::launch::remove_intent_fallbacks(&merged_fallbacks);
+                crate::launch::remove_intent_fallbacks(&merged_fallbacks, &self.ctx.campaign_key);
             }
             return;
         }
@@ -2810,7 +2894,7 @@ impl Supervisor {
         }
         if delivered + possibly == 0 && bad == 0 {
             if all_read {
-                crate::launch::remove_intent_fallbacks(&merged_fallbacks);
+                crate::launch::remove_intent_fallbacks(&merged_fallbacks, &self.ctx.campaign_key);
             }
             return;
         }
@@ -2828,7 +2912,7 @@ impl Supervisor {
         );
         // procfix7 (gate6 m3-a): the earlier sessions' tmpfs fallback logs only once their intents are in the ledger
         if self.commit(ev) && all_read {
-            crate::launch::remove_intent_fallbacks(&merged_fallbacks);
+            crate::launch::remove_intent_fallbacks(&merged_fallbacks, &self.ctx.campaign_key);
         }
     }
 
@@ -3085,7 +3169,22 @@ impl Supervisor {
                 Some(_) => changed.push(name.clone()),
                 None => {}
             }
-            let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+            // procfix7 round 5: the recorded size is a fact: a binary that cannot be checked stops typed (never 0)
+            let bytes = match crate::fsx::presence("real.program", path) {
+                crate::fsx::Presence::Present(m) => m.len(),
+                crate::fsx::Presence::Absent => {
+                    return Err(RunExit::Refused(format!(
+                        "program {} vanished after its digest was taken",
+                        path.display()
+                    )));
+                }
+                crate::fsx::Presence::Unknown(e) => {
+                    return Err(RunExit::Internal(format!(
+                        "program {} cannot be checked ({e})",
+                        path.display()
+                    )));
+                }
+            };
             ev.push(Event::InputRegistered {
                 input: id,
                 role: "binary".into(),
@@ -3645,7 +3744,8 @@ impl Supervisor {
                             "WARN",
                             &format!("{job} a{attempt}: run directory {} of this campaign was never recorded (crash before the launch record): moved aside to {}", run_dir.display(), aside.display()),
                         );
-                        std::fs::rename(run_dir, &aside)
+                        // procfix7 round 5: a move aside never overwrites (RENAME_NOREPLACE)
+                        crate::fsx::rename_noreplace(run_dir, &aside)
                             .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
                     }
                     workdir::RunDirOwner::Other(id) => {
@@ -3681,7 +3781,7 @@ impl Supervisor {
                                     .unwrap_or_else(|| format!("a{attempt}")),
                                 self.clock.now_utc().0
                             ));
-                            std::fs::rename(run_dir, &aside)
+                            crate::fsx::rename_noreplace(run_dir, &aside)
                                 .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
                             continue;
                         }
@@ -4440,6 +4540,8 @@ impl Supervisor {
             .campaign_min_ticks
             .unwrap_or_else(orphans::own_start_ticks);
         let mut last = None;
+        // procfix7 round 5 (gate9 G9-B2): marked processes seen alive and gone before their stop, over every try
+        let mut vanished: BTreeMap<u32, crate::resources::MarkedProcess> = BTreeMap::new();
         for _ in 0..3 {
             let mut r = orphans::sweep(&rules, None, Duration::from_secs(10));
             if self.fp.armed("final_sweep_fails") {
@@ -4449,11 +4551,29 @@ impl Supervisor {
             for k in &r.killed {
                 self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "final sweep");
             }
+            for v in &r.vanished {
+                vanished.insert(v.pid, v.clone());
+            }
             self.note_stop_holds(&r, "final sweep");
             self.record_deliveries();
             if r.empty() {
                 self.hidden_descendants_check()?;
-                return self.end_unproven_check();
+                let atomic = self.own_tree_check()?;
+                self.vanished_check(&vanished)?;
+                self.end_unproven_check()?;
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "final marker sweep: {}; {}",
+                        crate::launch::sweep::proof_words(crate::launch::sweep::PROOF_SCANS),
+                        if atomic {
+                            "no descendant of this supervisor remains (kernel waitid: ECHILD, atomic)"
+                        } else {
+                            "the supervisor is not a child subreaper: its own tree has no atomic proof either"
+                        }
+                    ),
+                );
+                return Ok(());
             }
             last = Some(r);
         }
@@ -4483,6 +4603,80 @@ impl Supervisor {
             ),
         }]);
         Err(msg)
+    }
+
+    /// procfix7 round 5 (gate9 G9-B2): the ATOMIC proof for this supervisor's own tree. As a child subreaper (or pid 1)
+    /// every live descendant is in its children tree, so waitid ECHILD (`launch::own_children_state`) proves that no
+    /// descendant exists, whatever forks and exits during a scan. Children still there after the sweep (re-checked for 2 s
+    /// while the reaper collects exited ones) are NAMED and the end is not claimed (exit 8); they are never signalled
+    /// here (not proven ours). Ok(true): proven by the kernel; Ok(false): not a subreaper (no such proof).
+    fn own_tree_check(&mut self) -> Result<bool, String> {
+        // SAFETY: getpid has no preconditions.
+        let pid1 = unsafe { libc::getpid() } == 1;
+        if !pid1 && !crate::launch::is_child_subreaper() {
+            return Ok(false);
+        }
+        let t0 = Instant::now();
+        loop {
+            let r = if self.fp.armed("own_children_unreadable") {
+                Err(std::io::Error::from_raw_os_error(libc::EIO))
+            } else {
+                crate::launch::own_children_state()
+            };
+            match r {
+                Ok(crate::launch::OwnChildren::NoChildren) => return Ok(true),
+                Ok(crate::launch::OwnChildren::Exist { .. })
+                    if t0.elapsed() < Duration::from_secs(2) =>
+                {
+                    crate::resources::request_reap();
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Ok(crate::launch::OwnChildren::Exist { zombie }) => {
+                    let listed = match crate::resources::children_of(std::process::id()) {
+                        Ok(v) => format!("{:?}", v.into_iter().collect::<Vec<_>>()),
+                        Err(e) => format!("<the children lists cannot be read: {e}>"),
+                    };
+                    self.commit(vec![Event::Note {
+                        text: format!(
+                            "descendants_alive {{\"children\":{listed:?},\"zombie\":{zombie:?}}}"
+                        ),
+                    }]);
+                    return Err(format!(
+                        "the end is not proven: the kernel reports child process(es) of this supervisor still present after the final sweep (waitid; listed children: {listed}{}); as a child subreaper every descendant of the campaign's jobs ends up here: nothing was signalled (not proven ours); check each (ps -o pid,ppid,lstart,cmd --ppid {}), then run the same command",
+                        zombie
+                            .map(|z| format!("; an exited child {z} is not reaped"))
+                            .unwrap_or_default(),
+                        std::process::id()
+                    ));
+                }
+                Err(e) => {
+                    self.commit(vec![Event::Note {
+                        text: format!("descendants_unchecked {{\"error\":{:?}}}", e.to_string()),
+                    }]);
+                    return Err(format!(
+                        "the end is not proven: this supervisor's children cannot be checked (waitid: {e}); nothing was signalled; run the same command"
+                    ));
+                }
+            }
+        }
+    }
+
+    /// procfix7 round 5 (gate9 G9-B2): a marked process the final sweep saw alive that was gone before its stop may have
+    /// started a successor no scan could see (process churn): never a clean end (exit 8, naming it).
+    fn vanished_check(
+        &mut self,
+        vanished: &BTreeMap<u32, crate::resources::MarkedProcess>,
+    ) -> Result<(), String> {
+        if vanished.is_empty() {
+            return Ok(());
+        }
+        let pids: Vec<u32> = vanished.keys().copied().collect();
+        self.commit(vec![Event::Note {
+            text: format!("final_sweep_vanished {{\"pids\":{pids:?}}}"),
+        }]);
+        Err(format!(
+            "the end is not proven: marked process(es) {pids:?} of this campaign were seen alive by the final sweep and exited before they could be stopped; a successor one of them started may be running unseen (a /proc scan cannot see a process chain that forks and exits faster than it reads; a job scope can): look for processes carrying this campaign's marker (ps -eo pid,ppid,lstart,cmd; /proc/PID/environ), then run the same command"
+        ))
     }
 
     /// procfix5 (gate4 m5), after a proven final sweep: descendants of this supervisor (parent chain) that run under our
@@ -4573,7 +4767,49 @@ impl Supervisor {
                 }
                 (pids, parts.join("; "))
             }
-            Err(e) => (Vec::new(), format!("proc scan failed: {e}")),
+            Err(e) => {
+                // procfix7 round 5 (m8-persist / m9-pn): a failed scan is retried (bounded: 5 tries, 200 ms apart); if it
+                // keeps failing, the text says so (never an empty "none found")
+                let mut last = e;
+                for _ in 0..4 {
+                    std::thread::sleep(Duration::from_millis(200));
+                    match crate::resources::scan_marked_inline(
+                        &self.ctx.campaign_key,
+                        bound,
+                        Some(label),
+                    ) {
+                        Ok(s) if s.processes.is_empty() && s.hidden.is_empty() => {
+                            return (Vec::new(), String::new());
+                        }
+                        Ok(s) => {
+                            let mut pids: Vec<u32> = s.processes.iter().map(|p| p.pid).collect();
+                            pids.extend(s.hidden.iter().map(|h| h.pid));
+                            return (
+                                pids,
+                                format!(
+                                    "marked {:?}{}",
+                                    s.processes.iter().map(|p| p.pid).collect::<Vec<_>>(),
+                                    if s.hidden.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(
+                                            "; {}",
+                                            crate::resources::describe_hidden(&s.hidden)
+                                        )
+                                    }
+                                ),
+                            );
+                        }
+                        Err(e) => last = e,
+                    }
+                }
+                (
+                    Vec::new(),
+                    format!(
+                        "the /proc scan for its marker FAILED 5 times ({last}): the processes holding it cannot be named"
+                    ),
+                )
+            }
         }
     }
 
@@ -4620,6 +4856,20 @@ impl Supervisor {
                     since.as_secs()
                 ),
             }]);
+            if pids.is_empty() {
+                self.unproven_why.insert(
+                    label.clone(),
+                    format!(
+                        "end unproven after {}s: {reason}{}",
+                        since.as_secs(),
+                        if text.is_empty() {
+                            String::new()
+                        } else {
+                            format!("; {text}")
+                        }
+                    ),
+                );
+            }
             self.survivors.insert(label, pids);
         }
     }
@@ -4672,13 +4922,26 @@ impl Supervisor {
     /// represent (unparsable file, unknown verb, unknown target) is recorded as a `note` starting `control_refused`.
     fn apply_controls(&mut self) {
         let dir = self.cdir.join("control");
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return;
+        // procfix7 round 5: only a COMPLETE listing is applied (a partial one could apply a later request before an
+        // earlier one it missed); a failed listing applies nothing now (read again next tick)
+        let entries = match crate::fsx::list("supervisor.control", &dir) {
+            crate::fsx::Listing::Complete(v) => v,
+            crate::fsx::Listing::Absent => return,
+            crate::fsx::Listing::Failed(e) => {
+                self.log.line(
+                    "WARN",
+                    &format!(
+                        "control requests not read ({}: {e}): none applied now, read again next tick",
+                        dir.display()
+                    ),
+                );
+                return;
+            }
         };
-        let mut files: Vec<PathBuf> = rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "json"))
+        let mut files: Vec<PathBuf> = entries
+            .into_iter()
+            .filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
+            .map(|e| e.path)
             .collect();
         // gate-B m1: in the order of the CLI's sequence number (then the name); files without one first, by name.
         files.sort_by_key(|p| {
@@ -4694,9 +4957,22 @@ impl Supervisor {
             #[allow(clippy::let_underscore_must_use)]
             // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
             let _ = std::fs::create_dir_all(&done);
-            let req: Option<ControlRequest> = std::fs::read(&p)
-                .ok()
-                .and_then(|b| serde_json::from_slice(&b).ok());
+            // procfix7 round 5: a request that cannot be READ stays where it is (applied next tick), never "unparsable"
+            // and moved to done/ (that lost it)
+            let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
+                crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
+                crate::fsx::Read::Absent => continue,
+                crate::fsx::Read::Failed(e) => {
+                    self.log.line(
+                        "WARN",
+                        &format!(
+                            "control request {} not readable now ({e}): read again next tick",
+                            p.display()
+                        ),
+                    );
+                    continue;
+                }
+            };
             // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals)
             if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve-terminals") {
                 self.apply_source_decision(r);
@@ -4705,7 +4981,7 @@ impl Supervisor {
                 }
                 #[allow(clippy::let_underscore_must_use)]
                 // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
-                let _ = std::fs::rename(&p, done.join(&name));
+                let _ = archive_control(&p, &done, &name);
                 continue;
             }
             if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve") {
@@ -4715,7 +4991,7 @@ impl Supervisor {
                 }
                 #[allow(clippy::let_underscore_must_use)]
                 // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
-                let _ = std::fs::rename(&p, done.join(&name));
+                let _ = archive_control(&p, &done, &name);
                 continue;
             }
             match req.as_ref().map(|r| (r, self.control_record(r))) {
@@ -4733,7 +5009,7 @@ impl Supervisor {
             }
             #[allow(clippy::let_underscore_must_use)]
             // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
-            let _ = std::fs::rename(&p, done.join(&name));
+            let _ = archive_control(&p, &done, &name);
         }
     }
 
@@ -5043,13 +5319,27 @@ impl Supervisor {
     fn dirs_intact(&self) -> Result<(), String> {
         // procfix7 (gate7 m-rw): an external work directory and its claim, too
         if let Some(id) = self.work_dir_id {
-            let claim = std::fs::read_to_string(self.work_root.join(workdir::WORK_OWNER_FILE));
-            // a read refused for the supervisor's own resource limit decides nothing here (the launch path reports it)
-            let claim_ok = match &claim {
-                Ok(c) => c.trim() == self.ctx.campaign_key,
-                Err(e) => io_resource_errno(e).is_some(),
+            let claim_path = self.work_root.join(workdir::WORK_OWNER_FILE);
+            // a read refused for the supervisor's own resource limit decides nothing here (the launch path reports it);
+            // procfix7 round 5: any other failed read is "cannot be checked" (typed end), never "removed"
+            let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
+                crate::fsx::Read::Content(c) => c.trim() == self.ctx.campaign_key,
+                crate::fsx::Read::Absent => false,
+                crate::fsx::Read::Failed(e) if io_resource_errno(&e).is_some() => true,
+                crate::fsx::Read::Failed(e) => {
+                    return Err(format!(
+                        "the claim {} of the external work directory cannot be read ({e})",
+                        claim_path.display()
+                    ));
+                }
             };
-            if dir_id(&self.work_root) != Some(id) || !claim_ok {
+            let now = dir_id(&self.work_root).map_err(|e| {
+                format!(
+                    "the external work directory {} cannot be checked ({e})",
+                    self.work_root.display()
+                )
+            })?;
+            if now != Some(id) || !claim_ok {
                 return Err(format!(
                     "the external work directory {} (or its claim {}) was removed or replaced while the supervisor ran",
                     self.work_root.display(),
@@ -5058,7 +5348,14 @@ impl Supervisor {
             }
         }
         let ldir = crate::ledger::ledger_dir(&self.cdir);
-        let now = dir_id(&self.cdir).zip(dir_id(&ldir));
+        let now = dir_id(&self.cdir)
+            .and_then(|a| Ok(a.zip(dir_id(&ldir)?)))
+            .map_err(|e| {
+                format!(
+                    "the campaign directory {} (or its ledger directory) cannot be checked ({e})",
+                    self.cdir.display()
+                )
+            })?;
         if self.dir_ids.is_none() || now != self.dir_ids {
             return Err(format!(
                 "the campaign directory {} (or its ledger directory) was removed or replaced while the supervisor ran",
@@ -5071,11 +5368,15 @@ impl Supervisor {
                 self.cdir.display()
             ));
         }
-        if !ldir.join(crate::ledger::MANIFEST_FILE).exists() {
-            return Err(format!(
-                "{} disappeared while the supervisor ran",
-                ldir.join(crate::ledger::MANIFEST_FILE).display()
-            ));
+        match crate::ledger::manifest_state(&self.cdir) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "{} disappeared while the supervisor ran",
+                    ldir.join(crate::ledger::MANIFEST_FILE).display()
+                ));
+            }
+            Err(e) => return Err(format!("the ledger's manifest cannot be checked ({e})")),
         }
         Ok(())
     }
@@ -5841,7 +6142,12 @@ impl Supervisor {
                         let s: Vec<String> = self
                             .survivors
                             .iter()
-                            .map(|(l, p)| format!("{l}: pids {p:?}"))
+                            .map(|(l, p)| match (p.is_empty(), self.unproven_why.get(l)) {
+                                (true, Some(why)) => {
+                                    format!("{l}: no process could be named ({why})")
+                                }
+                                _ => format!("{l}: pids {p:?}"),
+                            })
                             .collect();
                         parts.push(format!(
                             "processes that could not be killed or inspected hold attempts unsettled ({}): check and kill exactly those pids (log / ledger notes `marked_survivor`, `unproven_end` name them), then run the same command",
@@ -5982,6 +6288,21 @@ fn release_lease_noted(lease: CpuLease) -> String {
     notes.join("; ")
 }
 
+/// procfix7 round 5: move an applied control request into `done/` WITHOUT overwriting an archived one of the same name
+/// (renameat2 RENAME_NOREPLACE; a taken name gets a numbered suffix).
+fn archive_control(p: &Path, done: &Path, name: &std::ffi::OsStr) -> std::io::Result<()> {
+    let mut target = done.join(name);
+    for k in 1..1000u32 {
+        match crate::fsx::rename_noreplace(p, &target) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                target = done.join(format!("{}.{k}", name.to_string_lossy()));
+            }
+            other => return other,
+        }
+    }
+    Err(std::io::Error::other("no free archive name"))
+}
+
 /// The sequence number of a control request file `c-<seq, 12 digits>-...json` (written by [`next_control_seq`]); 0 for
 /// other names (older format: applied first, by name).
 pub fn control_seq_of(name: &str) -> u64 {
@@ -5998,10 +6319,12 @@ pub fn control_seq_of(name: &str) -> u64 {
 pub fn next_control_seq(control_dir: &Path) -> Result<u64, String> {
     let dir = control_dir.join("seq");
     std::fs::create_dir_all(&dir).map_err(|e| format!("control/seq: {e}"))?;
-    let mut n = std::fs::read_dir(&dir)
+    // procfix7 round 5: the largest claimed number from a COMPLETE listing (a partial one could hand out a number below
+    // a claimed one: a later request ordered before an earlier one)
+    let mut n = crate::fsx::list_required("supervisor.control", &dir)
         .map_err(|e| format!("control/seq: {e}"))?
-        .flatten()
-        .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse::<u64>().ok()))
+        .iter()
+        .filter_map(|e| e.name.to_str().and_then(|s| s.parse::<u64>().ok()))
         .max()
         .unwrap_or(0);
     for _ in 0..10_000 {
@@ -6027,6 +6350,8 @@ fn read_spec(layout: &RunLayout, launched: Option<&str>) -> Option<(JobSpec, Str
     if !rustred_campaign_contract::is_blake3_hex(&d) {
         return None;
     }
+    // procfix9-ok: an unreadable earlier spec means NO resume (the new attempt starts from scratch: more work, never
+    // a wrong result); nothing else is decided from it
     let b = std::fs::read(layout.job_spec()).ok()?;
     if rustred_campaign_contract::spec::spec_blake3(&b) != d {
         return None;
@@ -6460,6 +6785,7 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

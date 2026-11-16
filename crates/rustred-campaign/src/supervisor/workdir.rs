@@ -120,8 +120,12 @@ pub fn create_run_dir(run_dir: &Path, key: &str) -> Result<(), CreateError> {
         .parent()
         .ok_or_else(|| CreateError::Io(std::io::Error::other("run directory without a parent")))?;
     std::fs::create_dir_all(parent).map_err(CreateError::Io)?;
-    if std::fs::symlink_metadata(run_dir).is_ok() {
-        return Err(CreateError::Exists);
+    // procfix7 round 5: only a PROVEN absent run directory is created (an unreadable stat is an error, never "absent";
+    // the install below is RENAME_NOREPLACE anyway)
+    match crate::fsx::presence_lstat("supervisor.run_dir", run_dir) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) => return Err(CreateError::Exists),
+        crate::fsx::Presence::Unknown(e) => return Err(CreateError::Io(e)),
     }
     let name = run_dir
         .file_name()
@@ -202,6 +206,7 @@ fn rename_noreplace(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

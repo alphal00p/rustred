@@ -7,6 +7,7 @@
 //! examples and the fixtures byte for byte after canonicalisation: ledger records, manifest, snapshot, lock owner, site
 //! policy. (3) `examples/ledger-record.jsonl` (one line per record kind and sub-event the as-built ledger accepts) is
 //! regenerated here too.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use std::collections::BTreeMap;
 use std::fs;

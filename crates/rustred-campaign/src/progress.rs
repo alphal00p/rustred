@@ -21,7 +21,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -814,7 +814,7 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     let dir = cdir.join(PROGRESS_DIR);
     let mut files: BTreeMap<String, Value> = BTreeMap::new();
     let mut list = Vec::new();
-    collect_files(&dir, &dir, &mut list);
+    collect_files(&dir, &dir, &mut list)?;
     files.extend(list);
     let mut differences = Vec::new();
     let mut missing = Vec::new();
@@ -939,9 +939,21 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
         if !p.is_absolute() {
             continue;
         }
-        let inside = std::fs::canonicalize(p.parent().unwrap_or(&p))
-            .map(|d| d.starts_with(&croot))
-            .unwrap_or(false);
+        // procfix7 round 5: a record whose directory is gone is MISSING (judged by its path), never skipped; a
+        // directory that cannot be resolved for another reason fails verify
+        let inside = match std::fs::canonicalize(p.parent().unwrap_or(&p)) {
+            Ok(d) => d.starts_with(&croot),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                p.starts_with(cdir) || p.starts_with(&croot)
+            }
+            Err(e) => {
+                return Err(LedgerError::Io {
+                    path: p.clone(),
+                    op: "resolve a registered record",
+                    source: e,
+                });
+            }
+        };
         if !inside || !inp.blake3.chars().all(|c| c.is_ascii_hexdigit()) {
             continue;
         }
@@ -953,7 +965,16 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
                 expected: inp.blake3.clone(),
                 found: format!("{d} ({})", p.display()),
             }),
-            Err(_) => missing.push(format!("{id} ({})", p.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                missing.push(format!("{id} ({})", p.display()))
+            }
+            Err(e) => {
+                return Err(LedgerError::Io {
+                    path: p.clone(),
+                    op: "hash a registered record",
+                    source: e,
+                });
+            }
         }
     }
     Ok(VerifyReport {
@@ -968,31 +989,54 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     })
 }
 
-fn collect_files(root: &Path, dir: &Path, out: &mut Vec<(String, Value)>) {
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    let mut entries: Vec<PathBuf> = rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
-    entries.sort();
-    for p in entries {
-        let name = p
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+/// procfix7 round 5: a COMPLETE listing (a proven absent progress directory has no files: they are reported missing);
+/// a listing or read that fails is an error of `verify` (never "the file is missing" or "no files").
+fn collect_files(
+    root: &Path,
+    dir: &Path,
+    out: &mut Vec<(String, Value)>,
+) -> Result<(), LedgerError> {
+    let ioe = |p: &Path, op: &'static str, e: std::io::Error| LedgerError::Io {
+        path: p.to_path_buf(),
+        op,
+        source: e,
+    };
+    let mut entries = match crate::fsx::list("progress", dir) {
+        crate::fsx::Listing::Complete(v) => v,
+        crate::fsx::Listing::Absent => return Ok(()),
+        crate::fsx::Listing::Failed(e) => return Err(ioe(dir, "list progress directory", e)),
+    };
+    entries.sort_by(|a, b| a.path.cmp(&b.path));
+    for e in entries {
+        let p = e.path.clone();
+        let name = e.name_lossy();
         if name.starts_with('.') {
             continue;
         }
-        if p.is_dir() {
-            collect_files(root, &p, out);
-        } else if name.ends_with(".json")
-            && let Ok(bytes) = atomic::read_capped(&p, 64 << 20)
-            && let Ok(v) = serde_json::from_slice::<Value>(&bytes)
-            && v.get("schema").and_then(|s| s.as_str()) == Some(PROGRESS_SCHEMA)
-        {
-            let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
-            out.push((rel, v));
+        if e.file_type.is_dir() {
+            collect_files(root, &p, out)?;
+        } else if name.ends_with(".json") {
+            let bytes = match atomic::read_capped(&p, 64 << 20) {
+                Ok(b) => b,
+                Err(atomic::AtomicError::Io { source, .. })
+                    if source.kind() == std::io::ErrorKind::NotFound =>
+                {
+                    continue; // replaced between the listing and the read (a progress file is rewritten atomically)
+                }
+                Err(e) => return Err(LedgerError::Atomic(e)),
+            };
+            if let Ok(v) = serde_json::from_slice::<Value>(&bytes)
+                && v.get("schema").and_then(|s| s.as_str()) == Some(PROGRESS_SCHEMA)
+            {
+                let rel = p.strip_prefix(root).unwrap().to_string_lossy().into_owned();
+                out.push((rel, v));
+            }
         }
     }
+    Ok(())
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

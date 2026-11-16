@@ -1,5 +1,6 @@
 //! The memory cap by sampling kills a child that allocates beyond it (the child allocates at most 250 MB).
 //! The child is this test executable re-run as a helper (`RR_PROC_HELPER=alloc`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

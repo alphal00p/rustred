@@ -12,6 +12,7 @@
 //! - ignored (needs a C compiler): gate8's own LD_PRELOAD injector `g8fault.c` (copied verbatim from
 //!   implementer-scratch/gate8/src/g8fault.c), the gate's repro settings (G8_MATCH=/proc/<daemon>/stat G8_OPS=open
 //!   G8_PERTHREAD=1 G8_FROM=2 G8_EVERY=2 G8_ERRNO=24 / 5).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

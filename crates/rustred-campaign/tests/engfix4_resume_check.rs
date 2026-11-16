@@ -6,6 +6,7 @@
 //!
 //! Needs (all `#[ignore]`): `RR_NODE_BIN`, `RUSTRED_CAMPAIGN_FIXTURES`, the licence environment, `LIGHT_PIDNS=1`,
 //! `RR_REAL_OUT`. Helpers: the audit-eng2 test module (real child, contract classifier).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod audit_eng2_common;
 use audit_eng2_common::*;

@@ -11,6 +11,7 @@
 //!   result other than the reference; a resumed run equals the reference;
 //! - M3: a helper thread that cannot be started is a typed resource failure, not a timeout;
 //! - m3: the site's CPU-ledger and lock files are never created, and bad site configurations are refused.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

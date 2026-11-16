@@ -2,6 +2,7 @@
 //! facts whose edge changes the exact closure. Pure (no process): a toy node (arity 3, chart 110) with point rules and
 //! instantiate facts; every zero edge is put back one at a time (its fact flipped to non-zero) and the Tier C check is
 //! rerun: a NON-decisive zero leaves the key set and the descent verdict unchanged, a decisive one changes them.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::zeros;
 use rustred_campaign_core::closure::Tier;

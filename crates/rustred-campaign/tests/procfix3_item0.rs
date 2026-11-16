@@ -8,6 +8,7 @@
 //!
 //! `observe_removal_during_resume` (ignored; RR_ITEM0_DELAYS_MS=a,b,c) prints what happens for several deletion
 //! moments (exit code, what `open_read_only` gives, accepted items, verify, log tail length): the reproduction record.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

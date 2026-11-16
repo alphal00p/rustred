@@ -151,12 +151,30 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
         Err(ProcError::Gone) => return FactRead::Gone,
         Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let (any_live, all_stopped, live_tid) = match thread_states(&root, pid) {
+    let (any_live, all_stopped, mut live_tid) = match thread_states(&root, pid) {
         Ok(x) => x,
         Err(ProcError::Gone) => return FactRead::Gone,
         Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let dead = stat.is_dead() && !any_live;
+    // procfix7 round 5 (gate9 G9-B2): "dead" (a zombie without live threads) ONLY by the kernel's atomic thread count
+    // (`live_thread_at`), never because one task listing showed no live thread (threads replacing themselves are
+    // created after the listing began). `all_stopped` stays a listing fact: it is consulted only after a SIGSTOP was
+    // delivered to the GROUP, and from then on the kernel stops every thread, a thread created later included
+    // (task_join_group_stop), and refuses new clones while the stop is pending (signal_pending in copy_process); with
+    // no live thread listed it is false.
+    let dead = if stat.is_dead() {
+        match super::live_thread_at(&root, pid) {
+            Ok(super::LiveThread::NoneAlive) => true,
+            Ok(super::LiveThread::Found(t, _)) => {
+                live_tid.get_or_insert(t);
+                false
+            }
+            Err(ProcError::Gone) => return FactRead::Gone,
+            Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
+        }
+    } else {
+        false
+    };
     if dead {
         // A zombie without live threads: no survivor; nothing more to read (fast path for re-parented zombies).
         return FactRead::Facts(ProcFacts {

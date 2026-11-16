@@ -1,6 +1,7 @@
 //! The campaign id as the only proof of ownership (gate re-audit C-1), the supervisor's lack of a signal path of its
 //! own (M-1, grep tripwire over the supervisor's sources), and the pidfd probe that never falls back on a transient
 //! failure (m-2). Spawning tests run inside the private pid namespace (rule L10).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

@@ -1,6 +1,7 @@
 //! Regression tests of the two ledger audits (notes/implementer.audit-ledger-A.md, -B.md): one test per
 //! finding id, each porting the auditor's reproduction and asserting the FIXED behaviour (they fail on e371e1f5).
 //! Plus the R40 / R41 rulings applied to the records (U-*, P-*).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

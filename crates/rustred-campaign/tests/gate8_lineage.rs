@@ -6,6 +6,7 @@
 //! the conservative behaviour and FAILED on ac/procfix7 a19d5d0b (they were `#[ignore]`d there); procfix7 round 4
 //! (resources::procfs: Gone only for ENOENT / ESRCH) fixes them: un-ignored. The third shows the contrast (a failed read
 //! of the PARENT is inconclusive, as intended).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::resources::lineage::{Hidden, LineageRules, classify_hidden_at};
 use rustred_campaign::resources::{ProcError, ProcRoot, hidden_descendants_at};

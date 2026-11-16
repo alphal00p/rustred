@@ -2,6 +2,7 @@
 //! via `rr_fake_child` (kind solve-recipe emulated), rr_proof via a legacy stub script, generate via `rr_fake_child`
 //! (kind fake). Run under `LIGHT_PIDNS=1` (private pid namespace, rule L10):
 //! `LIGHT_PIDNS=1 light_build.sh adapters test -p rustred-campaign --test adapters_fake`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod adapters_support;
 use adapters_support::*;

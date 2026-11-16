@@ -1,5 +1,6 @@
 //! Ledger basics: append / reopen, reducer refusal (nothing written), hash chain, torn-tail recovery,
 //! corruption detection, write-ahead pending operations, acceptance rules (sealed only, elided refused).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

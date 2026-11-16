@@ -18,6 +18,7 @@
 //!
 //! Each scenario passes when its output has no `| FAIL` result line, the driver's SUMMARY shows decoys_dead=0,
 //! marked_orphans_missed=0 and driver_signals=none, and no churn decoy was killed by a signal.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_reaudit_b/driver.rs"]
 mod driver;

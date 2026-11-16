@@ -14,6 +14,7 @@
 //!
 //! Default run: `cargo test --release -p rustred-campaign --test ledger_model -- --ignored --nocapture`
 //! (env RR_MODEL_SEEDS, RR_MODEL_STEPS); a short smoke version runs in debug.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::collections::BTreeMap;

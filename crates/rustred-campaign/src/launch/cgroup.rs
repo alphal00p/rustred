@@ -57,7 +57,8 @@ impl CgroupRoot {
         ));
         fs::create_dir(&probe)
             .map_err(|e| format!("{}: cannot create a child cgroup: {e}", path.display()))?;
-        let ok = probe.join("memory.max").exists()
+        // procfix7 round 5: only a PROVEN present memory.max counts (an unknown answer = not usable: sampling)
+        let ok = crate::fsx::presence("cgroup", &probe.join("memory.max")).is_present()
             && OpenOptions::new()
                 .write(true)
                 .open(probe.join("cgroup.procs"))
@@ -83,7 +84,9 @@ impl CgroupRoot {
         let own = crate::resources::own_cgroup_dir()?;
         // SAFETY: getuid has no arguments and cannot fail.
         let uid = unsafe { libc::getuid() };
-        let meta = fs::metadata(&own).map_err(|e| format!("{}: {e}", own.display()))?;
+        let meta = crate::fsx::presence("cgroup", &own)
+            .metadata()
+            .map_err(|e| format!("{}: {e}", own.display()))?;
         if meta.uid() != uid {
             return Err(format!(
                 "{} is not owned by this user (not delegated)",
@@ -100,8 +103,14 @@ impl CgroupRoot {
             ));
         }
         let leaf = own.join("supervisor");
-        if !leaf.exists() {
-            fs::create_dir(&leaf).map_err(|e| format!("{}: {e}", leaf.display()))?;
+        match crate::fsx::presence("cgroup", &leaf) {
+            crate::fsx::Presence::Present(_) => {}
+            crate::fsx::Presence::Absent => {
+                fs::create_dir(&leaf).map_err(|e| format!("{}: {e}", leaf.display()))?;
+            }
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(format!("{} cannot be checked: {e}", leaf.display()));
+            }
         }
         write_file(&leaf.join("cgroup.procs"), "0")
             .map_err(|e| format!("move into {}: {e}", leaf.display()))?;
@@ -184,16 +193,16 @@ impl JobCgroup {
         super::real::raw(&self.procs)
     }
 
-    /// `oom_kill` count of memory.events (0 if unreadable).
-    pub fn oom_kills(&self) -> u64 {
-        read(&self.dir.join("memory.events"))
-            .ok()
-            .and_then(|t| {
-                t.lines()
-                    .find_map(|l| l.strip_prefix("oom_kill "))
-                    .and_then(|v| v.trim().parse().ok())
-            })
-            .unwrap_or(0)
+    /// `oom_kill` count of memory.events; procfix7 round 5: None when it cannot be read or parsed (UNKNOWN, read
+    /// again at the next sample; never 0).
+    pub fn oom_kills(&self) -> Option<u64> {
+        match crate::fsx::read_to_string("cgroup", &self.dir.join("memory.events")) {
+            crate::fsx::Read::Content(t) => t
+                .lines()
+                .find_map(|l| l.strip_prefix("oom_kill "))
+                .and_then(|v| v.trim().parse().ok()),
+            crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => None,
+        }
     }
 
     /// `cgroup.kill` (Linux >= 5.14): SIGKILL to every process of the cgroup, escapees included.
@@ -274,7 +283,7 @@ impl CgroupRoot {
                 ));
                 continue;
             }
-            match fs::metadata(&dir) {
+            match crate::fsx::presence("cgroup", &dir).metadata() {
                 Ok(m) if m.uid() == euid => {}
                 Ok(_) => {
                     why.push(format!("{}: not owned by us", dir.display()));
@@ -304,7 +313,7 @@ impl CgroupRoot {
                 "cgroup.events",
             ]
             .iter()
-            .all(|f| probe.join(f).exists())
+            .all(|f| crate::fsx::presence("cgroup", &probe.join(f)).is_present())
                 && OpenOptions::new()
                     .write(true)
                     .open(probe.join("cgroup.procs"))
@@ -465,24 +474,41 @@ impl ScopeRef {
                 }
             }
         }
-        Self::check_dir(&dir, uid).map(|(dev, ino)| ScopeRef { dir, dev, ino, sid })
+        // the belt is additional to the guarded hunt: a directory that cannot be checked = the belt is not used
+        match Self::check_dir(&dir, uid) {
+            Ok(Some((dev, ino))) => Some(ScopeRef { dir, dev, ino, sid }),
+            Ok(None) | Err(_) => None,
+        }
     }
 
-    fn check_dir(dir: &Path, uid: u32) -> Option<(u64, u64)> {
-        let md = fs::symlink_metadata(dir).ok()?;
-        (md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino()))
+    /// procfix7 round 5: (dev, inode) of our directory; Ok(None) when PROVEN absent, not a directory or not ours; Err
+    /// when it cannot be checked (never "gone").
+    fn check_dir(dir: &Path, uid: u32) -> io::Result<Option<(u64, u64)>> {
+        match crate::fsx::presence_lstat("cgroup", dir) {
+            crate::fsx::Presence::Present(md) => {
+                Ok((md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino())))
+            }
+            crate::fsx::Presence::Absent => Ok(None),
+            crate::fsx::Presence::Unknown(e) => {
+                Err(io::Error::new(e.kind(), format!("{}: {e}", dir.display())))
+            }
+        }
     }
 
-    /// The same directory as recorded (dev, inode, owner)? `Ok(false)`: gone or replaced (no process of ours in it).
-    fn still_same(&self, uid: u32) -> bool {
-        Self::check_dir(&self.dir, uid) == Some((self.dev, self.ino))
+    /// The same directory as recorded (dev, inode, owner)? `Ok(false)`: gone or replaced (no process of ours in it);
+    /// Err: it cannot be checked.
+    fn still_same(&self, uid: u32) -> io::Result<bool> {
+        Ok(Self::check_dir(&self.dir, uid)? == Some((self.dev, self.ino)))
     }
 
     /// Live processes in the scope other than the job's own (pinned) leader. A scope directory that no longer exists,
     /// or is not the recorded one, holds nothing of ours: empty. A failed read of an existing scope: error.
     pub(crate) fn live_members(&self) -> Result<Vec<u32>, String> {
         let uid = crate::resources::our_uid();
-        if !self.still_same(uid) {
+        if !self
+            .still_same(uid)
+            .map_err(|e| format!("scope directory cannot be checked: {e}"))?
+        {
             return Ok(Vec::new());
         }
         let pids = match procs_of(&self.dir) {
@@ -508,7 +534,7 @@ impl ScopeRef {
     /// and only while the directory is still the recorded one (dev, inode, owner) under our user manager.
     pub(crate) fn kill_members(&self) -> io::Result<()> {
         let uid = crate::resources::our_uid();
-        if !self.dir.starts_with(user_manager_root(uid)) || !self.still_same(uid) {
+        if !self.dir.starts_with(user_manager_root(uid)) || !self.still_same(uid)? {
             return Err(io::Error::other("scope directory is not the recorded one"));
         }
         kill_path(&self.dir)
@@ -560,10 +586,12 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
     let uid = crate::resources::our_uid();
     for dir in scope_candidates(unit, uid) {
         // procfix7 (gate7 B1, the class): only an ABSENT scope is "no such scope"; another failed read is an error
-        let md = match fs::symlink_metadata(&dir) {
-            Ok(md) => md,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(io::Error::new(e.kind(), format!("{}: {e}", dir.display()))),
+        let md = match crate::fsx::presence_lstat("cgroup", &dir) {
+            crate::fsx::Presence::Present(md) => md,
+            crate::fsx::Presence::Absent => continue,
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(io::Error::new(e.kind(), format!("{}: {e}", dir.display())));
+            }
         };
         if !md.file_type().is_dir() || md.uid() != uid {
             continue;
@@ -581,6 +609,7 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

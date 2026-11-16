@@ -499,6 +499,7 @@ pub(crate) fn scan_campaign_at(
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     /// procfix5 (gate4 m5): a fake /proc tree: an uninspectable entry (environ refused; procfix7: readability, not the

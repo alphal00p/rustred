@@ -223,10 +223,11 @@ pub fn answer_of(
 
 /// Measured cost of a settled run directory (its OUTCOME: timing, memory); never part of a decision.
 pub fn cost_of(run_dir: &Path, job: &str) -> Cost {
-    let o: Value = std::fs::read(run_dir.join("OUTCOME.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or(Value::Null);
+    // procfix7 round 5: a cost that cannot be read is UNKNOWN (every field None), never zero
+    let o: Value = match crate::fsx::read("closeloop.input", &run_dir.join("OUTCOME.json")) {
+        crate::fsx::Read::Content(b) => serde_json::from_slice(&b).unwrap_or(Value::Null),
+        crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => Value::Null,
+    };
     Cost {
         cpu_s: o["timing"]["cpu_s"]
             .as_f64()
@@ -249,7 +250,7 @@ pub fn termmin_group(
     base: &Path,
     set: &ImportedSet,
 ) -> Result<Option<VerifiedGroup>, String> {
-    let header_family = frame_header_family(import, base);
+    let header_family = frame_header_family(import, base)?;
     let gs = match (&spec.group, &header_family) {
         (Some(g), _) => g.clone(),
         (None, Some(_)) => serde_json::from_value(json!({})).map_err(|e| e.to_string())?,
@@ -267,36 +268,77 @@ pub fn termmin_group(
 }
 
 /// The `family_source` text of the frame table's header (engine-table frame sources only).
-pub fn frame_header_family(import: &TableSetSpec, base: &Path) -> Option<String> {
-    let v = serde_json::to_value(import).ok()?;
-    let src = v["sources"]
-        .as_array()?
-        .iter()
-        .find(|s| s["id"].as_str() == Some(import.frame_from.as_str()))?;
+/// procfix7 round 5: Err when a file on the way cannot be READ (the header check is never skipped because of an I/O
+/// error); Ok(None) only when the source kind has no header or the file is proven absent or has no such field.
+pub fn frame_header_family(import: &TableSetSpec, base: &Path) -> Result<Option<String>, String> {
+    let read = |p: &Path| -> Result<Option<Vec<u8>>, String> {
+        match crate::fsx::read("closeloop.input", p) {
+            crate::fsx::Read::Content(b) => Ok(Some(b)),
+            crate::fsx::Read::Absent => Ok(None),
+            crate::fsx::Read::Failed(e) => Err(format!("frame header {}: {e}", p.display())),
+        }
+    };
+    let Some(p) = frame_header_path(import, base, &read)? else {
+        return Ok(None);
+    };
+    // the header line only (a table may be large): open and first-line read errors are Err, never "no header"
+    let f = match crate::fsx::open("closeloop.input", &p) {
+        crate::fsx::Read::Content(f) => f,
+        crate::fsx::Read::Absent => return Ok(None),
+        crate::fsx::Read::Failed(e) => return Err(format!("frame header {}: {e}", p.display())),
+    };
+    use std::io::BufRead;
+    let mut first = String::new();
+    std::io::BufReader::new(f)
+        .read_line(&mut first)
+        .map_err(|e| format!("frame header {}: {e}", p.display()))?;
+    Ok(serde_json::from_str::<Value>(&first)
+        .ok()
+        .and_then(|h| h["family_source"].as_str().map(str::to_string)))
+}
+
+type HeaderRead<'a> = &'a dyn Fn(&Path) -> Result<Option<Vec<u8>>, String>;
+
+/// The frame table whose header names the family (None when the source kind has none or a file is proven absent).
+fn frame_header_path(
+    import: &TableSetSpec,
+    base: &Path,
+    read: HeaderRead<'_>,
+) -> Result<Option<PathBuf>, String> {
+    let Ok(v) = serde_json::to_value(import) else {
+        return Ok(None);
+    };
+    let Some(src) = v["sources"].as_array().and_then(|a| {
+        a.iter()
+            .find(|s| s["id"].as_str() == Some(import.frame_from.as_str()))
+    }) else {
+        return Ok(None);
+    };
     let rel = |x: &str| -> PathBuf {
         let p = PathBuf::from(x);
         if p.is_absolute() { p } else { base.join(p) }
     };
-    let p = match src["kind"].as_str()? {
-        "engine_table" => rel(src["path"].as_str()?),
+    Ok(match src["kind"].as_str() {
+        Some("engine_table") => src["path"].as_str().map(rel),
         // a table set (coord-bank-tables.md layout): the first table of the variant in the priority file
-        "table_set" => {
-            let pf: Value =
-                serde_json::from_slice(&std::fs::read(rel(src["priority_file"].as_str()?)).ok()?)
-                    .ok()?;
-            let first = pf[src["variant"].as_str()?].as_array()?.first()?["file"]
-                .as_str()?
-                .to_string();
-            rel(src["tables_dir"].as_str()?).join(first)
+        Some("table_set") => {
+            let Some(pfile) = src["priority_file"].as_str() else {
+                return Ok(None);
+            };
+            let Some(pb) = read(&rel(pfile))? else {
+                return Ok(None);
+            };
+            let first = serde_json::from_slice::<Value>(&pb).ok().and_then(|pf| {
+                let v = src["variant"].as_str()?;
+                Some(pf[v].as_array()?.first()?["file"].as_str()?.to_string())
+            });
+            match (first, src["tables_dir"].as_str()) {
+                (Some(f), Some(d)) => Some(rel(d).join(f)),
+                _ => None,
+            }
         }
-        _ => return None,
-    };
-    use std::io::BufRead;
-    let f = std::fs::File::open(&p).ok()?;
-    let mut first = String::new();
-    std::io::BufReader::new(f).read_line(&mut first).ok()?;
-    let h: Value = serde_json::from_str(&first).ok()?;
-    h["family_source"].as_str().map(str::to_string)
+        _ => None,
+    })
 }
 
 /// The machine for a loaded node: terminals reached by the base check, preferred = the import's preferred terminals +
@@ -715,24 +757,28 @@ impl TermminSource {
             .then_some(false)
     }
 
-    fn bits(&self, p: &PhaseE) -> AcceptBits {
+    /// procfix7 round 5: the accept bits are never computed from bytes that were not read (an error fails the route).
+    fn bits(&self, p: &PhaseE) -> Result<AcceptBits, String> {
         let prog = p.cfg.solve.program.clone();
         let path = self.programs.get(&prog).cloned().unwrap_or_default();
-        let bytes = std::fs::read(&path).unwrap_or_default();
-        AcceptBits {
+        let bytes = crate::fsx::read("closeloop.input", &path)
+            .required(&path)
+            .map_err(|e| format!("solve program {}: {e}", path.display()))?;
+        let family_blake3 = crate::atomic::blake3_file(&p.cfg.solve.family)
+            .map(|x| x.1)
+            .map_err(|e| format!("family {}: {e}", p.cfg.solve.family.display()))?;
+        Ok(AcceptBits {
             boxed: p.cfg.target == Target::Boxed,
             determinism_id: p.cfg.solve.determinism_id.clone(),
             binary_blake3: blake3_hex(&bytes),
             binary_sha256: sha256_hex(&bytes),
             binary_path: path.display().to_string(),
             family_path: p.cfg.solve.family.display().to_string(),
-            family_blake3: crate::atomic::blake3_file(&p.cfg.solve.family)
-                .map(|x| x.1)
-                .unwrap_or_default(),
+            family_blake3,
             order: p.cfg.solve.order_arg(),
             max_trace_rows: p.spec.caps.max_trace_rows.or(p.cfg.solve.max_trace_rows),
             key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
-        }
+        })
     }
 
     /// The inner's routing: withhold `DeclareClosed` of a node that enters phase E (same routing as its final input).
@@ -760,11 +806,19 @@ impl TermminSource {
                 continue;
             }
             let sdir = PathBuf::from(res["statement"]["dir"].as_str().unwrap_or(""));
-            let terms: Vec<Value> = std::fs::read(sdir.join("terminals.json"))
-                .ok()
-                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                .map(|v| terminals_of(&v))
-                .unwrap_or_default();
+            // procfix7 round 5: an unreadable terminals file fails the routing (never "no terminals", which would let
+            // DeclareClosed through)
+            let terms: Vec<Value> =
+                match crate::fsx::read("closeloop.input", &sdir.join("terminals.json")) {
+                    crate::fsx::Read::Content(b) => serde_json::from_slice::<Value>(&b)
+                        .ok()
+                        .map(|v| terminals_of(&v))
+                        .unwrap_or_default(),
+                    crate::fsx::Read::Absent => Vec::new(),
+                    crate::fsx::Read::Failed(e) => {
+                        return Err(format!("{}/terminals.json: {e}", sdir.display()));
+                    }
+                };
             if terms.is_empty() {
                 continue;
             }
@@ -995,7 +1049,13 @@ impl TermminSource {
                 if let Some(d) = p.parent() {
                     std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
                 }
-                if std::fs::read(&p).ok().as_deref() != Some(recipe.text.as_bytes()) {
+                // procfix7 round 5: rewritten only when PROVEN absent or different
+                let same = match crate::fsx::read("closeloop.output", &p) {
+                    crate::fsx::Read::Content(b) => b == recipe.text.as_bytes(),
+                    crate::fsx::Read::Absent => false,
+                    crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", p.display())),
+                };
+                if !same {
                     crate::atomic::write_atomic(&p, recipe.text.as_bytes())
                         .map_err(|e| e.to_string())?;
                 }
@@ -1069,11 +1129,13 @@ impl TermminSource {
     fn fake_script(&self, i: usize, b: &BatchFile) -> Option<FakeScript> {
         let f = self.nodes[i].cfg.solve.fake.as_ref()?;
         let mut oracle: FakeOracle = BTreeMap::new();
-        for l in std::fs::read_to_string(&f.oracle)
-            .ok()?
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-        {
+        // the fake oracle (test double; set only by test specs): unreadable = no fake script
+        let crate::fsx::Read::Content(text) =
+            crate::fsx::read_to_string("closeloop.input", &f.oracle)
+        else {
+            return None;
+        };
+        for l in text.lines().filter(|l| !l.trim().is_empty()) {
             let x: Value = serde_json::from_str(l).ok()?;
             let key: Vec<i32> = serde_json::from_value(x["key"].clone()).ok()?;
             let verdict: Verdict = serde_json::from_value(x["verdict"].clone()).ok()?;
@@ -1486,7 +1548,7 @@ impl WorkSource for TermminSource {
             }
         } else {
             let table = done.table.clone().expect("checked");
-            let bits = self.bits(&self.nodes[i]);
+            let bits = self.bits(&self.nodes[i])?;
             let slot = if step == "closing" {
                 self.nodes[i]
                     .ext

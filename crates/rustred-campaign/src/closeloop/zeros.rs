@@ -507,6 +507,7 @@ pub fn decisive_line(
            "first": {"producer": first, "coef": "zero"}, "second": second, "status": status})
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -16,6 +16,8 @@
 //! classifies a fake run with the crate's verifier is therefore a DIFFERENTIAL test of the verifier. Still shared:
 //! spec parsing and preflight, the event sink, the RESUME type, the exit-code / stop / status serde types, the
 //! witness-locus policy and the rule record builder of `fake`.
+#![allow(clippy::disallowed_methods)]
+// the fake child is the TEST DOUBLE of an engine program (it decides nothing of a campaign; the fsx rule binds the supervisor crate's library)
 
 // Nested `if`s are kept on purpose where the inner condition has a side effect (`FINAL.swap`) or takes a lock.
 #![allow(clippy::collapsible_if)]
@@ -1837,6 +1839,101 @@ fn run_job(spec_path: &Path) -> ! {
     m.finish(fin)
 }
 
+/// procfix7 round 5 (gate9 G9-B2): TEST DOUBLES of evasive descendants, started by a test's wrapper inside a job (so
+/// they carry the job's environment and marker). `fifo` is opened for writing (the test holds the read end) and is
+/// inherited by every thread and every incarnation; one byte `R` is written at the start. EOF at the test's end then
+/// proves that every one of them is gone (the kernel closes the last writer): an atomic liveness check, unlike a scan.
+/// - `churn-threads FIFO LIFE_US [nozombie]` (gate9's g9churn.c): fork; the child setsid's and keeps exactly one
+///   short-lived thread at a time (each sleeps LIFE_US, starts its successor, returns); its MAIN thread exits (the leader
+///   becomes a ZOMBIE), unless `nozombie`.
+/// - `churn-procs FIFO LIFE_US`: fork; a chain of PROCESSES, each sleeps LIFE_US, forks its successor and exits (the
+///   classic fork churn that evades a /proc scan).
+///
+/// Every thread / incarnation writes one byte at its start (non-blocking: a full pipe is fine); once the test closes
+/// its end the write fails with EPIPE and the churner ends (the test's clean-up). Both also end after 900 s.
+fn churn(procs: bool, fifo: &str, life_us: u64, nozombie: bool) -> ! {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    let mut w = match std::fs::OpenOptions::new().write(true).open(fifo) {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("churn: {fifo}: {e}");
+            std::process::exit(2);
+        }
+    };
+    // SAFETY: fork / setsid / open / dup2 / _exit on a single-threaded process (nothing else runs yet).
+    unsafe {
+        match libc::fork() {
+            -1 => std::process::exit(1),
+            0 => {}
+            _ => libc::_exit(0),
+        }
+        libc::setsid();
+        let dn = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
+        if dn >= 0 {
+            libc::dup2(dn, 0);
+            libc::dup2(dn, 1);
+            libc::dup2(dn, 2);
+        }
+    }
+    let _ = w.write_all(b"R");
+    let fd = w.as_raw_fd();
+    std::mem::forget(w); // the descriptor stays open in every thread / incarnation
+    // SAFETY: fcntl on our own descriptor.
+    unsafe {
+        let fl = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, fl | libc::O_NONBLOCK);
+    }
+    // one byte; false once the test's end is closed (EPIPE: Rust ignores SIGPIPE)
+    let beat = move || -> bool {
+        // SAFETY: a one-byte write from a static buffer to our own descriptor.
+        let r = unsafe { libc::write(fd, b"b".as_ptr().cast(), 1) };
+        r == 1 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EPIPE)
+    };
+    let deadline = Instant::now() + Duration::from_secs(900);
+    let life = Duration::from_micros(life_us);
+    if procs {
+        loop {
+            std::thread::sleep(life);
+            if !beat() || Instant::now() > deadline {
+                // SAFETY: _exit ends this incarnation.
+                unsafe { libc::_exit(0) };
+            }
+            // SAFETY: single-threaded incarnation: fork, the parent ends at once.
+            match unsafe { libc::fork() } {
+                0 => {}
+                -1 => std::thread::sleep(Duration::from_millis(1)),
+                _ => unsafe { libc::_exit(0) },
+            }
+        }
+    }
+    fn worker(life: Duration, deadline: Instant, beat: impl Fn() -> bool + Copy + Send + 'static) {
+        std::thread::sleep(life);
+        if !beat() || Instant::now() > deadline {
+            std::process::exit(0);
+        }
+        while std::thread::Builder::new()
+            .stack_size(64 << 10)
+            .spawn(move || worker(life, deadline, beat))
+            .is_err()
+        {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+    let _ = std::thread::Builder::new()
+        .stack_size(64 << 10)
+        .spawn(move || worker(life, deadline, beat));
+    if nozombie {
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_secs(1));
+        }
+        std::process::exit(0);
+    }
+    // SAFETY: SYS_exit ends the calling (main) thread only: the leader becomes a zombie, the worker lives on.
+    unsafe { libc::syscall(libc::SYS_exit, 0) };
+    unreachable!("SYS_exit returned")
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args
@@ -1858,6 +1955,11 @@ fn main() {
             println!("{}", serde_json::to_string(&v).unwrap());
         }
         ["job", path] => run_job(Path::new(path)),
+        ["churn-threads", fifo, life] => churn(false, fifo, life.parse().unwrap_or(0), false),
+        ["churn-threads", fifo, life, "nozombie"] => {
+            churn(false, fifo, life.parse().unwrap_or(0), true)
+        }
+        ["churn-procs", fifo, life] => churn(true, fifo, life.parse().unwrap_or(0), false),
         _ => {
             eprintln!("usage: rr_fake_child job RUN/job.json | rr_fake_child version --json");
             std::process::exit(2);

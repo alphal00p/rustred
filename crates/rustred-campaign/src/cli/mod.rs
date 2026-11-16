@@ -214,11 +214,18 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             return exit::USAGE;
         }
     };
-    let bytes_digest = f
-        .spec
-        .as_ref()
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| blake3::hash(&b).to_hex().to_string());
+    // procfix7 round 5: the spec file's bytes digest; an unreadable spec stops typed (never "no older digest")
+    let bytes_digest = match f.spec.as_ref() {
+        None => None,
+        Some(p) => match crate::fsx::read("cli", p) {
+            crate::fsx::Read::Content(b) => Some(blake3::hash(&b).to_hex().to_string()),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => {
+                errln!("spec {}: {e}", p.display());
+                return io_exit(&e);
+            }
+        },
+    };
     let (mut spec, digest, cdir) = match load_spec(&f) {
         Ok(x) => x,
         Err((c, m)) => {
@@ -310,6 +317,12 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             Err(_) => terminal_ok = false,
         }
     }
+    // procfix7 round 5: test builds with `fsx_count:1`: the number of fsx helper calls of this run (the property test
+    // of tests/procfix9.rs injects at every one of them)
+    if let Some(n) = crate::fsx::calls_counted() {
+        eprintln!("TEST BUILD fsx helper calls: {n}");
+        eprintln!("TEST BUILD fsx sites: {:?}", crate::fsx::site_counts());
+    }
     if !terminal_ok {
         let mut log = crate::supervisor::Log::open(&cdir);
         log.line_file_only(
@@ -352,6 +365,27 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
 }
 
 /// One pre-flight line.
+/// procfix7 round 5: the typed end of a CLI verb whose file system read failed (71 for a resource limit, else 70).
+fn io_exit(e: &std::io::Error) -> i32 {
+    match e.raw_os_error() {
+        Some(libc::EMFILE | libc::ENFILE | libc::ENOMEM | libc::EAGAIN) => exit::RESOURCES,
+        _ => exit::INTERNAL,
+    }
+}
+
+/// procfix7 round 5: does `cdir` hold a campaign (its ledger's manifest)? Err: (exit code, message) when that cannot be
+/// checked: never "no campaign".
+fn campaign_present(cdir: &Path) -> Result<bool, (i32, String)> {
+    match crate::ledger::manifest_state(cdir) {
+        Ok(p) => Ok(p),
+        Err(crate::ledger::LedgerError::Io { path, op, source }) => Err((
+            io_exit(&source),
+            format!("{op} on {} failed: {source}", path.display()),
+        )),
+        Err(e) => Err((exit::REFUSED, format!("{e}"))),
+    }
+}
+
 fn pf(out: &mut impl Write, status: &str, what: &str) {
     let _ = writeln!(out, "{status:<7} {what}");
 }
@@ -621,11 +655,19 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
             refuse(exit::PF_LOCK, &mut code);
         }
     }
-    if cdir
-        .join("ledger")
-        .join(crate::ledger::MANIFEST_FILE)
-        .exists()
-    {
+    let present = match campaign_present(cdir) {
+        Ok(p) => p,
+        Err((c, m)) => {
+            pf(
+                out,
+                "REFUSE",
+                &format!("campaign directory cannot be checked: {m}"),
+            );
+            refuse(c, &mut code);
+            false
+        }
+    };
+    if present {
         pf(
             out,
             "ok",
@@ -659,7 +701,11 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
 
 fn existing_ancestor(p: &Path) -> PathBuf {
     let mut q = p.to_path_buf();
-    while !q.exists() {
+    // procfix7 round 5: walk up only past PROVEN absent components (an unreadable one stops the walk)
+    while matches!(
+        crate::fsx::presence("cli", &q),
+        crate::fsx::Presence::Absent
+    ) {
         match q.parent() {
             Some(x) => q = x.to_path_buf(),
             None => break,
@@ -705,8 +751,10 @@ pub(crate) fn version_line(p: &Path) -> Result<String, String> {
     }
     let mut s = String::new();
     use std::io::Read;
+    // procfix7 round 5: a failed read of the child's answer is an error (never a partial or empty version line)
     if let Some(mut o) = child.stdout.take() {
-        let _ = o.read_to_string(&mut s);
+        o.read_to_string(&mut s)
+            .map_err(|e| format!("version --json: reading the answer: {e}"))?;
     }
     Ok(s)
 }
@@ -818,11 +866,7 @@ pub fn write_control_payload(
     reason: Option<&str>,
     payload: Option<serde_json::Value>,
 ) -> Result<PathBuf, (i32, String)> {
-    if !cdir
-        .join("ledger")
-        .join(crate::ledger::MANIFEST_FILE)
-        .exists()
-    {
+    if !campaign_present(cdir)? {
         return Err((
             exit::NOT_FOUND,
             format!("no campaign in {}", cdir.display()),
@@ -868,11 +912,25 @@ fn cmd_rebuild_manifest(rest: &[String]) -> i32 {
     };
     let cdir = Path::new(cdir);
     let ldir = crate::ledger::ledger_dir(cdir);
-    if !ldir.is_dir() {
-        errln!("no ledger directory in {}", cdir.display());
-        return exit::NOT_FOUND;
+    match crate::fsx::presence("cli", &ldir) {
+        crate::fsx::Presence::Present(m) if m.is_dir() => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {
+            errln!("no ledger directory in {}", cdir.display());
+            return exit::NOT_FOUND;
+        }
+        crate::fsx::Presence::Unknown(e) => {
+            errln!("{} cannot be checked: {e}", ldir.display());
+            return io_exit(&e);
+        }
     }
-    if ldir.join(crate::ledger::MANIFEST_FILE).exists() {
+    let present = match campaign_present(cdir) {
+        Ok(p) => p,
+        Err((c, m)) => {
+            errln!("{m}");
+            return c;
+        }
+    };
+    if present {
         errln!(
             "refused: {} exists; nothing to rebuild",
             ldir.join(crate::ledger::MANIFEST_FILE).display()
@@ -926,13 +984,16 @@ fn cmd_verify(rest: &[String]) -> i32 {
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
-    if !cdir
-        .join("ledger")
-        .join(crate::ledger::MANIFEST_FILE)
-        .exists()
-    {
-        errln!("no campaign in {}", cdir.display());
-        return exit::NOT_FOUND;
+    match campaign_present(cdir) {
+        Ok(true) => {}
+        Ok(false) => {
+            errln!("no campaign in {}", cdir.display());
+            return exit::NOT_FOUND;
+        }
+        Err((c, m)) => {
+            errln!("{m}");
+            return c;
+        }
     }
     match crate::progress::verify(cdir) {
         Ok(r) => {
@@ -1003,11 +1064,18 @@ fn cmd_status(rest: &[String]) -> i32 {
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
-    if !cdir
+    let progress_file = cdir
         .join(crate::progress::PROGRESS_DIR)
-        .join("campaign.json")
-        .exists()
-    {
+        .join("campaign.json");
+    let have = match crate::fsx::presence("cli", &progress_file) {
+        crate::fsx::Presence::Present(_) => true,
+        crate::fsx::Presence::Absent => false,
+        crate::fsx::Presence::Unknown(e) => {
+            errln!("{} cannot be checked: {e}", progress_file.display());
+            return io_exit(&e);
+        }
+    };
+    if !have {
         errln!(
             "no progress file {}",
             cdir.join(crate::progress::PROGRESS_DIR)

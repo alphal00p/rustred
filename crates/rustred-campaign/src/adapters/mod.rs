@@ -166,7 +166,9 @@ pub fn prepare_run(spec: &JobSpec, program_path: &Path) -> std::io::Result<(Laun
     let bytes = spec.to_json_line();
     let digest = rustred_campaign_contract::spec::spec_blake3(&bytes);
     crate::atomic::create_new_atomic(&p, &bytes).map_err(std::io::Error::other)?;
-    let mut perm = std::fs::metadata(&p)?.permissions();
+    let mut perm = crate::fsx::presence("supervisor.job_spec", &p)
+        .metadata()?
+        .permissions();
     perm.set_readonly(true);
     std::fs::set_permissions(&p, perm)?;
     let ls = LaunchSpec::new(spec.job_id.clone(), program_path, &layout.root)

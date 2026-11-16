@@ -47,7 +47,11 @@ pub enum Mismatch {
 pub fn diagnose(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str) -> Vec<Mismatch> {
     let mut out = Vec::new();
     match std::fs::read(layout.outcome()) {
-        Err(_) => out.push(Mismatch::OutcomeMissing),
+        // procfix7 round 5: missing ONLY on NotFound (an unreadable OUTCOME is not "the child wrote none")
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => out.push(Mismatch::OutcomeMissing),
+        Err(e) => out.push(Mismatch::OutcomeUnparsable {
+            why: format!("OUTCOME.json cannot be read: {e}"),
+        }),
         Ok(b) => {
             let raw: Option<Value> = serde_json::from_slice(&b).ok();
             if let Some(v) = &raw {
@@ -55,6 +59,7 @@ pub fn diagnose(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str) -> Vec<Mi
                 if let Some(d) = j["spec_blake3"].as_str()
                     && d != spec_blake3
                 {
+                    // procfix9-ok: diagnostic label only (which digest the child used); nothing is decided from it
                     let plain = std::fs::read(layout.job_spec())
                         .map(|x| rustred_campaign_contract::blake3_hex(&x))
                         .unwrap_or_default();
@@ -98,7 +103,18 @@ pub fn diagnose(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str) -> Vec<Mi
             }
         }
     }
-    if let Ok(text) = std::fs::read(layout.events()) {
+    let events = match std::fs::read(layout.events()) {
+        Ok(t) => Some(t),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            out.push(Mismatch::EventsUnparsable {
+                line: 0,
+                why: format!("the events file cannot be read: {e}"),
+            });
+            None
+        }
+    };
+    if let Some(text) = events {
         for (i, l) in text.split(|&c| c == b'\n').enumerate() {
             if l.is_empty() {
                 continue;

@@ -1,6 +1,7 @@
 //! Lane procfix7 (gate6 MJ-A): the parent-chain classification of `resources::lineage` on REAL processes of a private
 //! pid namespace (rule L10: refuses to run outside one). The walk reads only `stat` / `status`, which stay readable for
 //! non-dumpable processes, so no capability games are needed here.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

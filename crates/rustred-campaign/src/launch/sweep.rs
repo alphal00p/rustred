@@ -102,7 +102,28 @@ pub struct SweepReport {
     /// procfix7 (gate6 MJ-A): when not proven because of unreadable candidates, those of the last scan that may descend
     /// from the campaign (pid, name, parent, why); never signalled. Empty when proven.
     pub hidden: Vec<HiddenProcess>,
+    /// procfix7 round 5 (gate9 G9-B2, process churn): marked processes a scan of this sweep saw ALIVE that were gone
+    /// before their SIGSTOP (not killed by this sweep). Such a process may have started a successor that no scan saw (a
+    /// chain that forks and exits faster than a scan reads it is invisible to a /proc scan): the final sweep does not
+    /// claim a clean end while any try had one (exit 8, naming them); recovery reports them.
+    pub vanished: Vec<MarkedProcess>,
 }
+
+/// procfix7 round 5 (gate9 G9-B2): what a "proven" sweep means. A /proc scan is NOT atomic: a chain of processes that
+/// each fork a successor and exit between a scan's listing and its read of them (a gap of milliseconds in a namespace,
+/// more on a busy host) is never seen, and no userspace reading of /proc can exclude it. Without a job scope / cgroup
+/// (the test namespaces; a run outside systemd) "proven" therefore means exactly this sentence; with a scope, the
+/// kernel's cgroup membership (`cgroup.events` populated 0, `cgroup.kill`) is the atomic proof for the processes inside
+/// it (RUNBOOK 2.7).
+pub fn proof_words(scans: u32) -> String {
+    format!(
+        "no marked process seen in {scans} consecutive stable scans (a /proc scan cannot exclude a process chain that \
+         forks and exits faster than it reads; only a job scope's cgroup membership is atomic)"
+    )
+}
+
+/// The number of consecutive conclusive scans a proven sweep rests on (step 3 of the module doc).
+pub const PROOF_SCANS: u32 = 2;
 
 impl SweepReport {
     /// Proven AND nothing left alive: no live process carries the swept marker, and no process a sweep stopped is left
@@ -156,6 +177,8 @@ struct Sweep<'a> {
     /// candidate, unmarked or not ours; every proof pass re-checks the suspects its scan did not report, so a later scan
     /// that misses one (a listing, a misread) cannot make the sweep conclusive.
     suspects: BTreeMap<u32, Option<u64>>,
+    /// procfix7 round 5: marked processes seen alive and gone before their stop (see [`SweepReport::vanished`]).
+    vanished: BTreeMap<Key, MarkedProcess>,
 }
 
 fn key(p: &MarkedProcess) -> Key {
@@ -295,7 +318,11 @@ impl Sweep<'_> {
             }
             match guard::open_pidfd(p.pid) {
                 Ok(fd) => cands.push((fd, p)),
-                Err(Verdict::Gone) | Err(Verdict::NotOurs(_)) => out.push(Ok(false)),
+                Err(Verdict::Gone) => {
+                    self.vanished.insert(k, p);
+                    out.push(Ok(false));
+                }
+                Err(Verdict::NotOurs(_)) => out.push(Ok(false)),
                 Err(Verdict::Unverified(e)) => out.push(Err(e)),
                 Err(Verdict::Delivered) => out.push(Err("impossible verdict".into())),
             }
@@ -321,7 +348,11 @@ impl Sweep<'_> {
                     );
                     w.map(|()| true)
                 }
-                Verdict::Gone | Verdict::NotOurs(_) => Ok(false),
+                Verdict::Gone => {
+                    self.vanished.insert(k, p);
+                    Ok(false)
+                }
+                Verdict::NotOurs(_) => Ok(false),
                 Verdict::Unverified(e) => {
                     self.left.insert(
                         k,
@@ -705,6 +736,7 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         rounds: 0,
         hidden: Vec::new(),
         suspects: BTreeMap::new(),
+        vanished: BTreeMap::new(),
     };
     w.retry_stranded();
     let reason = loop {
@@ -746,6 +778,11 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .extend(keep);
+    let vanished: Vec<MarkedProcess> = std::mem::take(&mut w.vanished)
+        .into_iter()
+        .filter(|(k, _)| !w.killed.contains_key(k) && !w.killed_by_hold.contains_key(k))
+        .map(|(_, p)| p)
+        .collect();
     SweepReport {
         killed: w.killed.into_values().collect(),
         killed_by_hold: w.killed_by_hold.into_values().collect(),
@@ -760,10 +797,12 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         reason,
         rounds: w.rounds,
         seen: w.seen.len(),
+        vanished,
     }
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -825,6 +864,7 @@ mod tests {
             rounds: 0,
             hidden: Vec::new(),
             suspects: BTreeMap::new(),
+            vanished: BTreeMap::new(),
         };
         let process = MarkedProcess::from_stat(&st, "j1:a1".into());
         let m = Member {

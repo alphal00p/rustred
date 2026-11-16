@@ -157,7 +157,12 @@ pub fn effective_spec(
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let write = |name: &str, body: &str| -> Result<PathBuf, String> {
         let p = dir.join(name);
-        let disk = std::fs::read(&p).ok();
+        // procfix7 round 5: a derived file that cannot be read is an error (never "absent, write it")
+        let disk = match crate::fsx::read("closeloop.output", &p) {
+            crate::fsx::Read::Content(b) => Some(b),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", p.display())),
+        };
         let b3 = |b: &[u8]| blake3::hash(b).to_hex().to_string();
         if disk.as_deref() == Some(body.as_bytes()) {
             if mode == DerivedFiles::Verify {
@@ -239,7 +244,7 @@ pub fn group_of(
 ) -> Result<Option<VerifiedGroup>, String> {
     let import = rustred_campaign_core::import::TableSetSpec::from_json(spec_text)
         .map_err(|e| format!("import spec: {e}"))?;
-    let header_family = super::termmin::frame_header_family(&import, base);
+    let header_family = super::termmin::frame_header_family(&import, base)?;
     let gs: GroupSpec = match (&esc.group, &header_family) {
         (Some(g), _) => {
             serde_json::from_value(g.clone()).map_err(|e| format!("escalation group: {e}"))?
@@ -556,6 +561,7 @@ pub fn face_table(
         "table": rows})
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

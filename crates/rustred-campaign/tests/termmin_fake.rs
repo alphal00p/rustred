@@ -4,6 +4,7 @@
 //!
 //! The toy (termmin_support): closed at its first check with terminals M (no relation exists), E (eliminable at depth
 //! 2), N (only through the new key X, served by the default recipe in the closing try).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod sup_common;
 mod termmin_support;

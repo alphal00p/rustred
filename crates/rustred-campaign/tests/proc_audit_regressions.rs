@@ -9,6 +9,7 @@
 //! DECOYS: processes of the test's own making stand in for "foreign" jobs (no campaign marker, another campaign's marker,
 //! a recycled pid, a leaderless session). Every decoy must SURVIVE what the layer does; each test then removes its own
 //! decoys and asserts that nothing of it is left.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

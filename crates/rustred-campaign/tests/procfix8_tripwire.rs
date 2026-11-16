@@ -9,6 +9,7 @@
 //! 3. no read result of the wrapper is collapsed on the same line (`.ok()`, `.unwrap_or*`, `.is_ok()`, `.is_err()`
 //!    after a `procfs::` call, `read_stat(` or `boot_id()`), unless the line above carries a reviewed
 //!    `procfix8-ok: <reason>`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use std::path::{Path, PathBuf};
 

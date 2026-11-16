@@ -1142,7 +1142,7 @@ impl std::fmt::Display for LedgerError {
             }
             LedgerError::ManifestMissing { dir, found } => write!(
                 f,
-                "damaged ledger: {} has no {MANIFEST_FILE} but holds an acknowledged history ({found}); nothing was deleted; rebuild the manifest from the verified chain (ledger::rebuild_manifest) after checking the directory",
+                "damaged ledger: {} has no {MANIFEST_FILE} but holds files ({found}); nothing was deleted (never a repair by deletion); if it holds a history (also the record 1 of a create that crashed), rebuild the manifest from the verified chain (`rr_campaign rebuild-manifest CDIR`); otherwise check it and remove it by hand",
                 dir.display()
             ),
         }
@@ -1921,7 +1921,7 @@ pub struct LedgerView {
 /// reduced state (the snapshot is streamed).
 pub fn open_read_only(cdir: &Path) -> Result<LedgerView, LedgerError> {
     let dir = ledger_dir(cdir);
-    if !dir.join(MANIFEST_FILE).exists() {
+    if !manifest_present(&dir)? {
         return Err(LedgerError::NotALedger { dir });
     }
     let mark = read_commit_mark(&dir)?;
@@ -2067,6 +2067,46 @@ fn flock_dir(dir: &Path) -> Result<File, LedgerError> {
     Ok(f)
 }
 
+/// procfix7 round 5 (gate9 G9-B1): is `dir/MANIFEST.json` there? Ok(true): a regular file; Ok(false): PROVEN absent
+/// (NotFound); Err: anything else (EIO, ENOMEM, EACCES, not a regular file): never "no ledger" (a stat error taken as
+/// "no ledger" made a supervisor create a new ledger over a crashed campaign and delete its history).
+fn manifest_present(dir: &Path) -> Result<bool, LedgerError> {
+    let p = dir.join(MANIFEST_FILE);
+    match crate::fsx::presence_lstat("ledger.manifest", &p) {
+        crate::fsx::Presence::Present(m) if m.is_file() => Ok(true),
+        crate::fsx::Presence::Present(_) => {
+            Err(corrupt(MANIFEST_FILE, 0, "not a regular file".to_string()))
+        }
+        crate::fsx::Presence::Absent => Ok(false),
+        crate::fsx::Presence::Unknown(e) => Err(io_err(&p, "stat manifest")(e)),
+    }
+}
+
+/// [`manifest_present`] of a campaign directory's ledger (the supervisor's create-or-open decision).
+pub fn manifest_state(cdir: &Path) -> Result<bool, LedgerError> {
+    manifest_present(&ledger_dir(cdir))
+}
+
+/// procfix7 round 5: the proof a snapshot file may be removed (snapshots are derived data: the segments hold the
+/// history), read back from the file just before: a regular file (lstat) in this ledger directory (held campaign lock
+/// and directory flock) whose head is a snapshot (`{"schema":"rustred.campaign.snapshot.`...) of the seq its name
+/// gives. Anything else (also an unreadable file) is kept.
+fn snapshot_removable(path: &Path, seq: u64) -> bool {
+    use std::io::Read as _;
+    match crate::fsx::presence_lstat("ledger.snapshot", path) {
+        crate::fsx::Presence::Present(m) if m.is_file() => {}
+        _ => return false,
+    }
+    let mut head = vec![0u8; 512];
+    let n = match File::open(path).and_then(|mut f| f.read(&mut head)) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    let head = String::from_utf8_lossy(&head[..n]);
+    head.starts_with(&format!("{{\"schema\":\"{SNAPSHOT_SCHEMA_FAMILY}"))
+        && head.contains(&format!("\"seq\":{seq},"))
+}
+
 #[derive(Serialize, Deserialize)]
 struct PendingRecovery {
     info: RecoveryInfo,
@@ -2078,55 +2118,6 @@ fn segment_index(name: &str) -> Option<u32> {
         .strip_suffix(".jsonl")?
         .parse()
         .ok()
-}
-
-/// M1: what a ledger directory WITHOUT a manifest holds. `Ok(())` = at most the residue of a crashed `create`
-/// (segment 1 with at most record 1, a commit mark naming at most record 1, nothing else of a history): it may be
-/// removed. Anything more is an acknowledged history: `ManifestMissing` (never deleted).
-fn check_create_residue(dir: &Path) -> Result<(), LedgerError> {
-    let mut found = Vec::new();
-    for e in fs::read_dir(dir).map_err(io_err(dir, "list"))?.flatten() {
-        let name = e.file_name().to_string_lossy().into_owned();
-        if let Some(idx) = segment_index(&name) {
-            if idx != 1 {
-                found.push(name);
-                continue;
-            }
-            let b = fs::read(e.path()).map_err(io_err(&e.path(), "read segment"))?;
-            // record 1 is the only line `create` writes before the manifest: more than one line is a history
-            let lines = b.iter().filter(|&&c| c == b'\n').count();
-            let after_first = b
-                .iter()
-                .position(|&c| c == b'\n')
-                .is_some_and(|p| p + 1 < b.len());
-            if lines > 1 || after_first {
-                found.push(format!("{name} with {lines} records"));
-            }
-        } else if (name.starts_with("snapshot-") && name.ends_with(".json"))
-            || (name.starts_with("torn-") && name.ends_with(".bin"))
-            || name == RECOVERY_PENDING_FILE
-        {
-            found.push(name);
-        } else if name == COMMIT_FILE {
-            let b = fs::read(e.path()).map_err(io_err(&e.path(), "read commit mark"))?;
-            if let Some(m) = CommitMark::read(&b)
-                && (m.segment > 1 || m.seq > 1)
-            {
-                found.push(format!(
-                    "{COMMIT_FILE} naming segment {} seq {}",
-                    m.segment, m.seq
-                ));
-            }
-        }
-    }
-    if found.is_empty() {
-        return Ok(());
-    }
-    found.sort();
-    Err(LedgerError::ManifestMissing {
-        dir: dir.to_path_buf(),
-        found: found.join(", "),
-    })
 }
 
 /// What [`rebuild_manifest`] did.
@@ -2147,14 +2138,15 @@ pub struct RebuildReport {
 pub fn rebuild_manifest(cdir: &Path, lock: &CampaignLock) -> Result<RebuildReport, LedgerError> {
     check_lock(cdir, lock)?;
     let dir = ledger_dir(cdir);
-    if dir.join(MANIFEST_FILE).exists() {
+    if manifest_present(&dir)? {
         return Err(LedgerError::AlreadyExists { dir });
     }
     let _dir_lock = flock_dir(&dir)?;
-    let mut idx: Vec<u32> = fs::read_dir(&dir)
+    // procfix7 round 5: a COMPLETE listing (an entry error fails the rebuild, never a shorter chain)
+    let mut idx: Vec<u32> = crate::fsx::list_required("ledger.listing", &dir)
         .map_err(io_err(&dir, "list"))?
-        .flatten()
-        .filter_map(|e| segment_index(&e.file_name().to_string_lossy()))
+        .iter()
+        .filter_map(|e| segment_index(&e.name_lossy()))
         .collect();
     idx.sort_unstable();
     if idx.is_empty() || idx.iter().enumerate().any(|(i, &x)| x as usize != i + 1) {
@@ -2320,10 +2312,11 @@ fn background_snapshot(
 
 impl Ledger {
     /// Creates a new ledger in `cdir/ledger` and writes record 1 (`campaign_created`). Record 1 is written and
-    /// fsynced BEFORE the manifest is installed (the commit point), so a crash leaves either no ledger (create
-    /// again works: the residue is removed) or a ledger with record 1 (audit A m4). A directory WITHOUT a manifest
-    /// that holds more than that residue is a damaged ledger: refused with `ManifestMissing`, nothing deleted
-    /// (audit-ledger2 M1).
+    /// fsynced BEFORE the manifest is installed (the commit point). procfix7 round 5 (gate9 G9-B1): a new ledger is
+    /// created ONLY into a ledger directory PROVEN absent or PROVEN empty (a complete listing); a directory that holds
+    /// anything without a manifest (also the residue of a crashed create) is refused with `ManifestMissing` and NOTHING
+    /// is deleted (never a repair by deletion; recovery: `rebuild_manifest`, or removal by a person); a manifest whose
+    /// presence cannot be read is an error, never "no ledger".
     pub fn create(
         cdir: &Path,
         lock: &CampaignLock,
@@ -2344,25 +2337,40 @@ impl Ledger {
     ) -> Result<Ledger, LedgerError> {
         check_lock(cdir, lock)?;
         let dir = ledger_dir(cdir);
-        if dir.join(MANIFEST_FILE).exists() {
+        if manifest_present(&dir)? {
             return Err(LedgerError::AlreadyExists { dir });
         }
-        let fresh = !dir.exists();
-        fs::create_dir_all(&dir).map_err(io_err(&dir, "create dir"))?;
+        let fresh = match crate::fsx::presence_lstat("ledger.dir", &dir) {
+            crate::fsx::Presence::Absent => true,
+            crate::fsx::Presence::Present(m) if m.is_dir() => false,
+            crate::fsx::Presence::Present(_) => {
+                return Err(corrupt("ledger", 0, "not a directory".to_string()));
+            }
+            crate::fsx::Presence::Unknown(e) => return Err(io_err(&dir, "stat ledger dir")(e)),
+        };
         if fresh {
+            fs::create_dir(&dir).map_err(io_err(&dir, "create dir"))?;
             ops.sync_dir(cdir).map_err(io_err(cdir, "sync dir"))?;
         }
         let dir_lock = flock_dir(&dir)?;
-        // The residue of a crashed create may go; an acknowledged history never (M1).
-        check_create_residue(&dir)?;
-        for e in fs::read_dir(&dir).map_err(io_err(&dir, "list"))?.flatten() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            if name == COMMIT_FILE || segment_index(&name).is_some() {
-                ops.remove(&e.path())
-                    .map_err(io_err(&dir, "remove leftover"))?;
+        // PROVEN empty (a complete listing, under the held campaign lock and the directory flock), else refused
+        match crate::fsx::list("ledger.listing", &dir) {
+            crate::fsx::Listing::Complete(v) if v.is_empty() => {}
+            crate::fsx::Listing::Complete(v) => {
+                let mut found: Vec<String> = v.iter().map(|e| e.name_lossy()).collect();
+                found.sort();
+                return Err(LedgerError::ManifestMissing {
+                    dir,
+                    found: found.join(", "),
+                });
             }
+            crate::fsx::Listing::Absent => {
+                return Err(io_err(&dir, "list")(io::Error::from_raw_os_error(
+                    libc::ENOENT,
+                )));
+            }
+            crate::fsx::Listing::Failed(e) => return Err(io_err(&dir, "list")(e)),
         }
-        let _ = atomic::remove_stale_temporaries(&dir);
         let manifest = Manifest {
             schema: MANIFEST_SCHEMA.into(),
             campaign_id: genesis.campaign_id.clone(),
@@ -2450,7 +2458,7 @@ impl Ledger {
     ) -> Result<(Ledger, OpenReport), LedgerError> {
         check_lock(cdir, lock)?;
         let dir = ledger_dir(cdir);
-        if !dir.join(MANIFEST_FILE).exists() {
+        if !manifest_present(&dir)? {
             return Err(LedgerError::NotALedger { dir });
         }
         let dir_lock = flock_dir(&dir)?;
@@ -2460,13 +2468,18 @@ impl Ledger {
             ..OpenReport::default()
         };
         let mark = read_commit_mark(&dir)?;
-        let pending: Option<PendingRecovery> = match fs::read(dir.join(RECOVERY_PENDING_FILE)) {
-            Ok(b) => Some(
-                serde_json::from_slice(&b)
-                    .map_err(|e| corrupt(RECOVERY_PENDING_FILE, 0, e.to_string()))?,
-            ),
-            Err(_) => None,
-        };
+        // procfix7 round 5: an unreadable pending-recovery file is an error, never "no recovery pending"
+        let pending: Option<PendingRecovery> =
+            match crate::fsx::read("ledger.segment", &dir.join(RECOVERY_PENDING_FILE)) {
+                crate::fsx::Read::Content(b) => Some(
+                    serde_json::from_slice(&b)
+                        .map_err(|e| corrupt(RECOVERY_PENDING_FILE, 0, e.to_string()))?,
+                ),
+                crate::fsx::Read::Absent => None,
+                crate::fsx::Read::Failed(e) => {
+                    return Err(io_err(&dir.join(RECOVERY_PENDING_FILE), "read")(e));
+                }
+            };
         let base = load_base(&dir, &manifest)?;
         report.from_snapshot = base.from_snapshot;
         report.replayed = base.replayed;
@@ -3077,7 +3090,7 @@ fn manifest_bytes(m: &Manifest) -> Vec<u8> {
 
 pub fn read_manifest(dir: &Path) -> Result<Manifest, LedgerError> {
     let p = dir.join(MANIFEST_FILE);
-    if !p.exists() {
+    if !manifest_present(dir)? {
         return Err(LedgerError::NotALedger {
             dir: dir.to_path_buf(),
         });
@@ -3097,17 +3110,23 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest, LedgerError> {
 /// corruption.
 fn remove_unreferenced(dir: &Path, m: &Manifest) -> Result<Vec<String>, LedgerError> {
     let mut removed = Vec::new();
-    let rd = fs::read_dir(dir).map_err(io_err(dir, "list"))?;
-    for e in rd {
-        let e = e.map_err(io_err(dir, "list"))?;
-        let name = e.file_name().to_string_lossy().into_owned();
+    // procfix7 round 5: a COMPLETE listing; each removal proved on the object itself just before it
+    for e in crate::fsx::list_required("ledger.listing", dir).map_err(io_err(dir, "list"))? {
+        let name = e.name_lossy();
         if let Some(idx) = segment_index(&name) {
             if idx > m.active.index {
-                let len = e.metadata().map(|md| md.len()).unwrap_or(1);
-                if len != 0 {
-                    return Err(corrupt(&name, 0, "non-empty segment not in the manifest"));
+                // proof: a regular file of length 0 (nothing of a history can be in it)
+                match crate::fsx::presence_lstat("ledger.segment", &e.path) {
+                    crate::fsx::Presence::Present(md) if md.is_file() && md.len() == 0 => {}
+                    crate::fsx::Presence::Absent => continue,
+                    crate::fsx::Presence::Present(_) => {
+                        return Err(corrupt(&name, 0, "non-empty segment not in the manifest"));
+                    }
+                    crate::fsx::Presence::Unknown(err) => {
+                        return Err(io_err(&e.path, "stat segment")(err));
+                    }
                 }
-                fs::remove_file(e.path()).map_err(io_err(dir, "remove"))?;
+                fs::remove_file(&e.path).map_err(io_err(dir, "remove"))?;
                 removed.push(name);
             }
         } else if let Some(sq) = name
@@ -3115,8 +3134,9 @@ fn remove_unreferenced(dir: &Path, m: &Manifest) -> Result<Vec<String>, LedgerEr
             .and_then(|r| r.strip_suffix(".json"))
             .and_then(|n| n.parse::<u64>().ok())
             && m.snapshot.as_ref().is_none_or(|s| sq > s.seq)
+            && snapshot_removable(&e.path, sq)
         {
-            fs::remove_file(e.path()).map_err(io_err(dir, "remove"))?;
+            fs::remove_file(&e.path).map_err(io_err(dir, "remove"))?;
             removed.push(name);
         }
     }
@@ -3127,11 +3147,14 @@ fn remove_unreferenced(dir: &Path, m: &Manifest) -> Result<Vec<String>, LedgerEr
 
 fn prune_snapshots(dir: &Path, m: &Manifest, keep_old: usize) {
     let Some(cur) = &m.snapshot else { return };
-    let Ok(rd) = fs::read_dir(dir) else { return };
-    let mut old: Vec<u64> = rd
-        .filter_map(|e| e.ok())
+    // procfix7 round 5: only after a COMPLETE listing (an incomplete one prunes nothing), each file proved first
+    let crate::fsx::Listing::Complete(entries) = crate::fsx::list("ledger.listing", dir) else {
+        return;
+    };
+    let mut old: Vec<u64> = entries
+        .iter()
         .filter_map(|e| {
-            e.file_name()
+            e.name
                 .to_str()?
                 .strip_prefix("snapshot-")?
                 .strip_suffix(".json")?
@@ -3143,7 +3166,12 @@ fn prune_snapshots(dir: &Path, m: &Manifest, keep_old: usize) {
     old.sort_unstable();
     let n = old.len().saturating_sub(keep_old);
     for s in &old[..n] {
-        let _ = fs::remove_file(dir.join(snapshot_name(*s)));
+        let p = dir.join(snapshot_name(*s));
+        if snapshot_removable(&p, *s) {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): pruning an old (proved) snapshot is best effort: kept files only cost space
+            let _ = fs::remove_file(&p);
+        }
     }
 }
 
@@ -3254,7 +3282,7 @@ pub fn for_each_record(
     visit: &mut dyn FnMut(&Record, &str) -> Result<(), LedgerError>,
 ) -> Result<RecordsEnd, LedgerError> {
     let dir = ledger_dir(cdir);
-    if !dir.join(MANIFEST_FILE).exists() {
+    if !manifest_present(&dir)? {
         return Err(LedgerError::NotALedger { dir });
     }
     let mark = read_commit_mark(&dir)?;

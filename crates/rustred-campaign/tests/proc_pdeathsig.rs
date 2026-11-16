@@ -1,5 +1,6 @@
 //! PDEATHSIG: a helper supervisor (this executable re-run with `RR_PROC_HELPER=minisup`) launches a child through the
 //! real launcher and records its identity; the test SIGKILLs the helper supervisor; its child must die by itself.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

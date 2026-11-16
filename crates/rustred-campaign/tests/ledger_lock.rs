@@ -4,6 +4,7 @@
 //!
 //! The "supervisor" is this test binary re-executed with `RR_LOCK_HELPER=<dir>`: it takes the lock, spawns
 //! `sleep` with the token in its environment, prints `ready <child pid>` and waits to be killed.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::io::{BufRead, BufReader};

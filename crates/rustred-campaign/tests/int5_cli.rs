@@ -2,6 +2,7 @@
 //! command line). Refused while the campaign lock is held (a supervisor) or when a manifest exists; otherwise the
 //! manifest is rebuilt from the verified chain and the ledger reads back unchanged. The CLI spawns nothing and signals
 //! nothing (no namespace needed; the suite runs it under LIGHT_PIDNS=1 anyway).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod ledger_support;
 

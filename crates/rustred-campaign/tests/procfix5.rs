@@ -7,6 +7,7 @@
 //! - m1: a child that deletes `RUN/sup/SPAWN` and escapes cannot act before its spawn is in the ledger (gate4 E4);
 //! - m2: `ulimit -f` ends the supervisor with exit 75 (disk full), never by SIGXFSZ;
 //! - letter (a): real children are refused without scope containment unless the spec says `containment: marker_only`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 #[path = "sup_common/mod.rs"]

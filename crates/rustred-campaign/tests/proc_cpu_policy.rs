@@ -1,5 +1,6 @@
 //! SitePolicy against a TEMPORARY tree of fake lock / ledger / held / pause files (never the real WS/ops), including two
 //! policies in two processes competing for the same CPUs (the second process is this executable re-run as a helper).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

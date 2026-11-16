@@ -1,6 +1,7 @@
 //! The dashboard on a REAL campaign directory: a ledger written by the ledger package's scenario, progress files
 //! written by `ProgressWriter`, then read by `DirSource` (summary from the files, drill-down from a read-only ledger
 //! reduction). Uses the ledger package's test helpers read-only.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "ledger_support/mod.rs"]
 mod ledger_support;

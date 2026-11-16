@@ -1,5 +1,6 @@
 //! Real-process tests of the launcher: group/session kill, grace escalation, escapees, identity rule, pinning, CLOEXEC,
 //! leftovers after a normal exit, reattach after a "restart". Every test asserts that no process of it survives.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

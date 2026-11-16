@@ -1,5 +1,6 @@
 //! Lane closeloop2: measurements of the closing pass on REAL material (ignored: big data, release). Spawns nothing (the
 //! pass is in-process): no pid namespace needed. Paths are test data (env overrides), never code.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::config::Budgets;
 use rustred_campaign::closeloop::pass::{PassIn, run_pass};

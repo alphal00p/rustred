@@ -8,6 +8,7 @@
 //!
 //! "Fails before": each test names the behaviour of the code before the second fix package (70947c6b + supervisor lane)
 //! that it catches; the port of re-audit B's harness (tests/proc_reaudit_b.rs) reproduces the same on the old code.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

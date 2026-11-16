@@ -11,6 +11,7 @@
 //! - optionally `RR_REAL_OUT`: where the run directories are kept (default: the system temp dir).
 //!
 //! `cargo test -p rustred-campaign --test real_child -- --ignored --test-threads 1`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign_contract::classify::{
     Classification, KillReason, WaitStatus, assess, classify,

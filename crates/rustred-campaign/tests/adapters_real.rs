@@ -10,6 +10,7 @@
 //!   with `<id>/res/results.jsonl` of the hand reference pass a1), `RR_T178_ORDER` (the order JSON);
 //! - `RR_M2_SLICE`: the campaign fixture `small/m2-slice` (TOY2kite, L3a);
 //! - `RR_ADAPTERS_OUT`: where run directories are kept (with `RR_KEEP=1`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod adapters_support;
 use adapters_support::*;

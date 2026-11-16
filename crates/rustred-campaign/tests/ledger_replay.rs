@@ -1,5 +1,6 @@
 //! Replay idempotence (duplicated intent/done pairs and duplicated effect records give the same state) and
 //! stale marking of dependent rows when an input changes (marked, never deleted).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use ledger_support::*;

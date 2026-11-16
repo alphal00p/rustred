@@ -1,5 +1,6 @@
 //! Reducer speed. The measured number (release build) is recorded in the interface document:
 //! `cargo test -p rustred-campaign --release --test ledger_speed -- --ignored --nocapture`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::time::Instant;

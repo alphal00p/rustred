@@ -159,7 +159,7 @@ fn cpu_word(cpus: &[usize]) -> (&'static str, String) {
 /// The site's files as `SitePolicy` needs them (gate3 m3): `lock_dir` an existing directory, `ledger_file` an existing
 /// regular file (symlinks followed) that does not lie in `lock_dir`. Nothing is created.
 fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
-    match fs::metadata(&c.lock_dir) {
+    match crate::fsx::presence("cpu_policy", &c.lock_dir).metadata() {
         Ok(m) if m.is_dir() => {}
         Ok(_) => {
             return Err(PolicyError::Config(format!(
@@ -174,7 +174,7 @@ fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
             )));
         }
     }
-    match fs::metadata(&c.ledger_file) {
+    match crate::fsx::presence("cpu_policy", &c.ledger_file).metadata() {
         Ok(m) if m.file_type().is_file() => {}
         Ok(m) => {
             return Err(PolicyError::Config(format!(
@@ -455,11 +455,18 @@ impl Drop for CpuLease {
     }
 }
 
+/// procfix7 round 5: a pause flag that cannot be checked BLOCKS like a present one (never "not paused").
 fn read_pause(files: &[PathBuf]) -> Vec<String> {
     files
         .iter()
-        .filter(|p| p.exists())
-        .map(|p| format!("pause flag {} present", p.display()))
+        .filter_map(|p| match crate::fsx::presence("cpu_policy", p) {
+            crate::fsx::Presence::Present(_) => Some(format!("pause flag {} present", p.display())),
+            crate::fsx::Presence::Absent => None,
+            crate::fsx::Presence::Unknown(e) => Some(format!(
+                "pause flag {} cannot be checked ({e}): counted as present",
+                p.display()
+            )),
+        })
         .collect()
 }
 
@@ -1449,21 +1456,28 @@ pub fn utc_string(secs: u64) -> String {
 }
 
 /// SMT siblings of every allowed CPU from `/sys/devices/system/cpu/cpu<n>/topology/thread_siblings_list` (the CPU
-/// itself removed). CPUs without the file are absent from the map. (lane I-SUP)
-pub fn read_smt_siblings() -> BTreeMap<usize, Vec<usize>> {
+/// itself removed). CPUs without the file (proven absent) are absent from the map. (lane I-SUP)
+/// procfix7 round 5: Err when the allowed set or a siblings file cannot be read or parsed (never "no siblings").
+pub fn read_smt_siblings() -> io::Result<BTreeMap<usize, Vec<usize>>> {
     let mut out = BTreeMap::new();
-    let Ok(cpus) = allowed_cpus() else {
-        return out;
-    };
-    for c in cpus {
-        let p = format!("/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list");
-        if let Ok(t) = fs::read_to_string(&p)
-            && let Ok(set) = parse_cpu_list(t.trim())
-        {
-            out.insert(c, set.into_iter().filter(|&s| s != c).collect());
+    for c in allowed_cpus()? {
+        let p = PathBuf::from(format!(
+            "/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list"
+        ));
+        match crate::fsx::read_to_string("cpu_policy", &p) {
+            crate::fsx::Read::Content(t) => {
+                let set = parse_cpu_list(t.trim()).map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
+                })?;
+                out.insert(c, set.into_iter().filter(|&s| s != c).collect());
+            }
+            crate::fsx::Read::Absent => {}
+            crate::fsx::Read::Failed(e) => {
+                return Err(io::Error::new(e.kind(), format!("{}: {e}", p.display())));
+            }
         }
     }
-    out
+    Ok(out)
 }
 
 /// For the pre-flight: a readable summary of what a site policy would exclude now.
@@ -1478,6 +1492,7 @@ pub fn describe_exclusions(p: &SitePolicy) -> String {
     }
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

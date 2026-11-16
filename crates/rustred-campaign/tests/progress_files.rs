@@ -1,5 +1,6 @@
 //! Progress files: golden files of every progress schema, atomic writing with unchanged-file skipping,
 //! re-derivation by a second reader, item detail, and `verify` (M5) incl. tamper and truncation detection.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

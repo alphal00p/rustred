@@ -217,9 +217,11 @@ pub struct RealLauncher {
 /// Find an executable on the supervisor's PATH.
 fn which(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
+    // an entry that cannot be checked is skipped like execvp skips it (the search goes on); only a PROVEN regular
+    // file is taken
     std::env::split_paths(&path)
         .map(|d| d.join(name))
-        .find(|p| p.is_file())
+        .find(|p| crate::fsx::presence("real.program", p).is_file())
 }
 
 /// Environment needed by `systemd-run --user` to reach the user manager.
@@ -1636,6 +1638,8 @@ impl RealChild {
                 if n < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
                     continue;
                 }
+                // EOF, EAGAIN or an error: no refusal read = "the program may have executed" (the conservative
+                // reading: a refusal is only ever taken from bytes the shim wrote)
                 break;
             }
             buf.strip_prefix(b"R")
@@ -1663,7 +1667,7 @@ impl RealChild {
     }
 
     /// Read the job cgroup's memory.current / memory.events for the systemd-scope mechanism.
-    fn scope_memory(&mut self) -> Option<(u64, u64)> {
+    fn scope_memory(&mut self) -> Option<(u64, Option<u64>)> {
         if !matches!(self.mechanism, MemoryMechanism::SystemdScope { .. }) || !self.pinned() {
             return None;
         }
@@ -1699,19 +1703,21 @@ impl RealChild {
             }
         }
         let dir = self.scope_dir.as_ref()?;
-        let cur = fs::read_to_string(dir.join("memory.current"))
-            .ok()?
-            .trim()
-            .parse::<u64>()
-            .ok()?;
-        let oom = fs::read_to_string(dir.join("memory.events"))
-            .ok()
-            .and_then(|t| {
-                t.lines()
-                    .find_map(|l| l.strip_prefix("oom_kill "))
-                    .and_then(|v| v.trim().parse().ok())
-            })
-            .unwrap_or(0);
+        // procfix7 round 5: an unreadable memory.current leaves the scope's usage UNKNOWN now (read again at the next
+        // sample; the sampled usage applies meanwhile); an unreadable OOM count is unknown (None), never 0
+        let crate::fsx::Read::Content(cur) =
+            crate::fsx::read_to_string("cgroup", &dir.join("memory.current"))
+        else {
+            return None;
+        };
+        let cur = cur.trim().parse::<u64>().ok()?;
+        let oom = match crate::fsx::read_to_string("cgroup", &dir.join("memory.events")) {
+            crate::fsx::Read::Content(t) => t
+                .lines()
+                .find_map(|l| l.strip_prefix("oom_kill "))
+                .and_then(|v| v.trim().parse().ok()),
+            crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => None,
+        };
         Some((cur, oom))
     }
 
@@ -1950,8 +1956,12 @@ impl ChildHandle for RealChild {
         let cap_hit = matches!(self.kill_reason, Some(KillReason::MemoryCap { .. }));
         if !cap_hit && let Some(cap) = self.memory_cap {
             let scope = self.scope_memory();
-            let oom = self.cgroup.as_ref().is_some_and(|c| c.oom_kills() > 0)
-                || scope.is_some_and(|(_, o)| o > 0);
+            // an OOM count that is unknown now is no kill trigger now (it is read again at the next sample)
+            let oom = self
+                .cgroup
+                .as_ref()
+                .is_some_and(|c| c.oom_kills().is_some_and(|n| n > 0))
+                || scope.is_some_and(|(_, o)| o.is_some_and(|n| n > 0));
             let sampled = snap.as_deref().and_then(|s| {
                 let u = self.last_usage.as_ref()?;
                 let (m, kind) = u.mem_bytes();

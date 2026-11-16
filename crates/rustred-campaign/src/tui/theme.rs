@@ -99,6 +99,7 @@ pub fn utf8_locale(lc_all: Option<&str>, lc_ctype: Option<&str>, lang: Option<&s
     v.contains("utf-8") || v.contains("utf8")
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

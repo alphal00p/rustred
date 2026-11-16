@@ -10,6 +10,7 @@
 //!   killed";
 //! - m4: a child killed by SIGXFSZ is a resource end (row 15b), retried after the back-off, never a crash;
 //! - m5: one ledger note per job names the containment in force; no scope unit is recorded where no scope exists.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

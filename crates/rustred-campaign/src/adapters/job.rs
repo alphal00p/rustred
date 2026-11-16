@@ -258,11 +258,21 @@ pub trait JobAdapter {
 /// never reused).
 pub fn create_run(work_root: &Path, job_id: &str, attempt: u32) -> Result<RunLayout, AdapterError> {
     let run = rustred_campaign_contract::layout::attempt_dir(work_root, job_id, attempt);
-    if run.exists() {
-        return Err(AdapterError::Io(format!(
-            "{} exists (an attempt directory is never reused)",
-            run.display()
-        )));
+    // procfix7 round 5: created only when PROVEN absent
+    match crate::fsx::presence_lstat("supervisor.run_dir", &run) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) => {
+            return Err(AdapterError::Io(format!(
+                "{} exists (an attempt directory is never reused)",
+                run.display()
+            )));
+        }
+        crate::fsx::Presence::Unknown(e) => {
+            return Err(AdapterError::Io(format!(
+                "{} cannot be checked: {e}",
+                run.display()
+            )));
+        }
     }
     let layout = RunLayout::new(&run);
     for d in [
@@ -311,9 +321,16 @@ pub fn write_spec(
     let digest = rustred_campaign_contract::spec::spec_blake3(&bytes);
     crate::atomic::create_new_atomic(&p, &bytes)
         .map_err(|e| AdapterError::Io(format!("{}: {e}", p.display())))?;
-    let mut perm = std::fs::metadata(&p)
-        .map_err(|e| AdapterError::Io(e.to_string()))?
-        .permissions();
+    let mut perm = match crate::fsx::presence("supervisor.job_spec", &p) {
+        crate::fsx::Presence::Present(m) => m.permissions(),
+        crate::fsx::Presence::Absent => {
+            return Err(AdapterError::Io(format!(
+                "{} vanished after its creation",
+                p.display()
+            )));
+        }
+        crate::fsx::Presence::Unknown(e) => return Err(AdapterError::Io(e.to_string())),
+    };
     perm.set_readonly(true);
     std::fs::set_permissions(&p, perm).map_err(|e| AdapterError::Io(e.to_string()))?;
     let mut ls = LaunchSpec::new(spec.job_id.clone(), &program.path, &layout.root);
@@ -433,6 +450,7 @@ pub fn shell_quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

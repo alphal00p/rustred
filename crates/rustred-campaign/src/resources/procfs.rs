@@ -33,6 +33,7 @@
 //! statm smaps fdinfo system; modes: emfile eio eacces enomem (that errno), short (a torn read: the second half missing; for a
 //! listing: the libc enumeration ends early without an error), garbage (unparsable content; for a listing an entry
 //! "7x"), partial (every read() returns at most 7 bytes: the result must be complete and equal).
+#![allow(clippy::disallowed_methods)] // THE /proc WRAPPER has its own typed rule (module doc; tests/procfix8_tripwire.rs): every listing here propagates entry errors (Unreadable), every stat is classified (Gone only ENOENT / ESRCH)
 
 use super::bounded::{Bounded, run_bounded};
 use super::{ProcStat, page_size, parse_stat};
@@ -1012,6 +1013,21 @@ impl Status {
         self.num("PPid", 0)
     }
 
+    /// procfix7 round 5 (gate9 G9-B2): `Threads:` is the kernel's `signal->nr_threads`, ONE count read under the
+    /// sighand lock: every thread of the group that is not yet released, the ZOMBIE LEADER included (a group leader is
+    /// released only after every other thread). Unlike a task LISTING it cannot miss a thread created after it began.
+    pub fn threads(&self) -> ProcResult<u32> {
+        self.num("Threads", 0)
+    }
+
+    /// The state letter of `State:` (the leader thread's; `Z` for a zombie leader).
+    pub fn state(&self) -> ProcResult<char> {
+        let v = self.field("State")?;
+        v.chars()
+            .next()
+            .ok_or_else(|| ProcError::Unreadable(format!("{}: State empty", self.what)))
+    }
+
     /// `Name:` (diagnostics).
     pub fn name(&self) -> ProcResult<String> {
         self.field("Name").map(str::to_string)
@@ -1219,6 +1235,7 @@ fn global_faults() -> Option<Arc<Faults>> {
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
