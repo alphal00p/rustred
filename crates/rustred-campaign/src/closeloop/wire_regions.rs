@@ -216,11 +216,10 @@ pub fn poll(
 }
 
 /// The export lines of the shipped faces (report): (manifest summary, files (export-relative name, bytes)).
-pub fn export(
-    st: &CampaignState,
-    cdir: &Path,
-    n: &str,
-) -> Result<Option<(Value, Vec<(String, Vec<u8>)>)>, String> {
+/// (manifest summary, files (export-relative name, bytes)).
+pub type Export = (Value, Vec<(String, Vec<u8>)>);
+
+pub fn export(st: &CampaignState, cdir: &Path, n: &str) -> Result<Option<Export>, String> {
     if !st.inputs.contains_key(&input_regions(n)) {
         return Ok(None);
     }
