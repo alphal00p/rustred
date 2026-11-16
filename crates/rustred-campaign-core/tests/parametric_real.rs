@@ -2396,6 +2396,7 @@ fn element_probe(
         });
         let mut contained = serde_json::Value::Null;
         let mut contain_undecided = 0usize;
+        let mut contain_undecided_list: Vec<serde_json::Value> = Vec::new();
         if contain && let Some(b) = &bx {
             for j in 0..jsrc.len() {
                 match box_inside_domain(b, jsrc.domain(j), frame, &budget) {
@@ -2406,7 +2407,18 @@ fn element_probe(
                             "point_rule": d.fixed.iter().all(|x| x.is_some())});
                         break;
                     }
-                    None => contain_undecided += 1,
+                    None => {
+                        contain_undecided += 1;
+                        if contain_undecided_list.len() < 6 {
+                            let r = jsrc.rule_ref(j);
+                            let d = jsrc.domain(j);
+                            contain_undecided_list.push(json!({"table": judge.tables()[r.table].name, "label": r.label,
+                                "fixed": d.fixed,
+                                "equations": d.equations.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                                "bounds": d.bounds.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                                "exceptions": d.exceptions.iter().map(|br| br.iter().map(|p| p.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>()}));
+                        }
+                    }
                     Some(false) => {}
                 }
             }
@@ -2426,7 +2438,7 @@ fn element_probe(
                 "box": bx.as_ref().map(|b| b.iter().map(|(l, h)| json!([l, h])).collect::<Vec<_>>()),
                 "dotted": dotted, "nonzero": nonzero, "free": free, "unbounded": unbounded, "min_excess": min_excess,
                 "keys_in_probe_cone": if sized.is_some() { json!(nk) } else { json!(null) },
-                "contained_by": contained, "contain_undecided_records": contain_undecided, "samples": samples,
+                "contained_by": contained, "contain_undecided_records": contain_undecided, "contain_undecided_list": contain_undecided_list, "samples": samples,
                 "arity": n})
         )
         .unwrap();
