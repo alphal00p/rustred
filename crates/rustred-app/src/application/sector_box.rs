@@ -50,7 +50,7 @@ pub const SECTOR_BOX_REDUCE_REPORT_SCHEMA: &str = "rustred.sector-box-reduce-rep
 /// storage width; each width is compiled once). 3 and 6 are covered by the
 /// default tests, 10 and 15 by the ignored four- and five-loop goldens; 5, 9,
 /// 14 and 20 are the propagator-family widths (one external momentum, 2-5
-/// loops: L(L+3)/2 coordinates), 5 and 9 covered by the default tests.
+/// loops: L(L+3)/2 coordinates), 5 covered by the default tests.
 pub const SECTOR_BOX_ARITIES: &[usize] = &[3, 5, 6, 9, 10, 14, 15, 20];
 /// Default certificate prime: the engine's
 /// [`rustred::solver::sector_box::DEFAULT_CERTIFICATE_PRIME`], `2^63 - 25`,
