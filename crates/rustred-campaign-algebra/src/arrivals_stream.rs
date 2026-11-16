@@ -1102,7 +1102,14 @@ pub fn walk_stream(
         by_rec.entry(rows.rec(si as usize)).or_default().push(ci);
     }
     let mut groups: Vec<(RecKey, Vec<usize>)> = by_rec.into_iter().collect();
-    groups.sort_by_key(|g| Reverse(g.1.len()));
+    // most expensive groups first (record bytes x (keys + a first-use allowance)): a heavy record with few keys must not
+    // start last and run alone (the work order does not change any output: accumulators merge order-free)
+    groups.sort_by_key(|((t, r), ks)| {
+        Reverse((
+            u128::from(set.rules[*t][*r].bytes) * (ks.len() as u128 + 64),
+            ks.len(),
+        ))
+    });
     st.records_walked = groups.len() as u64;
     let accs = Mutex::new(Accs {
         maps: edges.iter().map(|_| HashMap::new()).collect(),
@@ -1110,11 +1117,11 @@ pub fn walk_stream(
         runs: edges.iter().map(|_| vec![]).collect(),
         spills: 0,
     });
-    // work items = chunks of CHUNK keys of a record group (largest groups first); a worker decides a chunk holding
+    // work items = chunks of CHUNK keys of a record group (most expensive groups first); a worker decides a chunk holding
     // the record (one at a time per record), releases it, then transports the chunk; the record's parsed form is freed
     // when its last chunk is decided. Long-lived workers (one per thread) keep their accumulators across items and
     // merge them into the shared ones past LOCAL_FLUSH entries and at their end.
-    // interleaved: every group's first chunk (largest groups first), then every second chunk, ...: concurrent workers
+    // interleaved: every group's first chunk (most expensive groups first), then every second chunk, ...: concurrent workers
     // mostly hold different records (chunks of one record are decided one at a time)
     let max_chunks = groups
         .iter()
