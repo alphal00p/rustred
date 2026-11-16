@@ -247,10 +247,22 @@ fn census_and_before(
     cfg: &ShipRunConfig,
     set: &ImportedSet,
     say: &dyn Fn(String),
-) -> Result<(Census, ClosureView, Value), String> {
+) -> Result<
+    (
+        Census,
+        ClosureView,
+        Value,
+        BTreeMap<Vec<i32>, ship::ServedAt>,
+    ),
+    String,
+> {
     let t0 = Instant::now();
     let mut b = CensusBuilder::new(rules_of(set), cfg.policy.candidates.max_keys_per_rule)?;
     let mut v = ClosureView::default();
+    // the ORIGINAL statement's service of every key (served at its level / terminal): the served-key-set check; not
+    // kept in local mode (the shipped spec is not checked there)
+    let mut served: BTreeMap<Vec<i32>, ship::ServedAt> = BTreeMap::new();
+    let keep_served = cfg.check_mode != "local";
     let source;
     let index_map: BTreeMap<i64, String> = match (&cfg.rule_index, cfg.statement_format.as_str()) {
         (Some(ip), "ship_keys") => {
@@ -323,6 +335,19 @@ fn census_and_before(
                     .then(|| r["server"]["record_sha256"].as_str())
                     .flatten();
                 b.add(&key, in_start, sha);
+                if keep_served {
+                    match r["status"].as_str() {
+                        Some("terminal") => {
+                            served.insert(key.clone(), ship::ServedAt::Terminal);
+                        }
+                        Some("served") => {
+                            let l: rustred_campaign_core::import::Level =
+                                serde_json::from_value(r["evidence"].clone()).unwrap_or_default();
+                            served.insert(key.clone(), ship::ServedAt::Served(l));
+                        }
+                        _ => {}
+                    }
+                }
                 match r["status"].as_str() {
                     Some("terminal") => v.terminals.push(key.clone()),
                     Some("open") => {
@@ -353,6 +378,20 @@ fn census_and_before(
             )
             .map_err(|e| format!("check: {e}"))?;
             for r in all_rows(set, &res)? {
+                if keep_served {
+                    match r.status {
+                        RowStatus::Terminal => {
+                            served.insert(r.key.clone(), ship::ServedAt::Terminal);
+                        }
+                        RowStatus::Served => {
+                            served.insert(
+                                r.key.clone(),
+                                ship::ServedAt::Served(r.evidence.unwrap_or_default()),
+                            );
+                        }
+                        RowStatus::Open => {}
+                    }
+                }
                 let sha = match (&r.status, &r.server) {
                     (RowStatus::Served, Some(Server::Rule { table, record })) => {
                         Some(set.rules[*table][*record].record_sha256.as_str())
@@ -378,7 +417,7 @@ fn census_and_before(
         v.terminals.len(),
         v.open
     ));
-    Ok((b.finish(), v, source))
+    Ok((b.finish(), v, source, served))
 }
 
 /// Previous records by record sha256.
@@ -508,6 +547,61 @@ fn recipes_for(
         out.push((r.id.clone(), doc, r.keys.clone()));
     }
     Ok(out)
+}
+
+/// The served-key-set check: the shipped spec with every key the original statement serves (or declares terminal) in
+/// its START set, loaded and checked; each such key's service compared with the original's.
+fn served_set_check(
+    cfg: &ShipRunConfig,
+    sspec: &TableSetSpec,
+    before: &BTreeMap<Vec<i32>, ship::ServedAt>,
+    it: u32,
+) -> Result<ship::ServedSetCheck, String> {
+    let kp = cfg
+        .out_dir
+        .join(format!("ship/served_start.iter{it}.jsonl"));
+    let mut text = String::with_capacity(before.len() * 48);
+    for k in before.keys() {
+        text.push_str(&json!(k).to_string());
+        text.push('\n');
+    }
+    write(&kp, text.as_bytes())?;
+    let mut spec = sspec.clone();
+    spec.start = serde_json::from_value(
+        json!({"path": kp.display().to_string(), "format": "keys_jsonl",
+        "sha256": sha256_hex(text.as_bytes())}),
+    )
+    .map_err(|e| format!("served-set start: {e}"))?;
+    let set = load(&spec, &cfg.import_base).map_err(|e| format!("served-set load: {e}"))?;
+    let mut ev = Evidence::from_spec(&set, &cfg.import_base)
+        .map_err(|e| format!("served-set evidence: {e}"))?;
+    ev.accept_ledger_verified_files();
+    let res = check(
+        &set,
+        &ev,
+        &CheckOptions {
+            threads: cfg.check_threads.max(1),
+            tier: None,
+            max_rounds: None,
+        },
+    )
+    .map_err(|e| format!("served-set check: {e}"))?;
+    let mut after: BTreeMap<Vec<i32>, ship::ServedAt> = BTreeMap::new();
+    for r in all_rows(&set, &res)? {
+        match r.status {
+            RowStatus::Terminal => {
+                after.insert(r.key, ship::ServedAt::Terminal);
+            }
+            RowStatus::Served => {
+                after.insert(
+                    r.key,
+                    ship::ServedAt::Served(r.evidence.unwrap_or_default()),
+                );
+            }
+            RowStatus::Open => {}
+        }
+    }
+    Ok(ship::compare_served(before, &after))
 }
 
 /// Run one solve job through the adapter and the launcher (worker thread).
@@ -667,7 +761,7 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     say(format!("loading {}", cfg.import_spec.display()));
     let mut set0 = load(&isp, &cfg.import_base).map_err(|e| format!("import load: {e}"))?;
     let load_s = t0.elapsed().as_secs_f64();
-    let (census, before, census_source) = census_and_before(cfg, &set0, &say)?;
+    let (census, before, census_source, before_served) = census_and_before(cfg, &set0, &say)?;
     let cand = ship::candidacy(p, &census);
     let prev = previous_records(cfg.previous.as_deref())?;
     let ttimes = table_times(cfg.table_times.as_deref())?;
@@ -1391,11 +1485,112 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
             "migrating": decisions.iter().filter(|d| d.outcome.migrates()).count(),
             "seconds": tc.elapsed().as_secs_f64()});
         if cc.holds {
-            probe = Some(engine_probe(cfg, &set_s, &res, &decisions)?);
+            // COVERAGE NEVER REDUCED, key by key: the shipped spec with EVERY key the original serves in its start set
+            let sc = served_set_check(cfg, &sspec, &before_served, it)?;
+            let rows_main = all_rows(&set_s, &res)?;
+            let reached: BTreeSet<&Vec<i32>> = rows_main.iter().map(|r| &r.key).collect();
+            let start: BTreeSet<&Vec<i32>> = before.start.iter().collect();
+            let dropped: Vec<&Vec<i32>> = before
+                .keys
+                .iter()
+                .filter(|k| !reached.contains(k))
+                .collect();
+            let lost: BTreeSet<&Vec<i32>> = sc.lost.iter().collect();
+            entry["served_set"] = json!({"original": sc.original, "kept": sc.kept, "lost": sc.lost.len(),
+                "lower": sc.lower.len(), "holds": sc.holds,
+                "lost_examples": sc.lost.iter().take(50).collect::<Vec<_>>(),
+                "lower_examples": sc.lower.iter().take(50).collect::<Vec<_>>(),
+                "dropped_from_closure": dropped.len(),
+                "dropped_in_start": dropped.iter().filter(|k| start.contains(*k)).count(),
+                "dropped_still_served": dropped.iter().filter(|k| !lost.contains(*k)).count(),
+                "dropped_examples": dropped.iter().take(50).collect::<Vec<_>>()});
+            say(format!(
+                "served-key-set check {it}: {} of {} original keys served (lost {}, lower evidence {}); dropped from the \
+                 closure {} (in the start set {})",
+                sc.kept,
+                sc.original,
+                sc.lost.len(),
+                sc.lower.len(),
+                dropped.len(),
+                dropped.iter().filter(|k| start.contains(*k)).count()
+            ));
+            if sc.holds {
+                // NEVER SHIP A DEAD ENTRY: a migrated key the shipped dispatch still gives to a table rule
+                let migrated: BTreeSet<&Vec<i32>> = decisions
+                    .iter()
+                    .filter(|d| d.outcome.migrates())
+                    .flat_map(|d| d.keys.iter().map(|k| &k.key))
+                    .collect();
+                let dead: BTreeSet<Vec<i32>> = rows_main
+                    .iter()
+                    .filter(|r| migrated.contains(&r.key))
+                    .filter(|r| matches!(r.server, Some(Server::Rule { .. })))
+                    .map(|r| r.key.clone())
+                    .collect();
+                let n_dead: usize = decisions
+                    .iter_mut()
+                    .map(|d| ship::drop_dead_entries(d, &dead))
+                    .sum();
+                entry["dead_entries_dropped"] = json!(n_dead);
+                if n_dead > 0 {
+                    // the relation sets of dead keys never served (the table took them): the spec without them
+                    // dispatches every key as checked
+                    let (recipes2, _) = shipped_recipes(cfg, &decisions, &recipe_files)?;
+                    sspec = ship::shipped_spec(
+                        &isp,
+                        &decisions,
+                        &recipes2,
+                        std::slice::from_ref(&solved_ref),
+                        p.stored.precedence,
+                    )?;
+                    sspec.evidence.expected_recipe_binary = Some(bits.binary_sha256.clone());
+                }
+                probe = Some(engine_probe(cfg, &set_s, &res, &decisions)?);
+                check_log.push(entry);
+                closing = Some(cc);
+                final_spec = Some(sspec);
+                break;
+            }
+            // a coverage loss: revert the rules that served the lost / lower keys
+            let bad: BTreeSet<Vec<i32>> = sc
+                .lost
+                .iter()
+                .cloned()
+                .chain(sc.lower.iter().map(|x| x.0.clone()))
+                .collect();
+            let mut culprits: Vec<usize> = vec![];
+            for (di, d) in decisions.iter().enumerate() {
+                if d.outcome.migrates() && d.keys.iter().any(|k| bad.contains(&k.key)) {
+                    culprits.push(di);
+                }
+            }
+            if culprits.is_empty() || it == p.check.max_iterations {
+                entry["reverted"] =
+                    json!("all (served-key-set loss not attributable, or last iteration)");
+                for d in decisions.iter_mut().filter(|d| d.outcome.migrates()) {
+                    ship::revert(
+                        d,
+                        &format!("served-key-set check {it}: {} keys lost", bad.len()),
+                    );
+                }
+            } else {
+                entry["reverted"] = json!(
+                    culprits
+                        .iter()
+                        .map(|&di| decisions[di].rule.id())
+                        .collect::<Vec<_>>()
+                );
+                for &di in &culprits {
+                    ship::revert(
+                        &mut decisions[di],
+                        "served-key-set check: a key the original statement serves is not served (or at a lower \
+                         evidence level) by the shipped artifact",
+                    );
+                }
+            }
             check_log.push(entry);
             closing = Some(cc);
-            final_spec = Some(sspec);
-            break;
+            continue;
         }
         // culprits: open keys / new terminals; the rules that served them before, or whose relations reach them
         let rows = all_rows(&set_s, &res)?;

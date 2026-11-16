@@ -35,7 +35,7 @@ pub const GUARD_SCHEMA: &str = "rustred.campaign.shipecon-guard.v1";
 /// Schema of the report of one run.
 pub const REPORT_SCHEMA: &str = "rustred.campaign.shipecon-report.v1";
 /// Version of the decision procedure (bumped when [`decide`] changes meaning: old records are then re-decided).
-pub const DECISION_VERSION: u32 = 3;
+pub const DECISION_VERSION: u32 = 4;
 
 fn sha256_hex(b: &[u8]) -> String {
     let mut h = Sha256::new();
@@ -1449,6 +1449,104 @@ pub struct ClosingCheck {
     /// The verdict: same start AND same terminals AND no new open key AND no new blocking word (the original closed
     /// iff the shipped one is closed when the original had no blocking word).
     pub holds: bool,
+}
+
+/// How a key of a statement is served (for the served-key-set comparison).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ServedAt {
+    /// A declared terminal of the statement.
+    Terminal,
+    /// Served at this evidence level (`import::Level`: imported < replay < per-key).
+    Served(crate::import::Level),
+}
+
+/// COVERAGE NEVER REDUCED, checked key by key: every key the ORIGINAL statement serves (or declares terminal) must be
+/// served by the shipped artifact at the same or a higher evidence level (a terminal stays a terminal), whether or
+/// not the shipped closure from the start set still reaches it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ServedSetCheck {
+    pub original: u64,
+    pub kept: u64,
+    /// Keys the original serves and the shipped artifact does not serve (open / missing / a terminal turned served or
+    /// the reverse).
+    pub lost: Vec<Vec<i32>>,
+    /// Keys served at a LOWER evidence level (key, before, after).
+    pub lower: Vec<(Vec<i32>, ServedAt, ServedAt)>,
+    pub holds: bool,
+}
+
+/// Compare the served key sets (`after`: the shipped check's service of every key it reached, with the original
+/// certified keys in its start set).
+pub fn compare_served(
+    before: &BTreeMap<Vec<i32>, ServedAt>,
+    after: &BTreeMap<Vec<i32>, ServedAt>,
+) -> ServedSetCheck {
+    let mut lost = vec![];
+    let mut lower = vec![];
+    for (k, b) in before {
+        match (b, after.get(k)) {
+            (ServedAt::Terminal, Some(ServedAt::Terminal)) => {}
+            (ServedAt::Served(x), Some(ServedAt::Served(y))) => {
+                if y < x {
+                    lower.push((k.clone(), *b, ServedAt::Served(*y)));
+                }
+            }
+            _ => lost.push(k.clone()),
+        }
+    }
+    let original = before.len() as u64;
+    let kept = original - lost.len() as u64;
+    let holds = lost.is_empty() && lower.is_empty();
+    ServedSetCheck {
+        original,
+        kept,
+        lost,
+        lower,
+        holds,
+    }
+}
+
+/// NEVER SHIP A DEAD ENTRY: the migrated keys the shipped dispatch (the engine's order, simulated by the import) still
+/// gives to a TABLE rule are served by that rule: their stored relation / recipe is not shipped (form
+/// `later_table_rule`, 0 bytes); a rule left with no shipped key is `kept_aside`. Returns the number of keys changed.
+pub fn drop_dead_entries(d: &mut RuleDecision, taken_by_table: &BTreeSet<Vec<i32>>) -> usize {
+    if !d.outcome.migrates() || d.outcome == Outcome::KeptAside {
+        return 0;
+    }
+    let mut n = 0;
+    for k in &mut d.keys {
+        if matches!(k.form.as_str(), "recipe" | "stored") && taken_by_table.contains(&k.key) {
+            k.form = "later_table_rule".into();
+            k.bytes = 0;
+            n += 1;
+        }
+    }
+    if n > 0 {
+        let after: u64 = d.keys.iter().map(|k| k.bytes).sum();
+        d.bytes_after = after;
+        d.bytes_saved = d.bytes_before as i64 - after as i64;
+        d.seconds_added_total = d
+            .keys
+            .iter()
+            .filter(|k| k.form == "recipe")
+            .filter_map(|k| k.recipe_seconds)
+            .sum::<f64>()
+            + 0.0;
+        let live = d
+            .keys
+            .iter()
+            .filter(|k| matches!(k.form.as_str(), "recipe" | "stored"))
+            .count();
+        if live == 0 {
+            d.outcome = Outcome::KeptAside;
+        }
+        d.why = format!(
+            "{} ({n} keys taken by a later table rule in the shipped dispatch: no entry shipped for them)",
+            d.why
+        );
+    }
+    n
 }
 
 /// Summary of one closure for [`ClosingCheck::compare`] (keys sorted).

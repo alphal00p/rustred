@@ -689,3 +689,72 @@ fn totals_report_bytes_seconds_and_guard_failures() {
     );
     assert_eq!(totals(&c, &[d2])["guard_failed_rules"], 1);
 }
+
+#[test]
+fn served_key_sets_refuse_a_lost_key_and_a_lower_evidence_level() {
+    use rustred_campaign_core::import::Level;
+    let before: BTreeMap<Vec<i32>, ServedAt> = [
+        (vec![1, 1, 0], ServedAt::Served(Level::PerKey)),
+        (vec![2, 1, 0], ServedAt::Served(Level::Imported)),
+        (vec![1, 0, 0], ServedAt::Terminal),
+    ]
+    .into_iter()
+    .collect();
+    // the same service (and a higher level) at every key, and keys the original did not have: holds
+    let mut after = before.clone();
+    after.insert(vec![2, 1, 0], ServedAt::Served(Level::PerKey));
+    after.insert(vec![5, 5, 0], ServedAt::Served(Level::Imported));
+    let c = compare_served(&before, &after);
+    assert!(c.holds, "{c:?}");
+    assert_eq!((c.original, c.kept), (3, 3));
+    // a key no longer served: refused, named
+    let mut a2 = before.clone();
+    a2.remove(&vec![1, 1, 0]);
+    let c = compare_served(&before, &a2);
+    assert!(!c.holds);
+    assert_eq!(c.lost, vec![vec![1, 1, 0]]);
+    // a lower evidence level: refused
+    let mut a3 = before.clone();
+    a3.insert(vec![1, 1, 0], ServedAt::Served(Level::Imported));
+    let c = compare_served(&before, &a3);
+    assert!(!c.holds);
+    assert_eq!(c.lower.len(), 1);
+    // a terminal turned into a served key is a different service: refused
+    let mut a4 = before.clone();
+    a4.insert(vec![1, 0, 0], ServedAt::Served(Level::PerKey));
+    assert_eq!(compare_served(&before, &a4).lost, vec![vec![1, 0, 0]]);
+}
+
+#[test]
+fn dead_entries_are_never_shipped() {
+    let p = policy();
+    let svc = one_rule(1_000_000, &[&[1, 0], &[2, 0]]);
+    let t = vec![
+        trial(&[1, 0], "d2_clast_fon_mM1C", true, 40.0, 50_000, &p),
+        trial(&[2, 0], "d2_clast_fon_mM1C", true, 40.0, 50_000, &p),
+    ];
+    let mut d = decide(
+        &p,
+        &svc,
+        &guard(&p, &svc, &t),
+        &tt(1.0, 0.01),
+        &BTreeMap::new(),
+        &BTreeSet::new(),
+    );
+    assert_eq!(d.outcome, Outcome::StoredRelations);
+    assert_eq!(d.bytes_after, 100_000);
+    // the shipped dispatch gives [2,0] to a table rule: its entry is dead -> not shipped
+    let one: BTreeSet<Vec<i32>> = [vec![2, 0]].into_iter().collect();
+    assert_eq!(drop_dead_entries(&mut d, &one), 1);
+    assert_eq!(d.keys[1].form, "later_table_rule");
+    assert_eq!(d.bytes_after, 50_000);
+    assert_eq!(d.outcome, Outcome::StoredRelations);
+    // every key taken: nothing shipped in the rule's place
+    let all: BTreeSet<Vec<i32>> = [vec![1, 0], vec![2, 0]].into_iter().collect();
+    drop_dead_entries(&mut d, &all);
+    assert_eq!(d.outcome, Outcome::KeptAside);
+    assert_eq!(d.bytes_after, 0);
+    // a table decision is never touched
+    let mut tbl = decide_unexamined(&svc, &Candidacy::NotExamined { reason: "x".into() });
+    assert_eq!(drop_dead_entries(&mut tbl, &all), 0);
+}

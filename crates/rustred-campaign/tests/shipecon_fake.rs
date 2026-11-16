@@ -167,6 +167,17 @@ fn the_ship_economy_migrates_a_heavy_point_rule_and_a_rerun_changes_nothing() {
         "{}",
         rep["totals"]
     );
+    // coverage never reduced, key by key: every key the original serves is served by the shipped artifact
+    let last = rep["closing_iterations"]
+        .as_array()
+        .unwrap()
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(last["served_set"]["holds"], true, "{last}");
+    assert_eq!(last["served_set"]["lost"], 0);
+    assert_eq!(last["served_set"]["original"], 3, "{last}");
+    assert_eq!(last["served_set"]["dropped_in_start"], 0);
     // apply: the artifact names the removed rules
     assert_eq!(rep["applied"]["removed"], 2, "{}", rep["applied"]);
     let out = dir.join("r1").join("out");
