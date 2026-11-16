@@ -1348,6 +1348,12 @@ impl Faults {
         self
     }
 
+    /// Test builds: both enumerations of every task listing keep only their first `keep` numeric entries.
+    pub fn truncate_tasks(mut self, keep: usize) -> Self {
+        self.trunc_tasks = Some(keep);
+        self
+    }
+
     /// The truncation of a listing of `kind` (tests), if any.
     fn trunc(&self, kind: Kind) -> Option<usize> {
         match kind {
@@ -1448,6 +1454,59 @@ mod tests {
             .args(["-c", &format!("kill -KILL {daemon}")])
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .status();
+    }
+
+    /// procfix7 round 6 (gate10 G10-B1, every listing truncated at every k): the TASK listing of a process with a
+    /// stable thread count (a child with 4 threads that only sleep), ended early by both enumerations in agreement after
+    /// k entries for every k below the count, is never a complete answer (the leader sentinel when k = 0, the kernel's
+    /// unchanged Threads: count otherwise); the full listing passes.
+    #[test]
+    fn a_truncated_task_listing_is_never_complete() {
+        if !crate::launch::in_private_namespace() {
+            eprintln!("SKIPPED: spawns a process: only inside a private pid namespace (rule L10)");
+            return;
+        }
+        let mut child = std::process::Command::new("python3")
+            .args([
+                "-I",
+                "-c",
+                "import threading,time\n[threading.Thread(target=time.sleep,args=(60,),daemon=True).start() for _ in range(3)]\ntime.sleep(60)",
+            ])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .stdin(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        let pid = child.id();
+        let t0 = std::time::Instant::now();
+        while ProcRoot::system()
+            .status(pid)
+            .and_then(|s| s.threads())
+            .ok()
+            != Some(4)
+        {
+            assert!(
+                t0.elapsed() < Duration::from_secs(20),
+                "the child never ran 4 threads"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let full = ProcRoot::system().tasks(pid).unwrap();
+        assert_eq!(full.len(), 4, "{full:?}");
+        for k in 0..full.len() {
+            let r = ProcRoot::system().with_faults(Faults::new().truncate_tasks(k));
+            match r.tasks(pid) {
+                Err(ProcError::Unreadable(w)) => {
+                    assert!(w.contains("task listing incomplete"), "k {k}: {w}")
+                }
+                other => {
+                    panic!("k {k}: a task listing truncated after {k} of 4 entries: {other:?}")
+                }
+            }
+        }
+        let r = ProcRoot::system().with_faults(Faults::new().truncate_tasks(full.len()));
+        assert_eq!(r.tasks(pid).unwrap().len(), 4);
+        let _ = child.kill();
+        let _ = child.wait();
     }
 
     /// Every kind of read of THIS process on the real /proc, under every fault mode: never Gone, never a wrong value.

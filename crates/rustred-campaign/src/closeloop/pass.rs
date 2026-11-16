@@ -2208,13 +2208,28 @@ fn write_final(
             }
         }
     }
-    // procfix7 round 6 (gate10 G10-B1, the listing rule): the files this pass wrote under known names are SENTINELS of
-    // the walk's listings (a listing can end early without an error): one that exists but was not listed fails the pass
+    // procfix7 round 6 (gate10 G10-B1, the listing rule): the files this pass and the phases before it write under
+    // FIXED names are SENTINELS of the walk's listings (a listing can end early without an error): one that exists but
+    // was not listed fails the pass. (Names derived from data, e.g. an earlier pass's clauses/<id>.rows.jsonl, have no
+    // sentinel: a truncated listing leaves such a file out of the registry; nothing is decided or removed from it.)
     for rel in [
         "statement/statement.jsonl",
         "statement/decisive_zeros.jsonl",
+        "statement/timing.json",
+        "statement/SHA256SUMS",
+        "statement/summary.json",
+        "statement/terminals.json",
+        "statement/solve-requests.jsonl",
+        "statement/fact-requests.jsonl",
+        "statement/proof-requests.jsonl",
         "open_keys.jsonl",
         "clause_keys.jsonl",
+        "faces.json",
+        "rows.jsonl",
+        "comparison/comparison.json",
+        "comparison/differences.jsonl",
+        "comparison-keys-only/comparison.json",
+        "comparison-keys-only/differences.jsonl",
     ] {
         let p = inp.final_dir.join(rel);
         match crate::fsx::presence_lstat("closeloop.output", &p) {

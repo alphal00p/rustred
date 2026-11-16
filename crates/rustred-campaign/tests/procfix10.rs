@@ -14,6 +14,7 @@
 //! Spawns processes and sends signals: ONLY inside a private pid namespace (`LIGHT_PIDNS=1 light_build.sh ...`, rule L10).
 #![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
+mod closeloop_support;
 #[path = "sup_common/mod.rs"]
 mod common;
 
@@ -195,7 +196,7 @@ fn g10_b1_truncated_root_listing_crashed_session() {
 }
 
 #[test]
-#[ignore = "every k (about 25 campaigns of up to 3 min each); run explicitly"]
+#[ignore = "every k (17 campaigns of up to 3 min each, 4 at a time); run explicitly"]
 fn g10_b1_truncated_root_listing_crashed_session_every_k() {
     if !in_ns() {
         return;
@@ -269,7 +270,7 @@ fn g10_b1_truncated_root_listing_live_session() {
 }
 
 #[test]
-#[ignore = "every k (about 25 campaigns of up to 3 min each); run explicitly"]
+#[ignore = "every k (17 campaigns of up to 3 min each, 4 at a time); run explicitly"]
 fn g10_b1_truncated_root_listing_live_session_every_k() {
     if !in_ns() {
         return;
@@ -571,4 +572,222 @@ fn g10_m6_an_unknown_namespace_never_skips_the_scope_backstop_silently() {
         "nothing was sent to systemd for the recorded scope (namespace unknown): {}",
         log_tail(&d)
     );
+}
+
+fn site_index(name: &str) -> usize {
+    rustred_campaign::fsx::SITES
+        .iter()
+        .position(|s| *s == name)
+        .unwrap_or_else(|| panic!("no fsx site {name}"))
+        + 1
+}
+
+/// G10-B1 for a DIRECTORY listing that decides absence (site `guard.fallback`: which earlier sessions' tmpfs signal
+/// intent logs are merged): the listing ends early WITHOUT an error (`fsx_trunc_site` / `fsx_trunc_at`, test builds),
+/// for every k of the small directory. The crashed session's log (created at its start) is a RECORDED session of this
+/// boot: probed BY NAME, merged, and the hidden listing keeps the end unproven (note `signal_intents_unreadable`
+/// "did not show it", exit 8). Never exit 0 with the crashed session's marked daemon alive.
+#[test]
+fn g10_b1_truncated_fallback_listing_never_drops_a_recorded_session_log() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let mut seen_hidden = false;
+    for n in 1..=3usize {
+        let t = Tmp::new(&format!("pf10-fb-{n}"));
+        let (sp, d, dp) = crashed_with_daemon(&t);
+        let fp = format!(
+            "fsx_trunc_site:{},fsx_trunc_at:{n}",
+            site_index("guard.fallback")
+        );
+        let code = run(
+            &sp,
+            &d,
+            &[("RR_CAMPAIGN_FAILPOINT", &fp)],
+            Duration::from_secs(900),
+        );
+        let a = alive(dp);
+        if a {
+            kill_pid(dp);
+        }
+        let hidden = notes(&d, "signal_intents_unreadable")
+            .iter()
+            .any(|n| n.contains("did not show it"));
+        seen_hidden |= hidden;
+        eprintln!(
+            "PF10 fallback listing kept {}: exit {code}, daemon alive {a}, a hidden log found by name {hidden}",
+            n - 1
+        );
+        assert!(
+            !(code == 0 && a),
+            "keep {}: exit 0 with the daemon alive: {}",
+            n - 1,
+            log_tail(&d)
+        );
+        if hidden {
+            assert_eq!(
+                code,
+                ATTENTION,
+                "keep {}: a hidden log keeps the end unproven: {}",
+                n - 1,
+                log_tail(&d)
+            );
+        }
+        if n == 1 {
+            assert!(
+                hidden,
+                "an EMPTY listing hides the crashed session's log: found by name: {}",
+                log_tail(&d)
+            );
+        }
+    }
+    assert!(seen_hidden);
+}
+
+/// The phase-D files a closing-loop pass writes under FIXED names (its registry sentinels, closeloop/pass.rs).
+const CLOSELOOP_FIXED: &[&str] = &[
+    "statement/statement.jsonl",
+    "statement/decisive_zeros.jsonl",
+    "statement/timing.json",
+    "statement/SHA256SUMS",
+    "statement/summary.json",
+    "statement/terminals.json",
+    "statement/solve-requests.jsonl",
+    "statement/fact-requests.jsonl",
+    "statement/proof-requests.jsonl",
+    "open_keys.jsonl",
+    "clause_keys.jsonl",
+    "faces.json",
+    "rows.jsonl",
+    "comparison/comparison.json",
+    "comparison/differences.jsonl",
+    "comparison-keys-only/comparison.json",
+    "comparison-keys-only/differences.jsonl",
+];
+
+/// G10-B1 for the closing loop's final-directory walk (site `closeloop.output`: which phase-D files enter the registry
+/// that resume and `verify` re-check): every listing of the walk ends early WITHOUT an error after k entries. A file
+/// under a fixed name that exists but was not listed fails the pass (typed, never closed with exit 0); when the run does
+/// end 0 with the node closed, every such file is in the registry (`final_files_blake3`). Control: listings ending only
+/// after 63 entries (none truncated) close the node with exit 0 and a complete registry.
+#[test]
+fn g10_b1_truncated_closeloop_output_listing_never_closes_with_an_incomplete_registry() {
+    if !in_ns() {
+        return;
+    }
+    use closeloop_support::*;
+    let _g = serial();
+    for n in [1usize, 2, 3, 4, 64] {
+        let t = Tmp::new(&format!("pf10-cl-{n}"));
+        let files = toy(&t.path.join("material"), &Toy::default(), FAKE);
+        // the hand statement (comparison only), as closeloop_fake and gate10_sites write it before a run
+        let hand: String = [
+            ([5, 1, 0], true, "base", "A#0"),
+            ([4, 1, 0], false, "recipe", "R1"),
+            ([3, 1, 0], false, "recipe", "R1"),
+            ([2, 1, 0], false, "recipe", "R1"),
+            ([1, 1, 0], false, "recipe", "default-recipe"),
+            ([3, 2, 0], true, "recipe", "R2"),
+            ([2, 2, 0], false, "recipe", "R2"),
+            ([1, 2, 0], false, "recipe", "R2"),
+        ]
+        .iter()
+        .map(|(k, b, l, r)| {
+            format!(
+                "{}\n",
+                serde_json::json!([format!("I({},{},{})", k[0], k[1], k[2]), b, l, r])
+            )
+        })
+        .collect();
+        std::fs::write(&files.hand, hand).unwrap();
+        let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
+        let sp = write_spec(&t, "spec.json", &spec);
+        let d = t.cdir("cdir");
+        let fp = format!(
+            "fsx_trunc_site:{},fsx_trunc_at:{n}",
+            site_index("closeloop.output")
+        );
+        let code = run(
+            &sp,
+            &d,
+            &[("RR_CAMPAIGN_FAILPOINT", &fp)],
+            Duration::from_secs(900),
+        );
+        let st = state(&d);
+        let closed = st
+            .nodes
+            .get("toy")
+            .is_some_and(|n| n.state.phase == rustred_campaign::state::NodePhase::Closed);
+        let fin = d.join("closeloop/toy/final");
+        let result: Option<serde_json::Value> = std::fs::read(fin.join("result.json"))
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok());
+        let registry: Vec<String> = result
+            .as_ref()
+            .and_then(|r| r["final_files_blake3"].as_object())
+            .map(|o| o.keys().cloned().collect())
+            .unwrap_or_default();
+        let missing: Vec<&str> = CLOSELOOP_FIXED
+            .iter()
+            .copied()
+            .filter(|rel| fin.join(rel).is_file() && !registry.iter().any(|k| k == rel))
+            .collect();
+        // a failed pass: its result.json (verdict error, "error") and the ledger note "closeloop toy: pass N failed: .."
+        let by_sentinel = result
+            .as_ref()
+            .and_then(|r| r["error"].as_str())
+            .is_some_and(|e| e.contains("(an incomplete listing)"))
+            || notes(&d, "closeloop toy: pass")
+                .iter()
+                .any(|n| n.contains("(an incomplete listing)"));
+        eprintln!(
+            "PF10 closeloop.output listings kept {}: exit {code}, toy closed {closed}, registry {} file(s), fixed-name files missing from it {missing:?}, failed by a sentinel {by_sentinel}",
+            n - 1,
+            registry.len()
+        );
+        if n == 64 {
+            let derived: Vec<&String> = registry
+                .iter()
+                .filter(|k| !CLOSELOOP_FIXED.contains(&k.as_str()))
+                .collect();
+            eprintln!(
+                "PF10 closeloop.output control: registered files under data-derived names (no sentinel): {derived:?}"
+            );
+            assert!(
+                derived.is_empty(),
+                "every registered file of the toy has a sentinel: {derived:?}"
+            );
+            assert!(
+                code == 0 && closed && missing.is_empty() && !registry.is_empty(),
+                "control (nothing truncated): {}",
+                log_tail(&d)
+            );
+            continue;
+        }
+        if !(code == 0 && closed) {
+            assert!(
+                by_sentinel,
+                "keep {}: the pass failed, but not by its listing sentinels: {:?} {:?}",
+                n - 1,
+                result.as_ref().map(|r| r["error"].clone()),
+                notes(&d, "closeloop")
+            );
+        }
+        if code == 0 && closed {
+            assert!(
+                missing.is_empty(),
+                "keep {}: closed with exit 0 and the registry lacks {missing:?}: {}",
+                n - 1,
+                log_tail(&d)
+            );
+        }
+        if n == 1 {
+            assert!(
+                !(code == 0 && closed),
+                "an EMPTY walk never closes the node: {}",
+                log_tail(&d)
+            );
+        }
+    }
 }

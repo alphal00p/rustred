@@ -21,7 +21,9 @@
 //! `fsx_at:<n>` the n-th helper call of the process fails, `fsx_from:<n>` every call from the n-th on fails,
 //! `fsx_errno:<e>` the errno (default EIO = 5), `fsx_count:1` the supervisor logs the number of helper calls at exit
 //! (`TEST BUILD fsx helper calls: N`), `fsx_site:<k>` every call at the k-th site of [`SITES`] (1-based) fails. A failing
-//! presence check answers Unknown, a failing listing Failed, a failing read Failed.
+//! presence check answers Unknown, a failing listing Failed, a failing read Failed. procfix7 round 6: `fsx_trunc_site:<k>`
+//! with `fsx_trunc_at:<n>`: every listing at the k-th site ends before its n-th entry WITHOUT an error (Complete, shorter:
+//! the listing rule's mutation); [`truncate_listings`] does the same for one thread.
 
 use std::ffi::OsString;
 use std::fs::{FileType, Metadata};
@@ -175,7 +177,57 @@ pub fn list(site: &'static str, dir: &Path) -> Listing {
     if let Some(e) = fault(site) {
         return Listing::Failed(e);
     }
-    list_entries(dir, None)
+    match (list_entries(dir, None), truncation(site)) {
+        // test builds: a directory read that ends early WITHOUT an error (gate10 G10-B1 for directory listings)
+        (Listing::Complete(mut v), Some(keep)) => {
+            v.truncate(keep);
+            Listing::Complete(v)
+        }
+        (l, _) => l,
+    }
+}
+
+/// procfix7 round 6 (gate10 G10-B1, the listing rule for directories): TEST BUILDS: listings at `site` made by THIS
+/// thread keep only their first `keep` entries (a read that ends early without an error), until the guard drops. The
+/// per-process form is `fsx_trunc_site:<k>,fsx_trunc_at:<n>` in RR_CAMPAIGN_FAILPOINT (the k-th site of [`SITES`],
+/// 1-based; the listing ends before its n-th entry).
+#[cfg(debug_assertions)]
+pub fn truncate_listings(site: &'static str, keep: usize) -> TruncGuard {
+    TruncGuard(TRUNC.with(|t| t.replace(Some((site, keep)))))
+}
+
+#[cfg(debug_assertions)]
+thread_local! {
+    static TRUNC: std::cell::Cell<Option<(&'static str, usize)>> = const { std::cell::Cell::new(None) };
+}
+
+/// Restores the thread's previous truncation when dropped (test builds).
+#[cfg(debug_assertions)]
+pub struct TruncGuard(Option<(&'static str, usize)>);
+
+#[cfg(debug_assertions)]
+impl Drop for TruncGuard {
+    fn drop(&mut self) {
+        TRUNC.with(|t| t.set(self.0));
+    }
+}
+
+#[cfg(debug_assertions)]
+fn truncation(site: &'static str) -> Option<usize> {
+    if let Some((s, keep)) = TRUNC.with(|t| t.get())
+        && s == site
+    {
+        return Some(keep);
+    }
+    let c = inject::cfg().as_ref()?;
+    let k = c.trunc_site?;
+    (*SITES.get(k.checked_sub(1)?)? == site).then_some(c.trunc_keep)
+}
+
+#[cfg(not(debug_assertions))]
+#[inline(always)]
+fn truncation(_site: &'static str) -> Option<usize> {
+    None
 }
 
 /// The listing itself; `entry_fault` (tests): the entry at that index arrives as an EIO entry error, through the same
@@ -321,6 +373,9 @@ mod inject {
         pub site: Option<usize>,
         pub errno: i32,
         pub count: bool,
+        /// `fsx_trunc_site:<k>` / `fsx_trunc_at:<n>`: listings at the k-th site keep n - 1 entries
+        pub trunc_site: Option<usize>,
+        pub trunc_keep: usize,
     }
 
     pub static CALLS: AtomicU64 = AtomicU64::new(0);
@@ -338,6 +393,8 @@ mod inject {
                 site: None,
                 errno: libc::EIO,
                 count: false,
+                trunc_site: None,
+                trunc_keep: 0,
             };
             let mut any = false;
             for p in v.split(',').map(str::trim) {
@@ -353,6 +410,10 @@ mod inject {
                     "fsx_site" => c.site = usize::try_from(n).ok(),
                     "fsx_errno" => c.errno = i32::try_from(n).unwrap_or(libc::EIO),
                     "fsx_count" => c.count = true,
+                    "fsx_trunc_site" => c.trunc_site = usize::try_from(n).ok(),
+                    "fsx_trunc_at" => {
+                        c.trunc_keep = usize::try_from(n.saturating_sub(1)).unwrap_or(0)
+                    }
                     _ => continue,
                 }
                 any = true;
