@@ -205,6 +205,27 @@ fn g10_b1_truncated_root_listing_crashed_session_every_k() {
     every_k("truncation crashed (every k)", &ks(true), trunc_crashed);
 }
 
+/// The CONTROL of the truncation tests: the same crashed / live scenarios with a k beyond any tree size (nothing is
+/// truncated): the crashed session's daemon is killed and the run ends 0; the live session's chain is killed. It shows
+/// that the refusals / unproven ends of the truncated runs come from the truncation alone.
+#[test]
+fn g10_b1_truncation_control_without_truncation() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let (code, a) = trunc_crashed(100_000);
+    eprintln!("PF10 control crashed (no truncation): exit {code}, daemon alive {a}");
+    assert!(
+        code == 0 && !a,
+        "control crashed: exit {code}, daemon alive {a}"
+    );
+    let (code, a) = trunc_live(100_000);
+    eprintln!("PF10 control live (no truncation): exit {code}, chain alive {a}");
+    assert!(!a, "control live: the chain is killed (exit {code})");
+    assert!(code == 0 || code == ATTENTION, "control live: exit {code}");
+}
+
 /// The test's end of a churner's FIFO (procfix9's: EOF = every writer is gone; the drain is bounded).
 struct Fifo {
     fd: OwnedFd,
