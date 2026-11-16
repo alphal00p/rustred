@@ -208,7 +208,10 @@ pub struct FullPolicy {
 impl Default for FullPolicy {
     fn default() -> Self {
         FullPolicy {
-            wall_case_s: Some(3600),
+            // v1.6: no per-case net on FULL runs: a time-decided stop seals nothing (contract exit 21), so the net threw
+            // away whole tables (blind T218 attempt 1: 3,427 rules at the numeric stage); heavy relations are bounded
+            // by the engine's own size ruling (accept <= 1M, fallback <= 10M monomials)
+            wall_case_s: None,
             wall_job_s: None,
             max_first_attempts: 3,
         }
