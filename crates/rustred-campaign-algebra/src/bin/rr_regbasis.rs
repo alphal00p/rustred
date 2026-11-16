@@ -2364,10 +2364,32 @@ fn package_spec_cmd(args: &[String]) -> Result<(), String> {
         }
     }
     let table = table.ok_or("no table_dump.v1 table in the package directory")?;
-    let sha = summary["table_sha256"]
-        .as_str()
-        .ok_or("SUMMARY.json: table_sha256")?
+    // the table digest: SUMMARY.json `table_sha256`, else its `files.<table name>.sha256`, else computed here (streaming)
+    let tname = table
+        .file_name()
+        .and_then(|x| x.to_str())
+        .unwrap_or("")
         .to_string();
+    let sha = match summary["table_sha256"]
+        .as_str()
+        .or_else(|| summary["files"][tname.as_str()]["sha256"].as_str())
+    {
+        Some(s) => s.to_string(),
+        None => {
+            use std::io::Read as _;
+            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+            let mut f = std::fs::File::open(&table).map_err(|e| e.to_string())?;
+            let mut buf = vec![0u8; 1 << 22];
+            loop {
+                let k = f.read(&mut buf).map_err(|e| e.to_string())?;
+                if k == 0 {
+                    break;
+                }
+                h.update(&buf[..k]);
+            }
+            h.finish_hex()
+        }
+    };
     let node = get("--node")
         .or_else(|| summary["node"].as_str().map(str::to_string))
         .unwrap_or_else(|| "node".into());
