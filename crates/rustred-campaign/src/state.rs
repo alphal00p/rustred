@@ -188,7 +188,14 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use ContractAccept as A;
     use FinishClass::*;
     match class {
-        Complete => &[A::Canonical, A::Nothing],    // rows 1, 3
+        // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import);
+        // 40 = kind proof-symrows (lane symcert: certificates bound to the asked relation)
+        Complete => &[
+            A::Canonical,
+            A::SuppliedRelations,
+            A::Certificates,
+            A::Nothing,
+        ],
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -202,7 +209,8 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
         Crashed => &[A::Nothing],                   // rows 6, 16, 17, 22, 23
         SetupError => &[A::Nothing],
         // rows 2, 5; 28 = kind solve-recipe (lane adapters)
-        RuleFound => &[A::Canonical, A::SolvedRecords],
+        // 34 = kind symmetry-composite (lane symjob)
+        RuleFound => &[A::Canonical, A::SolvedRecords, A::SuppliedRelations],
         SealedWithElided => &[A::Nothing], // row 25 (elided witness loci: never used, R-f)
         UnverifiableKind => &[A::Nothing], // row 26 (no sealing rule for the kind)
     }
@@ -215,6 +223,14 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         // line 7 (rows 30-32): diagnostic records are never rule or relation evidence; no record is taken from them here
         ContractAccept::DiagnosticRecords => false,
+        // lane symjob (rows 33 / 34): the sealed results are read (PRODUCE) and handed to the work source as
+        // CANDIDATES; lane symfix (audit r2-sym F5): an item ACCEPT (direct credit) from such an attempt is refused in
+        // `apply_item_event`: supplied relations become evidence only through the node import's load-time
+        // verification (interfaces/import.md 21)
+        ContractAccept::SuppliedRelations => true,
+        // lane symcert (row 40): the sealed certificate is read and handed to the work source, which binds it to the
+        // relation it asked about (closeloop::symcert): evidence of that relation's per-key level only
+        ContractAccept::Certificates => true,
         ContractAccept::Nothing => false,
     }
 }
@@ -225,6 +241,8 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
         ContractAccept::CommittedRules => "committed_rules",
         ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::DiagnosticRecords => "diagnostic_records", // line 7 (rows 30-32)
+        ContractAccept::SuppliedRelations => "supplied_relations", // lane symjob (rows 33 / 34)
+        ContractAccept::Certificates => "certificates",    // lane symcert (row 40)
         ContractAccept::Nothing => "nothing",
     }
 }
@@ -3228,8 +3246,18 @@ impl CampaignState {
                         "accept of {rule}: item {item} has no produced result"
                     ))
                 })?;
-                self.job_feeds(item, &p.job, p.attempt)
+                let pj = self
+                    .job_feeds(item, &p.job, p.attempt)
                     .map_err(|w| invalid(format!("accept of {rule}: {w}")))?;
+                // lane symfix (audit r2-sym F5): a supplied-relations attempt's records are CANDIDATES; they become
+                // evidence only through the node import's load-time verification (interfaces/import.md 21), never
+                // as a direct credit: refused here whatever the work source did (or did not) call.
+                if pj.accept == Some(ContractAccept::SuppliedRelations) {
+                    return Err(invalid(format!(
+                        "accept of {rule}: job {} attempt {} accepts supplied_relations: its relations enter only through the import's load-time verification, never as a direct credit",
+                        p.job, p.attempt
+                    )));
+                }
                 let from = match source {
                     AcceptSource::Job {
                         job,

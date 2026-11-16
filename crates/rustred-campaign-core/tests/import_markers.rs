@@ -49,7 +49,16 @@ fn ledger_keys_are_declared_terminals_t270_shape() {
     let d = scratch("ledger");
     let tail = vec![ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)];
     let t = write_table_with(&d, "t.jsonl", &header_value(), &rules_two(), Some(&tail));
-    let sp = spec(&d, &t, &[&TOP], json!({}), &[]);
+    // partfix4: a table without an end record loads only with the explicit, recorded override (the real T270
+    // composite has none: its writer omits it); int7: the override names the list of such tables (path + sha256)
+    let list = no_end_list(&d, "no-end.json", &[&t]);
+    let sp = spec(
+        &d,
+        &t,
+        &[&TOP],
+        json!({"marker_rules": {"accept_missing_end": list}}),
+        &[],
+    );
     let (set, ev, r) = run(&sp, &d);
     let rep = &set.report.sources[0];
     assert_eq!(rep.table_terminals, 2);
@@ -118,7 +127,11 @@ fn ledger_keys_are_declared_terminals_t270_shape() {
 #[test]
 fn table_terminals_policy() {
     let d = scratch("ledger-policy");
-    let tail = vec![ledger(&[&T1], None), complete(2, 2, true)];
+    let tail = vec![
+        ledger(&[&T1], None),
+        complete(2, 2, true),
+        r#"{"type":"end","charts":1}"#.to_string(),
+    ];
     let mut lines = rules_two();
     lines.push(json!({"type":"residual","chart":MASK,"key":kt(&T2)}).to_string());
     let t = write_table_with(&d, "t.jsonl", &header_value(), &lines, Some(&tail));
@@ -224,7 +237,8 @@ fn completeness_markers_are_checked_against_the_file() {
             Some("completion:composite_assembly_complete:complete"),
         ),
     ];
-    for (tag, tail, want) in cases {
+    for (tag, mut tail, want) in cases {
+        tail.push(r#"{"type":"end","charts":1}"#.to_string()); // partfix4: complete files (the end record is checked after the markers)
         let t = write_table_with(
             &d,
             &format!("{tag}.jsonl"),
@@ -256,7 +270,11 @@ fn accept_fewer_override_is_explicit_and_bounded() {
         "more.jsonl",
         &header_value(),
         &rules_two(),
-        Some(&[ledger(&[&T1, &T2], None), complete(2895, 2, true)]),
+        Some(&[
+            ledger(&[&T1, &T2], None),
+            complete(2895, 2, true),
+            r#"{"type":"end","charts":1}"#.to_string(),
+        ]),
     );
     let sp = spec(
         &d,
@@ -283,6 +301,8 @@ fn accept_fewer_override_is_explicit_and_bounded() {
         ),
         ("terms", vec![ledger(&[&T1], None), complete(2895, 2, true)]),
     ] {
+        let mut tail = tail;
+        tail.push(r#"{"type":"end","charts":1}"#.to_string());
         let t = write_table_with(
             &d,
             &format!("{tag}.jsonl"),
@@ -321,10 +341,11 @@ fn assembly_provenance_order_must_agree_with_the_header() {
             s.push('\n');
         }
         s.push_str(&format!(
-            "{}\n{}\n{}\n",
+            "{}\n{}\n{}\n{}\n",
             res(&T1),
             res(&T2),
-            complete(2, 2, true)
+            complete(2, 2, true),
+            r#"{"type":"end","charts":1}"#
         ));
         std::fs::write(&p, s).unwrap();
         let sp = spec(&d, &p, &[&TOP], json!({}), &[]);
@@ -364,14 +385,22 @@ fn classify_only_load_reports_kinds_and_refusals() {
         "ok.jsonl",
         &header_value(),
         &rules_two(),
-        Some(&[ledger(&[&T1, &T2], Some(2)), complete(2, 2, true)]),
+        Some(&[
+            ledger(&[&T1, &T2], Some(2)),
+            complete(2, 2, true),
+            r#"{"type":"end","charts":1}"#.to_string(),
+        ]),
     );
     let bad = write_table_with(
         &d,
         "bad.jsonl",
         &header_value(),
         &rules_two(),
-        Some(&[ledger(&[&T1, &T2], Some(2)), complete(9, 2, true)]),
+        Some(&[
+            ledger(&[&T1, &T2], Some(2)),
+            complete(9, 2, true),
+            r#"{"type":"end","charts":1}"#.to_string(),
+        ]),
     );
     let o = import::sweep::ClassifyOptions {
         scratch: Some(d.clone()),

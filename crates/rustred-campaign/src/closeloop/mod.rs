@@ -8,6 +8,8 @@ pub mod config;
 // lane t266run (closeloop.md 17): own escalation of uncovered keys, terminal proposals, derived spec part
 pub mod derived;
 pub mod ids;
+// lane layers (closeloop.md 23): close the box layer by layer, earlier layers as leaves
+pub mod layers;
 pub mod pass;
 pub mod proofs;
 // lane t266run (closeloop.md 17): big-node helpers of the pass
@@ -18,6 +20,14 @@ pub mod termmin;
 // lane closeloop4 (closeloop.md 18 / 19): second route of the zero test, terminals behind a decision
 pub mod terminals;
 pub mod zeros;
+// lane repairflow (interfaces/repairflow.md): cheap symbolic first, else recipe export (FOR THE INTEGRATOR: one line)
+pub mod repair;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face, solved through solve-recipe children
+pub mod coreseed;
+// lane seedmin (interfaces/seedmin.md): solve-recipe children for the seed minimiser (REQUEST TO I-INT, one line)
+pub mod seedmin;
+// lane symcert (interfaces/proof-symrows-job.md 5): kernel certificates of multi-term symmetry relations
+pub mod symcert;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

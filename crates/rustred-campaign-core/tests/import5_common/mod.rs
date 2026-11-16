@@ -167,3 +167,29 @@ pub fn row<'a>(r: &'a import::CheckResult, k: &[i32]) -> &'a import::KeyRow {
 pub fn comparator() -> rustred_campaign_core::order::NodeComparator {
     rustred_campaign_core::order::NodeComparator::from_header(&header_value()).unwrap()
 }
+
+/// int7 (coordinator's rulings 2026-11-15): a RESOLUTION of tables without an `end` record (schema
+/// `rustred.campaign.tables-no-end.resolution.v1`) giving each of `tables` the loadable status with its current sha256
+/// (`status` overrides the status of every entry when given); returns the override text `"<path> sha256:<hex>"`.
+#[allow(dead_code)]
+pub fn no_end_list_with(dir: &Path, name: &str, tables: &[&Path], status: &str) -> String {
+    use rustred_campaign_core::import::lines::{NO_END_RESOLUTION_SCHEMA, file_sha256};
+    let v = serde_json::json!({"schema": NO_END_RESOLUTION_SCHEMA,
+        "tables": tables.iter().map(|t| serde_json::json!({"node": "toy", "path": t.display().to_string(),
+            "status": status, "sha256_scanned": file_sha256(t).unwrap(),
+            "why": "test writer omits end"})).collect::<Vec<_>>()});
+    let p = dir.join(name);
+    std::fs::write(&p, serde_json::to_vec(&v).unwrap()).unwrap();
+    format!("{} sha256:{}", p.display(), file_sha256(&p).unwrap())
+}
+
+/// [`no_end_list_with`] with the loadable status.
+#[allow(dead_code)]
+pub fn no_end_list(dir: &Path, name: &str, tables: &[&Path]) -> String {
+    no_end_list_with(
+        dir,
+        name,
+        tables,
+        rustred_campaign_core::import::lines::NO_END_LOADABLE_STATUS,
+    )
+}

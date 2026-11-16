@@ -14,13 +14,24 @@
 //!   Such keys arise only as right-hand-side terms; the engine treats them as an error ("ISP in a denominator") unless
 //!   the coefficient vanishes. The chart test is separate from the case-domain test (see `domain`).
 //! - [`NodeFrame::classify`] names the three situations; dots D and rank r are defined on chart keys only.
-//! - Power shifts (eps-shifted families, header `power_shifts`) and two-sided axes are CARRIED but not interpreted:
-//!   evaluation is integer-index only. The frame of a table is built FROM ITS HEADER by [`NodeFrame::from_header`],
-//!   which reads `mask`, `denominators`, `power_shifts` and the two-sided flags itself and refuses an eps family
-//!   exactly as the engine's `Table::load` does (every shift must be the JSON string `"0"`). A frame without a header
-//!   (the T162 bank has none; unit tests) needs one of the visibly named escape hatches
-//!   [`NodeFrame::without_header_from_mask`] / [`NodeFrame::without_header_lines_first`], which record
-//!   [`FrameSource::WithoutHeader`] (audit A M5).
+//! - **Eps-shifted families** (header `power_shifts`): a slot with shift `k (4-d)/2` (`k` a nonzero integer, |k| <= 64,
+//!   exactly the engine replay's `eps_multiple`, `node/replay/family.rs:104-117`) is an EPS AXIS: the integral's power
+//!   there is `n_i + k eps`, the key stays the integer vector `n`. Read with [`NodeFrame::from_header_eps_aware`] ONLY;
+//!   [`NodeFrame::from_header`] (every consumer not audited for eps families) refuses them with
+//!   [`FrameError::Unsupported`], exactly as before. Semantics of an eps axis (engine: `propagator/custom.rs:319-333`
+//!   charts, `:789-799` support; replay `family.rs:413-417` zero sectors; `rustred-order` `descriptor.rs:41-47`):
+//!   it is a FORCED axis, in the sector of every key whatever the sign of `n_i` (never a removed line); the NODE's
+//!   chart orthant leaves it free (any integer); one engine CHART per sign pattern of the eps axes
+//!   ([`NodeFrame::charts`], guards `two_sided:n>=1` / `two_sided:n<=0`, [`NodeFrame::chart_guards`]); a key's chart is
+//!   [`NodeFrame::chart_of`]. Dots / rank ([`NodeFrame::dots`], [`NodeFrame::rank`], [`NodeFrame::chart_layer`]) are
+//!   defined for integer frames only (`None` / empty on an eps frame: the box convention of eps lines is spec data,
+//!   BOXDEF B). Coefficients need no shift (the table's texts are functions of d and n). An eps shift on a numerator
+//!   slot, or eps axes that differ from the header's two-sided order flags, is refused. Two-sided flags of an
+//!   integer frame are carried only. The frame of a table is built FROM ITS HEADER, which reads `mask`,
+//!   `denominators`, `power_shifts` and the two-sided flags itself. A frame without a header (the T162 bank has none;
+//!   unit tests) needs one of the visibly named escape hatches [`NodeFrame::without_header_from_mask`] /
+//!   [`NodeFrame::without_header_lines_first`], which record [`FrameSource::WithoutHeader`] (audit A M5) and have no
+//!   eps axes.
 //! - Predicates on a key of the wrong length fail closed (`false` / `None`); [`NodeFrame::sector`] and
 //!   [`NodeFrame::sector_slots`] panic on it (documented hot paths), their checked variants
 //!   [`NodeFrame::try_sector`] / [`NodeFrame::try_sector_slots`] and [`NodeFrame::classify`] return
@@ -84,6 +95,8 @@ pub struct NodeFrame {
     is_line: Vec<bool>,
     /// Header `power_shifts`, verbatim (one string per slot; "0" = no shift). Empty = none given.
     power_shifts: Vec<String>,
+    /// Per slot the integer `k` of the power shift `k (4-d)/2` (0 = no shift); one entry per slot.
+    kshift: Vec<i64>,
     /// Slots flagged two-sided by the header `order.two_sided` (carried only).
     two_sided: Vec<usize>,
     source: FrameSource,
@@ -100,12 +113,23 @@ fn mask_bits(mask: &str) -> Result<Vec<bool>, FrameError> {
 }
 
 impl NodeFrame {
-    /// The frame of a table, from its header (both JSONL formats): `mask` (required, `'1'`/`'0'` only),
-    /// `denominators` (required, must equal the mask length), `power_shifts` (absent or `null` = none; otherwise one
-    /// entry per slot and every entry exactly the JSON string `"0"`, as the engine's `Table::load`: a numeric `0`, a
-    /// padded `"0 "` or any other value is [`FrameError::Unsupported`]), and the two-sided flags
-    /// ([`crate::record::TableHeader::two_sided`]).
+    /// The frame of a table, from its header (both JSONL formats), for consumers NOT audited for eps families:
+    /// `mask` (required, `'1'`/`'0'` only), `denominators` (required, must equal the mask length), `power_shifts`
+    /// (absent or `null` = none; otherwise one entry per slot and every entry exactly the JSON string `"0"`, as the
+    /// engine's `mastermap::Table::load`: a numeric `0`, a padded `"0 "`, an eps shift or any other value is
+    /// [`FrameError::Unsupported`]), and the two-sided flags ([`crate::record::TableHeader::two_sided`]).
     pub fn from_header(h: &crate::record::TableHeader) -> Result<Self, FrameError> {
+        Self::header_frame(h, false)
+    }
+    /// [`Self::from_header`] for consumers audited for eps-shifted families: a `power_shifts` entry other than `"0"`
+    /// must be a JSON string whose value is `k (4-d)/2` with `k` a nonzero integer, |k| <= 64 (exact affine reading in
+    /// d, `replay_base::family::eps_multiple`, as the engine replay), on a LINE slot; the eps axes must equal the
+    /// header's two-sided order flags (`order.two_sided`: the comparator's two-sided axes). Anything else is
+    /// [`FrameError::Unsupported`] (never read as a zero shift).
+    pub fn from_header_eps_aware(h: &crate::record::TableHeader) -> Result<Self, FrameError> {
+        Self::header_frame(h, true)
+    }
+    fn header_frame(h: &crate::record::TableHeader, eps_aware: bool) -> Result<Self, FrameError> {
         let mask = h
             .mask
             .as_deref()
@@ -122,6 +146,7 @@ impl NodeFrame {
             None => return Err(FrameError::Malformed("header without denominators".into())),
         }
         let mut power_shifts = vec![];
+        let mut kshift = vec![0i64; n];
         match h.raw.get("power_shifts") {
             None | Some(serde_json::Value::Null) => {}
             Some(serde_json::Value::Array(a)) => {
@@ -131,13 +156,34 @@ impl NodeFrame {
                         a.len()
                     )));
                 }
-                for x in a {
+                for (i, x) in a.iter().enumerate() {
                     match x.as_str() {
                         Some("0") => power_shifts.push("0".to_string()),
+                        Some(s) if eps_aware => {
+                            let k = crate::replay_base::family::eps_multiple(
+                                &crate::independent_algebra::Independent,
+                                s,
+                                n,
+                            )
+                            .map_err(|e| {
+                                FrameError::Unsupported(format!(
+                                    "power shift {x} of slot {i}: {e} (only nonzero integer multiples of eps = (4-d)/2 \
+                                     are eps axes)"
+                                ))
+                            })?;
+                            if !is_line[i] {
+                                return Err(FrameError::Unsupported(format!(
+                                    "eps shift {x} on the numerator slot {i} (an eps axis must be a line)"
+                                )));
+                            }
+                            kshift[i] = k;
+                            power_shifts.push(s.to_string());
+                        }
                         _ => {
                             return Err(FrameError::Unsupported(format!(
-                                "power shift {x}: eps-shifted families are not evaluated (integer-index only; \
-                                 the engine accepts only the string \"0\")"
+                                "power shift {x} of slot {i}: eps-shifted family refused by an integer-only consumer \
+                                 (frame from NodeFrame::from_header; the engine's master-map loader accepts only the \
+                                 string \"0\")"
                             )));
                         }
                     }
@@ -151,10 +197,18 @@ impl NodeFrame {
                 h.two_sided.len()
             )));
         }
-        let two_sided = (0..h.two_sided.len()).filter(|&i| h.two_sided[i]).collect();
+        let two_sided: Vec<usize> = (0..h.two_sided.len()).filter(|&i| h.two_sided[i]).collect();
+        let eps_axes: Vec<usize> = (0..n).filter(|&i| kshift[i] != 0).collect();
+        if !eps_axes.is_empty() && two_sided != eps_axes {
+            return Err(FrameError::Unsupported(format!(
+                "eps axes {eps_axes:?} differ from the two-sided order axes {two_sided:?} (the comparator would not \
+                 treat the eps axes as forced)"
+            )));
+        }
         Ok(NodeFrame {
             is_line,
             power_shifts,
+            kshift,
             two_sided,
             source: FrameSource::Header,
         })
@@ -166,6 +220,7 @@ impl NodeFrame {
         NodeFrame {
             is_line: (0..arity).map(|i| i < n_lines).collect(),
             power_shifts: vec![],
+            kshift: vec![0; arity],
             two_sided: vec![],
             source: FrameSource::WithoutHeader,
         }
@@ -173,8 +228,10 @@ impl NodeFrame {
     /// ESCAPE HATCH (no header): frame from a mask string (`'1'` = line, `'0'` = numerator). No power shifts are
     /// known: the caller asserts the source has none.
     pub fn without_header_from_mask(mask: &str) -> Result<Self, FrameError> {
+        let is_line = mask_bits(mask)?;
         Ok(NodeFrame {
-            is_line: mask_bits(mask)?,
+            kshift: vec![0; is_line.len()],
+            is_line,
             power_shifts: vec![],
             two_sided: vec![],
             source: FrameSource::WithoutHeader,
@@ -183,9 +240,80 @@ impl NodeFrame {
     pub fn source(&self) -> &FrameSource {
         &self.source
     }
-    /// Header `power_shifts` (all `"0"`; empty when the header gave none or the frame has no header).
+    /// Header `power_shifts`, verbatim (`"0"` or an eps shift; empty when the header gave none or the frame has no
+    /// header). Two frames with the same shifts written differently compare unequal here (strict); [`Self::kshift`]
+    /// is the exact value.
     pub fn power_shifts(&self) -> &[String] {
         &self.power_shifts
+    }
+    /// Per slot the integer `k` of the power shift `k (4-d)/2` (0 = no shift).
+    pub fn kshift(&self) -> &[i64] {
+        &self.kshift
+    }
+    /// The eps axes (slots with a nonzero shift), ascending.
+    pub fn eps_axes(&self) -> Vec<usize> {
+        (0..self.arity()).filter(|&i| self.kshift[i] != 0).collect()
+    }
+    /// Whether slot `slot` is an eps axis (forced, two-sided).
+    pub fn is_eps_axis(&self, slot: usize) -> bool {
+        self.kshift.get(slot).is_some_and(|&k| k != 0)
+    }
+    /// Whether the frame has an eps axis.
+    pub fn has_eps_axes(&self) -> bool {
+        self.kshift.iter().any(|&k| k != 0)
+    }
+    /// The engine charts of the frame (`propagator/custom.rs:319-333`, `table_dump.rs:997-1010`): every integer line
+    /// `true`, every numerator `false`, each eps axis either `true` (`n >= 1`) or `false` (`n <= 0`): 2^(eps axes)
+    /// masks, ascending as bit strings. An integer frame has the one chart [`Self::mask`].
+    pub fn charts(&self) -> Vec<Vec<bool>> {
+        let axes = self.eps_axes();
+        let mut out: Vec<Vec<bool>> = (0..1u64 << axes.len())
+            .map(|bits| {
+                let mut c = self.is_line.clone();
+                for (j, &a) in axes.iter().enumerate() {
+                    c[a] = bits >> j & 1 == 1;
+                }
+                c
+            })
+            .collect();
+        out.sort();
+        out
+    }
+    /// The chart of a key ([`Self::charts`]): the mask with each eps axis set to `key >= 1`. `None` for a key of the
+    /// wrong length. Says nothing about whether the key is in the node's chart orthant ([`Self::in_chart_orthant`]).
+    pub fn chart_of(&self, key: &[i32]) -> Option<Vec<bool>> {
+        (key.len() == self.arity()).then(|| {
+            (0..self.arity())
+                .map(|i| {
+                    if self.is_eps_axis(i) {
+                        key[i] >= 1
+                    } else {
+                        self.is_line[i]
+                    }
+                })
+                .collect()
+        })
+    }
+    /// The engine's guard strings of a chart (`table_dump.rs:1149-1156`): `n>=1` / `n<=0`, prefixed `two_sided:` on
+    /// an eps axis. `None` if `chart` is not one of [`Self::charts`].
+    pub fn chart_guards(&self, chart: &[bool]) -> Option<Vec<String>> {
+        if chart.len() != self.arity()
+            || (0..self.arity()).any(|i| !self.is_eps_axis(i) && chart[i] != self.is_line[i])
+        {
+            return None;
+        }
+        Some(
+            (0..self.arity())
+                .map(|i| {
+                    let sign = if chart[i] { "n>=1" } else { "n<=0" };
+                    if self.is_eps_axis(i) {
+                        format!("two_sided:{sign}")
+                    } else {
+                        sign.to_string()
+                    }
+                })
+                .collect(),
+        )
     }
     /// Slots flagged two-sided by the header (carried only).
     pub fn two_sided(&self) -> &[usize] {
@@ -215,18 +343,23 @@ impl NodeFrame {
             .map(|b| if *b { '1' } else { '0' })
             .collect()
     }
-    /// True if every power shift is zero (or none is given). Exact string `"0"`, as the engine.
+    /// True if every power shift is zero (or none is given): no eps axis.
     pub fn is_integer_only(&self) -> bool {
-        self.power_shifts.iter().all(|s| s == "0")
+        !self.has_eps_axes()
     }
-    /// `Err(Unsupported)` when the frame has a non-zero power shift: evaluation here is integer-index only.
+    /// `Err(Unsupported)` when the frame has an eps axis (a consumer that is integer-index only).
     pub fn require_integer_only(&self) -> Result<(), FrameError> {
+        self.require_integer_only_for("this consumer")
+    }
+    /// [`Self::require_integer_only`] naming the refusing `feature` in the error.
+    pub fn require_integer_only_for(&self, feature: &str) -> Result<(), FrameError> {
         if self.is_integer_only() {
             Ok(())
         } else {
             Err(FrameError::Unsupported(format!(
-                "power shifts {:?}: eps-shifted families are not evaluated (integer-index only)",
-                self.power_shifts
+                "eps-shifted family (power shifts {:?}, eps axes {:?}): {feature} is integer-index only",
+                self.power_shifts,
+                self.eps_axes()
             )))
         }
     }
@@ -240,15 +373,15 @@ impl NodeFrame {
             })
         }
     }
-    /// The sector of a key: bit i set iff slot i is a line with index >= 1 (slots >= 64 are not representable:
-    /// use [`NodeFrame::sector_slots`]).
+    /// The sector of a key: bit i set iff slot i is a line with index >= 1 or an eps axis (forced, whatever its
+    /// index) (slots >= 64 are not representable: use [`NodeFrame::sector_slots`]).
     /// Panics if the key length differs from the arity.
     pub fn sector(&self, key: &[i32]) -> u64 {
         assert!(self.arity() <= 64, "sector bitmask needs arity <= 64");
         assert_eq!(key.len(), self.arity(), "NodeFrame::sector: key arity");
         let mut m = 0u64;
         for (i, &x) in key.iter().enumerate() {
-            if self.is_line[i] && x >= 1 {
+            if self.in_sector(i, x) {
                 m |= 1 << i;
             }
         }
@@ -271,7 +404,7 @@ impl NodeFrame {
         self.check_arity(key)?;
         Ok(self.sector_slots(key))
     }
-    /// Line slots with index >= 1. Panics if the key length differs from the arity.
+    /// Line slots with index >= 1, and every eps axis. Panics if the key length differs from the arity.
     pub fn sector_slots(&self, key: &[i32]) -> Vec<usize> {
         assert_eq!(
             key.len(),
@@ -280,25 +413,38 @@ impl NodeFrame {
         );
         key.iter()
             .enumerate()
-            .filter(|(i, x)| self.is_line[*i] && **x >= 1)
+            .filter(|(i, x)| self.in_sector(*i, **x))
             .map(|(i, _)| i)
             .collect()
     }
-    /// Every line slot >= 1 (numerators unrestricted). `false` for a key of the wrong length.
+    /// Slot `i` with index `x` is in the key's sector: an eps axis always, a line iff `x >= 1`.
+    fn in_sector(&self, i: usize, x: i32) -> bool {
+        self.is_eps_axis(i) || (self.is_line[i] && x >= 1)
+    }
+    /// Slot `i` with index `x` satisfies the node's chart orthant: an eps axis always (two-sided), a line iff
+    /// `x >= 1`, a numerator iff `x <= 0`.
+    fn in_orthant(&self, i: usize, x: i32) -> bool {
+        if self.is_eps_axis(i) {
+            true
+        } else if self.is_line[i] {
+            x >= 1
+        } else {
+            x <= 0
+        }
+    }
+    /// Every line slot >= 1 except eps axes (forced: any index); numerators unrestricted. `false` for a key of the
+    /// wrong length.
     pub fn is_top_sector(&self, key: &[i32]) -> bool {
         key.len() == self.arity()
             && key
                 .iter()
                 .enumerate()
-                .all(|(i, &x)| !self.is_line[i] || x >= 1)
+                .all(|(i, &x)| !self.is_line[i] || self.in_sector(i, x))
     }
-    /// Top sector and every numerator slot <= 0. `false` for a key of the wrong length.
+    /// Top sector and every numerator slot <= 0 (eps axes: any index; the union of [`Self::charts`]). `false` for a
+    /// key of the wrong length.
     pub fn in_chart_orthant(&self, key: &[i32]) -> bool {
-        key.len() == self.arity()
-            && key
-                .iter()
-                .enumerate()
-                .all(|(i, &x)| if self.is_line[i] { x >= 1 } else { x <= 0 })
+        key.len() == self.arity() && key.iter().enumerate().all(|(i, &x)| self.in_orthant(i, x))
     }
     /// First slot violating the chart orthant, if any. A key of the wrong length violates at slot
     /// `min(len, arity)`.
@@ -308,12 +454,12 @@ impl NodeFrame {
         }
         key.iter()
             .enumerate()
-            .position(|(i, &x)| if self.is_line[i] { x < 1 } else { x > 0 })
+            .position(|(i, &x)| !self.in_orthant(i, x))
     }
     pub fn classify(&self, key: &[i32]) -> Result<KeyClass, FrameError> {
         self.check_arity(key)?;
         let removed: Vec<usize> = (0..key.len())
-            .filter(|&i| self.is_line[i] && key[i] <= 0)
+            .filter(|&i| self.is_line[i] && !self.in_sector(i, key[i]))
             .collect();
         let pos: Vec<usize> = (0..key.len())
             .filter(|&i| !self.is_line[i] && key[i] > 0)
@@ -329,9 +475,10 @@ impl NodeFrame {
             KeyClass::Chart
         })
     }
-    /// Dots D = sum over lines of (n - 1); `None` outside the chart orthant.
+    /// Dots D = sum over lines of (n - 1); `None` outside the chart orthant and on an eps frame (the box
+    /// convention of eps lines is spec data).
     pub fn dots(&self, key: &[i32]) -> Option<i64> {
-        self.in_chart_orthant(key).then(|| {
+        (self.is_integer_only() && self.in_chart_orthant(key)).then(|| {
             key.iter()
                 .enumerate()
                 .filter(|(i, _)| self.is_line[*i])
@@ -339,9 +486,9 @@ impl NodeFrame {
                 .sum()
         })
     }
-    /// Rank r = sum over numerators of |n|; `None` outside the chart orthant.
+    /// Rank r = sum over numerators of |n|; `None` outside the chart orthant and on an eps frame.
     pub fn rank(&self, key: &[i32]) -> Option<i64> {
-        self.in_chart_orthant(key).then(|| {
+        (self.is_integer_only() && self.in_chart_orthant(key)).then(|| {
             key.iter()
                 .enumerate()
                 .filter(|(i, _)| !self.is_line[*i])
@@ -351,8 +498,12 @@ impl NodeFrame {
     }
 
     /// All chart keys with dots exactly `dots` and rank exactly `rank`, line powers at most `max_line_power`
-    /// (`None` = unbounded, i.e. bounded by `dots`). Lexicographically sorted.
+    /// (`None` = unbounded, i.e. bounded by `dots`). Lexicographically sorted. Empty on an eps frame (dots and rank
+    /// are defined for integer frames only).
     pub fn chart_layer(&self, dots: u32, rank: u32, max_line_power: Option<i32>) -> Vec<Key> {
+        if !self.is_integer_only() {
+            return vec![];
+        }
         let lines: Vec<usize> = (0..self.arity()).filter(|&i| self.is_line[i]).collect();
         let nums: Vec<usize> = (0..self.arity()).filter(|&i| !self.is_line[i]).collect();
         let cap = max_line_power.map_or(dots, |p| (p - 1).max(0) as u32);

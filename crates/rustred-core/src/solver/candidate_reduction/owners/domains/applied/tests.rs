@@ -46,13 +46,13 @@ fn poly(c: &IndexedCoefficientContext, value: &IndexedCoefficient) -> IndexedPol
 }
 fn term(
     c: &IndexedCoefficientContext,
-    shift: [i64; 3],
+    shift: [i8; 3],
     coefficient: IndexedCoefficient,
 ) -> PreparedTerm<3> {
     PreparedTerm {
         shift,
-        coefficient,
-        denominator: poly(c, &c.integer(1)),
+        coefficient: coefficient.into(),
+        denominator: poly(c, &c.integer(1)).into(),
     }
 }
 fn rule(ordinal: usize, rhs: Vec<PreparedTerm<3>>) -> PreparedRule<3> {
@@ -138,7 +138,8 @@ fn applied_rematches_first_rule_and_preserves_terminal_gap_and_original_poles() 
     let mut first = rule(17, vec![term(&c, [-1, 0, 0], c.integer(1))]);
     first.fixed[0] = Some(2);
     let mut second = rule(28, vec![term(&c, [0; 3], c.zero())]);
-    second.rhs[0].denominator = poly(&c, &c.sub(&c.index(0).unwrap(), &c.integer(3)).unwrap());
+    second.rhs[0].denominator =
+        poly(&c, &c.sub(&c.index(0).unwrap(), &c.integer(3)).unwrap()).into();
     second.fixed[0] = Some(3);
     let b = batch(&mut p);
     b.terminals.insert(IntegralKey::try_new([1, 1, 0]).unwrap());
@@ -214,7 +215,7 @@ fn applied_zero_activation_is_removed_before_child_root_but_saved_root_is_author
     let (out, stats) = collect(&p, [0; 3], [None, None, Some(0)], Some(10));
     assert!(out.edges.is_empty() && out.problems.is_empty());
     assert_eq!(stats.zero_terms, 1);
-    batch(&mut p).rules[0].rhs[0].coefficient = c.integer(1);
+    batch(&mut p).rules[0].rhs[0].coefficient = c.integer(1).into();
     let (out, _) = collect(&p, [0; 3], [None, None, Some(0)], Some(10));
     assert_eq!(out.problems, [OwnerAppliedProblemKind::InvalidChildRoot]);
     Arc::get_mut(
@@ -344,14 +345,10 @@ fn applied_unrepresentable_fixed_coordinates_and_rank_images_are_explicit() {
         [OwnerDomainMatchDisposition::Unresolved { .. }]
     ));
     assert!(out.problems.is_empty() && out.edges.is_empty());
-    // Start unbounded instead: the native sign partition introduces this
-    // singleton only AFTER matching, exercising the applied carrier boundary.
-    batch(&mut p).rules[0].rhs[0].shift = [i64::MIN, 0, -1];
-    let (out, _) = collect(&p, [large, 0, 0], [None; 3], Some(10));
-    assert!(matches!(
-        out.problems.as_slice(),
-        [OwnerAppliedProblemKind::UnresolvedFixedCoordinate { axis: 0 }]
-    ));
+    // t162-export: the former unbounded-start case injected an i64::MIN
+    // shift (a singleton crossing at 2^63 after matching); prepared shifts
+    // are i8 now (powers lie in [-64, 63]), so that carrier boundary is
+    // unreachable from a prepared rule and the case is dropped.
     batch(&mut p).rules[0].rhs[0].shift = [-2, 0, -1];
     let (out, _) = collect(&p, [2, 0, 0], [None, None, None], Some(u32::MAX));
     assert!(matches!(

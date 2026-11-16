@@ -59,7 +59,8 @@ fn ledger_keys_are_declared_terminals_under_declared_only_and_residuals_are_prop
     // TOP -> T1 + T2; T1 in the ledger; T2 a residual record (declared only under `ledger_and_residuals`)
     let mut lines = vec![point_rule(0, &TOP, &[&T1, &T2])];
     lines.push(json!({"type": "residual", "chart": MASK, "key": kt(&T2)}).to_string());
-    let tail = vec![ledger(&[&T1])];
+    // int7: the table states it is complete (an `end` record after the ledger: partfix4 refuses a table without one)
+    let tail = vec![ledger(&[&T1]), r#"{"type":"end","charts":1}"#.to_string()];
     let t = write_table_with(&d, "t.jsonl", &header_value(), &lines, Some(&tail));
     let none = BTreeSet::new();
 

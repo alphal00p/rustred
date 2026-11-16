@@ -24,7 +24,7 @@ impl Census {
         region: &OwnerSuccessorRegion<'_, N>,
     ) -> Result<(), &'static str> {
         self.record(
-            region.shift(),
+            &region.shift(),
             region.source_sector(),
             region.transition(),
             || {

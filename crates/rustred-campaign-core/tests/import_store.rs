@@ -352,7 +352,8 @@ fn store_check_equals_in_memory_check_for_every_form() {
         "{:?}",
         r.summary.blocking
     );
-    // reuse: the same inputs -> reused; a changed input -> rebuilt
+    // reuse: the same inputs -> reused; a changed input -> rebuilt (the spec's inputs are sha256-pinned (audit-closeloop M1),
+    // so a reuse re-hashes them in full: origin `reused_reverified`, t266run 1f1ea34b; merge interaction fixed by lane layers)
     let so = StoreOptions::new(d.join("stores0"));
     let ev = Evidence::from_spec_with(
         &set,

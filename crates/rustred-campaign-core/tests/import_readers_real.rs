@@ -311,6 +311,7 @@ fn load_sweep_of_the_ledger_tables() {
                 scratch: Some(tmp.clone()),
                 index_dir: Some(tmp.join("idx")),
                 accept_fewer_rules: None,
+                accept_missing_end: None,
                 reader: None,
             };
             let c = import::sweep::classify_table(p, &opts);

@@ -861,15 +861,25 @@ mod tests {
                 "max_trace_rows":null,"recipe_digest":"abc","determinism_id":"d"},
             "order":{"name":"id"},"env":{"SYMBOLICA_LICENSE":"<present>"}});
         let d = effective_digest(&e);
-        assert_eq!(d, "04d5bb45173ff273bc02b20999b0c851f668226c22b5abafc519a2c27bb05012");
+        assert_eq!(
+            d,
+            "04d5bb45173ff273bc02b20999b0c851f668226c22b5abafc519a2c27bb05012"
+        );
         // `blake3` (and any other extra member) is not hashed
         e["blake3"] = json!("f".repeat(64));
         assert_eq!(effective_digest(&e), d);
         // version 1 (plain BLAKE3 of the canonical JSON) differs
         e.as_object_mut().unwrap().remove("blake3");
-        assert_ne!(blake3::hash(canonical(&e).as_bytes()).to_hex().to_string(), d);
+        assert_ne!(
+            blake3::hash(canonical(&e).as_bytes()).to_hex().to_string(),
+            d
+        );
         // the sealing function writes exactly this digest
-        let s = effective(&json!(["--order", "id"]), json!({"threads": 1}), json!({"name": "id"}));
+        let s = effective(
+            &json!(["--order", "id"]),
+            json!({"threads": 1}),
+            json!({"name": "id"}),
+        );
         assert_eq!(s["blake3"], json!(effective_digest(&s)));
     }
 

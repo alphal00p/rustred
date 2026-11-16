@@ -149,6 +149,7 @@ fn scan<'a, const N: usize>(
             })?;
             for (term_ordinal, term) in rule.rhs.iter().enumerate() {
                 cancelled(cancellation)?;
+                let shift = term.shift();
                 charge(
                     &mut stats.terms,
                     1,
@@ -165,7 +166,7 @@ fn scan<'a, const N: usize>(
                 // Each crossing doubles the Cartesian sign partition. Preflight
                 // the whole scratch envelope BEFORE the existing splitter, which
                 // checks its staged output only at the end of each axis.
-                let piece_count = partition_size(&source, &sector, &term.shift)?;
+                let piece_count = partition_size(&source, &sector, &shift)?;
                 check(
                     piece_count - 1,
                     limits.diagnostic_limit(remaining_splits),
@@ -195,7 +196,7 @@ fn scan<'a, const N: usize>(
                 let pieces = sign_partition_with_limits(
                     &source,
                     &sector,
-                    &term.shift,
+                    &shift,
                     CompletionGeometryLimits {
                         diagnostics_enabled: limits.diagnostics_enabled,
                         max_arity: N,
@@ -241,7 +242,7 @@ fn scan<'a, const N: usize>(
                     let target_sector = std::array::from_fn(|axis| {
                         let x = i128::from(source_box.lower()[axis]);
                         let n = if sector[axis] { 1 + x } else { -x };
-                        n + i128::from(term.shift[axis]) > 0
+                        n + i128::from(shift[axis]) > 0
                     });
                     let transition = if target_sector == sector {
                         OwnerSuccessorTransition::SameSupport
@@ -257,13 +258,13 @@ fn scan<'a, const N: usize>(
                     let delta = (target_sector == sector).then(|| {
                         sector
                             .iter()
-                            .zip(term.shift)
+                            .zip(shift)
                             .filter(|(active, _)| !**active)
                             .map(|(_, delta)| -i128::from(delta))
                             .sum()
                     });
                     let target_rank_upper =
-                        rank_upper(&source_box, &sector, &target_sector, &term.shift, rank);
+                        rank_upper(&source_box, &sector, &target_sector, &shift, rank);
                     charge(
                         &mut stats.regions,
                         1,

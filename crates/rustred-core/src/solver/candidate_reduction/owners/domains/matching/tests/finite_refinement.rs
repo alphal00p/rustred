@@ -30,8 +30,8 @@ fn diagonal(stage: usize) -> Arc<CandidateOwnerPrograms<3>> {
         2 => first.exceptions.push(vec![guard]),
         3 => first.rhs.push(PreparedTerm {
             shift: [0; 3],
-            coefficient: c.zero(),
-            denominator: guard,
+            coefficient: c.zero().into(),
+            denominator: guard.into(),
         }),
         _ => unreachable!(),
     }
@@ -297,8 +297,8 @@ fn finite_positive_refinement_preserves_nonlinear_guard_whole_and_pole_and_sourc
     // Even an identically zero original term retains its denominator guard.
     first.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: minus(&c, 0, 3),
+        coefficient: c.zero().into(),
+        denominator: minus(&c, 0, 3).into(),
     });
     batch(&mut p).rules = vec![first, rule(1)];
     let (_, pieces) = refined(

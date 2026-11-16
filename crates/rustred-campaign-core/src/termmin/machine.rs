@@ -905,11 +905,44 @@ impl Termmin {
                 closing_try: false,
             });
         });
-        self.ts[i].eliminated_by = Some(json!({"step": cand.step, "kind": cand.kind,
+        // int7 (B1): the choice goes through the ONE selection function (poles::pole_objective, the spec's objective);
+        // the machine tries its steps in order and the first certifying one is the only candidate; no pole profile
+        // here yet: the choice records "no profile" (ranked by size). Lane polefix (audit r2-poles F4): with
+        // `pole_objective: "none"` no `choice` member at all (the record of a run without the pole code)
+        let choice = match self.spec.objective_setting() {
+            Ok(Some(obj)) => Some(
+                crate::poles::pole_objective(
+                    &[crate::poles::Candidate {
+                        id: cand
+                            .relation_digest
+                            .clone()
+                            .unwrap_or_else(|| cand.step.clone()),
+                        admissible: true,
+                        excluded_by: None,
+                        evidence_level: 0,
+                        size: cand.rhs.len() as u64,
+                        pole_order: None,
+                    }],
+                    &[],
+                    &obj,
+                    None,
+                )
+                .ok()
+                .flatten()
+                .map(|c| c.to_json()),
+            ),
+            // off, or (never after validation) unreadable: no annotation
+            Ok(None) | Err(_) => None,
+        };
+        let mut eb = json!({"step": cand.step, "kind": cand.kind,
             "recipe_id": cand.recipe_id, "recipe_sha256": cand.recipe_sha256,
             "relation_digest": cand.relation_digest, "rhs_keys": cand.rhs.len(),
             "rhs": cand.rhs.iter().map(|k| key_text(k)).collect::<Vec<_>>(),
-            "on_reevaluation": reevaluated}));
+            "on_reevaluation": reevaluated});
+        if let Some(c) = choice {
+            eb["choice"] = c.unwrap_or(Value::Null);
+        }
+        self.ts[i].eliminated_by = Some(eb);
         self.ts[i].retry.clear();
         self.ts[i].closing = None;
         self.decide(

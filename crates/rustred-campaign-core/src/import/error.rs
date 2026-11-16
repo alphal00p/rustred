@@ -85,11 +85,15 @@ pub enum TableRefusal {
         bytes: u64,
         budget: u64,
     },
+    /// The file does not show that it is complete (lane partfix4): no `end` record (a file cut at a line boundary
+    /// looks exactly like this), or a rule / `sym` record after the `end` record. Overridable for a missing `end`
+    /// only, per source with a recorded reason (`marker_rules.accept_missing_end`).
+    Incomplete { msg: String },
 }
 
 impl TableRefusal {
     /// Short stable word: `sym_zero`, `sym_malformed`, `ledger_malformed`, `completion:<marker>:<field>`,
-    /// `order_mismatch`, `record_too_large`.
+    /// `order_mismatch`, `record_too_large`, `table_incomplete`.
     pub fn word(&self) -> String {
         match self {
             TableRefusal::SymZero => "sym_zero".into(),
@@ -100,6 +104,7 @@ impl TableRefusal {
             }
             TableRefusal::OrderMismatch { .. } => "order_mismatch".into(),
             TableRefusal::RecordTooLarge { .. } => "record_too_large".into(),
+            TableRefusal::Incomplete { .. } => "table_incomplete".into(),
         }
     }
 }
@@ -138,6 +143,7 @@ impl fmt::Display for TableRefusal {
                     ": {what} of {bytes} bytes exceeds the per-record budget of {budget} bytes"
                 )
             }
+            TableRefusal::Incomplete { msg } => write!(f, "table_incomplete: {msg}"),
         }
     }
 }

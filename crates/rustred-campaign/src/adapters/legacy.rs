@@ -217,6 +217,12 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
             "--out".into(),
             format!("out/{COEF_OUT}"),
         ]),
+        // lane symjob: rr_rf_symflow run --request (interfaces/symmetry-composite-job.md 1)
+        JobKind::SymmetryComposite => rustred_campaign_contract::classify::symcomp::argv(spec),
+        // lane coreseed: rr_poles regular-at --requests (interfaces/coreseed.md 10)
+        JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::argv(spec),
+        // lane symcert: rr_proof --symrows, argv from the pinned request (interfaces/proof-symrows-job.md 1)
+        JobKind::ProofSymrows => rustred_campaign_contract::classify::symcert::argv(spec),
         k => Err(format!("kind {k:?} is not legacy-wrapped")),
     }
 }
@@ -501,6 +507,7 @@ pub fn child_out(kind: JobKind) -> &'static str {
     match kind {
         JobKind::ProofInstanceSpan => SPAN_OUT,
         JobKind::CoefficientFacts => COEF_OUT,
+        JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::CHILD_OUT,
         _ => INSTANTIATE_OUT,
     }
 }
@@ -511,6 +518,18 @@ pub fn child_out(kind: JobKind) -> &'static str {
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
     if !spec.kind.legacy_wrapped() || matches!(wait, WaitStatus::Unknown) {
         return wait;
+    }
+    // lane symjob: kind symmetry-composite has its own wrapper (the child's seal checked, results sealed)
+    if spec.kind == JobKind::SymmetryComposite {
+        return super::symcomp::wrap(layout, spec, spec_blake3, wait);
+    }
+    // lane coreseed: kind pole-regular-at has its own wrapper (answers checked against the pinned requests)
+    if spec.kind == JobKind::PoleRegularAt {
+        return super::poleat::wrap(layout, spec, spec_blake3, wait);
+    }
+    // lane symcert: kind proof-symrows has its own wrapper (one certificate checked against the pinned request)
+    if spec.kind == JobKind::ProofSymrows {
+        return super::symrows::wrap(layout, spec, spec_blake3, wait);
     }
     let mapped = legacy_wait(wait);
     if layout.outcome().exists() {

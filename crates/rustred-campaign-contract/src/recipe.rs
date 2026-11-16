@@ -31,7 +31,9 @@ pub const MINIMISE_MODES: [&str; 2] = ["support", "greedy"];
 /// Line 7 (coord-seed-minimise.md 7): `minimise.measure` values.
 pub const MINIMISE_MEASURES: [&str; 2] = ["comparator", "m1"];
 /// Line 7: `minimise.order` values (the only order defined now: outermost shell first).
-pub const MINIMISE_ORDERS: [&str; 1] = ["outermost_first"];
+/// int7 (requests of lanes coreseed / seedmin, additive): `distance` = the campaign seed minimiser's default order (seeds
+/// ordered by their distance from the centre; coord-seed-minimise.md 8, interfaces/seedmin.md).
+pub const MINIMISE_ORDERS: [&str; 2] = ["outermost_first", "distance"];
 /// Line 7: `minimise.stopped` values.
 pub const MINIMISE_STOPS: [&str; 2] = ["done", "max_solves"];
 /// Line 7 (seed minimisation, coord-seed-minimise.md 6): `centre_scan.reason` values.
@@ -298,6 +300,13 @@ pub enum FailureClass {
     /// Line 7: per-key, routed like `no_relation_in_seeds` (next escalation step); never a resource failure, never
     /// evidence.
     SymmetryFormCheckFailed,
+    /// Lane symjob (kind symmetry-composite): no element of the verified group gives a composed relation that descends
+    /// at the key (outcome `none`): per-key, routed to the next route of the repair flow (like no_relation_in_seeds);
+    /// never a job failure. Never produced by a solve-recipe record (classes there come from the verdict).
+    NoSymmetryRelation,
+    /// Lane symjob (kind symmetry-composite): the symmetry row expansion exceeded the spec bound `route0.max_terms`
+    /// (outcome `over_cap`): per-key, routed to the next work class (a larger bound); never "no relation".
+    OverCapRowExpansion,
 }
 
 impl FailureClass {
@@ -315,8 +324,9 @@ impl FailureClass {
             | FailureClass::NotInDomain
             | FailureClass::NotGenericAtD0
             | FailureClass::D0SingularRows
-            | FailureClass::SymmetryFormCheckFailed => KeyRoute::NextRecipeRung,
-            FailureClass::BudgetWork => KeyRoute::NextWorkClass,
+            | FailureClass::SymmetryFormCheckFailed
+            | FailureClass::NoSymmetryRelation => KeyRoute::NextRecipeRung,
+            FailureClass::BudgetWork | FailureClass::OverCapRowExpansion => KeyRoute::NextWorkClass,
             FailureClass::BudgetWall => KeyRoute::LadderDecides,
             FailureClass::Irregular => KeyRoute::SubCase,
             FailureClass::Interrupted => KeyRoute::Rerun,

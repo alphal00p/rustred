@@ -39,6 +39,8 @@ pub struct TableClass {
     pub table_terminals: usize,
     pub assembly: bool,
     pub marker_overrides: Vec<String>,
+    /// Charts of chart lines without guards, read as implied by their mask (`chart_guards: implied_by_mask`).
+    pub chart_guards_implied: Vec<String>,
     pub seconds: f64,
 }
 
@@ -52,6 +54,8 @@ pub struct ClassifyOptions {
     pub index_dir: Option<PathBuf>,
     /// `marker_rules.accept_fewer` for this load (None = strict: interfaces/import.md 18.3).
     pub accept_fewer_rules: Option<String>,
+    /// `marker_rules.accept_missing_end` for this load (None = strict; lane partfix4).
+    pub accept_missing_end: Option<String>,
     /// The spec's `reader` (per-record memory limits; None = the defaults: interfaces/import.md 19).
     pub reader: Option<super::spec::ReaderSpec>,
 }
@@ -111,6 +115,9 @@ fn classify_inner(
         if let Some(r) = &opts.accept_fewer_rules {
             src["marker_rules"] = json!({ "accept_fewer": r });
         }
+        if let Some(r) = &opts.accept_missing_end {
+            src["marker_rules"]["accept_missing_end"] = json!(r);
+        }
         let mut spec = json!({
             "schema": super::spec::SPEC_SCHEMA,
             "frame_from": "table",
@@ -130,6 +137,7 @@ fn classify_inner(
                 index_dir: opts.index_dir.clone(),
             },
             true,
+            true,
         )?;
         let rep = &set.report().sources[0];
         out.kinds = rep.line_kinds.clone();
@@ -144,6 +152,11 @@ fn classify_inner(
         out.table_terminals = rep.table_terminals;
         out.assembly = !rep.assembly_files.is_empty();
         out.marker_overrides = rep.marker_overrides.clone();
+        out.chart_guards_implied = rep
+            .chart_guards_implied
+            .iter()
+            .map(|(_, c)| c.clone())
+            .collect();
         Ok(())
     })();
     drop(own); // the directory this process created (OwnedDir guard), nothing else

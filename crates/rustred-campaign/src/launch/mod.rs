@@ -115,6 +115,29 @@ pub enum KillReason {
 /// Outcome code for a per-job memory cap excess (admission and scheduler use the same string).
 pub const MEMORY_CAP_EXCEEDED: &str = "memory_cap_exceeded";
 
+/// lane t266run (L17): the item is in attention BECAUSE its last attempt ended at its memory cap: the typed code
+/// `memory_cap_exceeded`, or (an attention written by an older build under another code, e.g. `solve_job_failed`) a
+/// last attempt recorded `BudgetStopped(KilledMemory)`. A session with a higher cap reopens such an item.
+pub fn ended_at_memory_cap(st: &crate::state::CampaignState, item: &str) -> bool {
+    let Some(it) = st.items.get(item) else {
+        return false;
+    };
+    let crate::state::ItemPhase::Attention(code) = &it.phase else {
+        return false;
+    };
+    code == MEMORY_CAP_EXCEEDED
+        || it
+            .jobs
+            .last()
+            .and_then(|j| st.jobs.get(j))
+            .is_some_and(|j| {
+                j.state
+                    == crate::state::AttemptState::BudgetStopped(
+                        crate::state::FinishClass::KilledMemory,
+                    )
+            })
+}
+
 impl KillReason {
     pub fn outcome(&self) -> &'static str {
         match self {

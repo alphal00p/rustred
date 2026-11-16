@@ -440,8 +440,8 @@ fn census_does_not_turn_original_pole_on_zero_coefficient_into_success() {
         .unwrap();
     let owner = Arc::get_mut(programs.owners.get_mut(&[true]).unwrap()).unwrap();
     let batch = Arc::get_mut(&mut owner.batches[0]).unwrap();
-    batch.rules[2].rhs[0].coefficient = context.zero();
-    batch.rules[2].rhs[0].denominator = pole;
+    batch.rules[2].rhs[0].coefficient = context.zero().into();
+    batch.rules[2].rhs[0].denominator = pole.into();
     let report = run(&reducer, vec![key([6])], Default::default()).unwrap();
     assert!(report.snapshot().finished);
     assert_eq!(report.snapshot().missing_rules, 1);

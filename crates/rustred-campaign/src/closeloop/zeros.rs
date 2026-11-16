@@ -20,10 +20,13 @@
 //! of K \ C (K the keys-only closure) matter only if a decisive zero were wrong; a refuted decisive zero blocks the node
 //! (the key stays in the closure), so the next pass recomputes the set on the larger closure.
 //!
-//! The ROUTES: the first route is the producer of the fact the check used (`Evidence::fact_basis`); the second is the
-//! other one (rr_proof -> exact_eval; exact_eval -> rr_proof with `--elided-loci facts`; an unnamed compact producer
-//! -> exact_eval). The second route's answers are kept in their OWN evidence object (never merged with the first: a
-//! disagreement is reported, not a load error) and compared per (record, key) over EVERY term of the record at the key.
+//! The ROUTES: the first route is the producer of the fact the check used (`Evidence::fact_producer`: memory and
+//! evidence stores alike, never a confirmed basis word); the second is the other one (rr_proof -> exact_eval;
+//! exact_eval -> rr_proof with `--elided-loci facts`; an unnamed compact producer -> exact_eval). The second route's
+//! answers are kept in their OWN evidence object (never merged with the first: a disagreement is reported, not a load
+//! error) and compared per (record, key) over EVERY term of the record at the key; only a comparison whose two
+//! producers are INDEPENDENT ([`independent`]) confirms. A first-route word no route knows (`store` of a pre-v3 store,
+//! `unknown_producer`, anything else) gets NO second route and blocks every pair that relies on it (lane zerosfix3).
 
 use rustred_campaign_core::closure::{CoefFact, FactSource, RuleId};
 use rustred_campaign_core::import::zero_proofs::{
@@ -182,11 +185,13 @@ pub type Membership<'a> = Box<dyn Fn(&[i32]) -> bool + Sync + 'a>;
 
 /// Membership in the closure of a check (the packed key set of a streamed check, else the rows).
 pub fn closure_membership(res: &CheckResult) -> Membership<'_> {
+    // lane layers (closeloop.md 23): a key of a leaf set (an earlier, closed layer / clause) is a closure key
+    let lv = res.leaves.as_ref();
     match &res.key_set {
-        Some(ks) => Box::new(move |k: &[i32]| ks.contains(k)),
+        Some(ks) => Box::new(move |k: &[i32]| ks.contains(k) || lv.is_some_and(|h| h.contains(k))),
         None => {
             let s: HashSet<Vec<i32>> = res.rows.iter().map(|r| r.key.clone()).collect();
-            Box::new(move |k: &[i32]| s.contains(k))
+            Box::new(move |k: &[i32]| s.contains(k) || lv.is_some_and(|h| h.contains(k)))
         }
     }
 }
@@ -401,13 +406,47 @@ pub fn relation_descent(
     (n, bad)
 }
 
-/// The second route of a first-route producer: `exact_eval` for rr_proof and unnamed compact facts, `rr_proof`
-/// (elided loci in facts mode) for exact-evaluation facts. None = no first-route fact (nothing to confirm).
+/// The second route of a first-route PRODUCER: `exact_eval` for rr_proof (incl. elided-loci facts) and unnamed compact
+/// facts, `rr_proof` (elided loci in facts mode) for exact-evaluation facts. None = a word that is no known producer:
+/// `none` (no fact bound), a confirmed basis word, `store` (an entry of a pre-v3 evidence store), `unknown_producer`
+/// (a store code this build does not know), anything else: the caller BLOCKS such a pair (lane zerosfix3, fail closed).
 pub fn second_route_of(first: &str) -> Option<&'static str> {
     match first {
         "rr_proof" | "compact" | "rr_proof_elided" => Some("exact_eval"),
         "exact_eval" => Some("rr_proof"),
         _ => None,
+    }
+}
+
+/// lane zerosfix3: whether a second-route answer of producer `second` is INDEPENDENT of the first route's producer
+/// `first` (the two share no code below the coefficient text): rr_proof (its own std-only text evaluator) and an
+/// unnamed compact producer against the exact evaluation (Symbolica), and back. Only such a comparison confirms a fact.
+pub fn independent(first: &str, second: &str) -> bool {
+    match first {
+        "rr_proof" | "compact" | "rr_proof_elided" => second == "exact_eval",
+        "exact_eval" => second == "rr_proof" || second == "rr_proof_elided",
+        _ => false,
+    }
+}
+
+/// lane zerosfix3: the second route of a served pair with first-route ZERO terms (closeloop.md 23.3 + 18.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ZeroRoute {
+    /// closeloop4's term-by-term route to rr_proof: the first route IS the exact evaluation (the zeros route runs on the
+    /// same algebra, Symbolica, and would not be independent).
+    Compare,
+    /// the zeros route (`rr_coef_facts`, Symbolica): independent of rr_proof and of an unnamed compact producer.
+    Zeros,
+    /// no route knows the first route's word: the pair BLOCKS (`second_route_basis_unknown`).
+    Unknown,
+}
+
+/// lane zerosfix3: the [`ZeroRoute`] of a first-route PRODUCER word (never a confirmed basis word).
+pub fn zero_route_of(first: &str) -> ZeroRoute {
+    match first {
+        "exact_eval" => ZeroRoute::Compare,
+        "rr_proof" | "rr_proof_elided" | "compact" => ZeroRoute::Zeros,
+        _ => ZeroRoute::Unknown,
     }
 }
 
@@ -418,7 +457,9 @@ pub fn confirmed_basis(first: &str, elided: bool) -> &'static str {
         ("exact_eval", false) => "exact_eval + rr_proof",
         ("rr_proof_elided", _) => "rr_proof_elided + exact_eval",
         ("compact", _) => "compact + exact_eval",
-        _ => "rr_proof + exact_eval",
+        ("rr_proof", _) => "rr_proof + exact_eval",
+        // lane zerosfix3: never reached (only an independent comparison confirms); no known word is invented
+        _ => "unknown_basis + second_route",
     }
 }
 
@@ -464,8 +505,14 @@ impl PairCompare {
     pub fn agree(&self) -> bool {
         self.differ.is_empty()
     }
+    /// lane zerosfix3: the comparison CONFIRMS the first route: every term agrees AND the two producers are
+    /// independent ([`independent`]); agreement of two dependent (or unknown) producers confirms nothing.
+    pub fn confirms(&self) -> bool {
+        self.agree() && independent(self.first, self.second)
+    }
     pub fn json(&self) -> Value {
         json!({"record_sha256": self.sha, "key": self.key, "first": self.first, "second": self.second,
+               "independent": independent(self.first, self.second),
                "n_terms": self.n_terms, "zeros_first": self.zeros, "agree": self.agree(),
                "differ": self.differ.iter().map(|(j, k, a, b)| json!({"term": j, "term_key": k, "first": a, "second": b}))
                    .collect::<Vec<_>>()})
@@ -474,6 +521,7 @@ impl PairCompare {
 
 /// Compare the two routes on (record `sha`, `key`) over every term of the record at the key. `first` = the evidence
 /// the check uses, `second` = the second route's own evidence. None = the record is not in the set or has no body.
+/// lane zerosfix3: `first` / `second` of the result are the PRODUCERS (`Evidence::fact_producer`), in big-node mode too.
 pub fn compare_pair(
     set: &ImportedSet,
     first: &Evidence,
@@ -484,8 +532,8 @@ pub fn compare_pair(
     let (t, r) = set.find_sha(sha)?;
     let rid = rule_id(set, t, r);
     let terms = term_keys(set, t, r, key)?;
-    let fb = first.fact_basis(&rid, key).unwrap_or("none");
-    let sb = second.fact_basis(&rid, key).unwrap_or("none");
+    let fb = first.fact_producer(&rid, key).unwrap_or("none");
+    let sb = second.fact_producer(&rid, key).unwrap_or("none");
     let mut pc = PairCompare {
         sha: sha.to_string(),
         key: key.to_vec(),
@@ -619,7 +667,8 @@ impl ZerosAnswers {
     }
 
     /// Bind every structural reference to a loaded proof whose locus holds the key's rule point (after all files are
-    /// loaded): an unbacked reference is recorded in `unbound` and its word becomes `unknown`.
+    /// loaded): an unbacked reference is recorded in `unbound` and its word becomes `unknown`. lane zerosfix3 (F4): the
+    /// proof must answer `Proved` there (`ZeroProofs::line_status_at_point`: the denominator check included).
     pub fn bind(&mut self, set: &ImportedSet) {
         let mut unbound = vec![];
         for ((sha, key), words) in self.verdicts.iter_mut() {
@@ -636,13 +685,23 @@ impl ZerosAnswers {
                 let Some(l) = by_locus(by) else {
                     continue;
                 };
-                let backed = has_pt
-                    && l.contains(&pt)
-                    && self
-                        .proofs
-                        .of_record(t, r)
-                        .iter()
-                        .any(|(pj, pl, _)| *pj == *j && *pl == l);
+                // lane zerosfix3 (audit F4): a `zero` word relies on the named line, which must PROVE the term at the
+                // key's rule point with the ONE semantics (its locus holds the point AND its denominator check passes
+                // there: a where_regular proof at a 0/0 point is not a proof), not merely exist; any other word only
+                // names the line it looked at (it must exist and hold the point)
+                let backed = if *w == CoefFact::Zero {
+                    has_pt
+                        && self.proofs.line_status_at_point(t, r, *j as usize, l, &pt)
+                            == rustred_campaign_core::import::zero_proofs::ZeroStatus::Proved
+                } else {
+                    has_pt
+                        && l.contains(&pt)
+                        && self
+                            .proofs
+                            .of_record(t, r)
+                            .iter()
+                            .any(|(pj, pl, _)| *pj == *j && *pl == l)
+                };
                 if !backed {
                     unbound.push((sha.clone(), key.clone(), *j, by.clone()));
                     *w = CoefFact::Unknown;
@@ -854,6 +913,21 @@ mod tests {
         assert_eq!(second_route_of("exact_eval"), Some("rr_proof"));
         assert_eq!(second_route_of("compact"), Some("exact_eval"));
         assert_eq!(second_route_of("none"), None);
+        // lane zerosfix3: no route for a word that is no producer (fail closed)
+        for w in ["store", "unknown_producer", "rr_proof + exact_eval", ""] {
+            assert_eq!(second_route_of(w), None, "{w}");
+            assert_eq!(zero_route_of(w), ZeroRoute::Unknown, "{w}");
+            assert!(!independent(w, "exact_eval") && !independent(w, "rr_proof"));
+        }
+        assert_eq!(zero_route_of("exact_eval"), ZeroRoute::Compare);
+        for w in ["rr_proof", "rr_proof_elided", "compact"] {
+            assert_eq!(zero_route_of(w), ZeroRoute::Zeros);
+            assert!(independent(w, "exact_eval") && !independent(w, w));
+        }
+        assert!(
+            independent("exact_eval", "rr_proof") && independent("exact_eval", "rr_proof_elided")
+        );
+        assert!(!independent("exact_eval", "exact_eval") && !independent("exact_eval", "compact"));
         assert_eq!(
             confirmed_basis("exact_eval", true),
             "exact_eval + rr_proof_elided"

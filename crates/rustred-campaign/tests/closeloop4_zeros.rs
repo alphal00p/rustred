@@ -222,7 +222,16 @@ fn a_symmetry_relation_to_a_higher_key_blocks_closed_and_the_lower_direction_clo
         let rule_a = json!({"type":"rule","chart":"110","index":0,"fixed":[3,1,0],"equations":[],"target":"I(3,1,0)",
             "rhs":[[key_text(&from), "1"]],"exceptions":[],"dispatch":"Partition","witness_loci":[]})
         .to_string();
-        let mut t = format!("{HEADER}\n");
+        // lane symfix (import.md 21): the supplied relation is served only when VERIFIED at load; this test needs a
+        // served relation of either direction, so it comes with a (test-data) kernel certificate bound to the frame's
+        // family text and the relation itself (a junk `verification` file no longer serves anything)
+        let mut t = format!(
+            "{}\n",
+            HEADER.replace(
+                "\"mask\":\"110\"}",
+                "\"mask\":\"110\",\"family_source\":\"TOY family text\"}"
+            )
+        );
         t.push_str(
             r#"{"type":"chart","chart":"110","guards":["n>=1","n>=1","n<=0"],"zero":false}"#,
         );
@@ -241,7 +250,18 @@ fn a_symmetry_relation_to_a_higher_key_blocks_closed_and_the_lower_direction_clo
         st.push_str(&rel);
         st.push_str("\n{\"type\":\"end\",\"charts\":1}\n");
         std::fs::write(d.join("S.table.jsonl"), &st).unwrap();
-        std::fs::write(d.join("verify.json"), "{\"proved\":true}\n").unwrap();
+        let kernel = "ab".repeat(32);
+        let cert = json!({"schema": "rustred.campaign.symrows-certificate.v1",
+            "relation_sha256": rustred_campaign_core::import::supplied_verify::relation_sha256(
+                &from, &[(to.to_vec(), "1".to_string())]).unwrap(),
+            "key": from, "class": "certified", "verdict": "EXACT_IN_SPAN_AT_KEY",
+            "family_sha256": rustred_campaign_core::import::supplied_verify::family_sha256("TOY family text"),
+            "kernel_sha256": kernel, "group_digest": null});
+        let cert_text = format!(
+            "{cert}\n{}\n",
+            json!({"type": "end", "records": 1, "request_blake3": "0".repeat(64)})
+        );
+        std::fs::write(d.join("certificates.jsonl"), &cert_text).unwrap();
         let fact = json!({"schema":"rustred.proof-kernel.instantiate.v1","record_sha256": sha(rule_a.as_bytes()),
             "rule": 0, "key": [3,1,0], "in_case": true, "chart_ok": true, "branch": null, "regular": "regular",
             "irregular_terms": [], "hidden_loci": [], "rhs": [{"term": 0, "key": from, "coef": "nonzero"}],
@@ -256,7 +276,8 @@ fn a_symmetry_relation_to_a_higher_key_blocks_closed_and_the_lower_direction_clo
                         "sha256": sha(t.as_bytes())},
                        {"id":"sym","kind":"supplied_relations","class":"symmetry",
                         "path": d.join("S.table.jsonl").display().to_string(),
-                        "verification":{"path": d.join("verify.json").display().to_string()}},
+                        "kernel_certificates":{"files":[{"path": d.join("certificates.jsonl").display().to_string(),
+                            "sha256": sha(cert_text.as_bytes())}], "kernels":[kernel]}},
                        {"id":"T","kind":"terminals","keys":[to]}],
             "evidence":{"facts":[{"path": fp.display().to_string(),
                                   "sha256": sha(&std::fs::read(&fp).unwrap()), "family": "TOY"}]}});

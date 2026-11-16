@@ -800,8 +800,18 @@ pub fn parse_key_text(s: &str) -> Option<Key> {
 // caller-supplied partition report, i.e. from a verdict; removed. The only constructor is now
 // `crate::economy::prove_coverage_preserved`, which runs the dispatch-mode partition itself.)
 
-fn domain_of(rec: &RuleRecord, frame: &NodeFrame) -> Option<CaseDomain> {
-    CaseDomain::from_rule_record(rec, frame, DomainOptions::default()).ok()
+/// The record's domain; `None` only for a record the engine never dispatches. Any other refusal (incl. its
+/// `domain_bounds` or an unknown member, lane partfix4) is an error: a record whose domain cannot be read must not be
+/// taken as "never selecting" by the exclusion analysis.
+fn domain_of(rec: &RuleRecord, frame: &NodeFrame) -> Result<Option<CaseDomain>, AssembleError> {
+    match CaseDomain::from_rule_record(rec, frame, DomainOptions::default()) {
+        Ok(d) => Ok(Some(d)),
+        Err(crate::domain::DomainError::NotDispatched { .. }) => Ok(None),
+        Err(e) => Err(AssembleError::Record {
+            source: format!("line {}", rec.line_no),
+            detail: format!("the record's domain cannot be read: {e}"),
+        }),
+    }
 }
 
 fn is_point(rec: &RuleRecord) -> bool {
@@ -1070,6 +1080,55 @@ pub fn tables_in_force(
     )
 }
 
+/// The table file the ENGINE reads for the cross-check of a FULL retirement (lane partfix4; economy::
+/// `engine_probe_table`): the first input's header line verbatim, its chart lines, and the DISPATCHED records of
+/// `tables_in_force(input, minus)` as raw lines in dispatch order (each re-read from its file and checked against its
+/// line digest). `rr_node first-match` positions on this file are the positions of
+/// `DispatcherSource::new(&tables_in_force(input, minus))`.
+pub fn engine_probe_table_for(
+    input: &AssemblyInput,
+    minus: &[String],
+) -> Result<Vec<u8>, AssembleError> {
+    let c = collect(input)?;
+    let mut entries = c.entries;
+    for r in &input.retirements {
+        entries.retain(|e| !r.retired().contains(&e.line_sha256));
+    }
+    entries.retain(|e| !minus.contains(&e.line_sha256));
+    probe_table_bytes(&c.scans[0], entries.iter())
+}
+
+fn probe_table_bytes<'a>(
+    scan: &Scanned,
+    entries: impl Iterator<Item = &'a Entry>,
+) -> Result<Vec<u8>, AssembleError> {
+    let header = scan
+        .header_line
+        .clone()
+        .ok_or_else(|| AssembleError::Other("input without a header line".into()))?;
+    let charts: Vec<Vec<u8>> = scan
+        .charts
+        .iter()
+        .map(|c| serde_json::to_vec(c).map_err(|e| AssembleError::Other(e.to_string())))
+        .collect::<Result<_, _>>()?;
+    let mut records = Vec::new();
+    for e in entries.filter(|e| e.dispatched) {
+        let line = read_line_at(&e.path, e.offset)?;
+        let mut h = Sha256::new();
+        h.update(&line);
+        if sha_tag(h) != e.line_sha256 {
+            return Err(AssembleError::Record {
+                source: e.source_id.clone(),
+                detail: "record changed since it was read (engine probe table)".into(),
+            });
+        }
+        records.push(line);
+    }
+    Ok(crate::economy::engine_probe_table(
+        &header, &charts, &records,
+    ))
+}
+
 /// Assemble into `out_dir` (files `<node>.assembled.table.jsonl`, `<node>.assembly.manifest.jsonl`,
 /// `<node>.assembly.extras.jsonl`, `<node>.dispatch-order.json`).
 pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput, AssembleError> {
@@ -1164,6 +1223,35 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
                     ))
                 })?;
         }
+        // lane partfix4 (audit-part4 recommendation 3): a FULL retirement needs the ENGINE's first match on the
+        // proof's probe keys + box, read from exactly the table assembly would have in force after it
+        // (`engine_probe_table_for`): the check bound into the proof must name that table's sha256
+        if full {
+            let proof = r.proof().ok_or_else(|| {
+                AssembleError::Retire("a FULL retirement without a containment proof".into())
+            })?;
+            let check = proof.engine_check().ok_or_else(|| {
+                AssembleError::Retire(
+                    "EngineCheckMissing: the containment proof carries no engine cross-check \
+                     (with_engine_check of the proof)"
+                        .into(),
+                )
+            })?;
+            let after = probe_table_bytes(
+                &scans[0],
+                entries
+                    .iter()
+                    .filter(|e| !r.retired().contains(&e.line_sha256)),
+            )?;
+            let want = crate::replay_base::sha256::sha256_hex(&after);
+            if check.table_sha256 != want || check.new_tables_digest != proof.new_tables_digest() {
+                return Err(AssembleError::Retire(format!(
+                    "EngineCheckMissing: the engine cross-check read table {} but the table in force after this \
+                     retirement is {want}",
+                    check.table_sha256
+                )));
+            }
+        }
         entries.retain(|e| !r.retired().contains(&e.line_sha256));
     }
     // (a FULL node's later exclusion hoists move only POINT records that APPLY at the key they are hoisted for, whose
@@ -1218,7 +1306,7 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     let domains: Vec<Option<CaseDomain>> = entries
         .iter()
         .map(|e| domain_of(&e.record, &frame))
-        .collect();
+        .collect::<Result<_, _>>()?;
     let excl_of = |ei: usize| -> &[Exclusion] {
         entries[ei]
             .campaign

@@ -107,6 +107,8 @@ pub struct AcceptBits {
     /// lane closeloop3: the per-key caps of the solves (recorded on the answer line of a key that hit one).
     pub max_trace_rows: Option<u64>,
     pub key_budget_s: Option<u64>,
+    /// Lane polefix (audit r2-poles F4): the objective of the SOLVED lines' `choice` annotation (`None` = off).
+    pub pole_objective: Option<rustred_campaign_core::poles::PoleObjective>,
 }
 
 /// Run the closeloop's accept chain on one settled point solve: `undeclare` = the terminal the solve is FOR (removed
@@ -148,6 +150,7 @@ pub fn accept_point(
             run_dir: run_dir.to_string(),
             max_trace_rows: bits.max_trace_rows,
             key_budget_s: bits.key_budget_s,
+            pole_objective: bits.pole_objective.clone(),
         };
         decide(&ctx, lines)
     });
@@ -732,6 +735,8 @@ impl TermminSource {
             order: p.cfg.solve.order_arg(),
             max_trace_rows: p.spec.caps.max_trace_rows.or(p.cfg.solve.max_trace_rows),
             key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
+            // the node's setting (validated with the config; an unreadable one cannot reach here)
+            pole_objective: p.cfg.pole_objective_setting().unwrap_or_default(),
         }
     }
 
@@ -800,8 +805,8 @@ impl TermminSource {
     fn start_load(&mut self, st: &CampaignState, i: usize) -> Result<(), String> {
         let n = self.nodes[i].n.clone();
         let node = self.nodes[i].cfg.node.clone();
-        let text = String::from_utf8(Self::read_input(st, &super::ids::input_import_spec(&n))?)
-            .map_err(|e| format!("effective import spec: {e}"))?;
+        // lane repairflow (repairflow.md 6): the composed spec when the repair flow wrote one
+        let text = super::repair::effective_spec_text(st, &n)?;
         self.nodes[i].spec_text = text.clone();
         // the inner's recipe answers (the closing loop's evidence), ledger order, digests checked in the thread
         let mut files: Vec<(u64, PathBuf, String)> = st
@@ -1751,6 +1756,11 @@ impl WorkSource for TermminSource {
         req: &crate::supervisor::ControlRequest,
     ) -> Result<crate::supervisor::worksource::Routing, String> {
         self.inner.resolve_operator_decision(st, req)
+    }
+
+    fn blocked_on_operator(&self, st: &CampaignState) -> Option<String> {
+        // lane t266run (L17): forwarded
+        self.inner.blocked_on_operator(st)
     }
 
     fn finished(&self, st: &CampaignState) -> bool {

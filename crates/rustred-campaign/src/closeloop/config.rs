@@ -97,6 +97,9 @@ pub struct FakeSolve {
     /// Program key of the fake child in `spec.programs` (default `rr_fake_child`).
     #[serde(default = "d_fake_program")]
     pub program: String,
+    /// lane t266run (tests): the resident memory the fake child grows to (bytes; reached in about 0.25 s); 0 = none.
+    #[serde(default)]
+    pub rss_bytes: u64,
 }
 
 fn d_fake_program() -> String {
@@ -240,6 +243,49 @@ pub struct NodeCfg {
     /// clause whose own closure contains it. None = one box.
     #[serde(default)]
     pub clauses: Option<Vec<ClauseCfg>>,
+    /// lane layers (closeloop.md 23): close the box LAYER BY LAYER (an ordered list of layers, default by the coarse
+    /// coordinate D + r ascending), each layer's walk using every earlier layer as LEAVES; closed layers are recorded
+    /// (ledger, digest-bound) and never walked again. None = one walk of the box (as before).
+    #[serde(default)]
+    pub layers: Option<LayersCfg>,
+    /// Lane polefix (audit r2-poles F4): the objective of the `choice` annotation on accepted relations
+    /// (`rustred_campaign_core::poles::PoleObjective::setting`: absent = the default objective; `"none"` = no `choice`
+    /// member is written, the answers are those of a run without the pole code; an object = its measures / guard).
+    /// Never decides acceptance. Omitted from the serialized config when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_objective: Option<serde_json::Value>,
+}
+
+/// The layers of the box (DATA; lane layers, closeloop.md 23).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LayersCfg {
+    /// `coarse` (default): the import start set split by the coarse coordinate D + r of each key, ascending (support S =
+    /// line slots with power >= 1, D = sum over S of (power - 1), r = sum of |power| over every other slot; lines from
+    /// the node's frame); `list`: the layers of `list`, in that order (their union must be the import start set; a key
+    /// in several layers belongs to the first).
+    #[serde(default = "d_coarse")]
+    pub order: String,
+    #[serde(default)]
+    pub list: Vec<ClauseCfg>,
+    /// Record closed layers and reuse them (later passes, rounds, a resumed run): default true.
+    #[serde(default = "d_yes")]
+    pub freeze: bool,
+}
+
+fn d_coarse() -> String {
+    "coarse".into()
+}
+
+/// A leaf set made by another run (or handed down): pinned by the sha256 of its file; `statement` (optional) = the
+/// statement rows file it was taken from, whose sha256 must equal the leaf set's `binding.statement_digest`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct LeafSetRef {
+    pub path: PathBuf,
+    pub sha256: String,
+    #[serde(default)]
+    pub statement: Option<PathBuf>,
 }
 
 /// One clause of the box: an id and an import start spec (`{"path", "format", ..}`).
@@ -501,6 +547,10 @@ pub struct PriorClause {
     /// first use either way (pins).
     #[serde(default)]
     pub sha256: Option<String>,
+    /// lane layers (closeloop.md 23): the prior clause's LEAF SET (its result's `leaf_set`): this run's walk stops at
+    /// its keys (verified: file sha256 pinned here, digest, walk binding, statement digest when given).
+    #[serde(default)]
+    pub leaf_set: Option<LeafSetRef>,
 }
 
 fn d_yes() -> bool {
@@ -656,6 +706,14 @@ fn d_threads() -> usize {
 }
 
 impl NodeCfg {
+    /// The objective of the `choice` annotation (`None` = off).
+    pub fn pole_objective_setting(
+        &self,
+    ) -> Result<Option<rustred_campaign_core::poles::PoleObjective>, String> {
+        rustred_campaign_core::poles::PoleObjective::setting(self.pole_objective.as_ref())
+            .map_err(|e| format!("node {}: {e}", self.node))
+    }
+
     pub fn base(&self) -> PathBuf {
         self.import_base.clone().unwrap_or_else(|| {
             self.import_spec
@@ -701,6 +759,7 @@ impl CloseLoopConfig {
                     n.node
                 ));
             }
+            n.pole_objective_setting()?;
             if n.solve.max_keys_per_job == 0 || n.solve.threads == 0 || n.check_threads == 0 {
                 return Err(format!(
                     "node {}: max_keys_per_job, threads and check_threads must be >= 1",

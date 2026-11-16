@@ -177,10 +177,10 @@ impl<'a> FastDispatch<'a> {
         stack: &mut Vec<(u32, u32)>,
     ) -> (Dispatch, usize) {
         if let Some(mask) = self.disp.chart()
-            && let Some(slot) = key
-                .iter()
-                .enumerate()
-                .position(|(i, &x)| (mask[i] && x < 1) || (!mask[i] && x > 0))
+            && let Some(slot) = key.iter().enumerate().position(|(i, &x)| {
+                // eps families: the two-sided axes are free in the node's chart (Dispatcher::chart_free)
+                !self.disp.chart_free().contains(&i) && ((mask[i] && x < 1) || (!mask[i] && x > 0))
+            })
         {
             return (Dispatch::OutsideChart { slot }, 0);
         }

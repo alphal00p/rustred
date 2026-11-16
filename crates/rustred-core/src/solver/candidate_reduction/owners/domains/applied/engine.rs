@@ -357,9 +357,10 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
         let mut start = 0;
         while start < indices.len() {
             budget.cancelled()?;
-            let shift = &rule.rhs[indices[start]].shift;
+            let stored = &rule.rhs[indices[start]].shift;
+            let shift = &rule.rhs[indices[start]].shift();
             let mut end = start + 1;
-            while end < indices.len() && rule.rhs[indices[end]].shift == *shift {
+            while end < indices.len() && rule.rhs[indices[end]].shift == *stored {
                 end += 1;
             }
             charge(
