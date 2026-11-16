@@ -2326,6 +2326,108 @@ pub fn custom_payload_recipe_prefill(
         .collect())
 }
 
+/// vk5l WP2 producer: one key of [`custom_payload_relation_produce`].
+#[derive(Clone, Debug)]
+pub struct RelationProduceEntry {
+    /// The key in the TABLE frame (as given).
+    pub key_table: Vec<i64>,
+    pub outside_certified_set: bool,
+    /// The family id that solved it (or the source of a stored entry).
+    pub source: Result<Option<String>, PError>,
+    pub seconds: f64,
+    pub children: usize,
+    pub relation_digest: Option<String>,
+}
+
+/// vk5l WP2: the recipe dispatch of a boxed payload WITHOUT building its
+/// owner program (no chart is prepared, the certified set is not decoded):
+/// the bundle (records or the relation binding) from the payload's family
+/// source, its caches opened under the roots in force. `None` without one.
+pub fn custom_payload_recipe_dispatch(
+    presentation: &Presentation,
+    payload: &[u8],
+) -> Result<Option<RecipeDispatch>, PError> {
+    let source = custom_payload_family_source(payload)?;
+    match super::recipes::recipes_of_source(&source)? {
+        Some(bundle) => Ok(Some(RecipeDispatch::new(
+            bundle,
+            presentation.slots.len(),
+            presentation.family.fingerprint(),
+            presentation.family.coefficient_context(),
+            0,
+        )?)),
+        None => Ok(None),
+    }
+}
+
+/// vk5l WP2 producer (plan/ARTIFACT_MANIFEST.md): an explicit relation at
+/// every key of `keys_table` (TABLE frame) of a boxed payload,
+/// [`RecipeDispatch::produce`], `threads` workers, on the light dispatch
+/// ([`custom_payload_recipe_dispatch`]: the owner program is never built, so
+/// a node such as T266 needs its payload bytes only); `outside[i]` marks
+/// keys outside the certified set (entry diagnostics). Each winner is written
+/// to the writable relation cache root in force at once (the caller sets it
+/// and the solver), so a rerun resumes. Failures are reported per key.
+pub fn custom_payload_relation_produce(
+    presentation: &Presentation,
+    payload: &[u8],
+    keys_table: &[Vec<i64>],
+    outside: &[bool],
+    depths: &[u8],
+    threads: usize,
+    progress: &(dyn Fn(&RelationProduceEntry) + Sync),
+) -> Result<Vec<RelationProduceEntry>, PError> {
+    let recipes = custom_payload_recipe_dispatch(presentation, payload)?.ok_or_else(|| {
+        PError::Unsupported("the payload carries no recipe / relation binding".to_owned())
+    })?;
+    let recipes = &recipes;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<Option<RelationProduceEntry>>> =
+        std::sync::Mutex::new(vec![None; keys_table.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..threads.max(1).min(keys_table.len().max(1)) {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(key_table) = keys_table.get(index) else {
+                        break;
+                    };
+                    let key = recipes.bundle().to_presentation(key_table);
+                    let outside = outside.get(index).copied().unwrap_or(false);
+                    let started = std::time::Instant::now();
+                    let solved = recipes.produce(&key, depths, outside);
+                    let entry = RelationProduceEntry {
+                        key_table: key_table.clone(),
+                        outside_certified_set: outside,
+                        seconds: started.elapsed().as_secs_f64(),
+                        children: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(Option::as_ref)
+                            .map_or(0, |(relation, _)| relation.children.len()),
+                        relation_digest: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(Option::as_ref)
+                            .and_then(|(relation, _)| relation.relation_digest.clone()),
+                        source: solved.map(|found| found.map(|(_, id)| id)),
+                    };
+                    progress(&entry);
+                    results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)[index] = Some(entry);
+                }
+            });
+        }
+    });
+    Ok(results
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
 /// vk5l WP2: [`RecipeDispatch::solve_outside`] at `key` (presentation slots)
 /// on a boxed payload with recipes (tools, tests): the relation and the id
 /// of the recipe family that solved it.

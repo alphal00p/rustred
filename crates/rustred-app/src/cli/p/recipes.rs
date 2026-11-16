@@ -7,6 +7,8 @@
 //! rustred p-recipes prefill --record <dir>/<label>.json --out <cache root> [--threads <t>] [--only <text>]
 //! rustred p-recipes replay  --record <dir>/<label>.json --seeds <seeds.json> --out <replay.json>
 //!                           [--recipe-cache <dir>] [--recipe-prefilled <dir>[,..]] [--recipe-workers <n>]
+//! rustred p-recipes produce --record <dir>/<label>.json --keys <K.jsonl> --out <cache root> [--threads <t>]
+//!                           [--depths 2,3] [--bound-s <s>] [--key-bound-s <s>] [--max-trace-rows <n>]
 //! rustred p-recipes index   (--record <dir>/<label>.json | --node <N> --identity <id>) --from <root>[,..]
 //!                           --out <root> --revision <name> [--precedence over_table|after_table]
 //!                           [--manifest-extra <fields.json>]
@@ -23,7 +25,13 @@
 //! the optional pre-filled download, loaded read-only with
 //! `RUSTRED_P_RECIPE_PREFILLED` (or `--recipe-prefilled`). `replay` reduces seeds
 //! (TABLE slots) with the payload's program, recipes included, as
-//! `p-import-table --replay` does. `index` writes the shipped form of one node's
+//! `p-import-table --replay` does. `produce` (the explicit-expression producer,
+//! plan/ARTIFACT_MANIFEST.md) solves an explicit relation at every key of
+//! `--keys` (TABLE frame; one JSON array, or an object with `key` and optional
+//! `rule` / `outside`, per line; the owner program is not built) with the checker families of `--depths` (default 2,3)
+//! then the outside families, bounded per solve / per key, into the cache
+//! root `--out` (resumable: stored keys are hits), writes
+//! `<node dir>/PRODUCE-<utc>.json` and exits 10 when a key failed. `index` writes the shipped form of one node's
 //! relations (plan/ARTIFACT_MANIFEST.md) from cache / shipped roots:
 //! `<out>/<node>-<id16>/merged-<revision>.jsonl`, `index.jsonl` and
 //! `MANIFEST.json` (`rustred.node-service-manifest.v1`, default precedence
@@ -106,7 +114,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let command = arguments
         .next()
         .and_then(|command| command.into_string().ok())
-        .ok_or_else(|| usage("give a subcommand: solve, keys, prefill, replay, index"))?;
+        .ok_or_else(|| usage("give a subcommand: solve, keys, prefill, replay, produce, index"))?;
     let rest: Vec<OsString> = arguments.collect();
     match command.as_str() {
         "solve" => solve(rest),
@@ -114,10 +122,185 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
         "prefill" => prefill(rest),
         "replay" => replay(rest),
         "index" => index(rest),
+        "produce" => produce(rest),
         other => Err(usage(format!(
-            "unknown subcommand {other:?} (solve, keys, prefill, replay, index)"
+            "unknown subcommand {other:?} (solve, keys, prefill, replay, produce, index)"
         ))),
     }
+}
+
+fn produce(arguments: Vec<OsString>) -> Result<(), CliError> {
+    use rustred::propagator::recipes::{POutsideSettings, set_outside_settings_for};
+    let options = Options::parse(
+        arguments,
+        &[],
+        &[
+            "--record",
+            "--keys",
+            "--out",
+            "--threads",
+            "--depths",
+            "--bound-s",
+            "--key-bound-s",
+            "--max-trace-rows",
+        ],
+    )?;
+    let record_path = PathBuf::from(options.need("--record")?);
+    let root = PathBuf::from(options.need("--out")?);
+    let threads = options.number("--threads")?.unwrap_or(1).max(1);
+    let depths: Vec<u8> = options
+        .get("--depths")
+        .unwrap_or("2,3")
+        .split(',')
+        .filter(|depth| !depth.is_empty())
+        .map(|depth| {
+            depth
+                .trim()
+                .parse()
+                .map_err(|_| usage(format!("--depths {depth:?}: numbers")))
+        })
+        .collect::<Result<_, _>>()?;
+    let seconds = |name: &str, default: f64| -> Result<f64, CliError> {
+        options.get(name).map_or(Ok(default), |value| {
+            value
+                .parse()
+                .map_err(|_| usage(format!("{name} {value:?}: seconds")))
+        })
+    };
+    let bound = seconds("--bound-s", 120.0)?;
+    let key_bound = seconds("--key-bound-s", 600.0)?;
+    let rows = options.number("--max-trace-rows")?.unwrap_or(200_000);
+    let mut keys: Vec<Vec<i64>> = Vec::new();
+    let mut rules: Vec<serde_json::Value> = Vec::new();
+    let mut outside: Vec<bool> = Vec::new();
+    for (number, line) in read(options.need("--keys")?)?.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(line)
+            .map_err(|error| usage(format!("--keys line {}: {error}", number + 1)))?;
+        let key = if value.is_array() {
+            value.clone()
+        } else {
+            value["key"].clone()
+        };
+        keys.push(
+            serde_json::from_value(key)
+                .map_err(|error| usage(format!("--keys line {}: {error}", number + 1)))?,
+        );
+        rules.push(value["rule"].clone());
+        outside.push(value["outside"].as_bool().unwrap_or(false));
+    }
+    let loaded = load_owner(&record_path)?;
+    let source = rustred::propagator::custom::custom_payload_family_source(&loaded.payload)
+        .map_err(failed)?;
+    let bundle = recipes_of_source(&source)
+        .map_err(failed)?
+        .ok_or_else(|| usage("the payload carries no recipe / relation binding"))?;
+    // Only the producer's own cache: never read another root while filling it.
+    set_recipe_cache_roots(RecipeCacheRoots {
+        user: Some(root.clone()),
+        prefilled: Vec::new(),
+        ..Default::default()
+    });
+    set_outside_settings_for(
+        &bundle.node,
+        POutsideSettings {
+            max_trace_rows: rows,
+            max_seconds_per_solve: Some(bound),
+            max_seconds_per_key: Some(key_bound),
+            ..POutsideSettings::default()
+        },
+    );
+    override_recipe_solver(
+        &bundle.node,
+        std::sync::Arc::new(EngineRecipeSolver::new(threads)),
+    );
+    let directory = recipe_cache_directory(&root, &bundle);
+    let started = Instant::now();
+    let progress = |entry: &rustred::propagator::custom::RelationProduceEntry| {
+        let status = match &entry.source {
+            Ok(Some(id)) => id.clone(),
+            Ok(None) => "NO_FAMILY".to_owned(),
+            Err(error) => format!("FAILED: {error}"),
+        };
+        let _ = writeln!(
+            std::io::stderr().lock(),
+            "produce {:?} {:.1} s {} terms {status}",
+            entry.key_table,
+            entry.seconds,
+            entry.children
+        );
+    };
+    let entries = rustred::propagator::custom::custom_payload_relation_produce(
+        &loaded.presentation,
+        &loaded.payload,
+        &keys,
+        &outside,
+        &depths,
+        threads,
+        &progress,
+    )
+    .map_err(failed)?;
+    let wall = started.elapsed().as_secs_f64();
+    let mut counts = std::collections::BTreeMap::<String, usize>::new();
+    let rows_out: Vec<serde_json::Value> = entries
+        .iter()
+        .zip(&rules)
+        .map(|(entry, rule)| {
+            let (status, detail) = match &entry.source {
+                Ok(Some(id)) => ("solved", serde_json::Value::String(id.clone())),
+                Ok(None) => ("no_family", serde_json::Value::Null),
+                Err(rustred::propagator::error::PError::RecipeFailed(failure)) => {
+                    (failure.kind.name(), failure.to_json())
+                }
+                Err(error) => ("error", serde_json::Value::String(error.to_string())),
+            };
+            *counts.entry(status.to_owned()).or_default() += 1;
+            serde_json::json!({"key_table": entry.key_table, "rule": rule, "status": status,
+                "detail": detail, "seconds": entry.seconds, "terms": entry.children,
+                "outside_certified_set": entry.outside_certified_set,
+                "relation_digest": entry.relation_digest})
+        })
+        .collect();
+    let report = serde_json::json!({
+        "schema": "rustred.p-relation-produce.v1",
+        "record": record_path.display().to_string(),
+        "node": bundle.node, "revision": bundle.revision,
+        "determinism_id": rustred::node::recipe::DETERMINISM_ID,
+        "binary": rustred::node::recipe::binary_identity(),
+        "cache_directory": directory.display().to_string(),
+        "threads": threads, "depths": depths, "bound_s": bound, "key_bound_s": key_bound,
+        "max_trace_rows": rows, "wall_seconds": wall, "keys": entries.len(), "counts": counts,
+        "statistics": recipe_statistics_json(), "entries": rows_out,
+    });
+    std::fs::create_dir_all(&directory)
+        .map_err(|error| CliError::OutputIo(format!("{}: {error}", directory.display())))?;
+    let stamp: String = format!(
+        "{:.0}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0.0, |d| d.as_secs_f64())
+    );
+    let text = serde_json::to_string_pretty(&report)
+        .map_err(|error| CliError::OutputIo(error.to_string()))?;
+    std::fs::write(
+        directory.join(format!("PRODUCE-{stamp}.json")),
+        format!("{text}\n"),
+    )
+    .map_err(|error| CliError::OutputIo(error.to_string()))?;
+    let _ = writeln!(
+        std::io::stdout().lock(),
+        "produce {} rev {}: {} keys in {wall:.1} s ({counts:?}) -> {}",
+        bundle.node,
+        bundle.revision,
+        entries.len(),
+        directory.display()
+    );
+    if counts.keys().any(|status| status != "solved") {
+        std::process::exit(10);
+    }
+    Ok(())
 }
 
 fn index(arguments: Vec<OsString>) -> Result<(), CliError> {

@@ -1329,6 +1329,42 @@ pub fn relation_cache_bytes_on_disk() -> u64 {
         .map_or(0, super::relation_entries::bytes_on_disk)
 }
 
+/// vk5l WP2 producer: the CHECKER recipe family at `key_table` (the family
+/// that solved 969 of the 1,000 heaviest T266 rules at their keys,
+/// artefacts/size/recipe_vs_table_T266.json): one centre one step DOWN the
+/// first dotted line (else one step UP the first negative numerator, else the
+/// key), `min_offset` -1 on every dotted line, sector filter, symmetry rows,
+/// relation rule `m1_first`, shells S0..S2 (depth 2) or S0..S3 (depth >= 3).
+pub fn checker_family(node: &str, key_table: &[i64], depth: u8) -> Value {
+    let mut centre = vec![0_i64; key_table.len()];
+    let dotted: Vec<usize> = (0..key_table.len())
+        .filter(|&slot| key_table[slot] > 1)
+        .collect();
+    if let Some(&slot) = dotted.first() {
+        centre[slot] = -1;
+    } else if let Some(slot) = key_table.iter().position(|&power| power < 0) {
+        centre[slot] = 1;
+    }
+    let chart: String = key_table
+        .iter()
+        .map(|&power| if power > 0 { '1' } else { '0' })
+        .collect();
+    let shells: &[&str] = if depth >= 3 {
+        &["S0", "S1", "Sm1", "S1m1", "S2", "S3"]
+    } else {
+        &["S0", "S1", "Sm1", "S1m1", "S2"]
+    };
+    let min_offset: serde_json::Map<String, Value> = dotted
+        .iter()
+        .map(|slot| (slot.to_string(), json!(-1)))
+        .collect();
+    json!({"schema": "rustred.recipe.v1", "id": format!("{node}/checker-d{depth}"),
+        "arity": key_table.len(), "chart": chart, "domain": {"keys": [key_table]},
+        "seeds": {"centres": [centre], "generator": {"shells": shells}, "min_offset": min_offset,
+                  "sector_filter": true},
+        "symmetry_rows": true, "relation_rule": "m1_first"})
+}
+
 /// The node identity of a bundle (relation entries; family text + node
 /// order + arity, [`super::relation_entries::node_identity`]).
 pub fn bundle_node_identity(bundle: &RecipeBundle) -> String {
@@ -1746,6 +1782,47 @@ impl RecipeDispatch {
             OUTSIDE_ENTRY_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(Some(found));
         }
+        self.solve_at_key(key, Vec::new(), true)
+    }
+
+    /// vk5l WP2 producer (plan/ARTIFACT_MANIFEST.md): an EXPLICIT relation at
+    /// `key` (presentation slots; any key of the node, inside or outside the
+    /// certified set, whatever rule serves it): an entry already in the
+    /// stores is returned (resumable), else the checker families of
+    /// `depths` ([`checker_family`]) re-centred on the key, then the outside
+    /// families, under the node's [`POutsideSettings`] (bounds, d = 4
+    /// preference); the winner is written to the writable cache root with
+    /// `outside_certified_set = outside`. `Ok(None)`: no family at all.
+    pub fn produce(
+        &self,
+        key: &[i64],
+        depths: &[u8],
+        outside: bool,
+    ) -> Result<Option<(Arc<Relation>, String)>, PError> {
+        if let Some(found) = self.served_entry(key)? {
+            return Ok(Some(found));
+        }
+        let key_table = self.bundle.to_table(key);
+        let settings = outside_settings_of(&self.bundle.node);
+        let mut first = Vec::new();
+        for &depth in depths {
+            let recipe = checker_family(&self.bundle.node, &key_table, depth);
+            let id = recipe["id"].as_str().unwrap_or("").to_owned();
+            let mut record = RecipeBundle::record_of(&recipe.to_string())?;
+            record.max_trace_rows = Some(settings.max_trace_rows.max(1));
+            first.push((id, record));
+        }
+        self.solve_at_key(key, first, outside)
+    }
+
+    /// The bounded family loop of [`Self::solve_outside`] /
+    /// [`Self::produce`]: `first` families, then the outside families.
+    fn solve_at_key(
+        &self,
+        key: &[i64],
+        first: Vec<(String, RecipeRecord)>,
+        outside: bool,
+    ) -> Result<Option<(Arc<Relation>, String)>, PError> {
         let key_table = self.bundle.to_table(key);
         let chart: String = key_table
             .iter()
@@ -1754,7 +1831,8 @@ impl RecipeDispatch {
         let settings = outside_settings_of(&self.bundle.node);
         let max_recipes = settings.max_recipes.max(1);
         let max_rows = settings.max_trace_rows.max(1);
-        let families = self.outside_families(&key_table, &chart, max_rows)?;
+        let mut families = first;
+        families.extend(self.outside_families(&key_table, &chart, max_rows)?);
         if families.is_empty() {
             // no entry and no recipe family: the caller's typed refusal
             return Ok(None);
@@ -1843,6 +1921,7 @@ impl RecipeDispatch {
                             &value,
                             relation,
                             alternative,
+                            outside,
                         )));
                     }
                     let smaller = fallback
@@ -1870,17 +1949,28 @@ impl RecipeDispatch {
                 &value,
                 relation,
                 alternative,
+                outside,
             )));
         }
         OUTSIDE_FAILURES.fetch_add(1, Ordering::Relaxed);
         FAILURES.fetch_add(1, Ordering::Relaxed);
-        let message = format!(
-            "the key is outside the certified set of {}; no rule takes it and {} of {} recipe families of chart {chart} \
-             (at most {max_recipes}, {max_rows} trace rows each) gave no verified relation at it",
-            self.bundle.node,
-            tried,
-            families.len()
-        );
+        let message = if outside {
+            format!(
+                "the key is outside the certified set of {}; no rule takes it and {} of {} recipe families of chart {chart} \
+                 (at most {max_recipes}, {max_rows} trace rows each) gave no verified relation at it",
+                self.bundle.node,
+                tried,
+                families.len()
+            )
+        } else {
+            format!(
+                "producer: {} of {} recipe families of chart {chart} (at most {max_recipes}, {max_rows} trace rows each) \
+                 gave no verified relation at this key of {}",
+                tried,
+                families.len(),
+                self.bundle.node
+            )
+        };
         let detail = json!({"outside_certified_set": true, "chart": chart, "families": families.len(),
             "tried": tried, "max_recipes": max_recipes, "max_trace_rows": max_rows, "attempts": attempts});
         let error = match first_failure {
@@ -1993,6 +2083,7 @@ impl RecipeDispatch {
         value: &Value,
         relation: Arc<Relation>,
         alternative: &'static str,
+        outside: bool,
     ) -> (Arc<Relation>, String) {
         let mut named = at_key.clone();
         named.id = id.to_owned();
@@ -2002,7 +2093,7 @@ impl RecipeDispatch {
             key_table,
             value,
             &relation,
-            true,
+            outside,
             alternative,
         );
         self.remember_outside(key, &relation, id);
@@ -3511,6 +3602,86 @@ mod kite_tests {
             }
             other => panic!("expected RecipeFailed, got {other:?}"),
         }
+    }
+
+    /// The explicit-expression producer with the REAL engine: a boxed node
+    /// with no recipe records (relation binding only) gets an explicit
+    /// relation at a key from the checker families, written to the cache
+    /// root; a rerun is served by the stored entry (resumable, no solve); the
+    /// cache turns into the shipped manifest form.
+    #[test]
+    fn the_producer_writes_explicit_relations_and_resumes() {
+        if !crate::compiled_runtime_arities().contains(&5) {
+            eprintln!("skipped: arity 5 is not compiled");
+            return;
+        }
+        use crate::propagator::custom::custom_payload_relation_produce;
+        let node = "KITE-produce";
+        let root = std::env::temp_dir().join(format!("rr-produce-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        set_recipe_cache_roots_for(
+            node,
+            RecipeCacheRoots {
+                user: Some(root.clone()),
+                prefilled: vec![],
+                ..Default::default()
+            },
+        );
+        let imported = import(node, &[], None).unwrap();
+        let three = vec![2_i64, 2, 2, 1, 1];
+        let run = || {
+            custom_payload_relation_produce(
+                &imported.presentation,
+                &imported.payload,
+                std::slice::from_ref(&three),
+                &[false],
+                &[2, 3],
+                1,
+                &|_| {},
+            )
+            .unwrap()
+        };
+        let first = run();
+        assert_eq!(first.len(), 1);
+        let id = match &first[0].source {
+            Ok(Some(id)) => id.clone(),
+            other => panic!("expected a produced relation, got {other:?}"),
+        };
+        assert!(id.starts_with("KITE-produce/checker-d"), "{id}");
+        assert!(first[0].children > 0);
+        let bundle = recipes_of_source(
+            &crate::propagator::custom::custom_payload_family_source(&imported.payload).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let identity = bundle_node_identity(&bundle);
+        let stored =
+            super::super::relation_entries::RelationStore::new(node, &identity, &[], Some(&root));
+        let (entry, _) = stored.get(&three).expect("the entry is in the cache root");
+        assert_eq!(entry["recipe"]["id"], json!(id));
+        // a rerun (new payload program, same cache root): the stored entry
+        let directory = super::super::relation_entries::node_directory(&root, node, &identity);
+        let segments = || std::fs::read_dir(&directory).unwrap().count();
+        let before = segments();
+        let second = run();
+        assert!(matches!(&second[0].source, Ok(Some(again)) if *again == id));
+        assert_eq!(
+            segments(),
+            before,
+            "resumed from the cache: nothing written"
+        );
+        let summary = super::super::relation_entries::write_node_service(
+            node,
+            &identity,
+            std::slice::from_ref(&root),
+            &root.join("ship"),
+            "t",
+            super::super::relation_entries::EntryPrecedence::OverTable,
+            &Value::Null,
+        )
+        .unwrap();
+        assert_eq!(summary.entries, 1);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// (b, c) with the REAL engine solve at the key (owner level, no fake):
