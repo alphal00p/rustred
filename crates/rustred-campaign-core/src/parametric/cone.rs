@@ -24,7 +24,7 @@ use crate::partition::classes::Label;
 use crate::partition::exact::Affine;
 use crate::partition::{
     Budget, CoverageNotion, DispatcherSource, DomainSource, ElidedPolicy, LiteralTests,
-    PartitionOptions, PartitionReport, WorkMeter, gap_partition_cells,
+    PartitionOptions, PartitionReport, Progress, WorkMeter, gap_partition_cells,
 };
 
 /// The cone: the frame's top-sector chart orthant intersected with `sum_i a_i k_i <= b` for every constraint.
@@ -126,6 +126,10 @@ pub struct ConeOptions {
     pub point_tries: usize,
     /// Values of the exhaustive search of a bounded intersection.
     pub enumeration: u64,
+    /// The partition's EXACT product split of exception branches (`PartitionOptions::factor_exceptions`: AND(f g, h) =
+    /// AND(f, h) OR AND(g, h), linear factors first); default off (the minting options). For dispatchers whose
+    /// exception branches are products of linear factors (e.g. pole loci moved by [`fall_through_poles`]).
+    pub factor_exceptions: bool,
 }
 
 impl Default for ConeOptions {
@@ -139,6 +143,7 @@ impl Default for ConeOptions {
             },
             point_tries: 48,
             enumeration: 200_000,
+            factor_exceptions: false,
         }
     }
 }
@@ -265,6 +270,66 @@ pub fn capped_dispatcher(
     Dispatcher::new(tables, (0..m).collect())
         .and_then(|d| d.with_chart(frame.mask().to_vec()))
         .map_err(|e| e.to_string())
+}
+
+/// The `2^k` FACE PIECES of the chart orthant split on `slots` (coordinator decision "face by face": one partition per
+/// sector piece, each run on [`capped_dispatcher`] with the piece as its caps). Per split slot the piece takes the
+/// boundary value (line slot `= 1`, numerator slot `= 0`) or the rest of the chart (line `>= 2`, numerator `<= -1`);
+/// all constraints are one-slot. The pieces are pairwise disjoint and their union is the chart orthant, so a cone is
+/// covered iff `cone and piece` is covered for every piece, and the uncovered sets add up. Order: binary counting, the
+/// first slot of `slots` most significant; bit 0 = boundary. Repeated slots are an error (`None`).
+pub fn face_pieces(frame: &NodeFrame, slots: &[usize]) -> Option<Vec<Cone>> {
+    let k = slots.len();
+    let mut out = Vec::with_capacity(1usize.checked_shl(u32::try_from(k).ok()?)?);
+    for code in 0..(1usize << k) {
+        let choice: Vec<(usize, bool)> = slots
+            .iter()
+            .enumerate()
+            .map(|(j, &s)| (s, (code >> (k - 1 - j)) & 1 == 1))
+            .collect();
+        out.push(face_piece(frame, &choice)?);
+    }
+    Some(out)
+}
+
+/// One face piece: per `(slot, beyond)` the boundary value (`beyond = false`: line `= 1`, numerator `= 0`) or the rest
+/// of the chart (line `>= 2`, numerator `<= -1`); see [`face_pieces`]. `None` for a slot outside the arity or repeated.
+pub fn face_piece(frame: &NodeFrame, choice: &[(usize, bool)]) -> Option<Cone> {
+    let n = frame.arity();
+    let mut seen = vec![false; n];
+    let mut c = Cone {
+        label: String::new(),
+        constraints: vec![],
+    };
+    let mut parts = Vec::new();
+    for &(s, beyond) in choice {
+        if s >= n || seen[s] {
+            return None;
+        }
+        seen[s] = true;
+        let mut up = vec![0i64; n];
+        up[s] = 1;
+        let mut down = vec![0i64; n];
+        down[s] = -1;
+        let (cons, text) = match (frame.is_line(s), beyond) {
+            // n_s = 1: n_s <= 1 (>= 1 by the chart)
+            (true, false) => ((up, 1), format!("n{s}=1")),
+            // n_s >= 2
+            (true, true) => ((down, -2), format!("n{s}>=2")),
+            // n_s = 0: -n_s <= 0 (<= 0 by the chart)
+            (false, false) => ((down, 0), format!("n{s}=0")),
+            // n_s <= -1
+            (false, true) => ((up, -1), format!("n{s}<=-1")),
+        };
+        c.constraints.push(cons);
+        parts.push(text);
+    }
+    c.label = if parts.is_empty() {
+        "the whole chart orthant (no split)".into()
+    } else {
+        format!("piece {}", parts.join(", "))
+    };
+    Some(c)
 }
 
 /// Is every key of `cone` (in the chart orthant) inside every one-slot cap of `caps`? Proved by the per-slot ranges of
@@ -785,6 +850,16 @@ pub fn partition_for_cones(
     frame: &NodeFrame,
     opts: &ConeOptions,
 ) -> Result<ConePartition, String> {
+    partition_for_cones_with(disp, frame, opts, None)
+}
+
+/// [`partition_for_cones`] with the partition's progress callback (its main recursion calls it every 2^18 nodes).
+pub fn partition_for_cones_with(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    opts: &ConeOptions,
+    progress: Option<&dyn Fn(&Progress)>,
+) -> Result<ConePartition, String> {
     let src = DispatcherSource::new(disp);
     if src.arity() != frame.arity() {
         return Err(format!(
@@ -797,8 +872,10 @@ pub fn partition_for_cones(
         return Err("eps frames are not modelled by the partition".into());
     }
     let t0 = std::time::Instant::now();
-    let report = gap_partition_cells(&src, frame, &partition_options(&opts.budget), None)
-        .map_err(|e| format!("partition: {e:?}"))?;
+    let mut po = partition_options(&opts.budget);
+    po.factor_exceptions = opts.factor_exceptions;
+    let report =
+        gap_partition_cells(&src, frame, &po, progress).map_err(|e| format!("partition: {e:?}"))?;
     let mut flags = Vec::new();
     if let Err(e) = report.complete_run() {
         flags.push(format!("not a complete run: {e}"));
@@ -1035,4 +1112,114 @@ pub fn fall_through_poles(disp: &Dispatcher) -> Result<Dispatcher, String> {
         Some(c) => d.with_chart(c.to_vec()).map_err(|e| e.to_string()),
         None => Ok(d),
     }
+}
+
+/// A moved undecided locus of [`fall_through_poles_reduced`]: (table, record label, the locus's d-coefficients, the
+/// record's exception branches).
+pub type UndecidedLocus = (String, i64, Vec<String>, Vec<Vec<String>>);
+
+/// Counts of [`fall_through_poles_reduced`].
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct FallThroughStats {
+    /// Pole loci seen (every domain of every table).
+    pub poles: usize,
+    /// Dropped: the record's selected set (poles removed) meets the locus nowhere (exact emptiness proof), so the locus
+    /// never decides a key (the engine wrote its vanishing set into the exceptions already).
+    pub redundant: usize,
+    /// Of `redundant`: proved by an exception branch of the record whose every member is a scalar multiple of one of
+    /// the locus's d-coefficients (`Poly::primitive_normal` equal), so the locus lies inside that branch.
+    pub redundant_by_branch: usize,
+    /// Moved into the exceptions: a verified key of the selected set lies on the locus.
+    pub moved_nonempty: usize,
+    /// Moved into the exceptions: emptiness not decided within the budget.
+    pub moved_unknown: usize,
+    /// Moved: identically zero polynomial (the record never matches).
+    pub moved_everywhere: usize,
+    /// Up to 20 examples of moved non-empty loci: (table, record label, witness key).
+    pub examples: Vec<(String, i64, Vec<i32>)>,
+    /// Up to 100 moved undecided loci.
+    pub undecided: Vec<UndecidedLocus>,
+}
+
+/// [`fall_through_poles`] with the redundant loci DROPPED instead of moved (same dispatch, cheaper partition). For
+/// every pole locus `L` (AND of its d-coefficients) of a domain with selected set `S` (the domain with its poles
+/// removed: fixed slots, equations, bounds, exception branches), `S n L` is decided EXACTLY
+/// ([`crate::parametric::descent::emptiness`]: sign splits, Fourier-Motzkin, verified witnesses; a superset without
+/// nonlinear exception branches when undecided). Empty = no key of `S` lies on `L`, so moving `L` into the exceptions
+/// would not change the dispatch: it is dropped. Non-empty or undecided = moved, as [`fall_through_poles`] does. The
+/// engine writes the vanishing sets of its witness poles into `exceptions` (`DomainOptions::witness` doc), so most
+/// loci are redundant; a moved non-empty locus is a record whose exceptions miss part of its witness locus.
+pub fn fall_through_poles_reduced(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    budget: &crate::loci::contain::ProofBudget,
+) -> Result<(Dispatcher, FallThroughStats), String> {
+    use crate::parametric::descent::{EmptyState, emptiness};
+    use crate::poly::Poly;
+    let mut st = FallThroughStats::default();
+    let mut tables = Vec::with_capacity(disp.tables().len());
+    for t in disp.tables() {
+        let mut t2 = t.clone();
+        for (r, d) in t2.domains.iter_mut().enumerate() {
+            if d.poles.is_empty() {
+                continue;
+            }
+            let poles = std::mem::take(&mut d.poles);
+            let base = d.clone();
+            for p in poles {
+                st.poles += 1;
+                if p.coeffs.is_empty() {
+                    st.moved_everywhere += 1;
+                    d.exceptions.push(vec![Poly::constant(0)]);
+                    continue;
+                }
+                // the engine writes the locus as an exception branch (AND of the same coefficients up to scalars)
+                let normal: Vec<Poly> = p.coeffs.iter().map(Poly::primitive_normal).collect();
+                let inside_branch = base.exceptions.iter().any(|b| {
+                    !b.is_empty() && b.iter().all(|m| normal.contains(&m.primitive_normal()))
+                });
+                if inside_branch {
+                    st.redundant += 1;
+                    st.redundant_by_branch += 1;
+                    continue;
+                }
+                match emptiness(&base, frame, budget, &p.coeffs, &[]) {
+                    (EmptyState::Empty, _, _) => st.redundant += 1,
+                    (EmptyState::NonEmpty, w, _) => {
+                        st.moved_nonempty += 1;
+                        if st.examples.len() < 20 {
+                            st.examples.push((
+                                t.name.clone(),
+                                t.labels.get(r).copied().unwrap_or(-1),
+                                w.unwrap_or_default(),
+                            ));
+                        }
+                        d.exceptions.push(p.coeffs);
+                    }
+                    (EmptyState::Unknown, _, _) => {
+                        st.moved_unknown += 1;
+                        if st.undecided.len() < 100 {
+                            st.undecided.push((
+                                t.name.clone(),
+                                t.labels.get(r).copied().unwrap_or(-1),
+                                p.coeffs.iter().map(|c| c.to_string()).collect(),
+                                base.exceptions
+                                    .iter()
+                                    .map(|b| b.iter().map(|c| c.to_string()).collect())
+                                    .collect(),
+                            ));
+                        }
+                        d.exceptions.push(p.coeffs);
+                    }
+                }
+            }
+        }
+        tables.push(t2);
+    }
+    let d = Dispatcher::new(tables, disp.priority().to_vec()).map_err(|e| e.to_string())?;
+    let d = match disp.chart() {
+        Some(c) => d.with_chart(c.to_vec()).map_err(|e| e.to_string())?,
+        None => d,
+    };
+    Ok((d, st))
 }

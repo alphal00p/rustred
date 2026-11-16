@@ -586,6 +586,7 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
     let v: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(cat).unwrap()).unwrap();
     let mut by_table: BTreeMap<String, Vec<(u64, serde_json::Value)>> = BTreeMap::new();
+    let mut refused: Vec<serde_json::Value> = Vec::new();
     for e in v["entries"].as_array().unwrap() {
         let t = e["table"].as_str().unwrap();
         if t.starts_with(prefix) {
@@ -605,7 +606,16 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
     ) = (None, None, None);
     for (path_s, entries) in &by_table {
         let path = PathBuf::from(path_s);
-        let tf = read_table_file(&path, ReadOptions { rhs: RhsMode::Skip }).unwrap();
+        let tf = match read_table_file(&path, ReadOptions { rhs: RhsMode::Skip }) {
+            Ok(tf) => tf,
+            Err(e) => {
+                eprintln!("REFUSED by the reader: {path_s}: {e}");
+                refused.push(
+                    json!({"table": path_s, "entries": entries.len(), "error": e.to_string()}),
+                );
+                continue;
+            }
+        };
         let hline =
             std::io::BufRead::lines(std::io::BufReader::new(std::fs::File::open(&path).unwrap()))
                 .next()
@@ -630,13 +640,21 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
             cmp = Some(NodeComparator::from_header(&hv).unwrap());
             order0 = Some(hv["node_order"].clone());
         }
-        let full = Table::from_table_file(
+        let full = match Table::from_table_file(
             path_s.clone(),
             path_s.clone(),
             &tf,
             DomainOptions::default(),
-        )
-        .unwrap();
+        ) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("REFUSED by the strict reader: {path_s}: {e}");
+                refused.push(
+                    json!({"table": path_s, "entries": entries.len(), "error": e.to_string()}),
+                );
+                continue;
+            }
+        };
         let offs = line_offsets(&path);
         digests.insert(path_s.clone(), format!("sha256:{}", sha256_file(&path)));
         let ti = tables.len();
@@ -690,8 +708,9 @@ fn load_catalogue(cat: &Path, prefix: &str) -> Loaded {
         cmp: cmp.unwrap(),
         tables: digests,
         loader: format!(
-            "catalogue entries of {} with table prefix {prefix} (core reader)",
-            cat.display()
+            "catalogue entries of {} with table prefix {prefix} (core reader); refused tables: {}",
+            cat.display(),
+            serde_json::to_string(&refused).unwrap()
         ),
         node: None,
     }
@@ -1209,21 +1228,21 @@ fn restore_loci(ld: &mut Loaded, files: &str) -> serde_json::Value {
     let mut matched = Vec::new();
     for j in &mut ld.jobs {
         let mut name = j.meta["hand_name"].as_str().map(str::to_string);
-        if name.is_none() || !loci.contains_key(name.as_deref().unwrap_or("")) {
-            if let Ok((_, _, _)) = rustred_campaign_core::parametric::descent::read_record(
+        if (name.is_none() || !loci.contains_key(name.as_deref().unwrap_or("")))
+            && let Ok((_, _, _)) = rustred_campaign_core::parametric::descent::read_record(
                 Path::new(&j.path),
                 j.offset,
                 j.bytes,
-            ) {
-                use std::io::{Read, Seek, SeekFrom};
-                let mut f = std::fs::File::open(&j.path).unwrap();
-                f.seek(SeekFrom::Start(j.offset)).unwrap();
-                let mut b = vec![0u8; j.bytes as usize];
-                f.read_exact(&mut b).unwrap();
-                let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
-                if let Some(s) = v["origin"]["source"].as_str() {
-                    name = Some(s.to_string());
-                }
+            )
+        {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut f = std::fs::File::open(&j.path).unwrap();
+            f.seek(SeekFrom::Start(j.offset)).unwrap();
+            let mut b = vec![0u8; j.bytes as usize];
+            f.read_exact(&mut b).unwrap();
+            let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+            if let Some(s) = v["origin"]["source"].as_str() {
+                name = Some(s.to_string());
             }
         }
         let Some(name) = name else { continue };
@@ -1252,4 +1271,640 @@ fn restore_loci(ld: &mut Loaded, files: &str) -> serde_json::Value {
         .with_chart(ld.frame.mask().to_vec())
         .unwrap();
     json!({"files": fev, "listed": loci.len(), "matched": matched.len(), "not_in_dispatch": missing})
+}
+
+/// A cone from its text form (`orthant`, `simplex:S`, `box:L:M`, `drbox:D:R:L`).
+fn parse_cone(frame: &NodeFrame, c: &str) -> rustred_campaign_core::parametric::cone::Cone {
+    use rustred_campaign_core::parametric::cone::Cone;
+    match c.split(':').collect::<Vec<_>>().as_slice() {
+        ["orthant"] => Cone::orthant(),
+        ["simplex", s] => Cone::excess_simplex(frame, s.parse().unwrap()),
+        ["box", l, m] => Cone::box_caps(frame, l.parse().unwrap(), m.parse().unwrap()),
+        ["drbox", d, r, l] => Cone::dots_rank_box(
+            frame,
+            d.parse().unwrap(),
+            r.parse().unwrap(),
+            l.parse().unwrap(),
+        ),
+        other => panic!("cone {other:?}"),
+    }
+}
+
+/// Resident memory of this process (bytes; 0 if unreadable).
+fn rss_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("VmRSS:"))
+                .and_then(|l| l.split_whitespace().nth(1))
+                .and_then(|v| v.parse::<u64>().ok())
+        })
+        .map_or(0, |kb| kb * 1024)
+}
+
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+unsafe extern "C" {
+    fn malloc_trim(pad: usize) -> i32;
+}
+
+/// Give freed heap back to the system between pieces (glibc), so the next piece's memory guard reads its own use.
+fn trim_heap() {
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    // SAFETY: glibc's malloc_trim only releases free heap pages; no pointer is touched.
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+/// Payload of the memory guard's unwind (a piece over its memory limit is refined, never a test failure).
+struct PieceOverMemory(u64);
+
+/// B2 FACE BY FACE (coordinator task 2 of PARAMETRIC-ANSWER-2): ONE capped partition per face piece
+/// (`parametric::cone::face_piece`: per split slot the boundary value or the rest of the chart; the pieces are disjoint
+/// and cover the chart orthant), each piece run on `capped_dispatcher(base, piece)` (dispatch unchanged inside the
+/// piece) and each cone evaluated on `cone and piece`. STREAMED: one line per finished or refined piece in
+/// `<out>.pieces.jsonl` (a rerun resumes: finished pieces are skipped, refined ones replaced by their children);
+/// certificates / residual keys under `<out>.pieces/`. A piece is REFINED on the next slot of `PARAMETRIC_PIECE_SLOTS`
+/// when its partition is not complete or its resident memory passes `PARAMETRIC_PIECE_RSS_GB` (memory guard: the
+/// partition's progress callback unwinds, the piece's memory is freed, nothing of it is used).
+///
+/// Env: as `b2_cone_coverage_on_a_real_set` (PARAMETRIC_SPEC, PARAMETRIC_INDEX_DIR, PARAMETRIC_EXTRA_SOURCES,
+/// PARAMETRIC_SUPPLIED_LOCI, PARAMETRIC_FALLTHROUGH, PARAMETRIC_CONES, PARAMETRIC_MEMO, PARAMETRIC_OUT) plus
+/// PARAMETRIC_PIECE_SLOTS (comma list, refinement order), PARAMETRIC_PIECE_DEPTH (initial split, default 0),
+/// PARAMETRIC_PIECE_RSS_GB (default 30), PARAMETRIC_PIECE_UNITS (per piece, default 200 M), PARAMETRIC_PIECE_WALL
+/// (seconds per piece, default 1800), PARAMETRIC_RESIDUAL_MAX (per piece and cone, default 2 M).
+#[test]
+#[ignore]
+fn b2_face_by_face() {
+    use rustred_campaign_core::parametric::check::check_cone_certificate;
+    use rustred_campaign_core::parametric::cone::{
+        ConeOptions, capped_dispatcher, cell_keys_each, certificate, coverage_from_partition,
+        face_piece, partition_for_cones_with,
+    };
+    use rustred_campaign_core::partition::face_of;
+    use std::cell::Cell;
+    use std::collections::{BTreeSet, VecDeque};
+    let env_u64 = |k: &str, d: u64| -> u64 {
+        std::env::var(k)
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(d)
+    };
+    let spec_path = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let cones_s = std::env::var("PARAMETRIC_CONES").unwrap_or_else(|_| "orthant".into());
+    let slots: Vec<usize> = std::env::var("PARAMETRIC_PIECE_SLOTS")
+        .expect("PARAMETRIC_PIECE_SLOTS")
+        .split(',')
+        .filter(|x| !x.is_empty())
+        .map(|x| x.trim().parse().unwrap())
+        .collect();
+    let depth = env_u64("PARAMETRIC_PIECE_DEPTH", 0) as usize;
+    assert!(depth <= slots.len());
+    let rss_max = env_u64("PARAMETRIC_PIECE_RSS_GB", 30) << 30;
+    let units = env_u64("PARAMETRIC_PIECE_UNITS", 200_000_000);
+    let wall = env_u64("PARAMETRIC_PIECE_WALL", 1800);
+    let residual_max = env_u64("PARAMETRIC_RESIDUAL_MAX", 2_000_000);
+    let t0 = std::time::Instant::now();
+    let mut ld = load_any(
+        &spec_path,
+        std::env::var("PARAMETRIC_INDEX_DIR")
+            .ok()
+            .map(PathBuf::from),
+    );
+    if let Ok(x) = std::env::var("PARAMETRIC_EXTRA_SOURCES") {
+        ld = append_sources(ld, Path::new(&x));
+    }
+    let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
+        .ok()
+        .map(|f| restore_loci(&mut ld, &f));
+    // decision G5 fall-through: "1" = every pole locus moved into the exceptions; "reduced" = loci proved disjoint
+    // from their record's selected set dropped, the others moved (cone::fall_through_poles_reduced; same dispatch)
+    // "core+g5": the partition runs on the CORE dispatch (a pole = stop set, blocked sub-partitions; equal to G5 on
+    // every locus proved disjoint from its record's selected set, a superset of the G5-uncovered set on the others),
+    // every residual key is re-dispatched with the exact G5 dispatcher (reduced fall-through)
+    let ft_mode = std::env::var("PARAMETRIC_FALLTHROUGH").unwrap_or_default();
+    let fall_through = ft_mode == "1" || ft_mode == "reduced";
+    let fell;
+    let mut ft_stats = serde_json::Value::Null;
+    let g5: Option<Dispatcher> = if ft_mode == "core+g5" {
+        let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+            &ld.disp,
+            &ld.frame,
+            &ProofBudget::default(),
+        )
+        .unwrap();
+        eprintln!(
+            "G5 re-dispatcher (reduced fall-through): {}",
+            serde_json::to_string(&st).unwrap()
+        );
+        ft_stats = serde_json::to_value(&st).unwrap();
+        Some(d)
+    } else {
+        None
+    };
+    let base: &Dispatcher = if ft_mode == "reduced" {
+        let tf = std::time::Instant::now();
+        let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+            &ld.disp,
+            &ld.frame,
+            &ProofBudget::default(),
+        )
+        .unwrap();
+        eprintln!(
+            "fall-through (reduced) in {:.1} s: {}",
+            tf.elapsed().as_secs_f64(),
+            serde_json::to_string(&st).unwrap()
+        );
+        ft_stats = serde_json::to_value(&st).unwrap();
+        fell = d;
+        &fell
+    } else if fall_through {
+        fell = rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap();
+        &fell
+    } else {
+        &ld.disp
+    };
+    eprintln!(
+        "loaded in {:.1} s: {} records ({}); restored loci {}; fall-through {ft_mode:?}; rss {:.1} GB",
+        t0.elapsed().as_secs_f64(),
+        ld.jobs.len(),
+        ld.loader,
+        restored
+            .as_ref()
+            .map_or("none".to_string(), |r| r.to_string()),
+        rss_bytes() as f64 / 1e9
+    );
+    if std::env::var("PARAMETRIC_LOAD_ONLY").as_deref() == Ok("1") {
+        std::fs::write(
+            format!("{out}.fallthrough.json"),
+            serde_json::to_string_pretty(&ft_stats).unwrap(),
+        )
+        .unwrap();
+        return;
+    }
+    let frame = ld.frame.clone();
+    let lines: Vec<bool> = (0..frame.arity()).map(|i| frame.is_line(i)).collect();
+    let cones: Vec<(String, rustred_campaign_core::parametric::cone::Cone)> = cones_s
+        .split(';')
+        .filter(|x| !x.is_empty())
+        .map(|c| (c.replace(':', "_"), parse_cone(&frame, c)))
+        .collect();
+    let mut opts = ConeOptions::default();
+    opts.budget.max_nodes = Some(units);
+    opts.budget.wall = Some(std::time::Duration::from_secs(wall));
+    if let Some(m) = std::env::var("PARAMETRIC_MEMO")
+        .ok()
+        .and_then(|s| s.parse().ok())
+    {
+        opts.budget.max_memo = Some(m);
+    }
+    opts.factor_exceptions = std::env::var("PARAMETRIC_FACTOR_EXCEPTIONS").as_deref() == Ok("1");
+    let dir = PathBuf::from(format!("{out}.pieces"));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lines_path = format!("{out}.pieces.jsonl");
+    // resume
+    let mut status: BTreeMap<String, String> = BTreeMap::new();
+    if let Ok(t) = std::fs::read_to_string(&lines_path) {
+        for l in t.lines().filter(|l| !l.trim().is_empty()) {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            status.insert(
+                v["piece"].as_str().unwrap().to_string(),
+                v["status"].as_str().unwrap().to_string(),
+            );
+        }
+    }
+    let mut pf = std::io::BufWriter::new(
+        std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&lines_path)
+            .unwrap(),
+    );
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if info.payload().downcast_ref::<PieceOverMemory>().is_none() {
+            prev_hook(info);
+        }
+    }));
+    let file_id = |label: &str| -> String {
+        label
+            .trim_start_matches("piece ")
+            .replace("<=-1", "m")
+            .replace(">=2", "p")
+            .replace("=0", "z")
+            .replace("=1", "o")
+            .replace(", ", "_")
+            .replace(' ', "_")
+    };
+    let mut queue: VecDeque<Vec<(usize, bool)>> = VecDeque::new();
+    for code in 0..(1usize << depth) {
+        queue.push_back(
+            (0..depth)
+                .map(|j| (slots[j], (code >> (depth - 1 - j)) & 1 == 1))
+                .collect(),
+        );
+    }
+    let mut n_run = 0usize;
+    while let Some(choice) = queue.pop_front() {
+        let piece = face_piece(&frame, &choice).expect("piece");
+        let id = piece.label.clone();
+        let children = |q: &mut VecDeque<Vec<(usize, bool)>>| {
+            let s = slots[choice.len()];
+            for b in [false, true] {
+                let mut c = choice.clone();
+                c.push((s, b));
+                q.push_back(c);
+            }
+        };
+        match status.get(&id).map(String::as_str) {
+            Some("done") => continue,
+            Some("refined") => {
+                children(&mut queue);
+                continue;
+            }
+            _ => {}
+        }
+        let can_refine = choice.len() < slots.len();
+        let tp = std::time::Instant::now();
+        let capped = capped_dispatcher(base, &frame, &piece).unwrap();
+        trim_heap();
+        let rss0 = rss_bytes();
+        let peak = Cell::new(rss0);
+        let last = Cell::new(std::time::Instant::now());
+        let cb = |p: &rustred_campaign_core::partition::Progress| {
+            let r = rss_bytes();
+            if r > peak.get() {
+                peak.set(r);
+            }
+            if last.get().elapsed().as_secs() >= 60 {
+                last.set(std::time::Instant::now());
+                eprintln!(
+                    "  [{id}] nodes {} memo {} depth {} rss {:.1} GB",
+                    p.nodes,
+                    p.memo_size,
+                    p.depth,
+                    r as f64 / 1e9
+                );
+            }
+            if r > rss_max {
+                std::panic::panic_any(PieceOverMemory(r));
+            }
+        };
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            partition_for_cones_with(&capped, &frame, &opts, Some(&cb))
+        }));
+        let cp = match res {
+            Err(payload) => {
+                let Some(PieceOverMemory(r)) = payload.downcast_ref::<PieceOverMemory>() else {
+                    std::panic::resume_unwind(payload);
+                };
+                let r = *r;
+                drop(payload);
+                trim_heap();
+                eprintln!(
+                    "piece [{id}]: over memory ({:.1} GB > {} GB) after {:.0} s: {}",
+                    r as f64 / 1e9,
+                    rss_max >> 30,
+                    tp.elapsed().as_secs_f64(),
+                    if can_refine {
+                        "refined"
+                    } else {
+                        "FAILED (no slot left)"
+                    }
+                );
+                let st = if can_refine { "refined" } else { "failed" };
+                writeln!(pf, "{}", json!({"piece": id, "choice": choice, "status": st, "reason": format!("resident memory {} > {} GB", r, rss_max >> 30), "seconds": tp.elapsed().as_secs_f64()})).unwrap();
+                pf.flush().unwrap();
+                if can_refine {
+                    children(&mut queue);
+                }
+                continue;
+            }
+            Ok(Err(e)) => panic!("piece [{id}]: {e}"),
+            Ok(Ok(cp)) => cp,
+        };
+        let incomplete = cp.flags.iter().any(|f| f.starts_with("not a complete run"));
+        if incomplete && can_refine {
+            eprintln!(
+                "piece [{id}]: partition not complete after {:.0} s ({:?}): refined",
+                tp.elapsed().as_secs_f64(),
+                cp.flags
+            );
+            writeln!(pf, "{}", json!({"piece": id, "choice": choice, "status": "refined", "reason": cp.flags, "seconds": tp.elapsed().as_secs_f64(), "elements": cp.elements.len()})).unwrap();
+            pf.flush().unwrap();
+            drop(cp);
+            trim_heap();
+            children(&mut queue);
+            continue;
+        }
+        n_run += 1;
+        let mut cone_lines = Vec::new();
+        for (tag, cone0) in &cones {
+            let cone = cone0.clone().and(&piece);
+            let cov = coverage_from_partition(&cp, &capped, &frame, &cone, &opts).unwrap();
+            let cert = certificate(&cov, &capped, &frame);
+            let chk = check_cone_certificate(&cert, &capped, &frame, None);
+            let fid = file_id(&id);
+            std::fs::write(
+                dir.join(format!("{fid}.{tag}.certificate.json")),
+                serde_json::to_string(&cert).unwrap(),
+            )
+            .unwrap();
+            let (mut res_keys, mut unsized_cells, mut open_keys) = (0u64, 0usize, 0u64);
+            let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+            let mut faces: BTreeMap<String, u64> = BTreeMap::new();
+            let mut keys_out: Vec<String> = Vec::new();
+            for l in &cov.listed {
+                let i = l["element"].as_u64().unwrap() as usize;
+                let el = &cp.elements[i];
+                if el.kind != "generic" || res_keys >= residual_max {
+                    unsized_cells += 1;
+                    continue;
+                }
+                let mut keys_here = Vec::new();
+                match cell_keys_each(&el.region, &cone, &frame, 1_000_000, &mut |k| {
+                    keys_here.push(k.to_vec())
+                }) {
+                    Some(()) => {
+                        for k in keys_here {
+                            res_keys += 1;
+                            let d = match &g5 {
+                                Some(g) => format!("{:?}", g.first_match(&k)),
+                                None => format!("{:?}", capped.first_match(&k)),
+                            };
+                            let why = if d.starts_with("Ok(Covered") {
+                                "covered".to_string()
+                            } else if let Some(p) = d.find("reason: ") {
+                                let r: String = d[p + 8..]
+                                    .chars()
+                                    .take_while(|c| c.is_alphanumeric() || *c == '_')
+                                    .collect();
+                                format!("blocked:{r}")
+                            } else {
+                                d.chars().take(40).collect()
+                            };
+                            let open = why != "covered";
+                            if open {
+                                open_keys += 1;
+                                *faces
+                                    .entry(format!("{:?}", face_of(&lines, &k)))
+                                    .or_default() += 1;
+                            }
+                            *reasons.entry(why.clone()).or_default() += 1;
+                            keys_out.push(
+                                json!({"key": k, "element": i, "open": open, "dispatch": why})
+                                    .to_string(),
+                            );
+                        }
+                    }
+                    None => unsized_cells += 1,
+                }
+            }
+            if !keys_out.is_empty() {
+                std::fs::write(
+                    dir.join(format!("{fid}.{tag}.cellkeys.jsonl")),
+                    keys_out.join("\n") + "\n",
+                )
+                .unwrap();
+            }
+            cone_lines.push(json!({
+                "cone": tag, "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
+                "uncovered": cov.uncovered, "undecided": cov.undecided,
+                "residual": {"cell_keys_in_cone": res_keys, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
+                "probes": cov.probes.len(), "probes_open_unexplained": cov.probes_open_unexplained,
+                "checker": {"ok": chk.ok(), "n_problems": chk.problems.len(), "problems": chk.problems.iter().take(10).collect::<Vec<_>>(), "witnesses_checked": chk.witnesses_checked, "probes_checked": chk.probes_checked},
+            }));
+        }
+        let pk = peak.get();
+        eprintln!(
+            "piece [{id}] done in {:.0} s: {} elements, peak rss {:.1} GB, flags {:?}; {}",
+            tp.elapsed().as_secs_f64(),
+            cp.elements.len(),
+            pk as f64 / 1e9,
+            cp.flags,
+            cone_lines
+                .iter()
+                .map(|c| format!(
+                    "{} {} {}/{}",
+                    c["cone"].as_str().unwrap(),
+                    c["verdict"].as_str().unwrap_or("?"),
+                    c["uncovered"],
+                    c["undecided"]
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        writeln!(pf, "{}", json!({"piece": id, "choice": choice, "status": "done", "seconds": tp.elapsed().as_secs_f64(),
+            "partition_seconds": cp.millis as f64 / 1e3, "elements": cp.elements.len(), "flags": cp.flags,
+            "rss_start": rss0, "rss_peak": pk, "cones": cone_lines})).unwrap();
+        pf.flush().unwrap();
+        drop(cp);
+        drop(capped);
+        trim_heap();
+    }
+    drop(pf);
+    // aggregate every finished piece of the file (this run and earlier ones)
+    let text = std::fs::read_to_string(&lines_path).unwrap();
+    let mut last_of: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    for l in text.lines().filter(|l| !l.trim().is_empty()) {
+        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+        last_of.insert(v["piece"].as_str().unwrap().to_string(), v);
+    }
+    let done: Vec<&serde_json::Value> =
+        last_of.values().filter(|v| v["status"] == "done").collect();
+    let failed: Vec<&serde_json::Value> = last_of
+        .values()
+        .filter(|v| v["status"] == "failed")
+        .collect();
+    let refined = last_of
+        .values()
+        .filter(|v| v["status"] == "refined")
+        .count();
+    let mut per_cone = Vec::new();
+    for (tag, cone) in &cones {
+        let (mut unc, mut und, mut keys, mut open) = (0u64, 0u64, 0u64, 0u64);
+        let (mut cov_pieces, mut unc_pieces, mut und_pieces, mut chk_bad) = (0, 0, 0, 0);
+        let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+        let mut faces: BTreeMap<String, u64> = BTreeMap::new();
+        let mut incomplete_pieces = BTreeSet::new();
+        for v in &done {
+            let Some(c) = v["cones"]
+                .as_array()
+                .and_then(|a| a.iter().find(|c| c["cone"] == tag.as_str()))
+            else {
+                continue;
+            };
+            unc += c["uncovered"].as_u64().unwrap_or(0);
+            und += c["undecided"].as_u64().unwrap_or(0);
+            keys += c["residual"]["cell_keys_in_cone"].as_u64().unwrap_or(0);
+            open += c["residual"]["open"].as_u64().unwrap_or(0);
+            match c["verdict"].as_str() {
+                Some("covered") => cov_pieces += 1,
+                Some("uncovered") => unc_pieces += 1,
+                _ => und_pieces += 1,
+            }
+            if c["checker"]["ok"] != true {
+                chk_bad += 1;
+            }
+            if v["flags"].as_array().is_some_and(|a| !a.is_empty()) {
+                incomplete_pieces.insert(v["piece"].as_str().unwrap().to_string());
+            }
+            for (k, x) in c["residual"]["by_dispatch"]
+                .as_object()
+                .into_iter()
+                .flatten()
+            {
+                *reasons.entry(k.clone()).or_default() += x.as_u64().unwrap_or(0);
+            }
+            for (k, x) in c["residual"]["open_by_face"]
+                .as_object()
+                .into_iter()
+                .flatten()
+            {
+                *faces.entry(k.clone()).or_default() += x.as_u64().unwrap_or(0);
+            }
+        }
+        per_cone.push(json!({"cone": tag, "label": cone.label, "pieces_covered": cov_pieces, "pieces_uncovered": unc_pieces,
+            "pieces_undecided": und_pieces, "uncovered_elements": unc, "undecided_elements": und,
+            "residual_cell_keys": keys, "residual_open_keys": open, "by_dispatch": reasons, "open_by_face": faces,
+            "pieces_with_flags": incomplete_pieces, "checker_not_ok": chk_bad,
+            "verdict": if !failed.is_empty() { "undecided (failed pieces)" } else if und_pieces > 0 { "undecided" } else if unc_pieces > 0 { "uncovered" } else { "covered" }}));
+    }
+    let head = json!({
+        "schema": rustred_campaign_core::parametric::CONE_COVERAGE_SCHEMA, "version": rustred_campaign_core::parametric::CONE_COVERAGE_VERSION,
+        "mode": "face by face (capped partition per face piece)", "piece_slots": slots, "initial_depth": depth,
+        "spec": {"path": spec_path.display().to_string(), "sha256": sha256_file(&spec_path)},
+        "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
+        "restored_loci": restored, "fall_through": ft_mode, "fall_through_stats": ft_stats, "factor_exceptions": opts.factor_exceptions,
+        "budget_per_piece": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo, "rss_gb": rss_max >> 30},
+        "pieces": {"done": done.len(), "refined": refined, "failed": failed.iter().map(|v| v["piece"].clone()).collect::<Vec<_>>(), "run_now": n_run},
+    });
+    std::fs::write(
+        format!("{out}.summary.json"),
+        serde_json::to_string_pretty(&json!({"header": head, "cones": per_cone})).unwrap(),
+    )
+    .unwrap();
+    eprintln!(
+        "face by face: {} pieces done ({} now), {} refined, {} failed; {}",
+        done.len(),
+        n_run,
+        refined,
+        failed.len(),
+        per_cone
+            .iter()
+            .map(|c| format!(
+                "{}: {} ({} uncovered / {} undecided elements, {} open residual keys)",
+                c["cone"].as_str().unwrap(),
+                c["verdict"].as_str().unwrap(),
+                c["uncovered_elements"],
+                c["undecided_elements"],
+                c["residual_open_keys"]
+            ))
+            .collect::<Vec<_>>()
+            .join("; ")
+    );
+}
+
+/// Decision A, T178 APPEND variant (COORDINATOR-ANSWERS-20261116-1.md): the elided records appended AFTER the dispatch
+/// change no statement key. Loads a sources list (PARAMETRIC_SPEC = `*sources.json`, run with PARAMETRIC_APPENDED=apply),
+/// builds the dispatch WITHOUT the appended sources (table names ending in "(appended elided)") and WITH them, both
+/// under the decision-G5 fall-through (`cone::fall_through_poles`), and dispatches every key of PARAMETRIC_KEYS (rows
+/// `["I(..)", kind, rule, in_box, [D, r]]`; only `in_box` rows unless PARAMETRIC_KEYS_ALL=1). A key CHANGES when the two
+/// first matches differ. Output: PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn append_variant_changes_no_statement_key() {
+    use rustred_campaign_core::cover::Dispatch;
+    use std::io::BufRead;
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let keys_p = PathBuf::from(std::env::var("PARAMETRIC_KEYS").expect("PARAMETRIC_KEYS"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let all = std::env::var("PARAMETRIC_KEYS_ALL").as_deref() == Ok("1");
+    assert_eq!(
+        std::env::var("PARAMETRIC_APPENDED").as_deref(),
+        Ok("apply"),
+        "run with PARAMETRIC_APPENDED=apply"
+    );
+    let ld = load_any(&spec, None);
+    let with = rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap();
+    let appended: Vec<usize> = ld
+        .disp
+        .tables()
+        .iter()
+        .enumerate()
+        .filter(|(_, t)| t.name.ends_with("(appended elided)"))
+        .map(|(i, _)| i)
+        .collect();
+    let n_app: usize = appended
+        .iter()
+        .map(|&i| ld.disp.tables()[i].domains.len())
+        .sum();
+    // the same tables in the same priority, the appended ones removed (Dispatcher::new wants a permutation)
+    let kept: Vec<usize> = ld
+        .disp
+        .priority()
+        .iter()
+        .copied()
+        .filter(|i| !appended.contains(i))
+        .collect();
+    let tables: Vec<Table> = kept.iter().map(|&i| ld.disp.tables()[i].clone()).collect();
+    let base = Dispatcher::new(tables, (0..kept.len()).collect()).unwrap();
+    let base = match ld.disp.chart() {
+        Some(c) => base.with_chart(c.to_vec()).unwrap(),
+        None => base,
+    };
+    let without = rustred_campaign_core::parametric::cone::fall_through_poles(&base).unwrap();
+    let f = std::io::BufReader::with_capacity(1 << 24, std::fs::File::open(&keys_p).unwrap());
+    let (mut n, mut same, mut changed, mut open_both) = (0u64, 0u64, 0u64, 0u64);
+    let mut by_kind: BTreeMap<String, u64> = BTreeMap::new();
+    let mut examples = Vec::new();
+    for line in f.lines() {
+        let line = line.unwrap();
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if !all && v[3] != true {
+            continue;
+        }
+        let s = v[0].as_str().unwrap();
+        let k: Vec<i32> = s
+            .trim_start_matches("I(")
+            .trim_end_matches(')')
+            .split(',')
+            .map(|x| x.trim().parse().unwrap())
+            .collect();
+        n += 1;
+        let a = without.first_match(&k);
+        let b = with.first_match(&k);
+        let (fa, fb) = (format!("{a:?}"), format!("{b:?}"));
+        if fa == fb {
+            same += 1;
+            if !matches!(a, Ok(Dispatch::Covered(_))) {
+                open_both += 1;
+                *by_kind
+                    .entry(format!(
+                        "open in both: statement kind {}",
+                        v[1].as_str().unwrap_or("?")
+                    ))
+                    .or_default() += 1;
+            }
+        } else {
+            changed += 1;
+            if examples.len() < 50 {
+                examples.push(json!({"key": s, "without": fa, "with": fb, "statement": v}));
+            }
+        }
+    }
+    let res = json!({
+        "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
+        "keys": {"path": keys_p.display().to_string(), "only_in_box": !all},
+        "appended_tables": appended.len(), "appended_records": n_app, "fall_through": "fall_through_poles (decision G5)",
+        "keys_checked": n, "same_first_match": same, "changed": changed, "open_in_both": open_both, "open_by_kind": by_kind,
+        "examples": examples,
+    });
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "append check: {n} keys, {changed} changed, {open_both} open in both; appended {} tables / {n_app} records",
+        appended.len()
+    );
 }

@@ -340,3 +340,126 @@ fn a_nonlinear_locus_inside_a_bounded_cone_is_decided_by_enumeration() {
     // on the unbounded orthant the far points (1, 6), (6, 1) stay open
     assert_eq!(run(&f, &d2, &Cone::orthant(), (7, -6)), "uncovered");
 }
+
+#[test]
+fn face_pieces_split_the_orthant_and_the_cone_verdict_exactly() {
+    use rustred_campaign_core::parametric::cone::{capped_dispatcher, face_piece, face_pieces};
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    // disjoint and covering: every chart key of a box lies in exactly one piece
+    let pieces = face_pieces(&f, &[2, 0, 1]).unwrap();
+    assert_eq!(pieces.len(), 8);
+    for a in 1..6 {
+        for b in 1..6 {
+            for c in -5..1 {
+                let k = [a, b, c];
+                let hits = pieces.iter().filter(|p| p.contains(&k)).count();
+                assert_eq!(hits, 1, "{k:?}");
+            }
+        }
+    }
+    assert!(face_pieces(&f, &[0, 0]).is_none() && face_piece(&f, &[(3, true)]).is_none());
+    assert_eq!(face_pieces(&f, &[]).unwrap().len(), 1);
+    let mut rng = Rng(0x000f_ace5);
+    let mut agree = 0;
+    for case in 0..60 {
+        let mut recs = Vec::new();
+        for _ in 0..1 + rng.below(3) as usize {
+            let mut r = rec(3);
+            for _ in 0..rng.below(3) {
+                r.exceptions
+                    .push(vec![EXC[rng.below(EXC.len() as u64) as usize]]);
+            }
+            if rng.below(3) == 0 {
+                r.bounds.push(BND[rng.below(BND.len() as u64) as usize]);
+            }
+            r.elided = rng.below(6) == 0;
+            recs.push(r);
+        }
+        let d = disp(&f, &recs);
+        let s = 2 + rng.below(3) as i64;
+        let cone = Cone::excess_simplex(&f, s);
+        let whole = cone_coverage(&d, &f, &cone, &ConeOptions::default()).unwrap();
+        let mut verdicts = Vec::new();
+        for p in &pieces {
+            let cd = capped_dispatcher(&d, &f, p).unwrap();
+            let pc = cone.clone().and(p);
+            let b = cone_coverage(&cd, &f, &pc, &ConeOptions::default()).unwrap();
+            let cert = certificate(&b, &cd, &f);
+            let chk = check_cone_certificate(&cert, &cd, &f, Some((s as i32 + 1, -(s as i32))));
+            assert!(chk.ok(), "case {case} {}: {:?}", p.label, chk.problems);
+            verdicts.push(b.verdict);
+        }
+        let joined = if verdicts.contains(&"undecided") {
+            "undecided"
+        } else if verdicts.contains(&"uncovered") {
+            "uncovered"
+        } else {
+            "covered"
+        };
+        if whole.verdict != "undecided" && joined != "undecided" {
+            assert_eq!(whole.verdict, joined, "case {case}: {verdicts:?}");
+            agree += 1;
+        }
+    }
+    assert!(agree > 40, "{agree}");
+}
+
+#[test]
+fn reduced_fall_through_drops_only_loci_the_exceptions_already_exclude() {
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    use rustred_campaign_core::loci::contain::ProofBudget;
+    use rustred_campaign_core::parametric::cone::{fall_through_poles, fall_through_poles_reduced};
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    // record 0: locus n0 = 2 (from (n0-2)*d + (n0-2)) and the exception [n0-2] the engine writes: redundant;
+    // locus n1 = 3 (from (n1-3)*d) with no exception: kept (moved)
+    let mut a = CaseDomain::free(3, Some(f.mask().to_vec()));
+    a.exceptions.push(vec![poly("n0-2", 3)]);
+    a.poles.push(PoleLocus::new(
+        PoleKind::Witness,
+        &Poly::parse_exact("(n0-2)*d+(n0-2)", 3, true).unwrap(),
+    ));
+    a.poles.push(PoleLocus::new(
+        PoleKind::Witness,
+        &Poly::parse_exact("(n1-3)*d", 3, true).unwrap(),
+    ));
+    // a locus outside the record's selected set (n2 <= 0 in the chart; locus n2 = 4): redundant
+    a.poles.push(PoleLocus::new(
+        PoleKind::Witness,
+        &Poly::parse_exact("(n2-4)*d", 3, true).unwrap(),
+    ));
+    let mut t = Table::new("t", 3);
+    t.push(0, a).unwrap();
+    t.push(1, CaseDomain::free(3, Some(f.mask().to_vec())))
+        .unwrap();
+    let d = Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(f.mask().to_vec())
+        .unwrap();
+    let (red, st) = fall_through_poles_reduced(&d, &f, &ProofBudget::default()).unwrap();
+    assert_eq!(
+        (st.poles, st.redundant, st.moved_nonempty, st.moved_unknown),
+        (3, 2, 1, 0),
+        "{st:?}"
+    );
+    assert_eq!(st.redundant_by_branch, 1, "{st:?}");
+    let full = fall_through_poles(&d).unwrap();
+    // the same dispatch on a box, key by key
+    for a0 in 1..6 {
+        for a1 in 1..6 {
+            for a2 in -4..1 {
+                let k = [a0, a1, a2];
+                let x = format!("{:?}", red.first_match(&k));
+                let y = format!("{:?}", full.first_match(&k));
+                assert_eq!(x, y, "{k:?}");
+            }
+        }
+    }
+    match red.first_match(&[4, 3, 0]) {
+        Ok(Dispatch::Covered(r)) => assert_eq!(r.record, 1),
+        o => panic!("{o:?}"),
+    }
+    match red.first_match(&[2, 1, 0]) {
+        Ok(Dispatch::Covered(r)) => assert_eq!(r.record, 1),
+        o => panic!("{o:?}"),
+    }
+}
