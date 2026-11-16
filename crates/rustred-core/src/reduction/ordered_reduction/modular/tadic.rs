@@ -993,6 +993,31 @@ fn one_prime(
     }
 }
 
+/// helper-vh2 certificate fields of the statistics: recorded erasures, the valuation histogram of the step
+/// coefficients met by live products, and a digest of the plan.
+fn certificate(trace: &Trace, orders: &Orders, plan: &Plan, statistics: &mut ModularStatistics) {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut erasures = 0usize;
+    let mut histogram: std::collections::BTreeMap<i32, usize> = Default::default();
+    let mut hasher = DefaultHasher::new();
+    for (index, op) in trace.ops.iter().enumerate() {
+        let need = plan.need[index];
+        need.hash(&mut hasher);
+        match op.tag() {
+            OpTag::Cancel | OpTag::TermCancel => erasures += 1,
+            OpTag::New | OpTag::Add | OpTag::TermNew | OpTag::TermAdd if need != DEAD16 => {
+                if let Some(valuation) = orders.valuation(op.coefficient) {
+                    *histogram.entry(valuation).or_default() += 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    statistics.tadic_erasures = erasures;
+    statistics.tadic_valuation_histogram = histogram.into_iter().collect();
+    statistics.tadic_plan_digest = Some(hasher.finish());
+}
+
 /// Replay the trace for `options.primes` usable primes and return the series
 /// of the output terminals (`outputs`: `(terminal slot, target precision)`).
 pub(super) fn images(
@@ -1014,6 +1039,7 @@ pub(super) fn images(
     statistics.tadic_dead_ops = plan.dead_ops;
     statistics.tadic_max_need = if plan.max_need == i32::MIN { 0 } else { plan.max_need };
     statistics.tadic_min_need = if plan.min_need == i32::MAX { 0 } else { plan.min_need };
+    certificate(trace, &orders, &plan, statistics);
     let mut rng = StdRng::seed_from_u64(seed ^ TADIC_SALT);
     let mut stream = PrimeIteratorU64::new(TADIC_BASE + (rng.random::<u64>() >> 5));
     let mut images = Vec::with_capacity(options.primes);

@@ -23,6 +23,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 
+/// helper-vh2: node-level t-adic reduction of one candidate table (`rr_node tadic`).
+pub mod tadic;
+
 use serde_json::{Value, json};
 use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::Rational;

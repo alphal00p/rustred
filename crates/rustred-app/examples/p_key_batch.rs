@@ -24,6 +24,8 @@
 //! with <basis>, <tag> as in the canonical text, t = d - d0, `<valuation>` the order of the first coefficient that
 //! is nonzero modulo p, the coefficients in 0..p, and `O` when every known coefficient vanishes modulo p (the value
 //! is O(t^precision), NOT zero). Every term has precision >= order (proved by the replay's precision plan).
+//! With RUSTRED_ORDERED_MODULAR_STATS set, a line `{"stage":"p_key_batch.request","n":<n>}` is appended to the
+//! statistics file before each request (helper-vh2 job driver).
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -153,6 +155,17 @@ fn tadic_text(reduction: &PTadicReduction) -> String {
     out
 }
 
+/// helper-vh2: a marker line in the statistics file (`RUSTRED_ORDERED_MODULAR_STATS`, appended by the engine one
+/// line per record) before each request, so that a job driver can attribute the engine's statistics (trace digest,
+/// t-adic certificate fields) to the request.
+fn stats_marker(line: &str) {
+    if let Some(path) = std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS") {
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+            let _ = writeln!(file, "{line}");
+        }
+    }
+}
+
 fn presentation(library: &PLibrary, top: &str) -> Option<PresentationId> {
     top.strip_prefix("pres:")
         .map(|id| PresentationId(id.parse().unwrap()))
@@ -210,6 +223,7 @@ fn main() {
                 .unwrap();
             }
         }
+        stats_marker(&format!("{{\"stage\":\"p_key_batch.request\",\"n\":{n}}}"));
         let started = Instant::now();
         let mut weighted: Vec<(PresentationId, IntegralKey, Coefficient)> = vec![];
         let mut unknown = None;

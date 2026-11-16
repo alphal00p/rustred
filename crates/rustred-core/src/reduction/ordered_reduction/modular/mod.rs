@@ -529,6 +529,13 @@ pub(crate) struct ModularStatistics {
     pub tadic_max_need: i32,
     pub tadic_min_need: i32,
     pub tadic_max_length: usize,
+    /// helper-vh2 `Tadic` certificate: recorded erasures (`Cancel` + `TermCancel` ops) of the trace, all
+    /// re-checked at the check points of every prime; histogram `(valuation at d0, live product ops)` of the step
+    /// coefficients the plan met (the precision losses: a valuation `-k` costs `k` orders); digest of the plan's
+    /// need per operation.
+    pub tadic_erasures: usize,
+    pub tadic_valuation_histogram: Vec<(i32, usize)>,
+    pub tadic_plan_digest: Option<u64>,
 }
 
 impl ModularStatistics {
@@ -555,6 +562,7 @@ impl ModularStatistics {
                 "\"composition_fallback\":{},\"composition_fallback_seconds\":{:.6},",
                 "\"tadic_dead_ops\":{},\"tadic_max_need\":{},\"tadic_min_need\":{},",
                 "\"tadic_max_length\":{},",
+                "\"tadic_erasures\":{},\"tadic_valuation_histogram\":[{}],\"tadic_plan_digest\":{},",
                 "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
@@ -612,6 +620,14 @@ impl ModularStatistics {
             self.tadic_max_need,
             self.tadic_min_need,
             self.tadic_max_length,
+            self.tadic_erasures,
+            self.tadic_valuation_histogram
+                .iter()
+                .map(|(valuation, ops)| format!("[{valuation},{ops}]"))
+                .collect::<Vec<_>>()
+                .join(","),
+            self.tadic_plan_digest
+                .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
             self.replay_phase_cpu_seconds
                 .iter()
                 .map(|(phase, seconds)| format!(
