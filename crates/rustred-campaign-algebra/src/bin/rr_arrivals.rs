@@ -85,6 +85,8 @@ struct Args {
     closure_out: Option<PathBuf>,
     /// compute (streamed): `--shard I/K`
     shard: Option<(usize, usize)>,
+    /// arrivals-bin: byte-level extraction of key and depth (canonical lines), checked by order, count and file sha256
+    fast: bool,
     no_structural: bool,
     structural_min_keys: usize,
     decide_all_handdowns: bool,
@@ -156,6 +158,7 @@ fn parse(args: &[String]) -> Args {
                     .unwrap_or_else(|e| die(&format!("--trace-key: {e}"))),
             ),
             "--closure-only" => a.closure_only = true,
+            "--fast" => a.fast = true,
             "--closure-out" => a.closure_out = Some(PathBuf::from(val(&mut i))),
             "--shard" => {
                 let v = val(&mut i);
@@ -1052,20 +1055,16 @@ fn start_depths(
         }
     }
     for p in files {
-        format::read_streamed(Path::new(p), &mut |l| {
+        read_arrival_keys(p, &mut |key, depth| {
             let ki = rows
-                .find(&l.key)
+                .find(key)
                 .filter(|&ki| rows.is_start(ki))
                 .ok_or_else(|| {
-                    format!(
-                        "{p}: arrival key {:?} is not a start key of the rows",
-                        l.key
-                    )
+                    format!("{p}: arrival key {key:?} is not a start key of the rows")
                 })?;
-            let d = l.depth.ok_or_else(|| {
+            let d = depth.ok_or_else(|| {
                 format!(
-                    "{p}: arrival line {:?} without a depth (--depth needs depth-tracked inputs)",
-                    l.key
+                    "{p}: arrival line {key:?} without a depth (--depth needs depth-tracked inputs)"
                 )
             })?;
             let d = u8::try_from(d).unwrap_or(UNREACHED - 1).min(UNREACHED - 1);
@@ -1075,6 +1074,53 @@ fn start_depths(
         .unwrap_or_else(|e| die(&e));
     }
     sd
+}
+
+/// A consumer of (arrival key, chain depth).
+type KeySink<'a> = dyn FnMut(&[i32], Option<u32>) -> Result<(), String> + 'a;
+
+/// The keys (and chain depths) of an arrival input: an arrival-set file (format::read_streamed, verified) or a key file written by
+/// `arrivals-bin` / the delivery (magic RRKEYS01: u32 LE header length, header JSON with `arity`, then arity x i8 key, u8 depth,
+/// u8 parents per record).
+fn read_arrival_keys(p: &str, f: &mut KeySink<'_>) -> Result<format::Streamed, String> {
+    use std::io::Read;
+    let mut fh = std::fs::File::open(p).map_err(|e| format!("{p}: {e}"))?;
+    let mut magic = [0u8; 8];
+    let is_bin = fh.read_exact(&mut magic).is_ok() && &magic == b"RRKEYS01";
+    if !is_bin {
+        return format::read_streamed(Path::new(p), &mut |l| f(&l.key, l.depth));
+    }
+    let mut rd = std::io::BufReader::with_capacity(1 << 22, fh);
+    let mut l4 = [0u8; 4];
+    rd.read_exact(&mut l4).map_err(|e| format!("{p}: {e}"))?;
+    let mut hb = vec![0u8; u32::from_le_bytes(l4) as usize];
+    rd.read_exact(&mut hb).map_err(|e| format!("{p}: {e}"))?;
+    let header: Value = serde_json::from_slice(&hb).map_err(|e| format!("{p} header: {e}"))?;
+    let n = header["arity"]
+        .as_u64()
+        .ok_or_else(|| format!("{p}: header without arity"))? as usize;
+    let mut rec = vec![0u8; n + 2];
+    let mut key = vec![0i32; n];
+    let mut count = 0u64;
+    loop {
+        match rd.read_exact(&mut rec) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(format!("{p}: {e}")),
+        }
+        for (k, b) in key.iter_mut().zip(&rec[..n]) {
+            *k = i32::from(*b as i8);
+        }
+        f(&key, Some(u32::from(rec[n])))?;
+        count += 1;
+    }
+    let (sha, _) = file_sha256(Path::new(p))?;
+    Ok(format::Streamed {
+        header,
+        summary: Value::Null,
+        sha256: sha,
+        keys: count,
+    })
 }
 
 /// `verify`: re-derive the arrival sets from the tables (hand-down terms decided PER KEY only: no structural proof is
@@ -1846,8 +1892,8 @@ fn closure_rows(a: &Args) {
     let mut start = set.start.clone();
     for p in &a.arrivals {
         let mut flat: Vec<i32> = vec![];
-        let r = format::read_streamed(Path::new(p), &mut |l| {
-            flat.extend_from_slice(&l.key);
+        let r = read_arrival_keys(p, &mut |k, _| {
+            flat.extend_from_slice(k);
             Ok(())
         })
         .unwrap_or_else(|e| die(&e));
@@ -1884,6 +1930,215 @@ fn closure_rows(a: &Args) {
         write_json(p, &s);
     }
     println!("{}", canonical_json(&s));
+}
+
+/// `arrivals-bin --arrivals F --out B`: one arrival file as a key file (RRKEYS01: u32 LE header length, header JSON, then per line in
+/// file order = signed key order: arity x i8 key, u8 chain depth (0 when absent), u8 1 (one sending parent)); prints counts per depth.
+fn arrivals_bin(a: &Args) {
+    use std::io::Write;
+    let src = a
+        .arrivals
+        .first()
+        .cloned()
+        .unwrap_or_else(|| die("--arrivals missing"));
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let tmp = out.with_extension("partial");
+    let mut w = std::io::BufWriter::with_capacity(
+        1 << 22,
+        std::fs::File::create(&tmp).unwrap_or_else(|e| die(&format!("{}: {e}", tmp.display()))),
+    );
+    let (mut n, mut arity) = (0u64, 0usize);
+    let mut by_depth: BTreeMap<u32, u64> = BTreeMap::new();
+    let mut body: Vec<u8> = vec![];
+    if a.fast {
+        return arrivals_bin_fast(&src, &out);
+    }
+    let r = format::read_streamed(Path::new(&src), &mut |l| {
+        if arity == 0 {
+            arity = l.key.len();
+        }
+        if l.key.len() != arity {
+            return Err(format!("{src}: key of arity {} after {arity}", l.key.len()));
+        }
+        for &x in &l.key {
+            body.push(
+                i8::try_from(x).map_err(|_| format!("{src}: key slot {x} outside i8"))? as u8,
+            );
+        }
+        let d = l.depth.unwrap_or(0);
+        body.push(u8::try_from(d).unwrap_or(u8::MAX));
+        body.push(1);
+        *by_depth.entry(d).or_default() += 1;
+        n += 1;
+        Ok(())
+    })
+    .unwrap_or_else(|e| die(&e));
+    let lines: Vec<usize> = r.header["child"]["lines"]
+        .as_array()
+        .map(|v| {
+            v.iter()
+                .filter_map(|x| x.as_u64().map(|x| x as usize))
+                .collect()
+        })
+        .unwrap_or_default();
+    let frame: String = (0..arity)
+        .map(|i| if lines.contains(&i) { '1' } else { '0' })
+        .collect();
+    let hdr = json!({"schema": "rustred.campaign.arrival-keys.v1", "source": src, "source_sha256": r.sha256, "frame": frame,
+        "arity": arity, "record": format!("{arity} x i8 key (child table frame), u8 chain depth, u8 sending parents (1)")});
+    let hb = hdr.to_string().into_bytes();
+    let wr = |w: &mut std::io::BufWriter<std::fs::File>, b: &[u8]| {
+        w.write_all(b)
+            .unwrap_or_else(|e| die(&format!("{}: {e}", tmp.display())))
+    };
+    wr(&mut w, b"RRKEYS01");
+    wr(&mut w, &(hb.len() as u32).to_le_bytes());
+    wr(&mut w, &hb);
+    wr(&mut w, &body);
+    w.flush().unwrap_or_else(|e| die(&e.to_string()));
+    drop(w);
+    std::fs::rename(&tmp, &out).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    let (sha, bytes) = file_sha256(&out).unwrap_or_else(|e| die(&e));
+    println!(
+        "{}",
+        canonical_json(
+            &json!({"out": out, "sha256": sha, "bytes": bytes, "keys": n, "by_depth": by_depth, "source_sha256": r.sha256})
+        )
+    );
+}
+
+/// `arrivals-bin --fast`: the same key file, with key and depth taken from each canonical arrival line by byte search (the
+/// top-level `"key":[` is unique: sender keys are `parent_key` / `term_key`); checked: keys strictly increasing in signed order,
+/// the number of lines = the summary's `keys`, the file's sha256 reported. About I/O speed instead of a full parse per line.
+fn arrivals_bin_fast(src: &str, out: &Path) {
+    use std::io::{BufRead, Write};
+    let f = std::fs::File::open(src).unwrap_or_else(|e| die(&format!("{src}: {e}")));
+    let mut rd = std::io::BufReader::with_capacity(1 << 24, f);
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    let (mut n, mut arity) = (0u64, 0usize);
+    let mut header: Option<Value> = None;
+    let mut summary: Option<Value> = None;
+    let mut by_depth: BTreeMap<u32, u64> = BTreeMap::new();
+    let mut body: Vec<u8> = vec![];
+    let mut prev: Vec<i8> = vec![];
+    let mut key: Vec<i8> = vec![];
+    let mut line: Vec<u8> = vec![];
+    let find = |hay: &[u8], pat: &[u8]| hay.windows(pat.len()).position(|w| w == pat);
+    loop {
+        line.clear();
+        let k = rd
+            .read_until(b'\n', &mut line)
+            .unwrap_or_else(|e| die(&format!("{src}: {e}")));
+        if k == 0 {
+            break;
+        }
+        h.update(&line);
+        let l = if line.last() == Some(&b'\n') {
+            &line[..line.len() - 1]
+        } else {
+            &line[..]
+        };
+        if header.is_none() {
+            header = Some(
+                serde_json::from_slice(l).unwrap_or_else(|e| die(&format!("{src} header: {e}"))),
+            );
+            continue;
+        }
+        if find(l, b"\"kind\":\"arrival\"").is_none() {
+            summary = Some(
+                serde_json::from_slice(l)
+                    .unwrap_or_else(|e| die(&format!("{src} line {}: {e}", n + 2))),
+            );
+            continue;
+        }
+        let d: u32 = if l.starts_with(b"{\"depth\":") {
+            let s = &l[9..];
+            let e = s
+                .iter()
+                .position(|c| !c.is_ascii_digit())
+                .unwrap_or(s.len());
+            std::str::from_utf8(&s[..e])
+                .ok()
+                .and_then(|x| x.parse().ok())
+                .unwrap_or_else(|| die(&format!("{src} line {}: depth", n + 2)))
+        } else {
+            0
+        };
+        let p = find(l, b"\"key\":[")
+            .unwrap_or_else(|| die(&format!("{src} line {}: no key", n + 2)))
+            + 7;
+        let e = p + l[p..]
+            .iter()
+            .position(|&c| c == b']')
+            .unwrap_or_else(|| die(&format!("{src} line {}: key", n + 2)));
+        key.clear();
+        for x in l[p..e].split(|&c| c == b',') {
+            let v: i32 = std::str::from_utf8(x)
+                .ok()
+                .and_then(|s| s.trim().parse().ok())
+                .unwrap_or_else(|| die(&format!("{src} line {}: key slot", n + 2)));
+            key.push(
+                i8::try_from(v)
+                    .unwrap_or_else(|_| die(&format!("{src} line {}: slot {v} outside i8", n + 2))),
+            );
+        }
+        if arity == 0 {
+            arity = key.len();
+        }
+        if key.len() != arity || (n > 0 && key <= prev) {
+            die(&format!("{src} line {}: key arity / order", n + 2));
+        }
+        body.extend(key.iter().map(|&x| x as u8));
+        body.push(u8::try_from(d).unwrap_or(u8::MAX));
+        body.push(1);
+        *by_depth.entry(d).or_default() += 1;
+        std::mem::swap(&mut prev, &mut key);
+        n += 1;
+    }
+    let header = header.unwrap_or_else(|| die(&format!("{src}: empty")));
+    let want = summary.as_ref().and_then(|s| s["keys"].as_u64());
+    if want != Some(n) {
+        die(&format!("{src}: {n} arrival lines, summary keys {want:?}"));
+    }
+    let lines: Vec<usize> = header["child"]["lines"]
+        .as_array()
+        .map(|v| {
+            v.iter()
+                .filter_map(|x| x.as_u64().map(|x| x as usize))
+                .collect()
+        })
+        .unwrap_or_default();
+    let frame: String = (0..arity)
+        .map(|i| if lines.contains(&i) { '1' } else { '0' })
+        .collect();
+    let src_sha = h.finish_hex();
+    let hdr = json!({"schema": "rustred.campaign.arrival-keys.v1", "source": src, "source_sha256": src_sha, "frame": frame,
+        "arity": arity, "record": format!("{arity} x i8 key (child table frame), u8 chain depth, u8 sending parents (1)"), "extraction": "fast"});
+    let hb = hdr.to_string().into_bytes();
+    let tmp = out.with_extension("partial");
+    let mut w = std::io::BufWriter::with_capacity(
+        1 << 22,
+        std::fs::File::create(&tmp).unwrap_or_else(|e| die(&format!("{}: {e}", tmp.display()))),
+    );
+    for b in [
+        &b"RRKEYS01"[..],
+        &(hb.len() as u32).to_le_bytes(),
+        &hb,
+        &body,
+    ] {
+        w.write_all(b)
+            .unwrap_or_else(|e| die(&format!("{}: {e}", tmp.display())));
+    }
+    w.flush().unwrap_or_else(|e| die(&e.to_string()));
+    drop(w);
+    std::fs::rename(&tmp, out).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    let (sha, bytes) = file_sha256(out).unwrap_or_else(|e| die(&e));
+    println!(
+        "{}",
+        canonical_json(
+            &json!({"out": out, "sha256": sha, "bytes": bytes, "keys": n, "by_depth": by_depth, "source_sha256": src_sha, "extraction": "fast"})
+        )
+    );
 }
 
 /// `cone-excess --tables T [..] --out F`: per node (the union of its tables' rule records) the exact hand-down excess per
@@ -2256,6 +2511,7 @@ fn main() {
         "second-route" => second_route(&a),
         "compare-engine" => compare_engine(&a),
         "closure-rows" => closure_rows(&a),
+        "arrivals-bin" => arrivals_bin(&a),
         "cone-excess" => cone_excess(&a),
         "edge-cone" => edge_cone(&a),
         "arrival-dr" => arrival_dr(&a),

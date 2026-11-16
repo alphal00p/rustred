@@ -1061,3 +1061,84 @@ fn shards_merged_equal_the_unsharded_walk() {
         );
     }
 }
+
+/// `arrivals-bin` (full and `--fast`): the key file of an arrival file; `closure-rows` and `compute --depth` accept it in place of
+/// the arrival file with the same rows and the same walk.
+#[test]
+fn key_files_stand_in_for_arrival_files() {
+    let Some(_a) = alg() else { return };
+    let t = build("keybin");
+    let (rc, s) = compute_x(&t, &t.dir.join("base"), "2", &[]);
+    assert_eq!(rc, 0, "{s}");
+    let src = format::read(&t.dir.join("base").join("P-C.arrivals.jsonl")).unwrap();
+    let l0 = src.lines[0].clone();
+    let mk = |key: Vec<i32>, d: u32| format::ArrivalLine {
+        key,
+        depth: Some(d),
+        ..l0.clone()
+    };
+    let arr = t.dir.join("into-P.arrivals.jsonl");
+    let lines = vec![mk(vec![1, 1, 1, 1, 0], 2), mk(vec![4, 1, 1, 1, 0], 3)];
+    format::write_stream(
+        &arr,
+        &src.header,
+        &mut lines.into_iter().map(Ok),
+        &json!({}),
+    )
+    .unwrap();
+    let kb = t.dir.join("into-P.keys.bin");
+    let kf = t.dir.join("into-P.fast.keys.bin");
+    let (rc, s1) = run(&[
+        "arrivals-bin",
+        "--arrivals",
+        arr.to_str().unwrap(),
+        "--out",
+        kb.to_str().unwrap(),
+    ]);
+    assert_eq!(rc, 0, "{s1}");
+    let (rc, s2) = run(&[
+        "arrivals-bin",
+        "--fast",
+        "--arrivals",
+        arr.to_str().unwrap(),
+        "--out",
+        kf.to_str().unwrap(),
+    ]);
+    assert_eq!(rc, 0, "{s2}");
+    let body = |p: &Path| {
+        let b = std::fs::read(p).unwrap();
+        let hl = u32::from_le_bytes(b[8..12].try_into().unwrap()) as usize;
+        b[12 + hl..].to_vec()
+    };
+    assert_eq!(body(&kb), body(&kf));
+    assert_eq!(s1["keys"], 2);
+    let mut outs = vec![];
+    for (tag, input) in [("j", &arr), ("b", &kb)] {
+        let rows = t.dir.join(format!("rows_{tag}.jsonl"));
+        let (rc, s) = run(&[
+            "closure-rows",
+            "--spec",
+            t.pspec.to_str().unwrap(),
+            "--arrivals",
+            input.to_str().unwrap(),
+            "--out",
+            rows.to_str().unwrap(),
+            "--threads",
+            "2",
+        ]);
+        assert_eq!(rc, 0, "{s}");
+        let (rc, c) = compute_rows(
+            &t,
+            &rows,
+            &t.dir.join(format!("o_{tag}")),
+            &["--depth", "--arrivals", input.to_str().unwrap()],
+        );
+        assert_eq!(rc, 0, "{c}");
+        outs.push((
+            std::fs::read(&rows).unwrap(),
+            c["walk"]["depth_hist"].clone(),
+            c["files"][0]["keys"].clone(),
+        ));
+    }
+    assert_eq!(outs[0], outs[1]);
+}
