@@ -35,7 +35,7 @@ pub const GUARD_SCHEMA: &str = "rustred.campaign.shipecon-guard.v1";
 /// Schema of the report of one run.
 pub const REPORT_SCHEMA: &str = "rustred.campaign.shipecon-report.v1";
 /// Version of the decision procedure (bumped when [`decide`] changes meaning: old records are then re-decided).
-pub const DECISION_VERSION: u32 = 2;
+pub const DECISION_VERSION: u32 = 3;
 
 fn sha256_hex(b: &[u8]) -> String {
     let mut h = Sha256::new();

@@ -1762,36 +1762,39 @@ fn shipped_recipes(
     decisions: &[RuleDecision],
     recipe_files: &BTreeMap<String, (PathBuf, String, u64)>,
 ) -> Result<(Vec<ShippedRecipe>, usize), String> {
-    let mut by: BTreeMap<(String, String), Vec<Vec<i32>>> = BTreeMap::new();
+    // ONE source per recipe id, named exactly as the solve job's source (the import binds every answer line to it);
+    // form `stored` when any of its keys is stored (placed before the tables under `over_table`: a recipe-form key of the
+    // same recipe goes with them, a documented deviation from the engine's RulesFirst records)
+    let mut by: BTreeMap<String, (bool, Vec<Vec<i32>>)> = BTreeMap::new();
     for d in decisions.iter().filter(|d| d.outcome.migrates()) {
         for k in &d.keys {
             if !matches!(k.form.as_str(), "recipe" | "stored") {
                 continue;
             }
             let Some(rid) = &k.recipe_id else { continue };
-            by.entry((rid.clone(), k.form.clone()))
-                .or_default()
-                .push(k.key.clone());
+            let e = by.entry(rid.clone()).or_default();
+            e.0 |= k.form == "stored";
+            e.1.push(k.key.clone());
         }
     }
     let mut out = vec![];
     let mut n = 0usize;
-    for ((rid, form), keys) in by {
+    for (rid, (stored, keys)) in by {
         let (path, sha, _) = recipe_files
             .get(&rid)
             .ok_or_else(|| format!("recipe {rid}: no file"))?;
         let a = format!("{}\n", json!({"recipe": rid, "keys": keys}));
-        let ap = cfg.out_dir.join("ship/assign").join(format!(
-            "{form}.{}.jsonl",
-            crate::closeloop::ids::safe(&rid)
-        ));
+        let ap = cfg
+            .out_dir
+            .join("ship/assign")
+            .join(format!("{}.jsonl", crate::closeloop::ids::safe(&rid)));
         write(&ap, a.as_bytes())?;
         n += keys.len();
         out.push(ShippedRecipe {
-            id: format!("shipecon:{form}:{rid}"),
+            id: rid.clone(),
             path: path.display().to_string(),
             sha256: sha.clone(),
-            form,
+            form: if stored { "stored" } else { "recipe" }.into(),
             assignment: Some(FileRef {
                 path: ap.display().to_string(),
                 sha256: Some(sha256_hex(a.as_bytes())),
