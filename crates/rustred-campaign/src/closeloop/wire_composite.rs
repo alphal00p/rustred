@@ -414,7 +414,11 @@ fn policy_file_bytes(p: &RepairPolicy) -> Vec<u8> {
 }
 
 impl Stage {
-    fn program_sha(&mut self, programs: &BTreeMap<String, PathBuf>, name: &str) -> Result<String, String> {
+    fn program_sha(
+        &mut self,
+        programs: &BTreeMap<String, PathBuf>,
+        name: &str,
+    ) -> Result<String, String> {
         if let Some(s) = self.prog_sha.get(name) {
             return Ok(s.clone());
         }
@@ -453,7 +457,8 @@ impl Stage {
                     with_round_composites(base_text, &rounds, c.policy.route0.family.as_deref())?;
                 let asked = asked_before(st, n, k)?;
                 let rows = c.cdir.join(format!("{}/check.rows.jsonl", round_dir(n, k)));
-                let (node2, base, threads) = (node.clone(), c.cfg.base(), c.cfg.check_threads.max(1));
+                let (node2, base, threads) =
+                    (node.clone(), c.cfg.base(), c.cfg.check_threads.max(1));
                 let fo = c.policy.symbolic.face_order.clone();
                 let h = std::thread::Builder::new()
                     .name(format!("repairflow-composite-plan-{n}-r{k}"))
@@ -461,7 +466,11 @@ impl Stage {
                     .map_err(|e| format!("composite plan thread: {e}"))?;
                 self.plan_pass = Some((k, h));
             }
-            if !self.plan_pass.as_ref().is_some_and(|(_, h)| h.is_finished()) {
+            if !self
+                .plan_pass
+                .as_ref()
+                .is_some_and(|(_, h)| h.is_finished())
+            {
                 return Ok(false);
             }
             let (_, h) = self.plan_pass.take().expect("plan pass");
@@ -472,15 +481,34 @@ impl Stage {
             let pb = json_bytes(&serde_json::to_value(&out.plan).map_err(|e| e.to_string())?);
             let cj = &c.policy.route0.composite_jobs;
             if out.plan.keys == 0 || k > cj.max_rounds {
-                let stop = if out.plan.keys == 0 { "no_new_key" } else { "max_rounds" };
+                let stop = if out.plan.keys == 0 {
+                    "no_new_key"
+                } else {
+                    "max_rounds"
+                };
                 let d = json!({"schema": DONE_SCHEMA, "node": node, "rounds": k - 1, "stop": stop,
                     "left_uncovered": out.plan.uncovered, "left_new": out.plan.keys, "plan": out.plan});
-                reg(c.cdir, rt, input_done(n), ROLE_DONE, rec(format!("{dir}/done.json"), json_bytes(&d)));
+                reg(
+                    c.cdir,
+                    rt,
+                    input_done(n),
+                    ROLE_DONE,
+                    rec(format!("{dir}/done.json"), json_bytes(&d)),
+                );
                 return Ok(false);
             }
             // the job's files: the round's import spec + the effective policy (content-addressed) + keys / request
-            rt.accepts.push(rec(format!("{dir}/import-spec.json"), out.spec_text.into_bytes()));
-            reg(c.cdir, rt, input_plan(n, k), ROLE_PLAN, rec(format!("{dir}/plan.json"), pb));
+            rt.accepts.push(rec(
+                format!("{dir}/import-spec.json"),
+                out.spec_text.into_bytes(),
+            ));
+            reg(
+                c.cdir,
+                rt,
+                input_plan(n, k),
+                ROLE_PLAN,
+                rec(format!("{dir}/plan.json"), pb),
+            );
             let item = c_item(n, k);
             if !st.items.contains_key(&item) {
                 rt.events.push(Event::ItemCreated {
@@ -497,13 +525,16 @@ impl Stage {
             return Ok(false);
         }
         // step 3: the settled composite job -> routed (thread)
-        if st.inputs.contains_key(&input_settled(n, k)) && !st.inputs.contains_key(&input_routed(n, k)) {
+        if st.inputs.contains_key(&input_settled(n, k))
+            && !st.inputs.contains_key(&input_routed(n, k))
+        {
             if self.route_pass.as_ref().is_some_and(|(r, _)| *r != k) {
                 self.route_pass = None;
             }
             if self.route_pass.is_none() {
-                let settled: SettledRec = serde_json::from_slice(&read_input(st, &input_settled(n, k))?)
-                    .map_err(|e| format!("composite settled r{k}: {e}"))?;
+                let settled: SettledRec =
+                    serde_json::from_slice(&read_input(st, &input_settled(n, k))?)
+                        .map_err(|e| format!("composite settled r{k}: {e}"))?;
                 let kroute = match kernel_route(c) {
                     Ok(x) => Ok(x),
                     Err(why) => Err(why),
@@ -518,7 +549,11 @@ impl Stage {
                     .map_err(|e| format!("composite route thread: {e}"))?;
                 self.route_pass = Some((k, h));
             }
-            if !self.route_pass.as_ref().is_some_and(|(_, h)| h.is_finished()) {
+            if !self
+                .route_pass
+                .as_ref()
+                .is_some_and(|(_, h)| h.is_finished())
+            {
                 return Ok(false);
             }
             let (_, h) = self.route_pass.take().expect("route pass");
@@ -527,7 +562,13 @@ impl Stage {
                 .map_err(|_| "composite route thread panicked".to_string())??;
             rt.accepts.extend(out.accepts);
             let dir = round_dir(n, k);
-            reg(c.cdir, rt, input_routed(n, k), ROLE_ROUTED, rec(format!("{dir}/routed.json"), out.record));
+            reg(
+                c.cdir,
+                rt,
+                input_routed(n, k),
+                ROLE_ROUTED,
+                rec(format!("{dir}/routed.json"), out.record),
+            );
             for kj in &out.kernel_jobs {
                 let item = k_item(n, k, kj.j);
                 if !st.items.contains_key(&item) {
@@ -548,19 +589,28 @@ impl Stage {
         // a composite item that ended without a sealed result and was skipped by the operator: an empty round
         let citem = c_item(n, k);
         if !st.inputs.contains_key(&input_settled(n, k))
-            && st.items.get(&citem).is_some_and(|it| it.phase == ItemPhase::Skipped)
+            && st
+                .items
+                .get(&citem)
+                .is_some_and(|it| it.phase == ItemPhase::Skipped)
         {
             let d = json!({"schema": ROUND_SCHEMA, "node": node, "round": k, "composite_input": null,
                 "skipped": true});
-            reg(c.cdir, rt, input_round(n, k), ROLE_ROUND, rec(format!("{}/round.json", round_dir(n, k)), json_bytes(&d)));
+            reg(
+                c.cdir,
+                rt,
+                input_round(n, k),
+                ROLE_ROUND,
+                rec(format!("{}/round.json", round_dir(n, k)), json_bytes(&d)),
+            );
             return Ok(false);
         }
         // step 4: every kernel item final -> the round record (thread)
         if st.inputs.contains_key(&input_routed(n, k)) {
             let routed: Value = serde_json::from_slice(&read_input(st, &input_routed(n, k))?)
                 .map_err(|e| format!("composite routed r{k}: {e}"))?;
-            let jobs: Vec<KernelJob> = serde_json::from_value(routed["kernel"]["jobs"].clone())
-                .unwrap_or_default();
+            let jobs: Vec<KernelJob> =
+                serde_json::from_value(routed["kernel"]["jobs"].clone()).unwrap_or_default();
             let all_final = jobs.iter().all(|kj| {
                 st.items
                     .get(&k_item(n, k, kj.j))
@@ -592,7 +642,11 @@ impl Stage {
                     .map_err(|e| format!("composite round thread: {e}"))?;
                 self.round_pass = Some((k, h));
             }
-            if !self.round_pass.as_ref().is_some_and(|(_, h)| h.is_finished()) {
+            if !self
+                .round_pass
+                .as_ref()
+                .is_some_and(|(_, h)| h.is_finished())
+            {
                 return Ok(false);
             }
             let (_, h) = self.round_pass.take().expect("round pass");
@@ -600,7 +654,13 @@ impl Stage {
                 .join()
                 .map_err(|_| "composite round thread panicked".to_string())??;
             let dir = round_dir(n, k);
-            reg(c.cdir, rt, input_round(n, k), ROLE_ROUND, rec(format!("{dir}/round.json"), b));
+            reg(
+                c.cdir,
+                rt,
+                input_round(n, k),
+                ROLE_ROUND,
+                rec(format!("{dir}/round.json"), b),
+            );
         }
         Ok(false)
     }
@@ -615,15 +675,12 @@ impl Stage {
         }) {
             let job = match it.phase {
                 ItemPhase::Open => Some(format!("{item}-t{}", it.jobs.len())),
-                ItemPhase::InProgress => match it
-                    .jobs
-                    .last()
-                    .and_then(|l| st.jobs.get(l))
-                    .map(|r| r.state)
-                {
-                    Some(crate::state::AttemptState::Queued) => it.jobs.last().cloned(),
-                    _ => None,
-                },
+                ItemPhase::InProgress => {
+                    match it.jobs.last().and_then(|l| st.jobs.get(l)).map(|r| r.state) {
+                        Some(crate::state::AttemptState::Queued) => it.jobs.last().cloned(),
+                        _ => None,
+                    }
+                }
                 _ => None,
             };
             let Some(job) = job else { continue };
@@ -640,7 +697,13 @@ impl Stage {
         out
     }
 
-    fn composite_request(&mut self, st: &CampaignState, c: &Ctx, item: &str, job: &str) -> Result<JobRequest, String> {
+    fn composite_request(
+        &mut self,
+        st: &CampaignState,
+        c: &Ctx,
+        item: &str,
+        job: &str,
+    ) -> Result<JobRequest, String> {
         let n = c.n;
         let k: u32 = item
             .rsplit(".rf.c")
@@ -654,7 +717,8 @@ impl Stage {
         let pol = dir.join("policy.json");
         let pb = policy_file_bytes(c.policy);
         if std::fs::read(&pol).ok().as_deref() != Some(pb.as_slice()) {
-            crate::atomic::write_atomic(&pol, &pb).map_err(|e| format!("{}: {e}", pol.display()))?;
+            crate::atomic::write_atomic(&pol, &pb)
+                .map_err(|e| format!("{}: {e}", pol.display()))?;
         }
         let req = SymCompRequest {
             node: Some(c.cfg.node.clone()),
@@ -684,13 +748,29 @@ impl Stage {
             priority: 2_000_000_000,
             fake,
         };
-        Ok(symcomp::job_request(item, job, &files, &cfg, vec![input_plan(n, k)]))
+        Ok(symcomp::job_request(
+            item,
+            job,
+            &files,
+            &cfg,
+            vec![input_plan(n, k)],
+        ))
     }
 
-    fn kernel_request(&mut self, st: &CampaignState, c: &Ctx, item: &str, job: &str) -> Result<JobRequest, String> {
+    fn kernel_request(
+        &mut self,
+        st: &CampaignState,
+        c: &Ctx,
+        item: &str,
+        job: &str,
+    ) -> Result<JobRequest, String> {
         let n = c.n;
         let it = st.items.get(item).ok_or("kernel item")?;
-        let routed_id = it.inputs.first().cloned().ok_or("kernel item without input")?;
+        let routed_id = it
+            .inputs
+            .first()
+            .cloned()
+            .ok_or("kernel item without input")?;
         let routed: Value = serde_json::from_slice(&read_input(st, &routed_id)?)
             .map_err(|e| format!("{routed_id}: {e}"))?;
         let jobs: Vec<KernelJob> =
@@ -700,9 +780,23 @@ impl Stage {
             .next()
             .and_then(|s| s.parse().ok())
             .ok_or("kernel item id")?;
-        let kj = jobs.iter().find(|x| x.j == j).ok_or("kernel job not in the routed record")?;
-        let k = c.policy.route0.composite_jobs.kernel.as_ref().ok_or("no kernel configured")?;
-        let names = ["request.json", "relation.table.jsonl", "keys.txt", "symrows.jsonl"];
+        let kj = jobs
+            .iter()
+            .find(|x| x.j == j)
+            .ok_or("kernel job not in the routed record")?;
+        let k = c
+            .policy
+            .route0
+            .composite_jobs
+            .kernel
+            .as_ref()
+            .ok_or("no kernel configured")?;
+        let names = [
+            "request.json",
+            "relation.table.jsonl",
+            "keys.txt",
+            "symrows.jsonl",
+        ];
         let roles = ["request", "table", "keys", "symrows"];
         let mut inputs = vec![];
         for ((f, role), b3) in names.iter().zip(roles).zip(&kj.blake3) {
@@ -737,7 +831,12 @@ impl Stage {
     }
 
     /// ROUTE: a settled attempt of a stage item.
-    pub fn route(&mut self, st: &CampaignState, c: &Ctx, done: &Settled) -> Result<Routing, String> {
+    pub fn route(
+        &mut self,
+        st: &CampaignState,
+        c: &Ctx,
+        done: &Settled,
+    ) -> Result<Routing, String> {
         let mut rt = Routing::default();
         let it = st.items.get(&done.item).ok_or("unknown item")?;
         let cl = &done.classification;
@@ -783,7 +882,10 @@ impl Stage {
                         rt.events.push(Event::Item {
                             item: done.item.clone(),
                             ev: ItemEvent::Requeue {
-                                reason: format!("composite job row {}{}: {}", cl.row, cl.sub, cl.why),
+                                reason: format!(
+                                    "composite job row {}{}: {}",
+                                    cl.row, cl.sub, cl.why
+                                ),
                             },
                         });
                     } else {
@@ -819,7 +921,10 @@ impl Stage {
                 item: done.item.clone(),
                 ev: ItemEvent::Attention {
                     code: "repair_kernel_attention".into(),
-                    text: format!("repairflow: proof-symrows row {}{}: {}", cl.row, cl.sub, cl.why),
+                    text: format!(
+                        "repairflow: proof-symrows row {}{}: {}",
+                        cl.row, cl.sub, cl.why
+                    ),
                 },
             });
         } else {
@@ -908,8 +1013,9 @@ fn route_pass(
         .parent()
         .and_then(Path::parent)
         .ok_or("results path without a run directory")?;
-    let spec_b = std::fs::read(rustred_campaign_contract::layout::RunLayout::new(run_root).job_spec())
-        .map_err(|e| format!("job.json: {e}"))?;
+    let spec_b =
+        std::fs::read(rustred_campaign_contract::layout::RunLayout::new(run_root).job_spec())
+            .map_err(|e| format!("job.json: {e}"))?;
     let spec: rustred_campaign_contract::spec::JobSpec =
         serde_json::from_slice(&spec_b).map_err(|e| format!("job.json: {e}"))?;
     let ctx = symcomp::load_import(&spec)?;
@@ -991,9 +1097,11 @@ fn route_pass(
         if !want.is_empty() {
             for (t, recs) in ctx.set.rules.iter().enumerate() {
                 for (r, info) in recs.iter().enumerate() {
-                    if want.contains(&info.record_sha256) && !cat.contains_key(&info.record_sha256) {
-                        let line = rustred_campaign_core::import::exact_facts::record_line(&ctx.set, t, r)
-                            .map_err(|e| format!("catalogue record: {e}"))?;
+                    if want.contains(&info.record_sha256) && !cat.contains_key(&info.record_sha256)
+                    {
+                        let line =
+                            rustred_campaign_core::import::exact_facts::record_line(&ctx.set, t, r)
+                                .map_err(|e| format!("catalogue record: {e}"))?;
                         let v: Value = serde_json::from_slice(&line).map_err(|e| e.to_string())?;
                         cat.insert(info.record_sha256.clone(), v);
                     }
@@ -1197,7 +1305,10 @@ fn plan_round(
         "piece_level_acyclic": p.face_report.piece_level_acyclic,
         "key_level_acyclic": p.face_report.key_level_acyclic,
         "table_set_digest": p.table_set_digest});
-    Ok((json_bytes(&serde_json::to_value(&p).map_err(|e| e.to_string())?), summary))
+    Ok((
+        json_bytes(&serde_json::to_value(&p).map_err(|e| e.to_string())?),
+        summary,
+    ))
 }
 
 /// The face -> group rank of the LAST round with a pieces plan (wireflow (d)): the face jobs of P1 are issued in this
@@ -1232,15 +1343,24 @@ fn two_row_relation(
     catalogue: &dyn Fn(&str) -> Option<Value>,
     zero_sectors: Option<ZeroSectors>,
 ) -> Result<SymRelation, rustred_campaign_core::symcert::NotExpressible> {
-    let nx = |class: &'static str, why: String| rustred_campaign_core::symcert::NotExpressible { class, why };
+    let nx = |class: &'static str, why: String| rustred_campaign_core::symcert::NotExpressible {
+        class,
+        why,
+    };
     let mut rows = vec![];
     for r in e.verification["combination"]["rows"]
         .as_array()
-        .ok_or_else(|| nx("two_row_without_rows", "verification line has no combination rows".into()))?
+        .ok_or_else(|| {
+            nx(
+                "two_row_without_rows",
+                "verification line has no combination rows".into(),
+            )
+        })?
     {
         let el = r["element"]
             .as_u64()
-            .ok_or_else(|| nx("two_row_without_rows", "row element".into()))? as usize;
+            .ok_or_else(|| nx("two_row_without_rows", "row element".into()))?
+            as usize;
         let seed: Vec<i64> = serde_json::from_value(r["seed"].clone())
             .map_err(|x| nx("two_row_without_rows", format!("row seed: {x}")))?;
         let m = matrices
@@ -1260,11 +1380,19 @@ fn two_row_relation(
         let rec = catalogue(&r.record_sha256).ok_or_else(|| {
             nx(
                 "catalogue_record_missing",
-                format!("catalogue record {}#{} (sha256 {}) not found", r.source, r.label, r.record_sha256),
+                format!(
+                    "catalogue record {}#{} (sha256 {}) not found",
+                    r.source, r.label, r.record_sha256
+                ),
             )
         })?;
-        let seeds = rustred_campaign_core::symcert::record_seeds_at(&rec, &r.term)
-            .map_err(|x| nx("catalogue_without_seeds", format!("catalogue rule {}#{}: {x}", r.source, r.label)))?;
+        let seeds =
+            rustred_campaign_core::symcert::record_seeds_at(&rec, &r.term).map_err(|x| {
+                nx(
+                    "catalogue_without_seeds",
+                    format!("catalogue rule {}#{}: {x}", r.source, r.label),
+                )
+            })?;
         cat.push(rustred_campaign_core::symcert::CatalogueSeeds {
             source: r.source.clone(),
             label: r.label.clone(),
@@ -1273,7 +1401,10 @@ fn two_row_relation(
             seeds,
         });
     }
-    let kind = e.verification["kind"].as_str().unwrap_or("two_row").to_string();
+    let kind = e.verification["kind"]
+        .as_str()
+        .unwrap_or("two_row")
+        .to_string();
     Ok(SymRelation {
         id: format!("{kind}#{}", e.index),
         producer: format!("repairflow:{kind}"),

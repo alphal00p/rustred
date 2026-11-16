@@ -243,6 +243,8 @@ pub fn run(spec_path: &Path) -> ! {
         ("keys.jsonl", kl.into_bytes()),
         ("composite.table.jsonl", join(&table).into_bytes()),
         ("composite.verification.jsonl", join(&ver).into_bytes()),
+        // the real tool's sixth sealed file (lane regions' fit; the fake fits nothing)
+        ("regions.json", (json!({"enabled": false}).to_string() + "\n").into_bytes()),
         ("report.json", (json!({"schema": "rustred.campaign.repairflow-symflow.v1", "producer": "rr_fake_child",
             "keys": keys.len()}).to_string() + "\n").into_bytes()),
     ];

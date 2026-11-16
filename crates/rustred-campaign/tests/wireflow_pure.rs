@@ -18,7 +18,10 @@ fn cfg(extra: &str) -> String {
 fn ship_gate_and_pole_profiles_are_omitted_at_their_defaults() {
     let d = CloseLoopConfig::from_json(&cfg("")).unwrap();
     let s = serde_json::to_string(&d.nodes[0]).unwrap();
-    assert!(!s.contains("ship_gate") && !s.contains("pole_profiles"), "{s}");
+    assert!(
+        !s.contains("ship_gate") && !s.contains("pole_profiles"),
+        "{s}"
+    );
     assert_eq!(d.nodes[0].ship_gate.mode, "report");
     assert!(!d.nodes[0].pole_profiles);
     let e = CloseLoopConfig::from_json(&cfg(

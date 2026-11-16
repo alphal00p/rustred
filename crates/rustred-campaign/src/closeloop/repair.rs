@@ -352,7 +352,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
             return Ok(None);
         }
         let n = self.nodes[i].n.clone();
-        if st.inputs.contains_key(&super::wire_composite::input_done(&n)) {
+        if st
+            .inputs
+            .contains_key(&super::wire_composite::input_done(&n))
+        {
             return Ok(Some(true));
         }
         let base_text = if st.inputs.contains_key(&input_import_spec(&n)) {
@@ -400,7 +403,12 @@ impl<S: WorkSource> RepairFlowSource<S> {
         r
     }
 
-    fn stage_route(&mut self, st: &CampaignState, i: usize, done: &Settled) -> Result<Routing, String> {
+    fn stage_route(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        done: &Settled,
+    ) -> Result<Routing, String> {
         let n = self.nodes[i].n.clone();
         let fake = self.stage_fake(i);
         let mut comp = std::mem::take(&mut self.nodes[i].comp);
@@ -1531,12 +1539,18 @@ fn p1_pass(
     policy: &RepairPolicy,
     threads: usize,
     rows: &Path,
-    rounds: &[(u32, rustred_campaign_core::repairflow::policy::CompositeInput)],
+    rounds: &[(
+        u32,
+        rustred_campaign_core::repairflow::policy::CompositeInput,
+    )],
 ) -> Result<P1, String> {
     let (text, route0) = with_route0(text, policy)?;
     // wireflow (a): the composite rounds' relations (none when the stage is off)
-    let text =
-        super::wire_composite::with_round_composites(&text, rounds, policy.route0.family.as_deref())?;
+    let text = super::wire_composite::with_round_composites(
+        &text,
+        rounds,
+        policy.route0.family.as_deref(),
+    )?;
     let text = text.as_str();
     let spec = TableSetSpec::from_json(text).map_err(|e| format!("import spec: {e}"))?;
     let set = rustred_campaign_core::import::load(&spec, base)
@@ -2068,7 +2082,8 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         verb: &str,
         target: &str,
     ) -> Result<Vec<Event>, String> {
-        if self.node_of_item(st, target).is_some() || self.stage_node_of_item(st, target).is_some() {
+        if self.node_of_item(st, target).is_some() || self.stage_node_of_item(st, target).is_some()
+        {
             return match verb {
                 "retry" | "skip" => Ok(vec![]),
                 v => Err(format!("verb {v} not supported by the repair flow")),

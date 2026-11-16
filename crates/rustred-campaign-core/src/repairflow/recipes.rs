@@ -42,7 +42,9 @@ pub fn mixed_shell_variant(name: &str) -> Option<Result<(bool, Vec<String>), Str
         None => (false, rest),
     };
     if !(rest.is_empty() || rest.starts_with('+')) {
-        return Some(Err(format!("step {name}: expected mixed_shell[@up][+SHELL]*")));
+        return Some(Err(format!(
+            "step {name}: expected mixed_shell[@up][+SHELL]*"
+        )));
     }
     let mut extra = vec![];
     for sh in rest.split('+').filter(|x| !x.is_empty()) {

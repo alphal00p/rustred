@@ -409,7 +409,10 @@ pub fn verify_relations(
             }
             // wireflow (b): a two-row form has no same-backend route (the composer's functions re-derive ONE element's
             // image); it is kept as a kernel-only candidate (descent checked here; the kernel proves it or nothing does)
-            if vv["kind"].as_str().is_some_and(|k| k.starts_with("two_row")) {
+            if vv["kind"]
+                .as_str()
+                .is_some_and(|k| k.starts_with("two_row"))
+            {
                 if let Some((q, _)) = rhs.iter().find(|(q, _)| {
                     !rustred_campaign_core::repairflow::composite::import_lower(
                         &ctx.lines,

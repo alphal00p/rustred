@@ -240,6 +240,7 @@ fn write_child(j: &Job, keys: &[K], edit: &ChildEdit) {
         ("keys.jsonl", kl.into_bytes()),
         ("composite.table.jsonl", join(&table).into_bytes()),
         ("composite.verification.jsonl", join(&ver).into_bytes()),
+        ("regions.json", b"{\"enabled\":false}\n".to_vec()),
         ("report.json", b"{\"schema\":\"r\"}\n".to_vec()),
     ];
     let mut sums = String::new();

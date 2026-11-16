@@ -119,12 +119,14 @@ fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64) -> (PathBuf, PathBuf)
     let policy = dir.join("repairflow.json");
     std::fs::write(
         &policy,
-        serde_json::to_vec_pretty(&json!({"schema":"rustred.campaign.repairflow.v1", "repair_policy": rp,
+        serde_json::to_vec_pretty(
+            &json!({"schema":"rustred.campaign.repairflow.v1", "repair_policy": rp,
             "nodes": {},
             "fake": {"program": "rr_fake_child", "ms": ms, "faces": {},
                 "composite_ops": [{"op": "prepare", "ms": ms},
                     {"op": "proof_answer", "ms": 0, "status": "two_row", "key": keys()[0]}],
-                "kernel_ops": [{"op": "prepare", "ms": ms}]}}))
+                "kernel_ops": [{"op": "prepare", "ms": ms}]}}),
+        )
         .unwrap(),
     )
     .unwrap();
@@ -159,7 +161,10 @@ fn read_json(p: &Path) -> Value {
 fn key_text(k: &[i64]) -> String {
     format!(
         "I({})",
-        k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        k.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
     )
 }
 
@@ -173,7 +178,9 @@ fn statement(cdir: &Path) -> std::collections::BTreeMap<String, Value> {
             let k = v["key"].clone();
             let kt = match &k {
                 Value::String(s) => s.clone(),
-                Value::Array(a) => key_text(&a.iter().map(|x| x.as_i64().unwrap()).collect::<Vec<_>>()),
+                Value::Array(a) => {
+                    key_text(&a.iter().map(|x| x.as_i64().unwrap()).collect::<Vec<_>>())
+                }
                 _ => return None,
             };
             Some((kt, v))
@@ -243,7 +250,13 @@ fn composite_rounds_run_as_jobs_and_their_relations_are_served_by_the_import() {
         .unwrap_or_else(|| panic!("{comp:#}"))
         .clone();
     assert_eq!(src["kind"], "supplied_relations");
-    assert_eq!(src["kernel_certificates"]["files"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        src["kernel_certificates"]["files"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
     let check = read_json(&cdir.join("closeloop/N/repairflow/check.json"));
     let k0 = keys()[0].clone();
     for f in check["faces"].as_array().unwrap() {
@@ -279,7 +292,10 @@ fn without_the_kernel_a_two_row_form_is_not_served() {
     assert_eq!(routed["kernel"]["route"], "same_backend", "{routed:#}");
     assert!(routed["kernel"]["jobs"].as_array().unwrap().is_empty());
     let round = read_json(&cdir.join("closeloop/N/repairflow/composite/r1/round.json"));
-    assert!(round["composite_input"]["kernel_certificates"].is_null(), "{round:#}");
+    assert!(
+        round["composite_input"]["kernel_certificates"].is_null(),
+        "{round:#}"
+    );
     // the two-row key stays open (the import serves a two-row line only with a kernel certificate)
     let check = read_json(&cdir.join("closeloop/N/repairflow/check.json"));
     let k0 = json!(keys()[0]);
@@ -338,15 +354,36 @@ fn interrupt_and_resume_gives_the_same_rounds_and_statement() {
             break;
         }
     }
-    assert!(matches!(codes.last(), Some(&0) | Some(&10)), "{codes:?} {}", log_tail(&cb));
+    assert!(
+        matches!(codes.last(), Some(&0) | Some(&10)),
+        "{codes:?} {}",
+        log_tail(&cb)
+    );
     assert!(codes.len() > 1, "no interrupt happened: {codes:?}");
     let o = outcome(&cb);
     // the round record names CDIR paths of its own campaign: compare it with the directory names normalised
-    let norm = |b: &[u8], d: &Path| String::from_utf8_lossy(b).replace(&d.display().to_string(), "<CDIR>");
-    assert_eq!(norm(&o.0, &cb), norm(&reference.0, &ca), "round records differ");
-    assert_eq!(norm(&o.1, &cb), norm(&reference.1, &ca), "done records differ");
-    assert_eq!(norm(&o.2, &cb), norm(&reference.2, &ca), "check records differ");
-    assert_eq!(norm(&o.3, &cb), norm(&reference.3, &ca), "statements differ");
+    let norm =
+        |b: &[u8], d: &Path| String::from_utf8_lossy(b).replace(&d.display().to_string(), "<CDIR>");
+    assert_eq!(
+        norm(&o.0, &cb),
+        norm(&reference.0, &ca),
+        "round records differ"
+    );
+    assert_eq!(
+        norm(&o.1, &cb),
+        norm(&reference.1, &ca),
+        "done records differ"
+    );
+    assert_eq!(
+        norm(&o.2, &cb),
+        norm(&reference.2, &ca),
+        "check records differ"
+    );
+    assert_eq!(
+        norm(&o.3, &cb),
+        norm(&reference.3, &ca),
+        "statements differ"
+    );
     assert_eq!(verify(&cb), 0);
 }
 
@@ -357,12 +394,17 @@ fn the_stage_off_absent_or_explicit_gives_identical_results() {
     let (_tb, spb, cb) = setup("wfoffx", &frame, Mode::OffExplicit, 10);
     for (sp, c) in [(&spa, &ca), (&spb, &cb)] {
         let codes = run_to_end(sp, c, &["--plain"]);
-        assert!(matches!(codes.last(), Some(&0) | Some(&10)), "{codes:?} {}", log_tail(c));
+        assert!(
+            matches!(codes.last(), Some(&0) | Some(&10)),
+            "{codes:?} {}",
+            log_tail(c)
+        );
         assert!(!c.join("closeloop/N/repairflow/composite").exists());
         assert!(!state(c).items.keys().any(|k| k.contains(".rf.c")));
     }
     let norm = |p: &str, d: &Path| {
-        String::from_utf8_lossy(&std::fs::read(d.join(p)).unwrap()).replace(&d.display().to_string(), "<CDIR>")
+        String::from_utf8_lossy(&std::fs::read(d.join(p)).unwrap())
+            .replace(&d.display().to_string(), "<CDIR>")
     };
     for p in [
         "closeloop/N/repairflow/policy.json",
@@ -375,5 +417,8 @@ fn the_stage_off_absent_or_explicit_gives_identical_results() {
     }
     // the effective policy record carries none of the new sections at their defaults (digest unchanged)
     let pol = norm("closeloop/N/repairflow/policy.json", &ca);
-    assert!(!pol.contains("composite_jobs") && !pol.contains("tworow"), "{pol}");
+    assert!(
+        !pol.contains("composite_jobs") && !pol.contains("tworow"),
+        "{pol}"
+    );
 }

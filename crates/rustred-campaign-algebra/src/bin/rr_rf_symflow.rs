@@ -568,8 +568,12 @@ fn check_two_row(
     if !sr.equal {
         return Err(format!("second route differs: {:?}", sr.difference));
     }
-    let rhs: Vec<(Vec<i32>, String)> =
-        t.composite.rhs.iter().map(|(q, v)| (q.clone(), qd.text(v))).collect();
+    let rhs: Vec<(Vec<i32>, String)> = t
+        .composite
+        .rhs
+        .iter()
+        .map(|(q, v)| (q.clone(), qd.text(v)))
+        .collect();
     if t.kind == "two_row" {
         if sr.not_lower.is_some() || t.composite.rhs.iter().any(|(q, _)| !lower(q, k)) {
             return Err("a two_row term is not lower than the key".into());
@@ -591,7 +595,15 @@ fn check_two_row(
         .unwrap_or(0)
         .max(max_depth);
     rustred_campaign_core::repairflow::composite_verify::verify_composed_image(
-        mf, mcat, k, &t.comb.rhs, &records, &rhs, lower, cmp, depth,
+        mf,
+        mcat,
+        k,
+        &t.comb.rhs,
+        &records,
+        &rhs,
+        lower,
+        cmp,
+        depth,
     )
 }
 
@@ -994,8 +1006,10 @@ fn main() {
                     let mut ks = symflow::KeyService::from_composite(k, c, &ch.face);
                     ks.kind = t.kind.into();
                     accepted.push(ks);
-                    best = Some(json!({"element": c.element, "terms": c.rhs.len(), "plain": false,
-                        "replacements": c.replacements.len(), "kind": t.kind}));
+                    best = Some(
+                        json!({"element": c.element, "terms": c.rhs.len(), "plain": false,
+                        "replacements": c.replacements.len(), "kind": t.kind}),
+                    );
                 }
                 json!({"key": k, "face": ch.face, "status": "ok", "best": best,
                     "alternatives": kc.accepted().count(), "outcomes": outs})
@@ -1022,7 +1036,19 @@ fn main() {
         let Ok(kc) = r else { continue };
         let Some(b) = kc.best() else {
             if let Some(t) = two_rows.get(k) {
-                match check_two_row(t, k, &group, &cmp, &lower, &qd, &mf, &mcat, max_row_terms, &zero_fn, opts.max_depth) {
+                match check_two_row(
+                    t,
+                    k,
+                    &group,
+                    &cmp,
+                    &lower,
+                    &qd,
+                    &mf,
+                    &mcat,
+                    max_row_terms,
+                    &zero_fn,
+                    opts.max_depth,
+                ) {
                     Ok(()) => verified += 1,
                     Err(e) => {
                         if not_verified.len() < 50 {

@@ -1340,11 +1340,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // edge under the full node order + a comparator-free Kahn acyclicity; a first-route zero drops an edge only when
     // CONFIRMED, audit r2-planners G1; bound to this table set, G2) at a CANDIDATE CLOSE of a Tier C pass. `report`
     // (default): `final/ship-gate.json`, the verdict unchanged; `enforce`: a failed / refused gate blocks.
-    if inp.ship_gate.mode != "off"
-        && second_route_on
-        && certified == keys
-        && blocking.is_empty()
-    {
+    if inp.ship_gate.mode != "off" && second_route_on && certified == keys && blocking.is_empty() {
         let v = ship_gate(inp, &set, &ev, res, layer_walked.is_some());
         if inp.ship_gate.mode == "enforce" && v["passed"] != true {
             blocking.push(format!(
@@ -2196,8 +2192,9 @@ fn ship_gate(
     };
     cfg.max_listed = inp.ship_gate.max_listed;
     let t = std::time::Instant::now();
-    let v = match rustred_campaign_core::pieces::import_edges::gate_check_with(set, ev, ev, res, cfg)
-    {
+    let v = match rustred_campaign_core::pieces::import_edges::gate_check_with(
+        set, ev, ev, res, cfg,
+    ) {
         Ok((rep, stats)) => {
             let word = match &rep.verdict {
                 GateVerdict::Pass => "pass",
@@ -2209,8 +2206,10 @@ fn ship_gate(
                 "table_set_digest": rustred_campaign_core::pieces::import_edges::table_set_digest(set),
                 "report": rep, "shipped": stats, "seconds": t.elapsed().as_secs_f64()})
         }
-        Err(e) => json!({"schema": "rustred.campaign.closeloop-ship-gate.v1", "mode": mode, "passed": false,
-            "verdict_word": "refused", "error": e, "seconds": t.elapsed().as_secs_f64()}),
+        Err(e) => {
+            json!({"schema": "rustred.campaign.closeloop-ship-gate.v1", "mode": mode, "passed": false,
+            "verdict_word": "refused", "error": e, "seconds": t.elapsed().as_secs_f64()})
+        }
     };
     if inp.ship_gate.disk {
         let _ = std::fs::remove_dir(&spill);

@@ -36,7 +36,9 @@ fn new_settings_at_their_defaults_leave_the_canonical_policy_and_its_digest_unch
     assert_eq!(explicit.digest(), d.digest());
     assert_eq!(file(serde_json::json!({})).digest(), d.digest());
     // switched on: part of the digest
-    let on = file(serde_json::json!({"route0": {"composite_jobs": {"enabled": true}}, "pieces": {"plan": true}}));
+    let on = file(
+        serde_json::json!({"route0": {"composite_jobs": {"enabled": true}}, "pieces": {"plan": true}}),
+    );
     assert_ne!(on.digest(), d.digest());
     assert!(on.canonical().contains("composite_jobs") && on.canonical().contains("pieces"));
 }
@@ -50,17 +52,31 @@ fn composite_jobs_settings_are_validated() {
         )
         .is_err()
     };
-    assert!(bad(serde_json::json!({"route0": {"composite_jobs": {"enabled": true, "max_rounds": 0}}})));
-    assert!(bad(serde_json::json!({"route0": {"composite_jobs": {"enabled": true,
-        "kernel": {"program": "rr_proof", "sha256": "xyz"}}}})));
-    assert!(bad(serde_json::json!({"route0": {"composite_jobs": {"enabled": true,
-        "kernel": {"program": "rr_proof", "sha256": "a".repeat(64), "census": "lee"}}}})));
+    assert!(bad(
+        serde_json::json!({"route0": {"composite_jobs": {"enabled": true, "max_rounds": 0}}})
+    ));
+    assert!(bad(
+        serde_json::json!({"route0": {"composite_jobs": {"enabled": true,
+        "kernel": {"program": "rr_proof", "sha256": "xyz"}}}})
+    ));
+    assert!(bad(
+        serde_json::json!({"route0": {"composite_jobs": {"enabled": true,
+        "kernel": {"program": "rr_proof", "sha256": "a".repeat(64), "census": "lee"}}}})
+    ));
     assert!(bad(serde_json::json!({"tworow": {"enabled": true}})));
-    assert!(!bad(serde_json::json!({"route0": {"composite_jobs": {"enabled": true,
-        "kernel": {"program": "rr_proof", "sha256": "a".repeat(64)}}}, "tworow": {"enabled": true}})));
-    assert!(bad(serde_json::json!({"recipes": {"escalation": ["mixed_shell@down"]}})));
-    assert!(bad(serde_json::json!({"recipes": {"escalation": ["mixed_shell+S9x"]}})));
-    assert!(!bad(serde_json::json!({"recipes": {"escalation": ["mixed_shell@up+S2+S2m1", "mixed_shell+S2"]}})));
+    assert!(!bad(
+        serde_json::json!({"route0": {"composite_jobs": {"enabled": true,
+        "kernel": {"program": "rr_proof", "sha256": "a".repeat(64)}}}, "tworow": {"enabled": true}})
+    ));
+    assert!(bad(
+        serde_json::json!({"recipes": {"escalation": ["mixed_shell@down"]}})
+    ));
+    assert!(bad(
+        serde_json::json!({"recipes": {"escalation": ["mixed_shell+S9x"]}})
+    ));
+    assert!(!bad(
+        serde_json::json!({"recipes": {"escalation": ["mixed_shell@up+S2+S2m1", "mixed_shell+S2"]}})
+    ));
 }
 
 #[test]
@@ -78,13 +94,19 @@ fn mixed_shell_variants_add_up_centres_and_shells() {
     let shells: Vec<String> = vec!["S0".into()];
     let plain = mixed_shell_offsets(&key, &lines, &shells).unwrap();
     let up = mixed_shell_offsets_with(&key, &lines, &shells, true).unwrap();
-    assert_eq!(plain, mixed_shell_offsets_with(&key, &lines, &shells, false).unwrap());
+    assert_eq!(
+        plain,
+        mixed_shell_offsets_with(&key, &lines, &shells, false).unwrap()
+    );
     assert!(up.starts_with(&plain));
     for c in [[1, 0, 0, 0, 0], [0, 0, 1, 0, 0], [0, 0, 0, 1, 0]] {
         assert!(up.contains(&c.to_vec()), "{c:?} not in {up:?}");
         assert!(!plain.contains(&c.to_vec()));
     }
-    assert!(!up.contains(&vec![0, 1, 0, 0, 0]), "a line at its floor gets no up centre");
+    assert!(
+        !up.contains(&vec![0, 1, 0, 0, 0]),
+        "a line at its floor gets no up centre"
+    );
     // face recipes: the plain step is unchanged by the variant code; the variant names itself and its up centres
     let face = Face::new(vec![0, 2], vec![3]);
     let ctx = RecipeContext {
@@ -96,7 +118,15 @@ fn mixed_shell_variants_add_up_centres_and_shells() {
     let p = face_recipe(&face, MIXED_SHELL, &lines, &[0, 1, 2], &[3, 4], &ctx).unwrap();
     assert_eq!(p.id, "rf/d0.2_n3/mixed_shell");
     assert!(p.provenance.as_ref().unwrap().get("up_centres").is_none());
-    let v = face_recipe(&face, "mixed_shell@up+S2", &lines, &[0, 1, 2], &[3, 4], &ctx).unwrap();
+    let v = face_recipe(
+        &face,
+        "mixed_shell@up+S2",
+        &lines,
+        &[0, 1, 2],
+        &[3, 4],
+        &ctx,
+    )
+    .unwrap();
     assert_eq!(v.id, "rf/d0.2_n3/mixed_shell@up+S2");
     assert_eq!(v.provenance.as_ref().unwrap()["up_centres"], true);
     assert_eq!(

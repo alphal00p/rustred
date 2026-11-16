@@ -923,7 +923,8 @@ impl RepairPolicy {
         if let Some(k) = &cj.kernel {
             if k.sha256.len() != 64 || !k.sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
                 return Err(
-                    "repair policy: route0.composite_jobs.kernel.sha256 must be 64 hex digits".into(),
+                    "repair policy: route0.composite_jobs.kernel.sha256 must be 64 hex digits"
+                        .into(),
                 );
             }
             if !matches!(k.census.as_str(), "frame" | "none") {
