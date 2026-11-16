@@ -24,6 +24,8 @@ pub const RECORD_VERSION: u32 = 1;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableRule {
     pub index: i64,
+    #[serde(default)]
+    pub chart: String,
     pub target: String,
     /// Case key (fixed values + equations, as genchoice's case keys).
     pub case: String,
@@ -92,6 +94,11 @@ impl TableRule {
             .collect();
         Ok(Some(TableRule {
             index: v.get("index").and_then(|i| i.as_i64()).unwrap_or(-1),
+            chart: v
+                .get("chart")
+                .and_then(|c| c.as_str())
+                .unwrap_or_default()
+                .to_string(),
             target: v
                 .get("target")
                 .and_then(|t| t.as_str())
@@ -130,9 +137,20 @@ pub fn table_rules<'a>(
 
 /// The node order of a table header as the engine's `--order` JSON (`node_order` object), None when absent.
 pub fn header_order(header: &Value) -> Option<String> {
-    match header.get("node_order")? {
-        Value::Object(_) => Some(header["node_order"].to_string()),
-        Value::String(s) if s.trim_start().starts_with('{') => Some(s.clone()),
+    match header.get("node_order") {
+        Some(Value::Object(_)) => Some(header["node_order"].to_string()),
+        Some(Value::String(s)) if s.trim_start().starts_with('{') => Some(s.clone()),
+        // a LEGACY table (order_name `legacy`, no node_order): the engine's identity order IS the legacy comparator
+        // (`node/order.rs`: no coordinate priority = the legacy order)
+        None if header.get("order_name").and_then(|o| o.as_str()) == Some("legacy")
+            && header.get("order_is_program").and_then(|b| b.as_bool()) != Some(true) =>
+        {
+            Some(
+                serde_json::json!({"name": "id", "slot_permutation": Value::Null,
+                    "coordinate_priority": Value::Null, "source_order": "Input"})
+                .to_string(),
+            )
+        }
         _ => None,
     }
 }
@@ -332,6 +350,14 @@ pub struct ImprovePolicy {
     pub budget_cpu_s: Option<u64>,
     /// A replacement needs monomials <= old x min_gain (1.0: strictly fewer is required anyway).
     pub min_gain: f64,
+    /// SUB-TREE mode (default on): the candidate job solves the target case AND its children (no `--descend open`) under
+    /// a cases budget; a COMPLETE sub-table covers the whole case domain, so it may replace the old rule at its position
+    /// even when its exception branches differ (e.g. guard-v2 witness branches on a pre-guard legacy rule) if its summed
+    /// monomials / bytes are smaller. Off: single-case replacement under the exception-subset test.
+    pub subtree: bool,
+    /// Cases budget of a sub-tree job (`budgets.work.cases`; a sub-tree that does not complete within it never
+    /// replaces anything).
+    pub subtree_max_cases: u64,
 }
 
 impl Default for ImprovePolicy {
@@ -359,6 +385,8 @@ impl Default for ImprovePolicy {
             wall_case_s: Some(1800),
             budget_cpu_s: None,
             min_gain: 1.0,
+            subtree: true,
+            subtree_max_cases: 64,
         }
     }
 }
@@ -418,6 +446,124 @@ pub fn replacement_verdict(old: &TableRule, new: &TableRule, min_gain: f64) -> R
         return Err(format!("more_bytes ({} vs {})", new.bytes, old.bytes));
     }
     Ok(())
+}
+
+/// SUB-TREE verdict: the complete sub-table `new` (its first rule must be the target case) may replace `old` when its
+/// summed monomials are smaller (<= old x min_gain) and its summed bytes not larger.
+pub fn subtree_verdict(old: &TableRule, new: &[TableRule], min_gain: f64) -> Result<(), String> {
+    let Some(first) = new.iter().find(|r| r.case == old.case) else {
+        return Err("no_rule_for_the_case".into());
+    };
+    if first.target != old.target {
+        return Err(format!("other_target ({} vs {})", first.target, old.target));
+    }
+    let m: u64 = new.iter().map(|r| r.monomials).sum();
+    let b: u64 = new.iter().map(|r| r.bytes).sum();
+    if m >= old.monomials || (m as f64) > old.monomials as f64 * min_gain {
+        return Err(format!(
+            "not_smaller (sub-table {m} vs {} monomials)",
+            old.monomials
+        ));
+    }
+    if b > old.bytes {
+        return Err(format!("more_bytes (sub-table {b} vs {})", old.bytes));
+    }
+    Ok(())
+}
+
+/// The lines replacing one rule by its sub-table: the first keeps the old `index` (same dispatch position), the others
+/// take fresh indices from `next_free` (unique labels; first match follows the file order, not the index).
+pub fn subtree_lines(
+    sub: &[String],
+    old_index: i64,
+    next_free: &mut i64,
+) -> Result<Vec<String>, String> {
+    let mut out = Vec::with_capacity(sub.len());
+    for (k, n) in sub.iter().enumerate() {
+        let mut v: Value = serde_json::from_str(n).map_err(|e| e.to_string())?;
+        v["type"] = Value::from("rule");
+        v["index"] = Value::from(if k == 0 {
+            old_index
+        } else {
+            let i = *next_free;
+            *next_free += 1;
+            i
+        });
+        out.push(v.to_string());
+    }
+    Ok(out)
+}
+
+/// A completion marker restated for the new rule counts (`end` / `assembly_end`: `total`; `chart_end` /
+/// `chart_partial`: its chart's count); any other line unchanged.
+pub fn restate_marker(line: &str, total: u64, per_chart: &BTreeMap<String, u64>) -> String {
+    let Ok(mut v) = serde_json::from_str::<Value>(line) else {
+        return line.to_string();
+    };
+    let kind = v
+        .get("type")
+        .and_then(|t| t.as_str())
+        .unwrap_or_default()
+        .to_string();
+    let n = match kind.as_str() {
+        "end" | "assembly_end" => Some(total),
+        "chart_end" | "chart_partial" => v
+            .get("chart")
+            .and_then(|c| c.as_str())
+            .map(|c| per_chart.get(c).copied().unwrap_or(0)),
+        _ => None,
+    };
+    match n {
+        Some(n) if v.get("rules").is_some() => {
+            v["rules"] = Value::from(n);
+            v.to_string()
+        }
+        _ => line.to_string(),
+    }
+}
+
+/// The improved table with SUB-TREE replacements (in memory; the supervisor streams the same steps): each rule at an
+/// index in `repl` replaced by [`subtree_lines`], the completion markers restated; returns (lines, replaced old lines).
+pub fn apply_subtrees(
+    lines: &[String],
+    repl: &BTreeMap<i64, Vec<String>>,
+) -> Result<(Vec<String>, Vec<String>), String> {
+    let rules: Vec<TableRule> = lines
+        .iter()
+        .filter_map(|l| TableRule::from_line(l).ok().flatten())
+        .collect();
+    let mut next_free = rules.iter().map(|r| r.index).max().unwrap_or(-1) + 1;
+    let mut out = Vec::with_capacity(lines.len());
+    let mut old = Vec::new();
+    for l in lines {
+        match TableRule::from_line(l)? {
+            Some(r) if repl.contains_key(&r.index) => {
+                out.extend(subtree_lines(&repl[&r.index], r.index, &mut next_free)?);
+                old.push(l.clone());
+            }
+            _ => out.push(l.clone()),
+        }
+    }
+    let mut per_chart: BTreeMap<String, u64> = BTreeMap::new();
+    let mut total = 0u64;
+    for l in &out {
+        if let Ok(v) = serde_json::from_str::<Value>(l)
+            && v.get("type").and_then(|t| t.as_str()) == Some("rule")
+        {
+            total += 1;
+            let c = v
+                .get("chart")
+                .and_then(|c| c.as_str())
+                .unwrap_or_default()
+                .to_string();
+            *per_chart.entry(c).or_default() += 1;
+        }
+    }
+    let out = out
+        .iter()
+        .map(|l| restate_marker(l, total, &per_chart))
+        .collect();
+    Ok((out, old))
 }
 
 /// The improved table: every rule line whose `index` is in `repl` replaced by the new record with the OLD index (same

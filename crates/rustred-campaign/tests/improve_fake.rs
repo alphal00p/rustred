@@ -44,6 +44,10 @@ fn table(dir: &Path) -> PathBuf {
         let mut r = rec(f, tg, e, m);
         r["type"] = json!("rule");
         r["index"] = json!(i);
+        if i == 1 {
+            // a heavy rule's record is long (bytes ~ monomials in real tables)
+            r["pad"] = json!("x".repeat(2000));
+        }
         lines.push(r);
     }
     lines.push(json!({"type":"end","charts":1,"rules":3}));
@@ -56,6 +60,17 @@ fn table(dir: &Path) -> PathBuf {
 }
 
 fn config(dir: &Path, name: &str, table: &Path, record: Option<&Path>, largest: usize) -> PathBuf {
+    config_mode(dir, name, table, record, largest, false)
+}
+
+fn config_mode(
+    dir: &Path,
+    name: &str,
+    table: &Path,
+    record: Option<&Path>,
+    largest: usize,
+    subtree: bool,
+) -> PathBuf {
     let fam = dir.join("TOY.sym");
     std::fs::write(&fam, FAMILY).unwrap();
     let run = |rules: Vec<Value>, stop: Value| json!({"rules": rules, "stop": stop});
@@ -73,7 +88,7 @@ fn config(dir: &Path, name: &str, table: &Path, record: Option<&Path>, largest: 
         node["record"] = json!({"path": r.display().to_string(), "sha256": sha256_file(r)});
     }
     let cfg = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node","nodes":[node],
-        "improve":{"filter":{"largest":largest},
+        "improve":{"filter":{"largest":largest},"subtree":subtree,
                    "candidates":[{"name":"rung","args":["--seed-pose-rung"]},{"name":"tight","args":["--seed-layer-cap","0,0,1","--max-depth","3"]}]},
         "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
                "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
@@ -206,4 +221,60 @@ fn improve_replaces_only_verified_smaller_rules_records_everything_and_iterates(
     assert_eq!(res3["replaced"], 1, "{res3:#}");
     let rec3 = read_json(Path::new(res3["record"]["path"].as_str().unwrap()));
     assert_eq!(rec3["runs"].as_array().unwrap().len(), 3);
+}
+
+/// SUB-TREE mode: rule 1's regeneration is a COMPLETE sub-table (its case rule with a NEW exception branch + the branch's
+/// child): the exception-subset test would refuse the case rule alone, the sub-table replaces it (smaller in sum).
+#[test]
+fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
+    let _g = serial();
+    let t = Tmp::new("improvest");
+    let m = t.path.join("material");
+    std::fs::create_dir_all(&m).unwrap();
+    let tab = table(&m);
+    let fam = m.join("TOY.sym");
+    std::fs::write(&fam, FAMILY).unwrap();
+    let run = |rules: Vec<Value>, stop: Value| json!({"rules": rules, "stop": stop});
+    let runs = json!({
+        "0": {"rung": run(vec![rec(json!([null,null,null]), "I(n0,n1,n2)", json!([]), 9000)], Value::Null)},
+        "1": {"rung": run(vec![rec(json!([1,null,null]), "I(1,n1,n2)", json!([["n2"]]), 100),
+                              rec(json!([1,null,0]), "I(1,n1,0)", json!([]), 50)], Value::Null)},
+    });
+    let cfg = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node",
+        "nodes":[{"node":"toy","family":fam.display().to_string(),"family_sha256":sha256_file(&fam),
+                  "table":{"path":tab.display().to_string(),"sha256":sha256_file(&tab)}}],
+        "improve":{"filter":{"largest":2},"subtree":true,"candidates":[{"name":"rung","args":["--seed-pose-rung"]}]},
+        "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
+               "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
+        "fake":{"program":"rr_fake_child","ms":5,"runs":runs}});
+    let c = m.join("cst.json");
+    std::fs::write(&c, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+    let s = spec(&t, "sst.json", &c);
+    let d = t.cdir("cdirst");
+    let codes = run_to_end(&s, &d, &["--plain"]);
+    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d));
+    let res = read_json(&d.join("genchoice/toy/improve/result.r1.json"));
+    let rec = read_json(Path::new(res["record"]["path"].as_str().unwrap()));
+    assert_eq!(res["replaced"], 1, "{res:#} {:#}", rec["rules"]);
+    let out = res["table_out"]["path"].as_str().unwrap().to_string();
+    let lines: Vec<Value> = std::fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let rules: Vec<&Value> = lines.iter().filter(|l| l["type"] == "rule").collect();
+    assert_eq!(rules.len(), 4, "rule 1 -> 2 rules");
+    assert_eq!(
+        rules[1]["index"], 1,
+        "the sub-table's case rule keeps the old index"
+    );
+    assert_eq!(rules[2]["index"], 3, "its child takes a fresh index");
+    assert_eq!(rules[2]["monomials"], 50);
+    assert_eq!(
+        lines.last().unwrap()["rules"],
+        4,
+        "the end record restates the rule count"
+    );
+    // rule 0's regeneration is larger: kept
+    assert_eq!(rules[0]["monomials"], 5000);
 }

@@ -1019,6 +1019,7 @@ impl GenChoiceSource {
                     rows.iter()
                         .map(|r| im::TableRule {
                             index: -1,
+                            chart: String::new(),
                             target: String::new(),
                             case: r.case.clone(),
                             fixed: r.fixed.clone(),

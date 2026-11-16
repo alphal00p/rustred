@@ -61,8 +61,18 @@ pub struct ImproveAnswer {
     pub class: String,
     pub status: String,
     pub new_rule: Option<im::TableRule>,
-    /// The new rule's record line, kept only when it qualifies as a replacement.
+    /// The new rule's record line (single mode), kept only when it qualifies as a replacement.
     pub new_line: Option<String>,
+    /// Sub-tree mode: every rule line of the complete sub-table (target case first), kept only when it qualifies.
+    #[serde(default)]
+    pub new_lines: Vec<String>,
+    /// Sub-tree mode: summed monomials / bytes and rule count of the sub-table.
+    #[serde(default)]
+    pub sub_monomials: Option<u64>,
+    #[serde(default)]
+    pub sub_bytes: Option<u64>,
+    #[serde(default)]
+    pub sub_rules: Option<u64>,
     /// Ok = qualifies as a replacement; else why not.
     pub verdict: String,
 }
@@ -313,18 +323,27 @@ impl ImproveSource {
                 }
             }
         }
-        let mut repl: BTreeMap<i64, String> = BTreeMap::new();
+        // index -> replacement lines (single mode: one line; sub-tree mode: the sub-table, target case first)
+        let mut repl: BTreeMap<i64, Vec<String>> = BTreeMap::new();
         let mut chosen: BTreeMap<i64, String> = BTreeMap::new();
         for (idx, v) in &per_rule {
             let best = v
                 .iter()
-                .filter(|a| a.verdict == "ok" && a.new_line.is_some())
+                .filter(|a| a.verdict == "ok" && (a.new_line.is_some() || !a.new_lines.is_empty()))
                 .min_by_key(|a| {
                     let r = a.new_rule.as_ref().expect("ok verdict has a rule");
-                    (r.monomials, r.bytes, a.cand.clone())
+                    (
+                        a.sub_monomials.unwrap_or(r.monomials),
+                        a.sub_bytes.unwrap_or(r.bytes),
+                        a.cand.clone(),
+                    )
                 });
             if let Some(b) = best {
-                repl.insert(*idx, b.new_line.clone().expect("line"));
+                let lines = match &b.new_line {
+                    Some(l) => vec![l.clone()],
+                    None => b.new_lines.clone(),
+                };
+                repl.insert(*idx, lines);
                 chosen.insert(*idx, b.cand.clone());
             }
         }
@@ -342,12 +361,42 @@ impl ImproveSource {
             let mut wt =
                 std::io::BufWriter::new(std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?);
             let mut old_lines = Vec::new();
+            // the new rule counts (completion markers): old rules - replaced + the replacement lines, per chart
+            let mut per_chart: BTreeMap<String, u64> = BTreeMap::new();
+            for r in &self.nodes[i].rules {
+                if !repl.contains_key(&r.index) {
+                    *per_chart.entry(r.chart.clone()).or_default() += 1;
+                }
+            }
+            for lines in repl.values() {
+                for l in lines {
+                    if let Some(r) = im::TableRule::from_line(l)? {
+                        *per_chart.entry(r.chart).or_default() += 1;
+                    }
+                }
+            }
+            let total: u64 = per_chart.values().sum();
+            let mut next_free = self.nodes[i]
+                .rules
+                .iter()
+                .map(|r| r.index)
+                .max()
+                .unwrap_or(-1)
+                + 1;
             let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
             for l in std::io::BufReader::new(f).lines() {
                 let l = l.map_err(|e| e.to_string())?;
-                let (out, old) = im::apply(std::slice::from_ref(&l), &repl)?;
-                writeln!(wt, "{}", out[0]).map_err(|e| e.to_string())?;
-                old_lines.extend(old);
+                match im::TableRule::from_line(&l)? {
+                    Some(r) if repl.contains_key(&r.index) => {
+                        for n in im::subtree_lines(&repl[&r.index], r.index, &mut next_free)? {
+                            writeln!(wt, "{n}").map_err(|e| e.to_string())?;
+                        }
+                        old_lines.push(l);
+                    }
+                    Some(_) => writeln!(wt, "{l}").map_err(|e| e.to_string())?,
+                    None => writeln!(wt, "{}", im::restate_marker(&l, total, &per_chart))
+                        .map_err(|e| e.to_string())?,
+                }
             }
             wt.flush().map_err(|e| e.to_string())?;
             drop(wt);
@@ -391,8 +440,8 @@ impl ImproveSource {
                             .map(|c| c.args.clone())
                             .unwrap_or_default(),
                         status: a.status.clone(),
-                        monomials: a.new_rule.as_ref().map(|r| r.monomials),
-                        bytes: a.new_rule.as_ref().map(|r| r.bytes),
+                        monomials: a.sub_monomials.or(a.new_rule.as_ref().map(|r| r.monomials)),
+                        bytes: a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes)),
                         cpu_ms: j.map(|j| j.cpu_ms),
                         verdict: if chosen.get(&e.index) == Some(&a.cand) {
                             "replaced".into()
@@ -405,10 +454,20 @@ impl ImproveSource {
             if let Some(c) = chosen.get(&e.index) {
                 let old = &old_by_index[&e.index];
                 e.chosen = format!("rule:{c}");
-                e.why = format!(
-                    "improve run {run}: {} -> {} monomials, {} -> {} bytes; exceptions a subset of the old rule's; same dispatch position",
-                    old.monomials, e.monomials, old.bytes, e.bytes
-                );
+                e.why = if self.cfg.improve.subtree {
+                    format!(
+                        "improve run {run}: rule of {} monomials / {} bytes replaced at its dispatch position by a COMPLETE sub-table of {} rule(s) (first: {} monomials); the sub-table covers the whole case domain",
+                        old.monomials,
+                        old.bytes,
+                        repl.get(&e.index).map_or(0, |v| v.len()),
+                        e.monomials
+                    )
+                } else {
+                    format!(
+                        "improve run {run}: {} -> {} monomials, {} -> {} bytes; exceptions a subset of the old rule's; same dispatch position",
+                        old.monomials, e.monomials, old.bytes, e.bytes
+                    )
+                };
             }
             if let Some(u) = untried.get(&e.index) {
                 e.untried.extend(u.iter().cloned());
@@ -622,7 +681,9 @@ impl WorkSource for ImproveSource {
                     args.extend(cand.map(|k| k.args.clone()).unwrap_or_default());
                     // only the target case is solved; an exhausted search is "no rule" (open obligation), not an
                     // engine error (found on the real engine: `tight` exhausts at depth 3 on some cases -> exit 70)
-                    args.extend(["--descend".to_string(), "open".to_string()]);
+                    if !self.cfg.improve.subtree {
+                        args.extend(["--descend".to_string(), "open".to_string()]);
+                    }
                     if !args.iter().any(|a| a == "--open-on-refusal") {
                         args.push("--open-on-refusal".to_string());
                     }
@@ -662,7 +723,14 @@ impl WorkSource for ImproveSource {
                         ],
                         depends_on: vec![input_family(&node), input_table(&node)],
                         budgets: Budgets {
-                            work: WorkBudgets::default(),
+                            work: WorkBudgets {
+                                cases: self
+                                    .cfg
+                                    .improve
+                                    .subtree
+                                    .then_some(self.cfg.improve.subtree_max_cases),
+                                ..WorkBudgets::default()
+                            },
                             wall: WallBudgets {
                                 case_s: self.cfg.improve.wall_case_s,
                                 job_s: None,
@@ -706,28 +774,58 @@ impl WorkSource for ImproveSource {
             .ok_or("improve: rule index unknown")?;
         let mut new_rule = None;
         let mut new_line = None;
+        let mut all: Vec<(im::TableRule, String)> = Vec::new();
         for l in &done.canonical_lines {
-            if let Ok(Some(r)) = im::TableRule::from_line(l)
-                && r.case == old.case
-            {
-                new_rule = Some(r);
-                new_line = Some(l.clone());
-                break;
+            if let Ok(Some(r)) = im::TableRule::from_line(l) {
+                if new_rule.is_none() && r.case == old.case {
+                    new_rule = Some(r.clone());
+                    new_line = Some(l.clone());
+                }
+                all.push((r, l.clone()));
             }
+        }
+        // sub-tree order: the target case's rule first, then the rest in file order
+        if let Some(p) = all.iter().position(|(r, _)| r.case == old.case) {
+            let first = all.remove(p);
+            all.insert(0, first);
         }
         let status = match c.kind {
             OutcomeKind::KilledMemory => "lost_at_cap".to_string(),
             OutcomeKind::KilledTime => "wall".to_string(),
             k => format!("{k:?}").to_lowercase(),
         };
+        let subtree = self.cfg.improve.subtree;
+        let sub_rules: Vec<im::TableRule> = all.iter().map(|(r, _)| r.clone()).collect();
         let verdict = match &new_rule {
+            Some(_) if subtree && c.kind != OutcomeKind::Complete => format!(
+                "subtree_incomplete ({status}: not closed within improve.subtree_max_cases)"
+            ),
+            Some(_) if subtree => {
+                match im::subtree_verdict(&old, &sub_rules, self.cfg.improve.min_gain) {
+                    Ok(()) => "ok".to_string(),
+                    Err(w) => w,
+                }
+            }
             Some(n) => match im::replacement_verdict(&old, n, self.cfg.improve.min_gain) {
                 Ok(()) => "ok".to_string(),
                 Err(w) => w,
             },
             None => format!("no_rule ({status})"),
         };
+        let (sub_monomials, sub_bytes, sub_n) = if subtree && !sub_rules.is_empty() {
+            (
+                Some(sub_rules.iter().map(|r| r.monomials).sum()),
+                Some(sub_rules.iter().map(|r| r.bytes).sum()),
+                Some(sub_rules.len() as u64),
+            )
+        } else {
+            (None, None, None)
+        };
+        let mut new_lines = Vec::new();
         if verdict != "ok" {
+            new_line = None;
+        } else if subtree {
+            new_lines = all.into_iter().map(|(_, l)| l).collect();
             new_line = None;
         }
         let a = ImproveAnswer {
@@ -741,6 +839,10 @@ impl WorkSource for ImproveSource {
             status,
             new_rule,
             new_line,
+            new_lines,
+            sub_monomials,
+            sub_bytes,
+            sub_rules: sub_n,
             verdict,
         };
         let mut rt = Routing::default();

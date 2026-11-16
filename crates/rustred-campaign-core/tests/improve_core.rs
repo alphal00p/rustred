@@ -177,3 +177,73 @@ fn generation_record_lists_the_same_case_in_the_losers() {
     assert_eq!(rec.rules[0].untried.len(), 1);
     assert_eq!(rec.runs.len(), 1);
 }
+
+#[test]
+fn legacy_header_is_the_identity_order_and_subtrees_replace_whole_domains() {
+    let h: serde_json::Value =
+        serde_json::from_str(r#"{"type":"header","order_name":"legacy","order_is_program":false}"#)
+            .unwrap();
+    let o: serde_json::Value = serde_json::from_str(&header_order(&h).unwrap()).unwrap();
+    assert_eq!(o["coordinate_priority"], serde_json::Value::Null);
+    assert_eq!(o["name"], "id");
+    let lines = vec![
+        r#"{"type":"header","order_name":"legacy"}"#.to_string(),
+        r#"{"type":"chart","chart":"110"}"#.to_string(),
+        line(0, "[null,null,null]", "I(n0,n1,n2)", "[]", 5000),
+        // the heavy old rule's record is long (as real heavy rules are: bytes ~ monomials)
+        line(1, "[1,null,null]", "I(1,n1,n2)", r#"[["-1+n1"]]"#, 3000).replace(
+            r#""monomials""#,
+            &format!(r#""pad":"{}","monomials""#, "x".repeat(600)),
+        ),
+        line(2, "[1,1,null]", "I(1,1,n2)", "[]", 10),
+        r#"{"type":"chart_end","chart":"110","rules":3}"#.to_string(),
+        r#"{"type":"end","charts":1,"rules":3}"#.to_string(),
+    ];
+    let (_, rules) = table_rules(lines.iter().map(String::as_str)).unwrap();
+    // rule 1 regenerated as a sub-table: the case rule with a NEW branch + the branch's child
+    let sub = vec![
+        line(
+            0,
+            "[1,null,null]",
+            "I(1,n1,n2)",
+            r#"[["-1+n1"],["n2"]]"#,
+            100,
+        ),
+        line(1, "[1,null,0]", "I(1,n1,0)", "[]", 50),
+    ];
+    let subr: Vec<TableRule> = sub.iter().map(|l| rule(l)).collect();
+    assert!(
+        replacement_verdict(&rules[1], &subr[0], 1.0)
+            .unwrap_err()
+            .starts_with("exceptions_not_subset")
+    );
+    assert_eq!(subtree_verdict(&rules[1], &subr, 1.0), Ok(()));
+    let big = vec![
+        line(0, "[1,null,null]", "I(1,n1,n2)", "[]", 2900),
+        line(1, "[1,null,0]", "I(1,n1,0)", "[]", 200),
+    ];
+    let bigr: Vec<TableRule> = big.iter().map(|l| rule(l)).collect();
+    assert!(
+        subtree_verdict(&rules[1], &bigr, 1.0)
+            .unwrap_err()
+            .starts_with("not_smaller")
+    );
+    let mut repl = BTreeMap::new();
+    repl.insert(1, sub.clone());
+    let (out, old) = apply_subtrees(&lines, &repl).unwrap();
+    assert_eq!(old, vec![lines[3].clone()]);
+    let (_, nr) = table_rules(out.iter().map(String::as_str)).unwrap();
+    assert_eq!(
+        nr.iter().map(|r| r.index).collect::<Vec<_>>(),
+        vec![0, 1, 3, 2],
+        "the sub-table's first rule keeps the old index, the child takes a fresh one; file order is the dispatch order"
+    );
+    assert_eq!(
+        nr.iter().map(|r| r.monomials).collect::<Vec<_>>(),
+        vec![5000, 100, 50, 10]
+    );
+    let end: serde_json::Value = serde_json::from_str(out.last().unwrap()).unwrap();
+    assert_eq!(end["rules"], 4, "completion markers restated");
+    let ce: serde_json::Value = serde_json::from_str(&out[out.len() - 2]).unwrap();
+    assert_eq!(ce["rules"], 4);
+}
