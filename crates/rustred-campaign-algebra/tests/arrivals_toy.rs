@@ -387,6 +387,18 @@ fn streamed_walk_equals_in_memory_walk() {
             "4",
             vec!["--map-budget", "1", "--record-budget-mb", "0"],
         ),
+        (
+            "s4",
+            "3",
+            vec![
+                "--map-budget",
+                "1",
+                "--closure-chunk",
+                "1",
+                "--local-flush",
+                "1",
+            ],
+        ),
     ] {
         let out = t.dir.join(tag);
         let (rc, ss) = compute_x(&t, &out, threads, &extra);

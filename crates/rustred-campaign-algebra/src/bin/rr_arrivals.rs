@@ -87,6 +87,8 @@ struct Args {
     shard: Option<(usize, usize)>,
     /// arrivals-bin: byte-level extraction of key and depth (canonical lines), checked by order, count and file sha256
     fast: bool,
+    closure_chunk: usize,
+    local_flush: usize,
     no_structural: bool,
     structural_min_keys: usize,
     decide_all_handdowns: bool,
@@ -159,6 +161,8 @@ fn parse(args: &[String]) -> Args {
             ),
             "--closure-only" => a.closure_only = true,
             "--fast" => a.fast = true,
+            "--closure-chunk" => a.closure_chunk = num(val(&mut i)),
+            "--local-flush" => a.local_flush = num(val(&mut i)),
             "--closure-out" => a.closure_out = Some(PathBuf::from(val(&mut i))),
             "--shard" => {
                 let v = val(&mut i);
@@ -759,6 +763,7 @@ fn walk_cfg(a: &Args) -> arrivals::WalkCfg {
         exact,
         structural: !a.no_structural,
         structural_min_keys: a.structural_min_keys,
+        closure_chunk: a.closure_chunk,
         cache_entries: a.cache_entries,
         routed_masks: None,
     }
@@ -1164,6 +1169,11 @@ fn compute_stream(a: &Args) {
         closure_only: a.closure_only,
         closure_out: a.closure_out.clone(),
         shard: a.shard,
+        local_flush: if a.local_flush == 0 {
+            1 << 21
+        } else {
+            a.local_flush
+        },
     };
     let tables = spec_tables(&set);
     let rows_id = rows.id();

@@ -663,6 +663,8 @@ pub struct WalkCfg {
     /// Streamed walk: use the structural proofs only for records serving at least this many closure keys (0 = always);
     /// a record serving fewer keys decides its terms per key (exact evaluation): its loci proofs would not amortise.
     pub structural_min_keys: usize,
+    /// Streamed walk: process each closure round's frontier in chunks of this many keys (bounded candidate memory; 0 = one chunk).
+    pub closure_chunk: usize,
     /// Max child-key entries kept in the route expansion cache (shared by the workers of one aggregation).
     pub cache_entries: usize,
     /// Decide only hand-down terms whose dropped mask some given edge routes (others are counted per mask, undecided).

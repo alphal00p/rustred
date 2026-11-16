@@ -500,6 +500,8 @@ pub struct StreamCfg {
     pub trace: Vec<Vec<i32>>,
     /// Stop after the closure (no hand-down, no edge file emitted).
     pub closure_only: bool,
+    /// Per-thread accumulator entries kept before a merge into the shared maps (default LOCAL_FLUSH; memory ~ threads x this).
+    pub local_flush: usize,
     /// SHARD (i, k): decide and transport only the record groups whose (table, record) hash is i mod k (the closure is computed in
     /// full); the k shards' arrival files merged (keys union, depth min, senders summed, least first sender) are the unsharded walk's.
     pub shard: Option<(usize, usize)>,
@@ -512,7 +514,7 @@ pub struct StreamCfg {
 const CHUNK: usize = 20_000;
 
 /// Entries a worker gathers before merging them into the shared accumulators.
-const LOCAL_FLUSH: usize = 1 << 21;
+pub const LOCAL_FLUSH: usize = 1 << 21;
 
 fn merge_into(
     accs: &Mutex<Accs>,
@@ -870,82 +872,111 @@ fn closure(
         n_reached += frontier.len();
         while !frontier.is_empty() {
             st.rounds += 1;
-            for &ki in &frontier {
-                if let Some(si) = rows.served_of(ki as usize) {
-                    for (j, tk) in tops(si) {
-                        let Some(tki) = rows.find(&tk) else {
-                            return Err(format!(
-                                "the rows file is not closed: {tk:?} (top term {j} of {:?}) is not a row",
-                                rows.key_i32(ki as usize)
-                            ));
-                        };
-                        if dep[tki] == UNREACHED {
-                            cand.entry(tki as u32).or_default().push((si as u32, j));
-                        }
-                    }
-                }
-            }
             let mut new: Vec<u32> = vec![];
-            loop {
-                let pend: Vec<(u32, (u32, u32))> = cand
-                    .iter()
-                    .filter_map(|(k, v)| v.first().map(|c| (*k, *c)))
+            // the frontier in CHUNKS (WalkCfg::closure_chunk; 0 = one chunk): the candidate map stays bounded; reachability does not
+            // depend on the order, and every (parent row, top term) is still examined exactly once (a key reached by an earlier
+            // chunk is no candidate any more)
+            let chunk = if cfg.closure_chunk == 0 {
+                frontier.len().max(1)
+            } else {
+                cfg.closure_chunk
+            };
+            for part in frontier.chunks(chunk) {
+                // the top terms of the part's served keys, found in parallel (in key order: the candidate lists are the serial ones)
+                let subs: Vec<&[u32]> = part
+                    .chunks(part.len().div_ceil(cfg.threads.max(1) * 4).max(1))
                     .collect();
-                if pend.is_empty() {
-                    break;
-                }
-                let mut by_rec: BTreeMap<RecKey, Vec<PendItem>> = BTreeMap::new();
-                for (pi, (_, (si, j))) in pend.iter().enumerate() {
-                    by_rec
-                        .entry(rows.rec(*si as usize))
-                        .or_default()
-                        .push((*si as usize, *j, pi));
-                }
-                let groups: Vec<(RecKey, Vec<PendItem>)> = by_rec.into_iter().collect();
-                let res = par_map(
-                    &groups,
+                let found = par_map(
+                    &subs,
                     cfg.threads,
-                    |((t, r), items)| -> Result<Vec<(usize, CoefFact, bool)>, String> {
-                        cache.with(*t, *r, |e| {
-                            let mut out = vec![];
-                            for (si, j, pi) in items {
-                                let applied = rows.applied(*si);
-                                let pt =
-                                    e.p.point(&applied)
-                                        .ok_or_else(|| format!("{applied:?}: no rule point"))?;
-                                let (w, by) = exact_word(&mut e.p, &mut e.me, *j as usize, &pt)?;
-                                out.push((*pi, w, by == "key:mod"));
+                    |sub| -> Result<Vec<(u32, u32, u32)>, String> {
+                        let mut v = vec![];
+                        for &ki in sub.iter() {
+                            if let Some(si) = rows.served_of(ki as usize) {
+                                for (j, tk) in tops(si) {
+                                    let Some(tki) = rows.find(&tk) else {
+                                        return Err(format!(
+                                            "the rows file is not closed: {tk:?} (top term {j} of {:?}) is not a row",
+                                            rows.key_i32(ki as usize)
+                                        ));
+                                    };
+                                    v.push((tki as u32, si as u32, j));
+                                }
                             }
-                            Ok(out)
-                        })
+                        }
+                        Ok(v)
                     },
                 );
-                let mut decided = vec![CoefFact::Unknown; pend.len()];
-                for r in res {
-                    for (pi, w, m) in r? {
-                        decided[pi] = w;
-                        st.top_decisions += 1;
-                        st.top_by_mod += m as u64;
-                    }
-                }
-                for ((k, c), w) in pend.iter().zip(decided) {
-                    if w == CoefFact::Zero {
-                        st.top_zero += 1;
-                        cand.get_mut(k).expect("pending").remove(0);
-                    } else {
-                        st.top_unknown += (w == CoefFact::Unknown) as u64;
-                        cand.remove(k);
-                        dep[*k as usize] = layer;
-                        if let Some(v) = via.as_deref_mut() {
-                            v[*k as usize] = *c;
+                for f in found {
+                    for (tki, si, j) in f? {
+                        if dep[tki as usize] == UNREACHED {
+                            cand.entry(tki).or_default().push((si, j));
                         }
-                        n_reached += 1;
-                        new.push(*k);
                     }
                 }
-                cand.retain(|_, v| !v.is_empty());
+                loop {
+                    let pend: Vec<(u32, (u32, u32))> = cand
+                        .iter()
+                        .filter_map(|(k, v)| v.first().map(|c| (*k, *c)))
+                        .collect();
+                    if pend.is_empty() {
+                        break;
+                    }
+                    let mut by_rec: BTreeMap<RecKey, Vec<PendItem>> = BTreeMap::new();
+                    for (pi, (_, (si, j))) in pend.iter().enumerate() {
+                        by_rec.entry(rows.rec(*si as usize)).or_default().push((
+                            *si as usize,
+                            *j,
+                            pi,
+                        ));
+                    }
+                    let groups: Vec<(RecKey, Vec<PendItem>)> = by_rec.into_iter().collect();
+                    let res = par_map(
+                        &groups,
+                        cfg.threads,
+                        |((t, r), items)| -> Result<Vec<(usize, CoefFact, bool)>, String> {
+                            cache.with(*t, *r, |e| {
+                                let mut out = vec![];
+                                for (si, j, pi) in items {
+                                    let applied = rows.applied(*si);
+                                    let pt =
+                                        e.p.point(&applied)
+                                            .ok_or_else(|| format!("{applied:?}: no rule point"))?;
+                                    let (w, by) =
+                                        exact_word(&mut e.p, &mut e.me, *j as usize, &pt)?;
+                                    out.push((*pi, w, by == "key:mod"));
+                                }
+                                Ok(out)
+                            })
+                        },
+                    );
+                    let mut decided = vec![CoefFact::Unknown; pend.len()];
+                    for r in res {
+                        for (pi, w, m) in r? {
+                            decided[pi] = w;
+                            st.top_decisions += 1;
+                            st.top_by_mod += m as u64;
+                        }
+                    }
+                    for ((k, c), w) in pend.iter().zip(decided) {
+                        if w == CoefFact::Zero {
+                            st.top_zero += 1;
+                            cand.get_mut(k).expect("pending").remove(0);
+                        } else {
+                            st.top_unknown += (w == CoefFact::Unknown) as u64;
+                            cand.remove(k);
+                            dep[*k as usize] = layer;
+                            if let Some(v) = via.as_deref_mut() {
+                                v[*k as usize] = *c;
+                            }
+                            n_reached += 1;
+                            new.push(*k);
+                        }
+                    }
+                    cand.retain(|_, v| !v.is_empty());
+                }
+                cand.clear();
             }
-            cand.clear();
             new.sort_unstable();
             eprintln!(
                 "[arrivals] closure round {} (depth layer {layer}): +{} keys, reached {n_reached}, top decisions {} ({:.0} s){}",
@@ -1384,7 +1415,7 @@ pub fn walk_stream(
                         }
                     }
                 }
-                if local_n > LOCAL_FLUSH {
+                if local_n > scfg.local_flush {
                     merge_into(&accs, &mut local, scfg)?;
                     local_n = 0;
                 }
