@@ -996,9 +996,11 @@ const JOB_ABANDONED: u8 = 2;
 /// interrupted: its thread ends when the lift does).
 static ABANDONED_RUNNING: AtomicU64 = AtomicU64::new(0);
 
-/// At most this many abandoned lifts may run at once (default 1): while the
-/// cap is reached a bounded solve is refused at once (typed BUDGET), so
-/// abandoned lifts never pile up on the CPUs and memory of a request.
+/// At most this many abandoned lifts may run at once (default: the solver's
+/// worker count, at least 1): while the cap is reached a bounded solve is
+/// refused at once (typed BUDGET), so abandoned lifts never pile up on the
+/// CPUs and memory of a request. (The former default 1 refused every later
+/// bounded solve of the process once one solve had passed its time bound.)
 pub const OUTSIDE_MAX_ABANDONED_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_ABANDONED";
 
 /// Abandoned lifts still running in this process.
@@ -1124,6 +1126,13 @@ impl EngineRecipeSolver {
     }
 }
 
+impl EngineRecipeSolver {
+    /// The cap on abandoned lifts running at once ([`OUTSIDE_MAX_ABANDONED_ENV`]; default the worker count).
+    fn abandoned_cap(&self) -> u64 {
+        env_cap(OUTSIDE_MAX_ABANDONED_ENV, self.workers.max(1)) as u64
+    }
+}
+
 impl PRecipeSolver for EngineRecipeSolver {
     fn solve(
         &self,
@@ -1145,7 +1154,7 @@ impl PRecipeSolver for EngineRecipeSolver {
         budget: Option<std::time::Duration>,
     ) -> Result<Value, String> {
         if budget.is_some() {
-            let cap = env_cap(OUTSIDE_MAX_ABANDONED_ENV, 1) as u64;
+            let cap = self.abandoned_cap();
             let running = ABANDONED_RUNNING.load(Ordering::Relaxed);
             if running >= cap {
                 return Err(format!(
@@ -3262,6 +3271,16 @@ mod kite_tests {
     /// Coordinator 2026-11-15 (T178 hand-down stall): an outside recipe solve
     /// is bounded in wall time and fails typed (BUDGET) instead of running for
     /// hours; the key then is OUTSIDE_NO_RELATION with that attempt.
+    #[test]
+    fn the_abandoned_solve_cap_defaults_to_the_worker_count() {
+        // the former default 1 refused every later bounded solve of a process after one solve passed its bound
+        if std::env::var(OUTSIDE_MAX_ABANDONED_ENV).is_err() {
+            assert_eq!(EngineRecipeSolver::new(3).abandoned_cap(), 3);
+            assert_eq!(EngineRecipeSolver::new(1).abandoned_cap(), 1);
+            assert_eq!(EngineRecipeSolver::new(0).abandoned_cap(), 1);
+        }
+    }
+
     #[test]
     fn an_outside_solve_past_its_wall_bound_fails_typed() {
         let node = "KITE-out-budget";
