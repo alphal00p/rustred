@@ -482,7 +482,8 @@ fn verify_proofs(a: &Args) {
                 };
                 let mut c = zero_proofs::HandDownCounts::default();
                 let mut p = zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask())?;
-                let lines = zero_proofs::prove_handdown_record_terms(&mut p, &mut c, a.all_lines, terms);
+                let lines =
+                    zero_proofs::prove_handdown_record_terms(&mut p, &mut c, a.all_lines, terms);
                 // independent re-checks of the re-derived claims
                 let mut bad = vec![];
                 for v in &lines {
@@ -1905,6 +1906,162 @@ fn check_zero_claims(a: &Args) {
     println!("{}", canonical_json(&s));
 }
 
+/// `handdown-witness --spec S --terms F --out W [--sample K]` (K = tries per term, default 400): for every listed term (JSON
+/// lines `{record_sha256, term, mask, planes}` as cone-excess --terms-out writes them) search a KEY where the record applies
+/// (fixed slots, equations, bounds, exception branches: `CaseDomain::applies`), the term's drop mask is exactly `mask` (no
+/// positive numerator) and its coefficient is NON-ZERO exactly (`RecordProver::word_at`); report the key, the term key, the
+/// key's D + r and whether the record is the dispatcher's FIRST MATCH there. Canonical targets only (the key = the rule
+/// point); deterministic search (seeded).
+fn handdown_witness(a: &Args) {
+    use std::sync::Mutex;
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    let tf = a.terms.clone().unwrap_or_else(|| die("--terms missing"));
+    let tries = if a.sample == 0 { 400 } else { a.sample };
+    let alg = algebra();
+    let cfg = prover_cfg(a);
+    let (set, _) = load_spec(&spec, &a.index_dir, |_| {});
+    let text =
+        std::fs::read_to_string(&tf).unwrap_or_else(|e| die(&format!("{}: {e}", tf.display())));
+    let mut by_rec: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+    for l in text.lines().filter(|l| !l.trim().is_empty()) {
+        let v: Value =
+            serde_json::from_str(l).unwrap_or_else(|e| die(&format!("{}: {e}", tf.display())));
+        by_rec
+            .entry(v["record_sha256"].as_str().unwrap_or("").to_string())
+            .or_default()
+            .push(v);
+    }
+    let lines = set.frame.mask().to_vec();
+    let n = set.arity();
+    let frames = Mutex::new(BTreeMap::new());
+    let recs: Vec<(String, Vec<Value>)> = by_rec.into_iter().collect();
+    let res = arrivals::par_map(&recs, a.threads, |(sha, entries)| -> Vec<Value> {
+        let fail = |why: String| {
+            entries.iter().map(|e| json!({"record_sha256": sha, "term": e["term"], "mask": e["mask"], "witness": null, "why": why})).collect::<Vec<_>>()
+        };
+        let Some((t, r)) = set.find_sha(sha) else {
+            return fail("record not in the set".into());
+        };
+        let (rt, frame, _) = match arrivals::read_record(&set, &frames, t, r) {
+            Ok(x) => x,
+            Err(e) => return fail(e),
+        };
+        let mut p = match zero_proofs::RecordProver::new(alg, cfg.clone(), &rt, frame.mask()) {
+            Ok(p) => p,
+            Err(e) => return fail(e),
+        };
+        let mut outv = vec![];
+        for e in entries {
+            let j = e["term"].as_u64().unwrap_or(0) as usize;
+            let want: u64 = e["mask"]
+                .as_str()
+                .unwrap_or("")
+                .bytes()
+                .enumerate()
+                .filter(|(_, b)| *b == b'1')
+                .map(|(i, _)| 1u64 << i)
+                .sum();
+            // per parameter: the candidate interval (chart of the target slot, fixed slots, drop planes)
+            let mut lo: Vec<i64> = (0..n).map(|q| if lines[q] { 1 } else { -6 }).collect();
+            let mut hi: Vec<i64> = (0..n).map(|q| if lines[q] { 6 } else { 0 }).collect();
+            for (q, f) in p.domain().fixed.iter().enumerate() {
+                if let Some(v) = f {
+                    lo[q] = *v as i64;
+                    hi[q] = *v as i64;
+                }
+            }
+            for pl in e["planes"].as_array().into_iter().flatten() {
+                if let (Some(q), plo, Some(phi)) =
+                    (pl["param"].as_u64(), pl["lo"].as_i64(), pl["hi"].as_i64())
+                {
+                    let q = q as usize;
+                    lo[q] = lo[q].max(plo.unwrap_or(phi - 3));
+                    hi[q] = hi[q].min(phi);
+                }
+            }
+            let mut found: Option<Value> = None;
+            let mut seed: u64 = 0x9E3779B97F4A7C15 ^ (j as u64);
+            for k in 0..tries {
+                let key: Vec<i32> = (0..n)
+                    .map(|q| {
+                        if lo[q] > hi[q] {
+                            return lo[q] as i32;
+                        }
+                        let span = (hi[q] - lo[q] + 1) as u64;
+                        let v = if k == 0 {
+                            if lines[q] { lo[q] } else { hi[q] }
+                        } else {
+                            seed ^= seed << 13;
+                            seed ^= seed >> 7;
+                            seed ^= seed << 17;
+                            lo[q] + (seed % span) as i64
+                        };
+                        v as i32
+                    })
+                    .collect();
+                if !matches!(
+                    p.domain().applies(&key),
+                    rustred_campaign_core::domain::Verdict::Applies
+                ) {
+                    continue;
+                }
+                let Some(pt) = p.point(&key) else { continue };
+                let Some(tk) = p.term_key(j, &pt) else {
+                    continue;
+                };
+                let mut m = 0u64;
+                let mut pos = false;
+                for (s, &v) in tk.iter().enumerate() {
+                    if lines[s] {
+                        if v <= 0 {
+                            m |= 1 << s;
+                        }
+                    } else if v > 0 {
+                        pos = true;
+                    }
+                }
+                if pos || m != want {
+                    continue;
+                }
+                if p.word_at(j, &pt) != CoefFact::NonZero {
+                    continue;
+                }
+                let fm = match set.disp.first_match(&key) {
+                    Ok(rustred_campaign_core::cover::Dispatch::Covered(rr)) => {
+                        if (rr.table, rr.record) == (t, r) {
+                            "this record".to_string()
+                        } else {
+                            format!("another record ({}, {})", rr.table, rr.record)
+                        }
+                    }
+                    Ok(d) => format!("{d:?}").chars().take(60).collect(),
+                    Err(x) => format!("error {x:?}").chars().take(60).collect(),
+                };
+                let dr: i64 = key
+                    .iter()
+                    .enumerate()
+                    .map(|(s, &v)| if lines[s] { v as i64 - 1 } else { -(v as i64) })
+                    .sum();
+                found = Some(
+                    json!({"key": key, "term_key": tk, "d_plus_r": dr, "first_match": fm, "tries": k + 1}),
+                );
+                break;
+            }
+            outv.push(json!({"record_sha256": sha, "rule": e["rule"], "term": j, "mask": e["mask"],
+                "witness": found, "why": if found.is_none() { json!(format!("no key in {tries} tries")) } else { Value::Null }}));
+        }
+        outv
+    });
+    let mut text = String::new();
+    for v in res.into_iter().flatten() {
+        text.push_str(&canonical_json(&v));
+        text.push('\n');
+    }
+    std::fs::write(&out, text).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
+    println!("{}", canonical_json(&json!({"out": out})));
+}
+
 fn header_family(p: &Path) -> Option<String> {
     let h = rustred_campaign_core::import::lines::read_header("arrivals", p).ok()?;
     h.raw
@@ -1938,6 +2095,7 @@ fn main() {
         "edge-cone" => edge_cone(&a),
         "arrival-dr" => arrival_dr(&a),
         "check-zero-claims" => check_zero_claims(&a),
+        "handdown-witness" => handdown_witness(&a),
         x => die(&format!("unknown command {x}")),
     }
 }
