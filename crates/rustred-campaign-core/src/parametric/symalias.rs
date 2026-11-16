@@ -34,7 +34,9 @@ use crate::domain::{CaseDomain, DomainOptions};
 use crate::key::NodeFrame;
 use crate::loci::contain::ProofBudget;
 use crate::order::NodeComparator;
+use crate::parametric::descent::{EmptyState, emptiness};
 use crate::parametric::permuted::{PermutedVerdict, permuted_descent};
+use crate::poly::Poly;
 use crate::record::{ReadOptions, RecordReader, RhsMode, TableLine};
 use crate::replay_base::symrows::{SlotImage, SymElement, SymGroup};
 
@@ -233,6 +235,66 @@ pub fn record_domain(rec: &Value, frame: &NodeFrame) -> Result<CaseDomain, Strin
     }
 }
 
+/// The fixed points of g on the shipped domain (TRICKS 23): where `g k = k` the one-term record `I(k) = I(g k)` is a
+/// tautology and dispatching it loops; a record may be emitted only on a domain WITHOUT fixed points.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub enum FixedPoints {
+    /// Exact: no key of the domain is fixed by g.
+    None,
+    /// A key of the domain with `g k = k`.
+    Exists { witness: Vec<i32> },
+    /// The exact test did not decide.
+    Unknown { reason: String },
+}
+
+/// The fixed-point set of `map` on `dom`: the equations `image(k)_t - k_t = 0` for every slot t (image slot t carries
+/// the target's entry of slot i with `map[i] = t`, every other image slot is 0), decided by the exact emptiness test
+/// on the domain.
+pub fn fixed_points(
+    dom: &CaseDomain,
+    frame: &NodeFrame,
+    fixed: &[Option<i64>],
+    map: &[Option<usize>],
+    budget: &ProofBudget,
+) -> FixedPoints {
+    let n = fixed.len();
+    let entry = |i: usize| -> Poly {
+        match fixed[i] {
+            Some(v) => Poly::constant(i128::from(v)),
+            None => Poly::var(i),
+        }
+    };
+    let mut eqs = Vec::new();
+    for t in 0..n {
+        let img = match (0..n).find(|&i| map.get(i).copied().flatten() == Some(t)) {
+            Some(i) => entry(i),
+            None => Poly::constant(0),
+        };
+        let d = match img.sub(&entry(t)) {
+            Ok(d) => d,
+            Err(e) => {
+                return FixedPoints::Unknown {
+                    reason: format!("{e:?}"),
+                };
+            }
+        };
+        if d.is_zero() {
+            continue;
+        }
+        if d.as_constant().is_some() {
+            return FixedPoints::None; // a slot that always moves: no fixed point anywhere
+        }
+        eqs.push(d);
+    }
+    match emptiness(dom, frame, budget, &eqs, &[]) {
+        (EmptyState::Empty, _, _) => FixedPoints::None,
+        (EmptyState::NonEmpty, Some(w), _) => FixedPoints::Exists { witness: w },
+        (st, _, why) => FixedPoints::Unknown {
+            reason: format!("{st:?} {}", why.unwrap_or_default()),
+        },
+    }
+}
+
 /// One candidate alias of a piece.
 #[derive(Clone, Debug, Serialize)]
 pub struct Candidate {
@@ -243,6 +305,8 @@ pub struct Candidate {
     pub image: String,
     /// The exact descent verdict of the alias' one term on the piece's whole domain.
     pub descent: PermutedVerdict,
+    /// The fixed points of g on the shipped domain (TRICKS 23).
+    pub fixed_points: FixedPoints,
     /// The `rule` record to ship.
     pub rule: Value,
     /// The equivalent engine `sym` record (exactness checks).
@@ -252,6 +316,12 @@ pub struct Candidate {
 impl Candidate {
     pub fn lower(&self) -> bool {
         matches!(self.descent, PermutedVerdict::Lower { .. })
+    }
+    /// May be emitted as a shipped record (TRICKS 23): the term is strictly lower on the WHOLE shipped domain AND g
+    /// has no fixed point there (exact). The engine `sym` record (no bounds) is for the exactness checks only, never
+    /// for dispatch.
+    pub fn shippable(&self) -> bool {
+        self.lower() && self.fixed_points == FixedPoints::None
     }
 }
 
@@ -291,12 +361,14 @@ pub fn candidates(
         let sym = engine_sym_record(piece, &chart_text, index, e, el, &image);
         let dom = record_domain(&rule, frame)?;
         let descent = permuted_descent(cmp, frame, &dom, &target, &image, budget);
+        let fixed_points = fixed_points(&dom, frame, &piece.fixed, &map, budget);
         out.push(Candidate {
             piece: piece.name.clone(),
             element: e,
             target: target.clone(),
             image,
             descent,
+            fixed_points,
             rule,
             sym,
         });
