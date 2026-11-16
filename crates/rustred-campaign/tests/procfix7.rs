@@ -472,7 +472,46 @@ fn mj2_a_session_in_another_time_namespace_never_hides_a_marked_process() {
         return;
     }
     let _g = serial();
-    let t = Tmp::new("pf7-mj2");
+    timens_crash_resume("pf7-mj2", None, &|_| {});
+}
+
+/// gate8 MJ8-1 (scripts/gate8/g8_timens_inner.sh t6): session 1 runs in a time namespace (+100000 s) AND cannot read its
+/// own /proc/self/ns/time (test build: `proc_nstime_emfile:1`): it records an explicit UNKNOWN (`time_ns_unknown`), and
+/// its start times are recorded as later than session 2's own start; session 2 (outside) treats both as another time
+/// namespace: bound 0, the daemon is found and killed, the campaign ends with the reference (before: no time_ns
+/// recorded = "same namespace", the shifted bound hid the daemon: rc 0 with the daemon alive).
+#[test]
+fn mj8_1_an_unreadable_time_namespace_of_the_crashed_session_is_unknown_never_the_same() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    timens_crash_resume("pf8-mj81", Some("proc_nstime_emfile:1"), &|d| {
+        let recorded = records(d)
+            .into_iter()
+            .filter_map(|r| match r.event {
+                rustred_campaign::ledger::Event::Note { text }
+                    if text.starts_with("session_lineage") =>
+                {
+                    Some(text)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            recorded
+                .first()
+                .is_some_and(|t| t.contains("\"time_ns_unknown\":true")),
+            "session 1 records the explicit unknown: {recorded:?}"
+        );
+    });
+}
+
+/// The time-namespace crash / resume scenario: session 1 under `unshare -T --boottime 100000` (with an optional test-build
+/// failpoint) leaves a marked daemon and is SIGKILLed; the resume outside must find and kill it. Hands the campaign
+/// directory to `check` (before the temporary directory is removed).
+fn timens_crash_resume(tag: &str, s1_failpoint: Option<&str>, check: &dyn Fn(&Path)) {
+    let t = Tmp::new(tag);
     let base = spec(
         &t,
         serde_json::json!({"items": 4, "nodes": 1, "rungs": 1, "seed": 8, "case_ms": [2500, 4000],
@@ -501,6 +540,7 @@ fn mj2_a_session_in_another_time_namespace_never_hides_a_marked_process() {
         .arg(&d)
         .env("PATH", path_env())
         .env_remove("RR_CAMPAIGN_FAILPOINT")
+        .envs(s1_failpoint.map(|f| ("RR_CAMPAIGN_FAILPOINT", f)))
         .stdin(Stdio::null())
         .stdout(log.try_clone().unwrap())
         .stderr(log)
@@ -540,6 +580,7 @@ fn mj2_a_session_in_another_time_namespace_never_hides_a_marked_process() {
     assert_eq!(result(&d), reference);
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);
+    check(&d);
 }
 
 /// gate7 m-nr: on a file system without renameat2 RENAME_NOREPLACE (test build: `run_dir_noreplace:1`) no run

@@ -130,22 +130,11 @@ pub fn read_marker_at(
     tid: Option<u32>,
     timeout: Duration,
 ) -> MarkerRead {
-    let first = root.environ(pid, tid, timeout);
-    // An EMPTY environ of a live process: either the execve window (the new mm is installed before its environment
-    // bounds are set; microseconds) or a real empty environment (`env -i`). Re-read once after 1 ms (procfix3, gate-B
-    // M1: a marked re-forking chain read in its exec windows looked unmarked and the orphan sweep stopped early).
-    let settled = match first {
-        Ok(b) if b.is_empty() => {
-            std::thread::sleep(Duration::from_millis(1));
-            match root.environ(pid, tid, timeout) {
-                // Still empty: zombie (no mm), exiting, or `env -i`: no marker now.
-                Ok(b) if b.is_empty() => return MarkerRead::NoMarker,
-                other => other,
-            }
-        }
-        other => other,
-    };
-    match settled {
+    // The execve window (procfix3, gate-B M1: a marked re-forking chain read inside its exec windows looked unmarked) is
+    // handled by evidence inside `ProcRoot::environ` (gate8 m8-ew: the environment bounds are 0 / 0 until the new image
+    // sets them; the read waits while that holds, bounded, then Unreadable): an EMPTY result here is a real empty
+    // environment (`env -i`), a zombie or a kernel thread: no marker now.
+    match root.environ(pid, tid, timeout) {
         Ok(b) => match marker_in_environ(&b) {
             Some(v) => MarkerRead::Marker(v),
             None => MarkerRead::NoMarker,

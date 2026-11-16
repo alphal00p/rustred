@@ -144,7 +144,8 @@ pub struct Snapshot {
     /// CPUs inside a restricted affinity of some process outside the tracked sessions (only when configured).
     pub foreign_pinned: Option<BTreeSet<usize>>,
     pub processes_seen: usize,
-    /// Per-pid reads that failed with something other than "gone".
+    /// Per-pid reads (and the listing) that failed with something other than "gone". Non-zero: the scan is INCOMPLETE
+    /// and [`Snapshot::session`] gives no usage from it.
     pub read_errors: u64,
     /// Host memory read just before the scan listed /proc, and just after it finished.
     pub host_before: Option<MemInfo>,
@@ -179,7 +180,13 @@ impl Snapshot {
             .filter(move |p| p.attempt_id == marker.attempt_id && p.start_ticks >= not_before)
     }
 
+    /// The usage of a tracked session, only from a COMPLETE scan (procfix7 round 4, the /proc class: a scan with a failed
+    /// read may have missed a member of any session; its usage is never a measurement, so the caller's last one ages and
+    /// admission charges the full cap for it).
     pub fn session(&self, sid: u32) -> Option<&SessionUsage> {
+        if self.read_errors > 0 {
+            return None;
+        }
         self.sessions.get(&sid)
     }
     pub fn scan_duration(&self) -> Duration {

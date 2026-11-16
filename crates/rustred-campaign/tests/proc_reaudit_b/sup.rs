@@ -1134,7 +1134,22 @@ fn s_recover2(c: &mut Ctx) {
         .find(|r| r["label"] == "J4")
         .unwrap();
     let id4: ProcessIdentity = serde_json::from_value(j4["identity"].clone()).unwrap();
-    match l.reattach(&id4, "J4", ReattachChoice::Adopt) {
+    // gate8 m8-reattach: under load a marker read can time out: reattach is then UNDECIDED (an error), never Lost; try
+    // again (bounded) as a caller must
+    let mut r4 = l.reattach(&id4, "J4", ReattachChoice::Adopt);
+    for _ in 0..50 {
+        match &r4 {
+            Err(e)
+                if e.to_string()
+                    .starts_with(rustred_campaign::launch::REATTACH_UNDECIDED) =>
+            {
+                std::thread::sleep(Duration::from_millis(200));
+                r4 = l.reattach(&id4, "J4", ReattachChoice::Adopt);
+            }
+            _ => break,
+        }
+    }
+    match r4 {
         Ok(Reattached::Live(mut h)) => {
             let mut states = vec![];
             for _ in 0..8 {

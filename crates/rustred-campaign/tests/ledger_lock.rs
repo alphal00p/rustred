@@ -202,6 +202,17 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
         other => panic!("expected HeldByLiveOwner, got {other:?}"),
     }
     let token = lock::read_owner(&d).unwrap().unwrap().token;
+    // gate8 (i): std's spawn returns inside execve, before the new image's environment bounds are set (its environ reads
+    // EMPTY for a moment, 2,754 of 3,000 spawns in tests/gate8_flake.rs): wait until the child's environ is readable
+    // (bounded) before judging the token scan.
+    let t0 = Instant::now();
+    while !std::fs::read(format!("/proc/{child_pid}/environ")).is_ok_and(|b| !b.is_empty()) {
+        assert!(
+            t0.elapsed() < Duration::from_secs(10),
+            "the child's environ never became readable"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(
         lock::scan_token_holders(&token),
         vec![child_pid],

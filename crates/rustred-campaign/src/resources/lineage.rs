@@ -70,6 +70,11 @@ pub struct SessionLineage {
     /// namespace's boottime offset: only sessions of ONE time namespace compare). None: unknown (older notes / kernel).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub time_ns: Option<u64>,
+    /// procfix7 round 4 (gate8 MJ8-1): this session could NOT read its own time namespace (any failure): recorded as an
+    /// explicit unknown, which every later session treats as ANOTHER time namespace (rule off, bound 0). An ABSENT field
+    /// (false: an older binary) counts as the same namespace (RUNBOOK A4).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub time_ns_unknown: bool,
 }
 
 impl SessionLineage {
@@ -78,15 +83,17 @@ impl SessionLineage {
         let root = procfs::sys();
         let pid = std::process::id();
         let st = root.stat(pid).map_err(|e| format!("own stat: {e}"))?;
+        let tns = own_time_ns();
         Ok(Self {
             pid,
             start_ticks: st.start_ticks,
             boot_id: super::boot_id().map_err(|e| format!("boot id: {e}"))?,
             pid_ns: own_pid_ns().map_err(|e| format!("pid namespace: {e}"))?,
             ancestors: verified_ancestors_at(&root, pid, st.start_ticks)?,
-            // the RECORD of an unknown time namespace (MJ-2: a later session that reads one counts as another)
-            // procfix8-ok: Gone (no time namespaces) and Unreadable are both recorded as "unknown" (None), by design
-            time_ns: own_time_ns().ok(),
+            // procfix8-ok: a failed read (Gone included: an injected / spurious ENOENT cannot be told from a kernel without
+            // time namespaces) is recorded as an explicit unknown (gate8 MJ8-1), never as "the same"
+            time_ns: tns.clone().ok(),
+            time_ns_unknown: tns.is_err(),
         })
     }
 
@@ -118,9 +125,13 @@ pub fn own_time_ns() -> ProcResult<u64> {
 
 impl SessionLineage {
     /// procfix7 (gate7 MJ-2): did this session run in ANOTHER time namespace than `current`? Recorded and current differ,
-    /// or recorded while the current one is unknown (cannot be shown the same: different). Nothing recorded (an older
-    /// binary, a failed read) counts as the same (RUNBOOK A4).
+    /// or recorded while the current one is unknown, or (gate8 MJ8-1) this session recorded an explicit UNKNOWN (it could
+    /// not read its own): cannot be shown the same, so different. Only an absent record (an older binary) counts as the
+    /// same (RUNBOOK A4).
     pub fn other_time_ns(&self, current: &SessionLineage) -> bool {
+        if self.time_ns_unknown {
+            return true;
+        }
         match (self.time_ns, current.time_ns) {
             (Some(a), Some(b)) => a != b,
             (Some(_), None) => true,
@@ -283,6 +294,26 @@ impl LineageRules {
                 return Err(format!(
                     "session pid {} (start {}) of this boot ran in another time namespace",
                     n.pid, n.start_ticks
+                ));
+            }
+        }
+        // procfix7 round 4 (gate8 MJ8-1): an EARLIER session that started after this one (by the start times as recorded)
+        // is impossible within one time namespace: its starts are shifted, nothing compares (rule off)
+        for (pid, start) in sessions
+            .iter()
+            .filter(|s| s.boot_id == *boot)
+            .map(|s| (s.pid, s.start_ticks))
+            .chain(
+                notes
+                    .iter()
+                    .filter(|n| n.boot_id == *boot)
+                    .map(|n| (n.pid, n.start_ticks)),
+            )
+        {
+            if (pid, start) != me && start > current.start_ticks {
+                return Err(format!(
+                    "session pid {pid} (start {start}) of this boot is recorded as starting after this session (start {}): another time namespace",
+                    current.start_ticks
                 ));
             }
         }
@@ -524,6 +555,7 @@ mod tests {
             pid_ns: ns,
             ancestors: anc.to_vec(),
             time_ns: None,
+            time_ns_unknown: false,
         }
     }
 
@@ -814,6 +846,33 @@ mod tests {
                 .unwrap_err()
                 .contains("time namespace")
         );
+        // gate8 MJ8-1: an earlier session that recorded an explicit UNKNOWN (it could not read its own) is another one
+        let unknown_recorded = SessionLineage {
+            time_ns: None,
+            time_ns_unknown: true,
+            ..lineage(600, 8_000, "b2", 7, &[(1, 1)])
+        };
+        assert!(
+            LineageRules::build(&s, &[unknown_recorded, me.clone()], &me, true)
+                .unwrap_err()
+                .contains("time namespace")
+        );
+        // gate8 MJ8-1: an earlier session recorded as starting AFTER this one (its starts are shifted): another one, even
+        // without any time namespace record (an older note)
+        let later = [session(600, 12_000, "b2"), session(900, 10_000, "b2")];
+        let older_note = lineage(600, 12_000, "b2", 7, &[(1, 1)]);
+        assert!(
+            LineageRules::build(&later, &[older_note, me.clone()], &me, true)
+                .unwrap_err()
+                .contains("starting after this session")
+        );
+        // the note round trip keeps the explicit unknown; an absent field reads as known-or-older (false)
+        let u = SessionLineage {
+            time_ns_unknown: true,
+            ..me.clone()
+        };
+        assert_eq!(SessionLineage::parse_note(&u.note_text()), Some(u));
+        assert!(!me.note_text().contains("time_ns_unknown"));
     }
 
     /// Rules installed for one campaign are not used for another, and only by the process that installed them.

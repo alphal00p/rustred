@@ -391,7 +391,9 @@ pub(crate) fn row_certified(r: &KeyRow, required: Level, basis_ok: bool) -> bool
 /// Run one pass. `cached` = the node's set loaded by an earlier pass (the load dominates small passes).
 pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOut, String> {
     let t0 = std::time::Instant::now();
-    // TESTS ONLY (lane closeloop4): a slow pass (the supervisor must stay responsive while a pass runs)
+    // TESTS ONLY (lane closeloop4): a slow pass (the supervisor must stay responsive while a pass runs). procfix7 round 4
+    // (gate8 m8-rel): test builds only, as every other test hook (gate rule d): a release build never reads the variable.
+    #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var("RR_CLOSELOOP_TEST_PASS_DELAY_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())

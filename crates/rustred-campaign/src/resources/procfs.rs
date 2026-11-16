@@ -29,8 +29,8 @@
 //!
 //! Fault injection (TEST BUILDS ONLY, compiled out of a release build, whose `RR_CAMPAIGN_FAILPOINT` refusal covers it):
 //! `RR_CAMPAIGN_FAILPOINT=proc_<kind>_<mode>:<every>[,proc_pid:<pid>]` makes every `<every>`-th read of that kind fail
-//! (optionally only reads of one pid); kinds: listing tasks stat status environ cgroup ns children piddir cwd fd statm
-//! smaps fdinfo system; modes: emfile eio eacces enomem (that errno), short (a torn read: the second half missing; for a
+//! (optionally only reads of one pid); kinds: listing tasks stat status environ cgroup ns nstime children piddir cwd fd
+//! statm smaps fdinfo system; modes: emfile eio eacces enomem (that errno), short (a torn read: the second half missing; for a
 //! listing: the libc enumeration ends early without an error), garbage (unparsable content; for a listing an entry
 //! "7x"), partial (every read() returns at most 7 bytes: the result must be complete and equal).
 
@@ -112,8 +112,10 @@ pub enum Kind {
     Status,
     Environ,
     Cgroup,
-    /// Namespace links / inodes (`/proc/<pid>/ns/*`).
+    /// Namespace links / inodes (`/proc/<pid>/ns/*`) other than the time namespace.
     Ns,
+    /// `/proc/self/ns/time` (its own kind: gate8 MJ8-1's injected failure).
+    NsTime,
     Children,
     /// The owner of `/proc/<pid>` (its effective uid) and the openability checks.
     PidDir,
@@ -128,7 +130,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 15] = [
+    pub const ALL: [Kind; 16] = [
         Kind::Listing,
         Kind::Tasks,
         Kind::Stat,
@@ -136,6 +138,7 @@ impl Kind {
         Kind::Environ,
         Kind::Cgroup,
         Kind::Ns,
+        Kind::NsTime,
         Kind::Children,
         Kind::PidDir,
         Kind::Cwd,
@@ -155,6 +158,7 @@ impl Kind {
             Kind::Environ => "environ",
             Kind::Cgroup => "cgroup",
             Kind::Ns => "ns",
+            Kind::NsTime => "nstime",
             Kind::Children => "children",
             Kind::PidDir => "piddir",
             Kind::Cwd => "cwd",
@@ -487,16 +491,17 @@ impl ProcRoot {
 
     /// `/proc/<pid>/stat`, complete and parsed.
     pub fn stat(&self, pid: u32) -> ProcResult<ProcStat> {
-        Ok(self.stat_full(pid, None)?.0)
+        Ok(self.stat_full(pid, None)?.st)
     }
 
     /// `/proc/<pid>/task/<tid>/stat` (Gone: that thread is gone). The pid field of the result is `pid`.
     pub fn task_stat(&self, pid: u32, tid: u32) -> ProcResult<ProcStat> {
-        Ok(self.stat_full(pid, Some(tid))?.0)
+        Ok(self.stat_full(pid, Some(tid))?.st)
     }
 
-    /// The stat and the environment bounds (fields 50 / 51; None on a kernel that does not report them).
-    fn stat_full(&self, pid: u32, tid: Option<u32>) -> ProcResult<(ProcStat, Option<(u64, u64)>)> {
+    /// The stat, the environment bounds (fields 50 / 51; None on a kernel that does not report them) and the flags
+    /// (field 9).
+    fn stat_full(&self, pid: u32, tid: Option<u32>) -> ProcResult<StatFull> {
         let rel = match tid {
             Some(t) => format!("{pid}/task/{t}/stat"),
             None => format!("{pid}/stat"),
@@ -523,13 +528,23 @@ impl ProcRoot {
         let text = String::from_utf8_lossy(&b);
         let st = parse_stat(pid, &text, page_size())
             .ok_or_else(|| ProcError::Unreadable(format!("{}: unparsable", self.what(&rel))))?;
-        let env = text.rfind(')').and_then(|c| {
-            let f: Vec<&str> = text.get(c + 2..)?.split_whitespace().collect();
-            let s = f.get(47)?.parse::<u64>().ok()?;
-            let e = f.get(48)?.parse::<u64>().ok()?;
-            Some((s, e))
-        });
-        Ok((st, env))
+        let fields: Vec<&str> = text
+            .rfind(')')
+            .and_then(|c| text.get(c + 2..))
+            .map(|t| t.split_whitespace().collect())
+            .unwrap_or_default();
+        let env = match (
+            fields.get(47).and_then(|v| v.parse::<u64>().ok()),
+            fields.get(48).and_then(|v| v.parse::<u64>().ok()),
+        ) {
+            (Some(s), Some(e)) => Some((s, e)),
+            _ => None,
+        };
+        let flags = fields
+            .get(6)
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0);
+        Ok(StatFull { st, env, flags })
     }
 
     /// `/proc/<pid>/status`, complete.
@@ -563,16 +578,43 @@ impl ProcRoot {
             Some(t) => format!("{pid}/task/{t}/environ"),
             None => format!("{pid}/environ"),
         };
-        let mut last = String::from("no attempt");
-        for _ in 0..3 {
-            let (s1, b1) = self.stat_full(pid, tid)?;
+        let mut last: String;
+        let mut changed = 0u32;
+        // gate8 m8-ew: the EXEC WINDOW is judged by evidence, not by a constant re-read: inside execve the new image's
+        // environment bounds are not set yet (stat fields 50 / 51 read 0 / 0) and the environ reads empty. While that
+        // evidence holds (a live process, not a kernel thread, the same start time), the read is repeated with a growing
+        // pause, at most EXEC_WINDOW_BOUND; still in the window then: Unreadable (never "no marker").
+        let window_ends = std::time::Instant::now() + EXEC_WINDOW_BOUND;
+        let mut nap = Duration::from_micros(100);
+        loop {
+            let a = self.stat_full(pid, tid)?;
             let env = self.read_file(Kind::Environ, Some(pid), &rel)?;
-            let (s2, b2) = self.stat_full(pid, tid)?;
-            if s1.start_ticks != s2.start_ticks || b1 != b2 {
+            let b = self.stat_full(pid, tid)?;
+            if a.st.start_ticks != b.st.start_ticks || a.env != b.env {
+                changed += 1;
                 last = "the process changed (exec) during the read".into();
+                if changed >= 3 {
+                    break;
+                }
                 continue;
             }
-            match b1 {
+            let in_window = env.is_empty()
+                && a.env == Some((0, 0))
+                && !a.st.is_dead()
+                && a.flags & PF_KTHREAD == 0;
+            if in_window {
+                if std::time::Instant::now() >= window_ends {
+                    return unreadable(format!(
+                        "{}: still inside execve after {} ms (environment bounds not set)",
+                        self.what(&rel),
+                        EXEC_WINDOW_BOUND.as_millis()
+                    ));
+                }
+                std::thread::sleep(nap);
+                nap = (nap * 2).min(Duration::from_millis(5));
+                continue;
+            }
+            match a.env {
                 Some((start, end)) => {
                     let want = end.saturating_sub(start);
                     if env.len() as u64 == want {
@@ -588,6 +630,10 @@ impl ProcRoot {
                     }
                     last = "two reads differ".into();
                 }
+            }
+            changed += 1;
+            if changed >= 3 {
+                break;
             }
         }
         unreadable(format!("{}: {last}", self.what(&rel)))
@@ -711,13 +757,13 @@ impl ProcRoot {
     /// The inode of `/proc/self/ns/<kind>` (Gone: the kernel has no such namespace type).
     pub fn self_ns_ino(&self, kind: &str) -> ProcResult<u64> {
         Ok(self
-            .metadata(Kind::Ns, None, &format!("self/ns/{kind}"))?
+            .metadata(ns_kind(kind), None, &format!("self/ns/{kind}"))?
             .ino())
     }
 
     /// The link text of `/proc/self/ns/<kind>` (`pid:[4026531836]`).
     pub fn self_ns_link(&self, kind: &str) -> ProcResult<String> {
-        let l = self.read_link(Kind::Ns, None, &format!("self/ns/{kind}"))?;
+        let l = self.read_link(ns_kind(kind), None, &format!("self/ns/{kind}"))?;
         let s = l.to_string_lossy().into_owned();
         if !s.starts_with(&format!("{kind}:[")) || !s.ends_with(']') {
             return unreadable(format!("self/ns/{kind}: unexpected link {s:?}"));
@@ -883,6 +929,29 @@ impl ProcRoot {
         self.read_lines(Kind::System, None, "self/uid_map")
     }
 }
+
+fn ns_kind(kind: &str) -> Kind {
+    if kind == "time" {
+        Kind::NsTime
+    } else {
+        Kind::Ns
+    }
+}
+
+/// A stat with the fields the environ rule needs.
+struct StatFull {
+    st: ProcStat,
+    /// (env_start, env_end), fields 50 / 51 (None: not reported).
+    env: Option<(u64, u64)>,
+    /// Field 9.
+    flags: u64,
+}
+
+/// `PF_KTHREAD` of the stat flags: a kernel thread (no environment, never a window).
+const PF_KTHREAD: u64 = 0x0020_0000;
+
+/// The longest exec window waited for (gate8 measured up to 1.8 ms; under a CPU quota it stretches).
+pub const EXEC_WINDOW_BOUND: Duration = Duration::from_millis(100);
 
 /// What a pidfd's fdinfo names.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1172,6 +1241,7 @@ mod tests {
                 Kind::Environ => format!("{}", r.environ(pid, None, Duration::from_secs(5))?.len()),
                 Kind::Cgroup => format!("{:?}", r.self_cgroup_v2()?),
                 Kind::Ns => format!("{} {}", r.self_ns_ino("pid")?, r.self_ns_link("pid")?),
+                Kind::NsTime => format!("{} {}", r.self_ns_ino("time")?, r.self_ns_link("time")?),
                 Kind::Children => format!("{:?}", r.children(pid, pid)?),
                 Kind::PidDir => format!("{} {:?}", r.owner_uid(pid)?, r.environ_access(pid)),
                 Kind::Cwd => r.cwd(pid)?.display().to_string(),

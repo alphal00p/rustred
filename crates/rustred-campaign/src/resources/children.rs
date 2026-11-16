@@ -177,18 +177,9 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
             (true, Some(t)) => Some(t),
             _ => None,
         };
-        // An EMPTY environ is read again after 1 ms (the execve window: the new mm is installed before its environment
-        // bounds are set; observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` read empty once); empty twice is
-        // a real empty environment (`env -i`).
-        let read = || root.environ(pid, tid, FACTS_ENVIRON_TIMEOUT);
-        let r = match read() {
-            Ok(b) if b.is_empty() => {
-                std::thread::sleep(Duration::from_millis(1));
-                read()
-            }
-            other => other,
-        };
-        match r {
+        // The execve window (observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` read empty once) is handled
+        // by evidence inside `ProcRoot::environ` (gate8 m8-ew); an EMPTY result is a real empty environment (`env -i`).
+        match root.environ(pid, tid, FACTS_ENVIRON_TIMEOUT) {
             Ok(b) if b.is_empty() => MarkerFact::EmptyEnviron,
             Ok(b) => match super::marker_in_environ(&b) {
                 Some(v) => MarkerFact::Value(v),

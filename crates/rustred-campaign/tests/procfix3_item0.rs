@@ -30,9 +30,13 @@ struct Seen {
     ledger: Result<usize, String>,
     verify: i32,
     log_bytes: usize,
+    /// procfix7 round 4 (gate8 m8-rm): what the removal took, judged right after it: true when something the supervisor
+    /// checks is gone (the campaign directory, its ledger directory, the manifest or the lock file). `remove_dir_all`
+    /// can stop part-way (the running supervisor creates files under it) before reaching any of them.
+    essential_gone: bool,
 }
 
-fn look(cdir: &Path, code: i32) -> Seen {
+fn look(cdir: &Path, code: i32, essential_gone: bool) -> Seen {
     let ledger = rustred_campaign::ledger::open_read_only(cdir)
         .map(|v| {
             rustred_campaign::supervisor::result::final_result(&v.state)
@@ -48,6 +52,7 @@ fn look(cdir: &Path, code: i32) -> Seen {
         ledger,
         verify: cli(&["verify", cdir.to_str().unwrap()]).0,
         log_bytes,
+        essential_gone,
     }
 }
 
@@ -67,9 +72,13 @@ fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Seen
     let mut c = start(spec_p, &dir, &[], &[]);
     std::thread::sleep(remove_after);
     let _ = std::fs::remove_dir_all(&dir);
+    let essential_gone = !dir.exists()
+        || !dir.join("ledger").exists()
+        || !dir.join("ledger").join("MANIFEST.json").exists()
+        || !dir.join(rustred_campaign::lock::LOCK_FILE).exists();
     let _ = std::fs::remove_file(dir.with_extension("log"));
     let code = wait(&mut c, Duration::from_secs(600));
-    look(&dir, code)
+    look(&dir, code, essential_gone)
 }
 
 #[test]
@@ -80,8 +89,18 @@ fn campaign_directory_removed_during_a_resume_is_never_exit_0() {
     for ms in [400u64, 1500] {
         let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms));
         eprintln!("removal after {ms} ms: {s:?}");
-        assert_ne!(s.code, 0, "removal after {ms} ms: {s:?}");
-        assert_eq!(s.code, 70, "removal after {ms} ms: {s:?}");
+        if s.essential_gone {
+            // the directory (or a part the supervisor checks) was removed: its typed end, never 0
+            assert_ne!(s.code, 0, "removal after {ms} ms: {s:?}");
+            assert_eq!(s.code, 70, "removal after {ms} ms: {s:?}");
+        } else {
+            // gate8 m8-rm: remove_dir_all stopped before anything essential: 70 (a run directory lost its identity) or a
+            // normal end whose ledger verifies
+            assert!(
+                s.code == 70 || (finished(s.code) && s.verify == 0),
+                "removal after {ms} ms (stopped before anything essential): {s:?}"
+            );
+        }
         assert_no_marked(&t.campaign);
     }
 }
@@ -198,7 +217,7 @@ fn collide_like_two_i1_runs() {
                 codes.extend(run_to_end(&spec_p, &dir, &[]));
             }
         }));
-        let seen = look(&dir, *codes.last().unwrap_or(&-1));
+        let seen = look(&dir, *codes.last().unwrap_or(&-1), false);
         let got = rustred_campaign::ledger::open_read_only(&dir)
             .map(|v| rustred_campaign::supervisor::result::final_result(&v.state));
         let same = got.as_ref().is_ok_and(|g| *g == reference);

@@ -1468,11 +1468,29 @@ impl Supervisor {
             // (Gone: no time namespaces on this kernel; Unreadable: unknown; both compare as "none recorded now")
             // procfix8-ok: an unknown current one against a recorded one counts as different (the filter below)
             let now: Option<u64> = crate::resources::lineage::own_time_ns().ok();
-            let other: Vec<String> = lineages
+            let mut other: Vec<String> = lineages
                 .iter()
-                .filter(|l| l.boot_id == self.boot_id && l.time_ns.is_some() && l.time_ns != now)
+                .filter(|l| {
+                    l.boot_id == self.boot_id
+                        // gate8 MJ8-1: an explicit unknown recorded by that session counts as another namespace
+                        && (l.time_ns_unknown || (l.time_ns.is_some() && l.time_ns != now))
+                })
                 .map(|l| format!("pid {} (start {})", l.pid, l.start_ticks))
                 .collect();
+            // gate8 MJ8-1: an earlier session recorded as starting AFTER this one cannot be of this time namespace
+            let (own_pid, own_start) = match &self.lineage {
+                Ok(me) => (me.pid, me.start_ticks),
+                Err(_) => (std::process::id(), orphans::own_start_ticks()),
+            };
+            for s in sessions.iter().filter(|s| s.boot_id == self.boot_id) {
+                let label = format!("pid {} (start {})", s.pid, s.start_ticks);
+                if (s.pid, s.start_ticks) != (own_pid, own_start)
+                    && s.start_ticks > own_start
+                    && !other.contains(&label)
+                {
+                    other.push(label);
+                }
+            }
             if !other.is_empty() {
                 self.log.line(
                     "WARN",
@@ -4472,7 +4490,15 @@ impl Supervisor {
     /// them. They are REPORTED (note `hidden_descendants`, the pids and names) and the run does not claim a clean end
     /// (exit 8); they are never judged ours and never signalled.
     fn hidden_descendants_check(&mut self) -> Result<(), String> {
-        let hidden = match crate::resources::hidden_descendants() {
+        // procfix7 round 4 (gate8 m8-mut2): test builds: `hidden_descendants_unreadable:1` = the check's /proc reads fail
+        let read = if self.fp.armed("hidden_descendants_unreadable") {
+            Err(std::io::Error::other(
+                "TEST BUILD failpoint hidden_descendants_unreadable: the listing failed",
+            ))
+        } else {
+            crate::resources::hidden_descendants()
+        };
+        let hidden = match read {
             Ok(v) => v,
             Err(e) => {
                 // procfix7 (gate7 B1, the class): a check that could not run proves nothing: never a clean end

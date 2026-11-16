@@ -261,3 +261,116 @@ fn g8_b1_gate8_preload_injector_never_gives_exit_0() {
         kill_pid(dp);
     }
 }
+
+/// gate8 m8-mut2: the check for hidden descendants that cannot RUN (its /proc reads fail; test build:
+/// `hidden_descendants_unreadable:1`) is never a clean end: exit 8 with the ledger note `hidden_descendants_unchecked`
+/// (a mutation that made the failed check pass went unnoticed by every test before).
+#[test]
+fn m8_mut2_an_unchecked_hidden_descendant_check_is_never_a_clean_end() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf8-hdu");
+    let v = spec(
+        &t,
+        serde_json::json!({"items": 3, "nodes": 1, "rungs": 1, "seed": 4, "case_ms": [100, 300],
+            "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.0, "deps": 0.0}),
+        serde_json::json!({"max_jobs": 2}),
+    );
+    let sp = write_spec(&t, "spec.json", &v);
+    let d = t.cdir("c");
+    let mut c = start(
+        &sp,
+        &d,
+        &["--plain"],
+        &[("RR_CAMPAIGN_FAILPOINT", "hidden_descendants_unreadable:1")],
+    );
+    let code = wait(&mut c, Duration::from_secs(300));
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    assert!(
+        !notes(&d, "hidden_descendants_unchecked").is_empty(),
+        "{}",
+        log_tail(&d)
+    );
+    // without the failpoint the same campaign directory ends normally
+    let codes = run_to_end(&sp, &d, &["--plain"]);
+    assert!(
+        finished(*codes.last().unwrap()),
+        "{codes:?}: {}",
+        log_tail(&d)
+    );
+}
+
+/// gate8 m8-mut1 (gate7 m-xdg): the fallback directory of the intent logs is used only when it is a real directory owned
+/// by us and closed to group / others: a base made world-accessible, a key directory with mode 0755, and a key directory
+/// that is a symlink are each REFUSED (a mutation that dropped the mode check went unnoticed by every test before).
+/// Runs on the test namespace's PRIVATE /dev/shm (sup_common::private_shm), never on the host's.
+#[test]
+fn m8_mut1_the_fallback_directory_must_be_private() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf8-xdg");
+    use rustred_campaign::launch::{
+        intent_fallback_base, intent_fallback_dir_checked, intent_fallback_logs,
+    };
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    let cdir = |n: &str| {
+        let p = t.path.join(n);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    };
+    let key = |c: &Path| {
+        let m = std::fs::metadata(c).unwrap();
+        intent_fallback_base().join(format!("{}-{}", m.dev(), m.ino()))
+    };
+    let chmod = |p: &Path, mode: u32| {
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).unwrap()
+    };
+    // a private base and key directory: accepted (created 0700)
+    let c1 = cdir("c1");
+    let d1 = intent_fallback_dir_checked(&c1, true).unwrap();
+    assert_eq!(
+        std::fs::metadata(&d1).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    // the base made accessible to group / others: refused (create and list)
+    let base = intent_fallback_base();
+    chmod(&base, 0o777);
+    let e = intent_fallback_dir_checked(&cdir("c2"), true).unwrap_err();
+    assert!(
+        e.to_string().contains("accessible to group / others"),
+        "{e}"
+    );
+    assert!(
+        intent_fallback_logs(&c1).is_err(),
+        "a public base is never listed"
+    );
+    chmod(&base, 0o700);
+    // a key directory with mode 0755: refused
+    let c3 = cdir("c3");
+    std::fs::DirBuilder::new()
+        .mode(0o755)
+        .create(key(&c3))
+        .unwrap();
+    chmod(&key(&c3), 0o755);
+    let e = intent_fallback_dir_checked(&c3, true).unwrap_err();
+    assert!(
+        e.to_string().contains("accessible to group / others"),
+        "{e}"
+    );
+    // a key directory that is a symlink (to a private directory): refused
+    let c4 = cdir("c4");
+    let target = t.path.join("elsewhere");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&target)
+        .unwrap();
+    std::os::unix::fs::symlink(&target, key(&c4)).unwrap();
+    let e = intent_fallback_dir_checked(&c4, true).unwrap_err();
+    assert!(e.to_string().contains("symlink"), "{e}");
+    // the private one still works
+    assert!(intent_fallback_dir_checked(&c1, false).is_ok());
+}

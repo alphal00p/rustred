@@ -169,7 +169,9 @@ pub struct Resources {
     pub start_timeout_s: u64,
     /// procfix7 (gate7 MJ-1): how long a job's end may stay UNPROVEN (e.g. a non-dumpable descendant that keeps its
     /// marker unreadable) before the supervisor stops waiting for the proof: it names every process that may hold the
-    /// attempt, releases the attempt's CPU lease and arms the exit-8 rule (the hunt keeps going meanwhile). Default 600.
+    /// attempt, releases the attempt's CPU lease and arms the exit-8 rule (the hunt keeps going meanwhile). Default 600;
+    /// procfix7 round 4 (gate8 m8-lim): 1 ..= [`MAX_UNPROVEN_END_LIMIT_S`] (one day), else the spec is refused (a huge value
+    /// would bring back the never-ending quarantine of gate7 MJ-1).
     #[serde(default = "d_unproven_end_limit")]
     pub unproven_end_limit_s: u64,
     /// Allow running on a kernel without pidfd (signals then use the documented weaker path). Default false: refused.
@@ -208,6 +210,9 @@ fn d_sampler_ms() -> u64 {
 fn d_start_timeout() -> u64 {
     60
 }
+
+/// The largest `resources.unproven_end_limit_s` a spec may set (one day).
+pub const MAX_UNPROVEN_END_LIMIT_S: u64 = 86_400;
 
 fn d_unproven_end_limit() -> u64 {
     600
@@ -442,6 +447,12 @@ impl CampaignSpec {
         if self.resources.max_jobs == 0 {
             return Err("resources.max_jobs is 0".into());
         }
+        if !(1..=MAX_UNPROVEN_END_LIMIT_S).contains(&self.resources.unproven_end_limit_s) {
+            return Err(format!(
+                "resources.unproven_end_limit_s {}: 1 ..= {MAX_UNPROVEN_END_LIMIT_S} (one day)",
+                self.resources.unproven_end_limit_s
+            ));
+        }
         if let Some(s) = &self.synthetic {
             if s.items == 0 || s.nodes == 0 || s.rungs == 0 || s.rungs > 9 {
                 return Err("synthetic: items, nodes > 0 and 1 <= rungs <= 9".into());
@@ -546,6 +557,13 @@ mod tests {
         .unwrap();
         s.validate().unwrap();
         assert_eq!(s.resources.mem_total.0, 4_000_000_000);
+        assert_eq!(s.resources.unproven_end_limit_s, 600);
+        // gate8 m8-lim: the unproven-end limit is bounded (1 s ..= one day)
+        for (v, ok) in [(0u64, false), (1, true), (86_400, true), (86_401, false)] {
+            let mut x = s.clone();
+            x.resources.unproven_end_limit_s = v;
+            assert_eq!(x.validate().is_ok(), ok, "unproven_end_limit_s {v}");
+        }
         assert!(
             serde_json::from_str::<CampaignSpec>(r#"{"schema":"x","campaign":"t","bogus":1}"#)
                 .is_err()

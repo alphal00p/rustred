@@ -134,6 +134,9 @@ pub fn adhoc_campaign_id() -> String {
     format!("adhoc-{ns}-{me}-{start}")
 }
 
+/// The start of the error text of a [`Launcher::reattach`] that could not decide (an unreadable candidate): retryable.
+pub const REATTACH_UNDECIDED: &str = "reattach undecided";
+
 /// Why [`RealLauncher::try_with_config`] refused.
 #[derive(Debug)]
 pub enum LauncherError {
@@ -1091,6 +1094,16 @@ impl ChildLauncher for RealLauncher {
             recorded.start_ticks,
             &BTreeSet::new(),
         )?;
+        // procfix7 round 4 (gate8 m8-reattach, the /proc class): a candidate whose environ could not be read (a timed-out
+        // or refused read under load) may be a member: UNDECIDED (an error, try again), never "not a member" (it made a
+        // live adopted job Lost(Gone): the rb_recover flake)
+        if scan.unreadable > 0 {
+            return Err(io::Error::other(format!(
+                "{REATTACH_UNDECIDED}: {} candidate(s) of our uid whose environ cannot be read may carry this attempt's marker ({}); nothing was signalled; try again",
+                scan.unreadable,
+                crate::resources::describe_hidden(&scan.hidden)
+            )));
+        }
         let members: Vec<&MarkedProcess> = scan
             .processes
             .iter()
