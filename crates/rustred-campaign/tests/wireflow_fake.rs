@@ -296,27 +296,25 @@ fn without_the_kernel_a_two_row_form_is_not_served() {
         round["composite_input"]["kernel_certificates"].is_null(),
         "{round:#}"
     );
-    // the two-row key stays open (the import serves a two-row line only with a kernel certificate)
-    let check = read_json(&cdir.join("closeloop/N/repairflow/check.json"));
-    let k0 = json!(keys()[0]);
-    assert!(
-        check["faces"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|f| f["open_keys"].as_array().unwrap().contains(&k0)),
-        "{check:#}"
-    );
+    // F8: a two-row line never enters through the SAME-BACKEND route; without a kernel it has no certificate. (The
+    // fake's "two-row" form is a relabelled ONE-element relation, so the import's own exact group re-derivation, route
+    // (a), may serve it per-key: sound evidence of its own; a genuine two-row combination (a row at a shifted seed)
+    // fails that route.)
     let rows = statement(&cdir);
     if let Some(r0) = rows.get(&key_text(&keys()[0])) {
-        assert!(!r0.to_string().contains("rf:symmetry-composite"), "{r0:#}");
+        let t = r0.to_string();
+        assert!(!t.contains("same_backend") && !t.contains("kernel_certified"), "{r0:#}");
+        if t.contains("rf:symmetry-composite") {
+            assert!(t.contains("\"basis\":\"symmetry_relation\""), "{r0:#}");
+        }
     }
-    // the plain relations are served (group re-derivation at load)
+    // the plain relations are served per-key (the import's own group re-derivation at load: `verify` = {})
     let r1 = rows
         .get(&key_text(&keys()[2]))
         .map(|v| v.to_string())
         .unwrap_or_default();
     assert!(r1.contains("rf:symmetry-composite:r1"), "{r1}");
+    assert!(r1.contains("\"evidence\":\"per-key\""), "{r1}");
 }
 
 type Outcome = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);

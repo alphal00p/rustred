@@ -164,9 +164,12 @@ pub fn with_round_composites(
         let mut src = json!({"id": id, "kind": "supplied_relations", "class": "symmetry-composite",
             "path": ci.table.path, "sha256": ci.table.sha256,
             "verification": {"path": ci.verification.path, "sha256": ci.verification.sha256}});
-        if let Some(f) = family {
-            src["verify"] = json!({"family": {"path": f}});
-        }
+        // the import's own group re-derivation of every PLAIN relation (route (a), per-key): the policy's family, else
+        // the frame header's (`{}`), as route 0b's source; composites fall through to their certificate / verification
+        src["verify"] = match family {
+            Some(f) => json!({"family": {"path": f}}),
+            None => json!({}),
+        };
         if let Some(kc) = &ci.kernel_certificates {
             src["kernel_certificates"] = serde_json::to_value(kc).map_err(|e| e.to_string())?;
         }
