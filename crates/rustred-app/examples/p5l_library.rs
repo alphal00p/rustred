@@ -27,6 +27,10 @@
 //!     the library; (C) random combinations of the top family's IBP rows at <ibp seeds> seeds reduce to zero
 //!     exactly (modular_polynomial = exact in Q(d) by reconstruction).
 //! ```
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc; // as the rustred binary (mimalloc, also the C allocator)
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::path::PathBuf;
@@ -593,19 +597,78 @@ fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
     )
 }
 
+/// P5L_STEP_CACHE=1: one in-memory Ordered step cache shared by every check request of this
+/// process (as vakint keeps one per library), so warm repeats reuse the steps.
+fn process_step_cache(
+    library: &PLibrary,
+) -> Option<std::sync::Arc<rustred::reduction::OrderedStepCache>> {
+    static CACHE: std::sync::OnceLock<
+        Option<std::sync::Arc<rustred::reduction::OrderedStepCache>>,
+    > = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            (std::env::var("P5L_STEP_CACHE").as_deref() == Ok("1")).then(|| {
+                rustred::reduction::OrderedStepCache::in_memory(
+                    library.step_cache_binding().unwrap(),
+                    Default::default(),
+                )
+            })
+        })
+        .clone()
+}
+
 fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
+    // P5L_REDUCE_THREADS (default 1) and P5L_REDUCE_ARITH=sampled: threads and arithmetic of the check reductions
+    let threads: usize = std::env::var("P5L_REDUCE_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
     library
         .reduce(PReductionRequest {
             inputs,
-            arithmetic: modular_polynomial(1),
-            scheduler: OrderedSchedulerOptions::default(),
-            step_cache: None,
+            arithmetic: if std::env::var("P5L_REDUCE_ARITH").as_deref() == Ok("sampled") {
+                OrderedWeightArithmetic::ModularSampled(
+                    ModularCommon {
+                        threads,
+                        ..Default::default()
+                    },
+                    Default::default(),
+                )
+            } else {
+                modular_polynomial(threads)
+            },
+            scheduler: OrderedSchedulerOptions::with_threads(threads),
+            step_cache: process_step_cache(library),
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: false,
             limits: ReductionLimits::default(),
             inspector: None,
         })
         .unwrap()
+}
+
+/// User + system CPU seconds of this process so far (/proc/self/stat, clock ticks of 1/100 s).
+fn process_cpu_seconds() -> f64 {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map_or(vec![], |(_, rest)| rest.split_whitespace().collect());
+    let ticks = |i: usize| {
+        fields
+            .get(i)
+            .and_then(|x| x.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    (ticks(11) + ticks(12)) / 100.0
+}
+
+fn terms_digest(value: &PReduction) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut t: Vec<String> = value.terms.iter().map(|x| format!("{x:?}")).collect();
+    t.sort();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    t.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 fn mul(a: u64, b: u64) -> u64 {
@@ -1030,14 +1093,40 @@ fn check(args: &[String]) {
     };
     let inputs = cell_inputs(&library, top, &powers, &numerator);
     let t = Instant::now();
+    let cpu0 = process_cpu_seconds();
     let value = reduce(&library, inputs.clone());
     let reduce_seconds = t.elapsed().as_secs_f64();
+    let reduce_cpu = process_cpu_seconds() - cpu0;
     eprintln!(
-        "(A) {} inputs reduced in {reduce_seconds:.2} s: {} terms {}",
+        "(A) {} inputs reduced in {reduce_seconds:.2} s: {} terms, cpu {reduce_cpu:.2} s, busy {:.2} threads, digest {} {}",
         inputs.len(),
         value.terms.len(),
+        reduce_cpu / reduce_seconds.max(1e-9),
+        terms_digest(&value),
         stamp()
     );
+    // P5L_REDUCE_REPEAT=n: n warm repeats of the cell request in this process (timing, digest)
+    let repeats: usize = std::env::var("P5L_REDUCE_REPEAT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    for r in 0..repeats {
+        let t = Instant::now();
+        let cpu0 = process_cpu_seconds();
+        let again = reduce(&library, inputs.clone());
+        let cpu = process_cpu_seconds() - cpu0;
+        let wall = t.elapsed().as_secs_f64();
+        eprintln!(
+            "(A{}) warm repeat in {:.2} s: {} terms, cpu {:.2} s, busy {:.2} threads, digest {} (first {})",
+            r + 1,
+            wall,
+            again.terms.len(),
+            cpu,
+            cpu / wall.max(1e-9),
+            terms_digest(&again),
+            terms_digest(&value)
+        );
+    }
 
     // (B) top sector vs Laporta modulo subsectors at three d.
     let ds = [(37, 7), (-11, 5), (9, 13)];
@@ -1215,7 +1304,7 @@ fn check(args: &[String]) {
         c_rows.push(json!({"seed": seed, "rows": at.len(), "keys": keys, "nonzero_terms": nonzero, "seconds": t.elapsed().as_secs_f64()}));
     }
     let summary = json!({
-        "top": top_name, "dots": dots, "rank": rank, "inputs": inputs.len(), "terms": value.terms.len(),
+        "top": top_name, "dots": dots, "rank": rank, "inputs": inputs.len(), "terms": value.terms.len(), "terms_text_digest": terms_digest(&value),
         "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "owner_lane": format!("{:?}", owner.spec.lane),
         "laporta": b_report, "laporta_equal": b_ok, "ibp_seeds": c_rows, "ibp_zero": c_ok,
         "peak_rss_gb": rss().1,

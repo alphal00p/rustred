@@ -10,7 +10,9 @@ fn add_exact_product(
     algebra: &mut ReplayAlgebra<'_>,
 ) -> Result<(), Error> {
     debug_assert!(!factors.is_empty());
-    let mut product = factors[0].clone();
+    // engine threading: the chain starts on this thread's polynomial context (the factors are
+    // shared family / map data), so its products and their drops stay thread-local
+    let mut product = crate::algebra::thread_owned::coefficient_thread_owned(factors[0]);
     for factor in &factors[1..] {
         product = algebra.mul(&product, factor)?;
     }
@@ -34,7 +36,9 @@ pub(super) fn replay_denominator_map(
     let target_count = target.denominator_count();
     algebra.charge_entries(target_count)?;
     for source_denominator in 0..source.denominator_count() {
-        let mut direct_constant = source.denominators()[source_denominator].constant().clone();
+        let mut direct_constant = crate::algebra::thread_owned::coefficient_thread_owned(
+            source.denominators()[source_denominator].constant(),
+        );
         let mut direct_linear = vec![algebra.context.zero(); target_count];
         for (source_coordinate, coordinate) in source.coordinates().iter().copied().enumerate() {
             let weight =
@@ -143,7 +147,9 @@ pub(super) fn replay_denominator_map(
             }
         }
 
-        let mut mapped_constant = denominators.constant[source_denominator].clone();
+        let mut mapped_constant = crate::algebra::thread_owned::coefficient_thread_owned(
+            &denominators.constant[source_denominator],
+        );
         for target_denominator in 0..target.denominator_count() {
             mapped_constant = algebra.add_product(
                 mapped_constant,
