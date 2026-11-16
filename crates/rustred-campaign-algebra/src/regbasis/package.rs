@@ -61,6 +61,8 @@ struct Rec {
 /// Counters (reports).
 #[derive(Clone, Debug, Default, serde::Serialize)]
 pub struct PackageStats {
+    /// Keys served by their relation entry ahead of the table (manifest `entries.over_table_keys`).
+    pub over_table_entries: usize,
     pub certified_keys: usize,
     pub entries: usize,
     pub table_records: usize,
@@ -169,6 +171,28 @@ impl<'a> PackageSource<'a> {
                 off += n as u64;
             }
         }
+        // the manifest's entry precedence: "after_table, except over_table for the keys in entries.over_table_keys"
+        let mut over_table = 0usize;
+        for p in segments
+            .iter()
+            .filter_map(|p| p.parent())
+            .collect::<HashSet<_>>()
+        {
+            if let Ok(t) = std::fs::read_to_string(p.join("MANIFEST.json"))
+                && let Ok(m) = serde_json::from_str::<Value>(&t)
+                && let Some(a) = m["entries"]["over_table_keys"].as_array()
+            {
+                for k in a {
+                    if let Some(k) = k.as_str().and_then(|t| parse_key(t).ok())
+                        && entries.contains_key(&k)
+                        && matches!(certified.get(&k), Some(Serv::Table(_)))
+                    {
+                        certified.insert(k, Serv::Entry);
+                        over_table += 1;
+                    }
+                }
+            }
+        }
         let mut by_index = HashMap::new();
         let mut nrec = 0usize;
         for (t, tab) in set.rules.iter().enumerate() {
@@ -195,6 +219,7 @@ impl<'a> PackageSource<'a> {
             }
         }
         let stats = PackageStats {
+            over_table_entries: over_table,
             certified_keys: certified.len(),
             entries: entries.len(),
             table_records: nrec,
