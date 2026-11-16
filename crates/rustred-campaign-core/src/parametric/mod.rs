@@ -16,6 +16,7 @@
 pub mod check;
 pub mod cone;
 pub mod descent;
+pub mod permuted;
 
 /// Schema of a B1 evidence file (JSONL: header, one line per record, summary).
 pub const PARAMETRIC_DESCENT_SCHEMA: &str = "rustred.campaign.parametric-descent.v1";

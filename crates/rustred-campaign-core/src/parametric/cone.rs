@@ -385,6 +385,10 @@ pub struct GapElement {
     pub seeds: Vec<Vec<i32>>,
     /// Text for the report (cut trail, reason; empty for a cell: its intervals are the text).
     pub note: String,
+    /// For an element of a blocked sub-partition: which stop piece of its blocker it lies in (`selected` = selected
+    /// minus applies: loci, recenter / range bounds, elision, witness status; `overflow:n<s>` = the rule point leaves
+    /// the i32 range; `modular:<why>` = the engine's modular zero test may read a nonzero value as zero).
+    pub stop: Option<String>,
 }
 
 impl GapElement {
@@ -510,6 +514,22 @@ fn class_box(
     out
 }
 
+/// The stop piece of blocker `src` that the blocked sub-report `sub` of `rep` describes, as a label
+/// ([`GapElement::stop`]).
+fn stop_label(rep: &PartitionReport, src: usize, sub: &PartitionReport) -> String {
+    use crate::partition::nf::{StopRef, StopWhy};
+    match sub.blocked_stop() {
+        StopRef::Selected => "selected".to_string(),
+        StopRef::Extra(j) => match rep.nf().extra_stops.get(&src).and_then(|v| v.get(j)) {
+            Some(p) => match &p.why {
+                StopWhy::RulePointOverflow { slot } => format!("overflow:n{slot}"),
+                StopWhy::ModularZeroRisk(w) => format!("modular:{w}"),
+            },
+            None => format!("extra:{j}"),
+        },
+    }
+}
+
 /// [`gap_elements`] with a bound on the classes of a blocked sub-report (`ConeOptions::max_blocked_classes`): a larger
 /// one becomes one `unexplored` element covering the chart orthant (sound: its cones are undecided there), with a flag.
 pub fn gap_elements_bounded(
@@ -520,13 +540,32 @@ pub fn gap_elements_bounded(
     out: &mut Vec<GapElement>,
     flags: &mut Vec<String>,
 ) {
-    let Some(max) = max_blocked_classes else {
-        gap_elements(rep, frame, blocked_by, out);
-        return;
-    };
-    gap_elements_own(rep, frame, blocked_by, out);
+    gap_elements_rec(
+        rep,
+        frame,
+        blocked_by,
+        None,
+        max_blocked_classes,
+        out,
+        flags,
+    );
+}
+
+fn gap_elements_rec(
+    rep: &PartitionReport,
+    frame: &NodeFrame,
+    blocked_by: Option<usize>,
+    stop: Option<String>,
+    max_blocked_classes: Option<usize>,
+    out: &mut Vec<GapElement>,
+    flags: &mut Vec<String>,
+) {
+    gap_elements_own(rep, frame, blocked_by, stop, out);
     for (src, sub) in rep.blocked() {
-        if sub.classes().len() > max {
+        let label = stop_label(rep, *src, sub);
+        if let Some(max) = max_blocked_classes
+            && sub.classes().len() > max
+        {
             let n = frame.arity();
             let cell: Vec<(Option<i64>, Option<i64>)> = (0..n)
                 .map(|s| {
@@ -551,9 +590,18 @@ pub fn gap_elements_bounded(
                     "blocked sub-report of source {src}: {} classes not listed",
                     sub.classes().len()
                 ),
+                stop: Some(label),
             });
         } else {
-            gap_elements_bounded(sub, frame, Some(*src), Some(max), out, flags);
+            gap_elements_rec(
+                sub,
+                frame,
+                Some(*src),
+                Some(label),
+                max_blocked_classes,
+                out,
+                flags,
+            );
         }
     }
 }
@@ -565,10 +613,8 @@ pub fn gap_elements(
     blocked_by: Option<usize>,
     out: &mut Vec<GapElement>,
 ) {
-    gap_elements_own(rep, frame, blocked_by, out);
-    for (src, sub) in rep.blocked() {
-        gap_elements(sub, frame, Some(*src), out);
-    }
+    let mut flags = Vec::new();
+    gap_elements_rec(rep, frame, blocked_by, None, None, out, &mut flags);
 }
 
 /// The gap elements of `rep` itself (classes, locus pieces, unresolved parts), not of its blocked sub-reports.
@@ -576,6 +622,7 @@ fn gap_elements_own(
     rep: &PartitionReport,
     frame: &NodeFrame,
     blocked_by: Option<usize>,
+    stop: Option<String>,
     out: &mut Vec<GapElement>,
 ) {
     for c in rep.classes() {
@@ -591,6 +638,7 @@ fn gap_elements_own(
             lattice: None,
             seeds: vec![],
             note: String::new(),
+            stop: stop.clone(),
         });
     }
     if let Some(res) = rep.resolution() {
@@ -602,6 +650,7 @@ fn gap_elements_own(
                     cell: None,
                     lattice: Some(p.region.clone()),
                     seeds: p.witness.clone(),
+                    stop: stop.clone(),
                     note: format!(
                         "locus {} face {:?}: trail {:?} minus {:?}{}",
                         l.id,
@@ -623,6 +672,7 @@ fn gap_elements_own(
                     cell: None,
                     lattice: Some(u.region.clone()),
                     seeds: u.points.clone(),
+                    stop: stop.clone(),
                     note: format!("locus {}: {} ({})", l.id, u.reason, u.equation),
                 });
             }
@@ -1430,4 +1480,246 @@ pub fn region_keys_each(
             j += 1;
         }
     }
+}
+
+/// Per-slot box `(lo, hi)` of a region (`None` = unbounded): exact for a cell; for a lattice region the interval image of
+/// its parameter ranges under `x = x0 + M t` (a SUPERSET of the slot range). `None` on overflow / unreadable ranges.
+pub fn slot_box(el: &GapElement) -> Option<Vec<(Option<i64>, Option<i64>)>> {
+    if let Some(c) = &el.cell {
+        return Some(c.clone());
+    }
+    let r = el.lattice.as_ref()?;
+    let mut pr = Vec::with_capacity(r.k);
+    for j in 0..r.k {
+        pr.push(r.range_of(j).ok()?);
+    }
+    let mut out = Vec::with_capacity(r.x.len());
+    for a in &r.x {
+        let (mut lo, mut hi): (Option<i128>, Option<i128>) = (Some(a.c), Some(a.c));
+        for (j, &c) in a.coef.iter().enumerate() {
+            if c == 0 {
+                continue;
+            }
+            let (pl, ph) = pr[j];
+            let (cl, ch) = if c > 0 {
+                (
+                    pl.and_then(|v| v.checked_mul(c)),
+                    ph.and_then(|v| v.checked_mul(c)),
+                )
+            } else {
+                (
+                    ph.and_then(|v| v.checked_mul(c)),
+                    pl.and_then(|v| v.checked_mul(c)),
+                )
+            };
+            lo = match (lo, cl) {
+                (Some(x), Some(y)) => x.checked_add(y),
+                _ => None,
+            };
+            hi = match (hi, ch) {
+                (Some(x), Some(y)) => x.checked_add(y),
+                _ => None,
+            };
+        }
+        out.push((
+            lo.and_then(|v| i64::try_from(v).ok()),
+            hi.and_then(|v| i64::try_from(v).ok()),
+        ));
+    }
+    Some(out)
+}
+
+/// Interval range of a polynomial over a box (`None` end = unbounded / not determined): exact for linear polynomials,
+/// `(None, None)` for nonlinear ones (no claim).
+fn poly_range(
+    p: &crate::poly::Poly,
+    bx: &[(Option<i64>, Option<i64>)],
+) -> (Option<i128>, Option<i128>) {
+    if p.degree() > 1 || p.is_big() {
+        return (None, None);
+    }
+    let (mut lo, mut hi): (Option<i128>, Option<i128>) = (Some(0), Some(0));
+    for (m, c) in p.terms() {
+        if m.is_empty() {
+            lo = lo.and_then(|x| x.checked_add(*c));
+            hi = hi.and_then(|x| x.checked_add(*c));
+            continue;
+        }
+        let s = m[0].0 as usize;
+        let (bl, bh) = bx.get(s).copied().unwrap_or((None, None));
+        let (bl, bh) = (bl.map(i128::from), bh.map(i128::from));
+        let (tl, th) = if *c > 0 {
+            (
+                bl.and_then(|v| v.checked_mul(*c)),
+                bh.and_then(|v| v.checked_mul(*c)),
+            )
+        } else {
+            (
+                bh.and_then(|v| v.checked_mul(*c)),
+                bl.and_then(|v| v.checked_mul(*c)),
+            )
+        };
+        lo = match (lo, tl) {
+            (Some(x), Some(y)) => x.checked_add(y),
+            _ => None,
+        };
+        hi = match (hi, th) {
+            (Some(x), Some(y)) => x.checked_add(y),
+            _ => None,
+        };
+    }
+    (lo, hi)
+}
+
+/// Does the record domain `d` APPLY at EVERY key of the box `bx` (per-slot intervals, inside the chart)? An exact,
+/// sufficient test: `Some(true)` = proved (fixed slots pinned by the box, every equation identically zero there, every
+/// bound / recenter bound non-negative on the box, every exception branch misses the box, no pole, no elided loci);
+/// `Some(false)` = refuted cheaply (a fixed slot the box does not pin to its value, a linear bound negative on the
+/// whole box ...); `None` = not decided (nonlinear bound / branch with an undecided emptiness). Decisions by interval
+/// arithmetic first, then by [`crate::parametric::descent::emptiness`] (exact sign splits / Fourier-Motzkin).
+pub fn box_inside_domain(
+    bx: &[(Option<i64>, Option<i64>)],
+    d: &crate::domain::CaseDomain,
+    frame: &NodeFrame,
+    budget: &crate::loci::contain::ProofBudget,
+) -> Option<bool> {
+    use crate::domain::CaseDomain;
+    use crate::parametric::descent::{EmptyState, emptiness};
+    use crate::poly::Poly;
+    if d.witness_elided || !d.poles.is_empty() {
+        return Some(false);
+    }
+    for (s, f) in d.fixed.iter().enumerate() {
+        if let Some(v) = f {
+            let v = i64::from(*v);
+            if bx[s] != (Some(v), Some(v)) {
+                return Some(false);
+            }
+        }
+    }
+    // the box as a domain (for the exact tests)
+    let n = frame.arity();
+    let box_domain = || -> Option<CaseDomain> {
+        let mut c = CaseDomain::free(n, Some(frame.mask().to_vec()));
+        for (s, (l, h)) in bx.iter().enumerate() {
+            if let Some(l) = l {
+                c.bounds
+                    .push(Poly::var(s).sub(&Poly::constant(i128::from(*l))).ok()?);
+            }
+            if let Some(h) = h {
+                c.bounds
+                    .push(Poly::constant(i128::from(*h)).sub(&Poly::var(s)).ok()?);
+            }
+        }
+        Some(c)
+    };
+    let mut undecided = false;
+    for e in &d.equations {
+        match poly_range(e, bx) {
+            (Some(0), Some(0)) => {}
+            (Some(l), _) if l > 0 => return Some(false),
+            (_, Some(h)) if h < 0 => return Some(false),
+            _ => undecided = true,
+        }
+    }
+    for b in d.bounds.iter().chain(&d.recenter_bounds) {
+        match poly_range(b, bx) {
+            (Some(l), _) if l >= 0 => {}
+            (_, Some(h)) if h < 0 => return Some(false),
+            _ => {
+                // exact: the box with b <= -1 is empty
+                let bd = box_domain()?;
+                let neg = b.neg().ok()?.sub(&Poly::constant(1)).ok()?;
+                match emptiness(&bd, frame, budget, &[], &[neg]) {
+                    (EmptyState::Empty, _, _) => {}
+                    (EmptyState::NonEmpty, _, _) => return Some(false),
+                    _ => undecided = true,
+                }
+            }
+        }
+    }
+    for br in &d.exceptions {
+        // the branch misses the box if one member is nonzero on the whole box (interval), else exact emptiness
+        let misses = br.iter().any(|m| match poly_range(m, bx) {
+            (Some(l), _) if l > 0 => true,
+            (_, Some(h)) if h < 0 => true,
+            _ => false,
+        });
+        if misses {
+            continue;
+        }
+        let bd = box_domain()?;
+        match emptiness(&bd, frame, budget, br, &[]) {
+            (EmptyState::Empty, _, _) => {}
+            (EmptyState::NonEmpty, _, _) => return Some(false),
+            _ => undecided = true,
+        }
+    }
+    if undecided { None } else { Some(true) }
+}
+
+/// Up to one key of the element with `t <= D + r <= t + w` (the region with that slab of the frame's excess), for each
+/// `t` of `ts`; and, for each unbounded slot of the element, one key with that slot at least `push` beyond its chart
+/// corner. Keys from the exact point search of the region ([`Region::decide_point`]); `None` entries are dropped.
+pub fn sample_keys_beyond(
+    el: &GapElement,
+    frame: &NodeFrame,
+    ts: &[i64],
+    w: i64,
+    push: i64,
+) -> Vec<(String, Vec<i32>)> {
+    let n = frame.arity();
+    let lines = (0..n).filter(|&i| frame.is_line(i)).count() as i64;
+    let excess: Vec<i64> = (0..n)
+        .map(|i| if frame.is_line(i) { 1 } else { -1 })
+        .collect();
+    let neg: Vec<i64> = excess.iter().map(|v| -v).collect();
+    let reg = el.region();
+    let mut out = Vec::new();
+    let try_cone = |label: String, c: Cone, out: &mut Vec<(String, Vec<i32>)>| {
+        let Some(r) = with_cone(&reg, &c) else { return };
+        if let Ok(Some(Some(t))) = r.decide_point(24, 20_000)
+            && let Some(k) = key_of(&r, &t)
+        {
+            out.push((label, k));
+        }
+    };
+    for &t in ts {
+        let c = Cone {
+            label: format!("{t} <= D + r <= {}", t + w),
+            constraints: vec![(excess.clone(), t + w + lines), (neg.clone(), -(t + lines))],
+        };
+        try_cone(format!("D+r={t}"), c, &mut out);
+    }
+    if let Some(bx) = slot_box(el) {
+        for (s, (l, h)) in bx.iter().enumerate() {
+            let unbounded = if frame.is_line(s) {
+                h.is_none()
+            } else {
+                l.is_none()
+            };
+            if !unbounded {
+                continue;
+            }
+            let mut a = vec![0i64; n];
+            // line: k_s >= 1 + push  <=>  -k_s <= -(1 + push); numerator: k_s <= -push
+            let cons = if frame.is_line(s) {
+                a[s] = -1;
+                (a, -(1 + push))
+            } else {
+                a[s] = 1;
+                (a, -push)
+            };
+            let _ = l;
+            try_cone(
+                format!("n{s} pushed {push}"),
+                Cone {
+                    label: format!("n{s} pushed"),
+                    constraints: vec![cons],
+                },
+                &mut out,
+            );
+        }
+    }
+    out
 }

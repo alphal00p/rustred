@@ -1670,6 +1670,9 @@ fn b2_face_by_face() {
             continue;
         }
         n_run += 1;
+        if std::env::var("PARAMETRIC_ELEMENT_PROBE").as_deref() == Ok("1") {
+            element_probe(&cp, &capped, g5.as_ref(), &frame, &dir, &file_id(&id));
+        }
         let mut cone_lines = Vec::new();
         for (tag, cone0) in &cones {
             let cone = cone0.clone().and(&piece);
@@ -2100,4 +2103,153 @@ fn redispatch_keys() {
     });
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!("redispatch: {n} keys, {open} open");
+}
+
+/// The element probe (ANSWER-UNBOXED section 5 / T178-UNBOXED item A): one JSONL line per gap element of the partition:
+/// face (dotted lines / nonzero numerators / free slots), unbounded directions, minimal D + r, keys inside the probe
+/// cone (PARAMETRIC_PROBE_CONE, default simplex:33), for a blocked element its blocker (table, label), stop piece and
+/// whether the blocker APPLIES on the whole element (`box_inside_domain`, exact), the first record of the judging
+/// dispatcher (the re-dispatcher if given, else the partitioned one) that applies on the whole element
+/// (PARAMETRIC_PROBE_CONTAIN=1), and the judging dispatch of sample keys beyond the cone (D + r = 34, 45, 60, 100 and
+/// every unbounded slot pushed by 40).
+fn element_probe(
+    cp: &rustred_campaign_core::parametric::cone::ConePartition,
+    disp: &Dispatcher,
+    judge: Option<&Dispatcher>,
+    frame: &NodeFrame,
+    dir: &Path,
+    fid: &str,
+) {
+    use rustred_campaign_core::cover::Dispatch;
+    use rustred_campaign_core::parametric::cone::{
+        box_inside_domain, cell_keys_each, region_keys_each, sample_keys_beyond, slot_box,
+    };
+    use rustred_campaign_core::partition::{DispatcherSource, DomainSource};
+    let judge = judge.unwrap_or(disp);
+    let n = frame.arity();
+    let cone = parse_cone(
+        frame,
+        &std::env::var("PARAMETRIC_PROBE_CONE").unwrap_or_else(|_| "simplex:33".into()),
+    );
+    let contain = std::env::var("PARAMETRIC_PROBE_CONTAIN").as_deref() == Ok("1");
+    let budget = ProofBudget {
+        max_nodes: 5_000,
+        ..ProofBudget::default()
+    };
+    let src = DispatcherSource::new(disp);
+    let jsrc = DispatcherSource::new(judge);
+    let describe = |d: &Result<Dispatch, _>, j: &Dispatcher| -> String {
+        match d {
+            Ok(Dispatch::Covered(r)) => format!("covered:{}#{}", j.tables()[r.table].name, r.label),
+            other => {
+                let s = format!("{other:?}");
+                match s.find("reason: ") {
+                    Some(p) => format!(
+                        "blocked:{}",
+                        s[p + 8..]
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect::<String>()
+                    ),
+                    None => s.chars().take(30).collect(),
+                }
+            }
+        }
+    };
+    let mut f = std::io::BufWriter::new(
+        std::fs::File::create(dir.join(format!("{fid}.elements.jsonl"))).unwrap(),
+    );
+    let t0 = std::time::Instant::now();
+    for (i, el) in cp.elements.iter().enumerate() {
+        let bx = slot_box(el);
+        let (mut dotted, mut nonzero, mut free, mut unbounded) = (vec![], vec![], vec![], vec![]);
+        let mut min_excess: Option<i64> = Some(0);
+        if let Some(b) = &bx {
+            for (s, (l, h)) in b.iter().enumerate() {
+                if frame.is_line(s) {
+                    let l1 = l.unwrap_or(1).max(1);
+                    if l1 >= 2 {
+                        dotted.push(s);
+                    } else if *h != Some(1) {
+                        free.push(s);
+                    }
+                    if h.is_none() {
+                        unbounded.push(s);
+                    }
+                    min_excess = min_excess.map(|m| m + (l1 - 1));
+                } else {
+                    let h0 = h.unwrap_or(0).min(0);
+                    if h0 <= -1 {
+                        nonzero.push(s);
+                    } else if *l != Some(0) {
+                        free.push(s);
+                    }
+                    if l.is_none() {
+                        unbounded.push(s);
+                    }
+                    min_excess = min_excess.map(|m| m - h0);
+                }
+            }
+        } else {
+            min_excess = None;
+        }
+        let mut nk = 0u64;
+        let sized = if el.cell.is_some() {
+            cell_keys_each(&el.region(), &cone, frame, 2_000_000, &mut |_| nk += 1)
+        } else {
+            region_keys_each(&el.region(), &cone, 2_000_000, &mut |_| nk += 1)
+        };
+        let blocker = el.blocked_by.map(|e| {
+            let r = src.rule_ref(e);
+            let applies = bx
+                .as_ref()
+                .and_then(|b| box_inside_domain(b, src.domain(e), frame, &budget));
+            json!({"source": e, "table": disp.tables()[r.table].name, "label": r.label,
+                   "applies_on_whole_element": applies})
+        });
+        let mut contained = serde_json::Value::Null;
+        let mut contain_undecided = 0usize;
+        if contain && let Some(b) = &bx {
+            for j in 0..jsrc.len() {
+                match box_inside_domain(b, jsrc.domain(j), frame, &budget) {
+                    Some(true) => {
+                        let r = jsrc.rule_ref(j);
+                        let d = jsrc.domain(j);
+                        contained = json!({"table": judge.tables()[r.table].name, "label": r.label,
+                            "point_rule": d.fixed.iter().all(|x| x.is_some())});
+                        break;
+                    }
+                    None => contain_undecided += 1,
+                    Some(false) => {}
+                }
+            }
+        }
+        let samples: Vec<serde_json::Value> =
+            sample_keys_beyond(el, frame, &[34, 45, 60, 100], 2, 40)
+                .into_iter()
+                .map(|(lab, k)| {
+                    let d = judge.first_match(&k);
+                    json!({"at": lab, "key": k, "judge": describe(&d, judge)})
+                })
+                .collect();
+        writeln!(
+            f,
+            "{}",
+            json!({"element": i, "kind": el.kind, "blocked_by": blocker, "stop": el.stop,
+                "box": bx.as_ref().map(|b| b.iter().map(|(l, h)| json!([l, h])).collect::<Vec<_>>()),
+                "dotted": dotted, "nonzero": nonzero, "free": free, "unbounded": unbounded, "min_excess": min_excess,
+                "keys_in_probe_cone": if sized.is_some() { json!(nk) } else { json!(null) },
+                "contained_by": contained, "contain_undecided_records": contain_undecided, "samples": samples,
+                "arity": n})
+        )
+        .unwrap();
+        if i % 500 == 0 {
+            eprintln!(
+                "  probe {i}/{} ({:.0} s)",
+                cp.elements.len(),
+                t0.elapsed().as_secs_f64()
+            );
+        }
+    }
+    f.flush().unwrap();
 }

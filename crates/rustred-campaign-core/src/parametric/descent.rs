@@ -657,6 +657,47 @@ fn term_verdict(
     let raw = match parse_pattern(text) {
         Ok(p) if p.len() == n => p,
         Ok(p) => return und(format!("term {j}: {} slots", p.len())),
+        Err(e) if e.contains(" at position ") => {
+            // a slot-permuted term (symmetry alias): the exact comparison on the whole domain (parametric::permuted)
+            use crate::parametric::permuted::{PermutedVerdict, permuted_descent};
+            return match permuted_descent(
+                ctx.cmp,
+                ctx.frame,
+                input.domain,
+                input.target,
+                text,
+                &ctx.budget,
+            ) {
+                PermutedVerdict::Lower { .. } => (
+                    TermVerdict::Descends {
+                        hand_down: vec![],
+                        discharged: vec![],
+                    },
+                    None,
+                ),
+                PermutedVerdict::NotLower {
+                    witness,
+                    component,
+                    lower_elsewhere: false,
+                } => (
+                    TermVerdict::DoesNotDescend {
+                        witness,
+                        comparison: format!(
+                            "slot-permuted term not lower anywhere (first deciding component {component})"
+                        ),
+                    },
+                    None,
+                ),
+                PermutedVerdict::NotLower {
+                    witness, component, ..
+                } => und(format!(
+                    "term {j}: slot-permuted term lower on part of the domain only; not lower at {witness:?} ({component})"
+                )),
+                PermutedVerdict::Undecided { reason } => {
+                    und(format!("term {j}: slot-permuted term: {reason}"))
+                }
+            };
+        }
         Err(e) => return und(format!("term {j}: pattern {e}")),
     };
     // normalise: a symbolic term slot where the target is a constant takes the slot's fixed value
