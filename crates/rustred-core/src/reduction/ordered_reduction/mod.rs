@@ -2630,12 +2630,14 @@ mod tests {
     #[test]
     fn modular_sampled_replays_only_the_points_it_needs() {
         let (_, statistics) = run_reported(sampled(1, 16));
-        // Discovery doubles from 8 points until the interpolations converge,
+        // Discovery grows from half a batch until the interpolations converge,
         // then every prime replays exactly the needed points, and the
         // verification prime its checks; nothing is computed ahead of need.
         let needed = statistics.points_per_prime;
         let first = statistics.points_first_prime;
-        assert!(first.is_power_of_two() && first >= needed && first < 2 * needed.max(8));
+        // Discovery starts with half a batch and grows by a quarter of the
+        // points drawn (at least an eighth of a batch) until convergence.
+        assert!(first >= needed && first <= (needed * 5 / 4 + 16).max(64), "{first} {needed}");
         assert_eq!(
             statistics.points_replayed,
             first
