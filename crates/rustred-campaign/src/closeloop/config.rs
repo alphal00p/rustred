@@ -238,6 +238,12 @@ pub struct NodeCfg {
     /// the escalation cannot serve into terminal proposals; None = as before (only the spec's recipe sources).
     #[serde(default)]
     pub escalation: Option<EscalationCfg>,
+    /// lane t266run (closeloop.md 25): work of an EARLIER campaign of the same node carried as PINNED inputs (its
+    /// recipe manifests, solve answers, relation tables and their per-key span proofs): its relations serve like this
+    /// node's own (per-key only with an EXACT proof bound to the point record, closeloop.md 13.1); its faces are not
+    /// escalated again. None = nothing carried.
+    #[serde(default)]
+    pub prior: Option<PriorCfg>,
     /// lane t266run (closeloop.md 17.4): the box as CLAUSES (data), e.g. a proved box and an added layer; the import
     /// spec's start must be their union; the result gives a verdict per clause and attributes every key to the first
     /// clause whose own closure contains it. None = one box.
@@ -324,6 +330,28 @@ pub struct EscalationCfg {
     /// (declared terminals of the node) when there are at most `max_terminals` of them, else the node ends open.
     #[serde(default)]
     pub terminals: Option<TerminalRule>,
+    /// lane t266run: the per-KEY wall budget (seconds) of an escalation recipe of step depth `k` (`d<k>_...`), by depth;
+    /// a depth not listed uses `solve.key_budget_s`. Default [`d_key_budget_by_depth`]: depth 3 = 18,000 s, from the
+    /// measurement of 2026-11-15 (campaign T266k1: `d3_cfirst_foff_wdown_mM1C` solved I(1^14;0,0,0,-1,0,0) of T266 in
+    /// 13,875 s, after run 5's 1,800 s wall had left it open as BUDGET_WALL; 18,000 s = that time x 1.3).
+    #[serde(default = "d_key_budget_by_depth")]
+    pub key_budget_s_by_depth: std::collections::BTreeMap<u32, u64>,
+}
+
+fn d_key_budget_by_depth() -> std::collections::BTreeMap<u32, u64> {
+    std::collections::BTreeMap::from([(3, 18_000)])
+}
+
+/// lane t266run (closeloop.md 25): the manifest of an earlier campaign's work, pinned: JSON
+/// `{"schema": "rustred.campaign.closeloop-prior.v1", "recipes": [FILE], "answers": [FILE], "relations": [FILE + "source"],
+/// "proofs": [FILE]}` with FILE = `{"path", "sha256"}` (every file re-hashed at load; a difference refuses the node).
+/// `recipes` = escalation recipe manifests (the format of this node's own `closeloop_recipes` inputs), `relations` =
+/// relation point-record tables with their recipe source id.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorCfg {
+    pub manifest: PathBuf,
+    pub sha256: String,
 }
 
 /// The user's "any finite terminal set" rule as data.

@@ -631,3 +631,40 @@ fn contradicting_proofs_deny_the_per_key_level_in_memory_and_in_the_store() {
         not_per_key(&r);
     }
 }
+
+/// lane t266run (read path): the per-thread block cache of the stores never changes a check (capacity 0 / 1 / default,
+/// 1 / 4 / 16 threads), and it removes reads: with the cache the same check reads fewer blocks.
+#[test]
+fn store_block_cache_never_changes_a_check_and_saves_reads() {
+    let d = scratch("blkcache");
+    let top = 30;
+    let (spec0, _a) = toy(&d, top);
+    let set0 = load(&TableSetSpec::from_json(&spec0.to_string()).unwrap(), &d).unwrap();
+    let sha0 = set0.rules[0][0].record_sha256.clone();
+    let sha1 = set0.rules[0][1].record_sha256.clone();
+    let (fp, pp) = evidence_files(&d, &sha0, &sha1, top);
+    let mut spec = spec0.clone();
+    spec["evidence"] = json!({"facts":[{"path": fp.display().to_string()}],
+                              "proofs":[{"path": pp.display().to_string()}]});
+    // spec evidence pinned and with its family (as the other tests: `pin_ev`)
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
+    let so = StoreOptions { dir: d.join("s"), budget_bytes: 1, threads: 2 };
+    let mut reference = None;
+    let mut reads = std::collections::BTreeMap::new();
+    for cap in [0usize, 1, 64] {
+        import::store::set_block_cache_capacity(cap);
+        for threads in [1usize, 4, 16] {
+            let ev = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so.clone()) }).unwrap();
+            let r = check(&set, &ev, &CheckOptions { threads, ..Default::default() }).unwrap();
+            let s = sig(&r);
+            match &reference {
+                None => reference = Some(s),
+                Some(x) => assert_eq!(&s, x, "cache {cap} threads {threads}"),
+            }
+            let st: u64 = ev.store_read_stats().iter().map(|(_, s)| s.block_reads).sum();
+            reads.insert((cap, threads), st);
+        }
+    }
+    import::store::set_block_cache_capacity(64);
+    assert!(reads[&(64, 1)] <= reads[&(0, 1)], "{reads:?}");
+}

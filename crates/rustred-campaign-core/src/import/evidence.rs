@@ -1688,6 +1688,14 @@ impl Evidence {
 
     /// lane t266run: the contradicted (record_sha256, key) pairs a check asked for a per-key level (each was denied
     /// it), sorted.
+    /// lane t266run (read path): every attached store's lookup counters (diagnosis; never part of a result).
+    pub fn store_read_stats(&self) -> Vec<(String, super::store::StoreReadStats)> {
+        self.stores
+            .iter()
+            .map(|a| (a.store.dir().display().to_string(), a.store.read_stats()))
+            .collect()
+    }
+
     pub fn conflicts_used(&self) -> Vec<(String, Vec<i32>)> {
         self.conflicts_used
             .lock()

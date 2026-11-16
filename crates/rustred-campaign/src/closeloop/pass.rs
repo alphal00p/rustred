@@ -1324,6 +1324,17 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // lane t266run (closeloop4 m1 in every evidence mode, incl. the stores): a per-key proof contradicted by a
     // decided verdict for the same (record, key) gave that key no per-key level, and it blocks by name
     let contradicted = ev.conflicts_used();
+    // lane t266run (read path): the evidence stores' lookup counters of this pass (diagnosis, not a result)
+    let store_reads = {
+        let per: Vec<(String, rustred_campaign_core::import::store::StoreReadStats)> = ev.store_read_stats();
+        let sum = |f: fn(&rustred_campaign_core::import::store::StoreReadStats) -> u64| -> u64 {
+            per.iter().map(|(_, s)| f(s)).sum()
+        };
+        json!({"lookups": sum(|s| s.lookups), "entry_hits": sum(|s| s.entry_hits), "block_hits": sum(|s| s.block_hits),
+            "block_reads": sum(|s| s.block_reads), "bytes_read": sum(|s| s.bytes_read),
+            "block_cache": rustred_campaign_core::import::store::block_cache_capacity(),
+            "stores": per.iter().map(|(d, s)| json!({"dir": d, "stats": s})).collect::<Vec<_>>()})
+    };
     if !contradicted.is_empty() {
         blocking.push(format!("contradicting_proofs:{}", contradicted.len()));
     }
@@ -1789,6 +1800,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "relation_rule": inp.relation_rule,
         "relations": {"records": rels.len(), "proved": proved.len(), "proof_verdicts": relation_proof_status},
         "evidence_import": serde_json::to_value(&ev.counts).unwrap_or(Value::Null),
+        "store_reads": store_reads,
         "contradicting_proofs": contradicted.iter().take(50)
             .map(|(sha, k)| json!({"record_sha256": sha, "key": k})).collect::<Vec<_>>(),
         "contradicting_facts": fact_conflicts.iter().take(50)
