@@ -34,6 +34,9 @@ use std::time::Duration;
 pub const ROLE_VARIANTS: &str = "repairflow_variants";
 pub const VARIANTS_SCHEMA: &str = "rustred.campaign.repairflow-variants.v1";
 
+/// The test stand's per-key alternatives of the fake child solver ([[key, [alts]], ..], ms per answer).
+pub type FakeVariants = Option<(Vec<(Vec<i32>, Vec<FakeAlt>)>, u64)>;
+
 pub fn input_variants(n: &str) -> String {
     format!("repairflow:{n}:variants")
 }
@@ -58,7 +61,7 @@ pub struct VarCtx<'a> {
     pub programs: &'a BTreeMap<String, PathBuf>,
     pub licence_env: Option<String>,
     /// Test stand: the seed-minimisation fake oracle (the same per-key alternatives).
-    pub fake: Option<(Vec<(Vec<i32>, Vec<FakeAlt>)>, u64)>,
+    pub fake: FakeVariants,
 }
 
 fn rec(path: String, bytes: Vec<u8>) -> AcceptedRecord {
@@ -171,7 +174,7 @@ struct Args {
     key_budget_s: Option<u64>,
     step: VariantsStep,
     licence_env: Option<String>,
-    fake: Option<(Vec<(Vec<i32>, Vec<FakeAlt>)>, u64)>,
+    fake: FakeVariants,
     n: String,
 }
 
@@ -343,7 +346,7 @@ fn run_var(a: Args) -> Result<VarOut, String> {
                         Some(TrialAnswer::Relation(f)) => {
                             let r = rank(&f.pole, f.rhs_count);
                             alts.push(json!({"step": cands[ti].0, "terms": f.rhs_count,
-                                "pole": serde_json::to_value(&f.pole).unwrap_or(Value::Null)}));
+                                "pole": serde_json::to_value(f.pole).unwrap_or(Value::Null)}));
                             if best.is_none_or(|(_, b)| r < b) {
                                 best = Some((ti, r));
                             }
