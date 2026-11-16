@@ -645,6 +645,76 @@ fn a_missing_file_is_refused() {
     );
 }
 
+/// vk5l WP4: the optional sidecar `open-nodes.json` declares a node NOT
+/// CLOSED: a key reaching its owner is `NodeNotClosed` naming the node, its
+/// status, the key and the request; the identity is unchanged; an unknown
+/// class or schema is refused.
+#[test]
+fn an_open_nodes_sidecar_declares_a_node_not_closed() {
+    use rustred_app::propagator::loader::{OPEN_NODES_FILE, P_OPEN_NODES_SCHEMA};
+    let (_scratch, directory) = written(scope_two(), "open-nodes");
+    let plain = load(&directory).unwrap();
+    let manifest = manifest_of(&directory);
+    let top = plain
+        .presentations()
+        .iter()
+        .position(|p| p.family.name() == "P2L")
+        .unwrap() as u64;
+    // Every owner declared open: whichever owner the P2L corner reaches first.
+    let classes: Vec<String> = (manifest["owners"].as_array().unwrap().iter())
+        .map(|owner| owner["class"].as_str().unwrap().to_owned())
+        .collect();
+    let class = classes[0].clone();
+    let sidecar = |schema: &str, first: &str| {
+        let nodes: Vec<serde_json::Value> = std::iter::once(first)
+            .chain(classes[1..].iter().map(String::as_str))
+            .map(|class| serde_json::json!({"class": class, "node": "T266", "status": "stuck: not closed"}))
+            .collect();
+        serde_json::to_vec(&serde_json::json!({"schema": schema, "nodes": nodes})).unwrap()
+    };
+    std::fs::write(
+        directory.join(OPEN_NODES_FILE),
+        sidecar(P_OPEN_NODES_SCHEMA, &class),
+    )
+    .unwrap();
+    let open = load(&directory).unwrap();
+    assert_eq!(open.identity(), plain.identity());
+    assert_eq!(open.open_nodes().len(), classes.len());
+    let one = open.coefficient_context().one();
+    let input = vec![(
+        PresentationId(top as u32),
+        IntegralKey::try_new([1, 1, 1, 1, 1]).unwrap(),
+        one,
+    )];
+    let error = open.reduce(request(input, false)).unwrap_err();
+    assert!(
+        matches!(&error, PError::NodeNotClosed { node, status, request: Some(_), .. }
+            if node == "T266" && status == "stuck: not closed"),
+        "{error}"
+    );
+    let text = error.to_string();
+    assert!(
+        text.contains("node T266") && text.contains("reproduce:"),
+        "{text}"
+    );
+    std::fs::write(
+        directory.join(OPEN_NODES_FILE),
+        sidecar(P_OPEN_NODES_SCHEMA, "nope"),
+    )
+    .unwrap();
+    malformed(load(&directory), "no class of the census");
+    std::fs::write(
+        directory.join(OPEN_NODES_FILE),
+        sidecar("rustred.p-open-nodes.v0", &class),
+    )
+    .unwrap();
+    version_mismatch(
+        load(&directory).unwrap_err(),
+        "P_OPEN_NODES_SCHEMA",
+        "rustred.p-open-nodes.v0",
+    );
+}
+
 /// A family file that is not the family of its presentations, slots that are
 /// not the family's, and tops that are not the families file's are refused.
 #[test]

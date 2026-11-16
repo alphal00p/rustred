@@ -43,8 +43,8 @@ use std::sync::Arc;
 use crate::algebra::Coefficient;
 use crate::family::{IntegralFamilyLimits, IntegralKey};
 use crate::persistence::{
-    BinaryIoLimits, CoefficientId, DecodedCoefficientTable, NativeFamilyRecord, ProgramEnvelope,
-    SectionTag,
+    BinaryIoLimits, CoefficientId, LazyDecodedCoefficientTable, NativeFamilyRecord,
+    ProgramEnvelope, SectionTag,
 };
 use crate::reduction::{ReductionError, ReductionLimits, ReductionRequest, ReductionStatistics};
 use crate::sector::{Mask, OrderingPolicy, zero};
@@ -59,13 +59,18 @@ use super::bundle_wire::{
     BundleWireError, CANDIDATE_BUNDLE_SCHEMA, CANDIDATE_BUNDLE_STATUS,
     DISPATCH_CANDIDATE_BUNDLE_SCHEMA, IntegralRecord, ProgramRecord, Restore, RuleRecord,
     StoredProgram, candidate_sections, decode_family_record, decode_program_record,
-    import_coefficients, storage_variables, validate_dispatch, validate_sectors,
+    storage_variables, validate_dispatch, validate_rule_ids, validate_sectors,
 };
+use super::certified_keys::CertifiedKeySet;
 use super::error::PError;
 use super::lane::OwnerLane;
 use super::library::{CustomOwnerMeta, PTerminal};
 use super::presentation::{Presentation, PresentationKind};
+use super::recipes::{
+    PChainLink, POutsidePolicy, RecipeDispatch, RecipeDispatchOrder, outside_policy_of,
+};
 use super::step::{PChild, PKeyView, PLaneStep, POrderKey, PStage, PStepContext, PStepOut};
+use super::table_import::BoxedNodeRecord;
 use super::{OwnerClassId, PTerminalId, PresentationId};
 
 /// Bundle schemas a payload may carry: the generated candidate bundle without
@@ -100,8 +105,9 @@ pub fn bundle_guard_version(policy: &str) -> (u32, &str) {
         None => (1, policy),
     }
 }
-/// Structural allocation allowance of one payload's records.
-const MAX_RECORD_BYTES: usize = 1 << 30;
+/// Structural allocation allowance of one payload's records (t162-export:
+/// 8 GiB; the program record of a full boxed 5L node exceeds 1 GiB).
+const MAX_RECORD_BYTES: usize = 1 << 33;
 
 fn payload_error(detail: impl fmt::Display) -> PError {
     PError::MalformedLibrary(format!("custom payload: {detail}"))
@@ -305,6 +311,34 @@ pub fn inspect_custom_payload(payload: &[u8]) -> Result<CustomPayloadSummary, PE
     })
 }
 
+/// boxed-node: the box record of a payload imported from a boxed table, or
+/// `None`. Read from the program record's leading provenance strings only
+/// (no rule, no coefficient is decoded: cheap on a multi-GB payload).
+pub fn custom_payload_boxed_node(payload: &[u8]) -> Result<Option<BoxedNodeRecord>, PError> {
+    super::table_import::boxed_node_of_source(&custom_payload_family_source(payload)?)
+}
+
+/// vk5l WP2: the provenance text (`family_source`) of a payload's program
+/// record, read without decoding the rules (box record, certified set and
+/// recipe bundle lines).
+pub fn custom_payload_family_source(payload: &[u8]) -> Result<String, PError> {
+    /// The leading fields every program record schema shares.
+    #[derive(bincode::Decode)]
+    struct ProvenancePrefix {
+        _schema: String,
+        _status: String,
+        _solver_policy: String,
+        family_source: String,
+    }
+    let envelope = candidate_sections(payload, BinaryIoLimits::default()).map_err(wire_error)?;
+    let program = envelope
+        .section(SectionTag::PROGRAM)
+        .ok_or_else(|| payload_error("no program section"))?;
+    let (prefix, _): (ProvenancePrefix, usize) =
+        super::bundle_wire::decode_record(program, MAX_RECORD_BYTES).map_err(wire_error)?;
+    Ok(prefix.family_source)
+}
+
 /// The owner support of a Custom presentation: the sector of an induced
 /// presentation, every line otherwise.
 pub fn custom_owner_support(presentation: &Presentation) -> u64 {
@@ -390,10 +424,13 @@ pub fn check_custom_owner(
 // ----- the decoded program -----
 
 /// A payload bound to its presentation's family, with its coefficients.
+/// t162-export: the coefficient table stays ENCODED (a non-retaining lazy
+/// table): each read decodes its frame, nothing is cached, so the loaded form
+/// holds only the prepared (interned) coefficients, never the decoded table.
 struct Decoded {
     program: ProgramRecord,
     ordering: OrderingPolicy,
-    table: DecodedCoefficientTable,
+    table: LazyDecodedCoefficientTable,
 }
 
 impl fmt::Debug for Decoded {
@@ -426,11 +463,25 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             )));
         }
     }
-    let table =
-        import_coefficients(&envelope, &program, BinaryIoLimits::default()).map_err(wire_error)?;
+    let section = |tag| {
+        envelope
+            .section(tag)
+            .map(Arc::<[u8]>::from)
+            .ok_or_else(|| payload_error("expected a generated candidate binary program"))
+    };
+    let table = LazyDecodedCoefficientTable::new(
+        section(SectionTag::SYMBOLICA_STATE)?,
+        section(SectionTag::COEFFICIENTS)?,
+        BinaryIoLimits::default(),
+    )
+    .map_err(payload_error)?
+    .without_retention();
+    for rule in program.sectors.iter().flat_map(|sector| &sector.rules) {
+        validate_rule_ids(rule, table.len()).map_err(wire_error)?;
+    }
     let rebuilt = family
-        .to_family(
-            &table,
+        .to_family_with(
+            |id| table.coefficient(id).map(|value| value.as_ref().clone()),
             IntegralFamilyLimits::default(),
             BinaryIoLimits::default(),
         )
@@ -469,12 +520,13 @@ fn restore_error(error: BundleWireError) -> CandidateReductionError {
 }
 
 impl Decoded {
-    /// The saved solution of `chart`, in `context`'s variables.
-    fn input<const N: usize>(
+    /// The prepared programs of `chart`, in `context`'s variables; the rules
+    /// are restored and prepared one at a time (t162-export).
+    fn programs<const N: usize>(
         &self,
         chart: [bool; N],
-        context: &CandidateOwnerContext<N>,
-    ) -> Result<CandidateOwnerInput<N>, CandidateReductionError> {
+        context: Arc<CandidateOwnerContext<N>>,
+    ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
         let program = &self.program;
         let ordinal = (program.sectors.iter())
             .position(|sector| crate::storage_array(&sector.sector, false) == Some(chart))
@@ -483,13 +535,14 @@ impl Decoded {
             crate::storage_array(&program.root_sector, false).ok_or_else(|| invalid("arity"))?;
         let coefficients = context.coefficient_context();
         let variables = storage_variables::<N>(coefficients);
+        let indices = *context.index_variables();
         let restore = Restore {
             table: &self.table,
             variables: &variables,
-            indices: context.index_variables(),
+            indices: &indices,
         };
-        let (_, solution) = restore
-            .sector(
+        let (_, solution, rules) = restore
+            .sector_streamed(
                 program,
                 ordinal,
                 &self.ordering,
@@ -498,12 +551,17 @@ impl Decoded {
                 FiniteCasePolicy::SearchFinite,
             )
             .map_err(restore_error)?;
-        Ok(CandidateOwnerInput {
+        let input = CandidateOwnerInput {
             sector: chart,
             saved_root: root,
             ordering: self.ordering.clone(),
             solution,
-        })
+        };
+        CandidateOwnerPrograms::try_new_streamed(
+            context,
+            input,
+            rules.map(|rule| rule.map_err(restore_error)),
+        )
     }
 }
 
@@ -646,6 +704,7 @@ pub fn custom_payload_coefficient_table(payload: &[u8]) -> Result<CustomCoeffici
                 .table
                 .coefficient(id)
                 .map_err(payload_error)?
+                .as_ref()
                 .clone(),
         );
     }
@@ -725,10 +784,122 @@ pub fn custom_payload_dump(payload: &[u8]) -> Result<String, PError> {
     Ok(dump)
 }
 
-/// Prepares one chart of a payload on first use.
+/// The coefficients of a payload, measured (p5l-library session 2: the size
+/// of an expanded versus a factored coefficient encoding).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomCoefficientStats {
+    pub coefficients: usize,
+    pub numerator_terms: u64,
+    pub denominator_terms: u64,
+    pub max_numerator_degree: u64,
+    pub max_denominator_degree: u64,
+    pub decode_seconds: f64,
+    /// The sample: the `sample` coefficients with the most terms, then
+    /// `sample` evenly spaced others.
+    pub sampled: usize,
+    /// Decimal digits of every integer coefficient plus 2 per term (an
+    /// exponent), expanded numerator and denominator.
+    pub sampled_expanded_digits: u64,
+    /// The same over the irreducible factors over Z of numerator and denominator.
+    pub sampled_factored_digits: u64,
+    pub sampled_expanded_terms: u64,
+    pub sampled_factored_terms: u64,
+    pub sampled_factors: u64,
+    pub factor_seconds: f64,
+}
+
+/// [`CustomCoefficientStats`] of `payload`.
+pub fn custom_payload_coefficient_stats(
+    payload: &[u8],
+    sample: usize,
+) -> Result<CustomCoefficientStats, PError> {
+    use symbolica::poly::factor::Factorize;
+    let started = std::time::Instant::now();
+    let decoded = decode(None, payload)?;
+    let mut stats = CustomCoefficientStats {
+        coefficients: decoded.table.len(),
+        decode_seconds: started.elapsed().as_secs_f64(),
+        ..CustomCoefficientStats::default()
+    };
+    let coefficient = |index: usize| -> Result<Arc<Coefficient>, PError> {
+        let id = CoefficientId::try_from_index(index).map_err(|e| payload_error(e.to_string()))?;
+        decoded
+            .table
+            .coefficient(id)
+            .map_err(|e| payload_error(e.to_string()))
+    };
+    type Poly = symbolica::prelude::MultivariatePolynomial<symbolica::prelude::IntegerRing, u16>;
+    let degree = |poly: &Poly| -> u64 {
+        (0..poly.nvars())
+            .map(|x| u64::from(poly.degree(x)))
+            .max()
+            .unwrap_or(0)
+    };
+    let mut sizes = Vec::with_capacity(stats.coefficients);
+    for index in 0..stats.coefficients {
+        let c = coefficient(index)?;
+        stats.numerator_terms += c.numerator.nterms() as u64;
+        stats.denominator_terms += c.denominator.nterms() as u64;
+        stats.max_numerator_degree = stats.max_numerator_degree.max(degree(&c.numerator));
+        stats.max_denominator_degree = stats.max_denominator_degree.max(degree(&c.denominator));
+        sizes.push((c.numerator.nterms() + c.denominator.nterms(), index));
+    }
+    sizes.sort_unstable_by(|a, b| b.cmp(a));
+    let mut chosen: BTreeSet<usize> = sizes.iter().take(sample).map(|&(_, i)| i).collect();
+    if stats.coefficients > 0 && sample > 0 {
+        let stride = (stats.coefficients / sample).max(1);
+        chosen.extend((0..stats.coefficients).step_by(stride).take(sample));
+    }
+    let digits = |poly: &Poly| -> u64 {
+        poly.coefficients
+            .iter()
+            .map(|c| c.to_string().len() as u64 + 2)
+            .sum()
+    };
+    let started = std::time::Instant::now();
+    for index in chosen {
+        let c = coefficient(index)?;
+        stats.sampled += 1;
+        for poly in [&c.numerator, &c.denominator] {
+            stats.sampled_expanded_digits += digits(poly);
+            stats.sampled_expanded_terms += poly.nterms() as u64;
+            if poly.nterms() <= 1 {
+                stats.sampled_factored_digits += digits(poly);
+                stats.sampled_factored_terms += poly.nterms() as u64;
+                stats.sampled_factors += 1;
+                continue;
+            }
+            for (factor, _) in poly.factor() {
+                stats.sampled_factored_digits += digits(&factor) + 1;
+                stats.sampled_factored_terms += factor.nterms() as u64;
+                stats.sampled_factors += 1;
+            }
+        }
+    }
+    stats.factor_seconds = started.elapsed().as_secs_f64();
+    Ok(stats)
+}
+
+/// Prepares one chart of a payload on first use. t162-export: the decoded
+/// payload (rule records + coefficient table) is released once every chart
+/// is prepared; the deferred programs cache each chart's prepared owner (a
+/// success is never prepared again), so nothing reads it afterwards.
 #[derive(Debug)]
 struct PayloadLoader {
-    decoded: Arc<Decoded>,
+    decoded: std::sync::Mutex<Option<Arc<Decoded>>>,
+    unprepared: std::sync::Mutex<BTreeSet<Vec<bool>>>,
+}
+
+impl PayloadLoader {
+    fn new(decoded: Decoded) -> Self {
+        let unprepared = (decoded.program.sectors.iter())
+            .map(|sector| sector.sector.clone())
+            .collect();
+        Self {
+            decoded: std::sync::Mutex::new(Some(Arc::new(decoded))),
+            unprepared: std::sync::Mutex::new(unprepared),
+        }
+    }
 }
 
 impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
@@ -737,8 +908,21 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
         sector: [bool; N],
         context: Arc<CandidateOwnerContext<N>>,
     ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
-        let input = self.decoded.input(sector, &context)?;
-        CandidateOwnerPrograms::try_new(context, [input])
+        let decoded = (self.decoded.lock())
+            .map_err(|_| invalid("payload loader lock poisoned"))?
+            .clone()
+            .ok_or_else(|| invalid("payload released after every chart was prepared"))?;
+        let programs = decoded.programs(sector, context)?;
+        drop(decoded);
+        let mut unprepared =
+            (self.unprepared.lock()).map_err(|_| invalid("payload loader lock poisoned"))?;
+        unprepared.retain(|chart| crate::storage_array(chart, false) != Some(sector));
+        if unprepared.is_empty()
+            && let Ok(mut decoded) = self.decoded.lock()
+        {
+            decoded.take();
+        }
+        Ok(programs)
     }
 }
 
@@ -755,6 +939,30 @@ pub struct CustomStep<const N: usize> {
     charts: Vec<u64>,
     residuals: BTreeSet<IntegralKey>,
     programs: DeferredCandidateOwnerPrograms<N>,
+    /// boxed-node: the box of a boxed table's payload.
+    boxed: Option<Arc<BoxedNodeRecord>>,
+    /// vk5l WP1: the certified key set of a boxed payload (decoded when the
+    /// owner's program is built: on its first use).
+    certified: Option<Arc<CertifiedKeySet>>,
+    /// vk5l WP2: the recipe records of a boxed payload and their in-process
+    /// solve ([`super::recipes`]).
+    recipes: Option<Arc<RecipeDispatch>>,
+}
+
+/// vk5l WP2: what the dispatch of one key gives.
+enum KeyApplied {
+    Terminal,
+    /// Children (owner presentation slots) with their exact coefficients, and
+    /// the rule or recipe that gave them.
+    Children(BTreeMap<IntegralKey, Coefficient>, KeyVia),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum KeyVia {
+    /// `(chart, position in the chart's rule list)`.
+    Rule(u64, usize),
+    /// A recipe record.
+    Recipe,
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -766,6 +974,12 @@ impl<const N: usize> fmt::Debug for CustomStep<N> {
             .field("support", &format_args!("{:#x}", self.support))
             .field("charts", &self.charts)
             .field("residuals", &self.residuals)
+            .field(
+                "boxed",
+                &self.boxed.as_ref().map(|record| record.describe()),
+            )
+            .field("certified", &self.certified.as_ref().map(|set| set.len()))
+            .field("recipes", &self.recipes)
             .finish_non_exhaustive()
     }
 }
@@ -788,6 +1002,48 @@ impl<const N: usize> CustomStep<N> {
 
     fn chart(&self, powers: &[i64]) -> [bool; N] {
         std::array::from_fn(|slot| powers.get(slot).copied().unwrap_or(0) > 0)
+    }
+
+    /// The box record of a boxed owner.
+    pub fn boxed(&self) -> Option<&BoxedNodeRecord> {
+        self.boxed.as_deref()
+    }
+
+    /// vk5l WP1: the certified key set of a boxed owner.
+    pub fn certified(&self) -> Option<&CertifiedKeySet> {
+        self.certified.as_deref()
+    }
+
+    /// The typed refusal of a key no rule covers: [`PError::OutsideBox`] for a
+    /// key outside a boxed owner's box, [`PError::Uncovered`] otherwise (inside
+    /// the box it is a defect of a partial table). vk5l WP1: with a certified
+    /// set, [`PError::OutsideCertifiedSet`] for a key outside it (inside it,
+    /// [`PError::Uncovered`], a defect).
+    fn uncovered(&self, class: OwnerClassId, key: IntegralKey) -> PError {
+        match (&self.boxed, &self.certified) {
+            (Some(record), Some(set)) if !set.contains(key.powers()) => {
+                outside_certified(class, key, record, set)
+            }
+            (Some(record), None) if !record.contains(key.powers()) => PError::OutsideBox {
+                class,
+                violated: record.violation(key.powers()).map(Box::new),
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+                request: None,
+            },
+            _ => PError::Uncovered { class, key },
+        }
+    }
+
+    /// vk5l WP1: `powers` is in the domain of a boxed owner: its certified
+    /// set, else its box (`None`: not boxed).
+    fn in_domain(&self, powers: &[i64]) -> Option<bool> {
+        match (&self.boxed, &self.certified) {
+            (Some(_), Some(set)) => Some(set.contains(powers)),
+            (Some(record), None) => Some(record.contains(powers)),
+            _ => None,
+        }
     }
 
     fn support_of(&self, powers: &[i64]) -> u64 {
@@ -874,6 +1130,216 @@ impl<const N: usize> CustomStep<N> {
     }
 }
 
+impl<const N: usize> CustomStep<N> {
+    /// vk5l WP2: the recipe dispatch of a boxed owner, if it has recipes.
+    pub fn recipes(&self) -> Option<&RecipeDispatch> {
+        self.recipes.as_deref()
+    }
+
+    /// vk5l WP2: the one dispatch of a key, shared by the lane step and the
+    /// load-time checks: (recipes first, if the bundle says so) the table's
+    /// rules under first match, then the first recipe record whose domain
+    /// holds the key (inside the certified set / box); no rule and no record:
+    /// the typed refusal of [`Self::uncovered`]. A recipe that fails is
+    /// [`PError::RecipeFailed`], never another rule.
+    fn apply_key(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        integral: &IntegralKey,
+        conditions: &mut Vec<Coefficient>,
+        limits: &ReductionLimits,
+    ) -> Result<KeyApplied, PError> {
+        if let Some(recipes) = &self.recipes
+            && recipes.order() == RecipeDispatchOrder::RecipesFirst
+            && !self.residuals.contains(integral)
+            && let Some(index) = self.recipe_of(recipes, powers)
+        {
+            return self.apply_recipe(recipes, index, powers);
+        }
+        let chart = self.chart(powers);
+        let applied = apply_prepared_owner(
+            &self.programs,
+            &chart,
+            integral,
+            conditions,
+            &mut ReductionRequest::default(),
+            &mut ReductionStatistics::default(),
+            limits,
+        );
+        match applied {
+            Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
+            Ok(AppliedOwnerStep::Applied(terms, position)) => Ok(KeyApplied::Children(
+                terms,
+                KeyVia::Rule(mask(&chart), position),
+            )),
+            Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
+                match &self.recipes {
+                    Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
+                        match self.recipe_of(recipes, powers) {
+                            Some(index) => self.apply_recipe(recipes, index, powers),
+                            None => Err(self.uncovered(class, integral.clone())),
+                        }
+                    }
+                    _ => Err(self.uncovered(class, integral.clone())),
+                }
+            }
+            Err(error) => Err(self.step_error(class, error)),
+        }
+    }
+
+    /// vk5l WP2: a key outside the certified set (policy `Solve`): the
+    /// table's rules under first match (a rule is an identity on its whole
+    /// domain), then [`RecipeDispatch::solve_outside`]; without recipes, the
+    /// typed refusal.
+    fn apply_outside(
+        &self,
+        class: OwnerClassId,
+        powers: &[i64],
+        integral: &IntegralKey,
+        conditions: &mut Vec<Coefficient>,
+        limits: &ReductionLimits,
+    ) -> Result<KeyApplied, PError> {
+        let chart = self.chart(powers);
+        let applied = apply_prepared_owner(
+            &self.programs,
+            &chart,
+            integral,
+            conditions,
+            &mut ReductionRequest::default(),
+            &mut ReductionStatistics::default(),
+            limits,
+        );
+        match applied {
+            Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
+            Ok(AppliedOwnerStep::Applied(terms, position)) => Ok(KeyApplied::Children(
+                terms,
+                KeyVia::Rule(mask(&chart), position),
+            )),
+            Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
+                match &self.recipes {
+                    Some(recipes) => {
+                        let (relation, id) = recipes.solve_outside(powers)?;
+                        Ok(KeyApplied::Children(
+                            relation_children(&relation, &id)?,
+                            KeyVia::Recipe,
+                        ))
+                    }
+                    None => Err(self.uncovered(class, integral.clone())),
+                }
+            }
+            Err(error) => Err(self.step_error(class, error)),
+        }
+    }
+
+    /// The recipe record of `powers`: inside the owner's domain (certified
+    /// set, else box) and a record's domain.
+    fn recipe_of(&self, recipes: &RecipeDispatch, powers: &[i64]) -> Option<usize> {
+        if self.in_domain(powers) == Some(false) {
+            return None;
+        }
+        recipes.find(powers)
+    }
+
+    fn apply_recipe(
+        &self,
+        recipes: &RecipeDispatch,
+        index: usize,
+        powers: &[i64],
+    ) -> Result<KeyApplied, PError> {
+        let (relation, _) = recipes.relation(index, powers)?;
+        let children = relation_children(&relation, &recipes.bundle().records[index].id)?;
+        Ok(KeyApplied::Children(children, KeyVia::Recipe))
+    }
+
+    /// vk5l WP2: one shortest rule chain from `from` to `to` (owner keys)
+    /// through this owner's rules and the recipe relations already solved in
+    /// this process (no new solve), at most `budget` keys expanded.
+    pub fn chain_to(&self, from: &[i64], to: &[i64], budget: usize) -> Option<Vec<PChainLink>> {
+        use std::collections::{HashMap, HashSet, VecDeque};
+        if self.support_of(from) != self.support {
+            return None;
+        }
+        let mut parent: HashMap<Vec<i64>, (Vec<i64>, String)> = HashMap::new();
+        let mut queue = VecDeque::from([from.to_vec()]);
+        let mut seen = HashSet::from([from.to_vec()]);
+        let mut expanded = 0;
+        while let Some(powers) = queue.pop_front() {
+            if powers == to {
+                let mut chain = vec![];
+                let mut at = powers;
+                while let Some((up, via)) = parent.get(&at) {
+                    chain.push(PChainLink {
+                        key: at.clone(),
+                        via: via.clone(),
+                    });
+                    at = up.clone();
+                }
+                chain.push(PChainLink {
+                    key: at,
+                    via: "request input".to_owned(),
+                });
+                chain.reverse();
+                return Some(chain);
+            }
+            expanded += 1;
+            if expanded > budget {
+                return None;
+            }
+            let Some(children) = self.apply_known(&powers) else {
+                continue;
+            };
+            for (child, via) in children {
+                if self.support_of(&child) == self.support && seen.insert(child.clone()) {
+                    parent.insert(child.clone(), (powers.clone(), via));
+                    queue.push_back(child);
+                }
+            }
+        }
+        None
+    }
+
+    /// The children of `powers` by a rule or an already solved recipe
+    /// relation, with what gave them (chain search only).
+    fn apply_known(&self, powers: &[i64]) -> Option<Vec<(Vec<i64>, String)>> {
+        let key = IntegralKey::try_new(powers.iter().copied()).ok()?;
+        let chart = self.chart(powers);
+        match apply_prepared_owner(
+            &self.programs,
+            &chart,
+            &key,
+            &mut Vec::new(),
+            &mut ReductionRequest::default(),
+            &mut ReductionStatistics::default(),
+            &ReductionLimits::default(),
+        ) {
+            Ok(AppliedOwnerStep::Applied(terms, position)) => {
+                let via = format!("table rule {position} (chart {:#x})", mask(&chart));
+                Some(
+                    terms
+                        .into_keys()
+                        .map(|child| (child.powers().to_vec(), via.clone()))
+                        .collect(),
+                )
+            }
+            Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
+                let recipes = self.recipes.as_ref()?;
+                let index = self.recipe_of(recipes, powers)?;
+                let via = format!("recipe {}", recipes.bundle().records[index].id);
+                Some(match recipes.known(index, powers) {
+                    Some(relation) => relation
+                        .children
+                        .iter()
+                        .map(|(child, _)| (child.clone(), via.clone()))
+                        .collect(),
+                    None => Vec::new(),
+                })
+            }
+            _ => None,
+        }
+    }
+}
+
 /// Plan M2 sec.3.4: the residuals of an eps owner sit at `n = 1` on every eps
 /// axis (`forced`), Forcer's master position `1 + j eps` and the least excess
 /// of the two-sided order.
@@ -891,11 +1357,58 @@ fn check_residual_positions(forced: u64, residuals: &[IntegralKey]) -> Result<()
     Ok(())
 }
 
+/// The children of a solved recipe relation as owner keys.
+fn relation_children(
+    relation: &super::recipes::Relation,
+    id: &str,
+) -> Result<BTreeMap<IntegralKey, Coefficient>, PError> {
+    let mut children = BTreeMap::new();
+    for (child, coefficient) in &relation.children {
+        let key = IntegralKey::try_new(child.iter().copied())
+            .map_err(|error| PError::Contract(error.to_string()))?;
+        if children.insert(key, coefficient.clone()).is_some() {
+            return Err(PError::MalformedLibrary(format!(
+                "recipe {id}: the relation names {child:?} twice"
+            )));
+        }
+    }
+    Ok(children)
+}
+
+/// vk5l WP1: the refusal of `key`, outside the certified set of a boxed owner.
+fn outside_certified(
+    class: OwnerClassId,
+    key: IntegralKey,
+    record: &BoxedNodeRecord,
+    set: &CertifiedKeySet,
+) -> PError {
+    PError::OutsideCertifiedSet {
+        class,
+        violated: record.violation(key.powers()).map(Box::new),
+        key,
+        node: record.node.clone(),
+        definition: record.describe(),
+        certified_keys: set.len() as u64,
+        request: None,
+    }
+}
+
 fn step_error(class: OwnerClassId, error: CandidateReductionError) -> PError {
     match error {
         CandidateReductionError::Application(error) => PError::Engine(error),
         CandidateReductionError::Uncovered { target } => PError::Uncovered { class, key: target },
         other => PError::MalformedLibrary(format!("custom owner {:016x}: {other}", class.0)),
+    }
+}
+
+impl<const N: usize> CustomStep<N> {
+    /// [`step_error`], with a boxed owner's uncovered key outside its box as
+    /// [`PError::OutsideBox`].
+    fn step_error(&self, class: OwnerClassId, error: CandidateReductionError) -> PError {
+        match error {
+            CandidateReductionError::Uncovered { target } => self.uncovered(class, target),
+            other => step_error(class, other),
+        }
     }
 }
 
@@ -914,38 +1427,34 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         let class = cx.owner.spec.class;
         let integral = IntegralKey::try_new(key.powers.iter().copied())
             .map_err(|error| PError::Contract(error.to_string()))?;
-        let chart = self.chart(key.powers);
+        // vk5l WP1 (decision Q1): the certified set is authoritative. vk5l WP2
+        // (user ruling 2026-11-14): a key outside it is solved at run time
+        // (rules, then the recipe families at the key, capped) unless the
+        // node's policy refuses it.
         let mut conditions = Vec::new();
-        let mut request = ReductionRequest::default();
-        let mut work = ReductionStatistics::default();
-        let applied = apply_prepared_owner(
-            &self.programs,
-            &chart,
-            &integral,
-            &mut conditions,
-            &mut request,
-            &mut work,
-            cx.limits,
-        )
-        .map_err(|error| step_error(class, error))?;
+        let applied = match (&self.boxed, &self.certified) {
+            (Some(record), Some(set)) if !set.contains(key.powers) => {
+                if outside_policy_of(&record.node) == POutsidePolicy::Refuse {
+                    return Err(outside_certified(class, integral, record, set));
+                }
+                self.apply_outside(class, key.powers, &integral, &mut conditions, cx.limits)?
+            }
+            _ => self.apply_key(class, key.powers, &integral, &mut conditions, cx.limits)?,
+        };
         let mut out = PStepOut {
             conditions,
             ..PStepOut::default()
         };
         match applied {
-            AppliedOwnerStep::Terminal => {
+            KeyApplied::Terminal => {
                 let terminal = self.terminal(cx, &integral)?;
                 let one = cx.library.coefficient_context().one();
                 out.terminals.push((terminal, key.tag.clone(), one));
             }
-            AppliedOwnerStep::Uncovered => {
-                return Err(PError::Uncovered {
-                    class,
-                    key: integral,
-                });
-            }
-            AppliedOwnerStep::Applied(terms, position) => {
-                record_rule_hit(mask(&chart), position);
+            KeyApplied::Children(terms, via) => {
+                if let KeyVia::Rule(chart, position) = via {
+                    record_rule_hit(chart, position);
+                }
                 for (child, coefficient) in terms {
                     let powers = child.powers();
                     if powers.len() != self.arity {
@@ -983,6 +1492,22 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
             .complexity_key(powers)
             .map_err(|error| PError::Contract(format!("custom owner order: {error}")))?;
         Ok(POrderKey::Complexity(key))
+    }
+
+    fn boxed_node(&self) -> Option<&str> {
+        self.boxed.as_deref().map(|record| record.node.as_str())
+    }
+
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.in_domain(powers)
+    }
+
+    fn boxed_record(&self) -> Option<Arc<BoxedNodeRecord>> {
+        self.boxed.clone()
+    }
+
+    fn recipe_chain(&self, from: &[i64], to: &[i64], budget: usize) -> Option<Vec<PChainLink>> {
+        self.chain_to(from, to, budget)
     }
 }
 
@@ -1163,6 +1688,64 @@ fn build<const N: usize>(
         )));
     }
     check_residual_positions(forced, &residuals)?;
+    let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
+    // vk5l WP1: the certified set of a boxed payload, with its record.
+    let certified = match &boxed {
+        Some(record) => {
+            let set = super::table_import::certified_keys_of_source(&program.family_source)?;
+            match (&record.certified, &set) {
+                (None, None) => {}
+                (Some(summary), Some(set))
+                    if summary.keys == set.len() as u64
+                        && set.arity() == arity
+                        && set.frame() == "presentation" => {}
+                _ => {
+                    return Err(payload_error(format!(
+                        "boxed node {}: the record's certified key set does not describe the payload's",
+                        record.node
+                    )));
+                }
+            }
+            set.map(Arc::new)
+        }
+        None => None,
+    };
+    if let Some(record) = &boxed {
+        let held: BTreeSet<Vec<i64>> = residuals.iter().map(|key| key.powers().to_vec()).collect();
+        let declared: BTreeSet<Vec<i64>> = record.terminals.iter().cloned().collect();
+        if held != declared || record.chart.len() != arity || program.sectors.len() != 1 {
+            return Err(payload_error(format!(
+                "boxed node {}: the record's terminals or chart do not describe the payload",
+                record.node
+            )));
+        }
+    }
+    // vk5l WP2: the recipe bundle of a boxed payload.
+    let recipes = match super::recipes::recipes_of_source(&program.family_source)? {
+        Some(bundle) => {
+            let Some(record) = &boxed else {
+                return Err(payload_error(format!(
+                    "recipes of node {} on a payload without a box record",
+                    bundle.node
+                )));
+            };
+            if bundle.node != record.node {
+                return Err(payload_error(format!(
+                    "the recipes of node {} on boxed node {}",
+                    bundle.node, record.node
+                )));
+            }
+            let lines = u16::try_from(support.count_ones()).unwrap_or(u16::MAX);
+            Some(Arc::new(RecipeDispatch::new(
+                bundle,
+                arity,
+                presentation.family.fingerprint(),
+                presentation.family.coefficient_context(),
+                lines,
+            )?))
+        }
+        None => None,
+    };
     let proofs = zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
@@ -1211,9 +1794,7 @@ fn build<const N: usize>(
     let programs = DeferredCandidateOwnerPrograms::try_new(
         context,
         descriptors,
-        Arc::new(PayloadLoader {
-            decoded: Arc::new(decoded),
-        }),
+        Arc::new(PayloadLoader::new(decoded)),
     )
     .map_err(candidate)?;
     let step = CustomStep::<N> {
@@ -1224,6 +1805,9 @@ fn build<const N: usize>(
         charts,
         residuals: residuals.into_iter().collect(),
         programs,
+        boxed: boxed.map(Arc::new),
+        certified,
+        recipes,
     };
     if prepare {
         step.prepare_charts()?;
@@ -1360,13 +1944,10 @@ impl<const N: usize> PCustomFallback for CustomStep<N> {
             &mut ReductionStatistics::default(),
             limits,
         )
-        .map_err(|error| step_error(class, error))?;
+        .map_err(|error| self.step_error(class, error))?;
         match applied {
             AppliedOwnerStep::Terminal => Ok(PFallbackApplied::Residual),
-            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
-                class,
-                key: integral,
-            }),
+            AppliedOwnerStep::Uncovered => Err(self.uncovered(class, integral)),
             AppliedOwnerStep::Applied(terms, _) => {
                 let mut children = Vec::with_capacity(terms.len());
                 for (child, coefficient) in terms {
@@ -1447,6 +2028,17 @@ trait CustomOwnerOps {
     fn is_residual(&self, powers: &[i64]) -> bool;
     fn apply_powers(&self, powers: &[i64]) -> Result<Applied, PError>;
     fn order_of(&self, powers: &[i64]) -> Result<crate::sector::ComplexityKey, PError>;
+    fn box_contains(&self, powers: &[i64]) -> Option<bool>;
+    /// A boxed owner whose box is not closed (a partial table).
+    fn box_partial(&self) -> bool;
+    /// The box record of a boxed owner.
+    fn box_record(&self) -> Option<&BoxedNodeRecord>;
+    /// vk5l WP1: the certified key set of a boxed owner.
+    fn certified_set(&self) -> Option<&CertifiedKeySet>;
+    /// vk5l WP2: the recipe dispatch of a boxed owner.
+    fn recipe_dispatch(&self) -> Option<&RecipeDispatch>;
+    /// vk5l WP2: whether the table's rules (or a terminal) take `powers`.
+    fn rules_take(&self, powers: &[i64]) -> bool;
 }
 
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
@@ -1477,24 +2069,16 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
         }
         let integral = IntegralKey::try_new(powers.iter().copied())
             .map_err(|error| PError::Contract(error.to_string()))?;
-        let mut conditions = Vec::new();
-        let applied = apply_prepared_owner(
-            &self.programs,
-            &self.chart(powers),
+        let applied = self.apply_key(
+            OwnerClassId(0),
+            powers,
             &integral,
-            &mut conditions,
-            &mut ReductionRequest::default(),
-            &mut ReductionStatistics::default(),
+            &mut Vec::new(),
             &ReductionLimits::default(),
-        )
-        .map_err(|error| step_error(OwnerClassId(0), error))?;
+        )?;
         match applied {
-            AppliedOwnerStep::Terminal => Ok(Applied::Terminal),
-            AppliedOwnerStep::Uncovered => Err(PError::Uncovered {
-                class: OwnerClassId(0),
-                key: integral,
-            }),
-            AppliedOwnerStep::Applied(terms, _) => Ok(Applied::Children(
+            KeyApplied::Terminal => Ok(Applied::Terminal),
+            KeyApplied::Children(terms, _) => Ok(Applied::Children(
                 terms
                     .into_iter()
                     .map(|(child, coefficient)| (child.powers().to_vec(), coefficient))
@@ -1511,6 +2095,206 @@ impl<const N: usize> CustomOwnerOps for CustomStep<N> {
             .complexity_key(powers)
             .map_err(|error| PError::Contract(format!("custom owner order: {error}")))
     }
+
+    fn box_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.in_domain(powers)
+    }
+
+    fn box_partial(&self) -> bool {
+        self.boxed.as_ref().is_some_and(|record| !record.complete)
+    }
+
+    fn box_record(&self) -> Option<&BoxedNodeRecord> {
+        self.boxed.as_deref()
+    }
+
+    fn certified_set(&self) -> Option<&CertifiedKeySet> {
+        self.certified.as_deref()
+    }
+
+    fn recipe_dispatch(&self) -> Option<&RecipeDispatch> {
+        self.recipes.as_deref()
+    }
+
+    fn rules_take(&self, powers: &[i64]) -> bool {
+        let Ok(key) = IntegralKey::try_new(powers.iter().copied()) else {
+            return false;
+        };
+        matches!(
+            apply_prepared_owner(
+                &self.programs,
+                &self.chart(powers),
+                &key,
+                &mut Vec::new(),
+                &mut ReductionRequest::default(),
+                &mut ReductionStatistics::default(),
+                &ReductionLimits::default(),
+            ),
+            Ok(AppliedOwnerStep::Terminal | AppliedOwnerStep::Applied(..))
+        )
+    }
+}
+
+/// vk5l WP2: one recipe key of a payload ([`custom_payload_recipe_keys`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecipeTarget {
+    /// The key, presentation slots and table (recipe) slots.
+    pub key: Vec<i64>,
+    pub key_table: Vec<i64>,
+    pub record: usize,
+    pub recipe_id: String,
+}
+
+/// vk5l WP2: the keys a payload's dispatch sends to a recipe, in order: the
+/// explicit keys of its records, and for predicate records every certified
+/// key the predicate holds (under the bundle's dispatch order: a key the
+/// rules take first is no recipe key). Empty without recipes.
+pub fn custom_payload_recipe_keys(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+) -> Result<Vec<RecipeTarget>, PError> {
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    recipe_targets(&*ops)
+}
+
+fn recipe_targets(ops: &dyn CustomOwnerOps) -> Result<Vec<RecipeTarget>, PError> {
+    let Some(recipes) = ops.recipe_dispatch() else {
+        return Ok(Vec::new());
+    };
+    let rules_first = recipes.order() == RecipeDispatchOrder::RulesFirst;
+    let target = |key: Vec<i64>, record: usize| RecipeTarget {
+        key_table: recipes.bundle().to_table(&key),
+        recipe_id: recipes.bundle().records[record].id.clone(),
+        key,
+        record,
+    };
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    for (key, record) in recipes.explicit_keys() {
+        if ops.box_contains(&key) == Some(false) || (rules_first && ops.rules_take(&key)) {
+            continue;
+        }
+        seen.insert(key.clone());
+        out.push(target(key, record));
+    }
+    if recipes
+        .bundle()
+        .records
+        .iter()
+        .any(|record| record.domain == super::recipes::RecipeDomain::Predicate)
+    {
+        let keys: Vec<Vec<i64>> = match ops.certified_set() {
+            Some(set) => set.keys().collect(),
+            None => match ops.box_record() {
+                Some(record) => record
+                    .definition
+                    .keys(&record.chart, super::table_import::MAX_BOX_KEYS)
+                    .map_err(PError::MalformedLibrary)?,
+                None => Vec::new(),
+            },
+        };
+        for key in keys {
+            if seen.contains(&key) || ops.is_residual(&key) {
+                continue;
+            }
+            if let Some(record) = recipes.find(&key)
+                && !(rules_first && ops.rules_take(&key))
+            {
+                out.push(target(key, record));
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// vk5l WP2: one solved (or cached) recipe key of a prefill.
+#[derive(Clone, Debug)]
+pub struct RecipePrefillEntry {
+    pub target: RecipeTarget,
+    /// `solved`, `memo`, `prefilled`, `user_cache`, or the failure text.
+    pub source: Result<super::recipes::RelationSource, PError>,
+    pub seconds: f64,
+    pub children: usize,
+    pub relation_digest: Option<String>,
+}
+
+/// vk5l WP2: solve every recipe key of a payload ([`custom_payload_recipe_keys`],
+/// optionally only the records whose id contains `only`) with `threads`
+/// worker threads into the relation caches in force (the user cache root,
+/// `recipes::set_recipe_cache_roots`): each fresh relation is saved at once,
+/// so an interrupted prefill resumes where it stopped (cached keys are hits).
+/// The caller installs the engine solver with as many workers
+/// (`recipes::override_recipe_solver`). Failures are reported per key.
+pub fn custom_payload_recipe_prefill(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    threads: usize,
+    only: Option<&str>,
+    progress: &(dyn Fn(&RecipePrefillEntry) + Sync),
+) -> Result<Vec<RecipePrefillEntry>, PError> {
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    let Some(recipes) = ops.recipe_dispatch() else {
+        return Ok(Vec::new());
+    };
+    let targets: Vec<RecipeTarget> = recipe_targets(&*ops)?
+        .into_iter()
+        .filter(|target| only.is_none_or(|text| target.recipe_id.contains(text)))
+        .collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<Option<RecipePrefillEntry>>> =
+        std::sync::Mutex::new(vec![None; targets.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..threads.max(1).min(targets.len().max(1)) {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(target) = targets.get(index) else {
+                        break;
+                    };
+                    let started = std::time::Instant::now();
+                    let solved = recipes.relation(target.record, &target.key);
+                    let entry = RecipePrefillEntry {
+                        target: target.clone(),
+                        seconds: started.elapsed().as_secs_f64(),
+                        children: solved.as_ref().map_or(0, |(r, _)| r.children.len()),
+                        relation_digest: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(|(r, _)| r.relation_digest.clone()),
+                        source: solved.map(|(_, source)| source),
+                    };
+                    progress(&entry);
+                    results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)[index] = Some(entry);
+                }
+            });
+        }
+    });
+    Ok(results
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
+/// vk5l WP2: [`RecipeDispatch::solve_outside`] at `key` (presentation slots)
+/// on a boxed payload with recipes (tools, tests): the relation and the id
+/// of the recipe family that solved it.
+pub fn custom_payload_solve_outside(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+    key: &[i64],
+) -> Result<(Arc<super::recipes::Relation>, String), PError> {
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    let recipes = ops
+        .recipe_dispatch()
+        .ok_or_else(|| PError::Unsupported("the payload carries no recipe records".to_owned()))?;
+    recipes.solve_outside(key)
 }
 
 fn custom_owner_ops(
@@ -1541,6 +2325,39 @@ fn custom_owner_ops(
     with_candidate_runtime_arities!(dispatch)
 }
 
+/// vk5l WP1 (e): what loading one Custom owner takes ([`custom_payload_load`]).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CustomPayloadLoad {
+    /// Seconds to build the owner program with every chart prepared.
+    pub build_seconds: f64,
+    /// The boxed node, if any.
+    pub node: Option<String>,
+    /// Keys of the certified set (0 without one).
+    pub certified_keys: usize,
+    /// Bytes the decoded certified set holds.
+    pub certified_heap_bytes: usize,
+}
+
+/// vk5l WP1 (e): build the owner program of one payload as a library does on
+/// its first use (every chart prepared, the certified set decoded) and report
+/// it; the caller reads the process memory around it.
+pub fn custom_payload_load(
+    presentation: &Presentation,
+    payload: &[u8],
+    meta: &CustomOwnerMeta,
+) -> Result<CustomPayloadLoad, PError> {
+    let started = std::time::Instant::now();
+    let ops = custom_owner_ops(presentation, payload, meta)?;
+    let build_seconds = started.elapsed().as_secs_f64();
+    let certified = ops.certified_set();
+    Ok(CustomPayloadLoad {
+        build_seconds,
+        node: ops.box_record().map(|record| record.node.clone()),
+        certified_keys: certified.map_or(0, CertifiedKeySet::len),
+        certified_heap_bytes: certified.map_or(0, CertifiedKeySet::heap_bytes),
+    })
+}
+
 /// What [`verify_custom_payload`] checked on one payload.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CustomPayloadCheck {
@@ -1555,6 +2372,17 @@ pub struct CustomPayloadCheck {
     pub subsector_children: usize,
     /// Witness keys that are residuals of the owner.
     pub terminals: usize,
+    /// boxed-node: witness keys inside a partial box without rule (skipped).
+    pub open_box_keys: usize,
+    /// boxed-node, mixed box (point rules + parametric rules): box keys
+    /// stepped by the closure check (every non-terminal key of the box).
+    /// vk5l WP1: with a certified set, every non-terminal certified key.
+    pub box_keys_stepped: usize,
+    /// vk5l WP1: keys of the certified set (0 without one).
+    pub certified_keys: usize,
+    /// vk5l WP2: keys the dispatch sends to a recipe (each solved in
+    /// process, or read from a relation cache, while the box is stepped).
+    pub recipe_keys: usize,
 }
 
 /// The load-time checks of a Custom owner (`descent::check` items 1, 2 and 7)
@@ -1608,8 +2436,20 @@ pub fn verify_custom_payload(
             .fold(forced, |mask, (slot, _)| mask | 1 << slot)
     };
     for key in super::descent::custom_witness_keys(arity, support, forced) {
+        // boxed-node: a boxed owner is checked inside its box only.
+        if ops.box_contains(&key) == Some(false) {
+            continue;
+        }
         let order = ops.order_of(&key)?;
-        match ops.apply_powers(&key)? {
+        let applied = match ops.apply_powers(&key) {
+            // A partial box (pilot table) has box keys without rule yet.
+            Err(PError::Uncovered { .. }) if ops.box_partial() => {
+                check.open_box_keys += 1;
+                continue;
+            }
+            other => other?,
+        };
+        match applied {
             Applied::Terminal => {
                 if !ops.is_residual(&key) {
                     return Err(fail(format!("the terminal {key:?} is no residual")));
@@ -1637,6 +2477,60 @@ pub fn verify_custom_payload(
             }
         }
         check.witness_keys += 1;
+    }
+    // boxed-node, mixed box: the importer cannot evaluate parametric rules, so
+    // the closure of the box is checked here by stepping every box key: a
+    // rule (point or parametric, first match) applies and every child on the
+    // chart lies in the box.
+    // vk5l WP1: with a certified set, the closure of the SET is checked the
+    // same way (every certified key stepped, every chart child certified):
+    // the set, not the layer box, is the dispatch domain.
+    let certified = ops.certified_set();
+    check.certified_keys = certified.map_or(0, CertifiedKeySet::len);
+    check.recipe_keys = recipe_targets(&*ops)?.len();
+    if let Some(record) = ops
+        .box_record()
+        .filter(|record| record.complete && (record.parametric_rules > 0 || certified.is_some()))
+    {
+        let keys: Vec<Vec<i64>> = match certified {
+            Some(set) => set.keys().collect(),
+            None => record
+                .definition
+                .keys(&record.chart, super::table_import::MAX_BOX_KEYS)
+                .map_err(|detail| fail(format!("boxed node {}: {detail}", record.node)))?,
+        };
+        let inside = |key: &[i64]| match certified {
+            Some(set) => set.contains(key),
+            None => record.contains(key),
+        };
+        let domain = match certified {
+            Some(set) => format!("its certified key set ({} keys)", set.len()),
+            None => record.describe(),
+        };
+        for key in keys {
+            if ops.is_residual(&key) {
+                continue;
+            }
+            let applied = ops.apply_powers(&key).map_err(|error| match error {
+                // vk5l WP2: a recipe failure is reported as it is.
+                error @ PError::RecipeFailed(_) => error,
+                error => fail(format!(
+                    "boxed node {}: the box key {key:?} has no rule ({error})",
+                    record.node
+                )),
+            })?;
+            if let Applied::Children(children) = applied {
+                for (child, _) in children {
+                    if support_of(&child) == support && !inside(&child) {
+                        return Err(fail(format!(
+                            "boxed node {}: the box is not closed: the rule of {key:?} gives {child:?} outside {domain}",
+                            record.node,
+                        )));
+                    }
+                }
+            }
+            check.box_keys_stepped += 1;
+        }
     }
     Ok(check)
 }

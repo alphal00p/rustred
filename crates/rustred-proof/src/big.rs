@@ -180,7 +180,11 @@ fn mag_divrem(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
     // remainder = u[0..n] >> s
     let mut r = vec![0u64; n];
     for i in 0..n {
-        r[i] = if s == 0 { u[i] } else { (u[i] >> s) | (u[i + 1] << (64 - s)) };
+        r[i] = if s == 0 {
+            u[i]
+        } else {
+            (u[i] >> s) | (u[i + 1] << (64 - s))
+        };
     }
     trim(&mut r);
     (q, r)
@@ -188,17 +192,26 @@ fn mag_divrem(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
 
 impl Big {
     pub fn zero() -> Self {
-        Big { neg: false, m: vec![] }
+        Big {
+            neg: false,
+            m: vec![],
+        }
     }
     pub fn one() -> Self {
-        Big { neg: false, m: vec![1] }
+        Big {
+            neg: false,
+            m: vec![1],
+        }
     }
     pub fn from_i128(x: i128) -> Self {
         let neg = x < 0;
         let u = x.unsigned_abs();
         let mut m = vec![u as u64, (u >> 64) as u64];
         trim(&mut m);
-        Big { neg: neg && !m.is_empty(), m }
+        Big {
+            neg: neg && !m.is_empty(),
+            m,
+        }
     }
     pub fn from_u64(x: u64) -> Self {
         let mut m = vec![x];
@@ -215,7 +228,8 @@ impl Big {
         if self.m.len() > 2 {
             return None;
         }
-        let u = self.m.first().copied().unwrap_or(0) as u128 | ((self.m.get(1).copied().unwrap_or(0) as u128) << 64);
+        let u = self.m.first().copied().unwrap_or(0) as u128
+            | ((self.m.get(1).copied().unwrap_or(0) as u128) << 64);
         if u > i128::MAX as u128 {
             return None;
         }
@@ -273,7 +287,10 @@ impl Big {
         b
     }
     pub fn abs(&self) -> Big {
-        Big { neg: false, m: self.m.clone() }
+        Big {
+            neg: false,
+            m: self.m.clone(),
+        }
     }
     pub fn cmp_abs(&self, b: &Big) -> Ordering {
         mag_cmp(&self.m, &b.m)
@@ -454,20 +471,38 @@ mod tests {
         for _ in 0..2000 {
             let la = (next() % 6 + 1) as usize;
             let lb = (next() % 4 + 1) as usize;
-            let a = Big { neg: next() % 2 == 0, m: { let mut v: Vec<u64> = (0..la).map(|_| next()).collect(); trim(&mut v); v } };
+            let a = Big {
+                neg: next() % 2 == 0,
+                m: {
+                    let mut v: Vec<u64> = (0..la).map(|_| next()).collect();
+                    trim(&mut v);
+                    v
+                },
+            };
             let mut bm: Vec<u64> = (0..lb).map(|_| next() >> (next() % 64)).collect();
             trim(&mut bm);
             if bm.is_empty() {
                 continue;
             }
-            let b = Big { neg: next() % 2 == 0, m: bm };
+            let b = Big {
+                neg: next() % 2 == 0,
+                m: bm,
+            };
             let (q, r) = a.divrem(&b);
             let mut back = q.mul(&b);
             back.add(&r);
             assert_eq!(back, a);
             assert_eq!(r.cmp_abs(&b), Ordering::Less);
         }
-        assert_eq!(Big::parse("-123456789012345678901234567890").unwrap().to_dec(), "-123456789012345678901234567890");
-        assert_eq!(Big::gcd(&Big::from_i128(84), &Big::from_i128(-36)), Big::from_i128(12));
+        assert_eq!(
+            Big::parse("-123456789012345678901234567890")
+                .unwrap()
+                .to_dec(),
+            "-123456789012345678901234567890"
+        );
+        assert_eq!(
+            Big::gcd(&Big::from_i128(84), &Big::from_i128(-36)),
+            Big::from_i128(12)
+        );
     }
 }

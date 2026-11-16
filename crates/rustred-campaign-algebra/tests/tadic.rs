@@ -264,11 +264,15 @@ fn tadic_random_systems_vs_brute_force_check_mode_and_row_orders() {
         for _ in 0..nrows {
             let mut r = Vec::new();
             for &c in &cols {
-                if rng.next() % 3 == 0 {
+                if rng.next().is_multiple_of(3) {
                     continue;
                 }
                 // value c0 + c1 t with a bias to vanish at t = 0
-                let c0 = if rng.next() % 2 == 0 { 0 } else { rng.small(2) };
+                let c0 = if rng.next().is_multiple_of(2) {
+                    0
+                } else {
+                    rng.small(2)
+                };
                 let c1 = rng.small(2);
                 if c0 != 0 || c1 != 0 {
                     r.push(e(c, c0, c1, 4));
@@ -348,14 +352,23 @@ fn tadic_keeps_regularity_hook() {
     let v = keeps_regularity(&o, &before, &after, &qq, None);
     assert_eq!(v.bound, Some(PStar::Order(0)));
     assert_eq!(v.kept, Some(false));
+    let full = o.best_pole_order(&before, &qq);
+    assert_eq!(
+        full.relation_seeds,
+        Some(vec![0, 1]),
+        "the relation combines both seeds"
+    );
     let v = keeps_regularity(
         &o,
         &before,
         &before.restrict_to_seeds(&[0, 1]),
         &qq,
-        Some(PStar::Order(0)),
+        Some(&full),
     );
     assert_eq!(v.kept, Some(true));
+    assert!(v.by_trace, "kept by the seed trace, no recomputation");
+    let v = keeps_regularity(&o, &before, &after, &qq, Some(&full));
+    assert_eq!((v.kept, v.by_trace), (Some(false), false));
 }
 
 #[test]
@@ -417,7 +430,7 @@ fn tadic_real_ibp_system_row_order_invariance() {
         (0..n)
             .map(|i| if lines[i] { (k[i] - 1).max(0) } else { -k[i] })
             .sum::<i64>()
-            + 100 * (0..n).filter(|&i| lines[i] && k[i] <= 0).count() as i64 * -1
+            - 100 * (0..n).filter(|&i| lines[i] && k[i] <= 0).count() as i64
     };
     let kk = key.clone();
     let low = move |k: &[i64]| (dr(k), k.to_vec()) < (dr(&kk), kk.clone());
@@ -516,7 +529,10 @@ fn tadic_engine_row_span_equality_on_a_recipe() {
         total,
         "seed generation differs from the engine's build_seeds"
     );
-    let used: Vec<Vec<i64>> = serde_json::from_str(rec["seeds_used"].as_str().unwrap()).unwrap();
+    let used: Vec<Vec<i64>> = match &rec["seeds_used"] {
+        serde_json::Value::String(t) => serde_json::from_str(t).unwrap(),
+        v => serde_json::from_value(v.clone()).unwrap(),
+    };
     let used_abs: Vec<Vec<i64>> = used
         .iter()
         .map(|o| (0..n).map(|j| key[j] + o[j]).collect())
@@ -584,7 +600,7 @@ fn tadic_engine_row_span_equality_on_a_recipe() {
             let (nv, dv) = (ev(&num), ev(&den));
             // c = nv / dv mod p; the row entry is -c
             let inv = modpow(dv as u64, prime - 2, prime);
-            let c = (nv as u128 * inv as u128 % prime as u128) as u64;
+            let c = (nv * inv as u128 % prime as u128) as u64;
             w.push((kk, ((prime - c) % prime) as i128, 0));
         }
         rows.push(w);

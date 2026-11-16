@@ -31,6 +31,11 @@ pub struct LazyDecodedCoefficientTable {
     /// coef-form: a factored section (`factored::is_factored_table`) is
     /// decoded whole at construction; entries are admitted on first access.
     factored: Option<Vec<Coefficient>>,
+    /// t162-export: keep decoded coefficients (default). Without retention
+    /// every access decodes its frame again and nothing is cached: a consumer
+    /// that reads each coefficient once and keeps its own (interned) copy
+    /// never holds the decoded table.
+    retain: bool,
 }
 
 impl LazyDecodedCoefficientTable {
@@ -88,6 +93,7 @@ impl LazyDecodedCoefficientTable {
                     coefficients: BTreeMap::new(),
                 }),
                 factored: Some(coefficients),
+                retain: true,
             });
         }
         let mut source = ByteCursor::shared(&atoms);
@@ -147,7 +153,14 @@ impl LazyDecodedCoefficientTable {
                 coefficients: BTreeMap::new(),
             }),
             factored: None,
+            retain: true,
         })
+    }
+
+    /// The table without retention of decoded coefficients (t162-export).
+    pub fn without_retention(mut self) -> Self {
+        self.retain = false;
+        self
     }
 
     pub fn len(&self) -> usize {
@@ -209,8 +222,10 @@ impl LazyDecodedCoefficientTable {
             }
             let value = Arc::new(decoded.clone());
             admit(&value)?;
-            super::resource_array::<(usize, Arc<Coefficient>)>(1)?;
-            imported.coefficients.insert(id.index(), value.clone());
+            if self.retain {
+                super::resource_array::<(usize, Arc<Coefficient>)>(1)?;
+                imported.coefficients.insert(id.index(), value.clone());
+            }
             return Ok(value);
         }
         let frame = self
@@ -250,8 +265,10 @@ impl LazyDecodedCoefficientTable {
             false,
         )?);
         admit(&value)?;
-        super::resource_array::<(usize, Arc<Coefficient>)>(1)?;
-        imported.coefficients.insert(id.index(), value.clone());
+        if self.retain {
+            super::resource_array::<(usize, Arc<Coefficient>)>(1)?;
+            imported.coefficients.insert(id.index(), value.clone());
+        }
         Ok(value)
     }
 }

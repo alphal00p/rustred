@@ -107,6 +107,8 @@ pub struct AcceptBits {
     /// lane closeloop3: the per-key caps of the solves (recorded on the answer line of a key that hit one).
     pub max_trace_rows: Option<u64>,
     pub key_budget_s: Option<u64>,
+    /// Lane polefix (audit r2-poles F4): the objective of the SOLVED lines' `choice` annotation (`None` = off).
+    pub pole_objective: Option<rustred_campaign_core::poles::PoleObjective>,
 }
 
 /// Run the closeloop's accept chain on one settled point solve: `undeclare` = the terminal the solve is FOR (removed
@@ -148,6 +150,7 @@ pub fn accept_point(
             run_dir: run_dir.to_string(),
             max_trace_rows: bits.max_trace_rows,
             key_budget_s: bits.key_budget_s,
+            pole_objective: bits.pole_objective.clone(),
         };
         decide(&ctx, lines)
     });
@@ -336,6 +339,37 @@ pub fn build_machine(
 /// recipe file), the symmetry relations as a `supplied_relations` table verified from the group, the closing-try answers
 /// and the eliminating relations as `evidence.solved`, the declared terminals reduced to the remaining keys.
 #[allow(clippy::too_many_arguments)]
+/// lane closeloop4: the family of an import spec's tables: the header of its `frame_from` source (else the first source
+/// with a readable table header).
+fn spec_family(v: &Value, base: &Path) -> Option<String> {
+    use std::io::BufRead;
+    let srcs = v["sources"].as_array()?;
+    let frame = v["frame_from"].as_str();
+    let pick = srcs
+        .iter()
+        .filter(|s| frame.is_none_or(|f| s["id"] == f))
+        .chain(srcs.iter());
+    for s in pick {
+        let Some(p) = s["path"].as_str() else {
+            continue;
+        };
+        let pb = PathBuf::from(p);
+        let pb = if pb.is_absolute() { pb } else { base.join(pb) };
+        let Ok(f) = std::fs::File::open(&pb) else {
+            continue;
+        };
+        let mut l = String::new();
+        if std::io::BufReader::new(f).read_line(&mut l).is_ok()
+            && let Ok(h) = serde_json::from_str::<Value>(l.trim())
+            && let Some(fam) = h["family"].as_str()
+        {
+            return Some(fam.to_string());
+        }
+    }
+    None
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn extended_spec(
     import_text: &str,
     base: &Path,
@@ -513,6 +547,8 @@ pub fn extended_spec(
         new_sources.push(s);
     }
     v["sources"] = Value::Array(new_sources);
+    // lane closeloop4 (audit-closeloop m4): evidence names the family of the set's tables (the frame source's header)
+    let fam = spec_family(&v, base);
     // the closing loop's own recipe answers (ledger inputs of the first statement's passes)
     if !inner_solved.is_empty() {
         if !v["evidence"].is_object() {
@@ -524,7 +560,9 @@ pub fn extended_spec(
             .unwrap_or_default();
         for f in inner_solved {
             let b = std::fs::read(f).map_err(|e| format!("{}: {e}", f.display()))?;
-            arr.push(json!({"path": f.display().to_string(), "sha256": sha256_hex(&b)}));
+            arr.push(
+                json!({"path": f.display().to_string(), "sha256": sha256_hex(&b), "family": fam}),
+            );
         }
         v["evidence"]["solved"] = Value::Array(arr);
     }
@@ -542,7 +580,7 @@ pub fn extended_spec(
             .cloned()
             .unwrap_or_default();
         let mut arr = arr;
-        arr.push(json!({"path": p.display().to_string(), "sha256": sha256_hex(txt.as_bytes())}));
+        arr.push(json!({"path": p.display().to_string(), "sha256": sha256_hex(txt.as_bytes()), "family": fam}));
         v["evidence"]["solved"] = Value::Array(arr);
     }
     let out = dir.join("import-spec.json");
@@ -697,6 +735,8 @@ impl TermminSource {
             order: p.cfg.solve.order_arg(),
             max_trace_rows: p.spec.caps.max_trace_rows.or(p.cfg.solve.max_trace_rows),
             key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
+            // the node's setting (validated with the config; an unreadable one cannot reach here)
+            pole_objective: p.cfg.pole_objective_setting().unwrap_or_default(),
         }
     }
 
@@ -765,8 +805,8 @@ impl TermminSource {
     fn start_load(&mut self, st: &CampaignState, i: usize) -> Result<(), String> {
         let n = self.nodes[i].n.clone();
         let node = self.nodes[i].cfg.node.clone();
-        let text = String::from_utf8(Self::read_input(st, &super::ids::input_import_spec(&n))?)
-            .map_err(|e| format!("effective import spec: {e}"))?;
+        // lane repairflow (repairflow.md 6): the composed spec when the repair flow wrote one
+        let text = super::repair::effective_spec_text(st, &n)?;
         self.nodes[i].spec_text = text.clone();
         // the inner's recipe answers (the closing loop's evidence), ledger order, digests checked in the thread
         let mut files: Vec<(u64, PathBuf, String)> = st
@@ -796,6 +836,8 @@ impl TermminSource {
                     .map_err(|e| format!("import load: {e}"))?;
                 let mut ev =
                     Evidence::from_spec(&set, &base).map_err(|e| format!("evidence: {e}"))?;
+                // lane closeloop4: answers files are verified against their ledger BLAKE3 just below
+                ev.accept_ledger_verified_files();
                 for (_, f, b3) in files {
                     let (_, d) = crate::atomic::blake3_file(&f)
                         .map_err(|e| format!("{}: {e}", f.display()))?;
@@ -811,6 +853,8 @@ impl TermminSource {
                         &rustred_campaign_core::import::spec::FileRef {
                             path: f.display().to_string(),
                             sha256: None,
+                            manifest: None,
+                            family: None,
                         },
                     )
                     .map_err(|e| format!("answers {}: {e}", f.display()))?;
@@ -1230,9 +1274,20 @@ impl TermminSource {
                         let dig = rustred_campaign_core::import::write_statement(&set, &ev, &res, &sdir, None)
                             .map_err(|e| format!("second statement: {e}"))?;
                         let v = rustred_campaign_core::termmin::extend::view(&set, &res);
+                        // lane closeloop4 (audit-closeloop m6): `closed` only under the closing loop's own criteria
+                        // (Tier C, strict dispatch, not diagnostic, every row certified at the required level with its
+                        // facts decided), never from the blocking list alone
+                        let (strict, _) = super::pass::strictness(&set);
+                        let diagnostic = res.summary.diagnostic
+                            || res.summary.verdict == rustred_campaign_core::closure::Verdict::Diagnostic;
+                        let basis_ok = res.tier == rustred_campaign_core::closure::Tier::C && strict && !diagnostic;
+                        let all_cert = res.streamed.is_none()
+                            && res.rows.iter().all(|r| super::pass::row_certified(r, res.required, basis_ok));
+                        let closed2 = res.blocking().is_empty() && v.open.is_empty() && basis_ok && all_cert;
                         Ok(Loaded::Second(Box::new(json!({"written": true, "spec": sp.display().to_string(),
                             "dir": sdir.display().to_string(), "files": dig.files,
-                            "blocking": res.blocking(), "closed": res.blocking().is_empty() && v.open.is_empty(),
+                            "blocking": res.blocking(), "closed": closed2, "tier": format!("{:?}", res.tier),
+                            "strict": strict,
                             "open": v.open.len(), "economy": v.economy,
                             "terminals": v.terminals.iter().map(|k| key_text(k)).collect::<Vec<_>>()}))))
                     })
@@ -1688,6 +1743,24 @@ impl WorkSource for TermminSource {
     /// lane closeloop3 (procfix5): the closing loop's outcome (phase E never changes a node's verdict).
     fn outcome(&self, st: &CampaignState) -> crate::supervisor::worksource::CampaignOutcome {
         self.inner.outcome(st)
+    }
+
+    /// lane t266run / closeloop4 (closeloop.md 17.3, 19): the closing loop's operator decisions pass through phase E.
+    fn operator_decision(&self, st: &CampaignState) -> Option<String> {
+        self.inner.operator_decision(st)
+    }
+
+    fn resolve_operator_decision(
+        &mut self,
+        st: &CampaignState,
+        req: &crate::supervisor::ControlRequest,
+    ) -> Result<crate::supervisor::worksource::Routing, String> {
+        self.inner.resolve_operator_decision(st, req)
+    }
+
+    fn blocked_on_operator(&self, st: &CampaignState) -> Option<String> {
+        // lane t266run (L17): forwarded
+        self.inner.blocked_on_operator(st)
     }
 
     fn finished(&self, st: &CampaignState) -> bool {

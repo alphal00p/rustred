@@ -14,6 +14,66 @@ use import::{
 };
 use serde_json::{Value, json};
 
+/// lane closeloop4 (audit-closeloop M1 / m4): the spec text with its evidence PINNED (each file's sha256, a
+/// SHA256SUMS manifest beside a directory) and the family of its tables named (spec evidence is read only so).
+#[allow(dead_code)]
+fn pin_ev(spec: &serde_json::Value) -> String {
+    use std::io::BufRead;
+    let mut v = spec.clone();
+    let fam = v["sources"].as_array().and_then(|a| {
+        a.iter().find_map(|s| {
+            let p = s["path"].as_str()?;
+            let f = std::fs::File::open(p).ok()?;
+            let mut l = String::new();
+            std::io::BufReader::new(f).read_line(&mut l).ok()?;
+            let h: serde_json::Value = serde_json::from_str(l.trim()).ok()?;
+            h["family"].as_str().map(str::to_string)
+        })
+    });
+    let sha = |p: &std::path::Path| rustred_campaign_core::import::lines::file_sha256(p).unwrap();
+    if let Some(ev) = v.get_mut("evidence").and_then(|e| e.as_object_mut()) {
+        for k in ["facts", "proofs", "solved"] {
+            if let Some(a) = ev.get_mut(k).and_then(|x| x.as_array_mut()) {
+                for e in a {
+                    let p = std::path::PathBuf::from(e["path"].as_str().unwrap_or(""));
+                    if p.is_file() && e.get("sha256").is_none() {
+                        e["sha256"] = serde_json::json!(sha(&p));
+                    }
+                    if p.is_dir() && e.get("manifest").is_none() {
+                        let mut names: Vec<String> = std::fs::read_dir(&p)
+                            .unwrap()
+                            .flatten()
+                            .map(|x| x.file_name().to_string_lossy().into_owned())
+                            .filter(|n| n.ends_with(".json") || n.ends_with(".jsonl"))
+                            .collect();
+                        names.sort();
+                        let body: String = names
+                            .iter()
+                            .map(|n| format!("{}  {n}\n", sha(&p.join(n))))
+                            .collect();
+                        let m = std::env::temp_dir().join(format!(
+                            "pin-ev-{}-{}.SHA256SUMS",
+                            std::process::id(),
+                            rustred_campaign_core::closure::sha256::sha256_tag(
+                                p.display().to_string().as_bytes()
+                            )
+                        ));
+                        std::fs::write(&m, body).unwrap();
+                        e["manifest"] =
+                            serde_json::json!({"path": m.display().to_string(), "sha256": sha(&m)});
+                    }
+                    if e.get("family").is_none()
+                        && let Some(f) = &fam
+                    {
+                        e["family"] = serde_json::json!(f);
+                    }
+                }
+            }
+        }
+    }
+    v.to_string()
+}
+
 const HEADER: &str =
     r#"{"type":"header","schema":"table_dump.v1","family":"TOY","denominators":3,"mask":"110"}"#;
 
@@ -101,7 +161,7 @@ fn base(dir: &Path) -> Value {
 }
 
 fn run(spec: &Value, dir: &Path) -> (import::ImportedSet, Evidence, import::CheckResult) {
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(spec)).unwrap();
     let set = load(&s, dir).unwrap();
     let ev = Evidence::from_spec(&set, dir).unwrap();
     let r = check(
@@ -145,17 +205,17 @@ fn spec_refuses_unknown_fields_and_bad_digests() {
     let d = scratch("strict");
     let mut spec = base(&d);
     spec["sources"][0]["priority_file"] = json!("x");
-    let e = TableSetSpec::from_json(&spec.to_string()).unwrap_err();
+    let e = TableSetSpec::from_json(&pin_ev(&spec)).unwrap_err();
     assert!(matches!(e, ImportError::Spec(_)), "{e}");
     let mut spec = base(&d);
     spec["bogus"] = json!(1);
-    assert!(TableSetSpec::from_json(&spec.to_string()).is_err());
+    assert!(TableSetSpec::from_json(&pin_ev(&spec)).is_err());
     let mut spec = base(&d);
     spec["sources"][0]["kind"] = json!("mystery");
-    assert!(TableSetSpec::from_json(&spec.to_string()).is_err());
+    assert!(TableSetSpec::from_json(&pin_ev(&spec)).is_err());
     let mut spec = base(&d);
     spec["sources"][0]["sha256"] = json!("00".repeat(32));
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     assert!(matches!(
         load(&s, &d).unwrap_err(),
         ImportError::Digest { .. }
@@ -190,7 +250,7 @@ fn negative_repeated_label_in_a_source_and_in_a_scope() {
         .as_array_mut()
         .unwrap()
         .push(json!({"id":"B","kind":"engine_table","path":b.display().to_string()}));
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     assert!(matches!(
         load(&s, &d).unwrap_err(),
         ImportError::Label { label: 5, .. }
@@ -212,10 +272,10 @@ fn negative_repeated_label_in_a_source_and_in_a_scope() {
         .as_array_mut()
         .unwrap()
         .push(json!({"id":"C","kind":"engine_table","path":c.display().to_string()}));
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     assert!(load(&s, &d).is_ok());
     spec["sources"][0]["label_scope"] = json!("set");
-    let e = TableSetSpec::from_json(&spec.to_string()).unwrap_err();
+    let e = TableSetSpec::from_json(&pin_ev(&spec)).unwrap_err();
     assert!(
         matches!(e, ImportError::Spec(_)),
         "label_scope is a table_set field: {e}"
@@ -270,7 +330,7 @@ fn removed_records_fall_through_and_selection_order() {
     );
     // a removed label that does not exist is refused
     spec["sources"][0]["removed"] = json!([{"label":7,"reason":"x"}]);
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     assert!(matches!(
         load(&s, &d).unwrap_err(),
         ImportError::Label { label: 7, .. }
@@ -282,7 +342,7 @@ fn removed_records_fall_through_and_selection_order() {
     assert!(r.rows.iter().all(|x| x.status == RowStatus::Served));
     // a selected label that does not exist is refused
     spec["sources"][0]["records"] = json!([1, 9]);
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     assert!(matches!(
         load(&s, &d).unwrap_err(),
         ImportError::Label { label: 9, .. }
@@ -625,7 +685,7 @@ fn negative_fact_for_another_rule_does_not_lift_a_witness_absent_rule() {
     s.push_str(&fact_line(&sha_a, [1, 1, 0], "irregular", &[]));
     s.push('\n');
     std::fs::write(&f, &s).unwrap();
-    let sp = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let sp = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     let set = load(&sp, &d).unwrap();
     assert!(matches!(
         Evidence::from_spec(&set, &d),
@@ -716,7 +776,7 @@ fn domain_bounds_and_qualified_recenter_are_selection_bounds() {
     let spec3 = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"C",
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
         "sources":[{"id":"C","kind":"engine_table","path":c.display().to_string()}]});
-    let s = TableSetSpec::from_json(&spec3.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec3)).unwrap();
     assert!(matches!(
         load(&s, &d).unwrap_err(),
         ImportError::Line { .. }
@@ -746,7 +806,7 @@ fn domain_bounds_refusals_match_the_engine() {
         let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":name,
             "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
             "sources":[{"id":name,"kind":"engine_table","path":t.display().to_string()}]});
-        load(&TableSetSpec::from_json(&spec.to_string()).unwrap(), &d)
+        load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d)
     };
     // a min on the FIXED numerator slot 2 (the engine accepted it before engfix4): refused
     assert!(matches!(
@@ -945,17 +1005,23 @@ fn supplied_relations_and_terminals() {
                    {"id":"sym","kind":"supplied_relations","class":"symmetry","path":s.display().to_string(),
                     "verification":{"path": v.display().to_string()},"hand_name":{"template":"{source}#{index}"}},
                    {"id":"T","kind":"terminals","keys":[[1,1,0]]}]});
+    // lane symfix (audit r2-sym F1, import.md 21): the `verification` file is READ: it holds no composite
+    // verification line of the key and the frame header has no family to re-derive the relation from, so it is NOT
+    // verified at load (no EXACT bit): the key is open (it was served at `imported`, basis `supplied`, before the fix)
     let (set, _ev, r) = run(&spec, &d);
     let x = row(&r, [2, 1, 0]);
-    assert_eq!(
-        (x.status, x.evidence, x.basis),
-        (RowStatus::Served, Some(Level::Imported), Some("supplied"))
+    assert_eq!(x.status, RowStatus::Open, "{x:?}");
+    let rep = set.report.sources.iter().find(|s| s.id == "sym").unwrap();
+    assert_eq!(rep.relations_not_verified.len(), 1, "{rep:?}");
+    assert!(
+        rep.relations_not_verified[0]
+            .1
+            .starts_with("group_unavailable")
+            || rep.relations_not_verified[0]
+                .1
+                .starts_with("verification_line_missing"),
+        "{rep:?}"
     );
-    assert_eq!(
-        import::statement::server_hand_name(&set, x).as_deref(),
-        Some("sym#0")
-    );
-    assert_eq!(row(&r, [1, 1, 0]).status, RowStatus::Terminal);
     // without its verification record the supplied relation is unverified (open)
     spec["sources"][1]
         .as_object_mut()
@@ -1244,7 +1310,7 @@ fn compact_fact_and_proof_verdict_lines() {
                "verdict":"regular","nonzero":["xyz"]}),
     ] {
         let p = write(&[bad]);
-        let s = TableSetSpec::from_json(&with_facts(&p).to_string()).unwrap();
+        let s = TableSetSpec::from_json(&pin_ev(&with_facts(&p))).unwrap();
         let set = load(&s, &d).unwrap();
         assert!(matches!(
             Evidence::from_spec(&set, &d),
@@ -1306,7 +1372,7 @@ fn streamed_check_equals_the_in_memory_check() {
     let spec = json!({"schema":"rustred.campaign.import-spec.v1","frame_from":"A",
         "start":{"path": st.display().to_string(),"format":"keys_jsonl"},
         "sources":[{"id":"A","kind":"engine_table","path":a.display().to_string()}]});
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     let set = load(&s, &d).unwrap();
     let ev = Evidence::from_spec(&set, &d).unwrap();
     let mem = check(&set, &ev, &CheckOptions::default()).unwrap();
@@ -1441,7 +1507,7 @@ fn per_key_recipe_assignment_side_file_and_domain_keys() {
     v["domain"]["centre_rule"] = json!("first_dotted_line");
     std::fs::write(&r3, v.to_string()).unwrap();
     spec["sources"][2]["path"] = json!(r3.display().to_string());
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     assert!(load(&s, &d).is_err());
 }
 
@@ -1712,7 +1778,7 @@ fn table_index_one_pass_reuse_and_equality() {
     assert_eq!(ix2.meta.file_sha256, direct.file_sha256);
     drop(ix2);
     // the persistent-index load equals the temporary-index load
-    let s = TableSetSpec::from_json(&spec.to_string()).unwrap();
+    let s = TableSetSpec::from_json(&pin_ev(&spec)).unwrap();
     let opts = import::LoadOptions {
         index_dir: Some(cache.clone()),
     };

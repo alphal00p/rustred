@@ -415,6 +415,18 @@ impl RealLauncher {
         &self.setup
     }
 
+    /// procfix6 (gate5 m5): would `launch(spec)` put the job into a systemd scope? (The same choice `launch` makes: a
+    /// memory cap, mechanism auto / scope, no delegated cgroup, systemd-run available.)
+    pub fn scope_requested(&self, spec: &LaunchSpec) -> bool {
+        spec.memory_cap_bytes.is_some()
+            && matches!(
+                spec.cap_mechanism,
+                CapRequest::Auto | CapRequest::SystemdScope
+            )
+            && spec.cgroup.is_none()
+            && self.setup.systemd_run.is_some()
+    }
+
     /// SIGKILL every process group of an unreaped leader of this launcher's sampler, at once (fast exit). Returns the
     /// number of groups signalled. Grandchildren in other groups or sessions are left to the restart's orphan scan.
     pub fn kill_all_pinned(&self) -> usize {
@@ -810,6 +822,15 @@ impl ChildLauncher for RealLauncher {
             };
         // procfix5 (gate4 m1): the spawn barrier. The read end is inherited by the child (kept across its exec into the
         // shim); the write end stays here (close-on-exec) until `release_barrier`. A dead caller = EOF = no program.
+        // procfix6 (gate5 m2): the release token (32 random bytes; the shim gets only their BLAKE3).
+        let token = if spec.spawn_barrier {
+            Some(release_token().map_err(|error| LaunchError::Io {
+                what: "spawn barrier token (getrandom)".into(),
+                error,
+            })?)
+        } else {
+            None
+        };
         let barrier = if spec.spawn_barrier {
             let mut fds = [0 as libc::c_int; 2];
             // SAFETY: pipe2 writes two descriptors into the array.
@@ -834,8 +855,13 @@ impl ChildLauncher for RealLauncher {
         let mut cmd = match &barrier {
             Some((r, _)) => {
                 let mut c = Command::new("/proc/self/exe");
+                let hash = token
+                    .as_ref()
+                    .map(|t| blake3::hash(t).to_hex().to_string())
+                    .unwrap_or_default();
                 c.arg(super::BARRIER_VERB)
                     .arg(r.as_raw_fd().to_string())
+                    .arg(hash)
                     .arg("--")
                     .arg(&prog);
                 c
@@ -956,9 +982,9 @@ impl ChildLauncher for RealLauncher {
         };
         let pid = child.id();
         // The child has its copy of the barrier's read end (or is gone): ours is closed now.
-        let barrier_w = barrier.map(|(r, w)| {
+        let barrier_w = barrier.and_then(|(r, w)| {
             drop(r);
-            w
+            token.map(|t| (w, t))
         });
         // Our unreaped child cannot be recycled, so reading its identity now is race-free (bounded: audit A M5).
         let identity = match run_bounded(Duration::from_secs(5), move || {
@@ -1086,8 +1112,9 @@ enum Chosen {
 
 /// A child of [`RealLauncher`] (or an adopted job of a previous supervisor).
 pub struct RealChild {
-    /// procfix5 m1: the write end of the spawn barrier while the child waits behind it (see `LaunchSpec::spawn_barrier`).
-    barrier: Option<std::os::fd::OwnedFd>,
+    /// procfix5 m1: the write end of the spawn barrier while the child waits behind it (see `LaunchSpec::spawn_barrier`),
+    /// with the release token (procfix6 m2).
+    barrier: Option<(std::os::fd::OwnedFd, [u8; RELEASE_TOKEN_BYTES])>,
     label: String,
     marker: CampaignMarker,
     identity: ProcessIdentity,
@@ -1203,21 +1230,65 @@ impl RealChild {
         }
     }
 
+    /// procfix6 (gate5 m5): the containment in force for this job, as VERIFIED: a systemd scope only once the leader's own
+    /// cgroup names the job's unit under our user manager (the strict `ScopeRef` check), else `Pending` while a scope
+    /// was requested, or the job's delegated cgroup, or the marker only.
+    pub fn containment(&mut self) -> Containment {
+        match &self.mechanism {
+            MemoryMechanism::SystemdScope { .. } => {
+                if self.scope.is_none() {
+                    let _ = self.scope_memory();
+                }
+                match &self.scope {
+                    Some(s) => Containment::Scope(
+                        s.dir
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("?")
+                            .to_string(),
+                    ),
+                    None => Containment::Pending,
+                }
+            }
+            MemoryMechanism::Cgroup(p) => Containment::Cgroup(p.clone()),
+            MemoryMechanism::Sampling => {
+                Containment::MarkerOnly("no systemd scope (memory cap by sampling)".into())
+            }
+            MemoryMechanism::None => Containment::MarkerOnly("no memory cap, no scope".into()),
+        }
+    }
+
+    /// The scope unit requested for this job (`systemd-run --unit=`), if the scope mechanism was chosen.
+    pub fn requested_scope_unit(&self) -> Option<&str> {
+        matches!(self.mechanism, MemoryMechanism::SystemdScope { .. })
+            .then_some(self.scope_unit.as_deref())
+            .flatten()
+    }
+
     /// Is the child still waiting behind its spawn barrier (procfix5 m1)?
     pub fn behind_barrier(&self) -> bool {
         self.barrier.is_some()
     }
 
-    /// Let the child run its program: one byte on the barrier pipe, then close it (procfix5 m1). Call it only after the
-    /// spawn is recorded durably. No barrier: Ok (nothing to do). An error (the shim is gone, EPIPE) is reported; the
-    /// child's end is then classified as usual.
+    /// Let the child run its program: the release token on the barrier pipe, then close it (procfix5 m1, procfix6 m2).
+    /// Call it only after the spawn is recorded durably. No barrier: Ok (nothing to do). An error (the shim is gone,
+    /// EPIPE) is reported; the child's end is then classified as usual.
     pub fn release_barrier(&mut self) -> io::Result<()> {
-        let Some(w) = self.barrier.take() else {
+        let Some((w, token)) = self.barrier.take() else {
             return Ok(());
         };
-        // SAFETY: one byte from a static buffer to our own pipe descriptor.
-        let r = unsafe { libc::write(w.as_raw_fd(), b"G".as_ptr().cast(), 1) };
-        if r == 1 { Ok(()) } else { Err(last_err()) }
+        // One write of 32 bytes (< PIPE_BUF: atomic on a pipe).
+        // SAFETY: a 32-byte buffer we own, written to our own pipe descriptor.
+        let r = unsafe { libc::write(w.as_raw_fd(), token.as_ptr().cast(), token.len()) };
+        if r == token.len() as isize {
+            Ok(())
+        } else if r < 0 {
+            Err(last_err())
+        } else {
+            Err(io::Error::other(format!(
+                "short write of the release token ({r} bytes)"
+            )))
+        }
     }
 
     /// Never release the barrier: close it, so the shim exits (`BARRIER_NOT_RELEASED`) without executing the program.
@@ -1980,21 +2051,86 @@ pub(super) fn raw(f: &fs::File) -> RawFd {
     f.as_raw_fd()
 }
 
+/// procfix6 (gate5 m5): the containment of a job's marker-dropping descendants actually in force.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Containment {
+    /// The job's transient systemd scope (unit name, e.g. `rr-<id>-<label>-<hex>.scope`), verified from the leader's cgroup.
+    Scope(String),
+    /// A delegated job cgroup this supervisor created.
+    Cgroup(PathBuf),
+    /// A scope was requested and is not verified (yet).
+    Pending,
+    /// Only the marker (and the session) contain the job's processes; why.
+    MarkerOnly(String),
+}
+
+impl Containment {
+    /// The ledger / log word: `scope:<unit>`, `cgroup:<path>`, `pending`, `marker_only`.
+    pub fn word(&self) -> String {
+        match self {
+            Containment::Scope(u) => format!("scope:{u}"),
+            Containment::Cgroup(p) => format!("cgroup:{}", p.display()),
+            Containment::Pending => "pending".into(),
+            Containment::MarkerOnly(_) => "marker_only".into(),
+        }
+    }
+}
+
+/// Bytes of the spawn barrier's release token (procfix6 m2).
+pub(crate) const RELEASE_TOKEN_BYTES: usize = 32;
+
+/// A fresh release token from the kernel's random source.
+fn release_token() -> io::Result<[u8; RELEASE_TOKEN_BYTES]> {
+    let mut t = [0u8; RELEASE_TOKEN_BYTES];
+    let mut n = 0;
+    while n < t.len() {
+        // SAFETY: getrandom writes at most `len - n` bytes into our buffer.
+        let r = unsafe { libc::getrandom(t[n..].as_mut_ptr().cast(), t.len() - n, 0) };
+        if r < 0 {
+            let e = last_err();
+            if e.raw_os_error() == Some(libc::EINTR) {
+                continue;
+            }
+            return Err(e);
+        }
+        n += r as usize;
+    }
+    Ok(t)
+}
+
+/// procfix6 (gate5 m2): make THIS process non-dumpable (`PR_SET_DUMPABLE` 0): its /proc entries (fd, environ, mem, ...)
+/// become accessible only to itself and to holders of CAP_SYS_PTRACE (another process of the same uid can no longer
+/// open its descriptors through /proc/<pid>/fd), and it leaves no core dump. Inherited by fork, reset by execve (a job's
+/// program is dumpable again). The supervisor calls it when it hosts the spawn barrier (it holds the barrier pipes).
+pub fn set_not_dumpable() -> io::Result<()> {
+    // SAFETY: prctl with integer arguments only.
+    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0 as libc::c_ulong, 0, 0, 0) } != 0 {
+        return Err(last_err());
+    }
+    Ok(())
+}
+
 /// The barrier shim (procfix5 m1), run by the hidden verb [`super::BARRIER_VERB`] of a binary that hosts the supervisor:
-/// `args` = `<fd> -- <program> <args...>`. Waits for one byte on `fd` (the supervisor writes it after recording the
-/// spawn durably), closes it and execs the program in place with the current environment. EOF or anything else: exit
+/// `args` = `<fd> <blake3 hex> -- <program> <args...>`. procfix6 (gate5 m2): first makes itself non-dumpable (so no other
+/// process of the uid can reach the pipe through /proc/<pid>/fd from now on), then reads the release token (32 bytes) from
+/// `fd` (the supervisor writes it after recording the spawn durably), closes it and execs the program in place with the
+/// current environment ONLY if the token's BLAKE3 equals the hex in its argv (a write by anyone else, also one made
+/// through a descriptor opened before the prctl, cannot produce it). EOF, a short or wrong token: exit
 /// [`super::BARRIER_NOT_RELEASED`] without executing anything. Returns only on failure (the exit code to use).
 pub fn barrier_shim(args: &[String]) -> i32 {
     use std::io::Write;
     use std::os::unix::process::CommandExt;
-    let (Some(fd), Some("--"), Some(prog)) = (
+    // Before anything else (the descriptor is reachable through /proc only until here).
+    let _ = set_not_dumpable();
+    let (Some(fd), Some(hash), Some("--"), Some(prog)) = (
         args.first().and_then(|s| s.parse::<RawFd>().ok()),
-        args.get(1).map(String::as_str),
-        args.get(2),
+        args.get(1),
+        args.get(2).map(String::as_str),
+        args.get(3),
     ) else {
         let _ = writeln!(
             std::io::stderr(),
-            "{}: usage <fd> -- <program> [args]",
+            "{}: usage <fd> <blake3 hex> -- <program> [args]",
             super::BARRIER_VERB
         );
         return 2;
@@ -2002,18 +2138,25 @@ pub fn barrier_shim(args: &[String]) -> i32 {
     if fd < 3 {
         return 2;
     }
-    let mut b = [0u8; 1];
-    let n = loop {
-        // SAFETY: a one-byte read into a stack buffer from an inherited descriptor.
-        let r = unsafe { libc::read(fd, b.as_mut_ptr().cast(), 1) };
+    let mut b = [0u8; RELEASE_TOKEN_BYTES];
+    let mut n = 0usize;
+    let failed = loop {
+        if n == b.len() {
+            break false;
+        }
+        // SAFETY: a read of at most `len - n` bytes into our stack buffer from an inherited descriptor.
+        let r = unsafe { libc::read(fd, b[n..].as_mut_ptr().cast(), b.len() - n) };
         if r < 0 && io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
             continue;
         }
-        break r;
+        if r <= 0 {
+            break true;
+        }
+        n += r as usize;
     };
     // SAFETY: closing the inherited barrier descriptor (the program must not inherit it).
     unsafe { libc::close(fd) };
-    if n != 1 || b[0] != b'G' {
+    if failed && n == 0 {
         let _ = writeln!(
             std::io::stderr(),
             "{}: the supervisor ended before it recorded this spawn: the program was not started",
@@ -2021,7 +2164,15 @@ pub fn barrier_shim(args: &[String]) -> i32 {
         );
         return super::BARRIER_NOT_RELEASED;
     }
-    let e = std::process::Command::new(prog).args(&args[3..]).exec();
+    if failed || blake3::hash(&b).to_hex().as_str() != hash.as_str() {
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}: the barrier was released with a wrong token ({n} byte(s); another process wrote into the barrier pipe?): the program was not started",
+            super::BARRIER_VERB
+        );
+        return super::BARRIER_NOT_RELEASED;
+    }
+    let e = std::process::Command::new(prog).args(&args[4..]).exec();
     let _ = writeln!(
         std::io::stderr(),
         "{}: exec {prog}: {e}",

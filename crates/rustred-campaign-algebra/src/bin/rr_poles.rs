@@ -14,16 +14,20 @@
 //! directions) and, with `--symmasters`, the route E SCREEN from an `rr_node symmasters` report (terminals = --masters =
 //! --prefer) through the node-basis adapter; the screen never decides.
 //! CENSUS (B4, route poles): `keys.jsonl` = a closure statement's served keys, one JSON list per line
-//! `[key text "I(..)", class, label | null, in_box, ..]`; `catalogue.json` = `{"entries": [{name, table, offset}, ..]}`
+//! `[key text "I(..)", class, label | null, in_box, ..]` or `[key, in_box, class, label | null, ..]`; `catalogue.json` =
+//! `{"entries": [{name, table, offset}, ..]}` or a map `{label: {path | table, offset}}`
 //! (the record of `label` is the JSON line at byte `offset` of `table`). Per served key: the serving record's
-//! coefficients evaluated EXACTLY at the key (indices put in), its pole order at d0. Writes DIR/census.summary.json
+//! coefficients evaluated EXACTLY at the RULE POINT of the key (the record's target pattern and fixed slots, core
+//! `closure::bodies::rule_point`; = the key for a canonical target; a rule without a readable target, or whose pattern
+//! does not match the key, is undecided), its pole order at d0. Writes DIR/census.summary.json
 //! (`rustred.campaign.route-pole-census.v1`), DIR/rules.jsonl (one line per used rule: record sha256, keys, keys with a
 //! pole, max order), DIR/census.rows.jsonl (keys with a pole or undecided). Route poles only: never a statement about
-//! the eps need of terminals.
+//! the eps need of terminals. `--box-dr DMAX,RMAX` replaces the statement's in_box flag by the clause "dots <= DMAX and
+//! rank <= RMAX" (data given by the caller; a stand-in until the BOXDEF reader is wired here).
 //! REQUEST (one JSON object per line, `rustred.campaign.pole-request.v1`):
 //! `{"id": "<caller's id>", "key": [..], "d0": "4"?, "record": {<relation record>}}` where the record is an engine
-//! solve-recipe `relation` record, a table `rule` record (the key's indices are put in; the caller ensures the rule
-//! applies at the key) or an unnormalised `{"target_coefficient", "rhs"}` relation (see `valuation::relation`). `d0`
+//! solve-recipe `relation` record, a table `rule` record (its coefficients are evaluated at the RULE POINT of the key
+//! under its `target` / `fixed`; the caller ensures the rule applies at the key) or an unnormalised `{"target_coefficient", "rhs"}` relation (see `valuation::relation`). `d0`
 //! defaults to `--d0`. `--results` reads an engine results file instead: every `"type":"relation"` record at its own key
 //! (`id` = its `ordinal`, else the line number).
 //! ANSWER (one line per request, in request order, `rustred.campaign.pole-answer.v1`):
@@ -63,6 +67,7 @@ struct Args {
     statement_keys: Option<PathBuf>,
     catalogue: Option<PathBuf>,
     map: Option<PathBuf>,
+    box_dr: Option<(i64, i64)>,
     label: Option<String>,
     symmasters: Option<PathBuf>,
     terminals: Option<String>,
@@ -93,6 +98,16 @@ fn parse(args: &[String]) -> Args {
             "--statement-keys" => a.statement_keys = Some(PathBuf::from(val())),
             "--catalogue" => a.catalogue = Some(PathBuf::from(val())),
             "--map" => a.map = Some(PathBuf::from(val())),
+            "--box-dr" => {
+                let v = val();
+                let (x, y) = v
+                    .split_once(',')
+                    .unwrap_or_else(|| die("--box-dr DMAX,RMAX"));
+                a.box_dr = Some((
+                    x.parse().unwrap_or_else(|_| die("--box-dr DMAX,RMAX")),
+                    y.parse().unwrap_or_else(|_| die("--box-dr DMAX,RMAX")),
+                ));
+            }
             "--label" => a.label = Some(val()),
             "--symmasters" => a.symmasters = Some(PathBuf::from(val())),
             "--terminals" => a.terminals = Some(val()),
@@ -327,21 +342,33 @@ fn census(a: &Args) {
         &std::fs::read(&cp).unwrap_or_else(|e| die(&format!("{}: {e}", cp.display()))),
     )
     .unwrap_or_else(|e| die(&format!("catalogue: {e}")));
+    // catalogue forms: {"entries": [{name, table, offset}]} or a map {label: {path | table, offset}}
     let mut where_: BTreeMap<String, (String, u64)> = BTreeMap::new();
-    for e in cat["entries"]
-        .as_array()
-        .unwrap_or_else(|| die("catalogue without entries"))
-    {
-        let name = e["name"]
-            .as_str()
-            .unwrap_or_else(|| die("catalogue entry without name"));
+    let entry = |name: &str, e: &Value| -> (String, (String, u64)) {
         let table = e["table"]
             .as_str()
-            .unwrap_or_else(|| die("catalogue entry without table"));
+            .or_else(|| e["path"].as_str())
+            .unwrap_or_else(|| die(&format!("catalogue entry {name} without table / path")));
         let off = e["offset"]
             .as_u64()
-            .unwrap_or_else(|| die("catalogue entry without offset"));
-        where_.insert(name.to_string(), (table.to_string(), off));
+            .unwrap_or_else(|| die(&format!("catalogue entry {name} without offset")));
+        (name.to_string(), (table.to_string(), off))
+    };
+    if let Some(es) = cat["entries"].as_array() {
+        for e in es {
+            let name = e["name"]
+                .as_str()
+                .unwrap_or_else(|| die("catalogue entry without name"));
+            let (n, w) = entry(name, e);
+            where_.insert(n, w);
+        }
+    } else if let Some(m) = cat.as_object() {
+        for (name, e) in m {
+            let (n, w) = entry(name, e);
+            where_.insert(n, w);
+        }
+    } else {
+        die("catalogue is neither {entries: [..]} nor a label map");
     }
     // rows grouped by label: (key, class, in_box)
     let mut by_label: BTreeMap<String, Vec<(Vec<i64>, String, bool)>> = BTreeMap::new();
@@ -358,9 +385,21 @@ fn census(a: &Args) {
             .as_str()
             .and_then(parse_key_text)
             .unwrap_or_else(|| die(&format!("keys line {}: key", n + 1)));
-        let class = v[1].as_str().unwrap_or("").to_string();
-        let in_box = v[3].as_bool().unwrap_or(false);
-        match v[2].as_str() {
+        // key-line forms: [key, class, label, in_box, ..] or [key, in_box, class, label, ..]
+        let (class_v, label_v, box_v) = if v[1].is_boolean() {
+            (&v[2], &v[3], &v[1])
+        } else {
+            (&v[1], &v[2], &v[3])
+        };
+        let class = class_v.as_str().unwrap_or("").to_string();
+        let in_box = match a.box_dr {
+            None => box_v.as_bool().unwrap_or(false),
+            Some((dm, rm)) => {
+                let (dd, rr) = rustred_campaign_core::poles::census::dots_rank(&key);
+                dd <= dm && rr <= rm
+            }
+        };
+        match label_v.as_str() {
             None => terminals.push(CensusRow {
                 key,
                 label: None,
@@ -368,6 +407,7 @@ fn census(a: &Args) {
                 in_box,
                 order: Some(0),
                 terms_with_pole: 0,
+                order_top: Some(0),
             }),
             Some(l) => {
                 if !where_.contains_key(l) {
@@ -411,7 +451,7 @@ fn census(a: &Args) {
                         Ok((rec, pr)) => {
                             let mut rows = Vec::with_capacity(keys.len());
                             for (k, class, in_box) in keys {
-                                let (v, with) = pr.at_key(k);
+                                let (v, with, top) = pr.at_key_parts(k);
                                 rows.push(CensusRow {
                                     key: k.clone(),
                                     label: Some(label.clone()),
@@ -419,11 +459,13 @@ fn census(a: &Args) {
                                     in_box: *in_box,
                                     order: v.pole_order(),
                                     terms_with_pole: with,
+                                    order_top: top,
                                 });
                             }
                             let sha = rustred_campaign_core::replay_base::sha256::sha256_hex(line.as_ref().unwrap());
                             (json!({"label": label, "table": table, "offset": off, "record_sha256": sha,
-                                "type": rec["type"], "index": rec["index"], "chart": rec["chart"], "terms": pr.terms()}), rows)
+                                "type": rec["type"], "index": rec["index"], "chart": rec["chart"], "terms": pr.terms(),
+                                "target": rec["target"], "target_canonical": pr.point_map().is_identity()}), rows)
                         }
                         Err(e) => {
                             let rows = keys
@@ -435,6 +477,7 @@ fn census(a: &Args) {
                                     in_box: *in_box,
                                     order: None,
                                     terms_with_pole: 0,
+                                    order_top: None,
                                 })
                                 .collect();
                             (json!({"label": label, "table": table, "offset": off, "error": e}), rows)
@@ -447,6 +490,12 @@ fn census(a: &Args) {
     });
     let mut results = results.into_inner().expect("lock");
     results.sort_by(|x, y| x.0.cmp(&y.0));
+    // rules by target form (audit r2-poles F1: coefficients at the RULE POINT; canonical = the key itself)
+    let targets = json!({
+        "canonical": results.iter().filter(|r| r.1["target_canonical"] == json!(true)).count(),
+        "non_canonical": results.iter().filter(|r| r.1["target_canonical"] == json!(false)).count(),
+        "unreadable_or_error": results.iter().filter(|r| r.1.get("error").is_some()).count(),
+    });
     let mut all_rows: Vec<CensusRow> = terminals;
     std::fs::create_dir_all(&out).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
     let mut rules_f = std::io::BufWriter::new(
@@ -485,7 +534,7 @@ fn census(a: &Args) {
             rows_f,
             "{}",
             json!({"key": r.key, "label": r.label, "class": r.class, "in_box": r.in_box,
-            "pole_order": r.order, "terms_with_pole": r.terms_with_pole})
+            "pole_order": r.order, "pole_order_top": r.order_top, "terms_with_pole": r.terms_with_pole})
         )
         .unwrap_or_else(|e| die(&e.to_string()));
     }
@@ -494,10 +543,10 @@ fn census(a: &Args) {
     let summary = summarise(&all_rows);
     let s = summary.to_json(
         d0.text(),
-        json!({"statement_keys": kp.display().to_string(), "statement_keys_sha256": file_sha256(&kp),
+        json!({"box_dr": a.box_dr.map(|(x, y)| json!([x, y])), "statement_keys": kp.display().to_string(), "statement_keys_sha256": file_sha256(&kp),
             "catalogue": cp.display().to_string(), "catalogue_sha256": file_sha256(&cp),
             "method": rustred_campaign_algebra::valuation::VALUATION_METHOD, "threads": a.threads,
-            "seconds": t0.elapsed().as_secs_f64(), "vmhwm_kb": vm_hwm_kb()}),
+            "seconds": t0.elapsed().as_secs_f64(), "vmhwm_kb": vm_hwm_kb(), "rules_by_target": targets}),
     );
     std::fs::write(out.join("census.summary.json.part"), format!("{s:#}\n"))
         .unwrap_or_else(|e| die(&e.to_string()));
@@ -507,7 +556,8 @@ fn census(a: &Args) {
     }
     println!(
         "{}",
-        json!({"verdict": "OK", "box": s["box"], "closure": s["closure"], "seconds": s["inputs"]["seconds"]})
+        json!({"verdict": "OK", "box": s["box"], "closure": s["closure"], "seconds": s["inputs"]["seconds"],
+            "rules_by_target": s["inputs"]["rules_by_target"]})
     );
 }
 

@@ -99,7 +99,10 @@ fn measures_apply_in_order_composed_decides_when_every_candidate_has_it() {
     let ps = [composed(&[(1, 0)]), composed(&[(1, 1)])];
     let c = pole_objective(&cs, &ps, &obj, None).unwrap().unwrap();
     assert_eq!(c.id, "spurious-local");
-    assert_eq!(c.reason, ChoiceReason::Regular);
+    // lane polefix (audit r2-poles F3): the reason is true: the chosen relation is NOT regular itself, its composed
+    // profile is
+    assert_eq!(c.reason, ChoiceReason::ComposedRegular);
+    assert_eq!(c.decided_by, "max_pole_order");
     // one candidate without a composed profile: LOCAL for all (recorded)
     let ps = [composed(&[(1, 0)]), local(&[0])];
     let c = pole_objective(&cs, &ps, &obj, None).unwrap().unwrap();

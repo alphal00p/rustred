@@ -115,6 +115,21 @@ fn real_route_e_reports() {
                 format!("I(1,1,1,1,1,1,2,2,1{z11})"),
             ],
         ),
+        (
+            "t162b21-T",
+            vec![c162.clone(), format!("I(1,1,1,2,1,1,1,1,1{z11})")],
+        ),
+        (
+            "t162b21-P",
+            vec![c162.clone(), format!("I(1,1,1,1,1,2,1,1,1{z11})")],
+        ),
+        (
+            "t162b21-R",
+            vec![
+                format!("I(1,1,1,1,2,1,1,1,1{z11})"),
+                format!("I(1,1,1,1,1,1,2,2,1{z11})"),
+            ],
+        ),
     ];
     for (tag, terms) in cases {
         let p = format!("{base}/{tag}/OUT.json");

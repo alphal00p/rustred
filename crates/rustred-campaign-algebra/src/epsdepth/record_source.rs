@@ -105,6 +105,11 @@ pub struct RecordSource<'a> {
     pub stats: SourceStats,
 }
 
+/// A rule point and the record's top terms there (term index, term key).
+type Plan = (Vec<i32>, Vec<(usize, Vec<i32>)>);
+/// One key's instantiated top terms (term key, exact coefficient), or why not.
+type Instantiated = Result<Vec<(Vec<i32>, TCoeff)>, String>;
+
 /// The pseudo table index of supplied relation records.
 const SUPPLIED: usize = usize::MAX;
 
@@ -492,13 +497,7 @@ impl<'a> RecordSource<'a> {
 
     /// The rule point of record (table, record) at `point_key` and its TOP terms (term index, term key); every needed
     /// coefficient parsed into the cache.
-    #[allow(clippy::type_complexity)]
-    fn plan(
-        &mut self,
-        table: usize,
-        record: usize,
-        point_key: &[i32],
-    ) -> Result<(Vec<i32>, Vec<(usize, Vec<i32>)>), String> {
+    fn plan(&mut self, table: usize, record: usize, point_key: &[i32]) -> Result<Plan, String> {
         self.entry(table, record)?;
         let arity = self.set.arity();
         let mut pt = vec![];
@@ -594,8 +593,8 @@ impl<'a> RecordSource<'a> {
         table: usize,
         record: usize,
         keys: &[usize],
-    ) -> Vec<Result<Vec<(Vec<i32>, TCoeff)>, String>> {
-        let plans: Vec<Result<(Vec<i32>, Vec<(usize, Vec<i32>)>), String>> = keys
+    ) -> Vec<Instantiated> {
+        let plans: Vec<Result<Plan, String>> = keys
             .iter()
             .map(|&k| {
                 let key = self.keys[k].clone();
@@ -609,8 +608,7 @@ impl<'a> RecordSource<'a> {
                 let lau = &self.lau;
                 let t = self.threads.clamp(1, plans.len().max(1));
                 let chunk = plans.len().div_ceil(t);
-                let mut out: Vec<Result<Vec<(Vec<i32>, TCoeff)>, String>> =
-                    Vec::with_capacity(plans.len());
+                let mut out: Vec<Instantiated> = Vec::with_capacity(plans.len());
                 std::thread::scope(|sc| {
                     let hs: Vec<_> = plans
                         .chunks(chunk.max(1))

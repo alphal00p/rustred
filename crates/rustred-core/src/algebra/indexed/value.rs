@@ -14,7 +14,7 @@ use crate::algebra::{Coefficient, CoefficientPolynomial};
 /// does not establish coprimality. The canonical invariant lets integral index
 /// translations avoid a second polynomial GCD: `n -> n + a` is a polynomial-ring
 /// automorphism and thus preserves coprimality.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IndexedCoefficient {
     pub(super) raw: Coefficient,
     pub(super) context: Arc<String>,
@@ -35,7 +35,7 @@ impl IndexedCoefficient {
 }
 
 /// A polynomial over the exact index-extended map `K(n)`.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct IndexedPolynomial {
     pub(super) raw: CoefficientPolynomial,
     pub(super) context: Arc<String>,

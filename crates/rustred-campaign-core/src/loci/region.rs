@@ -10,12 +10,79 @@
     clippy::cast_sign_loss
 )]
 
+use std::cell::Cell;
 use std::collections::HashSet;
 
 use crate::partition::exact::{
     Affine, ExactError, MPoly, XResult, add, ceil_neg_div, div_floor, ext_gcd, floor_neg_div,
     gcd_all, mul, quot, rem, succ,
 };
+
+/// Constraints kept at most by one Fourier-Motzkin step (beyond: `TooLarge`, undecided). Checked WHILE the step is
+/// generated (audit-part3 m4: it used to be checked only after all |P| x |N| combinations were materialised).
+pub const FM_MAX_CONSTRAINTS: usize = 20_000;
+/// Pairwise combinations tried at most by one Fourier-Motzkin step (beyond: `TooLarge`, undecided).
+pub const FM_MAX_PAIRS: usize = 4_000_000;
+/// Values tried at most by one [`find_point`] call over all its recursion levels (beyond: "no point found", which no
+/// caller reads as emptiness; the search used to be `tries^k` in the worst case).
+pub const POINT_SEARCH_CAP: u64 = 20_000;
+
+thread_local! {
+    /// Work units of Fourier-Motzkin steps (pairs + kept constraints) and point searches (values tried) on this
+    /// thread since the last [`take_work`] (audit-part3 m4).
+    static WORK: Cell<u64> = const { Cell::new(0) };
+}
+
+fn charge(n: usize) {
+    let n = u64::try_from(n).unwrap_or(u64::MAX);
+    WORK.with(|w| w.set(w.get().saturating_add(n)));
+}
+
+/// The Fourier-Motzkin / point-search work done on this thread since the last call, and reset (audit-part3 m4):
+/// the partition's resolver and the containment splitter charge it to their budgets at every node (and discard
+/// leftovers when they start), so the work INSIDE one node is counted.
+pub fn take_work() -> u64 {
+    WORK.with(|w| w.replace(0))
+}
+
+/// One elimination step: `rest` plus every normalised combination of `pos` x `negs` on variable `v`, deduplicated.
+/// `Ok(None)` = a constant violated combination (the system is infeasible). The kept-constraint cap is checked as the
+/// step grows, the pair count before it starts.
+fn eliminate(
+    pos: &[Affine],
+    negs: &[Affine],
+    mut rest: Vec<Affine>,
+    v: usize,
+    drop_constant: bool,
+    what: &'static str,
+) -> XResult<Option<Vec<Affine>>> {
+    let pairs = pos.len().saturating_mul(negs.len());
+    charge(pairs.saturating_add(rest.len()));
+    if pairs > FM_MAX_PAIRS {
+        return Err(ExactError::TooLarge(what));
+    }
+    let mut seen: HashSet<Affine> = rest.iter().cloned().collect();
+    for p in pos {
+        for n in negs {
+            let (ap, an) = (p.coef[v], crate::partition::exact::neg(n.coef[v])?);
+            if let Some(nc) = norm_or_raw(&combine(p, n, ap, an)?) {
+                if drop_constant && nc.is_constant() {
+                    if nc.c < 0 {
+                        return Ok(None);
+                    }
+                    continue;
+                }
+                if seen.insert(nc.clone()) {
+                    rest.push(nc);
+                    if rest.len() > FM_MAX_CONSTRAINTS {
+                        return Err(ExactError::TooLarge(what));
+                    }
+                }
+            }
+        }
+    }
+    Ok(Some(rest))
+}
 
 /// A lattice region.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,29 +191,17 @@ pub fn fm_feasible(cons: &[Affine], k: usize) -> XResult<bool> {
                 _ => rest.push(c),
             }
         }
-        let mut seen: HashSet<Affine> = rest.iter().cloned().collect();
-        for p in &pos {
-            for n in &negs {
-                let (ap, an) = (p.coef[v], crate::partition::exact::neg(n.coef[v])?);
-                if let Some(nc) = norm_or_raw(&combine(p, n, ap, an)?) {
-                    if nc.is_constant() {
-                        if nc.c < 0 {
-                            return Ok(false);
-                        }
-                        continue;
-                    }
-                    if seen.insert(nc.clone()) {
-                        rest.push(nc);
-                    }
-                }
-            }
+        match eliminate(
+            &pos,
+            &negs,
+            rest,
+            v,
+            true,
+            "Fourier-Motzkin: more than 20000 constraints (or 4e6 pairs) in one step",
+        )? {
+            None => return Ok(false),
+            Some(r) => cur = r,
         }
-        if rest.len() > 20_000 {
-            return Err(ExactError::TooLarge(
-                "Fourier-Motzkin: more than 20000 constraints",
-            ));
-        }
-        cur = rest;
     }
     Ok(true)
 }
@@ -193,23 +248,15 @@ fn project0(cons: &[Affine], k: usize) -> XResult<Vec<Affine>> {
                 _ => rest.push(c),
             }
         }
-        let mut seen: HashSet<Affine> = rest.iter().cloned().collect();
-        for p in &pos {
-            for n in &negs {
-                let (ap, an) = (p.coef[v], crate::partition::exact::neg(n.coef[v])?);
-                if let Some(nc) = norm_or_raw(&combine(p, n, ap, an)?)
-                    && seen.insert(nc.clone())
-                {
-                    rest.push(nc);
-                }
-            }
-        }
-        if rest.len() > 20_000 {
-            return Err(ExactError::TooLarge(
-                "projection: more than 20000 constraints",
-            ));
-        }
-        cur = rest;
+        cur = eliminate(
+            &pos,
+            &negs,
+            rest,
+            v,
+            false,
+            "projection: more than 20000 constraints (or 4e6 pairs) in one step",
+        )?
+        .unwrap_or_default();
     }
     Ok(cur)
 }
@@ -233,6 +280,19 @@ pub fn find_point(
     k: usize,
     tries: usize,
     anchor: &[i128],
+) -> XResult<Option<Vec<i128>>> {
+    let mut left = POINT_SEARCH_CAP;
+    find_point_capped(cons, k, tries, anchor, &mut left)
+}
+
+/// [`find_point`] with the values left to try over ALL recursion levels (each value tried is charged to the thread's
+/// work counter); exhausted = "no point found".
+fn find_point_capped(
+    cons: &[Affine],
+    k: usize,
+    tries: usize,
+    anchor: &[i128],
+    left: &mut u64,
 ) -> XResult<Option<Vec<i128>>> {
     let Some(k1) = k.checked_sub(1) else {
         return Ok(if cons.iter().all(|c| c.c >= 0) {
@@ -274,8 +334,15 @@ pub fn find_point(
         d = d.saturating_add(1);
     }
     for v in cands.into_iter().take(tries) {
+        if *left == 0 {
+            return Ok(None);
+        }
+        *left = left.saturating_sub(1);
+        charge(1);
         let sub = fix0(cons, v)?;
-        if let Some(mut rest) = find_point(&sub, k1, tries, anchor.get(1..).unwrap_or(&[]))? {
+        if let Some(mut rest) =
+            find_point_capped(&sub, k1, tries, anchor.get(1..).unwrap_or(&[]), left)?
+        {
             rest.insert(0, v);
             return Ok(Some(rest));
         }
@@ -317,6 +384,7 @@ pub fn exhaustive_point(
             return Ok(None);
         }
         *budget = budget.saturating_sub(1);
+        charge(1);
         let sub = fix0(cons, v)?;
         match exhaustive_point(&sub, k1, budget)? {
             Some(Some(mut r)) => {

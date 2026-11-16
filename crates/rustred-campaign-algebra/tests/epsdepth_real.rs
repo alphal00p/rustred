@@ -14,13 +14,15 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use rustred_campaign_algebra::epsdepth::record_source::RecordSource;
-use rustred_campaign_algebra::epsdepth::{SymbolicaExact, SymbolicaLaurent};
+use rustred_campaign_algebra::epsdepth::{BasisMap, SymbolicaExact, SymbolicaLaurent};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::epsdepth::{
-    Arith, ComposeParams, EpsDepthSpec, compose, dots_rank, node_report,
+    Arith, ComposeParams, EpsBox, EpsDepthSpec, Order, TerminalSetStatus, compose,
+    compose_streaming, dots_rank, node_report,
 };
 use rustred_campaign_core::import::{self, LoadOptions, TableSetSpec};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 
 fn env(k: &str) -> Option<String> {
     std::env::var(k).ok().filter(|s| !s.is_empty())
@@ -114,9 +116,15 @@ fn real_node_composed_profiles() {
     let nt = src.n_terminals();
     let terminals = src.terminals().to_vec();
     let t1 = Instant::now();
-    let comp = match spec.arith {
-        Arith::Laurent => compose(&mut src, &mut lau.clone(), &sel, nt, &params).unwrap(),
-        Arith::Exact => compose(
+    // optional: lane regbasis' regular set R and exact map M (T = M R): every box vector re-expressed on R
+    let regbasis: Option<Value> = env("EPSDEPTH_REGBASIS")
+        .map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap());
+    // per box key: (order on R, leading coefficient) per R terminal
+    type OnR = Vec<(Option<i64>, Option<String>)>;
+    let mut on_r: HashMap<usize, OnR> = HashMap::new();
+    let comp = match (spec.arith, &regbasis) {
+        (Arith::Laurent, _) => compose(&mut src, &mut lau.clone(), &sel, nt, &params).unwrap(),
+        (Arith::Exact, None) => compose(
             &mut src,
             &mut SymbolicaExact::new().unwrap(),
             &sel,
@@ -124,6 +132,38 @@ fn real_node_composed_profiles() {
             &params,
         )
         .unwrap(),
+        (Arith::Exact, Some(rb)) => {
+            let ex = SymbolicaExact::new().unwrap();
+            let alg2 = SymbolicaAlgebra::new().unwrap();
+            // int7: the record's digest is verified before M is read (core regbasis::record::verify)
+            let (map, _, _) = BasisMap::from_regbasis_record(&alg2, &lau, &ex, rb).unwrap();
+            let mut ex2 = ex.clone();
+            compose_streaming(
+                &mut src,
+                &mut ex2,
+                &sel,
+                nt,
+                &params,
+                Some(&mut |k, v| {
+                    if let Ok(v) = v {
+                        let r = map.apply(v).unwrap();
+                        on_r.insert(
+                            k,
+                            r.iter()
+                                .map(|c| match c {
+                                    None => (None, None),
+                                    Some(c) => (
+                                        SymbolicaExact::order_of(c),
+                                        SymbolicaExact::leading(c).map(|q| q.to_string()),
+                                    ),
+                                })
+                                .collect(),
+                        );
+                    }
+                }),
+            )
+            .unwrap()
+        }
     };
     let t_comp = t1.elapsed().as_secs_f64();
     let keys_of = |i: usize| rustred_campaign_core::epsdepth::ReductionSource::key(&src, i);
@@ -135,6 +175,78 @@ fn real_node_composed_profiles() {
         "cone_keys_per_s": comp.stats.cone_keys as f64 / t_comp.max(1e-9), "rss_peak_mb": rss_mb(),
         "cache": src.cache_state()});
     std::fs::create_dir_all(&out).unwrap();
+    if let Some(rb) = &regbasis {
+        // the node report ON R (POLES_OBJECTIVE 3.3: verdicts on a regular terminal set)
+        let rkeys: Vec<Vec<i32>> = rb["regular_set"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|k| {
+                k.as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| x.as_i64().unwrap() as i32)
+                    .collect()
+            })
+            .collect();
+        let mut comp_r = comp.clone();
+        for r in comp_r.results.iter_mut() {
+            match on_r.get(&r.key) {
+                Some(v) => {
+                    for (p, (o, lead)) in r.pairs.iter_mut().zip(v) {
+                        p.order = match o {
+                            None => Order::Zero,
+                            Some(o) => Order::Pole(u32::try_from((-*o).max(0)).unwrap()),
+                        };
+                        p.valuation = *o;
+                        p.precision = None;
+                        p.bound = None;
+                        p.blame = None;
+                        p.blame_server = None;
+                        p.leading = lead.clone();
+                    }
+                }
+                None => {
+                    for p in r.pairs.iter_mut() {
+                        if !matches!(p.order, Order::Undecided(_)) {
+                            p.order = Order::Undecided("no vector on R".into());
+                        }
+                    }
+                }
+            }
+        }
+        let mut spec_r = spec.clone();
+        spec_r.terminal_set = if rb["regular"].as_bool() == Some(true) {
+            TerminalSetStatus::CertifiedRegular
+        } else {
+            TerminalSetStatus::NotCertified
+        };
+        spec_r.eps_box = env("EPSDEPTH_EPS_BOX_R")
+            .map(|t| EpsBox::from_value(&serde_json::from_str::<Value>(&t).unwrap()).unwrap());
+        let (mut hr, rows_r) =
+            node_report(&comp_r, &spec_r, &rkeys, &keys_of, &lines, &node).unwrap();
+        hr["basis"] = json!({"regular_set": rkeys, "map_digest": rb["digest"], "regular": rb["regular"],
+            "convention": rb["convention"], "terminals_T": terminals});
+        std::fs::write(
+            Path::new(&out).join("report_R.json"),
+            serde_json::to_string_pretty(&hr).unwrap(),
+        )
+        .unwrap();
+        let mut f = std::io::BufWriter::new(
+            std::fs::File::create(Path::new(&out).join("rows_R.jsonl")).unwrap(),
+        );
+        for r in &rows_r {
+            writeln!(f, "{r}").unwrap();
+        }
+        f.flush().unwrap();
+        eprintln!("ON R: verdicts {}", hr["verdicts"]);
+        for t in hr["per_terminal"].as_array().unwrap() {
+            eprintln!(
+                "R terminal {} max {} hist {}",
+                t["terminal"], t["max_order"], t["histogram"]
+            );
+        }
+    }
     std::fs::write(
         Path::new(&out).join("report.json"),
         serde_json::to_string_pretty(&header).unwrap(),

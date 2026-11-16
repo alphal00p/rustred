@@ -254,6 +254,34 @@ impl Ar for TruncP {
 }
 
 type Ent<P> = Vec<(u32, P)>;
+/// A phase-1 row with its truncation (None = exact).
+type PRow<P> = (Ent<P>, Option<u32>, Tr);
+/// Seed trace of a row: bitset over the system's seed labels (which seeds' rows it combines).
+type Tr = Vec<u64>;
+
+fn tr_or(a: &mut Tr, b: &Tr) {
+    if a.len() < b.len() {
+        a.resize(b.len(), 0);
+    }
+    for (x, y) in a.iter_mut().zip(b) {
+        *x |= *y;
+    }
+}
+
+fn tr_bit(i: u32) -> Tr {
+    let mut t = vec![0u64; i as usize / 64 + 1];
+    t[i as usize / 64] |= 1u64 << (i % 64);
+    t
+}
+
+fn tr_list(t: &Tr) -> Vec<u32> {
+    (0..t.len() * 64)
+        .filter(|&i| t[i / 64] >> (i % 64) & 1 == 1)
+        .map(|i| i as u32)
+        .collect()
+}
+/// The check mode's view of one phase-2 basis row: (pivot, interest entries, carried entries, shift).
+pub(crate) type BasisRowZ = (u32, Vec<(u32, ZP)>, Vec<(u32, ZP)>, u32);
 
 /// out = a*x - b*y on sorted sparse vectors (truncated to `prec`, zeros dropped).
 fn comb<A: Ar>(
@@ -304,6 +332,7 @@ struct Row2<P> {
     c: Ent<P>,
     shift: u32,
     prec: Option<u32>,
+    tr: Tr,
 }
 
 struct Stop(String);
@@ -327,7 +356,7 @@ impl Budgeter<'_> {
         {
             return Err(Stop(format!("budget max_degree {m} exceeded ({degree})")));
         }
-        if self.ops % 64 == 0
+        if self.ops.is_multiple_of(64)
             && let Some(s) = self.q.budget.max_seconds
             && self.t0.elapsed().as_secs_f64() > s
         {
@@ -383,8 +412,20 @@ fn layout(sys: &ExactSystem, q: &PoleQuery<'_>) -> Layout {
             upper.push(i as u32);
         }
     }
-    // upper columns: highest first in the caller's order is not known here; keep the system's column order (the
-    // result does not depend on it; only cost does)
+    // upper columns MOST COMPLEX FIRST (Laporta-like: a row's leading column is its most complex unknown, so a
+    // reduction only brings in simpler ones): generic key weight = (number of positive indices, sum of |index|, key),
+    // descending. Only the cost depends on this order, never p* (an invariant of the row space).
+    let weight = |c: &u32| {
+        let k = &sys.columns[*c as usize];
+        (
+            k.iter().filter(|&&x| x > 0).count(),
+            k.iter().map(|x| x.unsigned_abs()).sum::<u64>(),
+            k.clone(),
+        )
+    };
+    upper.sort_by_key(|c| std::cmp::Reverse(weight(c)));
+    // interest columns too: phase 2 takes the most complex unit column as pivot (lowest position)
+    interest.sort_by_key(|c| std::cmp::Reverse(weight(c)));
     let mut pos = vec![0u32; sys.columns.len()];
     let mut col_of_pos = Vec::with_capacity(sys.columns.len());
     for &c in upper.iter().chain(&interest).chain(&carried) {
@@ -402,6 +443,8 @@ fn layout(sys: &ExactSystem, q: &PoleQuery<'_>) -> Layout {
 
 /// Output of one elimination run.
 struct Run<P> {
+    /// seed labels combined into the relation row (best or case A)
+    trace: Option<Vec<u32>>,
     p_star: PStar,
     best: Option<Row2<P>>,
     case_a: Option<Row2<P>>,
@@ -418,7 +461,6 @@ fn eliminate<A: Ar>(
     q: &PoleQuery<'_>,
     lay: &Layout,
     order: &[usize],
-    d0: &Rat,
     prec0: Option<u32>,
     bud: &mut Budgeter<'_>,
 ) -> Result<Run<A::P>, Stop> {
@@ -435,12 +477,22 @@ fn eliminate<A: Ar>(
     };
     let mut indeterminate = 0usize;
     // ---- phase 1
-    let mut piv: Vec<Option<(Ent<A::P>, Option<u32>)>> = vec![None; lay.n_upper as usize];
+    let mut piv: Vec<Option<PRow<A::P>>> = vec![None; lay.n_upper as usize];
     let mut held_terms = 0usize;
-    let mut w0: Vec<(Ent<A::P>, Option<u32>)> = Vec::new();
-    let dn = Integer::from(d0.n);
-    let dd = Integer::from(d0.d);
-    for &ri in order {
+    let mut w0: Vec<PRow<A::P>> = Vec::new();
+    let dn = Integer::from(q.d0.n);
+    let dd = Integer::from(q.d0.d);
+    let progress = std::env::var_os("RUSTRED_TADIC_PROGRESS").is_some();
+    for (done, &ri) in order.iter().enumerate() {
+        if progress && done % 500 == 0 {
+            eprintln!(
+                "tadic phase 1: {done}/{} rows, {} upper pivots, {} W0 rows, {held_terms} terms held, {:.1} s",
+                order.len(),
+                rank.upper_pivots,
+                w0.len(),
+                bud.t0.elapsed().as_secs_f64()
+            );
+        }
         // a + b d = a + b (t + n/m)  ->  times m:  (a m + b n) + (b m) t
         let mut r: Ent<A::P> = sys.rows[ri]
             .iter()
@@ -460,6 +512,7 @@ fn eliminate<A: Ar>(
             .filter(|e| !ar.is_zero(&e.1))
             .collect();
         let mut prec = prec0;
+        let mut tr = tr_bit(sys.labels[ri].seed);
         loop {
             if prec == Some(0) {
                 indeterminate += 1;
@@ -473,7 +526,7 @@ fn eliminate<A: Ar>(
             };
             let c = lead.0;
             if c >= lay.n_upper {
-                w0.push((r, prec));
+                w0.push((r, prec, tr));
                 break;
             }
             match &piv[c as usize] {
@@ -481,11 +534,12 @@ fn eliminate<A: Ar>(
                     let (t, d) = ent_terms(ar, &r);
                     held_terms += t;
                     bud.tick(held_terms, d)?;
-                    piv[c as usize] = Some((r, prec));
+                    piv[c as usize] = Some((r, prec, tr));
                     rank.upper_pivots += 1;
                     break;
                 }
-                Some((h, hp)) => {
+                Some((h, hp, htr)) => {
+                    tr_or(&mut tr, htr);
                     let (a, b) = ar.cofactors(&h[0].1, &r[0].1);
                     let np = min_prec(prec, *hp);
                     let mut nr = comb(ar, &a, &r, &b, h, np);
@@ -516,10 +570,12 @@ fn eliminate<A: Ar>(
     // ---- phase 2
     let ni = lay.n_upper + lay.n_interest;
     let tp = lay.target_pos;
-    let p2 = phase2(ar, w0, ni, tp, bud)?;
+    // early exit only in exact mode and when the full basis is not wanted (rank data then counts rows seen)
+    let p2 = phase2(ar, w0, ni, tp, prec0.is_none(), bud)?;
     indeterminate += p2.indeterminate;
     let (basis, case_a, sat_exp) = (p2.basis, p2.case_a, p2.saturation_exponent);
     rank.saturation_exponent = sat_exp;
+    rank.partial = p2.stopped_early;
     rank.dim_v = basis.len() + usize::from(case_a.is_some());
     rank.rank_rows = match q.interest {
         Interest::AllLower => Some(rank.upper_pivots + basis.len() + usize::from(case_a.is_some())),
@@ -551,7 +607,9 @@ fn eliminate<A: Ar>(
     } else {
         (PStar::NoRelation, None)
     };
+    let trace = case_a.as_ref().or(best.as_ref()).map(|r| tr_list(&r.tr));
     Ok(Run {
+        trace,
         p_star,
         best,
         case_a,
@@ -563,6 +621,8 @@ fn eliminate<A: Ar>(
 
 /// Output of phase 2.
 struct Phase2<P> {
+    /// phase 2 stopped at the first row proving p* = 0 (rank data then count the rows seen)
+    stopped_early: bool,
     basis: Vec<(u32, Row2<P>)>,
     case_a: Option<Row2<P>>,
     saturation_exponent: u64,
@@ -576,9 +636,10 @@ struct Phase2<P> {
 /// except the first one with a target entry (`case_a`).
 fn phase2<A: Ar>(
     ar: &A,
-    rows: Vec<(Ent<A::P>, Option<u32>)>,
+    rows: Vec<PRow<A::P>>,
     ni: u32,
     tp: Option<u32>,
+    early_exit: bool,
     bud: &mut Budgeter<'_>,
 ) -> Result<Phase2<A::P>, Stop> {
     let mut basis: Vec<(u32, Row2<A::P>)> = Vec::new();
@@ -586,13 +647,25 @@ fn phase2<A: Ar>(
     let mut sat_exp = 0u64;
     let mut indeterminate = 0usize;
     let mut held = 0usize;
-    for (e, prec) in rows {
+    let mut stopped_early = false;
+    let progress = std::env::var_os("RUSTRED_TADIC_PROGRESS").is_some();
+    let n_rows = rows.len();
+    let t0 = std::time::Instant::now();
+    for (done, (e, prec, tr)) in rows.into_iter().enumerate() {
+        if progress && done % 500 == 0 {
+            eprintln!(
+                "tadic phase 2: {done}/{n_rows} rows, {} pivots, {held} terms held, {:.1} s",
+                basis.len(),
+                t0.elapsed().as_secs_f64()
+            );
+        }
         let (s, c): (Ent<A::P>, Ent<A::P>) = e.into_iter().partition(|x| x.0 < ni);
         let mut r = Row2 {
             s,
             c,
             shift: 0,
             prec,
+            tr,
         };
         // the row may enter with a common t-factor on its interest part: saturate first
         normalize2(ar, &mut r, &mut sat_exp);
@@ -618,22 +691,38 @@ fn phase2<A: Ar>(
                 if case_a.is_none() {
                     case_a = Some(r);
                 }
+                if early_exit {
+                    // I(K) needs no column of interest: p* = 0, final
+                    stopped_early = true;
+                    break;
+                }
             } else if r.prec.is_some() {
                 indeterminate += 1;
             }
             continue;
         }
-        // pivot: a unit column (val 0), fewest terms then lowest position
+        // pivot: the most complex unit column (val 0) = the lowest position (Laporta-like, keeps fill-in low)
         let pc =
             r.s.iter()
-                .filter(|x| ar.val(&x.1) == Some(0))
-                .min_by_key(|x| (ar.nterms(&x.1), x.0))
+                .find(|x| ar.val(&x.1) == Some(0))
                 .map(|x| x.0)
                 .expect("saturated row has a unit entry");
         held += ent_terms(ar, &r.s).0 + ent_terms(ar, &r.c).0;
+        // a basis row with v(true K entry) <= 0 is an element of the saturated lattice with a unit-or-polar K
+        // coordinate: a REGULAR relation exists, p* = 0 is final (no order is lower): stop (exact early exit)
+        let regular = tp
+            .and_then(|k| r.c.binary_search_by_key(&k, |x| x.0).ok().map(|ix| (k, ix)))
+            .is_some_and(|(_, ix)| {
+                (ar.val(&r.c[ix].1).unwrap_or(0) as i64) - (r.shift as i64) <= 0
+            });
         basis.push((pc, r));
+        if regular && early_exit {
+            stopped_early = true;
+            break;
+        }
     }
     Ok(Phase2 {
+        stopped_early,
         basis,
         case_a,
         saturation_exponent: sat_exp,
@@ -653,7 +742,10 @@ fn comb2<A: Ar>(ar: &A, a: &A::P, x: &Row2<A::P>, b: &A::P, y: &Row2<A::P>) -> R
     let xa = ar.mul_t(a, sh - x.shift);
     let yb = ar.mul_t(b, sh - y.shift);
     let c = comb(ar, &xa, &x.c, &yb, &y.c, prec.map(|p| p + sh));
+    let mut tr = x.tr.clone();
+    tr_or(&mut tr, &y.tr);
     Row2 {
+        tr,
         s,
         c,
         shift: sh,
@@ -879,6 +971,7 @@ fn base_result(sys: &ExactSystem, q: &PoleQuery<'_>) -> PoleOrderResult {
         relation: None,
         rank: RankData::default(),
         screen_at_d0: None,
+        relation_seeds: None,
         seconds: 0.0,
         notes: Vec::new(),
     }
@@ -914,7 +1007,7 @@ pub fn screen_at_d0(sys: &ExactSystem, q: &PoleQuery<'_>, prime: u64) -> Result<
         ops: 0,
     };
     let order: Vec<usize> = (0..sys.rows.len()).collect();
-    eliminate(&ar, sys, q, &lay, &order, &q.d0, Some(1), &mut bud)
+    eliminate(&ar, sys, q, &lay, &order, Some(1), &mut bud)
         .map(|r| r.p_star == PStar::Order(0))
         .map_err(|s| s.0)
 }
@@ -939,7 +1032,7 @@ impl PoleOrderOracle for SymbolicaTadic {
                     field: Zp64::new(prime),
                 };
                 let ord: Vec<usize> = (0..sys.rows.len()).collect();
-                match eliminate(&ar, sys, q, &lay, &ord, &q.d0, Some(order.max(1)), &mut bud) {
+                match eliminate(&ar, sys, q, &lay, &ord, Some(order.max(1)), &mut bud) {
                     Ok(run) => {
                         res.verdict = Verdict::Screen;
                         res.p_star = Some(run.p_star);
@@ -957,7 +1050,7 @@ impl PoleOrderOracle for SymbolicaTadic {
                 let mut chosen: Option<(Run<ZP>, u32)> = None;
                 for k in 0..self.relation_orders.max(1) {
                     let ord = row_order(sys.rows.len(), k);
-                    match eliminate(&ar, sys, q, &lay, &ord, &q.d0, None, &mut bud) {
+                    match eliminate(&ar, sys, q, &lay, &ord, None, &mut bud) {
                         Ok(run) => {
                             if let Some((c, _)) = &chosen
                                 && c.p_star != run.p_star
@@ -994,14 +1087,15 @@ impl PoleOrderOracle for SymbolicaTadic {
                 let (run, k) = chosen.expect("at least one order ran");
                 res.verdict = Verdict::Exact;
                 res.p_star = Some(run.p_star);
+                res.relation_seeds = run.trace.clone();
                 res.rank = run.rank;
                 res.notes.push(format!(
                     "relation from row order {k} (0 = as given, 1 = reversed, >= 2 seeded shuffle)"
                 ));
-                if q.want_relation {
-                    if let Some(r) = run.case_a.as_ref().or(run.best.as_ref()) {
-                        res.relation = Some(relation_from(&ar, sys, &lay, r, &q.d0));
-                    }
+                if q.want_relation
+                    && let Some(r) = run.case_a.as_ref().or(run.best.as_ref())
+                {
+                    res.relation = Some(relation_from(&ar, sys, &lay, r, &q.d0));
                 }
             }
         }
@@ -1019,7 +1113,7 @@ impl PoleOrderOracle for SymbolicaTadic {
 /// Internal access for the check mode: the exact phase-2 basis as (pivot column, interest entries, carried entries,
 /// shift), columns as SYSTEM column indices, polynomials in t.
 pub(crate) struct ExactBasis {
-    pub rows: Vec<(u32, Vec<(u32, ZP)>, Vec<(u32, ZP)>, u32)>,
+    pub rows: Vec<BasisRowZ>,
     pub target_col: Option<u32>,
     pub interest_cols: Vec<u32>,
     pub p_star: PStar,
@@ -1034,7 +1128,7 @@ pub(crate) fn exact_basis(sys: &ExactSystem, q: &PoleQuery<'_>) -> Result<ExactB
         ops: 0,
     };
     let ord: Vec<usize> = (0..sys.rows.len()).collect();
-    let run = eliminate(&ar, sys, q, &lay, &ord, &q.d0, None, &mut bud).map_err(|s| s.0)?;
+    let run = eliminate(&ar, sys, q, &lay, &ord, None, &mut bud).map_err(|s| s.0)?;
     let m = |e: &Ent<ZP>| -> Vec<(u32, ZP)> {
         e.iter()
             .map(|(p, x)| (lay.col_of_pos[*p as usize], x.clone()))

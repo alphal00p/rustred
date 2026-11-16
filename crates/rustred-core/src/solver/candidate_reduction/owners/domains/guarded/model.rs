@@ -95,7 +95,7 @@ impl<const N: usize> OwnerGuardedDomain<'_, N> {
     }
     /// All original poles survive, including zero/cancelled RHS terms.
     pub fn original_denominators(&self) -> impl Iterator<Item = &IndexedPolynomial> {
-        self.rule.rhs.iter().map(|term| &term.denominator)
+        self.rule.rhs.iter().map(|term| &*term.denominator)
     }
 }
 

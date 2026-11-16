@@ -248,6 +248,7 @@ fn tight_layer_caps_map_to_the_engine_flag() {
         name: "tight".into(),
         source: "test".into(),
         symmetry_dimension: true,
+        mixed_shell: true,
         classes: vec![PolicyClass {
             matcher: ClassMatch {
                 node_class: "*".into(),

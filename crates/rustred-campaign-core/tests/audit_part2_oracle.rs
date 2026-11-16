@@ -806,6 +806,8 @@ struct Tally {
     union_proofs: u64,
     dispatch_proofs: u64,
     dispatch_open: u64,
+    /// partfix3: covered keys the dispatch oracle reports open in sets with a modular-risk record (conservative)
+    dispatch_overreport: u64,
     spurious_u_bounded: u64,
     covered_in_u: u64,
     flagged_pieces: u64,
@@ -1065,18 +1067,32 @@ fn check_tables(
     .unwrap_or_else(|e| panic!("{}: {e:?}", what("ordinary")));
     for k in &keys {
         let first_applies = ds.iter().position(|d| d.applies(k) == Verdict::Applies);
+        // partfix3 (audit-part3 M1): an elided record STOPS first match wherever its verdict is not NotSelected
+        // (Blocked, or Undecided: a rule point out of i32 / the modular zero test), as the dispatcher does
         let blocked_by_elided = ds.iter().enumerate().any(|(j, d)| {
             d.witness_elided
-                && d.applies(k).stage() == Stage::Blocked
+                && d.applies(k).stage() != Stage::NotSelected
                 && first_applies.is_none_or(|a| a > j)
         });
         let unc_fc = first_applies.is_none() || blocked_by_elided;
-        assert_eq!(
-            fc.uncovered(k).unwrap(),
-            unc_fc,
-            "{}: FailClosed oracle at {k:?}",
-            what("failclosed")
-        );
+        let risky_elided = ds.iter().any(|d| {
+            d.witness_elided && rustred_campaign_core::partition::nf::modular_risk(d).is_some()
+        });
+        if risky_elided {
+            // an over-approximated stop set (partfix3): conservative only
+            assert!(
+                fc.uncovered(k).unwrap() || !unc_fc,
+                "{}: FailClosed oracle at {k:?}",
+                what("failclosed")
+            );
+        } else {
+            assert_eq!(
+                fc.uncovered(k).unwrap(),
+                unc_fc,
+                "{}: FailClosed oracle at {k:?}",
+                what("failclosed")
+            );
+        }
         if unc_fc {
             assert_ne!(
                 fc.class_of(k).unwrap(),
@@ -1128,16 +1144,31 @@ fn check_tables(
     let drep = gap_partition(&l, &f, &dispatch(), None)
         .unwrap_or_else(|e| panic!("{}: {e:?}", what("dispatch")));
     let mut any_open = false;
+    // partfix3 (audit-part3 C2): a record whose literal may meet the engine's modular zero test STOPS dispatch on a
+    // possibly over-approximated set (exact points / far radius / its prefix set): the oracle is then conservative
+    // (over-report only), exact otherwise
+    let risky = ds
+        .iter()
+        .any(|d| rustred_campaign_core::partition::nf::modular_risk(d).is_some());
     for k in &keys {
         let fm = disp.first_match(k).unwrap();
         let open = fm.is_open();
-        // the engine's modular zero test (documented UNKNOWN) never triggers on these small values
-        assert_eq!(
-            drep.uncovered(k).unwrap(),
-            open,
-            "{}: dispatch oracle at {k:?} ({fm:?})",
-            what("dispatch")
-        );
+        let unc = drep.uncovered(k).unwrap();
+        if risky {
+            assert!(
+                unc || !open,
+                "{}: dispatch oracle at {k:?} ({fm:?})",
+                what("dispatch")
+            );
+            t.dispatch_overreport += u64::from(unc && !open);
+        } else {
+            assert_eq!(
+                unc,
+                open,
+                "{}: dispatch oracle at {k:?} ({fm:?})",
+                what("dispatch")
+            );
+        }
         if open {
             any_open = true;
             t.dispatch_open += 1;
@@ -1774,8 +1805,14 @@ fn budget_abort_is_deterministic_and_never_a_proof() {
             );
             assert_eq!(json_without_time(&r1, &f), json_without_time(&r2, &f));
             assert!(r1.proves_no_gap(cov).is_err());
+            // partfix3 (audit-part3 C1): the minting function takes a work budget only (the same 5,000 units)
+            let w = rustred_campaign_core::economy::ProofWork {
+                max_units: 5_000,
+                wall: None,
+                max_memo: None,
+            };
             assert!(
-                prove_coverage_preserved(&l, &l, &f, &o(cov), &DispatchOrderStatement::SameOrder)
+                prove_coverage_preserved(&l, &l, &f, &w, &DispatchOrderStatement::SameOrder)
                     .is_err()
             );
             for k in window(n, e, 2) {
@@ -1878,8 +1915,13 @@ fn t266_node_budget_is_honest_and_deterministic() {
     ] {
         assert!(r1.proves_no_gap(cov).is_err());
     }
+    let w = rustred_campaign_core::economy::ProofWork {
+        max_units: 1_000_000,
+        wall: None,
+        max_memo: Some(25_000),
+    };
     assert!(
-        prove_coverage_preserved(&l, &l, &frame, &o, &DispatchOrderStatement::SameOrder).is_err()
+        prove_coverage_preserved(&l, &l, &frame, &w, &DispatchOrderStatement::SameOrder).is_err()
     );
     // the 12,501 closure gaps: uncovered by the oracle, never in a Covered class
     let dir = std::path::PathBuf::from(
@@ -2610,7 +2652,7 @@ fn defect_i128_min_bound_coefficient_drops_a_fragile_gap() {
         &list(&ds, n),
         &list(&ds, n),
         &f,
-        &absent(),
+        &Default::default(),
         &DispatchOrderStatement::SameOrder,
     )
     .ok();

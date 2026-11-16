@@ -6,7 +6,10 @@
 //!   rr_regbasis --import-spec SPEC.json --statement-dir DIR --out DIR
 //!               [--import-base /] [--index-dir DIR] [--cache-mb 4096] [--spec JSON|PATH] [--node NAME]
 //!               [--box BOXDEF.json] [--published MAP.json] [--eps-box JSON|PATH] [--identity-digest TEXT]
-//!               [--max-depth 32] [--exact-max-keys 200000] [--no-tower]
+//!               [--max-depth 32] [--exact-max-keys 200000] [--no-tower] [--tower-only [--tower-r-max N]]
+//! `--tower-only` (lane polefix, audit r2-poles F7): no construction; the tower test alone, UNSEEDED, on the DOT-FREE
+//! keys composed through the statement, ranks 0 ..= N (default: the band's highest rank + 1, so the record shows
+//! whether the statement serves any dot-free key beyond its band: a key it does not serve is `undecided`).
 //! The band = the statement's start keys in the top sector (the box the closure was run on); `--box` gives the box's
 //! r_max and its digest for the binding (else the band itself is digested). Needs the Symbolica licence
 //! (`source WS/ops/env.sh`).
@@ -78,9 +81,57 @@ struct RunCtx<'a> {
     backend: &'a str,
     given: &'a [(String, Vec<Key>)],
     closure: &'a [Key],
+    /// `--tower-only`: the highest rank of the unseeded tower (no construction).
+    tower_only: Option<u32>,
+}
+
+/// `--tower-only`: the unseeded tower test on the dot-free keys composed through the statement (F7).
+fn tower_only(comp: &mut dyn Compose, c: &RunCtx<'_>, r_max: u32) -> Result<Value, String> {
+    let cmp_fn = |a: &[i32], b: &[i32]| c.set.cmp.cmp(a, b);
+    let t2 = Instant::now();
+    let mut spec = c.spec.clone();
+    spec.tower_seed_with_band = false;
+    spec.tower_max_rank = Some(r_max);
+    let tin = TowerInput {
+        chart: c.chart,
+        terminals: c.terminals,
+        cmp: &cmp_fn,
+        r_max,
+        spec: &spec,
+        published: c.published,
+        seed: None,
+        binding: Some(c.binding.clone()),
+    };
+    let tw = tower(comp, &tin)?;
+    eprintln!(
+        "TOWER-ONLY {}: {} ({:.1} s)",
+        c.node,
+        tw.verdict,
+        t2.elapsed().as_secs_f64()
+    );
+    std::fs::create_dir_all(c.out).map_err(|e| e.to_string())?;
+    let text = rustred_campaign_core::schema::canon::canonical_json(&tw.record, false)?;
+    std::fs::write(c.out.join("tower.json"), text).map_err(|e| e.to_string())?;
+    let ranks: Vec<Value> = tw
+        .ranks
+        .iter()
+        .map(|r| {
+            json!({"rank": r.rank, "keys_total": r.keys_total, "keys_composed": r.keys_composed,
+                "undecided": r.undecided, "z": r.length, "increment": r.increment, "elementary": r.elementary,
+                "max_pole": r.max_pole, "first_new_key": r.first_new_key, "source": r.source, "complete": r.complete})
+        })
+        .collect();
+    Ok(
+        json!({"node": c.node, "mode": "tower-only (unseeded, dot-free keys through the statement)",
+        "band_keys": c.band.len(), "r_max_probed": r_max, "reference": tw.reference, "verdict": tw.verdict,
+        "z_through": tw.z_through, "ranks": ranks, "seconds": t2.elapsed().as_secs_f64(), "rss_peak_mb": rss_mb()}),
+    )
 }
 
 fn build_and_tower(comp: &mut dyn Compose, c: &RunCtx<'_>) -> Result<Value, String> {
+    if let Some(r) = c.tower_only {
+        return tower_only(comp, c, r);
+    }
     let cmp_fn = |a: &[i32], b: &[i32]| c.set.cmp.cmp(a, b);
     let t1 = Instant::now();
     let inp = BuildInput {
@@ -1733,6 +1784,16 @@ fn run() -> Result<(), String> {
         backend: &backend,
         given: &given,
         closure: &closure,
+        tower_only: flag("--tower-only").then(|| {
+            get("--tower-r-max")
+                .and_then(|x| x.parse::<u32>().ok())
+                .unwrap_or_else(|| {
+                    band.iter()
+                        .filter_map(|k| rank_of(&chart, k))
+                        .max()
+                        .map_or(0, |r| r as u32 + 1)
+                })
+        }),
     };
     let summary = match backend.as_str() {
         "exact" => {

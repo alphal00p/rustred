@@ -150,6 +150,24 @@ pub fn read_hand_statement(
     })
 }
 
+/// Eps-shifted families: the (chart, engine rule index) of record `r` of table `t` (its packed label decoded;
+/// the engine restarts `index` in every chart). `None` on an integer table.
+fn eps_rule(set: &ImportedSet, t: usize, r: usize) -> Option<(String, i64)> {
+    set.disp
+        .tables()
+        .get(t)?
+        .eps_rule_of_label(set.rules[t][r].label)
+}
+
+/// The default name of a rule: `source#label`, on an eps table `source#chart:index` (never the index alone).
+fn default_rule_name(set: &ImportedSet, t: usize, r: usize) -> String {
+    let i = &set.rules[t][r];
+    match eps_rule(set, t, r) {
+        Some((c, x)) => format!("{}#{c}:{x}", i.source),
+        None => format!("{}#{}", i.source, i.label),
+    }
+}
+
 /// The hand name of our server of a row.
 pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
     match row.server.as_ref()? {
@@ -158,7 +176,7 @@ pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
             Some(
                 i.hand_name
                     .clone()
-                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label)),
+                    .unwrap_or_else(|| default_rule_name(set, *table, *record)),
             )
         }
         Server::Credit { table, record } => {
@@ -167,7 +185,7 @@ pub fn server_hand_name(set: &ImportedSet, row: &KeyRow) -> Option<String> {
                 "credit:{}",
                 i.hand_name
                     .clone()
-                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label))
+                    .unwrap_or_else(|| default_rule_name(set, *table, *record))
             ))
         }
         Server::Relation { set: name, recipe } => {
@@ -193,9 +211,20 @@ fn server_json(set: &ImportedSet, row: &KeyRow) -> Value {
         None => Value::Null,
         Some(Server::Rule { table, record }) | Some(Server::Credit { table, record }) => {
             let i = &set.rules[*table][*record];
-            json!({"kind": if matches!(row.server, Some(Server::Credit{..})) {"credit"} else {"rule"},
+            let mut v = json!({"kind": if matches!(row.server, Some(Server::Credit{..})) {"credit"} else {"rule"},
                    "source": i.source, "class": i.class, "label": i.label, "ordinal": i.ordinal,
-                   "record_sha256": i.record_sha256, "recipe_sha256": null, "hand_name": hn})
+                   "record_sha256": i.record_sha256, "recipe_sha256": null, "hand_name": hn});
+            // epsframe: an eps rule names its (chart, index) (integer rows unchanged)
+            if let Some((c, x)) = eps_rule(set, *table, *record) {
+                v["chart"] = json!(c);
+                v["index"] = json!(x);
+            }
+            // lane import5 (18.4): a sym-served row says so (other rows unchanged)
+            if i.sym.is_some() && matches!(row.server, Some(Server::Rule { .. })) {
+                v["sym"] = Value::Bool(true);
+                v["image"] = json!(row.image);
+            }
+            v
         }
         Some(Server::Relation { set: name, recipe }) => {
             if *recipe {
@@ -223,8 +252,13 @@ fn rule_json(set: &ImportedSet, tr: Option<(usize, usize)>) -> Value {
         None => Value::Null,
         Some((t, r)) => {
             let i = &set.rules[t][r];
-            json!({"source": i.source, "label": i.label, "record_sha256": i.record_sha256,
-                   "hand_name": i.hand_name})
+            let mut v = json!({"source": i.source, "label": i.label, "record_sha256": i.record_sha256,
+                   "hand_name": i.hand_name});
+            if let Some((c, x)) = eps_rule(set, t, r) {
+                v["chart"] = json!(c);
+                v["index"] = json!(x);
+            }
+            v
         }
     }
 }
@@ -249,7 +283,7 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
     let open = row.open_status.as_ref().map(
         |s| json!({"status": s, "reason": row.open_reason, "rule": rule_json(set, row.open_rule)}),
     );
-    json!({
+    let mut v = json!({
         "key": row.key,
         "in_start": row.in_start,
         "status": status,
@@ -258,7 +292,16 @@ pub fn row_json(set: &ImportedSet, row: &KeyRow) -> Value {
         "basis": row.basis,
         "facts": facts_json(row),
         "open": open,
-    })
+    });
+    // lane import5 (18.2): a terminal DECLARED BY A TABLE carries its provenance (rows of terminals declared by a
+    // `terminals` source are unchanged)
+    if row.status == RowStatus::Terminal
+        && let Some(d) = set.terminal_provenance.get(&row.key)
+    {
+        v["terminal"] = json!({"provenance": d.provenance, "source": d.source, "path": d.path,
+                                "line": d.line});
+    }
+    v
 }
 
 /// Digests of the written statement files.
@@ -369,12 +412,20 @@ pub fn write_statement(
         .filter(|r| r.status == RowStatus::Open)
         .map(|r| json!({"key": key_text(&r.key), "status": r.open_status, "reason": r.open_reason}))
         .collect();
-    write_canon(
-        dir,
-        "terminals.json",
-        &json!({"terminals": terms, "open": open}),
-        &mut sums,
-    )?;
+    let mut tj = json!({"terminals": terms, "open": open});
+    if !set.terminal_provenance.is_empty() {
+        // lane import5 (18.2): the terminals declared by tables (only when there are some: earlier digests unchanged)
+        tj["declared_by_tables"] = set
+            .terminal_provenance
+            .iter()
+            .map(|(k, d)| {
+                json!({"key": key_text(k), "provenance": d.provenance, "source": d.source,
+                       "path": d.path, "line": d.line})
+            })
+            .collect::<Vec<_>>()
+            .into();
+    }
+    write_canon(dir, "terminals.json", &tj, &mut sums)?;
     // requests (JSONL, canonical)
     let jsonl = |name: &str,
                  vals: Vec<Value>,
@@ -470,6 +521,9 @@ pub struct Comparison {
     /// Hand rule names our set produces nowhere (per name, keys).
     pub unmapped_hand_rules: BTreeMap<String, usize>,
     pub differences: Vec<Difference>,
+    /// lane closeloop4 (audit-closeloop M2): every row of ours was compared (false: `incomplete_why`; never equal).
+    pub complete: bool,
+    pub incomplete_why: Option<String>,
 }
 
 impl Comparison {
@@ -533,15 +587,83 @@ fn ours_class(set: &ImportedSet, row: &KeyRow) -> String {
 }
 
 /// Compare OUR check result with a hand statement.
+/// lane closeloop4 (audit-closeloop M2): every row of a check: the kept rows, plus (streamed check) every PLAIN rule row
+/// read back from the rows file (a plain row is served by a table rule; credits / relations / open / terminal rows are
+/// kept in memory). Err = the file cannot be read in full (the comparison is then incomplete, never "equal").
+pub fn all_rows(set: &ImportedSet, res: &CheckResult) -> Result<Vec<KeyRow>, String> {
+    let Some(st) = &res.streamed else {
+        return Ok(res.rows.clone());
+    };
+    let kept: std::collections::HashSet<&[i32]> =
+        res.rows.iter().map(|r| r.key.as_slice()).collect();
+    let mut out = res.rows.clone();
+    let f = std::fs::File::open(&st.path).map_err(|e| format!("{}: {e}", st.path))?;
+    let mut n = 0u64;
+    for l in std::io::BufRead::lines(std::io::BufReader::with_capacity(1 << 20, f)) {
+        let l = l.map_err(|e| format!("{}: {e}", st.path))?;
+        if l.trim().is_empty() {
+            continue;
+        }
+        n += 1;
+        let v: Value = serde_json::from_str(&l).map_err(|e| format!("{}: {e}", st.path))?;
+        let key: Vec<i32> = serde_json::from_value(v["key"].clone())
+            .map_err(|e| format!("{}: key {e}", st.path))?;
+        if kept.contains(key.as_slice()) {
+            continue;
+        }
+        let server = match (v["status"].as_str(), v["server"]["kind"].as_str()) {
+            (Some("served"), Some("rule")) => v["server"]["record_sha256"]
+                .as_str()
+                .and_then(|h| set.find_sha(h))
+                .map(|(table, record)| Server::Rule { table, record }),
+            _ => None,
+        };
+        let Some(server) = server else {
+            return Err(format!(
+                "{}: row {key:?} is neither kept nor a plain rule row",
+                st.path
+            ));
+        };
+        out.push(KeyRow {
+            key,
+            in_start: v["in_start"] == true,
+            status: RowStatus::Served,
+            server: Some(server),
+            evidence: serde_json::from_value(v["evidence"].clone()).ok(),
+            basis: None,
+            regularity_unknown: false,
+            coefficient_unknown: false,
+            fact_basis: None,
+            open_status: None,
+            open_reason: None,
+            open_rule: None,
+            image: None,
+        });
+    }
+    if n != st.rows {
+        return Err(format!(
+            "{}: {n} rows read, the check wrote {}",
+            st.path, st.rows
+        ));
+    }
+    Ok(out)
+}
+
 pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Comparison {
-    let ours: HashMap<&[i32], &KeyRow> = res.rows.iter().map(|r| (r.key.as_slice(), r)).collect();
+    // lane closeloop4 (audit-closeloop M2): a streamed check is compared over EVERY row (read back from its rows
+    // file); a comparison that cannot read them all says so (`complete: false`) and is never "equal"
+    let (rows_all, incomplete): (Vec<KeyRow>, Option<String>) = match all_rows(set, res) {
+        Ok(v) => (v, None),
+        Err(e) => (res.rows.clone(), Some(e)),
+    };
+    let ours: HashMap<&[i32], &KeyRow> = rows_all.iter().map(|r| (r.key.as_slice(), r)).collect();
     let mut produced: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for t in &set.rules {
-        for i in t {
+    for (ti, t) in set.rules.iter().enumerate() {
+        for (ri, i) in t.iter().enumerate() {
             produced.insert(
                 i.hand_name
                     .clone()
-                    .unwrap_or_else(|| format!("{}#{}", i.source, i.label)),
+                    .unwrap_or_else(|| default_rule_name(set, ti, ri)),
             );
         }
     }
@@ -578,7 +700,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
             *unmapped.entry(r.clone()).or_default() += 1;
         }
         let Some(o) = ours.get(h.key.as_slice()) else {
-            if res.streamed.is_some() && !res.rows_complete_for(&h.key) {
+            if incomplete.is_some() && res.streamed.is_some() && !res.rows_complete_for(&h.key) {
                 // a streamed check keeps only the exceptional rows: a key served by a plain rule is in the file
                 *matrix
                     .entry(format!("{} -> (streamed rule row)", h.label))
@@ -630,7 +752,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
             }
         }
     }
-    for r in res.rows.iter().filter(|_| !hand.partial) {
+    for r in rows_all.iter().filter(|_| !hand.partial) {
         if !hand_keys.contains(r.key.as_slice()) {
             diffs.push(Difference {
                 kind: DiffKind::OnlyOurs,
@@ -664,8 +786,10 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
     to.sort();
     let to: Vec<String> = to.iter().map(|k| key_text(k)).collect();
     // a partial hand statement never establishes key-set equality
-    let key_sets_equal =
-        !hand.partial && !counts.contains_key("only_hand") && !counts.contains_key("only_ours");
+    let key_sets_equal = !hand.partial
+        && incomplete.is_none()
+        && !counts.contains_key("only_hand")
+        && !counts.contains_key("only_ours");
     Comparison {
         hand_path: hand.path.clone(),
         hand_sha256: hand.sha256.clone(),
@@ -682,5 +806,7 @@ pub fn compare(set: &ImportedSet, res: &CheckResult, hand: &HandStatement) -> Co
         label_matrix: matrix,
         unmapped_hand_rules: unmapped,
         differences: diffs,
+        complete: incomplete.is_none(),
+        incomplete_why: incomplete,
     }
 }

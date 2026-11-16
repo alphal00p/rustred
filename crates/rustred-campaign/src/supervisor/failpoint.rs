@@ -90,6 +90,28 @@ impl Failpoints {
         first
     }
 
+    /// procfix6: a NON-aborting counted site: true from the n-th pass of `site` on (`intent_enospc:<n>`: the n-th
+    /// intent batch and every later one fail as if the disk were full). Always false in a release build.
+    #[cfg(debug_assertions)]
+    pub fn reached(&self, site: &str) -> bool {
+        use std::sync::atomic::Ordering;
+        let mut any = false;
+        for f in &self.more {
+            any |= f.reached(site);
+        }
+        if self.site.as_deref() != Some(site) {
+            return any;
+        }
+        let k = self.passes.fetch_add(1, Ordering::SeqCst) + 1;
+        any || k >= self.n
+    }
+
+    #[cfg(not(debug_assertions))]
+    #[inline(always)]
+    pub fn reached(&self, _site: &str) -> bool {
+        false
+    }
+
     /// Pass `site`: abort ourselves at the configured pass (test builds); nothing in a release build.
     #[cfg(debug_assertions)]
     pub fn hit(&self, site: &str) {

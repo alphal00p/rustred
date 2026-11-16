@@ -13,17 +13,18 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::index::{IndexOrigin, TableIndex, open_or_build};
+use super::index::{IndexOrigin, TableIndex, open_scan_checked};
 use super::lines::{
-    MAX_BOUND_EXCLUSIONS_PER_SLOT, RawRecord, RawTable, parse_key_text, read_sha256sums,
-    scan_table, verify_file,
+    MarkerPolicy, RawRecord, RawTable, SymfaceRef, check_markers, parse_key_text, read_sha256sums,
+    scan_table_with, verify_file,
 };
 use super::spec::{
-    DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, resolve,
+    DomainMode, HandName, SourceKind, SourceSpec, StartFormat, TableSetSpec, TableTerminals,
+    resolve,
 };
 use super::symmetry::{
     DEFAULT_MAX_TERMS, GroupFormat, GroupReport, GroupSpec, RelationCheck, load_verified_group,
-    verify_relation_with,
+    load_verified_group_family, verify_relation_with, verify_sym_record,
 };
 use crate::closure::relations::{
     DispatchSlot, RelationSet, RelationStoreBuilder, VERDICT_DESCENDS, VERDICT_EXACT,
@@ -32,10 +33,13 @@ use crate::closure::relations::{
 use crate::closure::{KeyCodec, KeySet, KeySetBuilder, RuleBodies};
 use crate::cover::{Dispatcher, Table, WitnessStatus};
 use crate::domain::{CaseDomain, DomainOptions, TargetMap};
-use crate::key::NodeFrame;
+use crate::domain::{PoleKind, PoleLocus};
+use crate::key::{FrameError, NodeFrame};
 use crate::order::{GroupElement, NodeComparator};
 use crate::poly::Poly;
 use crate::record::{TableFile, TableHeader};
+use crate::replay_base::family::Family;
+use crate::replay_base::symrows::VerifiedGroup;
 use crate::symmetry::CreditPolicy;
 
 /// Witness status of an imported record as the dispatch sees it.
@@ -62,6 +66,64 @@ pub struct RuleInfo {
     pub record_sha256: String,
     pub hand_name: Option<String>,
     pub witness: WitnessKind,
+    /// A `sym` record (one-term symmetry rule; interfaces/import.md 18.4): its verification. None for rule records.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sym: Option<SymInfo>,
+    /// The `symface` provenance of a slice record (18.5). None otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symface: Option<SymfaceRef>,
+}
+
+/// The verification of one `sym` record (interfaces/import.md 18.4).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SymInfo {
+    /// Verified by the seven steps against our derived group: serves (basis `sym_record_verified`); else every key
+    /// of its case is blocked (`sym_record_unverified: <reason>`).
+    pub verified: bool,
+    /// The failed step (unverified only).
+    pub reason: Option<String>,
+    /// The element of our derived group with the same action (verified only).
+    pub element: Option<usize>,
+    /// The record's action (`(target slot, flip)` per slot; None = fixed at 0 on the case): the image of a key.
+    #[serde(skip)]
+    pub action: Vec<Option<(usize, bool)>>,
+}
+
+impl SymInfo {
+    /// The image `g a` of a key `a` of the case (slot `t` carries the power of the slot `i` with action `(t, _)`).
+    pub fn image_of(&self, key: &[i32]) -> Vec<i32> {
+        let mut out = vec![0; key.len()];
+        for (i, a) in self.action.iter().enumerate() {
+            if let Some((t, _)) = a
+                && *t < out.len()
+                && i < key.len()
+            {
+                out[*t] = key[i];
+            }
+        }
+        out
+    }
+}
+
+/// Where a TABLE-declared terminal comes from (interfaces/import.md 18.2).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct TerminalDecl {
+    /// `composite_terminal_ledger` | `residual`.
+    pub provenance: &'static str,
+    pub source: String,
+    pub path: String,
+    pub line: usize,
+}
+
+/// `sym` records of a source (interfaces/import.md 18.4).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct SymReport {
+    pub records: usize,
+    pub verified: usize,
+    /// (label, reason) of every unverified record.
+    pub unverified: Vec<(i64, String)>,
+    /// Why no verified group could be built (then every sym record of the source is unverified).
+    pub group_error: Option<String>,
 }
 
 /// A recipe source (its relation set is built by `check` from the certified solved relations).
@@ -95,6 +157,9 @@ pub struct SuppliedInfo {
     pub check: Option<RelationCheck>,
     /// From a `diagnostic` (keys-only) source: followed, never certified.
     pub diagnostic: bool,
+    /// lane symfix (audit r2-sym F1): how the import verified the relation AT LOAD (the EXACT bit and the level follow
+    /// from it; interfaces/import.md 21).
+    pub route: super::supplied_verify::SuppliedRoute,
 }
 
 /// One relation-set entry of the dispatch (in spec order).
@@ -128,11 +193,40 @@ pub struct SourceReport {
     /// `supplied_relations.verify`: relations verified / not verified by re-derivation from the verified group.
     pub relations_verified: usize,
     pub relations_not_verified: Vec<(Vec<i32>, String)>,
+    /// lane symfix: supplied relations with a kernel certificate checked at load (per-key).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub relations_kernel_certified: usize,
+    /// lane symfix: supplied composites re-verified at load by the composer's own functions (same backend: imported).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub relations_same_backend: usize,
     /// Table sources: how each file's index was obtained (one pass over the table, or a reused index; NOT
     /// identifying: a reused index carries the file sha256 recorded when it was built, see `import::index`). Never
     /// serialized into the canonical statement (it holds timings); callers put it into their timing record.
     #[serde(skip_serializing)]
     pub indexes: Vec<IndexOrigin>,
+    /// lane import5 (18.3): counts of the marker kinds over the source's files (only when present).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub markers: BTreeMap<String, usize>,
+    /// (file, chart) of every chart line without a guard list, read as `chart_guards: implied_by_mask` (the guards
+    /// of its mask; engine lane verdict 2026-11-15T03:22Z). Only when present.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub chart_guards_implied: Vec<(String, String)>,
+    /// Files that carry a composite-assembly record.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub assembly_files: Vec<String>,
+    /// Accepted marker overrides (`marker_rules.accept_fewer`), with the reason.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub marker_overrides: Vec<String>,
+    /// Terminals declared by the source's tables (ledger keys; residual keys under `ledger_and_residuals`).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub table_terminals: usize,
+    /// `sym` records (18.4).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sym: Option<SymReport>,
+}
+
+fn is_zero(n: &usize) -> bool {
+    *n == 0
 }
 
 /// Options of [`load_with`] (not part of the spec: they never change a result).
@@ -159,6 +253,9 @@ pub struct LoadReport {
     pub relation_sets: usize,
     pub terminals_preferred: usize,
     pub terminals_other: usize,
+    /// Of `terminals_other`: declared by tables (18.2).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub terminals_from_tables: usize,
 }
 
 /// The imported set: the in-force dispatch at evidence level `imported`.
@@ -194,6 +291,12 @@ pub struct ImportedSet {
     /// record whose witness loci are complete, by (table, record): what a strict run would decide at a key the
     /// diagnostic dispatch serves (a key on a witness pole is blocked there). Empty otherwise.
     pub strict_domains: HashMap<(usize, usize), CaseDomain>,
+    /// lane closeloop4 (audit-closeloop m4): the family of the set's tables (every table header agrees, `check_header`):
+    /// spec evidence declared for another family is refused.
+    pub family: Option<String>,
+    /// lane import5 (18.2): terminals declared by a TABLE (ledger keys, residual keys under `ledger_and_residuals`), with
+    /// their provenance. A key declared by a `terminals` source is not listed (first declaration wins).
+    pub terminal_provenance: BTreeMap<Vec<i32>, TerminalDecl>,
 }
 
 impl std::fmt::Debug for ImportedSet {
@@ -222,6 +325,30 @@ impl ImportedSet {
     pub fn table_index(&self, name: &str) -> Option<usize> {
         self.disp.tables().iter().position(|t| t.name == name)
     }
+    /// The `symface` slice records grouped by face (lane import5, interfaces/import.md 18.5): (the member `face` as
+    /// canonical JSON, `element.index`) -> [(table, record)] in dispatch order. Nothing is interpreted.
+    pub fn symface_groups(&self) -> BTreeMap<SymfaceGroup, Vec<(usize, usize)>> {
+        let mut m: BTreeMap<SymfaceGroup, Vec<(usize, usize)>> = BTreeMap::new();
+        for (t, v) in self.rules.iter().enumerate() {
+            for (r, i) in v.iter().enumerate() {
+                if let Some(sf) = &i.symface {
+                    let face = crate::schema::canon::canonical_json(&sf.face, false)
+                        .unwrap_or_else(|_| sf.face.to_string());
+                    m.entry((face, sf.element)).or_default().push((t, r));
+                }
+            }
+        }
+        m
+    }
+}
+
+/// Key of [`ImportedSet::symface_groups`]: (the member `face` as canonical JSON, `element.index`).
+pub type SymfaceGroup = (String, Option<i64>);
+
+/// The verified group and presented family the `sym` records of a source are checked against.
+struct SymCtx {
+    family: Family,
+    group: VerifiedGroup,
 }
 
 /// Fill a hand-name template.
@@ -274,18 +401,12 @@ pub fn load(spec: &TableSetSpec, base: &Path) -> Result<ImportedSet, ImportError
     load_with(spec, base, &LoadOptions::default())
 }
 
-/// Load the spec with [`LoadOptions`]. Every table file is read through its index (`import::index`): ONE streaming
-/// pass over a table that has no valid index (domains + sha256 digests + rhs keys), none over a table whose index is
-/// reused; the bodies are then read from the index.
-pub fn load_with(
-    spec: &TableSetSpec,
+/// The frame source of the spec and the header line of its first table file (the file itself is verified when its
+/// source is loaded).
+fn frame_header<'a>(
+    spec: &'a TableSetSpec,
     base: &Path,
-    lopts: &LoadOptions,
-) -> Result<ImportedSet, ImportError> {
-    let spec_digest = spec.digest();
-    // open table indexes by file (kept for the body pass)
-    let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
-    // ---- the frame: the first file of `frame_from`
+) -> Result<(&'a SourceSpec, TableHeader), ImportError> {
     let fsrc = spec
         .sources
         .iter()
@@ -296,9 +417,78 @@ pub fn load_with(
         source: fsrc.id.clone(),
         msg: "no table file".into(),
     })?;
-    // the frame: the header line only (the file itself is verified when its source is loaded)
     let fhead = super::lines::read_header(&fsrc.id, &first.path)?;
-    let frame = NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
+    Ok((fsrc, fhead))
+}
+
+/// The node frame of the spec (from the header line of the first file of `frame_from`; no table is read): the same
+/// frame [`load_with`] gives the loaded set.
+pub fn frame_of(spec: &TableSetSpec, base: &Path) -> Result<NodeFrame, ImportError> {
+    let (fsrc, fhead) = frame_header(spec, base)?;
+    NodeFrame::from_header(&fhead).map_err(|e| ImportError::Source {
+        source: fsrc.id.clone(),
+        msg: format!("frame: {e}"),
+    })
+}
+
+/// Load the spec with [`LoadOptions`]. Every table file is read through its index (`import::index`): ONE streaming
+/// pass over a table that has no valid index (domains + sha256 digests + rhs keys), none over a table whose index is
+/// reused; the bodies are then read from the index.
+pub fn load_with(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+) -> Result<ImportedSet, ImportError> {
+    load_inner(spec, base, lopts, false, false)
+}
+
+/// [`load_with`] for callers audited for eps-shifted (two-sided) families (lane epsframe): the frame is read with
+/// `NodeFrame::from_header_eps_aware`; on an integer family identical to [`load_with`]. The consumers audited so far:
+/// the import's own load, the closure walk ([`crate::import::check`] through `closure`), the fact pass and the
+/// evidence lookups (offset + record_sha256). Every other consumer of the set must check `set.frame.has_eps_axes()`.
+pub fn load_with_eps(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+) -> Result<ImportedSet, ImportError> {
+    load_inner(spec, base, lopts, false, true)
+}
+
+/// [`load_with`]; `validate_bodies_only` (the classify-only sweep, `import::sweep`): the body pass streams every
+/// dispatched record's rhs keys and parses each one as a key pattern of the frame's arity, but KEEPS none (bounded
+/// memory on tables of several GB); the returned set has no bodies and must not be checked.
+pub(crate) fn load_inner(
+    spec: &TableSetSpec,
+    base: &Path,
+    lopts: &LoadOptions,
+    validate_bodies_only: bool,
+    eps_aware: bool,
+) -> Result<ImportedSet, ImportError> {
+    let spec_digest = spec.digest();
+    // open table indexes by file (kept for the body pass)
+    let mut indexes: BTreeMap<PathBuf, TableIndex> = BTreeMap::new();
+    // ---- the frame: the header line of the first file of `frame_from` (the file itself is verified when its source is
+    // loaded)
+    let (fsrc, fhead) = frame_header(spec, base)?;
+    // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load only (frame, charts, domains,
+    // labels (chart, index), dispatcher, bodies parsed); a campaign load refuses it, typed: the closure, check,
+    // partition, loci and termmin read line signs (integer-only; interfaces/campaign-core-domain.md "Eps")
+    let frame = if validate_bodies_only || eps_aware {
+        NodeFrame::from_header_eps_aware(&fhead)
+    } else {
+        NodeFrame::from_header(&fhead).map_err(|e| {
+            match NodeFrame::from_header_eps_aware(&fhead) {
+                Ok(f) => FrameError::Unsupported(format!(
+                    "eps-shifted family (eps axes {:?}, kshift {:?}): a campaign load (closure, check, partition, \
+                     loci, termmin) is integer-only; only the classify-only load accepts it",
+                    f.eps_axes(),
+                    f.kshift()
+                )),
+                Err(_) => e,
+            }
+        })
+    }
+    .map_err(|e| ImportError::Source {
         source: fsrc.id.clone(),
         msg: format!("frame: {e}"),
     })?;
@@ -329,9 +519,11 @@ pub fn load_with(
     let mut table_digests = BTreeMap::new();
     let mut supplied: Vec<Arc<RelationSet>> = vec![];
     let mut supplied_info = BTreeMap::new();
+    let mut supplied_pending: Vec<super::supplied_verify::PendingSource> = vec![];
     let mut recipes = vec![];
     let mut terminals_preferred = vec![];
     let mut terminals_other = vec![];
+    let mut terminal_provenance: BTreeMap<Vec<i32>, TerminalDecl> = BTreeMap::new();
     let mut credits: Option<CreditPolicy> = None;
     let mut reports = vec![];
     let mut classes = BTreeMap::new();
@@ -349,6 +541,19 @@ pub fn load_with(
             class: class.clone(),
             ..Default::default()
         };
+        if frame.has_eps_axes()
+            && !matches!(
+                src.kind,
+                SourceKind::EngineTable | SourceKind::TableSet | SourceKind::Terminals
+            )
+        {
+            // supplied relations, recipes and symmetry credits read the line mask (integer-only)
+            return Err(ImportError::Unsupported(format!(
+                "source {} ({:?}) on an eps-shifted family: only table and terminal sources are read for eps \
+                 families (lane epsframe)",
+                src.id, src.kind
+            )));
+        }
         match src.kind {
             SourceKind::EngineTable | SourceKind::TableSet => {
                 let units = file_units(src, base)?;
@@ -360,17 +565,23 @@ pub fn load_with(
                 let mut seen_removed = BTreeSet::new();
                 let mut seen_src_labels: BTreeSet<i64> = BTreeSet::new();
                 let mut first_table_name: Option<String> = None;
+                let mut sym_ctx: Option<SymCtx> = None;
+                let mut sym_err: Option<String> = None;
                 for u in &units {
                     let want: Option<Vec<i64>> = src.records.clone();
-                    let (idx, origin) =
-                        open_or_build(&src.id, &u.path, lopts.index_dir.as_deref())?;
+                    // lane bigline: the index verified against the TABLE (size, mtime, sampled digest, record
+                    // count, file digests, spot-checked records); refused and rebuilt once on a failed check
+                    let (idx, mut origin, raw, rebuilt) = open_scan_checked(
+                        &src.id,
+                        &u.path,
+                        lopts.index_dir.as_deref(),
+                        spec.read_limits(),
+                        spec.spot_check_records(),
+                    )?;
+                    if rebuilt.is_some() {
+                        origin.how = "rebuilt_after_failed_check";
+                    }
                     rep.indexes.push(origin);
-                    let mut recs = vec![];
-                    let mut raw = idx.scan_domains(&src.id, &|_, _| true, &mut |r| {
-                        recs.push(r);
-                        Ok(())
-                    })?;
-                    raw.records = recs;
                     indexes.insert(u.path.clone(), idx);
                     let sha = format!("sha256:{}", raw.file_sha256);
                     if let Some(e) = &u.expected_sha {
@@ -384,6 +595,135 @@ pub fn load_with(
                         }
                     }
                     check_header(&src.id, &raw.header, &frame, &frame_desc, &fhead)?;
+                    // lane import5 (interfaces/import.md 18.2 / 18.3): the table's own statements about itself
+                    if let Some(m) = &src.marker_rules
+                        && [&m.accept_fewer, &m.accept_missing_end]
+                            .iter()
+                            .any(|r| r.as_deref().is_some_and(|x| x.trim().is_empty()))
+                    {
+                        return Err(ImportError::Spec(format!(
+                            "source {}: a marker_rules override needs a reason (empty)",
+                            src.id
+                        )));
+                    }
+                    // int7 (coordinator's rulings 2026-11-15): a table without an `end` record loads ONLY through the
+                    // named RESOLUTION (`<path> sha256:<hex>`; the table a loadable entry with its verified bytes);
+                    // else refused, the refusal names the override and why it did not apply
+                    let (accept_missing_end, missing_end_hint) = match src
+                        .marker_rules
+                        .as_ref()
+                        .and_then(|m| m.accept_missing_end.as_deref())
+                    {
+                        None => (None, None),
+                        Some(r) => {
+                            super::lines::named_no_end_list(r, base, &u.path, &raw.file_sha256)
+                                .map_err(|e| match e {
+                                    ImportError::Spec(m) => {
+                                        ImportError::Spec(format!("source {}: {m}", src.id))
+                                    }
+                                    e => e,
+                                })?
+                        }
+                    };
+                    let policy = MarkerPolicy {
+                        accept_fewer_rules: src
+                            .marker_rules
+                            .as_ref()
+                            .and_then(|m| m.accept_fewer.clone()),
+                        accept_missing_end,
+                        missing_end_hint,
+                    };
+                    let ms = check_markers(&src.id, &u.path, &raw, arity, &policy)?;
+                    rep.marker_overrides.extend(ms.overrides.iter().cloned());
+                    for k in [
+                        "assembly_provenance",
+                        "composite_assembly_complete",
+                        "assembly_end",
+                        "composite_terminal_ledger",
+                    ] {
+                        if let Some(n) = raw.kinds.get(k) {
+                            *rep.markers.entry(k.to_string()).or_default() += n;
+                        }
+                    }
+                    if ms.assembly {
+                        rep.assembly_files.push(u.path.display().to_string());
+                    }
+                    let tt = src.table_terminals.unwrap_or_default();
+                    let mut declared: Vec<(&'static str, usize, Vec<i32>)> = vec![];
+                    if tt != TableTerminals::None {
+                        declared.extend(
+                            ms.ledger_keys
+                                .iter()
+                                .map(|(l, k)| ("composite_terminal_ledger", *l, k.clone())),
+                        );
+                    }
+                    if tt == TableTerminals::LedgerAndResiduals {
+                        if ms.residual_keys.len() != raw.markers.residuals.len() {
+                            return Err(ImportError::Source {
+                                source: src.id.clone(),
+                                msg: format!(
+                                    "{}: table_terminals ledger_and_residuals: {} of {} residual keys are not integer keys of the arity",
+                                    u.path.display(),
+                                    raw.markers.residuals.len() - ms.residual_keys.len(),
+                                    raw.markers.residuals.len()
+                                ),
+                            });
+                        }
+                        declared.extend(
+                            ms.residual_keys
+                                .iter()
+                                .map(|(l, k)| ("residual", *l, k.clone())),
+                        );
+                    }
+                    for (prov, line, k) in declared {
+                        if terminals_preferred.contains(&k)
+                            || terminals_other.contains(&k)
+                            || terminal_provenance.contains_key(&k)
+                        {
+                            continue;
+                        }
+                        terminal_provenance.insert(
+                            k.clone(),
+                            TerminalDecl {
+                                provenance: prov,
+                                source: src.id.clone(),
+                                path: u.path.display().to_string(),
+                                line,
+                            },
+                        );
+                        terminals_other.push(k);
+                        rep.table_terminals += 1;
+                    }
+                    // `sym` records: the verified group of the source, once (interfaces/import.md 18.4)
+                    if raw.sym_lines > 0
+                        && sym_ctx.is_none()
+                        && sym_err.is_none()
+                        && frame.has_eps_axes()
+                    {
+                        // the seven-step check reads the line mask (integer-only): the sym records stay unverified
+                        sym_err = Some(
+                            "eps-shifted family: sym-record verification is integer-only (lane epsframe)".into(),
+                        );
+                    }
+                    if raw.sym_lines > 0 && sym_ctx.is_none() && sym_err.is_none() {
+                        let gs = src.sym_group.clone().unwrap_or(GroupSpec {
+                            family: None,
+                            group: None,
+                            group_format: GroupFormat::Derive,
+                            max_candidates: None,
+                            max_terms: None,
+                        });
+                        match load_verified_group_family(
+                            &gs,
+                            base,
+                            frame.mask(),
+                            cmp.presentation().new_to_old(),
+                            fhead.raw.get("family_source").and_then(Value::as_str),
+                        ) {
+                            Ok((group, _, family)) => sym_ctx = Some(SymCtx { family, group }),
+                            Err(e) => sym_err = Some(e.to_string()),
+                        }
+                    }
                     rep.files.push((u.path.display().to_string(), sha.clone()));
                     rep.records_in_files += raw.records.len();
                     for (k, n) in &raw.kinds {
@@ -392,14 +732,19 @@ pub fn load_with(
                     if !raw.kinds.contains_key("end") {
                         rep.files_without_end.push(u.path.display().to_string());
                     }
-                    // labels unique inside the file / source / scope
+                    // labels unique inside the file / source / scope (eps family: the label is (chart, index), packed
+                    // as the cover table packs it: the engine restarts `index` in every chart)
                     let mut by_label: BTreeMap<i64, usize> = BTreeMap::new();
                     for (i, r) in raw.records.iter().enumerate() {
-                        let l = r.rec.i.or(r.rec.index).ok_or_else(|| ImportError::Line {
+                        let l = record_label(&frame, &r.rec).ok_or_else(|| ImportError::Line {
                             source: src.id.clone(),
                             path: u.path.display().to_string(),
                             line: r.line_no,
-                            msg: "rule record without index".into(),
+                            msg: if frame.has_eps_axes() {
+                                "rule record without index, or its chart is not a chart of the eps frame".into()
+                            } else {
+                                "rule record without index".into()
+                            },
                         })?;
                         if by_label.insert(l, i).is_some() || !seen_src_labels.insert(l) {
                             return Err(ImportError::Label {
@@ -443,11 +788,7 @@ pub fn load_with(
                         }
                     };
                     order.retain(|&i| {
-                        let l = raw.records[i]
-                            .rec
-                            .i
-                            .or(raw.records[i].rec.index)
-                            .unwrap_or(i64::MIN);
+                        let l = record_label(&frame, &raw.records[i].rec).unwrap_or(i64::MIN);
                         if let Some(reason) = removed.get(&l) {
                             seen_removed.insert(l);
                             rep.removed.push((l, reason.clone()));
@@ -464,8 +805,13 @@ pub fn load_with(
                     };
                     if !order.is_empty() {
                         let witness = spec.policies.witness_check == super::spec::WitnessCheck::On;
+                        let sym = match (&sym_ctx, &sym_err) {
+                            (Some(c), _) => Ok(c),
+                            (None, Some(e)) => Err(e.as_str()),
+                            (None, None) => Err("no verified group"),
+                        };
                         let (t, tf, infos) = build_table(
-                            src, &class, &name, u, &raw, &order, &frame, witness, &mut rep,
+                            src, &class, &name, u, &raw, &order, &frame, witness, sym, &mut rep,
                         )?;
                         if !witness {
                             // the strict domains of the records with complete witness loci (diagnostic runs)
@@ -547,7 +893,7 @@ pub fn load_with(
                 }
             }
             SourceKind::SuppliedRelations => {
-                let (rs, info) = load_supplied(
+                let (rs, info, pend) = load_supplied(
                     src,
                     &class,
                     base,
@@ -557,8 +903,10 @@ pub fn load_with(
                     &cmp,
                     codec,
                     &mut rep,
+                    spec.read_limits(),
                 )?;
                 supplied_info.insert(rs.name.clone(), info);
+                supplied_pending.push(pend);
                 pending.push(Pending::Supplied(rs));
             }
             SourceKind::Recipe => {
@@ -572,7 +920,15 @@ pub fn load_with(
                     (Some(k), None) => k.clone(),
                     (None, Some(p)) => {
                         let path = resolve(base, p);
-                        let d = verify_file(&path, src.sha256.as_deref())?;
+                        // lane closeloop4 (audit-closeloop M1 / m7): a terminals FILE is pinned (it decides keys)
+                        let Some(want) = src.sha256.as_deref() else {
+                            return Err(ImportError::Spec(format!(
+                                "source {}: the terminals file {} is not pinned: give its sha256",
+                                src.id,
+                                path.display()
+                            )));
+                        };
+                        let d = verify_file(&path, Some(want))?;
                         rep.files
                             .push((path.display().to_string(), format!("sha256:{d}")));
                         read_key_list(&path, arity)?
@@ -587,10 +943,19 @@ pub fn load_with(
                         });
                     }
                 }
-                if src.preferred.unwrap_or(false) {
-                    terminals_preferred.extend(keys);
-                } else {
-                    terminals_other.extend(keys);
+                // a key a table already declared stays declared once (with its table provenance); a preferred
+                // declaration moves it to the preferred list (lane import5)
+                for k in keys {
+                    if src.preferred.unwrap_or(false) {
+                        if let Some(pos) = terminals_other.iter().position(|x| *x == k)
+                            && terminal_provenance.remove(&k).is_some()
+                        {
+                            terminals_other.remove(pos);
+                        }
+                        terminals_preferred.push(k);
+                    } else if !terminal_provenance.contains_key(&k) {
+                        terminals_other.push(k);
+                    }
                 }
             }
             SourceKind::SymmetryCredit => {
@@ -696,6 +1061,30 @@ pub fn load_with(
                     ),
                 });
             }
+            if validate_bodies_only {
+                for k in &rhs {
+                    // the parse of `RuleBodies::set` and its i8 ranges (offsets, constants, parameters)
+                    use crate::closure::bodies::{RhsSlot, parse_rhs_pattern};
+                    let ok = parse_rhs_pattern(k, arity).is_ok_and(|p| {
+                        p.iter().all(|a| match *a {
+                            RhsSlot::Param { param, offset } => {
+                                i8::try_from(param).is_ok() && i8::try_from(offset).is_ok()
+                            }
+                            RhsSlot::Const(c) => i8::try_from(c).is_ok(),
+                        })
+                    });
+                    if !ok {
+                        return Err(ImportError::Source {
+                            source: src_id.clone(),
+                            msg: format!(
+                                "{}: record {o}: rhs key {k:?} is not a key pattern of arity {arity}",
+                                path.display()
+                            ),
+                        });
+                    }
+                }
+                return Ok(());
+            }
             for &(t, k) in places {
                 bodies.set(&disp, t, k, &rhs).map_err(|e| {
                     ImportError::Core(format!("bodies of {}: {e:?}", disp.tables()[t].name))
@@ -706,6 +1095,9 @@ pub fn load_with(
     }
     drop(indexes);
     for t in 0..disp.tables().len() {
+        if validate_bodies_only {
+            break;
+        }
         let with = bodies.count_with_body(t);
         if with != disp.tables()[t].len() {
             return Err(ImportError::Source {
@@ -730,6 +1122,13 @@ pub fn load_with(
             }
         }
     }
+    if frame.has_eps_axes() && spec.start.format == StartFormat::Box {
+        // the box enumerates line powers >= 1 only (boxdef is integer-only; the eps box, BOXDEF B, is spec data not
+        // implemented): a box start on an eps family would silently miss every key with an eps axis <= 0
+        return Err(ImportError::Unsupported(
+            "start format box on an eps-shifted family (boxdef is integer-only; give the start keys)".into(),
+        ));
+    }
     let start = read_start(spec, base, codec)?;
     let records = rules.iter().map(Vec::len).sum();
     let report = LoadReport {
@@ -746,8 +1145,9 @@ pub fn load_with(
         relation_sets: supplied.len() + recipes.len(),
         terminals_preferred: terminals_preferred.len(),
         terminals_other: terminals_other.len(),
+        terminals_from_tables: terminal_provenance.len(),
     };
-    Ok(ImportedSet {
+    let mut set = ImportedSet {
         spec: spec.clone(),
         frame,
         cmp,
@@ -769,7 +1169,17 @@ pub fn load_with(
         classes,
         report,
         strict_domains,
-    })
+        family: fhead.family.clone(),
+        terminal_provenance,
+    };
+    // lane symfix (import.md 21 (c)): the same-backend re-verification of supplied composites, on the loaded catalogue
+    super::supplied_verify::finish(
+        &mut set,
+        supplied_pending,
+        !validate_bodies_only,
+        &crate::repairflow::composite_verify::LineOptions::default(),
+    )?;
+    Ok(set)
 }
 
 /// Per dispatcher table: (file, source id, [(ordinal, record sha256)]) for the body pass.
@@ -923,6 +1333,19 @@ fn file_units(src: &SourceSpec, base: &Path) -> Result<Vec<FileUnit>, ImportErro
     }
 }
 
+/// The label of a rule record in the import: `i`, else `index`; on an eps-shifted family the PACKED (chart, index)
+/// of the cover table ([`crate::cover::eps_label`]: the engine restarts `index` in every chart). `None` without an
+/// index, or (eps) with a chart that is not a chart of the frame.
+fn record_label(frame: &NodeFrame, rec: &crate::record::RuleRecord) -> Option<i64> {
+    let l = rec.i.or(rec.index)?;
+    if !frame.has_eps_axes() {
+        return Some(l);
+    }
+    let bits: Vec<bool> = rec.chart.as_deref()?.chars().map(|x| x == '1').collect();
+    let ord = frame.charts().iter().position(|c| *c == bits)?;
+    crate::cover::eps_label(ord, l)
+}
+
 fn check_header(
     source: &str,
     h: &TableHeader,
@@ -930,11 +1353,19 @@ fn check_header(
     frame_desc: &str,
     fhead: &TableHeader,
 ) -> Result<(), ImportError> {
-    let f = NodeFrame::from_header(h).map_err(|e| ImportError::Source {
+    let f = if frame.has_eps_axes() {
+        NodeFrame::from_header_eps_aware(h)
+    } else {
+        NodeFrame::from_header(h)
+    }
+    .map_err(|e| ImportError::Source {
         source: source.into(),
         msg: format!("frame: {e}"),
     })?;
-    if f.arity() != frame.arity() || !f.same_mask(frame) || f.power_shifts() != frame.power_shifts()
+    if f.arity() != frame.arity()
+        || !f.same_mask(frame)
+        || f.power_shifts() != frame.power_shifts()
+        || f.kshift() != frame.kshift()
     {
         return Err(ImportError::Source {
             source: source.into(),
@@ -982,6 +1413,7 @@ fn build_table(
     seg: &[usize],
     frame: &NodeFrame,
     witness_check: bool,
+    sym: Result<&SymCtx, &str>,
     rep: &mut SourceReport,
 ) -> Result<(Table, TableFile, Vec<RuleInfo>), ImportError> {
     let tf = TableFile {
@@ -994,13 +1426,31 @@ fn build_table(
         witness: witness_check,
         ..Default::default()
     };
-    let mut t =
-        Table::from_table_file(name, u.path.display().to_string(), &tf, opts).map_err(|e| {
-            ImportError::Source {
+    let loaded = if frame.has_eps_axes() {
+        Table::from_table_file_eps_aware(name, u.path.display().to_string(), &tf, opts)
+    } else {
+        Table::from_table_file(name, u.path.display().to_string(), &tf, opts)
+    };
+    let mut t = loaded.map_err(|e| {
+        match e {
+            // a record the domain builder refuses (incl. its `domain_bounds` and unknown members, lane partfix4):
+            // a typed error at its line
+            crate::cover::LoadError::Record { line_no, err } => ImportError::Line {
+                source: src.id.clone(),
+                path: u.path.display().to_string(),
+                line: line_no,
+                msg: err.to_string(),
+            },
+            e => ImportError::Source {
                 source: src.id.clone(),
                 msg: format!("{}: {e}", u.path.display()),
-            }
-        })?;
+            },
+        }
+    })?;
+    for c in &t.provenance.chart_guards_implied {
+        rep.chart_guards_implied
+            .push((u.path.display().to_string(), c.clone()));
+    }
     for s in &t.provenance.skipped_not_dispatched {
         rep.not_dispatched
             .push((name.to_string(), s.label, s.dispatch.clone()));
@@ -1010,6 +1460,12 @@ fn build_table(
         let r = &raw.records[seg[t.meta[k].source_index]];
         let label = t.labels[k];
         let mut bounds: Vec<Poly> = vec![];
+        if src.domain == DomainMode::QualifiedRecenter && frame.has_eps_axes() {
+            return Err(ImportError::Unsupported(format!(
+                "source {}: domain qualified_recenter on an eps-shifted family (a floor is not defined on an eps axis)",
+                src.id
+            )));
+        }
         if src.domain == DomainMode::QualifiedRecenter {
             let rc = r.rec.recenter.as_ref().ok_or_else(|| ImportError::Line {
                 source: src.id.clone(),
@@ -1052,49 +1508,13 @@ fn build_table(
                 }
             }
         }
-        if let Some(db) = &r.domain_bounds {
-            for i in 0..frame.arity() {
-                // engfix4 mn-2: the engine's limit on a FREE slot (one exception branch per excluded value there)
-                let free = r.rec.fixed.get(i).is_some_and(Option::is_none);
-                let far = db.min[i].is_some_and(|lo| lo - 1 > MAX_BOUND_EXCLUSIONS_PER_SLOT)
-                    || db.max[i].is_some_and(|hi| -hi > MAX_BOUND_EXCLUSIONS_PER_SLOT);
-                if free && far {
-                    return Err(ImportError::Line {
-                        source: src.id.clone(),
-                        path: u.path.display().to_string(),
-                        line: r.line_no,
-                        msg: format!(
-                            "domain_bounds on the free slot {i} excludes more than {MAX_BOUND_EXCLUSIONS_PER_SLOT} values (refused as by the engine)"
-                        ),
-                    });
-                }
-                if let Some(lo) = db.min[i] {
-                    if !frame.is_line(i) {
-                        return Err(ImportError::Line {
-                            source: src.id.clone(),
-                            path: u.path.display().to_string(),
-                            line: r.line_no,
-                            msg: format!("domain_bounds.min on the numerator slot {i}"),
-                        });
-                    }
-                    bounds.push(Poly::slot_minus(i, lo as i128));
-                }
-                if let Some(hi) = db.max[i] {
-                    if frame.is_line(i) {
-                        return Err(ImportError::Line {
-                            source: src.id.clone(),
-                            path: u.path.display().to_string(),
-                            line: r.line_no,
-                            msg: format!("domain_bounds.max on the line slot {i}"),
-                        });
-                    }
-                    bounds.push(
-                        Poly::slot_minus(i, hi as i128)
-                            .neg()
-                            .map_err(|e| ImportError::Core(e.to_string()))?,
-                    );
-                }
-            }
+        // `domain_bounds` (lane partfix4, audit-part4 B2 / B2b): NOT read here any more. `Table::from_table_file`
+        // (CaseDomain::from_rule_record) has already appended them as the engine's exception branches
+        // (`domain::bound_branches`), evaluated at the rule point exactly as rustred-core's find_rule does; the
+        // former GE reading here differed from the engine for target patterns (B2) and bounded fixed slots (B2b).
+        let has_domain_bounds = r.domain_bounds.is_some();
+        if has_domain_bounds && bounds.is_empty() {
+            rep.bounds_records += 1;
         }
         if !bounds.is_empty() {
             rep.bounds_records += 1;
@@ -1112,6 +1532,45 @@ fn build_table(
             WitnessStatus::NotCarried => WitnessKind::NotCarried,
         };
         *rep.witness.entry(format!("{witness:?}")).or_default() += 1;
+        // a `sym` record: verified by the seven steps against our derived group, else blocked at every key of its
+        // case by an always-vanishing pole locus (never serves, never falls through; interfaces/import.md 18.4)
+        let sym_info = r.sym.as_ref().map(|s| {
+            let v = match sym {
+                Ok(c) => verify_sym_record(s, &c.family, &c.group, frame.mask()),
+                Err(e) => Err(format!("no verified group: {e}")),
+            };
+            let srep = rep.sym.get_or_insert_with(SymReport::default);
+            srep.records += 1;
+            if let Err(e) = &sym {
+                srep.group_error = Some(e.to_string());
+            }
+            match v {
+                Ok(el) => {
+                    srep.verified += 1;
+                    SymInfo {
+                        verified: true,
+                        reason: None,
+                        element: Some(el),
+                        action: s.action.clone(),
+                    }
+                }
+                Err(why) => {
+                    srep.unverified.push((label, why.clone()));
+                    SymInfo {
+                        verified: false,
+                        reason: Some(why),
+                        element: None,
+                        action: s.action.clone(),
+                    }
+                }
+            }
+        });
+        if sym_info.as_ref().is_some_and(|s| !s.verified) {
+            t.domains[k].poles.push(PoleLocus {
+                kind: PoleKind::Witness,
+                coeffs: vec![],
+            });
+        }
         infos.push(RuleInfo {
             source: src.id.clone(),
             class: class.to_string(),
@@ -1128,10 +1587,20 @@ fn build_table(
                 .as_ref()
                 .map(|h| hand_name(h, &src.id, u.table_label.as_deref(), r, label)),
             witness,
+            sym: sym_info,
+            symface: r.symface.clone(),
         });
     }
     Ok((t, tf, infos))
 }
+
+/// What `load_supplied` gives: the relation set, its per-key provenance, the composites awaiting the post-load
+/// same-backend re-verification (lane symfix).
+type SuppliedLoad = (
+    RelationSet,
+    BTreeMap<Vec<i32>, SuppliedInfo>,
+    super::supplied_verify::PendingSource,
+);
 
 #[allow(clippy::too_many_arguments)]
 fn load_supplied(
@@ -1144,9 +1613,18 @@ fn load_supplied(
     cmp: &NodeComparator,
     codec: KeyCodec,
     rep: &mut SourceReport,
-) -> Result<(RelationSet, BTreeMap<Vec<i32>, SuppliedInfo>), ImportError> {
+    limits: crate::record::ReadLimits,
+) -> Result<SuppliedLoad, ImportError> {
     let path = resolve(base, src.path.as_deref().unwrap_or_default());
-    let raw = scan_table(&src.id, &path, true, &|_, _| true)?;
+    let raw = scan_table_with(&src.id, &path, true, &|_, _| true, limits)?;
+    if let Some(r) = raw.records.iter().find(|r| r.sym.is_some()) {
+        return Err(ImportError::Line {
+            source: src.id.clone(),
+            path: path.display().to_string(),
+            line: r.line_no,
+            msg: "a sym record in a supplied relation file (only point rule records)".into(),
+        });
+    }
     if let Some(e) = &src.sha256
         && !e
             .trim_start_matches("sha256:")
@@ -1174,39 +1652,79 @@ fn load_supplied(
         path.display().to_string(),
         format!("sha256:{}", raw.file_sha256),
     ));
-    let ver = match &src.verification {
+    let (ver, ver_path) = match &src.verification {
         Some(v) => {
             let p = resolve(base, &v.path);
             let d = verify_file(&p, v.sha256.as_deref())?;
             rep.files
                 .push((p.display().to_string(), format!("sha256:{d}")));
-            Some(d)
+            (Some(d), Some(p))
         }
-        None => None,
+        None => (None, None),
     };
     let n = frame.arity();
-    // `verify`: the verified group and the coefficient texts of every record (small files: read whole)
-    let vgroup = match &src.verify {
-        Some(gs) => {
-            let (vg, gr) = load_verified_group(
-                gs,
+    // lane symfix (audit r2-sym F1, interfaces/import.md 21): a record gets the EXACT bit ONLY when this import
+    // verifies it at load: (a) group re-derivation (plain), (b) a CHECKED kernel certificate, (c) the same-backend
+    // re-verification of a composite from its READ verification line (after the catalogue exists: `finish`). The
+    // verified group is derived when `verify` is given (refusal = load error, as before) or when a `verification` file
+    // asks for re-verification (refusal = the records stay unverified, typed).
+    let want_group = src.verify.is_some() || src.verification.is_some();
+    let (vgroup, group_error): (Option<(VerifiedGroup, String, usize)>, Option<String>) =
+        if want_group {
+            // no `verify`: the frame header's family, derived (the import's own group, never supplied data)
+            let gs = src.verify.clone().unwrap_or(super::symmetry::GroupSpec {
+                family: None,
+                group: None,
+                group_format: super::symmetry::GroupFormat::Derive,
+                max_candidates: None,
+                max_terms: None,
+            });
+            match load_verified_group(
+                &gs,
                 base,
                 frame.mask(),
                 cmp.presentation().new_to_old(),
                 fhead.raw.get("family_source").and_then(Value::as_str),
-            )?;
-            rep.files
-                .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
-            rep.group = Some(gr);
-            Some((vg, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS)))
+            ) {
+                Ok((vg, gr)) => {
+                    rep.files
+                        .push((gr.family.clone(), format!("sha256:{}", gr.family_sha256)));
+                    let digest = gr.digest.clone();
+                    rep.group = Some(gr);
+                    (
+                        Some((vg, digest, gs.max_terms.unwrap_or(DEFAULT_MAX_TERMS))),
+                        None,
+                    )
+                }
+                Err(e) if src.verify.is_some() => return Err(e),
+                Err(e) => (None, Some(e.to_string())),
+            }
+        } else {
+            (None, None)
+        };
+    let certs = match &src.kernel_certificates {
+        Some(cs) => {
+            let book = super::supplied_verify::CertificateBook::load(cs, base, &src.id, n)?;
+            for (p, d) in &book.files {
+                rep.files.push((p.clone(), format!("sha256:{d}")));
+            }
+            Some(book)
         }
         None => None,
     };
-    let coefs: SuppliedCoefficients = if vgroup.is_some() {
-        supplied_coefficients(&src.id, &path, n)?
-    } else {
+    let family = fhead
+        .raw
+        .get("family_source")
+        .and_then(Value::as_str)
+        .map(super::supplied_verify::family_sha256);
+    // every non-diagnostic record's coefficient texts (read whole per line, bounded by the per-record budget)
+    let coefs: SuppliedCoefficients = if src.diagnostic {
         HashMap::new()
+    } else {
+        supplied_coefficients(&src.id, &path, n, limits)?
     };
+    let ds = crate::repairflow::composite_verify::DEFAULT_D_VALUES;
+    let mut pending: Vec<super::supplied_verify::PendingComposite> = vec![];
     let mut b = RelationStoreBuilder::new(codec);
     let mut info = BTreeMap::new();
     rep.records_in_files = raw.records.len();
@@ -1262,6 +1780,28 @@ fn load_supplied(
             }
             rhs.push(k);
         }
+        // PARSE CHECKS (refused, typed): repeated rhs keys; malformed coefficient texts ("1/0", unreadable)
+        {
+            let mut sorted: Vec<&Vec<i32>> = rhs.iter().collect();
+            sorted.sort();
+            if let Some(w) = sorted.windows(2).find(|w| w[0] == w[1]) {
+                return Err(lerr(format!(
+                    "rhs key {:?} repeated in a supplied relation",
+                    w[0]
+                )));
+            }
+        }
+        let rhs_c = coefs.get(&r.ordinal).cloned().unwrap_or_default();
+        if !src.diagnostic {
+            if rhs_c.iter().map(|(k, _)| k).ne(rhs.iter()) {
+                return Err(lerr(
+                    "the coefficient list differs from the rhs keys".into(),
+                ));
+            }
+            for (_, c) in &rhs_c {
+                super::supplied_verify::check_coefficient_text(c, &ds).map_err(&lerr)?;
+            }
+        }
         let mut digest = [0u8; 32];
         if let Some(h) = &r.rhs_sha256 {
             for (i, byte) in digest.iter_mut().enumerate() {
@@ -1272,34 +1812,74 @@ fn load_supplied(
         if descends {
             bits |= VERDICT_DESCENDS;
         }
-        // re-derivation from the verified group (fail closed: a relation that is not verified does not serve)
-        let check = vgroup.as_ref().map(|(vg, max_terms)| {
-            let rhs_c = coefs.get(&r.ordinal).cloned().unwrap_or_default();
-            if rhs_c.iter().map(|(k, _)| k).ne(rhs.iter()) {
-                RelationCheck::Unknown("the coefficient list differs from the rhs keys".into())
-            } else {
-                verify_relation_with(
-                    &crate::independent_algebra::Independent,
-                    vg,
-                    &key,
-                    &rhs_c,
-                    &[],
-                    *max_terms,
-                )
-            }
+        // (a) re-derivation from the verified group (fail closed: a relation that is not verified does not serve)
+        let check = vgroup.as_ref().map(|(vg, _, max_terms)| {
+            verify_relation_with(
+                &crate::independent_algebra::Independent,
+                vg,
+                &key,
+                &rhs_c,
+                &[],
+                *max_terms,
+            )
         });
-        match &check {
-            Some(c) if c.verified() => {
-                bits |= VERDICT_EXACT;
+        if let Some(c) = &check {
+            if c.verified() {
                 rep.relations_verified += 1;
+            } else if src.verify.is_some() && src.verification.is_none() && certs.is_none() {
+                rep.relations_not_verified
+                    .push((key.clone(), format!("{c:?}")));
             }
-            Some(c) => rep
-                .relations_not_verified
-                .push((key.clone(), format!("{c:?}"))),
-            None if ver.is_some() => bits |= VERDICT_EXACT,
+        }
+        // (b) a kernel certificate, checked
+        let cert = certs.as_ref().map(|book| {
+            book.check(
+                &key,
+                &rhs_c,
+                family.as_deref(),
+                vgroup.as_ref().map(|(_, d, _)| d.as_str()),
+            )
+        });
+        use super::supplied_verify::{self as sv, SuppliedRoute};
+        let route = if src.diagnostic {
             // a DIAGNOSTIC keys-only relation is followed as if exact (never certified: see check)
-            None if src.diagnostic => bits |= VERDICT_EXACT,
-            None => {}
+            SuppliedRoute::Diagnostic
+        } else if let Some(Ok((c, k))) = &cert {
+            rep.relations_kernel_certified += 1;
+            SuppliedRoute::KernelCertified {
+                certificate_sha256: c.clone(),
+                kernel_sha256: k.clone(),
+            }
+        } else if check.as_ref().is_some_and(RelationCheck::verified) {
+            SuppliedRoute::GroupRederived
+        } else if src.verification.is_some() {
+            // (c) later, on the loaded catalogue (`supplied_verify::finish`)
+            pending.push(sv::PendingComposite {
+                key: key.clone(),
+                rhs: rhs_c.clone(),
+            });
+            SuppliedRoute::unverified(sv::UNVERIFIED_NO_LINE, "pending")
+        } else {
+            let why = match (&cert, &check) {
+                (Some(Err(e)), _) => sv::SuppliedRoute::unverified(sv::UNVERIFIED_CERTIFICATE, e),
+                (None, Some(c)) => {
+                    sv::SuppliedRoute::unverified(sv::UNVERIFIED_NOT_IN_SPAN, format!("{c:?}"))
+                }
+                _ => sv::SuppliedRoute::unverified(
+                    sv::UNVERIFIED_NO_ROUTE,
+                    "no verify group, no kernel certificate, no verification line",
+                ),
+            };
+            if let SuppliedRoute::Unverified { reason } = &why
+                && !(src.verify.is_some() && src.verification.is_none() && certs.is_none())
+            {
+                rep.relations_not_verified
+                    .push((key.clone(), reason.clone()));
+            }
+            why
+        };
+        if route.exact() {
+            bits |= VERDICT_EXACT;
         }
         b.push(&key, &rhs, digest, bits)
             .map_err(|e| lerr(format!("{e:?}")))?;
@@ -1320,6 +1900,7 @@ fn load_supplied(
                 verification_sha256: ver.clone(),
                 check,
                 diagnostic: src.diagnostic,
+                route,
             },
         );
     }
@@ -1339,6 +1920,13 @@ fn load_supplied(
             slot: DispatchSlot::Last,
         },
         info,
+        super::supplied_verify::PendingSource {
+            name: src.id.clone(),
+            group: vgroup,
+            group_error,
+            verification: ver_path,
+            records: pending,
+        },
     ))
 }
 
@@ -1351,11 +1939,45 @@ fn supplied_coefficients(
     source: &str,
     path: &Path,
     n: usize,
+    limits: crate::record::ReadLimits,
 ) -> Result<SuppliedCoefficients, ImportError> {
-    let txt = std::fs::read_to_string(path).map_err(|e| io_err(path, e))?;
+    // one line at a time, each at most the per-record budget (lane bigline): a longer line is refused, typed
+    let f = std::fs::File::open(path).map_err(|e| io_err(path, e))?;
+    let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
+    let mut buf: Vec<u8> = vec![];
     let mut out = HashMap::new();
     let mut ordinal = 0usize;
-    for (i, l) in txt.lines().enumerate() {
+    for i in 0usize.. {
+        buf.clear();
+        let (got, complete) = crate::record::read_until_limited(
+            &mut rd,
+            &mut buf,
+            limits.record_budget.saturating_add(1),
+        )
+        .map_err(|e| io_err(path, e))?;
+        if got == 0 {
+            break;
+        }
+        if !complete {
+            return Err(ImportError::Refused {
+                source: source.into(),
+                path: path.display().to_string(),
+                line: i + 1,
+                reason: Box::new(super::error::TableRefusal::RecordTooLarge {
+                    record: None,
+                    what: "a supplied relation line (its coefficients are kept)".into(),
+                    bytes: got as u64,
+                    budget: limits.record_budget,
+                }),
+            });
+        }
+        let l = std::str::from_utf8(super::lines::line_body(&buf)).map_err(|e| {
+            io_err(
+                path,
+                std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()),
+            )
+        })?;
+        let l = l.strip_suffix('\r').unwrap_or(l);
         if l.trim().is_empty() {
             continue;
         }
@@ -1728,7 +2350,12 @@ pub fn read_key_list(path: &Path, arity: usize) -> Result<Vec<Vec<i32>>, ImportE
     Ok(out)
 }
 
-fn read_start(spec: &TableSetSpec, base: &Path, codec: KeyCodec) -> Result<KeySet, ImportError> {
+/// The start set of a spec (lane t266run: also used for one clause of a box made of several clauses).
+pub fn read_start(
+    spec: &TableSetSpec,
+    base: &Path,
+    codec: KeyCodec,
+) -> Result<KeySet, ImportError> {
     let path = resolve(base, &spec.start.path);
     verify_file(&path, spec.start.sha256.as_deref())?;
     let arity = codec.arity();

@@ -31,6 +31,8 @@ pub mod layout;
 // line 7: records of the diagnostic kind node-basis
 pub mod node_basis;
 pub mod outcome;
+// lane coreseed's request (granted by int7): kind pole-regular-at's answer checks
+pub mod poleat;
 pub mod preflight;
 // lane adapters' request (granted by lane int5): kind solve-recipe's records and per-key outcomes
 pub mod recipe;
@@ -38,6 +40,10 @@ pub mod resume;
 pub mod seal;
 pub mod spec;
 pub mod stop;
+// lane symjob's request (granted by int7): kind symmetry-composite's child seal, sealed results and tally
+pub mod symcomp;
+// lane symcert's request (granted by int7): kind proof-symrows' request, certificates and S check
+pub mod symcert;
 pub mod time;
 
 pub use canon::{CanonError, canonical_line};

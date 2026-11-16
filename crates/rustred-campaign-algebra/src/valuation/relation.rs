@@ -7,11 +7,17 @@
 //! RELATION at this key (TRICKS 15 / 16: never the key, the system of rows, or "inherent"):
 //! - `record` = one JSON record: an engine solve-recipe `"type":"relation"` record (results.jsonl; coefficients are
 //!   rational functions of d alone, the key already in; NORMALISED to target coefficient 1), a table `"type":"rule"`
-//!   record (parametric coefficients in `n0 .. n{N-1}`, d: the key's indices are PUT IN before the valuation, TRICKS 9),
-//!   or a generic relation `{"key"?, "target_coefficient": "<text>", "rhs": [[key, coefficient, part?], ..]}` meaning
-//!   `c_0 I(key) = sum_j c_j I(k_j)` (UNNORMALISED; TRICKS 12(a): the target coefficient is tested too);
+//!   record (parametric coefficients in the rule's parameters `n0 .. n{N-1}`, d: the coefficients are evaluated at the
+//!   RULE POINT of the key under the record's `target` pattern and `fixed` slots, by the core's
+//!   `closure::bodies::rule_point` (the engine's `find_rule`; audit r2-poles F1: never at the key itself, which is the
+//!   rule point only for a canonical target), TRICKS 9; a rule WITHOUT `target`, an unreadable target, or a pattern that
+//!   does not match the key is UNDECIDED, never a number), or a generic relation
+//!   `{"key"?, "target"?, "target_coefficient": "<text>", "rhs": [[key, coefficient, part?], ..]}` meaning
+//!   `c_0 I(key) = sum_j c_j I(k_j)` (UNNORMALISED; TRICKS 12(a): the target coefficient is tested too; indices in its
+//!   coefficients are the key's own unless it carries a `target`, which is then read as for a rule);
 //! - `key` = the key the relation is applied at (must equal the record's `key` when it has one);
 //! - exact (Symbolica, [`super::Coefficient`]); cost = parsing the coefficient texts once.
+//!
 //! The verdict is made on the NORMALISED orders `v(c_j) - v(c_0)` (`v(c_0) = 0` for normalised records), so a zero of
 //! the target coefficient at d0 and the equivalent rhs poles of the normalised form give the SAME verdict.
 //! A rule record is assumed to APPLY at the key (domain and exceptions are the caller's: this call judges coefficients).
@@ -20,6 +26,8 @@
 //! `rustred.campaign.pole-relation.v1` record of the core crate.
 
 use super::{Coefficient, D0, GenericOrder, Prepared, VALUATION_METHOD, Valuation};
+use rustred_campaign_core::closure::bodies::rule_point;
+use rustred_campaign_core::domain::{CaseDomain, TargetMap, is_canonical_target, parse_target};
 use rustred_campaign_core::poles::record::{
     PoleRelationRecord, RegularAt, TermPole, relation_identity, summarise,
 };
@@ -42,6 +50,10 @@ pub struct RelationText {
     pub form: Form,
     pub key: Option<Vec<i64>>,
     pub target_coefficient: Option<String>,
+    /// The record's target pattern text (`"target"`), if any.
+    pub target: Option<String>,
+    /// The record's fixed slots (`"fixed"`: `null` = free); `None` = no such member.
+    pub fixed: Option<Vec<Option<i64>>>,
     /// (key text, coefficient text, part)
     pub terms: Vec<(String, String, Option<String>)>,
 }
@@ -80,6 +92,26 @@ impl RelationText {
                 ));
             }
         };
+        let target = match &record["target"] {
+            Value::Null => None,
+            Value::String(t) => Some(t.clone()),
+            _ => return Err("target is not a text".into()),
+        };
+        let fixed = match &record["fixed"] {
+            Value::Null => None,
+            Value::Array(a) => Some(
+                a.iter()
+                    .map(|x| match x {
+                        Value::Null => Ok(None),
+                        v => v
+                            .as_i64()
+                            .map(Some)
+                            .ok_or("fixed entry is neither null nor an integer"),
+                    })
+                    .collect::<Result<Vec<Option<i64>>, _>>()?,
+            ),
+            _ => return Err("fixed is not a list".into()),
+        };
         let rhs = record["rhs"].as_array().ok_or("rhs is not a list")?;
         let mut terms = Vec::with_capacity(rhs.len());
         for (i, x) in rhs.iter().enumerate() {
@@ -101,8 +133,111 @@ impl RelationText {
             form,
             key,
             target_coefficient,
+            target,
+            fixed,
             terms,
         })
+    }
+
+    /// How a key maps to the point at which this record's coefficients are evaluated (`arity` = the key length).
+    /// `Err` = the record's target form cannot be handled (the caller answers UNDECIDED).
+    pub fn point_map(&self, arity: usize) -> Result<PointMap, String> {
+        match (self.form, &self.target) {
+            (Form::EngineRelation, _) => Ok(PointMap::NoIndices),
+            (Form::Unnormalised, None) => Ok(PointMap::Key),
+            (Form::TableRule, None) => Err(
+                "rule record without target: its rule point is not known (undecided, never the key)".into(),
+            ),
+            (Form::TableRule | Form::Unnormalised, Some(t)) => {
+                PointMap::of_target(t, self.fixed.as_deref(), arity)
+            }
+        }
+    }
+}
+
+/// Where a record's coefficients are evaluated for a key (audit r2-poles F1).
+#[derive(Debug, Clone)]
+pub enum PointMap {
+    /// Coefficients in d alone (engine relations): no index is put in.
+    NoIndices,
+    /// The coefficients are written in the key's own indices (a generic relation without a target).
+    Key,
+    /// A rule: the RULE POINT of the key under the record's target pattern and fixed slots (core
+    /// `closure::bodies::rule_point`, the engine's `find_rule`); a canonical target maps a key to itself.
+    Rule(Box<CaseDomain>),
+}
+
+impl PointMap {
+    /// The map of a rule's `target` text and `fixed` slots (`None` = all free) at `arity`.
+    pub fn of_target(
+        target: &str,
+        fixed: Option<&[Option<i64>]>,
+        arity: usize,
+    ) -> Result<PointMap, String> {
+        let slots = parse_target(target, arity).map_err(|e| format!("target {target:?}: {e}"))?;
+        let fixed: Vec<Option<i32>> = match fixed {
+            None => vec![None; arity],
+            Some(f) if f.len() == arity => f
+                .iter()
+                .map(|v| match v {
+                    None => Ok(None),
+                    Some(x) => i32::try_from(*x)
+                        .map(Some)
+                        .map_err(|_| format!("fixed value {x} out of range")),
+                })
+                .collect::<Result<_, String>>()?,
+            Some(f) => {
+                return Err(format!("fixed of length {} for arity {arity}", f.len()));
+            }
+        };
+        let mut dom = CaseDomain::free(arity, None);
+        dom.target = if is_canonical_target(&slots, &fixed) {
+            TargetMap::Canonical
+        } else {
+            TargetMap::Pattern(slots)
+        };
+        dom.fixed = fixed;
+        Ok(PointMap::Rule(Box::new(dom)))
+    }
+
+    /// True iff a key is its own point (no index, the key's own indices, or a canonical target).
+    pub fn is_identity(&self) -> bool {
+        match self {
+            PointMap::NoIndices | PointMap::Key => true,
+            PointMap::Rule(d) => d.target == TargetMap::Canonical,
+        }
+    }
+
+    /// The point at which the coefficients are evaluated for `key`: `Ok(None)` = no index is put in (engine
+    /// relation); `Err` = the target pattern does not match the key (the rule does not apply there: undecided).
+    pub fn point(&self, key: &[i64]) -> Result<Option<Vec<i64>>, String> {
+        match self {
+            PointMap::NoIndices => Ok(None),
+            PointMap::Key => Ok(Some(key.to_vec())),
+            PointMap::Rule(dom) => {
+                if key.len() != dom.arity {
+                    return Err(format!(
+                        "key of length {} for a rule of arity {}",
+                        key.len(),
+                        dom.arity
+                    ));
+                }
+                if dom.target == TargetMap::Canonical {
+                    return Ok(Some(key.to_vec()));
+                }
+                let k32: Vec<i32> = key
+                    .iter()
+                    .map(|&x| i32::try_from(x).map_err(|_| format!("key entry {x} out of range")))
+                    .collect::<Result<_, _>>()?;
+                let mut pt = Vec::with_capacity(dom.arity);
+                if !rule_point(dom, &k32, &mut pt) {
+                    return Err(format!(
+                        "the target pattern does not match the key {key:?} (the rule does not apply there)"
+                    ));
+                }
+                Ok(Some(pt.into_iter().map(i64::from).collect()))
+            }
+        }
     }
 }
 
@@ -125,7 +260,8 @@ impl RelationPoles {
     }
 }
 
-/// Orders of every term at `key` (`key` used to substitute indices of a rule; checked against the record's key).
+/// Orders of every term at `key` (a rule's coefficients at the RULE POINT of `key`, [`RelationText::point_map`];
+/// checked against the record's key).
 pub fn relation_poles(rel: &RelationText, key: &[i64], d0: &D0) -> Result<RelationPoles, String> {
     if let Some(k) = &rel.key
         && k.as_slice() != key
@@ -137,13 +273,13 @@ pub fn relation_poles(rel: &RelationText, key: &[i64], d0: &D0) -> Result<Relati
         Form::EngineRelation => 0,
         Form::TableRule | Form::Unnormalised => key.len(),
     };
+    let point = rel.point_map(key.len())?.point(key)?;
     let order = |text: &str| -> Result<Valuation, String> {
         let c = Coefficient::parse(text, arity)
             .map_err(|e| format!("coefficient {}: {e}", short(text)))?;
-        if arity == 0 {
-            c.order(d0)
-        } else {
-            c.at_key(key, d0)
+        match &point {
+            None => c.order(d0),
+            Some(pt) => c.at_point(pt, d0),
         }
         .map_err(|e| format!("coefficient {}: {e}", short(text)))
     };
@@ -180,7 +316,11 @@ fn short(t: &str) -> String {
     if t.len() <= 80 {
         t.to_string()
     } else {
-        format!("{}.. ({} bytes)", &t[..t.floor_char_boundary(80)], t.len())
+        let mut e = 80;
+        while !t.is_char_boundary(e) {
+            e -= 1;
+        }
+        format!("{}.. ({} bytes)", &t[..e], t.len())
     }
 }
 
@@ -284,6 +424,7 @@ pub fn analyse_rule(
     d0: &D0,
 ) -> Result<RuleAnalysis, String> {
     let rel = RelationText::of_record(record)?;
+    let map = rel.point_map(arity)?;
     let mut parsed = Vec::with_capacity(rel.terms.len());
     for (k, c, _) in &rel.terms {
         let co = Coefficient::parse(c, arity).map_err(|e| format!("coefficient of {k}: {e}"))?;
@@ -307,9 +448,18 @@ pub fn analyse_rule(
     let mut per_key = Vec::with_capacity(keys.len());
     for key in keys {
         let v = (|| -> Result<RegularAt, String> {
+            // the rule point of the key (F1); an engine relation (no index) is evaluated in d alone
+            let pt = map.point(key)?;
+            let at = |c: &Coefficient| -> Result<Valuation, String> {
+                match &pt {
+                    None => c.order(d0),
+                    Some(pt) => c.at_point(pt, d0),
+                }
+                .map_err(|e| e.to_string())
+            };
             let v0 = match &target {
                 None => 0,
-                Some(t) => match t.at_key(key, d0).map_err(|e| e.to_string())? {
+                Some(t) => match at(t)? {
                     Valuation::Zero => {
                         return Err("the target coefficient vanishes at the key".into());
                     }
@@ -318,9 +468,8 @@ pub fn analyse_rule(
             };
             let mut worst = 0u64;
             for (k, co) in &parsed {
-                if let Valuation::Order(v) = co
-                    .at_key(key, d0)
-                    .map_err(|e| format!("coefficient of {k}: {e}"))?
+                if let Valuation::Order(v) =
+                    at(co).map_err(|e| format!("coefficient of {k}: {e}"))?
                 {
                     let n = v - v0;
                     if n < 0 {
@@ -380,7 +529,7 @@ pub fn rule_record(
                 "terms": a.loci.iter().map(|(k, g)| json!({"key": k, "generic_order": g.order,
                     "den_multiplicity": g.den_multiplicity, "num_multiplicity": g.num_multiplicity,
                     "pole_rises_on": g.den_locus.factors, "pole_falls_on": g.num_locus.factors})).collect::<Vec<_>>(),
-                "meaning": "the order at a key differs from the generic order only on the union of these zero sets (index polynomials at d = d0); every per-key verdict is computed at the key",
+                "meaning": "the order at a key differs from the generic order only where its RULE POINT lies on the union of these zero sets (polynomials in the rule's parameters n_i at d = d0; the rule point is the key itself for a canonical target); every per-key verdict is computed at the rule point of the key",
             });
             let per_key: Vec<Value> = a
                 .per_key
@@ -427,23 +576,26 @@ pub fn rule_record(
 }
 
 /// A rule / relation record parsed ONCE and prepared at one d0, evaluated at many keys (the census path): per key the
-/// pole order of the record's NORMALISED coefficients (target coefficient tested too when given), exact
-/// ([`Prepared::at_key`]).
+/// pole order of the record's NORMALISED coefficients (target coefficient tested too when given) at the RULE POINT of
+/// the key ([`RelationText::point_map`], audit r2-poles F1), exact ([`Prepared::at_point`]).
 #[derive(Debug, Clone)]
 pub struct PreparedRule {
-    terms: Vec<(String, Prepared)>,
+    terms: Vec<(String, Prepared, Option<String>)>,
     target: Option<Prepared>,
+    map: PointMap,
 }
 
 impl PreparedRule {
     /// `arity` = the key length (engine relation records: their coefficients hold no index; any arity works).
+    /// `Err` also when the record's target form cannot be handled (a rule without `target`, an unreadable target).
     pub fn of_record(record: &Value, arity: usize, d0: &D0) -> Result<PreparedRule, String> {
         let rel = RelationText::of_record(record)?;
+        let map = rel.point_map(arity)?;
         let mut terms = Vec::with_capacity(rel.terms.len());
-        for (k, c, _) in &rel.terms {
+        for (k, c, part) in &rel.terms {
             let co =
                 Coefficient::parse(c, arity).map_err(|e| format!("coefficient of {k}: {e}"))?;
-            terms.push((k.clone(), Prepared::new(co, d0)));
+            terms.push((k.clone(), Prepared::new(co, d0), part.clone()));
         }
         let target = match &rel.target_coefficient {
             Some(t) => Some(Prepared::new(
@@ -452,7 +604,12 @@ impl PreparedRule {
             )),
             None => None,
         };
-        Ok(PreparedRule { terms, target })
+        Ok(PreparedRule { terms, target, map })
+    }
+
+    /// The point map of the record (a canonical target or an engine relation: the identity).
+    pub fn point_map(&self) -> &PointMap {
+        &self.map
     }
 
     pub fn terms(&self) -> usize {
@@ -461,54 +618,120 @@ impl PreparedRule {
 
     /// The verdict of THIS record at `key` and the number of terms with a pole there.
     pub fn at_key(&self, key: &[i64]) -> (RegularAt, usize) {
+        let (v, with, _) = self.at_key_parts(key);
+        (v, with)
+    }
+
+    /// As [`Self::at_key`], plus the largest pole order over TOP-sector terms (`part` given by the record, else the
+    /// term's key pattern evaluated at the RULE POINT and compared with `key`; `None` when a singular term's sector
+    /// cannot be told). A key the target pattern does not match is undecided.
+    pub fn at_key_parts(&self, key: &[i64]) -> (RegularAt, usize, Option<u64>) {
+        use rustred_campaign_core::poles::census::{eval_key_pattern, in_top_sector};
+        let undecided = |reason: String| (RegularAt::Undecided { reason }, 0, None);
+        // engine relations (no index): their coefficients are evaluated at the key, which they do not depend on
+        let pt = match self.map.point(key) {
+            Ok(p) => p.unwrap_or_else(|| key.to_vec()),
+            Err(e) => return undecided(e),
+        };
         let v0 = match &self.target {
             None => 0,
-            Some(t) => match t.at_key(key) {
+            Some(t) => match t.at_point(&pt) {
                 Ok(Valuation::Order(v)) => v,
                 Ok(Valuation::Zero) => {
-                    return (
-                        RegularAt::Undecided {
-                            reason: "the target coefficient vanishes at the key".into(),
-                        },
-                        0,
-                    );
+                    return undecided("the target coefficient vanishes at the key".into());
                 }
-                Err(e) => {
-                    return (
-                        RegularAt::Undecided {
-                            reason: format!("target coefficient: {e}"),
-                        },
-                        0,
-                    );
-                }
+                Err(e) => return undecided(format!("target coefficient: {e}")),
             },
         };
         let mut worst = 0u64;
+        let mut worst_top = Some(0u64);
         let mut with = 0usize;
-        for (k, p) in &self.terms {
-            match p.at_key(key) {
+        for (k, p, part) in &self.terms {
+            match p.at_point(&pt) {
                 Ok(Valuation::Order(v)) if v - v0 < 0 => {
                     with += 1;
-                    worst = worst.max((v - v0).unsigned_abs());
+                    let o = (v - v0).unsigned_abs();
+                    worst = worst.max(o);
+                    let top = match part.as_deref() {
+                        Some("top") => Some(true),
+                        Some("sub") => Some(false),
+                        _ => eval_key_pattern(k, &pt).map(|r| in_top_sector(key, &r)),
+                    };
+                    worst_top = match (worst_top, top) {
+                        (Some(w), Some(true)) => Some(w.max(o)),
+                        (w, Some(false)) => w,
+                        (None, _) | (_, None) => None,
+                    };
                 }
                 Ok(_) => {}
-                Err(e) => {
-                    return (
-                        RegularAt::Undecided {
-                            reason: format!("coefficient of {k}: {e}"),
-                        },
-                        0,
-                    );
-                }
+                Err(e) => return undecided(format!("coefficient of {k}: {e}")),
             }
         }
-        (
-            if worst == 0 {
-                RegularAt::Regular
-            } else {
-                RegularAt::Singular { order: worst }
+        let v = if worst == 0 {
+            RegularAt::Regular
+        } else {
+            RegularAt::Singular { order: worst }
+        };
+        (v, with, worst_top)
+    }
+}
+
+/// THE Symbolica-backed judge of the two in-process call sites (lane polefix, audit r2-poles F5): coreseed's
+/// [`RegularityJudge`](rustred_campaign_core::coreseed::RegularityJudge) and the seed minimiser's
+/// [`RelationPoles`](rustred_campaign_core::seedmin::RelationPoles), both through [`is_regular_at`] (Symbolica parse,
+/// exact valuation at the key; every coefficient form the engine or a hand writes). Where this crate is not linked,
+/// the core's text judge (`rustred_campaign_core::poles::textjudge`) is the stated fallback (engine form only, else
+/// undecided). A d0 or key this crate cannot read is undecided.
+pub struct ExactJudge;
+
+impl ExactJudge {
+    fn verdict(record: &Value, key: &[i32], d0: &str) -> RegularAt {
+        let Ok(d0) = D0::parse(d0) else {
+            return RegularAt::Undecided {
+                reason: format!("d0 {d0:?} unreadable"),
+            };
+        };
+        let k: Vec<i64> = key.iter().map(|&x| i64::from(x)).collect();
+        is_regular_at(record, &k, &d0)
+    }
+}
+
+impl rustred_campaign_core::coreseed::RegularityJudge for ExactJudge {
+    fn is_regular_at(
+        &self,
+        record: &Value,
+        key: &[i32],
+        d0: &str,
+    ) -> rustred_campaign_core::coreseed::D0Verdict {
+        use rustred_campaign_core::coreseed::D0Verdict;
+        match Self::verdict(record, key, d0) {
+            RegularAt::Regular => D0Verdict::Regular,
+            RegularAt::Singular { order } => D0Verdict::Singular {
+                order: u32::try_from(order).ok(),
             },
-            with,
-        )
+            RegularAt::Undecided { .. } => D0Verdict::Undecided,
+        }
+    }
+}
+
+impl rustred_campaign_core::seedmin::RelationPoles for ExactJudge {
+    fn pole_order_of(
+        &mut self,
+        record: &Value,
+        key: &[i32],
+        d0: &str,
+    ) -> rustred_campaign_core::seedmin::PoleOrder {
+        use rustred_campaign_core::seedmin::PoleOrder;
+        match Self::verdict(record, key, d0) {
+            RegularAt::Regular => PoleOrder::Order { order: 0 },
+            RegularAt::Singular { order } => match u32::try_from(order) {
+                Ok(order) => PoleOrder::Order { order },
+                Err(_) => PoleOrder::Singular,
+            },
+            RegularAt::Undecided { .. } => PoleOrder::Undecided,
+        }
+    }
+    fn name(&self) -> String {
+        "exact (lane poles' Symbolica valuation)".into()
     }
 }

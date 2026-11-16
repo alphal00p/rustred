@@ -608,9 +608,12 @@ impl PEngine {
     /// The terminal and tag of a terminal key of the output. A key can come from
     /// a step record, so nothing of it is taken on trust: its slots beyond the
     /// codec's are zero and its terminal exists in this library.
+    /// vk5l WP1: `limit` is the library's [`PLibrary::terminal_limit`]
+    /// (its terminals, then keys retained by Retain requests).
     pub(crate) fn decode_terminal(
         &self,
         key: &IntegralKey,
+        limit: usize,
     ) -> Result<(PTerminalId, GammaTag), PError> {
         let slots = key.powers();
         if slots.len() != self.width {
@@ -629,13 +632,28 @@ impl PEngine {
         let plain = IntegralKey::try_new(plain.iter().copied())
             .map_err(|error| PError::MalformedLibrary(error.to_string()))?;
         let (terminal, tag) = PTerminalCodec::decode(&plain)?;
-        if terminal.0 as usize >= self.terminals {
+        if terminal.0 as usize >= self.terminals.max(limit) {
             return Err(PError::MalformedLibrary(format!(
                 "a terminal key names the unknown terminal {}",
                 terminal.0
             )));
         }
         Ok((terminal, tag))
+    }
+
+    /// vk5l WP1: the owner of the sector of `powers` on `presentation` when
+    /// the sector is an owner sector (not routed, not zero).
+    pub(crate) fn direct_owner(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Option<OwnerClassId> {
+        let shape = self.shapes.get(presentation.0 as usize)?;
+        if powers.len() != shape.arity {
+            return None;
+        }
+        let support = shape.support(powers);
+        self.owner_sectors.get(&(presentation, support)).copied()
     }
 
     /// The Route key of `powers` on `presentation` with `tag`.
@@ -797,10 +815,11 @@ impl PEngine {
     }
 
     /// Run one request; the terminal keys of the output are [`PTerminalCodec`]
-    /// keys.
+    /// keys. vk5l WP2: every stepped (or replayed) key of a boxed node
+    /// outside its certified set is added to `outside`.
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
-    pub(crate) fn run(
+    pub(crate) fn run_reporting(
         &self,
         library: &PLibrary,
         initial: BTreeMap<PKey, Coefficient>,
@@ -809,6 +828,8 @@ impl PEngine {
         cache: Option<&OrderedStepCache>,
         limits: ReductionLimits,
         mut inspector: Option<&mut dyn PInspector>,
+        retain: bool,
+        outside: &mut BTreeSet<super::library::POutsideKey>,
     ) -> Result<OrderedOutput, PError> {
         // p requests run the p profile (M5 batch 2) unless the caller chose one.
         let scheduler = scheduler.resolve_profile(OrderedProfile::P);
@@ -856,8 +877,10 @@ impl PEngine {
                 zero_pruning: zero_pruning.as_ref(),
                 warm: &warm,
                 counted,
+                retain,
             },
             inspector,
+            outside: BTreeSet::new(),
         };
         let output = run_with_step_cache_and_options(
             &mut kernel,
@@ -897,6 +920,7 @@ impl PEngine {
         }
         super::step_memo::end(shared_memo);
         canon_stats::flush();
+        outside.append(&mut kernel.outside);
         output
     }
 }
@@ -1488,6 +1512,9 @@ pub(crate) struct PStepper<'l> {
     zero_pruning: Option<&'l ZeroPruningCounters>,
     /// fwd-opt: the request's setup tasks ([`OrderedStepper::warm`]).
     warm: &'l [WarmTask],
+    /// vk5l WP1: `PUncoveredPolicy::Retain`: an Apply key the library cannot
+    /// reduce becomes a retained residual terminal instead of the error.
+    retain: bool,
     /// The request counts for the shared step memo (`step_memo::begin`): the
     /// memo cannot be replaced while it runs, so shared light handles stay
     /// valid. An uncounted request (one thread, or the layered mode / a test
@@ -2011,6 +2038,33 @@ impl<'l> PStepper<'l> {
     }
 
     fn apply_step(&self, class: OwnerClassId, view: &PView) -> Result<OrderedStep<PKey>, PError> {
+        match self.apply_step_inner(class, view) {
+            // vk5l WP1 (decision Q9): Retain keeps the key as a residual.
+            Err(error) if self.retain => {
+                let Some((_, key)) = error.retainable() else {
+                    return Err(error);
+                };
+                let key = key.clone();
+                let slot = self.engine.owner(class)?;
+                let slots = view.slots();
+                let (_, tag_slots) = self.engine.split(slot.presentation, &slots)?;
+                let tag = GammaTag::decode_dense(tag_slots)?;
+                let terminal = self.library.retain(class, key, error)?;
+                let one = self.library.coefficient_context().one();
+                self.ordered_step(PStepOut {
+                    terminals: vec![(terminal, tag, one)],
+                    ..PStepOut::default()
+                })
+            }
+            other => other,
+        }
+    }
+
+    fn apply_step_inner(
+        &self,
+        class: OwnerClassId,
+        view: &PView,
+    ) -> Result<OrderedStep<PKey>, PError> {
         crate::prof!(ApplyStep);
         let slot = self.engine.owner(class)?;
         let slots = view.slots();
@@ -2020,6 +2074,17 @@ impl<'l> PStepper<'l> {
                 "Apply key {powers:?} outside the support {:#x} of its owner",
                 slot.support
             )));
+        }
+        // vk5l WP1 (decision Q8): a node declared not closed names itself.
+        if let Some(open) = self.library.open_node(class) {
+            return Err(PError::NodeNotClosed {
+                class,
+                node: open.node.clone(),
+                key: IntegralKey::try_new(powers.iter().copied())
+                    .map_err(|error| PError::Contract(error.to_string()))?,
+                status: open.status.clone(),
+                request: None,
+            });
         }
         let owner = self.owner(class)?;
         let lane = match owner.program(self.library)? {
@@ -2639,7 +2704,7 @@ impl<'l> PStepper<'l> {
             if !context.contains(&coefficient) {
                 return Err(PError::ContextMismatch);
             }
-            if terminal.0 as usize >= self.library.terminals().len() {
+            if terminal.0 as usize >= self.library.terminal_limit() {
                 return Err(PError::MalformedLibrary(format!(
                     "a step emits the unknown terminal {}",
                     terminal.0
@@ -2664,7 +2729,36 @@ impl<'l> PStepper<'l> {
         Ok(step)
     }
 
+    /// vk5l WP2: `key` as an outside key of a boxed node whose program is
+    /// built (an Apply key outside its certified set), else `None`.
+    fn outside_of(&self, key: &PKey) -> Option<super::library::POutsideKey> {
+        let PKey::Apply { class, view } = key else {
+            return None;
+        };
+        let owner = self.library.owner(*class)?;
+        if owner.spec.lane != OwnerLane::Custom {
+            return None;
+        }
+        let OwnerProgram::Lane(lane) = owner.loaded_program()? else {
+            return None;
+        };
+        let node = lane.boxed_node()?;
+        let slot = self.engine.owner(*class).ok()?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(slot.presentation, &slots).ok()?;
+        (lane.box_contains(powers) == Some(false)).then(|| super::library::POutsideKey {
+            node: node.to_owned(),
+            presentation: slot.presentation,
+            powers: powers.to_vec(),
+        })
+    }
+
     fn shard(&self, key: &PKey) -> Option<OrderedStepShard> {
+        // vk5l WP2: a step outside a certified set is never recorded nor
+        // replayed, so every request that meets it steps (and reports) it.
+        if self.outside_of(key).is_some() {
+            return None;
+        }
         let (stage, t, class) = match key {
             PKey::Route { presentation, view } => (
                 OrderedStepStage::Route,
@@ -2839,9 +2933,18 @@ impl OrderedStepper for PStepper<'_> {
 struct PKernel<'l, 'r> {
     stepper: PStepper<'l>,
     inspector: Option<&'r mut dyn PInspector>,
+    /// vk5l WP2: keys of boxed nodes outside their certified sets, met so far.
+    outside: BTreeSet<super::library::POutsideKey>,
 }
 
 impl PKernel<'_, '_> {
+    /// vk5l WP2: note `key` when it is outside a boxed node's certified set.
+    fn note_outside(&mut self, key: &PKey) {
+        if let Some(outside) = self.stepper.outside_of(key) {
+            self.outside.insert(outside);
+        }
+    }
+
     /// The path census of the request, when it is on.
     fn census(&mut self) -> Option<&mut PPathCensus> {
         if !self.stepper.census.on {
@@ -2910,6 +3013,9 @@ impl OrderedKernel for PKernel<'_, '_> {
     ) -> Result<OrderedStep<PKey>, PError> {
         let (result, account) = OrderedStepper::step(&self.stepper, key);
         self.account(account, request, work)?;
+        if result.is_ok() {
+            self.note_outside(key);
+        }
         result
     }
 
@@ -3024,12 +3130,14 @@ impl<'l> ConcurrentOrderedKernel for PKernel<'l, '_> {
 
     fn absorb(
         &mut self,
-        _: &PKey,
+        key: &PKey,
         account: PAccount,
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<(), PError> {
-        self.account(account, request, work)
+        self.account(account, request, work)?;
+        self.note_outside(key);
+        Ok(())
     }
 }
 
@@ -3038,7 +3146,12 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
         self.stepper.shard(key)
     }
 
-    fn step_cache_hit(&mut self, _key: &PKey) -> Result<(), PError> {
+    fn step_may_record(&self, key: &PKey) -> bool {
+        self.stepper.outside_of(key).is_none()
+    }
+
+    fn step_cache_hit(&mut self, key: &PKey) -> Result<(), PError> {
+        self.note_outside(key);
         if let Some(census) = self.census() {
             census.cache_hit();
         }
@@ -3134,6 +3247,17 @@ impl<'l> ConcurrentStepCacheKernel for PKernel<'l, '_> {
         Self: 's,
     {
         stepper.recorded_key(stage, view)
+    }
+
+    fn stepper_may_record<'s>(stepper: &PStepper<'s>, key: &PKey) -> bool
+    where
+        Self: 's,
+    {
+        stepper.outside_of(key).is_none()
+    }
+
+    fn detached_may_record(stepper: &PStepper<'l>, key: &PKey) -> bool {
+        stepper.outside_of(key).is_none()
     }
 
     fn detached_shard(stepper: &PStepper<'l>, key: &PKey) -> Option<OrderedStepShard> {
@@ -3293,6 +3417,7 @@ mod tests {
             zero_pruning: None,
             warm: &[],
             counted: false,
+            retain: false,
         };
         assert_eq!(
             stepper.recorded_key(NodeStage::ClassRoute(1), view.clone()),
@@ -3337,7 +3462,7 @@ mod tests {
         let tag = GammaTag::from_pairs([(-1, 3)]).unwrap();
         let unit = engine.terminal_key(PTerminalId(0), &tag).unwrap();
         assert_eq!(
-            engine.decode_terminal(&unit),
+            engine.decode_terminal(&unit, 0),
             Ok((PTerminalId(0), tag.clone()))
         );
         let unknown = engine.terminal_key(PTerminalId(1), &tag).unwrap();
@@ -3345,7 +3470,7 @@ mod tests {
         for key in [unknown, short, padded] {
             assert!(
                 matches!(
-                    engine.decode_terminal(&key),
+                    engine.decode_terminal(&key, 0),
                     Err(PError::MalformedLibrary(_))
                 ),
                 "{key:?}"
@@ -3369,6 +3494,7 @@ mod tests {
             zero_pruning: None,
             warm: &[],
             counted: false,
+            retain: false,
         };
         let inside = engine.view(&[1, 1], &GammaTag::one()).unwrap();
         assert!(matches!(
@@ -3398,6 +3524,7 @@ mod tests {
             zero_pruning: None,
             warm: &[],
             counted: false,
+            retain: false,
         };
         let on = PStepper {
             zero_pruning: Some(&counters),
@@ -3470,6 +3597,7 @@ mod tests {
             zero_pruning: Some(&counters),
             warm: &[],
             counted: false,
+            retain: false,
         };
         let tag = GammaTag::one();
         let one = library.coefficient_context().one();
@@ -3498,6 +3626,189 @@ mod tests {
             Err(PError::ContextMismatch)
         ));
         assert_eq!(counters.known_zero.load(AtomicOrdering::Relaxed), 0);
+    }
+
+    /// vk5l WP1: a kite owner whose one rule hands every key down to the
+    /// bubble corner `I(1,1)`.
+    struct HandDownLane;
+
+    impl PLaneStep for HandDownLane {
+        fn lane(&self) -> OwnerLane {
+            OwnerLane::Custom
+        }
+
+        fn step(&self, cx: &PStepContext<'_>, key: &PKeyView<'_>) -> Result<PStepOut, PError> {
+            Ok(PStepOut {
+                children: vec![PChild {
+                    stage: PStage::Route,
+                    presentation: BUBBLE,
+                    powers: vec![1, 1],
+                    tag: key.tag.clone(),
+                    coefficient: cx.library.coefficient_context().one(),
+                }],
+                ..PStepOut::default()
+            })
+        }
+    }
+
+    /// vk5l WP1: the kite (presentation 0, owner [`HandDownLane`]) above the
+    /// bubble whose owner has no program; `open` declares the bubble's node
+    /// `T266` not closed.
+    fn hand_down_library(open: bool) -> PLibrary {
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let mut census = PCensus::default();
+        let record = |name: &'static [u8], presentation, support, loops, t| PClassRecord {
+            key: OwnerClassKey {
+                loops,
+                lines: t,
+                eps_lines: 0,
+                canonical: Arc::from(name),
+            },
+            owner: (presentation, support),
+            node: None,
+            nodes: Vec::new(),
+            t,
+            eps_lines: 0,
+        };
+        let bubble = census
+            .insert_class(record(b"bubble", BUBBLE, 0b11, 1, 2))
+            .unwrap();
+        let kite = census
+            .insert_class(record(b"kite", PresentationId(0), 0b11111, 2, 5))
+            .unwrap();
+        census.sectors.insert((BUBBLE, 0b01), PSectorFate::Zero);
+        let mut builder = PLibrary::builder(context.clone(), 1..=2);
+        builder
+            .add_presentation(presentation(
+                &context,
+                0,
+                2,
+                &[
+                    &[1, 0, 0],
+                    &[0, 1, 0],
+                    &[1, 0, -1],
+                    &[0, 1, -1],
+                    &[1, -1, 0],
+                ],
+            ))
+            .unwrap();
+        builder
+            .add_presentation(presentation(&context, 1, 1, &[&[1, 0], &[1, -1]]))
+            .unwrap();
+        builder.set_census(census).unwrap();
+        let spec = |class, presentation| POwnerSpec {
+            class,
+            lane: OwnerLane::Custom,
+            presentation,
+            node: None,
+            roles: LaneRoles::None,
+            edge_maps: Vec::new(),
+            payload: None,
+            custom: None,
+            terminals: Vec::new(),
+        };
+        builder
+            .add_owner_with_program(spec(bubble, BUBBLE), OwnerProgram::Missing { ledger: 7 })
+            .unwrap();
+        builder
+            .add_owner_with_program(
+                spec(kite, PresentationId(0)),
+                OwnerProgram::Lane(Arc::new(HandDownLane)),
+            )
+            .unwrap();
+        if open {
+            builder
+                .declare_open_node(bubble, "T266", "stuck: not closed")
+                .unwrap();
+            assert!(builder.declare_open_node(bubble, "T266", "again").is_err());
+        }
+        builder.build().unwrap()
+    }
+
+    fn hand_down(
+        library: &PLibrary,
+        uncovered: super::super::library::PUncoveredPolicy,
+    ) -> Result<super::super::library::PReduction, PError> {
+        library.reduce(super::super::library::PReductionRequest {
+            inputs: vec![(
+                PresentationId(0),
+                IntegralKey::try_new([1, 1, 1, 1, 1]).unwrap(),
+                library.coefficient_context().one(),
+            )],
+            arithmetic: OrderedWeightArithmetic::Exact,
+            scheduler: OrderedSchedulerOptions {
+                threads: 1,
+                ..Default::default()
+            },
+            step_cache: None,
+            uncovered,
+            onto_masters: false,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        })
+    }
+
+    /// vk5l WP1 (c): a key handed down to a node declared not closed is
+    /// `NodeNotClosed` naming node, status, key and the original request;
+    /// undeclared it stays `MissingOwner` (unchanged); under Retain the key
+    /// is a residual named by its node, and a `MissingOwner` stays an error.
+    #[test]
+    fn a_key_reaching_a_node_not_closed_names_node_key_and_request() {
+        use super::super::library::PUncoveredPolicy;
+        let plain = hand_down_library(false);
+        assert!(matches!(
+            hand_down(&plain, PUncoveredPolicy::Reject),
+            Err(PError::MissingOwner { ledger: 7, .. })
+        ));
+        assert!(matches!(
+            hand_down(&plain, PUncoveredPolicy::Retain),
+            Err(PError::MissingOwner { .. })
+        ));
+        let library = hand_down_library(true);
+        assert_eq!(library.open_nodes().len(), 1);
+        library.set_source("/pkg/a b");
+        let error = hand_down(&library, PUncoveredPolicy::Reject).unwrap_err();
+        match &error {
+            PError::NodeNotClosed {
+                node,
+                key,
+                status,
+                request,
+                ..
+            } => {
+                assert_eq!(
+                    (node.as_str(), status.as_str()),
+                    ("T266", "stuck: not closed")
+                );
+                assert_eq!(key.powers(), [1, 1]);
+                let request = request.as_ref().unwrap();
+                assert_eq!(request.inputs[0].powers, [1, 1, 1, 1, 1]);
+                assert_eq!(request.inputs[0].family, "presentation 0");
+                assert_eq!(request.library, library.identity());
+                assert!(
+                    request
+                        .reproduce
+                        .ends_with("reduce '/pkg/a b' p0:1,1,1,1,1"),
+                    "{}",
+                    request.reproduce
+                );
+            }
+            other => panic!("expected NodeNotClosed, got {other:?}"),
+        }
+        let text = error.to_string();
+        assert!(
+            text.contains("no closed reduction for node T266") && text.contains("key [1, 1]"),
+            "{text}"
+        );
+        let kept = hand_down(&library, PUncoveredPolicy::Retain).unwrap();
+        assert_eq!(kept.terms.len(), 1);
+        let super::super::library::PBasis::Residual(id) = kept.terms[0].basis else {
+            panic!("a residual");
+        };
+        let named = library.residual_terminal(id).unwrap().unwrap();
+        assert_eq!((named.node.as_str(), named.boxed), ("T266", false));
+        assert_eq!(named.key.powers(), [1, 1]);
+        assert!(matches!(named.retained, Some(PError::NodeNotClosed { .. })));
     }
 
     /// A native fixture with one explicit zero child, two nonzero tagged

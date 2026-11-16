@@ -164,8 +164,8 @@ fn finite_partition_matches_existing_evaluator_priority_poles_and_whole_conjunct
     // A zero coefficient must not erase its ORIGINAL denominator pole.
     second.rhs.push(PreparedTerm {
         shift: [0; 3],
-        coefficient: c.zero(),
-        denominator: minus(&c, 0, 3),
+        coefficient: c.zero().into(),
+        denominator: minus(&c, 0, 3).into(),
     });
     let mut third = rule(2);
     third.fixed[0] = Some(3);
@@ -304,6 +304,7 @@ fn later_batch_terminal_does_not_shadow_earlier_formula() {
         rules: vec![],
         terminals: [IntegralKey::try_new([1, 1, 0]).unwrap()].into(),
         deferred_points: None,
+        point_index: Default::default(),
         coalescing_bound: 0,
         overlay: None,
     }));
@@ -604,8 +605,8 @@ fn coupled_refinement_fixture(stage: usize) -> Arc<CandidateOwnerPrograms<3>> {
         2 => first.exceptions.push(vec![guard]),
         3 => first.rhs.push(PreparedTerm {
             shift: [0; 3],
-            coefficient: c.zero(),
-            denominator: guard,
+            coefficient: c.zero().into(),
+            denominator: guard.into(),
         }),
         _ => unreachable!(),
     }

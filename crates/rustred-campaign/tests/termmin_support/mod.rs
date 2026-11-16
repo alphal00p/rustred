@@ -134,7 +134,9 @@ pub fn toy(dir: &Path, t: &TmToy) -> TmFiles {
         "sources":[{"id":"A","kind":"engine_table","class":"base","path": a.display().to_string(),
                     "sha256": sha256_file(&a), "hand_name":{"template":"{source}#{label}"}},
                    {"id":"terminals","kind":"terminals","keys":[M, E, N]}],
-        "evidence": {"facts":[{"path": facts.display().to_string()}],"proofs":[{"path": proofs.display().to_string()}]}});
+        // lane closeloop4 (audit-closeloop M1 / m4): pinned spec evidence of the toy family
+        "evidence": {"facts":[{"path": facts.display().to_string(), "sha256": sha256_file(&facts), "family": "TOY"}],
+                     "proofs":[{"path": proofs.display().to_string(), "sha256": sha256_file(&proofs), "family": "TOY"}]}});
     let import_spec = dir.join("import-spec.json");
     std::fs::write(&import_spec, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();
     // the oracle

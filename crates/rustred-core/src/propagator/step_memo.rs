@@ -938,6 +938,13 @@ mod tests {
     /// `clear`.
     #[test]
     fn the_route_memo_computes_once_per_key() {
+        // A one-thread request on this thread: the per-thread memo whatever
+        // other tests run. Without it `shared_enabled()` follows the
+        // process-wide count of multi-thread requests, which another test's
+        // reduce can change between `route` and `coefficients` (value put in
+        // the shared memo, read from the empty per-thread one: the index out
+        // of bounds seen only in parallel runs).
+        let counted = begin(1);
         let (_, value) = sample();
         let limits = ExactAlgebraLimits::default();
         let key = [next_uid() as i64, 1, -2];
@@ -968,6 +975,7 @@ mod tests {
         })
         .unwrap();
         assert_eq!(calls, 2);
+        end(counted);
     }
 
     #[test]
@@ -989,6 +997,16 @@ mod tests {
 
     /// A counted request on another thread that stays open until told to end.
     /// `others`: coefficients it interns first (into whatever memo is current).
+    /// The memo-audit tests start counted multi-thread requests and assume
+    /// none of another test runs at the same time (the shared memo is
+    /// dropped after the LAST active request): run them one at a time.
+    fn memo_audit_serial() -> std::sync::MutexGuard<'static, ()> {
+        static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        SERIAL
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn memo_audit_request(
         others: Vec<Coefficient>,
     ) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
@@ -1040,6 +1058,7 @@ mod tests {
     /// panic (this assertion fails). faf03f5a: through the value's own memo.
     #[test]
     fn memo_audit_held_shared_survives_a_memo_replacement_silent() {
+        let _serial = memo_audit_serial();
         if !shared_requested() {
             return;
         }
@@ -1065,6 +1084,7 @@ mod tests {
     /// interned shared memo coefficient"; faf03f5a returns the value.
     #[test]
     fn memo_audit_held_shared_survives_a_memo_replacement_panic() {
+        let _serial = memo_audit_serial();
         if !shared_requested() {
             return;
         }
@@ -1085,6 +1105,7 @@ mod tests {
     /// cfg(test) thread override break that).
     #[test]
     fn memo_audit_light_handles_follow_the_current_memo() {
+        let _serial = memo_audit_serial();
         if !shared_requested() {
             return;
         }

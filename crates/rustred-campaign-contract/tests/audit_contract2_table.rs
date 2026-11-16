@@ -17,6 +17,16 @@
 //! 31 / 32) and the `diagnostic_records` accept mode, which the safety predicate allows only for those two; OUTCOMEs
 //! naming a typed reader error (UNREADABLE_RECORD / UNKNOWN_RECORD_KIND) at exit 41 / 70 (row 13b for proof-instantiate
 //! and proof-instance-span).
+//! Extended by lane symjob (2026-11-15; interfaces/symmetry-composite-job.md 5): kind symmetry-composite (rows 33 / 34 /
+//! 35 from its results tally, exit 0 / 10 keys_unsolved only), row 36 (exit 41 naming PINNED_INPUTS_MISMATCH), and the
+//! `supplied_relations` accept mode, which the safety predicate allows only for that kind.
+//! Extended by lane coreseed (2026-11-15; interfaces/coreseed.md 10): kind pole-regular-at (row 37 exit 0 with verified
+//! answers; row 38 for exit 10 / 20 or unverified answers, before 22; row 39 at exit 41, before 13) and the
+//! `diagnostic_records` accept mode for it (exit 0 only).
+//! Extended by lane symcert (2026-11-15; interfaces/proof-symrows-job.md 4): kind proof-symrows (row 40 exit 0 with a
+//! verified certificate; row 43 for exit 10 / 20 or an unverified certificate, before 22; row 41 at exit 41 naming
+//! SYMROW_REFUSED and row 42 at exit 41 / 70 naming a reader error, before 13b / 13) and the `certificates` accept mode
+//! (proof-symrows at exit 0 only).
 
 mod common;
 use common::*;
@@ -94,11 +104,25 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 if checker && c != 0 {
                     return (22, "");
                 }
+                // lane coreseed: pole-regular-at reads nothing unless exit 0 with verified answers (38, never 22)
+                if e.kind == JobKind::PoleRegularAt && (e.verified.is_none() || c != 0) {
+                    return (38, "");
+                }
+                // lane symcert: a proof-symrows certificate is read only at exit 0 when verified (43, never 22)
+                if e.kind == JobKind::ProofSymrows && (e.verified.is_none() || c != 0) {
+                    return (43, "");
+                }
                 let Some(v) = &e.verified else {
                     return (22, "");
                 };
                 if v.elided_loci > 0 {
                     return (25, "");
+                }
+                if e.kind == JobKind::PoleRegularAt {
+                    return (37, "");
+                }
+                if e.kind == JobKind::ProofSymrows {
+                    return (40, "");
                 }
                 // adapters.md 1.2: solve-recipe uses rows 1 / 28 / 29 and needs the results tally (S); proof-instantiate
                 // has exit 0 only; keys_unsolved belongs to solve-recipe only
@@ -129,6 +153,21 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                             (28, "")
                         }
                         (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => (29, ""),
+                        _ => (22, ""),
+                    };
+                }
+                // lane symjob: symmetry-composite: 33 / 34 / 35 from its tally (never a probe tally), else 22
+                if e.kind == JobKind::SymmetryComposite {
+                    let Some(t) = v.relations.as_ref().filter(|t| !t.probe) else {
+                        return (22, "");
+                    };
+                    let unsolved: u64 = t.unsolved.values().sum();
+                    return match (c, stop) {
+                        (0, _) if unsolved == 0 => (33, ""),
+                        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 && t.accepted >= 1 => {
+                            (34, "")
+                        }
+                        (10, Some(StopCode::KeysUnsolved)) if unsolved >= 1 => (35, ""),
                         _ => (22, ""),
                     };
                 }
@@ -210,6 +249,29 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 _ => {}
             }
         }
+        // lane symjob: a symmetry-composite result bound to other inputs (OUTCOME error names the word) is row 36
+        if let O::Ok(j) = &o
+            && c == 41
+            && e.kind == JobKind::SymmetryComposite
+            && j.error
+                .as_ref()
+                .is_some_and(|x| x.message.contains("PINNED_INPUTS_MISMATCH"))
+        {
+            return (36, "");
+        }
+        // lane symcert: proof-symrows' typed refusal of a symmetry row (41) and its reader errors (42)
+        if let O::Ok(j) = &o
+            && [41, 70].contains(&c)
+            && e.kind == JobKind::ProofSymrows
+        {
+            let m = j.error.as_ref().map(|x| x.message.as_str()).unwrap_or("");
+            if c == 41 && m.contains("SYMROW_REFUSED") {
+                return (41, "");
+            }
+            if m.contains("UNREADABLE_RECORD") || m.contains("UNKNOWN_RECORD_KIND") {
+                return (42, "");
+            }
+        }
         // line 7: a legacy proof tool's typed reader error (in OUTCOME's error message) is the input refusal 13b
         if let O::Ok(j) = &o
             && [41, 70].contains(&c)
@@ -222,6 +284,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
             })
         {
             return (13, "b");
+        }
+        // lane coreseed: pole-regular-at's refused input is row 39 (nothing read, never attention)
+        if c == 41 && e.kind == JobKind::PoleRegularAt {
+            return (39, "");
         }
         match c {
             40 => return (12, ""),
@@ -297,18 +363,54 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     }
     // line 7: diagnostic records only from node-basis (exit 0) and solve-recipe probe jobs; never rules / relations
     let probe = v.relations.as_ref().is_some_and(|t| t.probe);
-    let diagnostic_kind = e.kind == JobKind::NodeBasis || (e.kind == JobKind::SolveRecipe && probe);
+    let diagnostic_kind = e.kind == JobKind::NodeBasis
+        || e.kind == JobKind::PoleRegularAt
+        || (e.kind == JobKind::SolveRecipe && probe);
+    // lane symcert: certificates only from proof-symrows, and only at exit 0
+    if (accept == Accept::Certificates) != (e.kind == JobKind::ProofSymrows) {
+        return Err(format!("accept {accept:?} for kind {:?}", e.kind));
+    }
+    if e.kind == JobKind::ProofSymrows {
+        return if c == 0 {
+            Ok(())
+        } else {
+            Err(format!("proof-symrows accepted on exit {c}"))
+        };
+    }
     if (accept == Accept::DiagnosticRecords) != diagnostic_kind {
         return Err(format!(
             "accept {accept:?} for kind {:?} (probe tally {probe})",
             e.kind
         ));
     }
-    if e.kind == JobKind::NodeBasis {
+    // lane symjob: supplied-relation candidates only from symmetry-composite (33 / 34), never another accept mode there
+    if (accept == Accept::SuppliedRelations) != (e.kind == JobKind::SymmetryComposite) {
+        return Err(format!("accept {accept:?} for kind {:?}", e.kind));
+    }
+    if e.kind == JobKind::SymmetryComposite {
+        let Some(t) = v.relations.as_ref().filter(|t| !t.probe) else {
+            return Err("symmetry-composite accepted without its results tally".into());
+        };
+        let unsolved: u64 = t.unsolved.values().sum();
+        return match c {
+            0 if unsolved == 0 => Ok(()),
+            10 if j.stop.code == Some(StopCode::KeysUnsolved)
+                && t.accepted >= 1
+                && unsolved >= 1 =>
+            {
+                Ok(())
+            }
+            _ => Err(format!(
+                "symmetry-composite accepted on exit {c} with {} relations / {unsolved} unsolved",
+                t.accepted
+            )),
+        };
+    }
+    if e.kind == JobKind::NodeBasis || e.kind == JobKind::PoleRegularAt {
         return if c == 0 {
             Ok(())
         } else {
-            Err(format!("node-basis accepted on exit {c}"))
+            Err(format!("{:?} accepted on exit {c}", e.kind))
         };
     }
     if e.kind == JobKind::SolveRecipe && probe {
@@ -629,7 +731,38 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
             })
             .collect();
         outcomes.extend(errno);
-        let verified = if kind == JobKind::SolveRecipe {
+        // lane symjob: OUTCOMEs naming PINNED_INPUTS_MISMATCH at 41 (row 36 for symmetry-composite; 13 elsewhere)
+        let pinned: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| j.exit_code.code() == 41)
+            .filter_map(|mut j| {
+                j.error = Some(ErrorInfo::new(
+                    ErrorClass::Input,
+                    "PINNED_INPUTS_MISMATCH: result.request_sha256 differs",
+                ));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        // lane symcert: OUTCOMEs naming the kernel's symmetry-row refusal at 41 / 70 (row 41 for proof-symrows at 41)
+        let symrow: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| [41, 70].contains(&j.exit_code.code()))
+            .filter_map(|mut j| {
+                let class = if j.exit_code.code() == 41 {
+                    ErrorClass::Input
+                } else {
+                    ErrorClass::Internal
+                };
+                j.error = Some(ErrorInfo::new(
+                    class,
+                    "SYMROW_REFUSED: loop part not unimodular (symrow e3 [1, 2])",
+                ));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
+        outcomes.extend(pinned);
+        outcomes.extend(symrow);
+        let verified = if kind == JobKind::SolveRecipe || kind == JobKind::SymmetryComposite {
             &with_tally
         } else {
             &base

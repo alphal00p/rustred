@@ -216,7 +216,7 @@ fn primitive(v: &[Rational]) -> Vec<String> {
     let sign = ints
         .iter()
         .find(|x| !x.is_zero())
-        .map_or(false, |x| x.is_negative());
+        .is_some_and(|x| x.is_negative());
     ints.iter()
         .map(|x| {
             let y = x / &g;

@@ -17,6 +17,10 @@
 //! lexicographic list of [`Measure`]s (spec data, default (a0) eps box excess, (a) max pole order, (b) sum of pole orders,
 //! (c) singular terms, (d) size) over the candidates' [`PoleProfile`]s (composed per terminal when every candidate has
 //! one, else local per rhs term), with the size guard on the best class of the first discriminating measure.
+//! When the COMPOSED profile is used, the pole measures before `size` are evaluated on the composed profile FIRST and
+//! then, as a tie-break still BEFORE `size`, on the LOCAL profile (audit r2-poles F3: alternatives of one key reduce onto
+//! the same basis, so their composed profiles tie by construction; the local measures — regular at d0 first, then max /
+//! sum / count of the local pole orders — must decide before the size, or "regular at d0 always wins" would be lost).
 //! [`select`] is its special case ([`PoleObjective::from_criteria`]) and keeps the behaviour described above.
 //!
 //! A candidate whose regularity is UNKNOWN (no D1 record, an undecided verdict) is not regular and ranks after every
@@ -59,9 +63,14 @@ pub fn aggregate_orders(per_key: &[Option<u64>]) -> Option<u64> {
 /// Why the chosen candidate won.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChoiceReason {
-    /// The chosen candidate is regular at d0 (and won by regularity or was the only / smallest one).
+    /// The chosen candidate is regular at d0 (its OWN coefficients: local profile / `pole_order`; it won by its pole
+    /// measures, or was the only / smallest one).
     Regular,
-    /// No regular admissible candidate: the lowest pole order, then the fewest terms.
+    /// The chosen candidate's COMPOSED profile is regular at d0 (every terminal order 0) and decided, while its own
+    /// coefficients have a pole that cancels in the composition (TRICKS 12/13): never reported as `Regular`.
+    ComposedRegular,
+    /// The chosen candidate is singular at d0 (locally): it won by the lowest pole measures (composed or local, see
+    /// `decided_by`), then the fewest terms.
     LowestPole,
     /// A regular admissible candidate exists but exceeds `max_size_ratio`: the smaller singular one is kept.
     SizeGuard,
@@ -75,6 +84,7 @@ impl ChoiceReason {
     pub fn word(&self) -> &'static str {
         match self {
             ChoiceReason::Regular => "regular",
+            ChoiceReason::ComposedRegular => "composed_regular",
             ChoiceReason::LowestPole => "lowest_pole",
             ChoiceReason::SizeGuard => "size_guard",
             ChoiceReason::Economy => "economy",
@@ -114,11 +124,17 @@ pub struct Choice {
     pub max_size_ratio: String,
     pub regular_alternative: RegularAlternative,
     pub criteria_order: CriteriaOrder,
-    /// [`pole_objective`]: which profile decided (`composed` | `local`), the measures and the chosen candidate's values
+    /// [`pole_objective`]: which profile decided (`composed` | `local` | `none` = no candidate had any pole information:
+    /// ranked by size, int7 B1), the measures and the chosen candidate's values
     /// (`u64::MAX` = unknown), and the candidates of the class rejected by the size guard (id, ratio to the smallest).
     pub profile_used: &'static str,
+    /// The measures of the ranking key in order: `<measure>` (the profile used), `local:<measure>` (the local
+    /// tie-break block after the composed measures), `size`.
     pub measures: Vec<&'static str>,
     pub chosen_measures: Vec<u64>,
+    /// The entry of `measures` that separated the chosen candidate from the next one (`id` = only the id did;
+    /// `only` = a single pooled candidate; `size_guard` = the guard rejected the better class).
+    pub decided_by: String,
     pub rejected_for_size: Vec<(String, String)>,
     /// Pooled candidates without a fully decided composed profile when the local profile had to decide for all.
     pub lacking_composed: Vec<String>,
@@ -298,6 +314,22 @@ impl PoleObjective {
         json!({"measures": self.measures.iter().map(|m| m.word()).collect::<Vec<_>>(),
                "max_size_ratio": self.max_size_ratio.text()})
     }
+
+    /// The spec SETTING `pole_objective` of a call site whose pole code only ANNOTATES a decision taken elsewhere
+    /// (closeloop accept's `choice` on a SOLVED line, termmin's `eliminated_by.choice`; audit r2-poles F4): absent or
+    /// `null` = the default objective; the word `"none"` = OFF (`None`: no `choice` member is written at all, the outputs
+    /// are those of a run without the pole code); an object = [`PoleObjective::from_value`] (guard "unbounded" unless
+    /// it names one). Anything else is refused.
+    pub fn setting(v: Option<&Value>) -> Result<Option<PoleObjective>, PolicyError> {
+        match v {
+            None | Some(Value::Null) => Ok(Some(PoleObjective::default())),
+            Some(Value::String(w)) if w == "none" => Ok(None),
+            Some(Value::String(w)) => Err(PolicyError(format!(
+                "pole_objective {w:?}: the only word is \"none\" (else an object {{measures, max_size_ratio}})"
+            ))),
+            Some(o) => PoleObjective::from_value(o, MaxSizeRatio::Unbounded).map(Some),
+        }
+    }
 }
 
 /// The pole profile of a candidate (addendum 8.1). `local`: the pole order of every non-zero rhs term (empty = use the
@@ -324,44 +356,91 @@ const UNKNOWN: u64 = u64::MAX;
 /// A fully decided composed profile: (terminal, pole order) per terminal.
 type DecidedComposed<'a> = Vec<(&'a [i32], u32)>;
 
-/// The values of every (evaluated) measure for one candidate. `orders`: the pole orders the measures read (terminals or rhs terms),
-/// `None` = unknown.
-fn measure_values(
-    obj: &PoleObjective,
+/// The value of one measure for one candidate. `orders`: the pole orders the measure reads (terminals or rhs terms),
+/// `None` = unknown (worst in every pole measure).
+fn measure_value(
+    m: Measure,
     c: &Candidate,
     orders: Option<&[u32]>,
     terminals: Option<&[&[i32]]>,
     eps_box: Option<&crate::epsdepth::epsbox::EpsBoxChecked>,
-) -> Result<Vec<u64>, String> {
-    let mut out = Vec::with_capacity(obj.measures.len());
-    for m in &obj.measures {
-        let v = match (m, orders) {
-            (Measure::Size, _) => c.size,
-            (Measure::EpsBoxExcess, Some(o)) => match (eps_box, terminals) {
-                (Some(b), Some(ts)) => {
-                    let mut n = 0u64;
-                    for (t, &p) in ts.iter().zip(o) {
-                        if matches!(
-                            b.status(t, p)?,
-                            crate::epsdepth::epsbox::BoxStatus::Exceeds(_)
-                        ) {
-                            n += 1;
-                        }
+) -> Result<u64, String> {
+    Ok(match (m, orders) {
+        (Measure::Size, _) => c.size,
+        (Measure::EpsBoxExcess, Some(o)) => match (eps_box, terminals) {
+            (Some(b), Some(ts)) => {
+                let mut n = 0u64;
+                for (t, &p) in ts.iter().zip(o) {
+                    if matches!(
+                        b.status(t, p)?,
+                        crate::epsdepth::epsbox::BoxStatus::Exceeds(_)
+                    ) {
+                        n += 1;
                     }
-                    n
                 }
-                _ => 0,
-            },
-            (Measure::EpsBoxExcess, None) => 0,
-            (_, None) => UNKNOWN,
-            (Measure::Regular, Some(o)) => u64::from(o.iter().any(|&p| p > 0)),
-            (Measure::MaxPoleOrder, Some(o)) => o.iter().copied().max().map_or(0, u64::from),
-            (Measure::SumPoleOrders, Some(o)) => o.iter().map(|&p| u64::from(p)).sum(),
-            (Measure::SingularTerms, Some(o)) => o.iter().filter(|&&p| p > 0).count() as u64,
-        };
-        out.push(v);
+                n
+            }
+            _ => 0,
+        },
+        (Measure::EpsBoxExcess, None) => 0,
+        (_, None) => UNKNOWN,
+        (Measure::Regular, Some(o)) => u64::from(o.iter().any(|&p| p > 0)),
+        (Measure::MaxPoleOrder, Some(o)) => o.iter().copied().max().map_or(0, u64::from),
+        (Measure::SumPoleOrders, Some(o)) => o.iter().map(|&p| u64::from(p)).sum(),
+        (Measure::SingularTerms, Some(o)) => o.iter().filter(|&&p| p > 0).count() as u64,
+    })
+}
+
+/// Which profile an entry of the ranking key reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Src {
+    /// The profile in use (composed when every pooled candidate has one, else local).
+    Main,
+    /// The local profile, as the tie-break block after the composed pole measures (audit r2-poles F3).
+    Local,
+}
+
+impl Measure {
+    /// The word of the local tie-break entry of this measure (composed mode only).
+    fn local_word(&self) -> &'static str {
+        match self {
+            Measure::Regular => "local:regular",
+            Measure::MaxPoleOrder => "local:max_pole_order",
+            Measure::SumPoleOrders => "local:sum_pole_orders",
+            Measure::SingularTerms => "local:singular_terms",
+            // never a local entry (no local meaning)
+            Measure::EpsBoxExcess => "local:eps_box_excess",
+            Measure::Size => "local:size",
+        }
     }
-    Ok(out)
+}
+
+/// The ranking key's entries. Local mode: the measures as given. Composed mode: the measures before the first `size`
+/// on the composed profile, then the same POLE measures (regular / max / sum / count; not the eps box) on the local
+/// profile, then `size`, then the measures after it (composed, then local likewise). Max order first implies regular
+/// first (order 0 = regular), so with the default objective a locally regular alternative wins a composed tie.
+fn ranking_plan(measures: &[Measure], composed: bool) -> Vec<(Measure, Src)> {
+    if !composed {
+        return measures.iter().map(|&m| (m, Src::Main)).collect();
+    }
+    let block = |ms: &[Measure], out: &mut Vec<(Measure, Src)>| {
+        out.extend(ms.iter().map(|&m| (m, Src::Main)));
+        out.extend(
+            ms.iter()
+                .filter(|m| !matches!(m, Measure::EpsBoxExcess | Measure::Size))
+                .map(|&m| (m, Src::Local)),
+        );
+    };
+    let mut out = vec![];
+    match measures.iter().position(|m| *m == Measure::Size) {
+        Some(s) => {
+            block(&measures[..s], &mut out);
+            out.push((Measure::Size, Src::Main));
+            block(&measures[s + 1..], &mut out);
+        }
+        None => block(measures, &mut out),
+    }
+    out
 }
 
 /// THE ranking function of every choice with a pole profile (addendum 8; interfaces/epsdepth.md 6). `profiles` is
@@ -406,8 +485,17 @@ pub fn pole_objective(
             .map(|&i| profiles[i].composed_decided())
             .collect()
     };
+    // int7 (B1): `none` = NO pooled candidate carries any pole information (no composed or local profile, no
+    // `pole_order`): every pole measure is unknown alike, the candidates are ranked by size (then id) and the choice
+    // records "no profile" (a call site that has no pole profile yet)
+    let no_profile = composed.is_none()
+        && pool.iter().all(|&i| {
+            cands[i].pole_order.is_none() && profiles.get(i).is_none_or(|p| p.local.is_empty())
+        });
     let profile_used = if composed.is_some() {
         "composed"
+    } else if no_profile {
+        "none"
     } else {
         "local"
     };
@@ -431,38 +519,57 @@ pub fn pole_objective(
         max_size_ratio: obj.max_size_ratio,
     };
     let obj = &evaluated;
+    let plan = ranking_plan(&obj.measures, composed.is_some());
+    // the local orders of a candidate (rhs terms, else its `pole_order`; `None` = unknown)
+    let local_of = |i: usize| -> Option<Vec<u32>> {
+        profiles
+            .get(i)
+            .filter(|p| !p.local.is_empty())
+            .map(|p| p.local.clone())
+            .or_else(|| {
+                cands[i]
+                    .pole_order
+                    .map(|p| vec![u32::try_from(p).unwrap_or(u32::MAX)])
+            })
+    };
     let mut keys: Vec<(Vec<u64>, usize)> = Vec::with_capacity(pool.len());
     for (j, &i) in pool.iter().enumerate() {
         let c = &cands[i];
-        let vals = match &composed {
-            Some(all) => {
-                let ts: Vec<&[i32]> = all[j].iter().map(|(t, _)| *t).collect();
-                let os: Vec<u32> = all[j].iter().map(|(_, o)| *o).collect();
-                measure_values(obj, c, Some(&os), Some(&ts), eps_box)?
-            }
-            None => {
-                let local = profiles
-                    .get(i)
-                    .filter(|p| !p.local.is_empty())
-                    .map(|p| p.local.clone());
-                let local = local.or_else(|| {
-                    c.pole_order
-                        .map(|p| vec![u32::try_from(p).unwrap_or(u32::MAX)])
-                });
-                measure_values(obj, c, local.as_deref(), None, eps_box)?
-            }
+        let local = local_of(i);
+        let (main_orders, main_terms): (Option<Vec<u32>>, Option<Vec<&[i32]>>) = match &composed {
+            Some(all) => (
+                Some(all[j].iter().map(|(_, o)| *o).collect()),
+                Some(all[j].iter().map(|(t, _)| *t).collect()),
+            ),
+            None => (local.clone(), None),
         };
+        let mut vals = Vec::with_capacity(plan.len());
+        for &(m, src) in &plan {
+            vals.push(match src {
+                Src::Main => {
+                    measure_value(m, c, main_orders.as_deref(), main_terms.as_deref(), eps_box)?
+                }
+                Src::Local => measure_value(m, c, local.as_deref(), None, None)?,
+            });
+        }
         keys.push((vals, i));
     }
+    let plan_words: Vec<&'static str> = plan
+        .iter()
+        .map(|(m, src)| match src {
+            Src::Main => m.word(),
+            Src::Local => m.local_word(),
+        })
+        .collect();
     keys.sort_by(|a, b| {
         a.0.cmp(&b.0)
             .then_with(|| cands[a.1].id.cmp(&cands[b.1].id))
     });
     // the size guard on the best class of the first discriminating measure
-    let first_disc = (0..obj.measures.len()).find(|&m| keys.iter().any(|k| k.0[m] != keys[0].0[m]));
+    let first_disc = (0..plan.len()).find(|&m| keys.iter().any(|k| k.0[m] != keys[0].0[m]));
     let mut rejected: Vec<usize> = vec![];
     if let Some(m) = first_disc
-        && obj.measures[m] != Measure::Size
+        && plan[m].0 != Measure::Size
     {
         let best = keys[0].0[m];
         let class: Vec<usize> = keys
@@ -483,16 +590,31 @@ pub fn pole_objective(
         .find(|i| !rejected.contains(i))
         .expect("the smallest pooled candidate is never rejected");
     let chosen = &cands[index];
-    let chosen_values = keys
-        .iter()
-        .find(|k| k.1 == index)
-        .map(|k| k.0.clone())
-        .unwrap_or_default();
+    let chosen_pos = keys.iter().position(|k| k.1 == index).unwrap_or(0);
+    let chosen_values = keys[chosen_pos].0.clone();
+    // what separated the chosen candidate from the next admissible-in-ranking one (truthful reason, F3)
+    let decided_by = if pool.len() == 1 {
+        "only".to_string()
+    } else if !rejected.is_empty() {
+        "size_guard".to_string()
+    } else {
+        keys.iter()
+            .skip(chosen_pos + 1)
+            .find(|k| !rejected.contains(&k.1))
+            .and_then(|next| {
+                (0..plan.len())
+                    .find(|&m| next.0[m] != chosen_values[m])
+                    .map(|m| plan_words[m].to_string())
+            })
+            .unwrap_or_else(|| "id".to_string())
+    };
+    // regular at d0 = the candidate's OWN coefficients (local profile, else its pole order)
+    let locally_regular = |i: usize| local_of(i).is_some_and(|o| o.iter().all(|&p| p == 0));
 
     let best_regular = pool
         .iter()
         .copied()
-        .filter(|&i| cands[i].is_regular())
+        .filter(|&i| locally_regular(i))
         .min_by(|&a, &b| {
             (cands[a].size, cands[a].id.as_str()).cmp(&(cands[b].size, cands[b].id.as_str()))
         });
@@ -502,17 +624,19 @@ pub fn pole_objective(
         .min_by(|x, y| (x.size, x.id.as_str()).cmp(&(y.size, y.id.as_str())));
     let reason = if !rejected.is_empty() {
         ChoiceReason::SizeGuard
-    } else if obj.measures.first() == Some(&Measure::Size) {
+    } else if obj.measures.first() == Some(&Measure::Size) || no_profile {
+        // int7 (B1): without any pole information the size decided
         ChoiceReason::Economy
-    } else if chosen.is_regular()
-        || (profile_used == "composed"
-            && composed.as_ref().is_some_and(|all| {
-                pool.iter()
-                    .position(|&i| i == index)
-                    .is_some_and(|j| all[j].iter().all(|(_, o)| *o == 0))
-            }))
-    {
+    } else if locally_regular(index) {
         ChoiceReason::Regular
+    } else if profile_used == "composed"
+        && composed.as_ref().is_some_and(|all| {
+            pool.iter()
+                .position(|&i| i == index)
+                .is_some_and(|j| all[j].iter().all(|(_, o)| *o == 0))
+        })
+    {
+        ChoiceReason::ComposedRegular
     } else {
         ChoiceReason::LowestPole
     };
@@ -521,7 +645,7 @@ pub fn pole_objective(
     } else {
         reason
     };
-    let regular_alternative = if chosen.is_regular() {
+    let regular_alternative = if locally_regular(index) {
         RegularAlternative::Chosen
     } else if let Some(r) = best_regular {
         RegularAlternative::RejectedForSize {
@@ -554,8 +678,9 @@ pub fn pole_objective(
         regular_alternative,
         criteria_order,
         profile_used,
-        measures: obj.measures.iter().map(|m| m.word()).collect(),
+        measures: plan_words,
         chosen_measures: chosen_values,
+        decided_by,
         rejected_for_size: rejected
             .iter()
             .map(|&i| (cands[i].id.clone(), ratio_text(cands[i].size, smallest)))
@@ -583,14 +708,19 @@ impl Choice {
             .chosen_pole_order
             .map_or("unknown".to_string(), |p| p.to_string());
         format!(
-            "choice {}: reason {}, pole order {pole}, max_size_ratio {}, chosen size {}, smallest admissible size {}; {alt}; \
+            "choice {}: reason {} (decided by {}), pole order {pole}, max_size_ratio {}, chosen size {}, smallest admissible size {}; {alt}; \
              profile {} (measures {})",
             self.id,
             self.reason.word(),
+            self.decided_by,
             self.max_size_ratio,
             self.chosen_size,
             self.smallest_size,
-            self.profile_used,
+            if self.profile_used == "none" {
+                "none (no profile: ranked by size)"
+            } else {
+                self.profile_used
+            },
             self.measures.join(",")
         )
     }
@@ -610,7 +740,7 @@ impl Choice {
         json!({"chosen": self.id, "reason": self.reason.word(), "pole_order": self.chosen_pole_order,
             "max_size_ratio": self.max_size_ratio, "chosen_size": self.chosen_size, "smallest_size": self.smallest_size,
             "criteria_order": match self.criteria_order { CriteriaOrder::RegularFirst => "regular_first", CriteriaOrder::EconomyFirst => "economy_first" },
-            "regular_alternative": alt, "profile_used": self.profile_used, "measures": self.measures,
+            "regular_alternative": alt, "profile_used": self.profile_used, "measures": self.measures, "decided_by": self.decided_by,
             "chosen_measures": self.chosen_measures, "lacking_composed": self.lacking_composed,
             "rejected_for_size": self.rejected_for_size.iter().map(|(i, r)| json!({"id": i, "ratio": r})).collect::<Vec<_>>()})
     }

@@ -501,6 +501,11 @@ impl BoxDef {
 
     /// The box was written for this frame's line mask.
     pub fn check_frame(&self, frame: &NodeFrame) -> Result<(), BoxError> {
+        // epsframe: the box predicates read line signs (an eps axis is forced and two-sided; BOXDEF B is not
+        // implemented here)
+        frame
+            .require_integer_only_for("the box (boxdef: integer frames only)")
+            .map_err(|e| BoxError::Invalid(e.to_string()))?;
         if frame.mask() != self.chart.as_slice() {
             return Err(BoxError::Invalid(format!(
                 "box chart {} differs from the frame mask {}",
@@ -921,6 +926,329 @@ pub struct BandClause {
     pub r_e: i64,
     pub r_d: i64,
     pub r_const: i64,
+}
+
+// ===================================================================================================================
+// EPS BOXES (lane epsframe): the box of a node of an eps-shifted (two-sided) family as DATA (BOXDEF section B,
+// rule L15). The integer box above reads line signs and refuses eps frames; an eps box measures the eps axes by its
+// own data-given rule. Nothing here knows a node: the constants of the bound, the carrier input and the eps-axis
+// rule are fields of the clause document.
+// ===================================================================================================================
+
+/// Schema of an eps box document.
+pub const EPS_BOX_SCHEMA: &str = "rustred.campaign.eps-box.v1";
+/// Schema of an eps box CLAUSE (the generator's input: the bound as coefficients, the carrier term as an input).
+pub const EPS_BOX_CLAUSE_SCHEMA: &str = "rustred.campaign.eps-box-clause.v1";
+/// The measure of an eps box: D and r of the integer slots as `dots-rank-v1` on the top support, plus the eps-axis
+/// contributions of [`EpsAxisRule`].
+pub const EPS_BOX_MEASURE: &str = "dots-rank-eps-v1";
+
+/// Where the dots of an eps axis of weight w start (data: `dots_floor`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum EpsDotsFloor {
+    /// D counted from 1 - w (`"one_minus_weight"`).
+    OneMinusWeight,
+    /// D counted from 1, as on an integer line (`"one"`).
+    One,
+}
+
+/// How an eps axis (integer part n, weight w) enters the measure: D += max(0, n - floor), and, with
+/// `rank_from_nonpositive`, r += max(0, -n).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct EpsAxisRule {
+    pub dots_floor: EpsDotsFloor,
+    pub rank_from_nonpositive: bool,
+}
+
+impl EpsAxisRule {
+    fn floor(&self, w: u32) -> i64 {
+        match self.dots_floor {
+            EpsDotsFloor::OneMinusWeight => 1 - i64::from(w),
+            EpsDotsFloor::One => 1,
+        }
+    }
+    fn contribution(&self, n: i32, w: u32) -> (i64, i64) {
+        let n = i64::from(n);
+        let d = (n - self.floor(w)).max(0);
+        let r = if self.rank_from_nonpositive {
+            (-n).max(0)
+        } else {
+            0
+        };
+        (d, r)
+    }
+    fn from_object(o: &Map<String, Value>) -> Result<EpsAxisRule, BoxError> {
+        let dots_floor = match o.get("dots_floor").and_then(Value::as_str) {
+            Some("one_minus_weight") => EpsDotsFloor::OneMinusWeight,
+            Some("one") => EpsDotsFloor::One,
+            other => {
+                return Err(BoxError::Schema(format!(
+                    "dots_floor {other:?}: expected \"one_minus_weight\" or \"one\""
+                )));
+            }
+        };
+        let rank_from_nonpositive = o
+            .get("rank_from_nonpositive")
+            .and_then(Value::as_bool)
+            .ok_or_else(|| BoxError::Schema("rank_from_nonpositive: expected a boolean".into()))?;
+        if !rank_from_nonpositive {
+            // integer parts below the dots floor would then cost nothing: the box would be infinite
+            return Err(BoxError::Invalid(
+                "rank_from_nonpositive false: the eps box would be unbounded below the dots floor"
+                    .into(),
+            ));
+        }
+        Ok(EpsAxisRule {
+            dots_floor,
+            rank_from_nonpositive,
+        })
+    }
+    fn to_fields(self, o: &mut Map<String, Value>) {
+        o.insert(
+            "dots_floor".into(),
+            json!(match self.dots_floor {
+                EpsDotsFloor::OneMinusWeight => "one_minus_weight",
+                EpsDotsFloor::One => "one",
+            }),
+        );
+        o.insert(
+            "rank_from_nonpositive".into(),
+            json!(self.rank_from_nonpositive),
+        );
+    }
+}
+
+/// The box of an eps node: its TOP support (every integer line >= 1, every numerator <= 0, eps axes any integer:
+/// the eps lines never drop to a subsector), layers `[D, r_max]` (union semantics, exact D) under
+/// [`EPS_BOX_MEASURE`].
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct EpsBox {
+    pub id: String,
+    /// `chart[slot]` = the slot is a line (eps axes are lines).
+    pub chart: Vec<bool>,
+    /// (slot, weight w) of every eps axis, ascending by slot.
+    pub eps: Vec<(usize, u32)>,
+    pub rule: EpsAxisRule,
+    pub layers: Vec<[u32; 2]>,
+    pub origin: Option<String>,
+}
+
+/// The generator's input (BOXDEF section B as coefficients): for D = 0..=d_max, r_max(D) = d_coef*D + e_coef*E +
+/// eps_coef*e + constant (a negative bound = an empty layer), d_max = d_max_constant + carriers; E = number of lines of
+/// the top support (eps axes included), e = the sum of the eps weights; the weight of an eps axis is its kshift k.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EpsBoxClause {
+    pub d_coef: i64,
+    pub e_coef: i64,
+    pub eps_coef: i64,
+    pub constant: i64,
+    pub d_max_constant: i64,
+    /// The carrier term (an input from the node's graph; 0 on a clean support).
+    pub carriers: i64,
+    pub rule: EpsAxisRule,
+    /// Where the clause comes from (e.g. "BOXDEF.v3 B, reading of 2026-11-15").
+    pub origin: String,
+}
+
+impl EpsBoxClause {
+    pub fn from_json(text: &str) -> Result<EpsBoxClause, BoxError> {
+        let v: Value = serde_json::from_str(text).map_err(|e| BoxError::Json(e.to_string()))?;
+        let o = v
+            .as_object()
+            .ok_or_else(|| BoxError::Schema("an eps box clause is a JSON object".into()))?;
+        if o.get("schema").and_then(Value::as_str) != Some(EPS_BOX_CLAUSE_SCHEMA) {
+            return Err(BoxError::Schema(format!(
+                "schema: expected {EPS_BOX_CLAUSE_SCHEMA:?}"
+            )));
+        }
+        let int = |k: &str| -> Result<i64, BoxError> {
+            o.get(k)
+                .and_then(Value::as_i64)
+                .ok_or_else(|| BoxError::Schema(format!("{k}: expected an integer")))
+        };
+        Ok(EpsBoxClause {
+            d_coef: int("d_coef")?,
+            e_coef: int("e_coef")?,
+            eps_coef: int("eps_coef")?,
+            constant: int("constant")?,
+            d_max_constant: int("d_max_constant")?,
+            carriers: int("carriers")?,
+            rule: EpsAxisRule::from_object(o)?,
+            origin: req_string(o, "origin")?,
+        })
+    }
+}
+
+impl EpsBox {
+    /// The box of `frame` under `clause` (the frame must have eps axes; weights = kshift, which must be positive).
+    pub fn from_clause(
+        frame: &NodeFrame,
+        clause: &EpsBoxClause,
+        id: &str,
+    ) -> Result<EpsBox, BoxError> {
+        if !frame.has_eps_axes() {
+            return Err(BoxError::Invalid(
+                "an eps box needs a frame with eps axes".into(),
+            ));
+        }
+        let mut eps = vec![];
+        for a in frame.eps_axes() {
+            let k = frame.kshift()[a];
+            let w = u32::try_from(k).map_err(|_| {
+                BoxError::Invalid(format!(
+                    "eps axis {a} with shift {k} eps: a negative weight is not defined by the clause"
+                ))
+            })?;
+            eps.push((a, w));
+        }
+        let e_lines = frame.n_lines() as i64;
+        let e_sum: i64 = eps.iter().map(|&(_, w)| i64::from(w)).sum();
+        let d_max = clause.d_max_constant + clause.carriers;
+        let mut layers = vec![];
+        for d in 0..=d_max.max(-1) {
+            let r = clause.d_coef * d
+                + clause.e_coef * e_lines
+                + clause.eps_coef * e_sum
+                + clause.constant;
+            if r >= 0 {
+                layers.push([d as u32, r as u32]);
+            }
+        }
+        Ok(EpsBox {
+            id: id.to_string(),
+            chart: frame.mask().to_vec(),
+            eps,
+            rule: clause.rule,
+            layers,
+            origin: Some(clause.origin.clone()),
+        })
+    }
+    /// The box was written for this frame: same line mask, same eps axes, weights = kshift.
+    pub fn check_frame(&self, frame: &NodeFrame) -> Result<(), BoxError> {
+        let want: Vec<(usize, u32)> = frame
+            .eps_axes()
+            .into_iter()
+            .map(|a| (a, u32::try_from(frame.kshift()[a]).unwrap_or(u32::MAX)))
+            .collect();
+        if frame.mask() != self.chart.as_slice() || want != self.eps {
+            return Err(BoxError::Invalid(format!(
+                "eps box (chart {}, eps {:?}) differs from the frame (mask {}, eps {:?})",
+                chart_string(&self.chart),
+                self.eps,
+                frame.mask_string(),
+                want
+            )));
+        }
+        Ok(())
+    }
+    fn weight(&self, slot: usize) -> Option<u32> {
+        self.eps.iter().find(|&&(a, _)| a == slot).map(|&(_, w)| w)
+    }
+    /// (D, r) of a top-support key; `None` for a wrong length, an integer line <= 0 or a numerator > 0.
+    pub fn measure(&self, key: &[i32]) -> Option<(i64, i64)> {
+        if key.len() != self.chart.len() {
+            return None;
+        }
+        let (mut d, mut r) = (0i64, 0i64);
+        for (i, &x) in key.iter().enumerate() {
+            if let Some(w) = self.weight(i) {
+                let (dd, rr) = self.rule.contribution(x, w);
+                d += dd;
+                r += rr;
+            } else if self.chart[i] {
+                if x < 1 {
+                    return None;
+                }
+                d += i64::from(x) - 1;
+            } else {
+                if x > 0 {
+                    return None;
+                }
+                r -= i64::from(x);
+            }
+        }
+        Some((d, r))
+    }
+    /// Membership: the measure lands in a layer (exact D, r <= r_max).
+    pub fn contains(&self, key: &[i32]) -> bool {
+        self.measure(key).is_some_and(|(d, r)| {
+            self.layers
+                .iter()
+                .any(|&[ld, lr]| i64::from(ld) == d && r <= i64::from(lr))
+        })
+    }
+    /// Every key of the box, each once (layers merged per D), in no particular order.
+    pub fn for_each_key(&self, mut f: impl FnMut(&[i32])) {
+        let layers = merge_layers(&self.layers);
+        let n = self.chart.len();
+        let mut key = vec![0i32; n];
+        for &[d, rmax] in &layers {
+            self.fill(0, i64::from(d), i64::from(rmax), &mut key, &mut f);
+        }
+    }
+    fn fill(
+        &self,
+        slot: usize,
+        d_left: i64,
+        r_left: i64,
+        key: &mut Vec<i32>,
+        f: &mut impl FnMut(&[i32]),
+    ) {
+        if slot == key.len() {
+            if d_left == 0 {
+                f(key);
+            }
+            return;
+        }
+        if let Some(w) = self.weight(slot) {
+            // every integer part whose contributions fit: n from -(r budget) (or the floor) up to floor + D budget
+            // (rank_from_nonpositive is always true: EpsAxisRule::from_object refuses false)
+            let lo = -r_left;
+            let hi = self.rule.floor(w) + d_left;
+            for x in lo..=hi {
+                let (dd, rr) = self.rule.contribution(x as i32, w);
+                if dd <= d_left && rr <= r_left {
+                    key[slot] = x as i32;
+                    self.fill(slot + 1, d_left - dd, r_left - rr, key, f);
+                }
+            }
+        } else if self.chart[slot] {
+            for dd in 0..=d_left {
+                key[slot] = 1 + dd as i32;
+                self.fill(slot + 1, d_left - dd, r_left, key, f);
+            }
+        } else {
+            for rr in 0..=r_left {
+                key[slot] = -(rr as i32);
+                self.fill(slot + 1, d_left, r_left - rr, key, f);
+            }
+        }
+    }
+    /// The number of keys.
+    pub fn count(&self) -> u64 {
+        let mut c = 0u64;
+        self.for_each_key(|_| c += 1);
+        c
+    }
+    /// The document (schema [`EPS_BOX_SCHEMA`]).
+    pub fn to_value(&self) -> Value {
+        let mut o = Map::new();
+        o.insert("schema".into(), json!(EPS_BOX_SCHEMA));
+        o.insert("id".into(), json!(self.id));
+        o.insert("measure".into(), json!(EPS_BOX_MEASURE));
+        o.insert("chart".into(), json!(chart_string(&self.chart)));
+        o.insert(
+            "eps".into(),
+            Value::Array(self.eps.iter().map(|&(a, w)| json!([a, w])).collect()),
+        );
+        self.rule.to_fields(&mut o);
+        o.insert("layers".into(), layers_value(&merge_layers(&self.layers)));
+        o.insert(
+            "origin".into(),
+            self.origin.clone().map_or(Value::Null, Value::String),
+        );
+        Value::Object(o)
+    }
 }
 
 /// A band preset (data, e.g. the R* box of the spec).

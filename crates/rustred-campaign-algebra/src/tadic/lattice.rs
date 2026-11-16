@@ -34,7 +34,10 @@ pub struct SaturatedBasis {
     pub saturation_exponent: u64,
 }
 
-fn rows_in_t(rows: &[Vec<(u32, String)>], d0: &Rat) -> Result<Vec<Vec<(u32, ZP, ZP)>>, String> {
+/// A row of (column, numerator, denominator) in t.
+type RowT = Vec<(u32, ZP, ZP)>;
+
+fn rows_in_t(rows: &[Vec<(u32, String)>], d0: &Rat) -> Result<Vec<RowT>, String> {
     let ctx = Ctx::new();
     rows.iter()
         .map(|r| {
@@ -74,7 +77,7 @@ pub fn saturate_rows(rows: &[Vec<(u32, String)>], d0: Rat) -> Result<SaturatedBa
             .into_iter()
             .map(|(c, n, d)| (c, &n * &l.try_div(&d).expect("lcm")))
             .collect();
-        input.push((e, None));
+        input.push((e, None, Vec::new()));
     }
     let q = dummy_query();
     let mut bud = Budgeter {
@@ -82,7 +85,7 @@ pub fn saturate_rows(rows: &[Vec<(u32, String)>], d0: Rat) -> Result<SaturatedBa
         t0: std::time::Instant::now(),
         ops: 0,
     };
-    let p2 = phase2(&ar, input, u32::MAX, None, &mut bud).map_err(|s| s.0)?;
+    let p2 = phase2(&ar, input, u32::MAX, None, false, &mut bud).map_err(|s| s.0)?;
     let one = ar.affine(&Integer::one(), &Integer::zero());
     let basis = p2
         .basis

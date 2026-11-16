@@ -203,3 +203,148 @@ fn table_rule_per_key_verdicts() {
     let t0 = &rec["locus"]["terms"][0];
     assert_eq!(t0["pole_rises_on"].as_array().unwrap().len(), 2, "{t0}");
 }
+
+/// The census path (`PreparedRule`, exact fast path off the index loci) gives the same verdict as the full substitution
+/// (`analyse_rule` / `is_regular_at`) at every key of a grid crossing the loci (on and off, numerator and denominator).
+#[test]
+fn prepared_rule_equals_full_substitution_on_a_grid() {
+    if !go() {
+        return;
+    }
+    use rustred_campaign_algebra::valuation::relation::PreparedRule;
+    let rule = json!({"type": "rule", "target": "I(n0,n1,n2)", "rhs": [
+        ["I(n0-1,n1,n2)", "(d-3)/((n1-1)*(d-2*n1))"],
+        ["I(n0,n1-1,n2)", "(d-n0-2)^2/((d-4)*(3*d-n0-n1-6))"],
+        ["I(n0,n1,n2+1)", "(d-2*n0)*(d+n2-4)/(d-5)"],
+        ["I(n0-1,n1,n2+1)", "(n0-n1)*(d-4)^2"]]});
+    let mut keys = vec![];
+    for n0 in 1..=5 {
+        for n1 in 2..=5 {
+            for n2 in -3..=0 {
+                keys.push(vec![n0, n1, n2]);
+            }
+        }
+    }
+    let pr = PreparedRule::of_record(&rule, 3, &d4()).unwrap();
+    let full = analyse_rule(&rule, &keys, 3, &d4()).unwrap();
+    let mut singular = 0;
+    for (k, v) in &full.per_key {
+        let (fast, _) = pr.at_key(k);
+        assert_eq!(&fast, v, "key {k:?}");
+        assert_eq!(&is_regular_at(&rule, k, &d4()), v, "key {k:?}");
+        singular += usize::from(matches!(v, RegularAt::Singular { .. }));
+    }
+    // the grid really crosses the loci: some keys singular, some regular, more than one order
+    assert!(
+        singular > 0 && singular < keys.len(),
+        "{singular} of {}",
+        keys.len()
+    );
+    let orders: std::collections::BTreeSet<u64> = full
+        .per_key
+        .iter()
+        .filter_map(|(_, v)| v.pole_order())
+        .collect();
+    assert!(orders.len() >= 3, "{orders:?}");
+}
+
+/// Audit r2-poles F1: a table rule's coefficients are evaluated at the RULE POINT of its target pattern (core
+/// `closure::bodies::rule_point`, the engine's `find_rule`), never at the key: target `I(n0+1,n1-2,n2)` maps the key
+/// (k0, k1, k2) to the point (k0 - 1, k1 + 2, k2). The term key patterns are evaluated at the point too (sector test).
+/// A rule without `target`, an unreadable target or a pattern that does not match the key is UNDECIDED.
+#[test]
+fn table_rule_coefficients_at_the_rule_point() {
+    if !go() {
+        return;
+    }
+    use rustred_campaign_algebra::valuation::relation::PreparedRule;
+    // 1/(d - 2 n0): pole at the point n0 = 2, i.e. at the KEY k0 = 3; (d - n1)^-2: double pole at n1 = 4, i.e. k1 = 2
+    let rule = json!({"type": "rule", "chart": "110", "index": 2, "target": "I(n0+1,n1-2,n2)",
+        "fixed": [null, null, null],
+        "rhs": [["I(n0,n1-2,n2)", "1/(d-2*n0)"], ["I(n0+1,n1-3,n2)", "(d-3)/(d-n1)^2"], ["I(n0+1,n1-2,n2+1)", "n2+1"]]});
+    // key (3, 1, 0): point (2, 3, 0): first coefficient 1/(d-4) (order 1), second (d-3)/(d-3)^2: regular at 4
+    assert_eq!(
+        is_regular_at(&rule, &[3, 1, 0], &d4()),
+        RegularAt::Singular { order: 1 }
+    );
+    // the same key read as the point (the old, wrong substitution) would give n0 = 3: 1/(d-6), regular
+    // key (2, 2, -1): point (1, 4, -1): 1/(d-2) regular, (d-3)/(d-4)^2 double pole, third coefficient 0 (Zero)
+    assert_eq!(
+        is_regular_at(&rule, &[2, 2, -1], &d4()),
+        RegularAt::Singular { order: 2 }
+    );
+    // key (2, 1, 0): point (1, 3, 0): regular everywhere
+    assert_eq!(is_regular_at(&rule, &[2, 1, 0], &d4()), RegularAt::Regular);
+    // the census path agrees and evaluates term patterns at the point: at key (3, 1, 0) the pole term is
+    // I(n0, n1-2, n2) at the point = I(2, 1, 0): in the key's top sector (lines 0, 1 stay >= 1)
+    let pr = PreparedRule::of_record(&rule, 3, &d4()).unwrap();
+    assert!(!pr.point_map().is_identity());
+    for k in [[3, 1, 0], [2, 2, -1], [2, 1, 0], [4, 3, -2], [3, 2, 0]] {
+        let (v, ..) = pr.at_key_parts(&k);
+        assert_eq!(v, is_regular_at(&rule, &k, &d4()), "key {k:?}");
+    }
+    let (v, with, top) = pr.at_key_parts(&[3, 1, 0]);
+    assert_eq!(
+        (v, with, top),
+        (RegularAt::Singular { order: 1 }, 1, Some(1))
+    );
+    // at key (2, 2, -1) the double pole sits on I(n0+1, n1-3, n2) = I(2, 1, -1): top sector of (2, 2, -1)
+    assert_eq!(pr.at_key_parts(&[2, 2, -1]).2, Some(2));
+    // a constant slot of the pattern on a free case slot: target I(n0, 2, n2), no fixed value: the parameter n1 is not
+    // set by the key and takes 0 at the rule point (the engine's find_rule / core rule_point); the key has 2 there
+    let fixed = json!({"type": "rule", "target": "I(n0,2,n2)", "fixed": [null, null, null],
+        "rhs": [["I(n0-1,2,n2)", "1/(d-4+n1)"]]});
+    assert_eq!(
+        is_regular_at(&fixed, &[1, 2, 0], &d4()),
+        RegularAt::Singular { order: 1 },
+        "n1 = 0 at the rule point: 1/(d-4) (the key's 2 would give 1/(d-2))"
+    );
+    // ... and a key whose constant slot differs does not match the pattern: undecided, never a number
+    assert!(matches!(
+        is_regular_at(&fixed, &[1, 3, 0], &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    assert!(matches!(
+        PreparedRule::of_record(&fixed, 3, &d4())
+            .unwrap()
+            .at_key_parts(&[1, 3, 0])
+            .0,
+        RegularAt::Undecided { .. }
+    ));
+    // no target: the rule point is unknown -> undecided (is_regular_at, analyse_rule per key, PreparedRule refuses)
+    let bare = json!({"type": "rule", "rhs": [["I(n0-1,n1,n2)", "1/(d-2*n0)"]]});
+    assert!(matches!(
+        is_regular_at(&bare, &[2, 1, 0], &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    assert!(pole_order_of(&bare, &[2, 1, 0], &d4()).is_err());
+    assert!(PreparedRule::of_record(&bare, 3, &d4()).is_err());
+    assert!(analyse_rule(&bare, &[vec![2, 1, 0]], 3, &d4()).is_err());
+    // an unreadable target: undecided
+    let bad = json!({"type": "rule", "target": "I(n0+x,n1,n2)", "rhs": [["I(n0,n1,n2)", "1"]]});
+    assert!(matches!(
+        is_regular_at(&bad, &[2, 1, 0], &d4()),
+        RegularAt::Undecided { .. }
+    ));
+    // analyse_rule / rule_record give the same per-key verdicts at the rule points
+    let keys = vec![vec![3, 1, 0], vec![2, 2, -1], vec![2, 1, 0]];
+    let a = analyse_rule(&rule, &keys, 3, &d4()).unwrap();
+    let got: Vec<RegularAt> = a.per_key.iter().map(|(_, v)| v.clone()).collect();
+    assert_eq!(
+        got,
+        vec![
+            RegularAt::Singular { order: 1 },
+            RegularAt::Singular { order: 2 },
+            RegularAt::Regular
+        ]
+    );
+    // a canonical target with fixed slots stays the identity map
+    let canon = json!({"type": "rule", "target": "I(n0,1,n2)", "fixed": [null, 1, null],
+        "rhs": [["I(n0-1,1,n2)", "1/(d-2*n0)"]]});
+    let pc = PreparedRule::of_record(&canon, 3, &d4()).unwrap();
+    assert!(pc.point_map().is_identity());
+    assert_eq!(
+        is_regular_at(&canon, &[2, 1, 0], &d4()),
+        RegularAt::Singular { order: 1 }
+    );
+}
