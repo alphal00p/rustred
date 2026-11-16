@@ -248,6 +248,12 @@ pub struct NodeCfg {
     /// (ledger, digest-bound) and never walked again. None = one walk of the box (as before).
     #[serde(default)]
     pub layers: Option<LayersCfg>,
+    /// Lane polefix (audit r2-poles F4): the objective of the `choice` annotation on accepted relations
+    /// (`rustred_campaign_core::poles::PoleObjective::setting`: absent = the default objective; `"none"` = no `choice`
+    /// member is written, the answers are those of a run without the pole code; an object = its measures / guard).
+    /// Never decides acceptance. Omitted from the serialized config when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_objective: Option<serde_json::Value>,
 }
 
 /// The layers of the box (DATA; lane layers, closeloop.md 23).
@@ -700,6 +706,14 @@ fn d_threads() -> usize {
 }
 
 impl NodeCfg {
+    /// The objective of the `choice` annotation (`None` = off).
+    pub fn pole_objective_setting(
+        &self,
+    ) -> Result<Option<rustred_campaign_core::poles::PoleObjective>, String> {
+        rustred_campaign_core::poles::PoleObjective::setting(self.pole_objective.as_ref())
+            .map_err(|e| format!("node {}: {e}", self.node))
+    }
+
     pub fn base(&self) -> PathBuf {
         self.import_base.clone().unwrap_or_else(|| {
             self.import_spec
@@ -745,6 +759,7 @@ impl CloseLoopConfig {
                     n.node
                 ));
             }
+            n.pole_objective_setting()?;
             if n.solve.max_keys_per_job == 0 || n.solve.threads == 0 || n.check_threads == 0 {
                 return Err(format!(
                     "node {}: max_keys_per_job, threads and check_threads must be >= 1",

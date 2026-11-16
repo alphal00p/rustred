@@ -60,7 +60,9 @@ fn config(dir: &Path, oracle: FakeOracle) -> ChildConfig {
         records_cap_bytes: 1 << 20,
         fake: Some(oracle),
         poles: None,
+        pole_objective: "on".into(),
         verbose: false,
+        site: Default::default(),
     }
 }
 

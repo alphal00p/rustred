@@ -152,6 +152,8 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
         order: cfg.order.clone(),
         max_trace_rows: cfg.spec.caps.max_trace_rows,
         key_budget_s: cfg.spec.caps.key_budget_s,
+        // the termmin spec's setting (lane polefix, F4): "none" = no `choice` annotation
+        pole_objective: cfg.spec.objective_setting()?,
     };
     let sampler = Arc::new(
         Sampler::spawn(SamplerConfig {

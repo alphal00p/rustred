@@ -80,6 +80,34 @@ impl FakeCore {
     }
 }
 
+/// planfix (audit r2-planners ITEM 6): SITE POLICY of the solve / pole children of coreseed and seedmin (spec data;
+/// documented defaults). None of these decides a result; they decide how the host's processes are run.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChildSitePolicy {
+    /// Threads per solve child at most (refused above). Default 4 = the host rule "at most 4 CPU-bound threads per
+    /// process" (implementer SUBAGENT_RULES 6); a site rule, not an experiment.
+    pub max_threads_per_job: usize,
+    /// Heartbeat interval of a solve child, seconds. Default 10. Default not yet backed by an experiment.
+    pub heartbeat_s: u32,
+    /// Grace between the stop request and the kill of a solve child, seconds. Default 30. Default not yet backed by an
+    /// experiment.
+    pub stop_grace_s: u32,
+    /// Grace of a pole-regular-at child at its wall cap, seconds. Default 10. Default not yet backed by an experiment.
+    pub pole_grace_s: u64,
+}
+
+impl Default for ChildSitePolicy {
+    fn default() -> Self {
+        ChildSitePolicy {
+            max_threads_per_job: 4,
+            heartbeat_s: 10,
+            stop_grace_s: 30,
+            pole_grace_s: 10,
+        }
+    }
+}
+
 /// Configuration of the child solver (all data).
 pub struct CoreDriverConfig {
     pub node: String,
@@ -116,6 +144,8 @@ pub struct CoreDriverConfig {
     /// job per solve batch (lane poles' `rr_poles regular-at`, many pairs per invocation; interfaces/coreseed.md 10).
     /// None = the in-process sound test only (`regular` or `undecided`).
     pub poles: Option<PolesCfg>,
+    /// planfix: the children's site policy (heartbeat, stop grace, pole-child grace).
+    pub site: ChildSitePolicy,
 }
 
 /// The diagnostic child of the pole orders (program `rr_poles`, `Invocation::Legacy`; or the fake child with a script).
@@ -256,6 +286,7 @@ impl<'a> ChildSolver<'a> {
             order: cfg.order.clone(),
             max_trace_rows: cfg.max_trace_rows,
             key_budget_s: cfg.key_budget_s,
+            pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
         };
         let session = format!(
             "s{}",
@@ -355,8 +386,8 @@ impl<'a> ChildSolver<'a> {
             key_budget_s: self.cfg.key_budget_s,
             expect: None,
             determinism_id: None,
-            heartbeat_s: 10,
-            stop_grace_s: 30,
+            heartbeat_s: self.cfg.site.heartbeat_s,
+            stop_grace_s: self.cfg.site.stop_grace_s,
             package: None,
             live_repair: false,
             licence_env: self.cfg.licence_env.clone(),
@@ -431,7 +462,7 @@ impl<'a> ChildSolver<'a> {
             memory_cap_bytes: Some(pc.cap_bytes),
             licence_env: self.cfg.licence_env.clone(),
             wall_cap: Some(Duration::from_secs(pc.wall_cap_s)),
-            grace: Some(Duration::from_secs(10)),
+            grace: Some(Duration::from_secs(self.cfg.site.pole_grace_s)),
         };
         let note = |m: String| {
             self.append(
@@ -941,6 +972,20 @@ impl CoreSolver for ChildSolver<'_> {
                        "requests_solved": self.requests_solved});
         self.append("progress.jsonl", &v);
         self.say(&format!("phase {phase}: {partial}"));
+    }
+
+    /// Lane polefix (audit r2-poles F2): the close-first report is written atomically next to the journal
+    /// (`core.close_first.json`) the moment the core hands it over, before any variant or list request: an interrupted
+    /// or budgeted later phase loses nothing of it (a restart replays the journal and writes the same bytes).
+    fn publish(&mut self, report: &rustred_campaign_core::coreseed::CoreReport) {
+        let path = self.side_file("core.close_first.json");
+        match crate::atomic::write_json_atomic(&path, report) {
+            Ok(()) => self.say(&format!("close-first report published: {}", path.display())),
+            Err(e) => {
+                let v = json!({"publish_error": e.to_string(), "utc": utc_now()});
+                self.append("progress.jsonl", &v);
+            }
+        }
     }
 }
 

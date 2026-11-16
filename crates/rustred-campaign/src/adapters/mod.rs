@@ -16,6 +16,8 @@ pub mod poleat;
 pub mod solve_recipe;
 // lane symjob: kind symmetry-composite (rr_rf_symflow as a legacy child; import verification of its relations)
 pub mod symcomp;
+// lane symcert: kind proof-symrows (rr_proof --symrows: kernel certificates of multi-term symmetry relations)
+pub mod symrows;
 
 use crate::launch::LaunchSpec;
 use crate::supervisor::worksource::JobRequest;

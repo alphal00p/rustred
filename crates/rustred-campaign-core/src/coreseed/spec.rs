@@ -416,6 +416,26 @@ pub struct CoreSeedPolicy {
     /// `smallest` (lane poles' selection replaces it).
     #[serde(default = "d_select")]
     pub select: String,
+    /// The VARIANT phase's own budget (centre scan + regular escalation, run AFTER the close-first report is
+    /// published; audit r2-poles F2). Omitted from the canonical policy when default, so existing digests stay.
+    #[serde(default, skip_serializing_if = "VariantSpec::is_default")]
+    pub variants: VariantSpec,
+}
+
+/// The budget of the variant phase (a count of requests, never a clock: the library has none). `max_requests: None` =
+/// only the phase's own caps (`centre_scan.max_jobs_per_face`, `max_candidates_per_key`, the `regular_escalation`
+/// steps); a key the budget leaves untried records a `budget` step and keeps what it has (it is served already).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VariantSpec {
+    #[serde(default)]
+    pub max_requests: Option<u64>,
+}
+
+impl VariantSpec {
+    pub fn is_default(&self) -> bool {
+        *self == VariantSpec::default()
+    }
 }
 
 fn d_schema() -> String {

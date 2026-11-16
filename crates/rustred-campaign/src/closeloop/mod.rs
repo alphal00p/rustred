@@ -26,6 +26,8 @@ pub mod repair;
 pub mod coreseed;
 // lane seedmin (interfaces/seedmin.md): solve-recipe children for the seed minimiser (REQUEST TO I-INT, one line)
 pub mod seedmin;
+// lane symcert (interfaces/proof-symrows-job.md 5): kernel certificates of multi-term symmetry relations
+pub mod symcert;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

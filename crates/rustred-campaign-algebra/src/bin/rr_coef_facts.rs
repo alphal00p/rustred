@@ -402,6 +402,9 @@ fn verify(a: &Args) {
         BTreeMap<(usize, rustred_campaign_core::import::zero_proofs::Locus), Claim>,
     > = HashMap::new();
     let mut headers: Vec<Value> = vec![];
+    // lane zerosfix3 (audit F3v): two lines for one (record, term, locus) never verify (a forged line before the
+    // honest one used to be replaced silently by the last line)
+    let mut duplicates: Vec<Value> = vec![];
     for p in &a.proofs {
         let f = std::fs::File::open(p).unwrap_or_else(|e| die(&format!("{}: {e}", p.display())));
         for (i, l) in BufReader::new(f).lines().enumerate() {
@@ -417,7 +420,7 @@ fn verify(a: &Args) {
             }
             let pl = rustred_campaign_core::import::zero_proofs::parse_line(&v)
                 .unwrap_or_else(|e| die(&format!("{} line {}: {e}", p.display(), i + 1)));
-            claims.entry(pl.record_sha256.clone()).or_default().insert(
+            let old = claims.entry(pl.record_sha256.clone()).or_default().insert(
                 (pl.term as usize, pl.locus),
                 (
                     pl.verdict.clone(),
@@ -425,6 +428,10 @@ fn verify(a: &Args) {
                     pl.den.clone(),
                 ),
             );
+            if old.is_some() {
+                duplicates.push(json!({"file": p.display().to_string(), "line": i + 1,
+                    "record_sha256": pl.record_sha256, "term": pl.term, "locus": pl.locus.json()}));
+            }
         }
     }
     // header binding: every table named there must have the sha256 it names
@@ -639,9 +646,24 @@ fn verify(a: &Args) {
         .unwrap_or_else(|e| die(&e));
     }
     c.claims_without_record = claims.keys().filter(|s| !seen.contains(*s)).count() as u64;
-    let verified = c.mismatches == 0 && header_mismatch.is_empty() && c.claims_without_record == 0;
+    // zerosfix3: a duplicate proof line makes the summary unverified
+    let verified = c.mismatches == 0
+        && header_mismatch.is_empty()
+        && c.claims_without_record == 0
+        && duplicates.is_empty();
+    // planfix (audit r2-zeros F5): the summary binds every proof file it verified by its sha256 (consumers load only
+    // files listed here: core import::zero_proofs::VerifiedZeroProofs)
+    let proofs_sha256: Vec<String> = a
+        .proofs
+        .iter()
+        .map(|p| {
+            rustred_campaign_core::import::lines::file_sha256(p)
+                .unwrap_or_else(|e| die(&format!("{}: {e}", p.display())))
+        })
+        .collect();
     let s = json!({"schema": "rustred.campaign.zero-proof-verify.v1", "verified": verified, "tables": a.tables,
-        "proofs": a.proofs, "headers": headers.len(), "header_mismatch": header_mismatch, "counts": c,
+        "proofs": a.proofs, "proofs_sha256": proofs_sha256, "headers": headers.len(), "header_mismatch": header_mismatch, "counts": c,
+        "duplicate_lines": duplicates.len(), "duplicates": duplicates.iter().take(100).collect::<Vec<_>>(),
         "mismatches": mism.into_iter().take(100).collect::<Vec<_>>(), "not_proved": not_proved_list,
         "seconds": t0.elapsed().as_secs_f64(), "tool": zero_proofs::tool()});
     if let Some(p) = &a.summary {
@@ -656,12 +678,17 @@ fn verify(a: &Args) {
     }
 }
 
-/// Byte offsets of every line of a table file that may be a rule record (`"rule"` occurs in its first bytes).
+/// Byte offsets of every line of a table file that may be a rule record: `"rule"` occurs ANYWHERE in the line (lane
+/// zerosfix3, audit M2: was the first 256 bytes only, so a record written with another key order was skipped by prove
+/// and verify alike). A candidate that is not a rule record is skipped by the record parser (NotARule).
 fn rule_offsets(p: &Path) -> Result<Vec<u64>, String> {
     use std::io::Read;
+    const PAT: &[u8] = b"\"rule\"";
     let mut f = std::fs::File::open(p).map_err(|e| format!("{}: {e}", p.display()))?;
     let mut buf = vec![0u8; 1 << 22];
-    let (mut off, mut start, mut head): (u64, u64, Vec<u8>) = (0, 0, vec![]);
+    let (mut off, mut start): (u64, u64) = (0, 0);
+    // matched prefix of PAT in the current line (PAT's only border is its first byte '"'), found in this line
+    let (mut m, mut found, mut nonempty) = (0usize, false, false);
     let mut out = vec![];
     loop {
         let n = f
@@ -672,18 +699,28 @@ fn rule_offsets(p: &Path) -> Result<Vec<u64>, String> {
         }
         for &c in &buf[..n] {
             if c == b'\n' {
-                if head.windows(6).any(|w| w == b"\"rule\"") {
+                if found {
                     out.push(start);
                 }
-                head.clear();
+                (m, found, nonempty) = (0, false, false);
                 start = off + 1;
-            } else if head.len() < 256 {
-                head.push(c);
+            } else {
+                nonempty = true;
+                if !found {
+                    if c == PAT[m] {
+                        m += 1;
+                        if m == PAT.len() {
+                            found = true;
+                        }
+                    } else {
+                        m = usize::from(c == PAT[0]);
+                    }
+                }
             }
             off += 1;
         }
     }
-    if !head.is_empty() && head.windows(6).any(|w| w == b"\"rule\"") {
+    if nonempty && found {
         out.push(start);
     }
     Ok(out)

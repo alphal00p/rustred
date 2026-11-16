@@ -25,6 +25,8 @@ order of `ROWS`.
 | 35 | c=10, O, S, kind symmetry-composite, stop keys_unsolved, no shipped relation | no_rule | nothing | queue_failures |
 | 37 | c=0, O, S, kind pole-regular-at (diagnostic, legacy-wrapped: one answer per request of the pinned requests input, each checked against its request; pole orders, never evidence) | complete | diagnostic_records | item_done |
 | 38 | kind pole-regular-at, c in {0, 10, 20} with O but the answers not sealed / not verified against the requests (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided (evaluated before 22 for this kind) | undecided | nothing | diagnostics_undecided |
+| 40 | c=0, O, S, kind proof-symrows (legacy-wrapped rr_proof --symrows: one certificate per requested key, each bound to the pinned request: relation digest, record digests, key, symrows digest, group, elements, catalogue records, kernel sha256) | complete | certificates | item_done |
+| 43 | kind proof-symrows, c in {0, 10, 20} with O but the certificate not sealed / not bound to the pinned request (another relation, record, key, symrows input or kernel: a forged or misattributed certificate), or c in {10, 20} (evaluated before 22 for this kind) | crashed | nothing | attention |
 | 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
 | 7b | c=12, O, checker kind | undecided | nothing | other_tool_or_attention |
 | 8 | c=20, O, S (producing kind) | spill | committed_rules | next_rung_after_spill |
@@ -39,6 +41,8 @@ order of `ROWS`.
 | 13b | c in {41, 70}, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND), kind proof-instantiate / proof-instance-span | refused | nothing | table_unreadable_by_tool |
 | 36 | c=41, O whose error names PINNED_INPUTS_MISMATCH, kind symmetry-composite (the child's sealed result is bound to other inputs: request digest, input pins, tool digest) | refused | nothing | item_attention_no_retry |
 | 39 | c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH): nothing is read, the relations stay undecided | refused | nothing | diagnostics_undecided |
+| 41 | c=41, kind proof-symrows, O whose error names SYMROW_REFUSED (the kernel refused a symmetry row of the request: a decided answer, never evidence) | refused | nothing | certificate_refused |
+| 42 | c in {41, 70}, kind proof-symrows, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND) | refused | nothing | table_unreadable_by_tool |
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |
 | 15 | c=50 | lost | nothing | pause_all_launches |

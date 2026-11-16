@@ -336,7 +336,7 @@ impl<'p> KeyMachine<'p> {
                             self.chunk = if self.policy.chunk_start > 0 {
                                 self.policy.chunk_start
                             } else {
-                                (remaining.len() / 2).max(1)
+                                (remaining.len() / self.policy.halving_factor).max(1)
                             };
                         }
                         let c = self
@@ -417,14 +417,14 @@ impl<'p> KeyMachine<'p> {
                 if kept {
                     self.out.list = p.list.clone();
                     self.out.relation = a.relation().cloned();
-                    self.chunk = c * 2;
+                    self.chunk = c * self.policy.halving_factor;
                     if self.policy.resupport_after_drop {
                         self.phase = Phase::Resupport;
                     }
                 } else if c == 1 {
                     self.tried.insert(p.chunk[0].clone());
                 } else {
-                    self.chunk = (c / 2).max(1);
+                    self.chunk = (c / self.policy.halving_factor).max(1);
                 }
                 self.log(p, a, Some(kept), format!("chunk of {c}: {reason}"), true);
             }

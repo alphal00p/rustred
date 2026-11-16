@@ -23,6 +23,19 @@ pub const BASIS_WITNESS_UNCHECKED: &str = "witness_unchecked_diagnostic";
 /// Basis word of a key served by a supplied symmetry relation VERIFIED by re-derivation from the verified group.
 pub const BASIS_SYMMETRY_RELATION: &str = "symmetry_relation";
 
+/// lane symfix (import.md 21 (b)): basis word of a key served by a supplied relation whose KERNEL CERTIFICATE (sealed
+/// proof-symrows stream, EXACT_IN_SPAN_AT_KEY) the import CHECKED at load against its own record: per-key. (The same
+/// word as lane symcert's.)
+pub const BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED: &str = "symmetry_relation_kernel_certified";
+
+/// lane symfix (import.md 21 (c)): basis word of a key served by a supplied composite RE-VERIFIED at load by the
+/// composer's own functions (same backend, modular): level `imported`, never per-key.
+pub const BASIS_SYMMETRY_COMPOSITE_SAME_BACKEND: &str = "symmetry_composite_same_backend";
+
+/// lane symfix: basis word of a supplied relation the import did NOT verify at load (no EXACT bit: never served; only
+/// reachable through a credit image, where it gives no level).
+pub const BASIS_SUPPLIED_UNVERIFIED: &str = "supplied_unverified";
+
 /// Basis word of a key served through the per-key lift (elided / witness-absent record + bound per-key proof).
 pub const BASIS_PER_KEY_PROOF: &str = "per_key_proof";
 
@@ -387,7 +400,7 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, &set.start, &[])
+    check_inner(set, ev, opts, None, &set.start, &[], None)
 }
 
 /// lane layers (closure.md 18): the walk components of this set's configuration (tables, relation sets of the
@@ -462,7 +475,21 @@ pub fn check_from_with_leaves(
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, start, leaves)
+    check_inner(set, ev, opts, None, start, leaves, None)
+}
+
+/// audit r2-planners L1: [`check_from_with_leaves`] with the CONSUMING run's leaf requirement (its required level, tier,
+/// strictness; e.g. the closing loop's gates, which may differ from the spec's `required_evidence`). `None` = the
+/// spec's required level at the check's tier, no strictness demanded.
+pub fn check_from_with_leaves_required(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+    required: Option<&crate::closure::LeafRequirement>,
+) -> Result<CheckResult, ImportError> {
+    check_inner(set, ev, opts, None, start, leaves, required)
 }
 
 /// A row sink of [`check_streamed`].
@@ -502,6 +529,20 @@ pub fn check_streamed_with_leaves(
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
+    check_streamed_with_leaves_required(set, ev, opts, rows_path, start, leaves, None)
+}
+
+/// audit r2-planners L1: [`check_streamed_with_leaves`] with the CONSUMING run's leaf requirement (see
+/// [`check_from_with_leaves_required`]).
+pub fn check_streamed_with_leaves_required(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+    required: Option<&crate::closure::LeafRequirement>,
+) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
         std::fs::create_dir_all(d).map_err(|e| super::error::io_err(d, e))?;
@@ -523,7 +564,7 @@ pub fn check_streamed_with_leaves(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink), start, leaves)?
+        check_inner(set, ev, opts, Some(&mut sink), start, leaves, required)?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -560,14 +601,21 @@ pub(crate) fn relation_level(
             (Some(Level::Imported), "recipe_relation_unproved")
         };
     }
-    if sinfo
-        .and_then(|i| i.check.as_ref())
-        .is_some_and(|c| c.verified())
-    {
+    // lane symfix (interfaces/import.md 21, closeloop.md 24): the level follows from how the import verified the
+    // record AT LOAD; a record it did not verify gives no level (it has no EXACT bit and is never served)
+    use super::supplied_verify::SuppliedRoute;
+    match sinfo.map(|i| &i.route) {
+        Some(SuppliedRoute::KernelCertified { .. }) => (
+            Some(Level::PerKey),
+            BASIS_SYMMETRY_RELATION_KERNEL_CERTIFIED,
+        ),
         // re-derived from the verified group at the key: exact, at the key (interfaces/import.md 13.2)
-        (Some(Level::PerKey), BASIS_SYMMETRY_RELATION)
-    } else {
-        (Some(Level::Imported), "supplied")
+        Some(SuppliedRoute::GroupRederived) => (Some(Level::PerKey), BASIS_SYMMETRY_RELATION),
+        Some(SuppliedRoute::SameBackend) => {
+            (Some(Level::Imported), BASIS_SYMMETRY_COMPOSITE_SAME_BACKEND)
+        }
+        Some(SuppliedRoute::Diagnostic) => (None, BASIS_KEYS_ONLY_DIAGNOSTIC),
+        Some(SuppliedRoute::Unverified { .. }) | None => (None, BASIS_SUPPLIED_UNVERIFIED),
     }
 }
 
@@ -578,6 +626,7 @@ fn check_inner(
     mut sink: Option<&mut RowSink<'_>>,
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
+    leaf_required: Option<&crate::closure::LeafRequirement>,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -638,6 +687,18 @@ fn check_inner(
         },
         per_key_lift: per_key_lift(set),
         leaves: leaves.to_vec(),
+        // audit r2-planners L1: a certified leaf below the consuming run's requirement blocks
+        leaf_requirement: (!leaves.is_empty()).then(|| {
+            leaf_required
+                .cloned()
+                .unwrap_or_else(|| crate::closure::LeafRequirement {
+                    required_level: set.spec.required_evidence.word().to_string(),
+                    tier,
+                    strict: false,
+                    // the import has no zero route of its own (the closing loop passes its guarantees)
+                    zero_route: vec![],
+                })
+        }),
         ..Default::default()
     };
     let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)

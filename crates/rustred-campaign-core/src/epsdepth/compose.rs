@@ -695,6 +695,13 @@ where
                 for j in 0..nterm {
                     let Some(s) = &comps[j] else { continue };
                     let (o, p) = lau.order(s);
+                    // lane polefix (audit r2-poles F9): a component that CANCELLED EXACTLY (zero with infinite precision:
+                    // the exact backend) is Zero, never "order 0"; it is dropped like a component no path reached
+                    if o.is_none() && p == i64::MAX {
+                        comps[j] = None;
+                        pole[ku * nterm + j] = 0;
+                        continue;
+                    }
                     let pj = match o {
                         Some(v) => (-v).max(0),
                         None if p >= 0 => 0,
@@ -864,6 +871,16 @@ fn key_result<L: Laurent, S: ReductionSource>(
             let bound = (b != i32::MIN).then_some(i64::from(b));
             match &comps[j] {
                 None => PairResult {
+                    order: Order::Zero,
+                    valuation: None,
+                    precision: None,
+                    bound,
+                    blame: None,
+                    blame_server: None,
+                    leading: None,
+                },
+                // exactly zero (exact backend, infinite precision): Zero (F9; normally already dropped above)
+                Some(s) if lau.order(s) == (None, i64::MAX) => PairResult {
                     order: Order::Zero,
                     valuation: None,
                     precision: None,

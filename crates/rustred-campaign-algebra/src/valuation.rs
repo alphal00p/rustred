@@ -398,9 +398,13 @@ impl Coefficient {
         }
     }
 
-    /// The order at d0 AT THE KEY: the key's indices put in exactly (Symbolica `replace` over Z), then the multiplicity of
-    /// `(d - d0)` in what remains. The verdict of record for a served key (TRICKS item 9).
-    pub fn at_key(&self, key: &[i64], d0: &D0) -> Result<Valuation, ValuationError> {
+    /// The order at d0 AT A POINT of the parameters `n0 .. n{N-1}`: the point put in exactly (Symbolica `replace` over
+    /// Z), then the multiplicity of `(d - d0)` in what remains (TRICKS item 9). For a TABLE RULE the point is the RULE
+    /// POINT of the served key under the record's target pattern, not the key (audit r2-poles F1; the relation-level
+    /// calls of [`relation`] compute it with the core's `closure::bodies::rule_point`); the two coincide for a
+    /// canonical target.
+    pub fn at_point(&self, point: &[i64], d0: &D0) -> Result<Valuation, ValuationError> {
+        let key = point;
         if key.len() != self.arity {
             return Err(ValuationError::KeyArity {
                 expected: self.arity,
@@ -429,8 +433,14 @@ impl Coefficient {
         Ok(Valuation::Order(nm as i64 - dm as i64))
     }
 
+    /// Same as [`Coefficient::at_point`]; the name of the first API: the argument is the POINT (for a table rule the
+    /// rule point of the key, see there), never blindly the served key.
+    pub fn at_key(&self, point: &[i64], d0: &D0) -> Result<Valuation, ValuationError> {
+        self.at_point(point, d0)
+    }
+
     /// The order of a coefficient of d alone (arity 0, or every index absent). Parametric coefficients must be
-    /// evaluated with [`Coefficient::at_key`]: their generic order is not a verdict at a key.
+    /// evaluated with [`Coefficient::at_point`]: their generic order is not a verdict at a key.
     pub fn order(&self, d0: &D0) -> Result<Valuation, ValuationError> {
         if self.depends_on_indices() {
             let mut symbols: Vec<String> = (0..self.arity)
@@ -447,8 +457,8 @@ impl Coefficient {
 /// A coefficient prepared for many keys at one d0: the generic multiplicities of `(d - d0)` in N and D and the locus
 /// polynomials `R_N(n) = N_shifted / t^mN at t = 0`, `R_D(n)` likewise. At a key OFF both loci (`R_N(k) != 0`,
 /// `R_D(k) != 0`, exact rational evaluation by Symbolica `replace_all`) the order IS `mN - mD`, exactly
-/// (`N(k, d) = (d - d0)^mN R_N(k, d)` with `R_N(k, d0) != 0`); on a locus the full substitution of [`Coefficient::at_key`]
-/// decides. Same verdicts as `at_key` at every key, cheaper.
+/// (`N(k, d) = (d - d0)^mN R_N(k, d)` with `R_N(k, d0) != 0`); on a locus the full substitution of
+/// [`Coefficient::at_point`] decides. Same verdicts as `at_point` at every point, cheaper.
 #[derive(Debug, Clone)]
 pub struct Prepared {
     coef: Coefficient,
@@ -481,8 +491,14 @@ impl Prepared {
         }
     }
 
-    /// The order at the key (exact; same as [`Coefficient::at_key`]).
-    pub fn at_key(&self, key: &[i64]) -> Result<Valuation, ValuationError> {
+    /// Same as [`Prepared::at_point`] (first name of the API; the argument is the POINT).
+    pub fn at_key(&self, point: &[i64]) -> Result<Valuation, ValuationError> {
+        self.at_point(point)
+    }
+
+    /// The order at a point (exact; same as [`Coefficient::at_point`]; for a table rule: the RULE POINT of the key).
+    pub fn at_point(&self, point: &[i64]) -> Result<Valuation, ValuationError> {
+        let key = point;
         if self.zero {
             return Ok(Valuation::Zero);
         }
@@ -501,7 +517,7 @@ impl Prepared {
         if off(&self.nrest) && off(&self.drest) {
             return Ok(Valuation::Order(self.nm as i64 - self.dm as i64));
         }
-        self.coef.at_key(key, &self.d0)
+        self.coef.at_point(key, &self.d0)
     }
 
     /// The generic order (`mN - mD`; Zero for the zero coefficient).
@@ -524,12 +540,13 @@ pub fn order_of_ratio(num: &str, den: &str, d0: &D0) -> Result<Valuation, Valuat
     Coefficient::parse_ratio(num, den, 0)?.order(d0)
 }
 
-/// `v_{d0}` of a parametric coefficient text (indices `n0 .. n{arity-1}`) at one key.
+/// `v_{d0}` of a parametric coefficient text (indices `n0 .. n{arity-1}`) at one point (for a table rule: the RULE
+/// POINT of the key, [`relation::PointMap`]).
 pub fn order_at_key(
     text: &str,
     arity: usize,
     key: &[i64],
     d0: &D0,
 ) -> Result<Valuation, ValuationError> {
-    Coefficient::parse(text, arity)?.at_key(key, d0)
+    Coefficient::parse(text, arity)?.at_point(key, d0)
 }
