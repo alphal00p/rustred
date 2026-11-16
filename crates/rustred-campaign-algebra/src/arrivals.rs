@@ -660,6 +660,9 @@ pub struct WalkCfg {
     pub exact: ExactLevel,
     /// Use the structural hand-down proofs (false: every hand-down term per key: the verifier's independent route).
     pub structural: bool,
+    /// Streamed walk: use the structural proofs only for records serving at least this many closure keys (0 = always);
+    /// a record serving fewer keys decides its terms per key (exact evaluation): its loci proofs would not amortise.
+    pub structural_min_keys: usize,
     /// Max child-key entries kept in the route expansion cache (shared by the workers of one aggregation).
     pub cache_entries: usize,
     /// Decide only hand-down terms whose dropped mask some given edge routes (others are counted per mask, undecided).
@@ -973,8 +976,17 @@ pub fn walk(
                         let pt = p
                             .point(&row.applied)
                             .ok_or_else(|| format!("{:?}: no rule point", row.applied))?;
-                        let hand =
-                            decide_hand(p, me, cfg, &lines, &pt, &row.applied, &mut s, &mut unr)?;
+                        let hand = decide_hand(
+                            p,
+                            me,
+                            cfg,
+                            cfg.structural,
+                            &lines,
+                            &pt,
+                            &row.applied,
+                            &mut s,
+                            &mut unr,
+                        )?;
                         out.push((ci, hand));
                     }
                     let _ = p.take_new();
@@ -1030,6 +1042,7 @@ fn decide_hand(
     p: &mut RecordProver<'_>,
     me: &mut ModEval,
     cfg: &WalkCfg,
+    use_structural: bool,
     lines: &[bool],
     pt: &[i32],
     applied: &[i32],
@@ -1063,7 +1076,7 @@ fn decide_hand(
             continue;
         }
         s.handdown_terms += 1;
-        let structural = if cfg.structural {
+        let structural = if use_structural {
             p.handdown_structural(j, pt, &tk)
         } else {
             None
@@ -1649,7 +1662,7 @@ pub fn header(
     for (p, s) in &ts {
         h.update(format!("{p}\t{s}\n").as_bytes());
     }
-    json!({"semantics": rustred_campaign_core::import::arrivals::ARRIVAL_SEMANTICS,
+    let mut out = json!({"semantics": rustred_campaign_core::import::arrivals::ARRIVAL_SEMANTICS,
         "parent": {"node": parent, "tables": ts.iter().map(|(p, s)| json!({"path": p, "sha256": s})).collect::<Vec<_>>(),
             "tables_digest": h.finish_hex(), "rows": {"path": rows.path, "sha256": rows.sha256,
             "keys": rows.keys, "served": rows.served},
@@ -1661,7 +1674,11 @@ pub fn header(
             "max_planes": cfg.prover.max_planes, "max_factor_terms": cfg.prover.max_factor_terms},
         "level": "support (per term, no cancellation assumed) + exact per sender (total coefficient)",
         "tool": {"program": "rr_arrivals", "version": TOOL_VERSION, "crate": env!("CARGO_PKG_VERSION"),
-            "symbolica": super::zero_proofs::SYMBOLICA_REV}})
+            "symbolica": super::zero_proofs::SYMBOLICA_REV}});
+    if cfg.structural_min_keys > 0 {
+        out["decision"]["structural_min_keys"] = json!(cfg.structural_min_keys);
+    }
+    out
 }
 
 // The streamed form of the walk (same sets and files; bounded memory): interfaces/arrivals.md section 8.

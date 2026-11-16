@@ -82,6 +82,7 @@ struct Args {
     trace_keys: Vec<Vec<i32>>,
     closure_only: bool,
     no_structural: bool,
+    structural_min_keys: usize,
     decide_all_handdowns: bool,
     closed_sets: Vec<String>,
     services: Option<PathBuf>,
@@ -152,6 +153,11 @@ fn parse(args: &[String]) -> Args {
             ),
             "--closure-only" => a.closure_only = true,
             "--no-structural" => a.no_structural = true,
+            "--structural-min-keys" => {
+                a.structural_min_keys = val(&mut i)
+                    .parse()
+                    .unwrap_or_else(|e| die(&format!("--structural-min-keys: {e}")))
+            }
             "--decide-all-handdowns" => a.decide_all_handdowns = true,
             "--closed-set" => a.closed_sets.push(val(&mut i)),
             "--services" => a.services = Some(val(&mut i).into()),
@@ -735,6 +741,7 @@ fn walk_cfg(a: &Args) -> arrivals::WalkCfg {
         prover: prover_cfg(a),
         exact,
         structural: !a.no_structural,
+        structural_min_keys: a.structural_min_keys,
         cache_entries: a.cache_entries,
         routed_masks: None,
     }

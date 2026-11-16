@@ -939,3 +939,36 @@ fn chain_depth_layers_box_and_arrival_starts() {
     );
     assert_ne!(rc, 0, "an arrival file without depths must be refused: {s}");
 }
+
+/// `--structural-min-keys N`: records serving fewer than N closure keys decide their hand-down terms per key (exact
+/// evaluation) instead of by structural loci proofs: the same arrival keys, sender counts and first senders' keys / terms
+/// (only the decision provenance `by` may differ); the header records N.
+#[test]
+fn structural_min_keys_changes_only_the_provenance() {
+    let Some(_a) = alg() else { return };
+    let t = build("smk");
+    let (rc, a) = compute_x(&t, &t.dir.join("o_s"), "2", &[]);
+    assert_eq!(rc, 0, "{a}");
+    let (rc, b) = compute_x(
+        &t,
+        &t.dir.join("o_k"),
+        "2",
+        &["--structural-min-keys", "1000000"],
+    );
+    assert_eq!(rc, 0, "{b}");
+    let fa = format::read(&t.dir.join("o_s").join("P-C.arrivals.jsonl")).unwrap();
+    let fb = format::read(&t.dir.join("o_k").join("P-C.arrivals.jsonl")).unwrap();
+    assert_eq!(fa.lines.len(), fb.lines.len());
+    for (x, y) in fa.lines.iter().zip(&fb.lines) {
+        assert_eq!((&x.key, x.senders), (&y.key, y.senders));
+        assert_eq!(
+            (&x.first.parent_key, x.first.term, &x.first.term_key),
+            (&y.first.parent_key, y.first.term, &y.first.term_key)
+        );
+    }
+    assert_eq!(fb.header["decision"]["structural_min_keys"], 1000000);
+    assert!(fa.header["decision"].get("structural_min_keys").is_none());
+    // every term decided per key under the threshold
+    assert_eq!(b["walk"]["by_structural_zero"], 0, "{b}");
+    assert_eq!(b["walk"]["by_structural_nonzero"], 0, "{b}");
+}

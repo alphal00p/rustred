@@ -1158,6 +1158,7 @@ pub fn walk_stream(
         let mut local_n = 0usize;
         while let Some(&(g, a, b)) = items.get(next_item.fetch_add(1, Ordering::Relaxed)) {
             let ((t, r), ks) = &groups[g];
+            let use_structural = cfg.structural && ks.len() >= cfg.structural_min_keys;
             let decided: Vec<(usize, u32, Vec<HandTerm>)> = cache.with(*t, *r, |ent| {
                 let (p, me) = (&mut ent.p, &mut ent.me);
                 let mut out = Vec::with_capacity(b - a);
@@ -1167,7 +1168,17 @@ pub fn walk_stream(
                     let pt = p
                         .point(&applied)
                         .ok_or_else(|| format!("{applied:?}: no rule point"))?;
-                    let hand = decide_hand(p, me, cfg, &lines, &pt, &applied, &mut s, &mut unr)?;
+                    let hand = decide_hand(
+                        p,
+                        me,
+                        cfg,
+                        use_structural,
+                        &lines,
+                        &pt,
+                        &applied,
+                        &mut s,
+                        &mut unr,
+                    )?;
                     out.push((ci, si, hand));
                 }
                 let _ = p.take_new();
