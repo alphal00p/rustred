@@ -495,8 +495,19 @@ fn derivative_slots_close_the_all_mass_kite() {
     let dir = scratch("p2l-allmass");
     let (code, report) = run(&dir, &spec(&dir, json!([0, 1, 2, 3, 4])));
     assert_eq!(code, 0, "{report}");
-    assert_eq!(report["modular"]["masters"].as_array().unwrap().len(), 8, "{report}");
-    assert_eq!(report["modular"]["closure"].as_array().unwrap().last().unwrap()["added"], 0);
+    assert_eq!(
+        report["modular"]["masters"].as_array().unwrap().len(),
+        8,
+        "{report}"
+    );
+    assert_eq!(
+        report["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
     let dir2 = scratch("p2l-allmass-perm");
     let (code2, report2) = run(&dir2, &spec(&dir2, json!([4, 2, 0, 3, 1])));
     assert_eq!(code2, 0);
