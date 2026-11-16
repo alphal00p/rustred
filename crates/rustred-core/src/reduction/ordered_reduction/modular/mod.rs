@@ -1377,7 +1377,10 @@ impl ModularRecorder {
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
         if let Lifter::Tadic(options) = self.lifter {
-            // helper-vh2: no composition, no lift.
+            // helper-vh2: no composition, no lift. TODO(helper-vh2): a saved
+            // application's composer (compose before lift) could be applied
+            // to the series exactly as `PLibrary::reduce_tadic` applies its
+            // basis rows; refused for now (fail closed).
             if let Some(composer) = composer
                 && composer.plan(&keys)?.is_some()
             {

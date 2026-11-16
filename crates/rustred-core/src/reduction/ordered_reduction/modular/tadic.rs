@@ -57,6 +57,9 @@ use crate::reduction::ordered_reduction::arithmetic::TadicOptions;
 
 /// Prefix of every precision failure of the t-adic replay (a stable marker
 /// inside `ReductionError::ModularWeights`, see [`is_precision_failure`]).
+/// TODO(helper-vh2): a dedicated `ReductionError` variant needs a review of
+/// the persisted error codecs (`persistence/application_cache`,
+/// `terminal_relations/collection/saved`), which match it exhaustively.
 pub const TADIC_PRECISION_FAILURE: &str = "t-adic precision";
 
 /// Need of a value that no output reads (planner, `i32` domain).
@@ -714,6 +717,12 @@ struct SeriesReplay {
 }
 
 /// Evaluate the series of every output terminal modulo `field`.
+///
+/// TODO(helper-vh2): one prime is one sequential pass (primes run in
+/// parallel on the executor); the polynomial replay's `par_replay` dataflow
+/// scheduling is not ported. TODO(helper-vh2): the plan is stored as one
+/// `i16` per operation (25 % of the trace's own 8 bytes per op); a 228 M-op
+/// trace adds ~0.46 GB.
 fn replay_series(
     trace: &Trace,
     plan: &Plan,
@@ -894,6 +903,8 @@ fn check_points(field: &Zp64, seed: u64, attempt: usize, count: usize) -> Vec<Fe
 
 /// Certify every recorded erasure at fresh points of `field` (as the sampled
 /// arithmetic does at its sample points). `Ok(None)`: the prime is unusable.
+/// TODO(helper-vh2): this is a second full pass over the trace per prime
+/// (width `check_points`); it could share the series pass.
 /// `Ok(Some((checks, bad_points)))` otherwise.
 fn certify_erasures(
     trace: &Trace,
@@ -994,6 +1005,9 @@ pub(super) fn images(
     statistics: &mut ModularStatistics,
 ) -> Result<Vec<TadicImage>, ReductionError> {
     let prepared = Instant::now();
+    // TODO(helper-vh2): `Orders::new` runs exact synthetic divisions over Z
+    // for every distinct polynomial coefficient (~0.6-1.6 M on 5L cells)
+    // on one thread; measure, and parallelise on the executor if it shows.
     let orders = Orders::new(trace, options.d0)?;
     let plan = plan(trace, &orders, outputs, options.erasure_check_order)?;
     statistics.prepare_seconds += prepared.elapsed().as_secs_f64();

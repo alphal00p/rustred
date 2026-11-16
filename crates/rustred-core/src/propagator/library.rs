@@ -1134,6 +1134,8 @@ impl PLibrary {
         tag: &GammaTag,
     ) -> Result<Vec<(PBasis, GammaTag, Option<Coefficient>)>, PError> {
         let context = &self.context;
+        // TODO(helper-vh2): `onto_masters` uses the request's limits; the
+        // t-adic rows use the defaults (the request is consumed by the run).
         let exact = ReductionLimits::default().exact_algebra;
         let algebra = |error| PError::Engine(ReductionError::ExactAlgebra(error));
         let l = i16::from(loops);

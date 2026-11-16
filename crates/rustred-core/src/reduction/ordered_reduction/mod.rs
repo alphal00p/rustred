@@ -1316,7 +1316,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<OrderedOutput, K::Error> {
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
-    refuse_unaccepted_tadic(kernel, &arithmetic)?;
+    refuse_unaccepted_tadic(&*kernel, &arithmetic)?;
     let mut recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
     recorder.set_modular_round(tail.modular_round);
     recorder.set_par_replay(tail.par_replay);
@@ -1428,7 +1428,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         kernel.set_light(false);
         output.and_then(|output| {
             kernel.forward_finished();
-            let targets = tadic_targets(kernel, &arithmetic, &output)?;
+            let targets = tadic_targets(&*kernel, &arithmetic, &output)?;
             modular_output(weights, output, composer.as_deref(), targets).map_err(Into::into)
         })
     }
