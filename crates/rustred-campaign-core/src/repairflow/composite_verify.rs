@@ -213,12 +213,31 @@ pub fn verify_shipped<QA: CheckAlgebra>(
     if im != want {
         return Err("the image differs from the re-derived one".into());
     }
+    verify_composed_image(field, cat, key, &im, records, rhs, lower, cmp, max_depth)
+}
+
+/// Steps (b)-(d) of [`verify_shipped`] for an image the caller has ALREADY checked (wireflow (b): the image of a two-row
+/// near miss is a combination of two rows, re-checked by the Symbolica second route `tworow_check::second_route`, not one
+/// element's image): the composition repeated in the modular field, the replaced terms' records compared with the cited
+/// ones, the shipped terms compared map against map, every shipped term lower than the key.
+#[allow(clippy::too_many_arguments)]
+pub fn verify_composed_image<QA: CheckAlgebra>(
+    field: &ModField<'_, QA>,
+    cat: &ModCatalogue<'_, '_, QA>,
+    key: &[i32],
+    im: &[(Vec<i32>, Q)],
+    records: &[(Vec<i32>, String)],
+    rhs: &[(Vec<i32>, String)],
+    lower: &dyn Fn(&[i32], &[i32]) -> bool,
+    cmp: &dyn Fn(&[i32], &[i32]) -> Ordering,
+    max_depth: usize,
+) -> Result<(), String> {
     // (b) + (c) the composition repeated in the modular field, the replaced terms' records compared
     let opts = ComposeOptions {
         max_depth,
         ..ComposeOptions::default()
     };
-    let c = match compose_image(field, cat, &im, key, lower, cmp, &opts)? {
+    let c = match compose_image(field, cat, im, key, lower, cmp, &opts)? {
         Ok(c) => c,
         Err(r) => return Err(format!("the repeated composition is refused: {r:?}")),
     };

@@ -532,6 +532,69 @@ fn run_layers(args: &[String]) {
         "group": grep.digest, "witness": witness, "cap": cap, "seconds": t0.elapsed().as_secs_f64(), "vm_hwm_kb": vm_hwm_kb()})).ok();
 }
 
+/// wireflow (b): one key's shipped two-row form (the relation as a composite without / with catalogue replacements,
+/// the combination it comes from, the verification `kind`).
+struct TwoRowShip {
+    composite: rustred_campaign_core::repairflow::composite::Composite<compose_sym::Rd>,
+    comb: rustred_campaign_core::tworow::Combination,
+    kind: &'static str,
+}
+
+/// The independent re-check of a two-row form: the combination recomputed by the Symbolica SECOND ROUTE
+/// (`tworow_check::second_route`: every row from the verified slot images, compared term by term); a two_row form must
+/// equal it and descend; a two_row_composite repeats the catalogue composition of the near miss mod p
+/// (`composite_verify::verify_composed_image`, engine primes x three d values) and compares the shipped terms.
+#[allow(clippy::too_many_arguments)]
+fn check_two_row(
+    t: &TwoRowShip,
+    k: &[i32],
+    group: &rustred_campaign_core::replay_base::symrows::VerifiedGroup,
+    cmp: &dyn Fn(&[i32], &[i32]) -> std::cmp::Ordering,
+    lower: &dyn Fn(&[i32], &[i32]) -> bool,
+    qd: &SymQd,
+    mf: &rustred_campaign_core::repairflow::composite_verify::ModField<'_, Independent>,
+    mcat: &rustred_campaign_core::repairflow::composite_verify::ModCatalogue<'_, '_, Independent>,
+    max_row_terms: usize,
+    zero_fn: &dyn Fn(&[i32]) -> bool,
+    max_depth: usize,
+) -> Result<(), String> {
+    let sr = rustred_campaign_algebra::tworow_check::second_route(
+        group,
+        &t.comb,
+        cmp,
+        max_row_terms,
+        Some(zero_fn),
+    )?;
+    if !sr.equal {
+        return Err(format!("second route differs: {:?}", sr.difference));
+    }
+    let rhs: Vec<(Vec<i32>, String)> =
+        t.composite.rhs.iter().map(|(q, v)| (q.clone(), qd.text(v))).collect();
+    if t.kind == "two_row" {
+        if sr.not_lower.is_some() || t.composite.rhs.iter().any(|(q, _)| !lower(q, k)) {
+            return Err("a two_row term is not lower than the key".into());
+        }
+        return Ok(());
+    }
+    let records: Vec<(Vec<i32>, String)> = t
+        .composite
+        .replacements
+        .iter()
+        .map(|x| (x.term.clone(), x.rule.record_sha256.clone()))
+        .collect();
+    let depth = t
+        .composite
+        .replacements
+        .iter()
+        .map(|x| x.depth + 1)
+        .max()
+        .unwrap_or(0)
+        .max(max_depth);
+    rustred_campaign_core::repairflow::composite_verify::verify_composed_image(
+        mf, mcat, k, &t.comb.rhs, &records, &rhs, lower, cmp, depth,
+    )
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("version") {
@@ -762,6 +825,107 @@ fn main() {
                 .collect()
         })
     };
+    // wireflow (b), TRICKS 8 / 1x8: the TWO-ROW step (policy `tworow.enabled`, default off): lane tworow's two-row
+    // combinations at the keys with no single-element choice, then the composite with one catalogue rule on the near
+    // misses. Shipped with verification `kind` two_row / two_row_composite: the import admits them ONLY through a kernel
+    // certificate (audit F8, import.md 21 (b)); re-checked below by the Symbolica second route (tworow_check).
+    let fam = rustred_campaign_core::replay_base::family::Family::parse(
+        header["family_source"].as_str().unwrap_or(""),
+    )
+    .ok();
+    let zero_fn = |k: &[i32]| -> bool {
+        fam.as_ref()
+            .is_some_and(|f| f.zero_key(&k.iter().map(|&x| x as i64).collect::<Vec<i64>>()))
+    };
+    let mut two_rows: BTreeMap<Vec<i32>, TwoRowShip> = BTreeMap::new();
+    let mut tworow_summary = Value::Null;
+    if policy.tworow.enabled {
+        let core_keys: Vec<Vec<i32>> = results
+            .iter()
+            .filter(|(_, r)| matches!(r, Ok(kc) if kc.best().is_none()))
+            .map(|(k, _)| k.clone())
+            .collect();
+        let tpol = &policy.tworow.policy;
+        let tr_results: Vec<rustred_campaign_core::tworow::KeyResult> = {
+            let chunk = core_keys.len().div_ceil(threads).max(1);
+            std::thread::scope(|s| {
+                let hs: Vec<_> = core_keys
+                    .chunks(chunk)
+                    .map(|ks| {
+                        let (group, cmp, zero_fn) = (&group, &cmp, &zero_fn);
+                        s.spawn(move || {
+                            rustred_campaign_core::tworow::two_row_relations(
+                                &Independent,
+                                ks,
+                                group,
+                                cmp,
+                                tpol,
+                                Some(zero_fn as &dyn Fn(&[i32]) -> bool),
+                            )
+                        })
+                    })
+                    .collect();
+                hs.into_iter()
+                    .flat_map(|h| h.join().expect("worker"))
+                    .collect()
+            })
+        };
+        let mut words: BTreeMap<String, u64> = BTreeMap::new();
+        for tr in tr_results {
+            let found = match &tr.outcome {
+                rustred_campaign_core::tworow::KeyOutcome::Served { relations }
+                    if !relations.is_empty() =>
+                {
+                    let c = &relations[0];
+                    let rhs: Vec<(Vec<i32>, compose_sym::Rd)> = c
+                        .rhs
+                        .iter()
+                        .map(|(q, a)| (q.clone(), qd.from_q(*a).unwrap_or_else(|e| die(&e))))
+                        .collect();
+                    Some(TwoRowShip {
+                        composite: rustred_campaign_core::repairflow::composite::Composite {
+                            element: c.rows.first().map(|r| r.spec.element).unwrap_or(0),
+                            rhs,
+                            image: c.rhs.clone(),
+                            replacements: vec![],
+                            key_coefficient: None,
+                            dropped_zero: vec![],
+                        },
+                        comb: c.clone(),
+                        kind: "two_row",
+                    })
+                }
+                rustred_campaign_core::tworow::KeyOutcome::OverCap { .. } => None,
+                _ => match rustred_campaign_core::tworow::composite::with_catalogue_rule(
+                    &qd,
+                    &cat,
+                    &tr.near_misses,
+                    &lower,
+                    &cmp,
+                    &opts,
+                ) {
+                    Ok(rustred_campaign_core::tworow::composite::CompositeStep::Accepted {
+                        near,
+                        composite,
+                    }) => Some(TwoRowShip {
+                        composite,
+                        comb: near.comb.clone(),
+                        kind: "two_row_composite",
+                    }),
+                    _ => None,
+                },
+            };
+            let w = match &found {
+                Some(f) => f.kind.to_string(),
+                None => tr.outcome.word().to_string(),
+            };
+            *words.entry(w).or_default() += 1;
+            if let Some(f) = found {
+                two_rows.insert(tr.key.clone(), f);
+            }
+        }
+        tworow_summary = json!({"keys": core_keys.len(), "outcomes": words});
+    }
     let t_compose = t0.elapsed().as_secs_f64();
     // the sealed records
     let chart = set.frame.mask_string();
@@ -800,6 +964,8 @@ fn main() {
                             "class": why.class(), "why": format!("{why:?}")}),
                     })
                     .collect();
+                let mut best = kc.best().map(|b| json!({"element": b.element,
+                    "terms": b.rhs.len(), "plain": b.is_plain(), "replacements": b.replacements.len()}));
                 if let Some(b) = kc.best() {
                     let idx = accepted.len();
                     table.push_str(&shipped_record(&qd, k, b, &chart, idx).to_string());
@@ -810,9 +976,28 @@ fn main() {
                     );
                     ver.push('\n');
                     accepted.push(symflow::KeyService::from_composite(k, b, &ch.face));
+                } else if let Some(t) = two_rows.get(k) {
+                    // wireflow (b): the key's two-row form (never plain; kernel route only at the import)
+                    let c = &t.composite;
+                    let idx = accepted.len();
+                    let mut rec = shipped_record(&qd, k, c, &chart, idx);
+                    rec["kind"] = json!(format!("symmetry-{}", t.kind));
+                    table.push_str(&rec.to_string());
+                    table.push('\n');
+                    let mut vline =
+                        verification_record(&qd, k, c, &grep.digest, "rr_rf_symflow/symbolica");
+                    vline["plain"] = json!(false);
+                    vline["kind"] = json!(t.kind);
+                    vline["combination"] = t.comb.to_json();
+                    ver.push_str(&vline.to_string());
+                    ver.push('\n');
+                    let mut ks = symflow::KeyService::from_composite(k, c, &ch.face);
+                    ks.kind = t.kind.into();
+                    accepted.push(ks);
+                    best = Some(json!({"element": c.element, "terms": c.rhs.len(), "plain": false,
+                        "replacements": c.replacements.len(), "kind": t.kind}));
                 }
-                json!({"key": k, "face": ch.face, "status": "ok", "best": kc.best().map(|b| json!({"element": b.element,
-                    "terms": b.rhs.len(), "plain": b.is_plain(), "replacements": b.replacements.len()})),
+                json!({"key": k, "face": ch.face, "status": "ok", "best": best,
                     "alternatives": kc.accepted().count(), "outcomes": outs})
             }
         };
@@ -835,7 +1020,19 @@ fn main() {
     let mut not_verified: Vec<Value> = vec![];
     for (k, r) in &results {
         let Ok(kc) = r else { continue };
-        let Some(b) = kc.best() else { continue };
+        let Some(b) = kc.best() else {
+            if let Some(t) = two_rows.get(k) {
+                match check_two_row(t, k, &group, &cmp, &lower, &qd, &mf, &mcat, max_row_terms, &zero_fn, opts.max_depth) {
+                    Ok(()) => verified += 1,
+                    Err(e) => {
+                        if not_verified.len() < 50 {
+                            not_verified.push(json!({"key": k, "why": e, "kind": t.kind}));
+                        }
+                    }
+                }
+            }
+            continue;
+        };
         let records: Vec<(Vec<i32>, String)> = b
             .replacements
             .iter()
@@ -886,6 +1083,7 @@ fn main() {
         "policy_digest": policy.digest(), "group": {"elements": grep.elements, "digest": grep.digest},
         "check": check_info, "keys": keys.len(), "summary": summary, "gate": gate,
         "row_expansion_cap": max_row_terms, "composite_max_depth": opts.max_depth, "witness": witness,
+        "tworow": tworow_summary,
         "independent_check": {"method": "image re-derived from the verified group; cited records = first match; composition repeated mod p (2 engine primes x 3 values of d) with the core's certificate backend; shipped coefficients compared",
             "verified": verified, "shipped": accepted.len(), "not_verified": not_verified}});
     let mut seal = Sealer {

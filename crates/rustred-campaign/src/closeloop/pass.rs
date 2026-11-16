@@ -137,6 +137,8 @@ pub struct PassIn {
     /// (record_sha256, key) pairs already given to a second-route fact item.
     pub issued_facts2: BTreeSet<(String, Vec<i32>)>,
     pub second_route: SecondRouteCfg,
+    /// lane wireflow (d), closeloop.md 25: the ship gate of phase D.
+    pub ship_gate: super::config::ShipGateCfg,
     /// closeloop.md 19: the terminal policy and the recorded decisions (ledger order).
     pub terminals: TerminalsCfg,
     pub terminal_decisions: Vec<TerminalDecision>,
@@ -214,6 +216,7 @@ impl PassIn {
             fact2_files: vec![],
             issued_facts2: BTreeSet::new(),
             second_route: SecondRouteCfg::default(),
+            ship_gate: Default::default(),
             terminals: TerminalsCfg::default(),
             terminal_decisions: vec![],
             pins_recorded: None,
@@ -1333,6 +1336,29 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     if !fact_conflicts.is_empty() {
         blocking.push(format!("contradicting_facts:{}", fact_conflicts.len()));
     }
+    // lane wireflow (d), TRICKS 1 gate half, closeloop.md 25: lane pieces' SHIP GATE (streaming descent of every shipped
+    // edge under the full node order + a comparator-free Kahn acyclicity; a first-route zero drops an edge only when
+    // CONFIRMED, audit r2-planners G1; bound to this table set, G2) at a CANDIDATE CLOSE of a Tier C pass. `report`
+    // (default): `final/ship-gate.json`, the verdict unchanged; `enforce`: a failed / refused gate blocks.
+    if inp.ship_gate.mode != "off"
+        && second_route_on
+        && certified == keys
+        && blocking.is_empty()
+    {
+        let v = ship_gate(inp, &set, &ev, res, layer_walked.is_some());
+        if inp.ship_gate.mode == "enforce" && v["passed"] != true {
+            blocking.push(format!(
+                "ship_gate:{}",
+                v["verdict_word"].as_str().unwrap_or("refused")
+            ));
+        }
+        std::fs::create_dir_all(&inp.final_dir)
+            .map_err(|e| format!("{}: {e}", inp.final_dir.display()))?;
+        let mut b = serde_json::to_vec_pretty(&v).expect("json");
+        b.push(b'\n');
+        crate::atomic::write_atomic(&inp.final_dir.join("ship-gate.json"), &b)
+            .map_err(|e| format!("final/ship-gate.json: {e}"))?;
+    }
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
     let defect = if closed { 0 } else { (keys - certified).max(1) };
@@ -2146,6 +2172,52 @@ struct FinalCtx<'a> {
 }
 
 /// Phase D: our statement, the comparison with the hand statement, the open list, the economy numbers, the result.
+/// lane wireflow (d): the ship gate of a decided check (closeloop.md 25). `passed` true only for a `pass` verdict.
+fn ship_gate(
+    inp: &PassIn,
+    set: &ImportedSet,
+    ev: &Evidence,
+    res: &CheckResult,
+    layered: bool,
+) -> Value {
+    use rustred_campaign_core::pieces::gate::{GateConfig, GateVerdict};
+    let mode = inp.ship_gate.mode.clone();
+    if layered {
+        // the layered walk's check is the union of frozen layers (each gated when it froze): not re-gated here
+        return json!({"schema": "rustred.campaign.closeloop-ship-gate.v1", "mode": mode, "passed": true,
+            "verdict_word": "skipped", "skipped": "layered walk: frozen layers are checked at their freeze"});
+    }
+    let spill = inp.rows_path.with_extension("gate.spill");
+    let mut cfg = if inp.ship_gate.disk {
+        let _ = std::fs::create_dir_all(&spill);
+        GateConfig::disk(&spill)
+    } else {
+        GateConfig::memory()
+    };
+    cfg.max_listed = inp.ship_gate.max_listed;
+    let t = std::time::Instant::now();
+    let v = match rustred_campaign_core::pieces::import_edges::gate_check_with(set, ev, ev, res, cfg)
+    {
+        Ok((rep, stats)) => {
+            let word = match &rep.verdict {
+                GateVerdict::Pass => "pass",
+                GateVerdict::Fail { .. } => "fail",
+                GateVerdict::Inconsistent => "inconsistent",
+            };
+            json!({"schema": "rustred.campaign.closeloop-ship-gate.v1", "mode": mode, "passed": rep.verdict.passed(),
+                "verdict_word": word, "spec_digest": res.spec_digest,
+                "table_set_digest": rustred_campaign_core::pieces::import_edges::table_set_digest(set),
+                "report": rep, "shipped": stats, "seconds": t.elapsed().as_secs_f64()})
+        }
+        Err(e) => json!({"schema": "rustred.campaign.closeloop-ship-gate.v1", "mode": mode, "passed": false,
+            "verdict_word": "refused", "error": e, "seconds": t.elapsed().as_secs_f64()}),
+    };
+    if inp.ship_gate.disk {
+        let _ = std::fs::remove_dir(&spill);
+    }
+    v
+}
+
 fn write_final(
     inp: &PassIn,
     set: &ImportedSet,

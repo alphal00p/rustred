@@ -217,6 +217,17 @@ pub fn mixed_shell_offsets(
     lines: &[bool],
     shells: &[String],
 ) -> Result<Vec<Vec<i32>>, String> {
+    mixed_shell_offsets_with(key, lines, shells, false)
+}
+
+/// [`mixed_shell_offsets`] with the UP CENTRES too (lane wireflow (e), TRICKS 13 / 15): each dotted line one step UP
+/// (power + 1) and each off-floor numerator one step UP (raw + 1, towards 0), after the key and the line-down centres.
+pub fn mixed_shell_offsets_with(
+    key: &[i32],
+    lines: &[bool],
+    shells: &[String],
+    up: bool,
+) -> Result<Vec<Vec<i32>>, String> {
     let n = key.len();
     let mut centres: Vec<Vec<i32>> = vec![vec![0; n]];
     for (i, &l) in lines.iter().enumerate() {
@@ -224,6 +235,15 @@ pub fn mixed_shell_offsets(
             let mut c = vec![0; n];
             c[i] = -1;
             centres.push(c);
+        }
+    }
+    if up {
+        for (i, &l) in lines.iter().enumerate() {
+            if (l && key[i] > 1) || (!l && key[i] < 0) {
+                let mut c = vec![0; n];
+                c[i] = 1;
+                centres.push(c);
+            }
         }
     }
     let fams: Vec<(u32, u32)> = shells

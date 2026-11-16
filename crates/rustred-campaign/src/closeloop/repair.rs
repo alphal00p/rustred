@@ -181,6 +181,12 @@ struct FakeGen {
     ms: u64,
     /// face label -> {"rule": {record}} | {"stop": "budget_wall" | "open_obligations" | ...}
     faces: BTreeMap<String, Value>,
+    /// wireflow (a): the fake child's script of the symmetry-composite jobs (None = the real program).
+    #[serde(default)]
+    composite_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
+    /// wireflow (a): the fake child's script of the proof-symrows jobs.
+    #[serde(default)]
+    kernel_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
 }
 
 fn d_fake_program() -> String {
@@ -213,6 +219,8 @@ struct RfNode {
     pass: Option<JoinHandle<Result<P1, String>>>,
     p1: Option<Arc<P1>>,
     fake: Option<FakeGen>,
+    /// wireflow (a): the composite stage (rounds of symmetry-composite + proof-symrows jobs) before P1.
+    comp: super::wire_composite::Stage,
 }
 
 pub struct RepairFlowSource<S: WorkSource> {
@@ -267,6 +275,7 @@ pub fn wrap<S: WorkSource>(
                 pass: None,
                 p1: None,
                 fake: fake.clone(),
+                comp: Default::default(),
             });
         }
     }
@@ -311,6 +320,106 @@ impl<S: WorkSource> RepairFlowSource<S> {
         self.nodes.iter().position(|r| r.cfg.node == it.node)
     }
 
+    /// wireflow (a): the flow node of a composite-stage item (kinds symmetry-composite / proof-symrows).
+    fn stage_node_of_item(&self, st: &CampaignState, item: &str) -> Option<usize> {
+        let it = st.items.get(item)?;
+        if it.kind != super::wire_composite::KIND_COMPOSITE
+            && it.kind != super::wire_composite::KIND_KERNEL
+        {
+            return None;
+        }
+        self.nodes.iter().position(|r| r.cfg.node == it.node)
+    }
+
+    fn stage_fake(&self, i: usize) -> super::wire_composite::FakeOps {
+        match &self.nodes[i].fake {
+            Some(f) => super::wire_composite::FakeOps {
+                composite: f.composite_ops.clone(),
+                kernel: f.kernel_ops.clone(),
+            },
+            None => Default::default(),
+        }
+    }
+
+    /// wireflow (a): the composite stage of node `i` (None = the stage is off for the node; Some(true) = done).
+    fn stage_poll(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        rt: &mut Routing,
+    ) -> Result<Option<bool>, String> {
+        if !self.nodes[i].policy.route0.composite_jobs.enabled {
+            return Ok(None);
+        }
+        let n = self.nodes[i].n.clone();
+        if st.inputs.contains_key(&super::wire_composite::input_done(&n)) {
+            return Ok(Some(true));
+        }
+        let base_text = if st.inputs.contains_key(&input_import_spec(&n)) {
+            let t = String::from_utf8(read_input(st, &input_import_spec(&n))?)
+                .map_err(|e| format!("import spec: {e}"))?;
+            Some(with_route0(&t, &self.nodes[i].policy)?.0)
+        } else {
+            None
+        };
+        let fake = self.stage_fake(i);
+        let mut comp = std::mem::take(&mut self.nodes[i].comp);
+        let r = {
+            let c = super::wire_composite::Ctx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                policy: &self.nodes[i].policy,
+                programs: &self.programs,
+                fake: &fake,
+                base_text: base_text.as_deref(),
+            };
+            comp.poll(st, &c, rt)
+        };
+        self.nodes[i].comp = comp;
+        r.map(Some)
+    }
+
+    fn stage_ready(&mut self, st: &CampaignState, i: usize) -> Vec<JobRequest> {
+        let n = self.nodes[i].n.clone();
+        let fake = self.stage_fake(i);
+        let mut comp = std::mem::take(&mut self.nodes[i].comp);
+        let r = {
+            let c = super::wire_composite::Ctx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                policy: &self.nodes[i].policy,
+                programs: &self.programs,
+                fake: &fake,
+                base_text: None,
+            };
+            comp.ready(st, &c)
+        };
+        self.nodes[i].comp = comp;
+        r
+    }
+
+    fn stage_route(&mut self, st: &CampaignState, i: usize, done: &Settled) -> Result<Routing, String> {
+        let n = self.nodes[i].n.clone();
+        let fake = self.stage_fake(i);
+        let mut comp = std::mem::take(&mut self.nodes[i].comp);
+        let r = {
+            let c = super::wire_composite::Ctx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                policy: &self.nodes[i].policy,
+                programs: &self.programs,
+                fake: &fake,
+                base_text: None,
+            };
+            comp.route(st, &c, done)
+        };
+        self.nodes[i].comp = comp;
+        r
+    }
+
     fn s_items(&self, st: &CampaignState, i: usize) -> Vec<(String, ItemPhase, Vec<String>)> {
         let node = &self.nodes[i].cfg.node;
         st.items
@@ -330,9 +439,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let node = r.cfg.node.clone();
         let threads = r.cfg.check_threads.max(1);
         let rows = self.abs(&format!("{}/check.rows.jsonl", rf_dir(&r.n)));
+        let rounds = super::wire_composite::round_inputs(st, &r.n)?;
         let h = std::thread::Builder::new()
             .name(format!("repairflow-p1-{}", r.n))
-            .spawn(move || p1_pass(&node, &text, &base, &policy, threads, &rows))
+            .spawn(move || p1_pass(&node, &text, &base, &policy, threads, &rows, &rounds))
             .map_err(|e| format!("p1 thread: {e}"))?;
         self.nodes[i].pass = Some(h);
         Ok(())
@@ -603,6 +713,13 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let base_text = String::from_utf8(read_input(st, &input_import_spec(&n))?)
             .map_err(|e| format!("import spec: {e}"))?;
         let (base_text, _) = with_route0(&base_text, &self.nodes[i].policy)?;
+        // wireflow (a): every composite round's relations (re-verified by the import at load)
+        let rounds = super::wire_composite::round_inputs(st, &n)?;
+        let base_text = super::wire_composite::with_round_composites(
+            &base_text,
+            &rounds,
+            self.nodes[i].policy.route0.family.as_deref(),
+        )?;
         let mut v: Value = serde_json::from_str(&base_text).map_err(|e| e.to_string())?;
         let srcs = v
             .get_mut("sources")
@@ -1414,8 +1531,12 @@ fn p1_pass(
     policy: &RepairPolicy,
     threads: usize,
     rows: &Path,
+    rounds: &[(u32, rustred_campaign_core::repairflow::policy::CompositeInput)],
 ) -> Result<P1, String> {
     let (text, route0) = with_route0(text, policy)?;
+    // wireflow (a): the composite rounds' relations (none when the stage is off)
+    let text =
+        super::wire_composite::with_round_composites(&text, rounds, policy.route0.family.as_deref())?;
     let text = text.as_str();
     let spec = TableSetSpec::from_json(text).map_err(|e| format!("import spec: {e}"))?;
     let set = rustred_campaign_core::import::load(&spec, base)
@@ -1738,6 +1859,15 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     fn ready(&mut self, st: &CampaignState, ctx: &SourceContext, limit: usize) -> Vec<JobRequest> {
         let mut out = vec![];
         for i in 0..self.nodes.len() {
+            // wireflow (a): the composite stage's jobs (before P1)
+            if self.nodes[i].policy.route0.composite_jobs.enabled
+                && !st
+                    .inputs
+                    .contains_key(&super::wire_composite::input_done(&self.nodes[i].n))
+            {
+                out.extend(self.stage_ready(st, i));
+                continue;
+            }
             if self.nodes[i].p1.is_none()
                 || st.inputs.contains_key(&input_extension(&self.nodes[i].n))
             {
@@ -1757,7 +1887,11 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                 continue;
             }
             let first = items.iter().map(|(it, _, _)| it.clone()).min();
-            let _ = &n;
+            let rank = if self.nodes[i].policy.pieces.plan {
+                super::wire_composite::piece_rank(st, &n)
+            } else {
+                BTreeMap::new()
+            };
             for (item, ph, jobs) in items {
                 if !answered && Some(&item) != first.as_ref() {
                     continue;
@@ -1776,12 +1910,17 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                 let Some(face) = self.face_of(st, i, &item) else {
                     continue;
                 };
-                let prio = 1_000_000_000
+                let mut prio = 1_000_000_000
                     - st.items
                         .get(&item)
                         .map(|x| x.weight as i64)
                         .unwrap_or(0)
                         .min(1);
+                // wireflow (d): the face jobs in PIECE ORDER of the last round's pieces plan (earlier group first;
+                // faces of one cyclic piece group share a rank); without a plan the order is unchanged
+                if let Some(g) = rank.get(&face.label) {
+                    prio += 1_000_000 - (*g as i64).min(999_999);
+                }
                 match self.job_request(i, &item, job, &face, prio) {
                     Ok(r) => out.push(r),
                     Err(e) => eprintln!("repairflow: no job for {item}: {e}"),
@@ -1800,6 +1939,9 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         ctx: &SourceContext,
         done: &Settled,
     ) -> Result<Routing, String> {
+        if let Some(i) = self.stage_node_of_item(st, &done.item) {
+            return self.stage_route(st, i, done);
+        }
         let Some(i) = self.node_of_item(st, &done.item) else {
             return self.inner.route(st, ctx, done);
         };
@@ -1926,7 +2068,7 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         verb: &str,
         target: &str,
     ) -> Result<Vec<Event>, String> {
-        if self.node_of_item(st, target).is_some() {
+        if self.node_of_item(st, target).is_some() || self.stage_node_of_item(st, target).is_some() {
             return match verb {
                 "retry" | "skip" => Ok(vec![]),
                 v => Err(format!("verb {v} not supported by the repair flow")),
@@ -1972,6 +2114,10 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             if self.nodes[i].p1.is_none() {
                 if self.nodes[i].pass.is_none() {
                     if !st.inputs.contains_key(&input_import_spec(&n)) {
+                        continue;
+                    }
+                    // wireflow (a): the composite rounds come first (their relations enter P1's spec)
+                    if let Some(false) = self.stage_poll(st, i, &mut rt)? {
                         continue;
                     }
                     self.start_p1(st, i)?;
@@ -2036,7 +2182,9 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         ctx: &SourceContext,
         done: &Settled,
     ) -> Result<Option<Vec<Event>>, String> {
-        if self.node_of_item(st, &done.item).is_some() {
+        if self.node_of_item(st, &done.item).is_some()
+            || self.stage_node_of_item(st, &done.item).is_some()
+        {
             return Ok(None);
         }
         self.inner.confirm_coverage(st, ctx, done)

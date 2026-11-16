@@ -82,6 +82,9 @@ pub fn run(spec_path: &Path) -> ! {
         .unwrap_or_default();
     let mut slow_ms = 0;
     let mut forge: Option<Vec<i64>> = None;
+    // wireflow (b): keys whose (plain) relation is shipped as a TWO-ROW form (one row of the element at the key, kind
+    // two_row, not plain): the import then admits it only through a kernel certificate
+    let mut two_row: Vec<Vec<i64>> = vec![];
     let (mut unsealed, mut tamper, mut pin_mismatch) = (false, false, false);
     for op in &ops {
         match op {
@@ -92,6 +95,7 @@ pub fn run(spec_path: &Path) -> ! {
             } => match status.as_deref() {
                 Some("slow") => slow_ms = *ms,
                 Some("forge_coefficient") => forge = key.clone(),
+                Some("two_row") => two_row.extend(key.clone()),
                 Some("unsealed") => unsealed = true,
                 Some("tamper_after_seal") => tamper = true,
                 Some("pin_mismatch") => pin_mismatch = true,
@@ -155,8 +159,20 @@ pub fn run(spec_path: &Path) -> ! {
         max_replacements: ctx.policy.composite.max_replacements,
     };
     let chart = ctx.set.frame.mask_string();
+    // the frame header's family (as the real tool writes it: the import refuses a supplied table of another family)
+    let family = rustred_campaign_core::repairflow::symflow::frame_table_path(&ctx.set)
+        .and_then(|p| {
+            let p = if Path::new(&p).is_absolute() {
+                PathBuf::from(&p)
+            } else {
+                PathBuf::from(req["import_base"].as_str().unwrap_or("/")).join(&p)
+            };
+            rustred_campaign_core::import::lines::read_header("frame", &p).ok()
+        })
+        .map(|h| h.raw["family"].clone())
+        .unwrap_or(json!("fake"));
     let mut table = vec![
-        json!({"type": "header", "schema": "table_dump.v1", "family": "fake", "producer": "rr_fake_child",
+        json!({"type": "header", "schema": "table_dump.v1", "family": family, "producer": "rr_fake_child",
         "kind": "symmetry-composite"})
         .to_string(),
     ];
@@ -196,14 +212,25 @@ pub fn run(spec_path: &Path) -> ! {
                             format!("{}/{}", q1.n, q1.d)
                         });
                     }
+                    let tr = two_row
+                        .iter()
+                        .any(|f| f.iter().map(|&x| x as i32).eq(k.iter().copied()));
+                    let mut vline =
+                        verification_record(&qf, k, b, &ctx.group_digest, "rr_fake_child/core-q");
+                    if tr {
+                        rec["kind"] = json!("symmetry-two_row");
+                        vline["plain"] = json!(false);
+                        vline["kind"] = json!("two_row");
+                        vline["combination"] = json!({"rows": [{"element": b.element, "seed": k}]});
+                    }
                     table.push(rec.to_string());
-                    ver.push(
-                        verification_record(&qf, k, b, &ctx.group_digest, "rr_fake_child/core-q")
-                            .to_string(),
-                    );
+                    ver.push(vline.to_string());
                 }
+                let tr = two_row
+                    .iter()
+                    .any(|f| f.iter().map(|&x| x as i32).eq(k.iter().copied()));
                 json!({"key": k, "face": ch.face, "status": "ok", "best": kc.best().map(|b| json!({
-                    "element": b.element, "terms": b.rhs.len(), "plain": b.is_plain(),
+                    "element": b.element, "terms": b.rhs.len(), "plain": b.is_plain() && !tr,
                     "replacements": b.replacements.len()})), "alternatives": kc.accepted().count()})
             }
         };

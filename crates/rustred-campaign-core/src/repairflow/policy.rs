@@ -23,6 +23,12 @@ pub struct RepairPolicy {
     pub shadow_test: bool,
     pub route0: Route0Policy,
     pub composite: CompositePolicy,
+    /// wireflow (b): the two-row step of the composite tool (default off; omitted from the digest while default).
+    #[serde(skip_serializing_if = "TwoRowStep::is_default")]
+    pub tworow: TwoRowStep,
+    /// wireflow (d): lane pieces' PLANNER on every composite round (default off; omitted from the digest while default).
+    #[serde(skip_serializing_if = "PiecesStep::is_default")]
+    pub pieces: PiecesStep,
     pub regions: RegionsPolicy,
     /// Extra evidence added to every spec the flow composes (typed slot: zero-fact sources of lane zeros2).
     pub evidence: ExtraEvidence,
@@ -43,6 +49,8 @@ impl Default for RepairPolicy {
             shadow_test: true,
             route0: Route0Policy::default(),
             composite: CompositePolicy::default(),
+            tworow: TwoRowStep::default(),
+            pieces: PiecesStep::default(),
             regions: RegionsPolicy::default(),
             evidence: ExtraEvidence::default(),
             faces: FacesPolicy::default(),
@@ -80,6 +88,171 @@ pub struct Route0Policy {
     /// `supplied_relations` source (the import checks descent; the verification is cited) before faces are formed and
     /// shipped first in the extension. Until the contract kind `symmetry-composite` runs the step as a child.
     pub composite_input: Option<CompositeInput>,
+    /// wireflow (a): the composite step run as CHILD JOBS of kind `symmetry-composite` issued by the repair flow itself
+    /// (rounds over the node's uncovered keys before its faces are formed), instead of (or after) a pinned result.
+    /// Default off: omitted from the canonical policy (digest) while off, so existing campaigns are unchanged.
+    #[serde(skip_serializing_if = "CompositeJobs::is_default")]
+    pub composite_jobs: CompositeJobs,
+}
+
+/// wireflow (a), interfaces/repairflow.md 20: the composite step as child jobs. Round k: the import check of the node's
+/// spec with the composites of rounds < k; its UNCOVERED keys not asked before go to ONE `symmetry-composite` job (keys
+/// grouped by face); the relations that pass the supervisor's same-backend filter become the round's
+/// `supplied_relations` source (`rf:symmetry-composite:r<k>`), re-verified by the import at load like any supplied
+/// relation. Rounds stop when no new key is uncovered or after `max_rounds` (rounds = layers: a round's relations reach
+/// new keys, TRICKS 10). With `kernel` set, every accepted relation also gets a `proof-symrows` job (symcert's adapter)
+/// and the certified ones enter the import with their sealed certificate (per-key, closeloop.md 24).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct CompositeJobs {
+    pub enabled: bool,
+    /// Rounds at most. Default 4: the T162 layered walk on D + r <= 10 met new keys in 2 layers and closed at the 3rd
+    /// (notes/implementer.repairflow.md 06:46Z); 4 leaves one round of margin. Not an optimum, a measured bound.
+    pub max_rounds: u32,
+    /// Key of the campaign spec's `programs`: the composite tool (`rr_rf_symflow`).
+    pub program: String,
+    pub threads: u32,
+    pub cap_bytes: u64,
+    pub expected_peak_bytes: u64,
+    /// Wall cap of one round's job (s). The tool is a LEGACY child (no heartbeat events): the supervisor's silence
+    /// timeout (3 hb + 5 s) is this cap (hb = (wall_s - 5) / 3, as the closing loop's proof jobs). Default 14400:
+    /// a bound, not a measurement (T162 D + r <= 10, 2,624 keys: 4 min on 2 threads, notes/implementer.repairflow.md).
+    pub wall_s: u64,
+    /// Attempts of one round's job after a resource end (signal, OOM, host errno) before the item needs the operator.
+    pub max_attempts: u32,
+    /// The kernel route (second route of every relation; the only route of two-row forms, audit F8). None = the
+    /// same-backend route alone (level `imported`).
+    pub kernel: Option<KernelJobs>,
+}
+
+impl Default for CompositeJobs {
+    fn default() -> Self {
+        CompositeJobs {
+            enabled: false,
+            max_rounds: 4,
+            program: "rr_rf_symflow".into(),
+            threads: 1,
+            cap_bytes: 16 << 30,
+            expected_peak_bytes: 4 << 30,
+            wall_s: 14_400,
+            max_attempts: 2,
+            kernel: None,
+        }
+    }
+}
+
+impl CompositeJobs {
+    pub fn is_default(&self) -> bool {
+        *self == CompositeJobs::default()
+    }
+    /// The heartbeat value whose silence timeout (3 hb + 5 s) is the wall cap.
+    pub fn heartbeat_s(&self) -> u32 {
+        (self.wall_s.saturating_sub(5) / 3).clamp(1, u32::MAX as u64) as u32
+    }
+}
+
+/// The proof kernel of the composite rounds (`rr_proof --symrows`, contract kind `proof-symrows`; interfaces/
+/// proof-symrows-job.md): ONE job per accepted relation. Availability of the kernel route = this configuration
+/// (closeloop.md 24.9): the program key and its SHA-256 (the import's `kernel_certificates.kernels` allow-list entry);
+/// a file at the program's path with another SHA-256 is NO kernel (the round records the reason, same-backend only).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KernelJobs {
+    /// Key of the campaign spec's `programs`.
+    pub program: String,
+    /// SHA-256 of the kernel binary (hex).
+    pub sha256: String,
+    /// The kernel's capacities (DATA of the binary; None = no limit stated).
+    #[serde(default)]
+    pub max_rows: Option<usize>,
+    #[serde(default)]
+    pub max_seeds: Option<usize>,
+    #[serde(default)]
+    pub max_primes: Option<u32>,
+    /// Zero-sector census written into every relation table: `frame` (the frame table's `zero_sectors` record, as
+    /// symcert's call sites) or `none`.
+    #[serde(default = "d_census")]
+    pub census: String,
+    /// Also certify PLAIN relations (one element, no catalogue rule). Default false: the import re-derives a plain
+    /// relation exactly from its OWN verified group at load (route (a), per-key, import.md 21), so the kernel adds a
+    /// third check at one job per relation; composites (same-backend only otherwise) and two-row forms (kernel only)
+    /// are always put to the kernel.
+    #[serde(default)]
+    pub plain: bool,
+    #[serde(default = "d_kernel_cap")]
+    pub cap_bytes: u64,
+    #[serde(default = "d_kernel_peak")]
+    pub expected_peak_bytes: u64,
+    /// Wall cap of one kernel job (s; legacy child: silence timeout = this cap). Default 1800: a bound; measured
+    /// 0.07-3.7 s per relation on T162 / T178 (notes/implementer.symcert.md).
+    #[serde(default = "d_kernel_wall")]
+    pub wall_s: u64,
+}
+
+impl KernelJobs {
+    /// The heartbeat value whose silence timeout (3 hb + 5 s) is the wall cap.
+    pub fn heartbeat_s(&self) -> u32 {
+        (self.wall_s.saturating_sub(5) / 3).clamp(1, u32::MAX as u64) as u32
+    }
+}
+
+fn d_census() -> String {
+    "frame".into()
+}
+fn d_kernel_cap() -> u64 {
+    4 << 30
+}
+fn d_kernel_peak() -> u64 {
+    1 << 30
+}
+fn d_kernel_wall() -> u64 {
+    1800
+}
+
+/// wireflow (b), TRICKS 8 / 1x8: the TWO-ROW step of the composite tool (lane tworow's `two_row_relations` at the keys
+/// with no single-element choice, then the composite with one catalogue rule on the near misses). Two-row forms enter
+/// the import ONLY through a kernel certificate (audit F8, import.md 21 (b)). Default off (omitted from the digest).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct TwoRowStep {
+    pub enabled: bool,
+    pub policy: crate::tworow::TwoRowPolicy,
+}
+
+/// wireflow (d), TRICKS 4: lane pieces' PLANNER (`pieces::plan`) on every composite round: one chosen service per key of
+/// the round (all faces together; candidates = the tool's per-key record of all acceptable choices, `KeyChoices`), the
+/// three pieces per face, per-KEY acyclicity, the piece order (coupled faces = one cyclic piece group) and the keys left
+/// to the IBP core. The plan is bound to the table set (`check_plan_table_set`, audit G2) and recorded with the round;
+/// the face jobs of P1 are then issued in piece order (earlier group first). A record and an order, never a condition
+/// of serving a key (the import and the closing loop judge every relation).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct PiecesStep {
+    pub plan: bool,
+    pub ranking: crate::pieces::plan::Ranking,
+    pub options: crate::pieces::keychoices::KeyChoicesOptions,
+}
+
+impl Default for PiecesStep {
+    fn default() -> Self {
+        PiecesStep {
+            plan: false,
+            ranking: Default::default(),
+            options: Default::default(),
+        }
+    }
+}
+
+impl PiecesStep {
+    pub fn is_default(&self) -> bool {
+        *self == PiecesStep::default()
+    }
+}
+
+impl TwoRowStep {
+    pub fn is_default(&self) -> bool {
+        *self == TwoRowStep::default()
+    }
 }
 
 /// A pinned symmetry-composite result (`route0.composite_input`). The import RE-VERIFIES every relation at load
@@ -112,6 +285,7 @@ impl Default for Route0Policy {
             max_keys: 1_000_000,
             max_terms: 65_536,
             composite_input: None,
+            composite_jobs: CompositeJobs::default(),
         }
     }
 }
@@ -740,11 +914,41 @@ impl RepairPolicy {
         if self.composite.max_depth > 8 {
             return Err("repair policy: composite.max_depth must be <= 8".into());
         }
+        let cj = &self.route0.composite_jobs;
+        if cj.enabled && (cj.max_rounds == 0 || cj.max_attempts == 0 || cj.program.is_empty()) {
+            return Err(
+                "repair policy: route0.composite_jobs needs max_rounds >= 1, max_attempts >= 1 and a program".into(),
+            );
+        }
+        if let Some(k) = &cj.kernel {
+            if k.sha256.len() != 64 || !k.sha256.bytes().all(|c| c.is_ascii_hexdigit()) {
+                return Err(
+                    "repair policy: route0.composite_jobs.kernel.sha256 must be 64 hex digits".into(),
+                );
+            }
+            if !matches!(k.census.as_str(), "frame" | "none") {
+                return Err(format!(
+                    "repair policy: route0.composite_jobs.kernel.census {:?} unknown (frame | none)",
+                    k.census
+                ));
+            }
+        }
+        if self.tworow.enabled && !cj.enabled && self.route0.composite_input.is_none() {
+            return Err(
+                "repair policy: tworow.enabled needs route0.composite_jobs (the step runs inside the composite job)"
+                    .into(),
+            );
+        }
         if self.symbolic.wall_case_s == 0 {
             return Err("repair policy: symbolic.wall_case_s must be > 0".into());
         }
         for s in &self.recipes.escalation {
             if s == super::recipes::MIXED_SHELL {
+                continue;
+            }
+            // lane wireflow (e): the mixed-shell variants mixed_shell[@up][+SHELL]*
+            if let Some(v) = super::recipes::mixed_shell_variant(s) {
+                v.map_err(|e| format!("repair policy: recipes.escalation: {e}"))?;
                 continue;
             }
             crate::import::recipe_steps::parse_step(s)

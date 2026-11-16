@@ -508,7 +508,16 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
             .iter()
             .map(|r| r["record_sha256"].as_str().unwrap_or_default().to_string())
             .collect();
-        if plain != records.is_empty() {
+        // wireflow (b): a TWO-ROW form (verification `kind` = `two_row`) is a combination of symmetry rows without
+        // catalogue rules: not plain, no replacements; it enters the import only through a kernel certificate (F8).
+        // `two_row_composite` (a near miss closed by catalogue rules) has replacements like any composite.
+        let two_row = vv["kind"] == "two_row";
+        if two_row && (plain || !records.is_empty()) {
+            return Err(at(
+                "a two_row relation must be non-plain without replacements".into(),
+            ));
+        }
+        if !two_row && plain != records.is_empty() {
             return Err(at(
                 "a plain relation with replacements or a composite without".into(),
             ));

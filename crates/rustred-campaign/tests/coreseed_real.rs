@@ -444,6 +444,7 @@ fn export_face_relations() {
         max_trace_rows: None,
         key_budget_s: None,
         pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
+        pole_profiles: false,
     };
     let kt = |k: &[i32]| {
         format!(
