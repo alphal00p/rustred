@@ -1,6 +1,7 @@
-//! Coordinator decision C (COORDINATOR-ANSWERS-20261116-1.md), implemented by lane parametric: a rule record's `domain`
-//! member (bounds on the case variables) is BINDING for dispatch; `source_rows`, `verification` and `case_note` are
-//! informational. Contradictions and unknown forms refuse the record; unknown members still refuse.
+//! Coordinator decision C as answered by the engine lane (COORDINATOR-ANSWERS-20261116-1.md), implemented by lane
+//! parametric: a rule record's `domain` member is INFORMATIONAL for dispatch (the engine dispatches by case +
+//! domain_bounds + exceptions) but must be IMPLIED by those members, else the record is refused; `source_rows`,
+//! `verification` and `case_note` are informational; unknown members still refuse.
 
 use std::path::{Path, PathBuf};
 
@@ -56,52 +57,38 @@ fn served(d: &Dispatcher, k: &[i32]) -> bool {
 }
 
 #[test]
-fn domain_is_binding_and_informational_members_are_read() {
-    let dir = scratch("bind");
-    // n3 <= -1 (numerator) and n0 >= 2 (line); provenance members alongside
+fn an_implied_domain_is_accepted_and_changes_nothing() {
+    let dir = scratch("implied");
+    // n3 <= -1 implied by the exception branch n3 (= 0 excluded); n0 >= 2 implied by domain_bounds min 2
     let r = rule(
         0,
         "[null,1,null,null]",
         "I(n0,1,n2,n3)",
-        r#","domain":{"n3":"<= -1","n0":">= 2"},"source_rows":[["I(n0,1,n2,n3)","symmetry"]],"verification":"x","case_note":"y""#,
+        r#","exceptions":[["n3"]],"domain_bounds":{"min":[2,null,null,null]},"domain":{"n3":"<= -1","n0":">= 2"},"source_rows":[["I(n0,1,n2,n3)","symmetry"]],"verification":"x","case_note":"y""#,
     );
+    let r = r.replacen(r#""exceptions":[],"#, "", 1);
     let d = load(&table(&dir, "a.jsonl", &[r])).unwrap();
-    assert!(served(&d, &[2, 1, 0, -1]));
-    assert!(served(&d, &[5, 1, -3, -4]));
-    assert!(!served(&d, &[2, 1, 0, 0]), "n3 = 0 is outside the domain");
-    assert!(!served(&d, &[1, 1, 0, -1]), "n0 = 1 is outside the domain");
-    // without the member the record serves those keys: the member is what restricts
-    let r2 = rule(0, "[null,1,null,null]", "I(n0,1,n2,n3)", "");
-    let d2 = load(&table(&dir, "b.jsonl", &[r2])).unwrap();
-    assert!(served(&d2, &[2, 1, 0, 0]) && served(&d2, &[1, 1, 0, -1]));
-    // it merges with an existing domain_bounds (intersection)
-    let r3 = rule(
+    assert!(served(&d, &[2, 1, 0, -1]) && served(&d, &[5, 1, -3, -4]));
+    assert!(!served(&d, &[2, 1, 0, 0]) && !served(&d, &[1, 1, 0, -1]));
+    // a domain on a fixed slot it agrees with
+    let r2 = rule(
         0,
         "[null,1,null,null]",
         "I(n0,1,n2,n3)",
-        r#","domain_bounds":{"min":[3,null,null,null],"max":null},"domain":{"n3":"<= -1"}"#,
+        r#","domain":{"n1":"<= 1"}"#,
     );
-    let d3 = load(&table(&dir, "c.jsonl", &[r3])).unwrap();
-    assert!(
-        !served(&d3, &[2, 1, 0, -1]) && served(&d3, &[3, 1, 0, -1]) && !served(&d3, &[3, 1, 0, 0])
-    );
+    assert!(load(&table(&dir, "b.jsonl", &[r2])).is_ok());
 }
 
 #[test]
-fn contradictions_and_unknown_forms_refuse() {
+fn a_disagreeing_domain_and_unknown_forms_refuse() {
     let dir = scratch("refuse");
     let cases = [
-        // fixed slot n1 = 1 contradicts n1 >= 2
-        (r#","domain":{"n1":">= 2"}"#, "fixed"),
-        // a line bounded <= 0
-        (r#","domain":{"n0":"<= 0"}"#, "chart"),
-        // a numerator bounded >= 1
-        (r#","domain":{"n2":">= 1"}"#, "chart"),
-        // empty with domain_bounds
-        (
-            r#","domain_bounds":{"min":[3,null,null,null]},"domain":{"n0":"<= 2"}"#,
-            "empty",
-        ),
+        // the record serves n3 = 0, the member says n3 <= -1 (the facegen case)
+        (r#","domain":{"n3":"<= -1"}"#, "not implied"),
+        (r#","domain":{"n0":">= 2"}"#, "not implied"),
+        // fixed slot n1 = 1 against n1 >= 2
+        (r#","domain":{"n1":">= 2"}"#, "not implied"),
         // other forms, variables, values
         (r#","domain":{"n3":"< -1"}"#, "neither"),
         (r#","domain":{"n3":"== -1"}"#, "neither"),
@@ -115,7 +102,7 @@ fn contradictions_and_unknown_forms_refuse() {
         let e = load(&table(&dir, &format!("r{i}.jsonl"), &[r]))
             .err()
             .expect("refused");
-        assert!(e.contains(why) || e.contains("domain"), "case {i}: {e}");
+        assert!(e.contains(why), "case {i}: {e}");
     }
     // an unknown member still refuses
     let r = rule(

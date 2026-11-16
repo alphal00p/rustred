@@ -353,8 +353,9 @@ pub const RULE_MEMBERS_READ: &[&str] = &[
     "witness_loci",
     "recenter",
     "domain_bounds",
-    // lane parametric (coordinator decision C, COORDINATOR-ANSWERS-20261116-1.md): BINDING for dispatch; read as bounds on
-    // the case variables, merged into `domain_bounds` ([`merge_domain_member`])
+    // lane parametric (decision C as answered by the engine lane, COORDINATOR-ANSWERS-20261116-1.md): INFORMATIONAL for
+    // dispatch (the engine dispatches by case + domain_bounds + exceptions) but CHECKED: it must be implied by those
+    // members, else the record is refused ([`check_domain_member`])
     "domain",
 ];
 
@@ -408,29 +409,54 @@ pub const RULE_MEMBERS_INFORMATIONAL: &[&str] = &[
     "case_note",
 ];
 
-/// A rule record's `domain` member (lane parametric, coordinator decision C: BINDING for dispatch): an object
+/// A rule record's `domain` member (lane parametric; coordinator decision C as answered by the engine lane): an object
 /// `{"n<p>": "<= v" | ">= v", ..}` of inclusive bounds on the case variables `n_p` (the parameters of the target pattern).
-/// Merged into the record's `domain_bounds` (min / max of the same variables, the engine-readable form whose meaning is
-/// [`crate::domain::bound_branches`]). REFUSED (format error, never ignored): another value form, a variable outside the
-/// arity, a bound contradicting the record's fixed value of that slot, its chart side (a line `<= 0`, a numerator `>= 1`),
-/// or an existing `domain_bounds` entry (empty interval).
-pub fn merge_domain_member(
+/// The engine dispatches a RULE record by its case (fixed slots, equations), `domain_bounds` and exceptions only, so the
+/// member is INFORMATIONAL, and it must AGREE: every bound it states must be IMPLIED by the record's own members (the
+/// fixed value of the slot, its chart side, `domain_bounds` min / max, and one-slot exception branches that exclude single
+/// values at the ends of the slot's range). `Ok(())` = implied; `Err` = another value form, a variable outside the arity,
+/// or a bound the record's members do not imply (refuse: the writer's intent and the shipped behaviour differ).
+pub fn check_domain_member(
     v: &Value,
     fixed: &[Option<i64>],
     chart: Option<&[bool]>,
-    existing: Option<DomainBounds>,
-) -> Result<DomainBounds, String> {
+    bounds: Option<&DomainBounds>,
+    exceptions: &[Vec<String>],
+) -> Result<(), String> {
     let n = fixed.len();
     let o = v
         .as_object()
         .ok_or_else(|| format!("domain is not an object: {v}"))?;
-    let mut db = existing.unwrap_or(DomainBounds {
-        min: vec![None; n],
-        max: vec![None; n],
-    });
-    if db.min.len() != n || db.max.len() != n {
-        return Err("domain_bounds of another arity than the record".into());
-    }
+    // single values excluded by a one-member exception branch `a*n_p + c` (linear, one slot, integer root)
+    let excluded = |p: usize| -> Vec<i64> {
+        let mut out = Vec::new();
+        for b in exceptions {
+            if b.len() != 1 {
+                continue;
+            }
+            if let Ok(poly) = crate::poly::Poly::parse_d_free_exact(&b[0], n)
+                && poly.support() == vec![p]
+                && poly.degree() == 1
+                && let Some(t) = poly.small_terms()
+            {
+                let (mut a, mut c) = (0i128, 0i128);
+                for (m, k) in t {
+                    if m.is_empty() {
+                        c = *k;
+                    } else {
+                        a = *k;
+                    }
+                }
+                if a != 0
+                    && c % a == 0
+                    && let Ok(r) = i64::try_from(-c / a)
+                {
+                    out.push(r);
+                }
+            }
+        }
+        out
+    };
     for (k, c) in o {
         let p: usize = k
             .strip_prefix('n')
@@ -459,35 +485,51 @@ pub fn merge_domain_member(
             .trim()
             .parse()
             .map_err(|_| format!("domain.{k}: {t:?}: the bound is not an integer"))?;
-        if let Some(Some(f)) = fixed.get(p)
-            && ((upper && *f > val) || (!upper && *f < val))
-        {
-            return Err(format!(
-                "domain.{k} {t:?} contradicts the record's fixed value {f}"
-            ));
+        // the slot's allowed range from the record's own members
+        let (mut lo, mut hi): (Option<i64>, Option<i64>) = match fixed.get(p).copied().flatten() {
+            Some(f) => (Some(f), Some(f)),
+            None => match chart.and_then(|ch| ch.get(p).copied()) {
+                Some(true) => (Some(1), None),
+                Some(false) => (None, Some(0)),
+                None => (None, None),
+            },
+        };
+        if let Some(b) = bounds {
+            if let Some(Some(m)) = b.min.get(p) {
+                lo = Some(lo.map_or(*m, |l| l.max(*m)));
+            }
+            if let Some(Some(m)) = b.max.get(p) {
+                hi = Some(hi.map_or(*m, |h| h.min(*m)));
+            }
         }
-        if let Some(ch) = chart
-            && let Some(&line) = ch.get(p)
-            && ((line && upper && val < 1) || (!line && !upper && val > 0))
+        let ex = excluded(p);
+        // shrink the finite ends past excluded single values
+        while let Some(l) = lo
+            && ex.contains(&l)
+            && hi.is_none_or(|h| l <= h)
         {
-            return Err(format!(
-                "domain.{k} {t:?} contradicts the chart side of the slot"
-            ));
+            lo = Some(l + 1);
         }
-        if upper {
-            db.max[p] = Some(db.max[p].map_or(val, |m| m.min(val)));
+        while let Some(h) = hi
+            && ex.contains(&h)
+            && lo.is_none_or(|l| l <= h)
+        {
+            hi = Some(h - 1);
+        }
+        let implied = if upper {
+            hi.is_some_and(|h| h <= val) || matches!((lo, hi), (Some(l), Some(h)) if l > h)
         } else {
-            db.min[p] = Some(db.min[p].map_or(val, |m| m.max(val)));
-        }
-        if let (Some(lo), Some(hi)) = (db.min[p], db.max[p])
-            && lo > hi
-        {
+            lo.is_some_and(|l| l >= val) || matches!((lo, hi), (Some(l), Some(h)) if l > h)
+        };
+        if !implied {
             return Err(format!(
-                "domain.{k} {t:?} contradicts the record's bounds (empty: {lo} .. {hi})"
+                "domain.{k} {t:?} is not implied by the record's case / domain_bounds / exceptions (slot range {} .. {}): the member disagrees with what the engine dispatches",
+                lo.map_or("-inf".into(), |l| l.to_string()),
+                hi.map_or("inf".into(), |h| h.to_string())
             ));
         }
     }
-    Ok(db)
+    Ok(())
 }
 
 /// Is `name` a member of [`RULE_RECORD_MEMBERS`]?
@@ -929,8 +971,9 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
             r.domain_bounds = Some(DomainBounds::from_value(&v, r.fixed.len()).map_err(fmt)?);
         }
     }
-    // lane parametric (decision C): `domain` = bounds on the case variables, BINDING; merged into `domain_bounds` after a
-    // consistency check (a contradiction with a fixed slot, the chart side or an existing bound refuses the record)
+    // lane parametric (decision C, engine lane's answer): `domain` is informational for dispatch but must be IMPLIED by
+    // the record's own case / bounds / exceptions; a disagreement refuses the record (the writer's intent and the shipped
+    // behaviour would differ)
     if let Some(b) = get("domain") {
         let v: Value = de(b, "domain", line)?;
         if !v.is_null() {
@@ -938,10 +981,14 @@ fn parse_line(buf: &[u8], line: usize, opts: ReadOptions) -> Result<TableLine, R
                 .chart
                 .as_deref()
                 .map(|c| c.chars().map(|x| x == '1').collect());
-            r.domain_bounds = Some(
-                merge_domain_member(&v, &r.fixed, chart.as_deref(), r.domain_bounds.take())
-                    .map_err(fmt)?,
-            );
+            check_domain_member(
+                &v,
+                &r.fixed,
+                chart.as_deref(),
+                r.domain_bounds.as_ref(),
+                &r.exceptions,
+            )
+            .map_err(fmt)?;
         }
     }
     r.unknown_members = fields
