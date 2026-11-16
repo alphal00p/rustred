@@ -549,6 +549,268 @@ fn parse_key(text: &str, arity: usize) -> Result<Vec<(bool, i64)>, PError> {
         .collect()
 }
 
+/// One slot of a slot-permuted alias key: an integer, or the index of ANOTHER (or the same) slot plus an offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AliasSlot {
+    Fixed(i64),
+    Index { slot: usize, offset: i64 },
+}
+
+/// [`parse_key`] without the slot-index restriction: slot `i` may read `n<j>+k` for any `j`.
+fn parse_key_any(text: &str, arity: usize) -> Result<Vec<AliasSlot>, PError> {
+    let inner = text
+        .strip_prefix("I(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .ok_or_else(|| malformed(format!("key {text:?}")))?;
+    let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+    if parts.len() != arity {
+        return Err(malformed(format!(
+            "key {text:?} has {} slots, not {arity}",
+            parts.len()
+        )));
+    }
+    parts
+        .iter()
+        .map(|part| match part.strip_prefix('n') {
+            Some(rest) => {
+                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                let slot: usize = rest[..digits]
+                    .parse()
+                    .map_err(|_| malformed(format!("key {text:?}")))?;
+                if slot >= arity {
+                    return Err(malformed(format!("key {text:?} names n{slot}")));
+                }
+                let offset = match &rest[digits..] {
+                    "" => 0,
+                    other => other
+                        .strip_prefix('+')
+                        .unwrap_or(other)
+                        .parse::<i64>()
+                        .map_err(|_| malformed(format!("key {text:?}")))?,
+                };
+                Ok(AliasSlot::Index { slot, offset })
+            }
+            None => Ok(AliasSlot::Fixed(
+                part.parse::<i64>()
+                    .map_err(|_| malformed(format!("key {text:?}")))?,
+            )),
+        })
+        .collect()
+}
+
+/// A SLOT-PERMUTED ALIAS rule (T178 unboxed F3 / F4: `I(key) = c * I(image)`, the image's slots read the key's
+/// indices in another order, a pure slot permutation of the face): kept beside the payload's rules (the shift-based
+/// rule format cannot hold a permuted right-hand side) and dispatched by the Custom owner AFTER its ordinary rules,
+/// which is exactly the table's first match because the import proves every LATER rule of the chart disjoint from
+/// the alias's domain. Everything in presentation slots; `fixed` / `min` / `max` bound the key's powers (the target is
+/// canonical), `child[s]` gives slot `s` of the image; `coefficient` carries the import's sign convention.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlotAliasRecord {
+    /// The rule's index in the table (its first-match position).
+    pub index: usize,
+    pub chart: Vec<bool>,
+    pub fixed: Vec<Option<i64>>,
+    pub min: Vec<Option<i64>>,
+    pub max: Vec<Option<i64>>,
+    pub child: Vec<AliasSlot>,
+    pub coefficient: i64,
+}
+
+impl SlotAliasRecord {
+    /// The image of `powers` (presentation slots) when the alias applies to it (chart, fixed values, bounds), else
+    /// `None`.
+    pub fn image(&self, powers: &[i64]) -> Option<Vec<i64>> {
+        if powers.len() != self.chart.len() {
+            return None;
+        }
+        for (slot, &power) in powers.iter().enumerate() {
+            if (power > 0) != self.chart[slot]
+                || self.fixed[slot].is_some_and(|value| value != power)
+                || self.min[slot].is_some_and(|value| power < value)
+                || self.max[slot].is_some_and(|value| power > value)
+            {
+                return None;
+            }
+        }
+        Some(
+            self.child
+                .iter()
+                .map(|slot| match *slot {
+                    AliasSlot::Fixed(value) => value,
+                    AliasSlot::Index { slot, offset } => powers[slot] + offset,
+                })
+                .collect(),
+        )
+    }
+
+    /// Whether a rule with `fixed` and bounds `min` / `max` on the same chart may match a key of this alias's domain
+    /// (conservative: only fixed values and bounds are compared; a rule's equations / exceptions are ignored).
+    fn may_overlap(&self, fixed: &[Option<i64>], min: &[Option<i64>], max: &[Option<i64>]) -> bool {
+        (0..self.chart.len()).all(|slot| {
+            let low = self.min[slot].max(min[slot]);
+            let high = match (self.max[slot], max[slot]) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+            let inside = |value: i64| {
+                low.is_none_or(|low| value >= low) && high.is_none_or(|high| value <= high)
+            };
+            match (self.fixed[slot], fixed[slot]) {
+                (Some(a), Some(b)) => a == b && inside(a),
+                (Some(a), None) | (None, Some(a)) => inside(a),
+                (None, None) => match (low, high) {
+                    (Some(low), Some(high)) => low <= high,
+                    _ => true,
+                },
+            }
+        })
+    }
+}
+
+/// The slot-permuted alias records of a payload are one provenance line after this marker (JSON array of
+/// [`SlotAliasRecord`]), before the slot order.
+pub const SLOT_ALIASES_MARKER: &str = "\nslot_aliases ";
+
+/// The slot-permuted alias records of a payload's provenance text (empty if none).
+pub fn slot_aliases_of_source(family_source: &str) -> Result<Vec<SlotAliasRecord>, PError> {
+    let Some(at) = family_source.find(SLOT_ALIASES_MARKER) else {
+        return Ok(Vec::new());
+    };
+    let text = &family_source[at + SLOT_ALIASES_MARKER.len()..];
+    let text = text.split('\n').next().unwrap_or("");
+    serde_json::from_str(text).map_err(|error| malformed(format!("slot alias records: {error}")))
+}
+
+/// The [`SlotAliasRecord`] of a rule record whose right-hand side permutes the key's slots (table slots in,
+/// presentation slots out); typed `slot_alias` gap for anything but the alias form.
+#[allow(clippy::too_many_arguments)]
+fn slot_alias_record(
+    record: &Value,
+    index: usize,
+    chart: &[bool],
+    fixed: &[Option<i64>],
+    min: &[Option<i64>],
+    max: &[Option<i64>],
+    arity: usize,
+    slot_map: &[usize],
+) -> Result<SlotAliasRecord, PError> {
+    let refuse = |detail: &str| gap("slot_alias", format!("rule {index}: {detail}"));
+    let rhs = record["rhs"]
+        .as_array()
+        .ok_or_else(|| malformed("rule rhs"))?;
+    if rhs.len() != 1 {
+        return Err(refuse(
+            "a slot-permuted rule must have exactly one right-hand-side term",
+        ));
+    }
+    if !str_field(record, "case")?.starts_with("Coordinate(")
+        || !record["equations"].as_array().is_some_and(Vec::is_empty)
+        || !record["exceptions"].as_array().is_some_and(Vec::is_empty)
+        || !matches!(record["dispatch"].as_str(), None | Some("Partition"))
+    {
+        return Err(refuse(
+            "a slot-permuted rule must be a coordinate case without equations or exceptions, Partition",
+        ));
+    }
+    let target = parse_key(str_field(record, "target")?, arity)?;
+    if target
+        .iter()
+        .any(|&(symbolic, offset)| symbolic && offset != 0)
+    {
+        return Err(refuse(
+            "the target of a slot-permuted rule must be canonical (n<i> in slot i)",
+        ));
+    }
+    for (slot, &(symbolic, value)) in target.iter().enumerate() {
+        if symbolic == fixed[slot].is_some() || fixed[slot].is_some_and(|f| f != value) {
+            return Err(refuse("fixed values and target disagree"));
+        }
+    }
+    let pair = rhs[0]
+        .as_array()
+        .filter(|pair| pair.len() == 2)
+        .ok_or_else(|| malformed("rhs term"))?;
+    let child = parse_key_any(pair[0].as_str().ok_or_else(|| malformed("rhs key"))?, arity)?;
+    let mut used = vec![0usize; arity];
+    for part in &child {
+        if let AliasSlot::Index { slot, .. } = *part {
+            if !target[slot].0 {
+                return Err(refuse("the image names the index of a fixed slot"));
+            }
+            used[slot] += 1;
+        }
+    }
+    if (0..arity).any(|slot| target[slot].0 && used[slot] != 1) {
+        return Err(refuse(
+            "every index of the target must occur exactly once in the image",
+        ));
+    }
+    let coefficient_text = pair[1]
+        .as_str()
+        .ok_or_else(|| malformed("rhs coefficient"))?
+        .trim();
+    let mut coefficient: i64 = coefficient_text
+        .parse()
+        .map_err(|_| refuse("a slot-permuted rule needs an integer coefficient"))?;
+    // the import's sign convention (as for every term): the weights' parity; the indices cancel (each once)
+    let target_weight: i64 = target.iter().map(|&(_, value)| value).sum();
+    let child_weight: i64 = child
+        .iter()
+        .map(|part| match *part {
+            AliasSlot::Fixed(value) => value,
+            AliasSlot::Index { offset, .. } => offset,
+        })
+        .sum();
+    if (target_weight - child_weight).rem_euclid(2) == 1 {
+        coefficient = -coefficient;
+    }
+    let mut child_presented = vec![AliasSlot::Fixed(0); arity];
+    for (slot, part) in child.iter().enumerate() {
+        child_presented[slot_map[slot]] = match *part {
+            AliasSlot::Fixed(value) => AliasSlot::Fixed(value),
+            AliasSlot::Index { slot: from, offset } => AliasSlot::Index {
+                slot: slot_map[from],
+                offset,
+            },
+        };
+    }
+    Ok(SlotAliasRecord {
+        index,
+        chart: permuted(chart, slot_map),
+        fixed: permuted(fixed, slot_map),
+        min: permuted(min, slot_map),
+        max: permuted(max, slot_map),
+        child: child_presented,
+        coefficient,
+    })
+}
+
+/// `domain_bounds` of a rule record as (min, max) per table slot (absent = unbounded).
+fn bounds_of_record(
+    record: &Value,
+    arity: usize,
+) -> Result<(Vec<Option<i64>>, Vec<Option<i64>>), PError> {
+    let side = |name: &str| -> Result<Vec<Option<i64>>, PError> {
+        match record.get("domain_bounds").and_then(|b| b.get(name)) {
+            None | Some(Value::Null) => Ok(vec![None; arity]),
+            Some(Value::Array(values)) if values.len() == arity => values
+                .iter()
+                .map(|v| {
+                    if v.is_null() {
+                        Ok(None)
+                    } else {
+                        v.as_i64()
+                            .map(Some)
+                            .ok_or_else(|| malformed("domain_bounds value"))
+                    }
+                })
+                .collect(),
+            Some(_) => Err(malformed("domain_bounds arity")),
+        }
+    };
+    Ok((side("min")?, side("max")?))
+}
+
 fn small(value: i64, what: &str) -> Result<i16, PError> {
     i16::try_from(value).map_err(|_| gap("range", format!("{what} {value} outside i16")))
 }
@@ -2352,6 +2614,8 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     };
     let mut dispatch = Vec::new();
     let (mut rules, mut rhs_terms, mut negated, mut affine_rules, mut excepted) = (0, 0, 0, 0, 0);
+    // slot-permuted alias rules (SlotAliasRecord): per chart, kept in table order beside the payload's rules
+    let mut slot_aliases: Vec<Vec<SlotAliasRecord>> = vec![Vec::new(); charts.len()];
     let mut end: Option<Value> = None;
     while let Some(record) = records.next()? {
         let record = &record;
@@ -2378,11 +2642,65 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                 let index = record["index"]
                     .as_u64()
                     .ok_or_else(|| malformed("rule index"))? as usize;
-                if index != sectors[sector].rules {
+                if index != sectors[sector].rules + slot_aliases[sector].len() {
                     return Err(malformed(format!(
                         "rule {index} of chart {} out of order",
                         charts[sector]
                     )));
+                }
+                // a slot-permuted alias rule (rhs key slots naming other slots' indices) is kept as a SlotAliasRecord
+                let rhs_values = record["rhs"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule rhs"))?;
+                let permuted_rhs = rhs_values.iter().any(|term| {
+                    term.get(0).and_then(Value::as_str).is_some_and(|text| {
+                        parse_key_any(text, arity).is_ok_and(|key| {
+                            key.iter().enumerate().any(|(slot, part)| {
+                                matches!(part, AliasSlot::Index { slot: other, .. } if *other != slot)
+                            })
+                        })
+                    })
+                });
+                let (rule_min, rule_max) = bounds_of_record(record, arity)?;
+                let rule_fixed: Vec<Option<i64>> = record["fixed"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule fixed"))?
+                    .iter()
+                    .map(Value::as_i64)
+                    .collect();
+                if rule_fixed.len() != arity {
+                    return Err(malformed("rule fixed arity"));
+                }
+                if permuted_rhs {
+                    let alias = slot_alias_record(
+                        record,
+                        index,
+                        &mask_bits(&charts[sector])?,
+                        &rule_fixed,
+                        &rule_min,
+                        &rule_max,
+                        arity,
+                        &slot_map,
+                    )?;
+                    slot_aliases[sector].push(alias);
+                    continue;
+                }
+                // first match: a rule AFTER an alias of its chart must be disjoint from the alias's domain (the
+                // aliases are dispatched after every ordinary rule of the owner)
+                if let Some(alias) = slot_aliases[sector].iter().find(|alias| {
+                    alias.may_overlap(
+                        &permuted(&rule_fixed, &slot_map),
+                        &permuted(&rule_min, &slot_map),
+                        &permuted(&rule_max, &slot_map),
+                    )
+                }) {
+                    return Err(gap(
+                        "slot_alias_order",
+                        format!(
+                            "rule {index} of chart {} may match a key of the slot-permuted alias rule {} before it",
+                            charts[sector], alias.index
+                        ),
+                    ));
                 }
                 let case_text = str_field(record, "case")?;
                 let equations = record["equations"]
@@ -2614,6 +2932,15 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     };
     dispatch.sort_by_key(|entry| (entry.sector, entry.rule));
     let dispatched_rules = dispatch.len();
+    let alias_records: Vec<SlotAliasRecord> = slot_aliases.into_iter().flatten().collect();
+    let alias_provenance = if alias_records.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{SLOT_ALIASES_MARKER}{}",
+            serde_json::to_string(&alias_records).map_err(|error| malformed(error))?
+        )
+    };
     let root_sector: Vec<bool> = (0..arity)
         .map(|slot| matches!(presentation.slots[slot], Slot::Line(_)))
         .collect();
@@ -2635,7 +2962,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
             IMPORT_SOLVER_POLICY.to_owned()
         },
         family_source: format!(
-            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
+            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{alias_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
             schema,
             family.name
@@ -2822,6 +3149,80 @@ pub fn slot_map_text(imported: &ImportedOwner) -> BTreeMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T178 unboxed F3 (table index 5240): a slot-permuted alias rule becomes a SlotAliasRecord; its image, sign and
+    /// domain; a later rule overlapping its domain is detected, a disjoint one is not.
+    #[test]
+    fn slot_permuted_alias_rule_f3_of_t178() {
+        let record: Value = serde_json::from_str(r#"{"type":"rule","chart":"11111111110000000000","index":5240,
+            "case":"Coordinate(CoordinateCase { fixed: [] })",
+            "fixed":[1,1,null,1,1,null,1,1,1,null,0,0,0,0,0,0,0,0,0,0],"equations":[],
+            "target":"I(1,1,n2,1,1,n5,1,1,1,n9,0,0,0,0,0,0,0,0,0,0)",
+            "rhs":[["I(1,n2,1,1,n5,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)","1"]],"exceptions":[],
+            "domain_bounds":{"min":[null,null,2,null,null,2,null,null,null,2,null,null,null,null,null,null,null,null,null,null],
+                             "max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]},
+            "dispatch":"Partition"}"#).unwrap();
+        let arity = 20;
+        let identity: Vec<usize> = (0..arity).collect();
+        let fixed: Vec<Option<i64>> = record["fixed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(Value::as_i64)
+            .collect();
+        let (min, max) = bounds_of_record(&record, arity).unwrap();
+        let chart = mask_bits("11111111110000000000").unwrap();
+        let alias =
+            slot_alias_record(&record, 5240, &chart, &fixed, &min, &max, arity, &identity).unwrap();
+        assert_eq!(alias.coefficient, 1);
+        let key = [1, 1, 3, 1, 1, 2, 1, 1, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(
+            alias.image(&key).unwrap(),
+            vec![1, 3, 1, 1, 2, 1, 1, 1, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        // outside the domain: n2 = 1 (bound), a fixed slot differs, a numerator
+        let mut low = key;
+        low[2] = 1;
+        assert!(alias.image(&low).is_none());
+        let mut other = key;
+        other[0] = 2;
+        assert!(alias.image(&other).is_none());
+        let mut numerator = key;
+        numerator[12] = -1;
+        assert!(alias.image(&numerator).is_none());
+        // first match: a later rule fixing n2 = 1 is disjoint, one fixing n2 = 3 (others free) overlaps
+        let none = vec![None; arity];
+        let mut fixed_one = none.clone();
+        fixed_one[2] = Some(1);
+        assert!(!alias.may_overlap(&fixed_one, &none, &none));
+        let mut fixed_three = none.clone();
+        fixed_three[2] = Some(3);
+        assert!(alias.may_overlap(&fixed_three, &none, &none));
+        let mut zero = none.clone();
+        zero[0] = Some(0);
+        assert!(!alias.may_overlap(&zero, &none, &none));
+        // the provenance line round-trips
+        let line = format!(
+            "imported{SLOT_ALIASES_MARKER}{}{SLOT_ORDER_MARKER}{{}}",
+            serde_json::to_string(&vec![alias.clone()]).unwrap()
+        );
+        assert_eq!(slot_aliases_of_source(&line).unwrap(), vec![alias]);
+        assert!(slot_aliases_of_source("imported").unwrap().is_empty());
+        // not the alias form: two terms, or an index used twice
+        let mut two = record.clone();
+        two["rhs"] = serde_json::json!([
+            ["I(1,n2,1,1,n5,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"],
+            ["I(1,n2,1,1,n5,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"]
+        ]);
+        assert!(
+            slot_alias_record(&two, 5240, &chart, &fixed, &min, &max, arity, &identity).is_err()
+        );
+        let mut twice = record.clone();
+        twice["rhs"] = serde_json::json!([["I(1,n2,1,1,n2,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"]]);
+        assert!(
+            slot_alias_record(&twice, 5240, &chart, &fixed, &min, &max, arity, &identity).is_err()
+        );
+    }
 
     #[test]
     fn momenta_and_keys_parse() {

@@ -947,6 +947,8 @@ pub struct CustomStep<const N: usize> {
     /// vk5l WP2: the recipe records of a boxed payload and their in-process
     /// solve ([`super::recipes`]).
     recipes: Option<Arc<RecipeDispatch>>,
+    /// Slot-permuted alias rules of the payload ([`super::table_import::SlotAliasRecord`]): tried after the rules.
+    aliases: Vec<super::table_import::SlotAliasRecord>,
 }
 
 /// vk5l WP2: what the dispatch of one key gives.
@@ -963,6 +965,8 @@ enum KeyVia {
     Rule(u64, usize),
     /// A recipe record.
     Recipe,
+    /// A slot-permuted alias rule (its index in the table).
+    Alias(usize),
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -1174,6 +1178,9 @@ impl<const N: usize> CustomStep<N> {
                 KeyVia::Rule(mask(&chart), position),
             )),
             Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
+                if let Some(applied) = self.apply_alias(powers)? {
+                    return Ok(applied);
+                }
                 match &self.recipes {
                     Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
                         match self.recipe_of(recipes, powers) {
@@ -1194,6 +1201,60 @@ impl<const N: usize> CustomStep<N> {
             }
             Err(error) => Err(self.step_error(class, error)),
         }
+    }
+
+    /// The first slot-permuted alias rule that applies to `powers` (in table order), after the ordinary rules found
+    /// none: `I(key) = c * I(image)`. The image must stay on the key's chart and be strictly lower in the owner's
+    /// order (fail closed otherwise). `None` when no alias applies.
+    fn apply_alias(&self, powers: &[i64]) -> Result<Option<KeyApplied>, PError> {
+        for alias in &self.aliases {
+            let Some(image) = alias.image(powers) else {
+                continue;
+            };
+            let failed = |detail: String| {
+                PError::MalformedLibrary(format!(
+                    "custom owner on presentation {}: slot-permuted alias rule {} at {powers:?}: {detail}",
+                    self.presentation.0, alias.index
+                ))
+            };
+            if image
+                .iter()
+                .map(|&p| p > 0)
+                .ne(powers.iter().map(|&p| p > 0))
+            {
+                return Err(failed(format!(
+                    "the image {image:?} leaves the key's chart"
+                )));
+            }
+            let ordering = owner_ordering(&self.programs, &self.chart(powers))
+                .ok_or_else(|| failed("no chart of the owner holds the key".to_owned()))?;
+            let (key_order, image_order) = (
+                ordering
+                    .complexity_key(powers)
+                    .map_err(|error| failed(error.to_string()))?,
+                ordering
+                    .complexity_key(&image)
+                    .map_err(|error| failed(error.to_string()))?,
+            );
+            if image_order >= key_order {
+                return Err(failed(format!(
+                    "the image {image:?} is not strictly lower than the key"
+                )));
+            }
+            let child = IntegralKey::try_new(image.iter().copied())
+                .map_err(|error| failed(error.to_string()))?;
+            let coefficient = self
+                .programs
+                .context()
+                .coefficient_context()
+                .base()
+                .integer(alias.coefficient);
+            return Ok(Some(KeyApplied::Children(
+                std::collections::BTreeMap::from([(child, coefficient)]),
+                KeyVia::Alias(alias.index),
+            )));
+        }
+        Ok(None)
     }
 
     /// vk5l WP2: a key outside the certified set (policy `Solve`): the
@@ -1235,7 +1296,11 @@ impl<const N: usize> CustomStep<N> {
                     ));
                 }
                 Ok(AppliedOwnerStep::Uncovered)
-                | Err(CandidateReductionError::Uncovered { .. }) => {}
+                | Err(CandidateReductionError::Uncovered { .. }) => {
+                    if let Some(applied) = self.apply_alias(powers)? {
+                        return Ok(applied);
+                    }
+                }
                 Err(error) => return Err(self.step_error(class, error)),
             }
         }
@@ -1790,6 +1855,7 @@ fn build<const N: usize>(
     }
     check_residual_positions(forced, &residuals)?;
     let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
+    let aliases = super::table_import::slot_aliases_of_source(&program.family_source)?;
     // vk5l WP1: the certified set of a boxed payload, with its record.
     let certified = match &boxed {
         Some(record) => {
@@ -1909,6 +1975,7 @@ fn build<const N: usize>(
         boxed: boxed.map(Arc::new),
         certified,
         recipes,
+        aliases,
     };
     if prepare {
         step.prepare_charts()?;
