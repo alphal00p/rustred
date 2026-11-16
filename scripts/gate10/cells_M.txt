@@ -1,0 +1,716 @@
+ns8r.sh inj L-stat-2-5 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-14-5 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=14 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-19-5 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=19 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-1-12 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-16-12 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=16 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-19-12 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=19 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-7-13 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=7 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-15-13 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=15 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-16-13 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=16 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-6-24 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=6 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-9-24 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=9 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-21-24 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=21 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-2-23 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=2 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-16-23 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=16 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-17-23 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=17 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-3-116 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=3 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-8-116 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=8 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-11-116 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=11 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-2-4 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=2 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-12-4 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=12 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-24-4 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=24 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-5-11 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=5 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-14-11 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=14 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-20-11 r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=20 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-stat-12-short r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=12 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-stat-13-short r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=13 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-stat-14-short r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=14 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-stat-9-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=9 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-stat-10-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=10 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-stat-22-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=stat G8_AT=22 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-open-6-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=6 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-open-15-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=15 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-open-22-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=22 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-open-10-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=10 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-open-12-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=12 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-open-22-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=22 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-open-5-13 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=5 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-open-8-13 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-open-15-13 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=15 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-open-13-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=13 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-open-15-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=15 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-open-20-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=20 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-open-1-23 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=1 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-open-2-23 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=2 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-open-19-23 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=19 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-open-5-116 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=5 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-open-7-116 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=7 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-open-8-116 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=8 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-open-10-4 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=10 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-open-12-4 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=12 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-open-18-4 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=18 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-open-8-11 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=8 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-open-11-11 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=11 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-open-22-11 r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=22 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-open-14-short r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=14 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-open-15-short r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=15 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-open-18-short r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=18 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-open-3-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=3 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-open-16-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=16 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-open-21-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=open G8_AT=21 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-read-11-5 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=11 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-read-17-5 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=17 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-read-19-5 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=19 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-read-6-12 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=6 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-read-8-12 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=8 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-read-14-12 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=14 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-read-2-13 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-read-8-13 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-read-16-13 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=16 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-read-10-24 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=10 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-read-20-24 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=20 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-read-22-24 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=22 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-read-3-23 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=3 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-read-5-23 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=5 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-read-18-23 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=18 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-read-12-116 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=12 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-read-13-116 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=13 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-read-19-116 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=19 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-read-4-4 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=4 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-read-5-4 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=5 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-read-20-4 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=20 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-read-4-11 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=4 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-read-6-11 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=6 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-read-15-11 r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=15 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-read-7-short r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=7 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-read-12-short r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=12 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-read-14-short r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=14 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-read-8-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=8 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-read-14-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=14 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-read-15-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=read G8_AT=15 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-5-5 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-9-5 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=9 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-22-5 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=22 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-6-12 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=6 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-17-12 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=17 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-20-12 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=20 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-4-13 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=4 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-9-13 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=9 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-15-13 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=15 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-6-24 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=6 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-10-24 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=10 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-22-24 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=22 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-6-23 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=6 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-16-23 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=16 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-21-23 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=21 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-11-116 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=11 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-12-116 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=12 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-14-116 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=14 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-1-4 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=1 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-8-4 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=8 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-18-4 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=18 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-2-11 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-11-11 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=11 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-23-11 r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=23 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-3-short r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=3 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-8-short r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=8 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-11-short r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=11 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-9-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=9 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-13-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=13 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-15-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=15 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-6-trunc r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=6 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-13-trunc r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=13 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj L-readdir-19-trunc r G8_MATCH=@CDIR@/ledger G8_OPS=readdir G8_AT=19 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-8-5 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=8 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-16-5 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=16 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-22-5 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=22 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-9-12 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=9 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-17-12 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=17 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-24-12 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=24 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-16-13 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=16 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-17-13 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=17 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-20-13 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=20 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-3-24 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-6-24 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=6 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-16-24 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=16 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-15-23 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=15 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-16-23 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=16 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-22-23 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=22 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-5-116 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=5 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-13-116 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=13 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-14-116 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=14 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-12-4 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=12 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-18-4 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=18 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-19-4 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=19 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-13-11 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=13 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-16-11 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=16 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-18-11 r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=18 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-6-short r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=6 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-18-short r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=18 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-23-short r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=23 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-4-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=4 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-14-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=14 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-opendir-15-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=opendir G8_AT=15 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-1-5 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-2-5 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-15-5 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=15 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-2-12 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-3-12 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-18-12 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=18 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-3-13 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=3 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-5-13 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=5 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-12-13 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=12 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-4-24 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=4 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-15-24 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=15 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-20-24 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=20 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-5-23 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=5 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-15-23 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=15 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-16-23 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=16 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-14-116 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=14 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-15-116 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=15 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-17-116 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=17 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-9-4 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=9 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-11-4 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=11 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-24-4 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=24 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-14-11 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=14 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-15-11 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=15 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-23-11 r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=23 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-11-short r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=11 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-17-short r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=17 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-21-short r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=21 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-5-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=5 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-17-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=17 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-24-pshort r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=24 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-8-trunc r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=8 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-11-trunc r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=11 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj L-getdents-20-trunc r G8_MATCH=@CDIR@/ledger G8_OPS=getdents G8_AT=20 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj C-stat-3-5 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-13-5 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=13 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-44-5 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=44 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-38-12 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=38 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-42-12 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=42 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-58-12 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=58 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-37-24 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=37 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-41-24 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=41 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-54-24 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=54 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-2-116 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=2 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-31-116 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=31 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-52-116 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=52 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-8-13 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-19-13 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=19 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-28-13 r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=28 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-stat-16-short r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=16 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-stat-46-short r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=46 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-stat-55-short r G8_MATCH=@CDIR@ G8_OPS=stat G8_AT=55 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-open-6-5 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=6 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-open-19-5 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=19 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-open-57-5 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=57 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-open-3-12 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-open-39-12 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=39 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-open-59-12 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=59 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-open-7-24 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=7 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-open-36-24 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=36 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-open-50-24 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=50 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-open-11-116 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=11 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-open-19-116 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=19 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-open-53-116 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=53 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-open-10-13 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=10 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-open-31-13 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=31 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-open-43-13 r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=43 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-open-24-short r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=24 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-open-26-short r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=26 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-open-39-short r G8_MATCH=@CDIR@ G8_OPS=open G8_AT=39 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-read-13-5 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=13 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-read-51-5 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=51 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-read-59-5 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=59 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-read-6-12 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=6 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-read-12-12 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=12 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-read-23-12 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=23 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-read-13-24 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=13 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-read-28-24 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=28 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-read-38-24 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=38 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-read-7-116 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=7 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-read-14-116 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=14 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-read-44-116 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=44 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-read-20-13 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=20 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-read-30-13 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=30 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-read-57-13 r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=57 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-read-48-short r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=48 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-read-49-short r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=49 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-read-56-short r G8_MATCH=@CDIR@ G8_OPS=read G8_AT=56 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-34-5 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=34 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-45-5 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=45 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-53-5 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=53 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-28-12 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=28 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-29-12 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=29 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-47-12 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=47 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-36-24 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=36 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-43-24 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=43 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-48-24 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=48 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-14-116 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=14 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-18-116 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=18 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-39-116 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=39 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-8-13 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-24-13 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=24 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-41-13 r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=41 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-1-short r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-41-short r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=41 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-readdir-51-short r G8_MATCH=@CDIR@ G8_OPS=readdir G8_AT=51 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-14-5 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=14 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-28-5 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=28 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-40-5 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=40 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-25-12 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=25 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-27-12 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=27 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-56-12 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=56 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-42-24 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=42 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-52-24 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=52 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-56-24 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=56 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-5-116 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=5 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-13-116 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=13 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-50-116 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=50 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-6-13 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=6 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-28-13 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=28 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-52-13 r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=52 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-4-short r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=4 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-23-short r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=23 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj C-readlink-53-short r G8_MATCH=@CDIR@ G8_OPS=readlink G8_AT=53 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at5-5 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-5 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst12-5 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=12 G8_TO=27 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at8-12 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=8 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-12 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst14-12 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=14 G8_TO=29 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at4-24 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=4 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-24 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst10-24 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=10 G8_TO=25 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at8-13 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-13 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst10-13 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=10 G8_TO=25 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at9-11 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=9 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-11 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst16-11 r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=16 G8_TO=31 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at9-short r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=9 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-short r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst9-short r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=9 G8_TO=24 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-at7-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=7 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-ev2-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-open-burst15-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=15 G8_TO=30 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at11-5 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=11 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-5 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst11-5 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=11 G8_TO=26 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at6-12 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=6 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-12 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst9-12 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=9 G8_TO=24 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at8-24 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=8 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-24 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst15-24 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=15 G8_TO=30 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at8-13 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-13 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst19-13 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=19 G8_TO=34 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at8-11 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=8 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-11 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst3-11 r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=3 G8_TO=18 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at12-short r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=12 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-short r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst18-short r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=18 G8_TO=33 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-at12-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=12 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-ev2-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-read-burst12-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=12 G8_TO=27 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at12-5 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=12 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-5 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst13-5 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=13 G8_TO=28 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at3-12 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-12 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst20-12 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=20 G8_TO=35 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at7-24 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=7 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-24 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst19-24 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=19 G8_TO=34 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at2-13 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-13 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst20-13 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=20 G8_TO=35 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at12-11 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=12 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-11 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst10-11 r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=10 G8_TO=25 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at1-short r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-short r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst19-short r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=19 G8_TO=34 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-at6-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=6 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-ev2-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-stat-burst11-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=11 G8_TO=26 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at2-5 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-5 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst13-5 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=13 G8_TO=28 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at10-12 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=10 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-12 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst12-12 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=12 G8_TO=27 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at5-24 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=5 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-24 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst20-24 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=20 G8_TO=35 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at3-13 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=3 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-13 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst8-13 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=8 G8_TO=23 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at3-11 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=3 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-11 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst10-11 r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=10 G8_TO=25 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at2-short r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-short r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst18-short r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=18 G8_TO=33 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-at1-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=1 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-ev2-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj Dr-readlink-burst8-pshort r G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=8 G8_TO=23 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at10-5 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=10 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-5 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst3-5 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=3 G8_TO=18 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at7-12 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=7 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-12 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst7-12 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=7 G8_TO=22 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at10-24 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=10 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-24 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst19-24 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=19 G8_TO=34 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at8-13 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=8 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-13 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst19-13 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=19 G8_TO=34 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at1-11 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=1 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-11 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst13-11 u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=13 G8_TO=28 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at4-short u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=4 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-short u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst11-short u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=11 G8_TO=26 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-open-at10-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_AT=10 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-open-ev2-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-open-burst7-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=open G8_FROM=7 G8_TO=22 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at9-5 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=9 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-5 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst19-5 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=19 G8_TO=34 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at6-12 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=6 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-12 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst2-12 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=2 G8_TO=17 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at11-24 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=11 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-24 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst19-24 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=19 G8_TO=34 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at1-13 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-13 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst2-13 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=2 G8_TO=17 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at10-11 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=10 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-11 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst12-11 u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=12 G8_TO=27 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at7-short u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=7 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-short u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst11-short u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=11 G8_TO=26 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-read-at10-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_AT=10 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-read-ev2-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-read-burst6-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=read G8_FROM=6 G8_TO=21 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at3-5 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-5 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst4-5 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=4 G8_TO=19 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at10-12 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=10 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-12 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst12-12 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=12 G8_TO=27 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at3-24 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-24 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst1-24 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_TO=16 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at12-13 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=12 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-13 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst18-13 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=18 G8_TO=33 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at9-11 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=9 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-11 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst12-11 u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=12 G8_TO=27 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at2-short u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-short u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst13-short u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=13 G8_TO=28 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-at8-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_AT=8 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-ev2-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-stat-burst19-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=stat G8_FROM=19 G8_TO=34 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at6-5 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=6 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-5 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst2-5 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=2 G8_TO=17 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at3-12 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-12 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst15-12 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=15 G8_TO=30 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at12-24 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=12 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-24 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst16-24 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=16 G8_TO=31 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at10-13 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=10 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-13 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst15-13 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=15 G8_TO=30 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at12-11 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=12 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-11 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst15-11 u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=15 G8_TO=30 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at10-short u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=10 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-short u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst6-short u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=6 G8_TO=21 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-at6-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_AT=6 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-ev2-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=1 G8_EVERY=2 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj Du-readlink-burst14-pshort u G8_MATCH=/proc/@DP@/ G8_OPS=readlink G8_FROM=14 G8_TO=29 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-1-5 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-2-5 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-3-5 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-5-5 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-1-24 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-2-24 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-3-24 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-5-24 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-1-12 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-2-12 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-3-12 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-5-12 r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-1-short r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-2-short r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-3-short r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-status-5-short r G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-1-5 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-2-5 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-3-5 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-5-5 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-1-24 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-2-24 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-3-24 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-5-24 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-1-12 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-2-12 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-3-12 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-5-12 r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-1-short r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-2-short r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-3-short r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj DSr-task-5-short r G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-1-5 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-2-5 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-3-5 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-5-5 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-1-24 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-2-24 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-3-24 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-5-24 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-1-12 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-2-12 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-3-12 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-5-12 u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-1-short u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-2-short u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-3-short u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-status-5-short u G8_MATCH=/proc/@DP@/status G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-1-5 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-2-5 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-3-5 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-5-5 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-1-24 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-2-24 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-3-24 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-5-24 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-1-12 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-2-12 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-3-12 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-5-12 u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-1-short u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-2-short u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=2 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-3-short u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=3 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj DSu-task-5-short u G8_MATCH=/proc/@DP@/task G8_OPS=open,read,readdir,getdents G8_AT=5 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-24-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-24-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-5-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-5-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-12-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-12-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-4-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-4-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-11-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-11-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-116-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-116-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-short-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Pr-p100-short-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-24-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-24-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-5-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-5-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-12-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-12-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-4-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-4-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-11-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-11-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-116-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-116-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-short-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Pr-p300-short-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-24-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-24-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-5-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-5-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-12-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-12-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-4-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-4-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-11-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-11-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-116-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-116-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-short-1 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj Pr-p900-short-2 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-24-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-24-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-5-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-5-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-12-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-12-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-4-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-4-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-11-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-11-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-116-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-116-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-short-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Pu-p100-short-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=100 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-24-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-24-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-5-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-5-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-12-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-12-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-4-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-4-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-11-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-11-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-116-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-116-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-short-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Pu-p300-short-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=300 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-24-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-24-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-5-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-5-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-12-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-12-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-4-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-4-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-11-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-11-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-116-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-116-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-short-1 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj Pu-p900-short-2 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=50 G8_PROB=900 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-1-24 r G8_MATCH=* G8_OPS=pidfd G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-2-24 r G8_MATCH=* G8_OPS=pidfd G8_AT=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-3-24 r G8_MATCH=* G8_OPS=pidfd G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-5-24 r G8_MATCH=* G8_OPS=pidfd G8_AT=5 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-8-24 r G8_MATCH=* G8_OPS=pidfd G8_AT=8 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-1-12 r G8_MATCH=* G8_OPS=pidfd G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-2-12 r G8_MATCH=* G8_OPS=pidfd G8_AT=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-3-12 r G8_MATCH=* G8_OPS=pidfd G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-5-12 r G8_MATCH=* G8_OPS=pidfd G8_AT=5 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-8-12 r G8_MATCH=* G8_OPS=pidfd G8_AT=8 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-1-5 r G8_MATCH=* G8_OPS=pidfd G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-2-5 r G8_MATCH=* G8_OPS=pidfd G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-3-5 r G8_MATCH=* G8_OPS=pidfd G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-5-5 r G8_MATCH=* G8_OPS=pidfd G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-8-5 r G8_MATCH=* G8_OPS=pidfd G8_AT=8 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-1-23 r G8_MATCH=* G8_OPS=pidfd G8_AT=1 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-2-23 r G8_MATCH=* G8_OPS=pidfd G8_AT=2 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-3-23 r G8_MATCH=* G8_OPS=pidfd G8_AT=3 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-5-23 r G8_MATCH=* G8_OPS=pidfd G8_AT=5 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj K-pidfd-8-23 r G8_MATCH=* G8_OPS=pidfd G8_AT=8 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-1-4 r G8_MATCH=* G8_OPS=wait G8_AT=1 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-2-4 r G8_MATCH=* G8_OPS=wait G8_AT=2 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-5-4 r G8_MATCH=* G8_OPS=wait G8_AT=5 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-10-4 r G8_MATCH=* G8_OPS=wait G8_AT=10 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-20-4 r G8_MATCH=* G8_OPS=wait G8_AT=20 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-40-4 r G8_MATCH=* G8_OPS=wait G8_AT=40 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-all-4 r G8_MATCH=* G8_OPS=wait G8_FROM=1 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-1-5 r G8_MATCH=* G8_OPS=wait G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-2-5 r G8_MATCH=* G8_OPS=wait G8_AT=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-5-5 r G8_MATCH=* G8_OPS=wait G8_AT=5 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-10-5 r G8_MATCH=* G8_OPS=wait G8_AT=10 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-20-5 r G8_MATCH=* G8_OPS=wait G8_AT=20 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-40-5 r G8_MATCH=* G8_OPS=wait G8_AT=40 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-all-5 r G8_MATCH=* G8_OPS=wait G8_FROM=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-1-11 r G8_MATCH=* G8_OPS=wait G8_AT=1 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-2-11 r G8_MATCH=* G8_OPS=wait G8_AT=2 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-5-11 r G8_MATCH=* G8_OPS=wait G8_AT=5 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-10-11 r G8_MATCH=* G8_OPS=wait G8_AT=10 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-20-11 r G8_MATCH=* G8_OPS=wait G8_AT=20 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-40-11 r G8_MATCH=* G8_OPS=wait G8_AT=40 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj W-wait-all-11 r G8_MATCH=* G8_OPS=wait G8_FROM=1 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj T-open-5 r G8_MATCH=/dev/shm G8_OPS=open G8_FROM=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj T-open-13 r G8_MATCH=/dev/shm G8_OPS=open G8_FROM=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj T-open-24 r G8_MATCH=/dev/shm G8_OPS=open G8_FROM=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj T-open-28 r G8_MATCH=/dev/shm G8_OPS=open G8_FROM=1 G8_ERRNO=28 G8_TIMEOUT=1200
+ns8r.sh inj T-stat-5 r G8_MATCH=/dev/shm G8_OPS=stat G8_FROM=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj T-stat-13 r G8_MATCH=/dev/shm G8_OPS=stat G8_FROM=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj T-stat-24 r G8_MATCH=/dev/shm G8_OPS=stat G8_FROM=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj T-stat-28 r G8_MATCH=/dev/shm G8_OPS=stat G8_FROM=1 G8_ERRNO=28 G8_TIMEOUT=1200
+ns8r.sh inj T-read-5 r G8_MATCH=/dev/shm G8_OPS=read G8_FROM=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj T-read-13 r G8_MATCH=/dev/shm G8_OPS=read G8_FROM=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj T-read-24 r G8_MATCH=/dev/shm G8_OPS=read G8_FROM=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj T-read-28 r G8_MATCH=/dev/shm G8_OPS=read G8_FROM=1 G8_ERRNO=28 G8_TIMEOUT=1200
+ns8r.sh inj T-readdir-5 r G8_MATCH=/dev/shm G8_OPS=readdir G8_FROM=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj T-readdir-13 r G8_MATCH=/dev/shm G8_OPS=readdir G8_FROM=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj T-readdir-24 r G8_MATCH=/dev/shm G8_OPS=readdir G8_FROM=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj T-readdir-28 r G8_MATCH=/dev/shm G8_OPS=readdir G8_FROM=1 G8_ERRNO=28 G8_TIMEOUT=1200
+ns8r.sh inj A-burst100-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=100 G8_TO=130 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-burst300-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=300 G8_TO=330 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-burst800-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=800 G8_TO=830 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-burst1500-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=1500 G8_TO=1530 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-p100-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-p300-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-p900-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj A-burst100-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=100 G8_TO=130 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-burst300-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=300 G8_TO=330 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-burst800-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=800 G8_TO=830 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-burst1500-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=1500 G8_TO=1530 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-p100-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-p300-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-p900-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj A-burst100-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=100 G8_TO=130 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj A-burst300-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=300 G8_TO=330 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj A-burst800-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=800 G8_TO=830 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj A-burst1500-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=1500 G8_TO=1530 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj A-p100-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj A-p300-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj A-p900-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=200 G8_PROB=900 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p100-24 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p100-5 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p100-12 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p100-short r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p300-24 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p300-5 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p300-12 r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-proc-p300-short r G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh live LVr-led-1-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-3-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-8-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=8 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-20-24 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=20 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-pidfd-24 r G8_MATCH=* G8_OPS=pidfd G8_FROM=3 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-1-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-3-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-8-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=8 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-20-5 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=20 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-pidfd-5 r G8_MATCH=* G8_OPS=pidfd G8_FROM=3 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-1-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-3-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-8-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=8 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-led-20-12 r G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=20 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh live LVr-pidfd-12 r G8_MATCH=* G8_OPS=pidfd G8_FROM=3 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p100-24 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p100-5 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p100-12 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p100-short u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=100 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p300-24 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p300-5 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p300-12 u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-proc-p300-short u G8_MATCH=/proc G8_OPS=open,read,readdir,getdents,stat,readlink G8_FROM=200 G8_PROB=300 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh live LVu-led-1-24 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-3-24 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-8-24 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=8 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-20-24 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=20 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-pidfd-24 u G8_MATCH=* G8_OPS=pidfd G8_FROM=3 G8_EVERY=2 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-1-5 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-3-5 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-8-5 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=8 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-20-5 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=20 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-pidfd-5 u G8_MATCH=* G8_OPS=pidfd G8_FROM=3 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-1-12 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-3-12 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-8-12 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=8 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-led-20-12 u G8_MATCH=@CDIR@/ledger G8_OPS=open,read,stat,readdir G8_AT=20 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh live LVu-pidfd-12 u G8_MATCH=* G8_OPS=pidfd G8_FROM=3 G8_EVERY=2 G8_ERRNO=12 G8_TIMEOUT=1200
