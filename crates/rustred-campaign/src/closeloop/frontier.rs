@@ -48,7 +48,7 @@ pub fn input_frontier(n: &str, k: u32) -> String {
 pub fn input_fraise_prefix(n: &str) -> String {
     format!("closeloop:{n}:facts-budget-raise:")
 }
-pub fn input_fraise(n: &str, id: &str) -> String {
+pub fn input_fbudget_lift(n: &str, id: &str) -> String {
     format!("{}{id}", input_fraise_prefix(n))
 }
 

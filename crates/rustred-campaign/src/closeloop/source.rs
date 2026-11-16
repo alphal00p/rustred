@@ -2644,7 +2644,7 @@ impl CloseFromMaterialSource {
             );
             let fr = rec.file_ref();
             rt.events.push(Event::InputRegistered {
-                input: super::frontier::input_fraise(&n, &safe(&req.id)),
+                input: super::frontier::input_fbudget_lift(&n, &safe(&req.id)),
                 role: super::frontier::ROLE_FRAISE.into(),
                 path: self.abs(&rec.path).display().to_string(),
                 bytes: fr.bytes,
