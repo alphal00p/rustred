@@ -983,8 +983,23 @@ impl Hunt<'_> {
             }
         }
         if let Some(cg) = &self.s.cgroup {
-            match super::cgroup::procs_of(cg) {
-                Ok(p) if p.is_empty() => {}
+            // procfix7 round 6 (gate10 m10-3): the job cgroup's subtree, cross-checked with the recursive populated flag
+            match super::cgroup::procs_recursive(cg) {
+                Ok(p) if p.is_empty() => match super::cgroup::populated(cg) {
+                    Ok(false) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Ok(true) => {
+                        self.cgroup_ok = false;
+                        return Err(format!(
+                            "{}: populated (cgroup.events) but no member listed in the subtree's cgroup.procs",
+                            cg.display()
+                        ));
+                    }
+                    Err(e) => {
+                        self.cgroup_ok = false;
+                        return Err(format!("cgroup.events: {e}"));
+                    }
+                },
                 Ok(p) => {
                     for pid in p {
                         survivors.push(LeftoverRecord {

@@ -18,7 +18,6 @@
 
 use crate::launch::{SweepReport, SweepSpec};
 
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -107,7 +106,7 @@ pub fn sweep_seeded(
 
 /// Canonical form of a root for the cwd rule (falls back to the path itself).
 pub fn canonical_root(p: &Path) -> PathBuf {
-    fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())
 }
 
 /// Start ticks of this process (the supervisor), the lower bound of everything it launches. procfix8: an unreadable own

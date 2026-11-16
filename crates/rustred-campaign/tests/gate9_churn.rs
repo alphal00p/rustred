@@ -28,10 +28,20 @@ fn path_env() -> std::ffi::OsString {
     std::env::var_os("PATH").unwrap_or_default()
 }
 
-/// Live: the process exists and has a thread besides its (zombie) leader.
+/// Live: the process exists and has a thread besides its (zombie) leader. procfix7 round 6 (gate10 m10-7, the one
+/// unexplained failure of this test): it counted the entries of ONE readdir of /proc/<pid>/task, which misses the live
+/// thread of a churner whose threads replace themselves (measured, S/exp/churn: < 2 entries in 2214 of 1.16 M samples at
+/// 0 us thread life, 1946 / 1.26 M at 50 us, 472 / 1.25 M at 500 us, while the kernel's Threads: count was >= 2 in every
+/// one of them): the precondition "the churner lives" failed spuriously (and the survivor check could miss a survivor).
+/// Now the kernel's ATOMIC count (status `Threads:`, signal->nr_threads), the same proof the product uses.
 fn alive_threads(pid: u32) -> usize {
-    std::fs::read_dir(format!("/proc/{pid}/task"))
-        .map(|d| d.count())
+    std::fs::read_to_string(format!("/proc/{pid}/status"))
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find_map(|l| l.strip_prefix("Threads:"))
+                .and_then(|v| v.trim().parse().ok())
+        })
         .unwrap_or(0)
 }
 

@@ -945,7 +945,7 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
         }
         // procfix7 round 5: a record whose directory is gone is MISSING (judged by its path), never skipped; a
         // directory that cannot be resolved for another reason fails verify
-        let inside = match std::fs::canonicalize(p.parent().unwrap_or(&p)) {
+        let inside = match crate::fsx::canonicalize("progress", p.parent().unwrap_or(&p)) {
             Ok(d) => d.starts_with(&croot),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 p.starts_with(cdir) || p.starts_with(&croot)

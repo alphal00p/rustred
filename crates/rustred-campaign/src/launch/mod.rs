@@ -29,7 +29,9 @@ mod idlock;
 mod real;
 pub mod sweep;
 
-pub use cgroup::{CgroupRoot, JobCgroup, kill_recorded_scope, scope_unit_name};
+pub use cgroup::{
+    CgroupRoot, JobCgroup, kill_recorded_scope, recorded_scope_emptied, scope_unit_name,
+};
 
 /// Run `f` with a signalling context: every delivery `f` makes on this thread is logged with it (gate3 M2).
 pub fn guard_context<R>(by: &str, label: Option<&str>, f: impl FnOnce() -> R) -> R {

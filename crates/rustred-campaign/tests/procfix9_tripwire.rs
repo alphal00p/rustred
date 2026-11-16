@@ -248,3 +248,57 @@ fn every_production_candidate_of_the_mechanical_list_is_reviewed() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+/// procfix7 round 6 (gate10 m10-4): the mechanical list catches EVERY known evasion form. audit/evasion_forms.rs holds
+/// gate10's 23 clippy-evasion probes (scripts/gate10/clippytest) and further forms, one per line marked EXPECT; the
+/// script, run with `--scan` (the file as production code, no review), must report an UNREVIEWED candidate on each.
+/// A form that escapes the list fails here (the rule is enforced by the suite, not only by clippy before a commit).
+#[test]
+fn the_mechanical_list_catches_every_known_evasion_form() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let fixture = dir.join("audit/evasion_forms.rs");
+    let out = match std::process::Command::new("python3")
+        .arg("-I")
+        .arg(dir.join("audit/fs_sites.py"))
+        .arg("--scan")
+        .arg(&fixture)
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("SKIPPED: python3 unavailable ({e})");
+            return;
+        }
+    };
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let flagged: std::collections::BTreeSet<usize> = String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| {
+            let f: Vec<&str> = l.split('\t').collect();
+            (f.len() >= 3 && f[2] == "UNREVIEWED").then(|| f[1].parse().ok())?
+        })
+        .collect();
+    let text = std::fs::read_to_string(&fixture).unwrap();
+    let expected: Vec<(usize, &str)> = text
+        .lines()
+        .enumerate()
+        .filter(|(_, l)| l.contains("// EXPECT") && !l.trim_start().starts_with("//"))
+        .map(|(i, l)| (i + 1, l))
+        .collect();
+    assert!(expected.len() >= 30, "the fixture lost its forms");
+    let missed: Vec<String> = expected
+        .iter()
+        .filter(|(n, _)| !flagged.contains(n))
+        .map(|(n, l)| format!("line {n}: {l}"))
+        .collect();
+    assert!(
+        missed.is_empty(),
+        "evasion forms the mechanical list does not catch:\n{}",
+        missed.join("\n")
+    );
+}

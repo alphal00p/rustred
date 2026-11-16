@@ -178,13 +178,24 @@ pub fn list(site: &'static str, dir: &Path) -> Listing {
         return Listing::Failed(e);
     }
     match (list_entries(dir, None), truncation(site)) {
+        // test builds: a listing that fails (this thread's `fail_listings`)
+        (_, Some(ListFault::Fail(errno))) => Listing::Failed(io::Error::from_raw_os_error(errno)),
         // test builds: a directory read that ends early WITHOUT an error (gate10 G10-B1 for directory listings)
-        (Listing::Complete(mut v), Some(keep)) => {
+        (Listing::Complete(mut v), Some(ListFault::Keep(keep))) => {
             v.truncate(keep);
             Listing::Complete(v)
         }
         (l, _) => l,
     }
+}
+
+/// A test-build listing fault (this thread or the process's failpoint value).
+#[derive(Clone, Copy, Debug)]
+enum ListFault {
+    /// Keep only the first n entries (no error).
+    Keep(usize),
+    /// Fail with this errno.
+    Fail(i32),
 }
 
 /// procfix7 round 6 (gate10 G10-B1, the listing rule for directories): TEST BUILDS: listings at `site` made by THIS
@@ -193,17 +204,24 @@ pub fn list(site: &'static str, dir: &Path) -> Listing {
 /// 1-based; the listing ends before its n-th entry).
 #[cfg(debug_assertions)]
 pub fn truncate_listings(site: &'static str, keep: usize) -> TruncGuard {
-    TruncGuard(TRUNC.with(|t| t.replace(Some((site, keep)))))
+    TruncGuard(TRUNC.with(|t| t.replace(Some((site, ListFault::Keep(keep))))))
+}
+
+/// TEST BUILDS: listings at `site` made by THIS thread fail with `errno` (gate10 m10-6: pins "a failed listing is never
+/// empty"), until the guard drops.
+#[cfg(debug_assertions)]
+pub fn fail_listings(site: &'static str, errno: i32) -> TruncGuard {
+    TruncGuard(TRUNC.with(|t| t.replace(Some((site, ListFault::Fail(errno))))))
 }
 
 #[cfg(debug_assertions)]
 thread_local! {
-    static TRUNC: std::cell::Cell<Option<(&'static str, usize)>> = const { std::cell::Cell::new(None) };
+    static TRUNC: std::cell::Cell<Option<(&'static str, ListFault)>> = const { std::cell::Cell::new(None) };
 }
 
-/// Restores the thread's previous truncation when dropped (test builds).
+/// Restores the thread's previous listing fault when dropped (test builds).
 #[cfg(debug_assertions)]
-pub struct TruncGuard(Option<(&'static str, usize)>);
+pub struct TruncGuard(Option<(&'static str, ListFault)>);
 
 #[cfg(debug_assertions)]
 impl Drop for TruncGuard {
@@ -213,20 +231,20 @@ impl Drop for TruncGuard {
 }
 
 #[cfg(debug_assertions)]
-fn truncation(site: &'static str) -> Option<usize> {
-    if let Some((s, keep)) = TRUNC.with(|t| t.get())
+fn truncation(site: &'static str) -> Option<ListFault> {
+    if let Some((s, f)) = TRUNC.with(|t| t.get())
         && s == site
     {
-        return Some(keep);
+        return Some(f);
     }
     let c = inject::cfg().as_ref()?;
     let k = c.trunc_site?;
-    (*SITES.get(k.checked_sub(1)?)? == site).then_some(c.trunc_keep)
+    (*SITES.get(k.checked_sub(1)?)? == site).then_some(ListFault::Keep(c.trunc_keep))
 }
 
 #[cfg(not(debug_assertions))]
 #[inline(always)]
-fn truncation(_site: &'static str) -> Option<usize> {
+fn truncation(_site: &'static str) -> Option<ListFault> {
     None
 }
 
@@ -333,6 +351,17 @@ pub fn canonical(site: &'static str, p: &Path) -> io::Result<PathBuf> {
         },
         Err(e) => Err(e),
     }
+}
+
+/// procfix7 round 6 (gate10 m10-4: `canonicalize` collapses were caught by no rule): `std::fs::canonicalize` under a
+/// site label (clippy forbids the std form outside this module); the error is returned, the caller handles it and the
+/// mechanical list (audit/fs_sites.py) reviews any collapse of it.
+#[allow(clippy::disallowed_methods)] // the one place that calls the std form
+pub fn canonicalize(site: &'static str, p: &Path) -> io::Result<PathBuf> {
+    if let Some(e) = fault(site) {
+        return Err(e);
+    }
+    std::fs::canonicalize(p)
 }
 
 /// Rename `from` to `to` ONLY if `to` does not exist (renameat2 RENAME_NOREPLACE): a move aside never overwrites.

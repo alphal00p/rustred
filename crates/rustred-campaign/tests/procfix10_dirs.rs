@@ -112,3 +112,36 @@ fn a_truncated_ledger_listing_never_rebuilds_a_shorter_chain() {
     let rep = ledger::rebuild_manifest(&d, lock_of(&d)).unwrap();
     assert_eq!(rep.records, seq);
 }
+
+/// gate10 m10-6 (mutation M9: a FAILED listing of the ledger directory taken as empty): a ledger directory without a
+/// manifest that holds only a file the by-name probes do not know (here `notes.txt`) and whose listing FAILS (EIO, test
+/// builds: `fsx::fail_listings`) is never "proven empty": create refuses with the I/O error, nothing is created.
+#[test]
+fn a_failed_ledger_listing_is_never_empty() {
+    let d = scratch("pf10-dirs-failed");
+    let _c = Cleanup(d.clone());
+    let ldir = ledger::ledger_dir(&d);
+    fs::create_dir_all(&ldir).unwrap();
+    fs::write(ldir.join("notes.txt"), b"not a ledger file").unwrap();
+    let before = names(&ldir);
+    let r = {
+        let _f = fsx::fail_listings("ledger.listing", libc::EIO);
+        Ledger::create(&d, lock_of(&d), as_dyn(&clock()), small(), genesis())
+    };
+    match r {
+        Err(LedgerError::ManifestMissing { .. }) => {
+            panic!("a failed listing was read as a listing (ManifestMissing)")
+        }
+        Err(e) => assert!(
+            e.to_string().contains("list") || e.to_string().contains("I/O"),
+            "the listing's own error: {e}"
+        ),
+        Ok(_) => panic!("a NEW ledger was created over a directory whose listing FAILED"),
+    }
+    assert_eq!(names(&ldir), before, "nothing created");
+    // control: the same directory with a working listing is refused as not empty (ManifestMissing)
+    assert!(matches!(
+        Ledger::create(&d, lock_of(&d), as_dyn(&clock()), small(), genesis()),
+        Err(LedgerError::ManifestMissing { .. })
+    ));
+}

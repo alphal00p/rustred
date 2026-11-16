@@ -2,7 +2,7 @@
 """procfix7 round 5 (gate9 M9-2): the MECHANICAL candidate list of the filesystem / process-read class over EVERY .rs file
 of the crate rustred-campaign (src/, tests/, examples/, src/bin/: nothing excluded).
 
-Run from anywhere:   python3 -I crates/rustred-campaign/audit/fs_sites.py [--check]
+Run from anywhere:   python3 -I crates/rustred-campaign/audit/fs_sites.py [--check | --scan FILE...]
 Without flags it writes crates/rustred-campaign/audit/fs_sites.tsv (one line per candidate) and prints the counts;
 --check writes nothing and exits 1 when a PRODUCTION candidate has no review (the suite runs it: procfix9_tripwire;
 the next auditor re-runs it and diffs fs_sites.tsv).
@@ -16,7 +16,7 @@ Kinds (one line per match; a line can match several kinds):
   D  destructive: remove_file( remove_dir( remove_dir_all( fs::rename( rename_noreplace( .set_len( File::create(
      .truncate(true) write_atomic( write_json_atomic( create_new_atomic( fs::write( fs::copy( archive_control(
   X  an error-dropping form (.ok() .unwrap_or( .unwrap_or_default() .unwrap_or_else( `let _ =` `if let Ok(` .is_ok()
-     .is_err() `Err(_) =>` `let Ok(`; round 6: .is_ok_and( .is_err_and( `Err(..) =>` .map_or( .map_or_else() in the same statement as an fs / io / proc / clock / env call
+     .is_err() `Err(_) =>` `let Ok(`; round 6: .is_ok_and( .is_err_and( `Err(..) =>` .map_or( .map_or_else() matches!( in the same statement as an fs / io / proc / clock / env call
   F  the typed helpers: crate::fsx::{presence, presence_lstat, list, list_required, read, read_to_string, open} with
      their site label (the arms are matched explicitly: Unknown / Failed never collapse)
   O  opens (OpenOptions, create(true), create_new(true), libc::open); V environment reads; C external commands;
@@ -36,13 +36,17 @@ CRATE = os.path.dirname(HERE)
 
 PAT = {
     'E': re.compile(r'\.exists\(\)|\.try_exists\(|\.is_file\(\)|\.is_dir\(\)|\.is_symlink\(\)|fs::metadata\(|'
-                    r'fs::symlink_metadata\(|\.metadata\(\)|\.symlink_metadata\(\)'),
+                    r'fs::symlink_metadata\(|\.metadata\(\)|\.symlink_metadata\(\)|'
+                    # procfix7 round 6 (gate10 m10-4): UFCS / fn-pointer forms and fs::exists
+                    r'\bPath::(exists|try_exists|is_file|is_dir|is_symlink|metadata|symlink_metadata|read_dir|'
+                    r'canonicalize|read_link)\b|\bPathBuf::(exists|is_file|is_dir|metadata)\b|fs::exists\(|'
+                    r'DirEntry::(metadata|file_type)\b'),
     'L': re.compile(r'read_dir\('),
     'R': re.compile(r'fs::read\(|fs::read_to_string\(|File::open\(|\.read_to_end\(|\.read_to_string\(&mut'),
     'D': re.compile(r'remove_file\(|remove_dir\(|remove_dir_all\(|fs::rename\(|rename_noreplace\(|\.set_len\(|'
                     r'File::create\(|\.truncate\(true\)|write_atomic\(|write_json_atomic\(|create_new_atomic\(|'
                     r'fs::write\(|fs::copy\(|archive_control\('),
-    'F': re.compile(r'fsx::(presence|presence_lstat|list|list_required|read|read_to_string|open)\('),
+    'F': re.compile(r'fsx::(presence|presence_lstat|list|list_required|read|read_to_string|open|canonicalize|canonical)\('),
     # procfix7 round 6 (gate10's site list: kinds the round-5 table did not count)
     'O': re.compile(r'OpenOptions::new\(\)|\.create\(true\)|\.create_new\(true\)|libc::open\('),
     'V': re.compile(r'env::var\(|env::var_os\('),
@@ -53,7 +57,7 @@ PAT = {
 }
 DROP = re.compile(r'\.ok\(\)|\.unwrap_or\(|\.unwrap_or_default\(\)|\.unwrap_or_else\(|let _ =|if let Ok\(|\.is_ok\(\)|'
                   r'\.is_err\(\)|Err\(_\) =>|let Ok\(|\.is_ok_and\(|\.is_err_and\(|Err\(\.\.\) =>|\.map_or\(|'
-                  r'\.map_or_else\(')
+                  r'\.map_or_else\(|matches!\(')
 IOCALL = re.compile(r'fs::|File::|fsx::|read_dir|metadata\(|OpenOptions|procfs::|read_stat\(|environ|waitid|'
                     r'clock_gettime|env::var|Command::new|\.read\(|\.write\(|libc::read|libc::write|'
                     r'canonicalize\(|read_link\(|file_type\(\)|\.open\(')
@@ -117,6 +121,8 @@ def auto_verdict(kind, rel, lines, k, stmt, code):
             return 'auto: Unknown / Absent / Failed -> Err (propagated)'
         if re.search(r'Presence::Unknown|Listing::Failed|Read::Failed', win):
             return 'auto: explicit Unknown / Failed arm'
+        if re.search(r'fsx::canonical(ize)?\(', code) and ('?' in stmt or 'map_err' in stmt) and not DROP.search(stmt):
+            return 'auto: error propagated (? / map_err)'
         return None
     if kind == 'X' and re.search(r'fsx::Read::Content\(\w+\) =>', code):
         return 'auto: a parse default inside a typed Content arm (the read itself is matched explicitly)'
@@ -140,8 +146,13 @@ def auto_verdict(kind, rel, lines, k, stmt, code):
 def main():
     review = load_review()
     rows = []
-    for path in files():
-        rel = os.path.relpath(path, CRATE)
+    # --scan FILE...: the given files as PRODUCTION code, no review file (tests/procfix9_tripwire.rs runs it over
+    # audit/evasion_forms.rs: every known evasion form must be a candidate)
+    scan = sys.argv[sys.argv.index('--scan') + 1:] if '--scan' in sys.argv else None
+    for path in (scan if scan is not None else files()):
+        rel = os.path.relpath(path, CRATE) if scan is None else 'src/' + os.path.basename(path)
+        if scan is not None:
+            review = {}
         lines = open(path, encoding='utf-8').read().split('\n')
         in_test = False
         for k, l in enumerate(lines):
@@ -174,6 +185,10 @@ def main():
                     verdict = 'wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)'
                 m = re.search(r'fsx::\w+\(\s*"([^"]+)"', stmt) if kind == 'F' else None
                 rows.append((kind, rel, k + 1, sc, m.group(1) if m else '', verdict, norm(l)[:200]))
+    if scan is not None:
+        for r in rows:
+            print('\t'.join(str(x) for x in (r[0], r[2], r[5], r[6])))
+        return
     out = os.path.join(HERE, 'fs_sites.tsv') if '--check' not in sys.argv else os.devnull
     with open(out, 'w', encoding='utf-8') as f:
         f.write('# generated by audit/fs_sites.py (procfix7 round 5, gate9 M9-2): kind\tfile\tline\tscope\tsite\treview\tcode\n')

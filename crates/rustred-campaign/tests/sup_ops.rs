@@ -51,6 +51,11 @@ fn pause_flag_blocks_launching() {
             .unwrap()
             .to_string()
     };
+    // procfix7 round 6: the first heartbeat may come after the 3 s above on a loaded host (the suite failed once at the
+    // read below with NotFound at a host load of ~400): wait for the file, never assume its timing
+    wait_until("the first heartbeat", Duration::from_secs(60), || {
+        d.join("progress/heartbeat.json").exists()
+    });
     let h0 = hb();
     let seq0 = state(&d).last_seq;
     wait_until(

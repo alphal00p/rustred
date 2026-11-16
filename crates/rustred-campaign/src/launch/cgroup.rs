@@ -399,6 +399,20 @@ pub(super) fn procs_of(dir: &Path) -> io::Result<Vec<u32>> {
         .collect()
 }
 
+/// procfix7 round 6 (gate10 m10-3, the listing rule for cgroups): the processes of `dir` AND of every cgroup below it
+/// (cgroup.procs lists only a cgroup's OWN members; a process of the job that created and entered a child cgroup is
+/// listed there). The listing of child cgroups is complete or an error (fsx), and the caller cross-checks an empty
+/// answer with the kernel's RECURSIVE `cgroup.events` populated flag (the independent second source).
+pub(super) fn procs_recursive(dir: &Path) -> io::Result<Vec<u32>> {
+    let mut out = procs_of(dir)?;
+    for e in crate::fsx::list_required("cgroup", dir)? {
+        if e.file_type.is_dir() {
+            out.extend(procs_recursive(&e.path)?);
+        }
+    }
+    Ok(out)
+}
+
 /// `cgroup.kill` of a job cgroup WE created (the only caller passes `JobCgroup` paths). A successful write is a
 /// delivered SIGKILL to every process in it: logged like every guarded delivery (gate3 M2).
 pub(super) fn kill_path(dir: &Path) -> io::Result<()> {
@@ -529,14 +543,20 @@ impl ScopeRef {
         {
             return Ok(Vec::new());
         }
-        let pids = match procs_of(&self.dir) {
+        // procfix7 round 6 (gate10 m10-3): the scope's subtree (a process that moved into a child cgroup of the scope is
+        // listed there, not in the scope's own cgroup.procs)
+        let pids = match procs_recursive(&self.dir) {
             Ok(p) => p,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(format!("{}/cgroup.procs: {e}", self.dir.display())),
+            Err(e) => {
+                return Err(format!(
+                    "{} (cgroup.procs of the subtree): {e}",
+                    self.dir.display()
+                ));
+            }
         };
-        // procfix7 round 6 (gate10 m10-3): cgroup.procs lists only the scope's OWN members; a process that moved into a
-        // child cgroup of the scope is not in it. The kernel's RECURSIVE answer is cgroup.events `populated`: a scope
-        // populated without a listed member is never "empty"
+        // ... and the kernel's RECURSIVE answer, cgroup.events `populated`: a scope populated without a listed member is
+        // never "empty" (the listing rule's second source)
         if pids.iter().all(|&p| p == self.sid) {
             match populated(&self.dir) {
                 Ok(false) => {}
@@ -631,9 +651,9 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
         if !md.file_type().is_dir() || md.uid() != uid {
             continue;
         }
-        let procs = procs_of(&dir)?;
-        // procfix7 round 6 (gate10 m10-3): empty only when the kernel's RECURSIVE populated flag says so (cgroup.procs
-        // lists only the scope's own members, not those of a child cgroup); cgroup.kill is recursive
+        let procs = procs_recursive(&dir)?;
+        // procfix7 round 6 (gate10 m10-3): empty only when the kernel's RECURSIVE populated flag says so (the subtree's
+        // cgroup.procs listings are the first source); cgroup.kill is recursive
         if procs.is_empty() && !populated(&dir)? {
             return Ok(Some(0));
         }
@@ -643,6 +663,39 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
         return Ok(Some(procs.len().max(1)));
     }
     Ok(None)
+}
+
+/// procfix7 round 6 (gate10 M10-1 (b)): after a cgroup.kill of the recorded scope `unit`, true once the kernel reports
+/// it EMPTY (its recursive `cgroup.events` populated 0), or the scope directory is gone (systemd removes a transient scope
+/// once it is empty; it existed a moment ago: we just killed it), within `limit`. Any failed read: false (not proven).
+pub fn recorded_scope_emptied(unit: &str, limit: std::time::Duration) -> bool {
+    let uid = crate::resources::our_uid();
+    let t0 = std::time::Instant::now();
+    loop {
+        let mut present = false;
+        for dir in scope_candidates(unit, uid) {
+            match crate::fsx::presence_lstat("cgroup", &dir) {
+                crate::fsx::Presence::Absent => continue,
+                crate::fsx::Presence::Unknown(_) => return false,
+                crate::fsx::Presence::Present(md) if md.file_type().is_dir() && md.uid() == uid => {
+                    present = true;
+                    match populated(&dir) {
+                        Ok(false) => return true,
+                        Ok(true) => {}
+                        Err(_) => return false,
+                    }
+                }
+                crate::fsx::Presence::Present(_) => continue,
+            }
+        }
+        if !present {
+            return true;
+        }
+        if t0.elapsed() >= limit {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)

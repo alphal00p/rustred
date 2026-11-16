@@ -102,10 +102,12 @@ pub struct SweepReport {
     /// procfix7 (gate6 MJ-A): when not proven because of unreadable candidates, those of the last scan that may descend
     /// from the campaign (pid, name, parent, why); never signalled. Empty when proven.
     pub hidden: Vec<HiddenProcess>,
-    /// procfix7 round 5 (gate9 G9-B2, process churn): marked processes a scan of this sweep saw ALIVE that were gone
-    /// before their SIGSTOP (not killed by this sweep). Such a process may have started a successor that no scan saw (a
-    /// chain that forks and exits faster than a scan reads it is invisible to a /proc scan): the final sweep does not
-    /// claim a clean end while any try had one (exit 8, naming them); recovery reports them.
+    /// procfix7 round 5 (gate9 G9-B2, process churn) / round 6 (gate10 M10-1): marked processes a scan of this sweep saw
+    /// ALIVE that were gone, or no longer the same marked process (pid reused, marker dropped by an exec, another uid),
+    /// before their SIGSTOP (not killed by this sweep; a new holder of the pid is never signalled). Such a process may
+    /// have started a successor that no scan saw (a chain that forks and exits faster than a scan reads it is invisible
+    /// to a /proc scan): a sweep with one is never proven, and the supervisor keeps it open until an ATOMIC proof covers
+    /// its successors (RUNBOOK 2.10), else the end is exit 8 naming it.
     pub vanished: Vec<MarkedProcess>,
 }
 
@@ -348,7 +350,13 @@ impl Sweep<'_> {
                     self.vanished.insert(k, p);
                     out.push(Ok(false));
                 }
-                Err(Verdict::NotOurs(_)) => out.push(Ok(false)),
+                // procfix7 round 6 (gate10 M10-1 detail): the scanned MARKED process (this exact start, this marker) is
+                // gone or changed identity before its stop (its pid reused: StartMismatch; an exec without the marker;
+                // another uid): the marked incarnation vanished unproven; whatever holds the pid now is NOT signalled
+                Err(Verdict::NotOurs(_)) => {
+                    self.vanished.insert(k, p);
+                    out.push(Ok(false));
+                }
                 Err(Verdict::Unverified(e)) => out.push(Err(e)),
                 Err(Verdict::Delivered) => out.push(Err("impossible verdict".into())),
             }
@@ -378,7 +386,12 @@ impl Sweep<'_> {
                     self.vanished.insert(k, p);
                     Ok(false)
                 }
-                Verdict::NotOurs(_) => Ok(false),
+                // as above (M10-1 detail): reused pid / dropped marker between the scan and the stop = vanished, never
+                // signalled (the guard refused the stop)
+                Verdict::NotOurs(_) => {
+                    self.vanished.insert(k, p);
+                    Ok(false)
+                }
                 Verdict::Unverified(e) => {
                     self.left.insert(
                         k,

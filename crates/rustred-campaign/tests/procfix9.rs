@@ -70,7 +70,14 @@ impl Churn {
         let c = std::ffi::CString::new(path.to_str().unwrap()).unwrap();
         // SAFETY: mkfifo / open with a NUL-terminated path.
         assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0, "mkfifo");
-        let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_NONBLOCK) };
+        // procfix7 round 6: O_CLOEXEC: the supervisors this test starts (and their jobs, and the chain) must NOT inherit
+        // the read end: a chain holding a reader of its own FIFO never gets EPIPE and outlives the test's clean-up
+        let fd = unsafe {
+            libc::open(
+                c.as_ptr(),
+                libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
         assert!(fd >= 0, "open the fifo");
         // SAFETY: a descriptor we just opened.
         let fd = unsafe { <OwnedFd as std::os::fd::FromRawFd>::from_raw_fd(fd) };
@@ -333,9 +340,16 @@ fn g9_b2_gate9_churner_never_gives_exit_0() {
             .trim()
             .parse()
             .unwrap();
-        let tasks = |p: u32| {
-            std::fs::read_dir(format!("/proc/{p}/task"))
-                .map(|r| r.count())
+        // procfix7 round 6 (gate10 m10-7): the kernel's ATOMIC thread count (status Threads:), never the entries of one
+        // readdir of /proc/<pid>/task (it misses the live thread of a churner: measured, see tests/gate9_churn.rs)
+        let tasks = |p: u32| -> usize {
+            std::fs::read_to_string(format!("/proc/{p}/status"))
+                .ok()
+                .and_then(|s| {
+                    s.lines()
+                        .find_map(|l| l.strip_prefix("Threads:"))
+                        .and_then(|v| v.trim().parse().ok())
+                })
                 .unwrap_or(0)
         };
         assert!(tasks(cp) > 1, "the churner runs after the crash");

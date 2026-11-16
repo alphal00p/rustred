@@ -14,4 +14,9 @@ disallowed-methods = [
     { path = "std::fs::metadata", reason = "use crate::fsx::presence" },
     { path = "std::fs::symlink_metadata", reason = "use crate::fsx::presence_lstat" },
     { path = "std::fs::read_dir", reason = "use crate::fsx::list (a listing is Complete or Failed; entry errors fail it)" },
+    # procfix7 round 6 (gate10 m10-4): canonicalize / read_link collapses were caught by no rule
+    { path = "std::fs::canonicalize", reason = "use crate::fsx::canonicalize / fsx::canonical (labelled; a collapse of its error is reviewed in audit/fs_sites)" },
+    { path = "std::path::Path::canonicalize", reason = "use crate::fsx::canonicalize / fsx::canonical" },
+    { path = "std::fs::read_link", reason = "/proc links: crate::resources::procfs (typed); files: add a labelled crate::fsx helper" },
+    { path = "std::path::Path::read_link", reason = "as std::fs::read_link" },
 ]

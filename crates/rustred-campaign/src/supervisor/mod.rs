@@ -543,10 +543,16 @@ pub struct Supervisor {
     /// final sweeps: each proven dead or not ours by its own pid).
     recorded_pids: Vec<(u32, Option<u64>)>,
     /// procfix7 round 6 (gate10 M10-1, ONE rule for every sweep): marked processes some sweep of this session saw alive
-    /// that exited before their stop (with their start time and which sweep). Each keeps the end unproven until a LATER
-    /// sweep seeded with them is proven: on complete listings (the G10-B1 proof), two consecutive conclusive scans, no
-    /// marked process left or unreadable, no new vanish, and each of these pids proven dead or not ours by its own pid.
-    vanished_open: BTreeMap<u32, (Option<u64>, String)>,
+    /// that were gone, or no longer the same marked process, before their stop: pid -> (start time, which sweep, the
+    /// marker's attempt label). Each keeps the end unproven until an ATOMIC proof covers every successor it may have
+    /// started (`resolve_vanished`): a /proc sweep never does (a chain faster than a scan is invisible to every scan).
+    vanished_open: BTreeMap<u32, (Option<u64>, String, String)>,
+    /// procfix7 round 6 (M10-1): the attempt labels (`job:a<k>`) launched by THIS session: their processes and every
+    /// successor stay in this child subreaper's tree, so the kernel's wait answer (ECHILD) covers them.
+    launched_here: BTreeSet<String>,
+    /// procfix7 round 6 (M10-1, host): attempt labels whose recorded job scope the recovery backstop found EMPTY by the
+    /// kernel's recursive populated flag (before or after its cgroup.kill): every process that stayed in it is gone.
+    scope_proven_empty: BTreeSet<String>,
 }
 
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
@@ -1348,6 +1354,8 @@ impl Supervisor {
             unproven_why: BTreeMap::new(),
             recorded_pids: Vec::new(),
             vanished_open: BTreeMap::new(),
+            launched_here: BTreeSet::new(),
+            scope_proven_empty: BTreeSet::new(),
             opts,
         })
     }
@@ -2008,13 +2016,25 @@ impl Supervisor {
                     continue;
                 };
                 let label = format!("{job}:a{attempt}");
-                match crate::launch::guard_context("restart: recorded job scope", Some(&label), || {
-                    crate::launch::kill_recorded_scope(unit)
-                }) {
-                    Ok(Some(0)) | Ok(None) => {}
-                    Ok(Some(n)) => self.note(format!(
-                        "scope_killed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"processes\":{n}}}"
-                    )),
+                match crate::launch::guard_context(
+                    "restart: recorded job scope",
+                    Some(&label),
+                    || crate::launch::kill_recorded_scope(unit),
+                ) {
+                    // M10-1 (b): found EMPTY by the kernel's recursive populated flag
+                    Ok(Some(0)) => {
+                        self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
+                    }
+                    Ok(None) => {}
+                    Ok(Some(n)) => {
+                        self.note(format!(
+                            "scope_killed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"processes\":{n}}}"
+                        ));
+                        // M10-1 (b): after the (recursive) cgroup.kill, empty once the kernel says so (bounded wait)
+                        if crate::launch::recorded_scope_emptied(unit, Duration::from_secs(5)) {
+                            self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
+                        }
+                    }
                     Err(e) => {
                         self.note(format!(
                             "scope_backstop_failed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"error\":{:?}}}",
@@ -2846,12 +2866,14 @@ impl Supervisor {
         Ok(JobSpec::from_json(&b).ok().map(|spec| (spec, d)))
     }
 
-    /// procfix7 (gate7 B1): the spawn sentinel says "barrier v1" (Err: unread for a resource limit).
+    /// procfix7 (gate7 B1): the spawn sentinel says "barrier v1". Ok(false) only for a sentinel READ whose content is not
+    /// the tag, or a PROVEN absent one (ENOENT); procfix7 round 6 (gate10 m10-8: the code now matches this rule): any
+    /// other failed read is Err (the caller stops typed: never "not a barrier launch" from an unread sentinel).
     fn recovery_barrier_tag(&self, layout: &RunLayout) -> Result<bool, String> {
         match self.recovery_read(&layout.sup_dir().join(SPAWN_SENTINEL), "RUN/sup/SPAWN") {
             RecoveryRead::Data(b) => Ok(b == SPAWN_BARRIER_TAG.as_bytes()),
-            RecoveryRead::Resource(e) => Err(e),
-            RecoveryRead::Absent | RecoveryRead::Other(_) => Ok(false),
+            RecoveryRead::Resource(e) | RecoveryRead::Other(e) => Err(e),
+            RecoveryRead::Absent => Ok(false),
         }
     }
 
@@ -4227,6 +4249,8 @@ impl Supervisor {
         if !self.commit(events) {
             return Err("ledger unavailable".into());
         }
+        // M10-1: an attempt of THIS session (its processes stay in this child subreaper's tree)
+        self.launched_here.insert(ls.label.clone());
         self.fp.hit("after_launch_record");
         // procfix5 (gate4 m1): the child waits behind the spawn barrier until `job.started` is durable (below).
         ls.spawn_barrier = crate::cli::barrier_hosted() && !self.fp.armed("no_spawn_barrier");
@@ -4730,7 +4754,7 @@ impl Supervisor {
                 .recorded_pids
                 .iter()
                 .copied()
-                .chain(self.vanished_open.iter().map(|(p, (s, _))| (*p, *s)))
+                .chain(self.vanished_open.iter().map(|(p, (s, _, _))| (*p, *s)))
                 .collect();
             let mut r = orphans::sweep_seeded(&rules, None, &seeds, Duration::from_secs(10));
             if self.fp.armed("final_sweep_fails") {
@@ -4744,10 +4768,18 @@ impl Supervisor {
             self.note_stop_holds(&r, "final sweep");
             self.record_deliveries();
             if r.empty() {
-                // a proven sweep seeded with every open vanished pid: they are resolved (M10-1's "proves")
-                self.resolve_vanished("final sweep");
                 self.hidden_descendants_check()?;
                 let atomic = self.own_tree_check()?;
+                // gate10 m10-9: without the kernel's wait answer (not a child subreaper) the end is not claimed
+                if !atomic {
+                    self.end_unproven.push(
+                        "the supervisor is not a child subreaper: no atomic proof that no descendant of its jobs remains (the /proc sweeps alone cannot prove it: RUNBOOK 2.7)".to_string(),
+                    );
+                }
+                // M10-1: open vanished pids are resolved only by an atomic proof covering their successors
+                self.resolve_vanished(atomic);
+                let open = self.vanished_open.clone();
+                self.vanished_check(&open)?;
                 self.end_unproven_check()?;
                 self.log.line(
                     "INFO",
@@ -4864,14 +4896,16 @@ impl Supervisor {
         }
         let pids: Vec<u32> = r.vanished.iter().map(|p| p.pid).collect();
         for v in &r.vanished {
-            self.vanished_open
-                .entry(v.pid)
-                .or_insert((Some(v.start_ticks), by.to_string()));
+            self.vanished_open.entry(v.pid).or_insert((
+                Some(v.start_ticks),
+                by.to_string(),
+                v.attempt_id.clone(),
+            ));
         }
         self.log.line(
             "WARN",
             &format!(
-                "{by}: marked process(es) {pids:?} were seen alive and exited before their stop: the end stays unproven until a later sweep seeded with them is proven"
+                "{by}: marked process(es) {pids:?} were seen alive and were gone (or no longer the same marked process) before their stop: the end stays unproven unless an atomic proof covers every successor they may have started (this session's attempts: the kernel's wait answer; a recorded job scope: emptied by the kernel)"
             ),
         );
         self.note(format!(
@@ -4879,33 +4913,43 @@ impl Supervisor {
         ));
     }
 
-    /// procfix7 round 6 (gate10 M10-1): the open vanished pids are resolved by a LATER sweep seeded with them that is
-    /// proven (the caller checks `report.empty()`: complete listings, two conclusive scans, nothing left or unreadable,
-    /// no new vanish; each seed proven dead or not ours by its own pid).
-    fn resolve_vanished(&mut self, by: &str) {
-        if self.vanished_open.is_empty() {
+    /// procfix7 round 6 (gate10 M10-1, the definition of "proves" for a vanished marked process): a /proc sweep never
+    /// proves that a vanished process left no successor (a chain that forks and exits faster than a scan reads it is
+    /// invisible to EVERY scan, seeded or not: gate10 batch_rv). It is resolved only by an ATOMIC kernel answer that
+    /// covers every successor: (a) its attempt was launched by THIS session and the kernel's wait answer says no
+    /// descendant of this child subreaper remains (`atomic`); or (b) its attempt's recorded job scope was found empty by
+    /// the kernel's recursive populated flag (recovery backstop). Anything else stays open: exit 8 naming it.
+    fn resolve_vanished(&mut self, atomic: bool) {
+        let mut done: Vec<(u32, &'static str)> = Vec::new();
+        for (pid, (_, _, attempt)) in &self.vanished_open {
+            if atomic && self.launched_here.contains(attempt) {
+                done.push((*pid, "own tree: the kernel's wait answer ECHILD"));
+            } else if self.scope_proven_empty.contains(attempt) {
+                done.push((*pid, "its job scope: emptied (recursive populated 0)"));
+            }
+        }
+        if done.is_empty() {
             return;
         }
-        let pids: Vec<u32> = self.vanished_open.keys().copied().collect();
-        self.vanished_open.clear();
+        for (pid, _) in &done {
+            self.vanished_open.remove(pid);
+        }
+        let pids: Vec<u32> = done.iter().map(|(p, _)| *p).collect();
+        let how: Vec<&str> = done.iter().map(|(_, h)| *h).collect();
         self.log.line(
             "INFO",
-            &format!(
-                "vanished marked process(es) {pids:?} resolved by the {by}: seeded with them and proven (each proven dead or not ours by its own pid; {})",
-                crate::launch::sweep::proof_words(crate::launch::sweep::PROOF_SCANS)
-            ),
+            &format!("vanished marked process(es) {pids:?} resolved by an atomic proof ({how:?})"),
         );
         self.note(format!(
-            "sweep_vanished_resolved {{\"pids\":{pids:?},\"by\":{by:?}}}"
+            "sweep_vanished_resolved {{\"pids\":{pids:?},\"by\":{how:?}}}"
         ));
     }
 
     /// procfix7 round 5 (gate9 G9-B2) / round 6 (M10-1): marked processes seen alive and gone before their stop that no
-    /// later proven sweep resolved: never a clean end (exit 8, naming them). Called when the final sweep is NOT proven
-    /// (a proven final sweep is seeded with every open pid and resolves them: `resolve_vanished`).
+    /// atomic proof resolved (`resolve_vanished`): never a clean end (exit 8, naming them and the sweep that saw each).
     fn vanished_check(
         &mut self,
-        vanished: &BTreeMap<u32, (Option<u64>, String)>,
+        vanished: &BTreeMap<u32, (Option<u64>, String, String)>,
     ) -> Result<(), String> {
         if vanished.is_empty() {
             return Ok(());
@@ -4913,14 +4957,14 @@ impl Supervisor {
         let pids: Vec<u32> = vanished.keys().copied().collect();
         let seen: Vec<String> = vanished
             .iter()
-            .map(|(p, (_, by))| format!("{p} by the {by}"))
+            .map(|(p, (_, by, attempt))| format!("{p} ({attempt}) by the {by}"))
             .collect();
         self.commit(vec![Event::Note {
             text: format!("final_sweep_vanished {{\"pids\":{pids:?}}}"),
         }]);
         let seen = seen.join(", ");
         Err(format!(
-            "the end is not proven: marked process(es) {pids:?} of this campaign were seen alive ({seen}) and exited before they could be stopped, and no later sweep seeded with them was proven; a successor one of them started may be running unseen (a /proc scan cannot see a process chain that forks and exits faster than it reads; a job scope can): look for processes carrying this campaign's marker (ps -eo pid,ppid,lstart,cmd; /proc/PID/environ), then run the same command"
+            "the end is not proven: marked process(es) {pids:?} of this campaign were seen alive ({seen}) and were gone (or no longer the same marked process) before they could be stopped, and no atomic proof covers their successors (only this session's own tree or an emptied job scope can); a successor one of them started may be running unseen (a /proc scan cannot see a process chain that forks and exits faster than it reads; a job scope can): look for processes carrying this campaign's marker (ps -eo pid,ppid,lstart,cmd; /proc/PID/environ), then run the same command"
         ))
     }
 

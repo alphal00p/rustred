@@ -577,7 +577,7 @@ pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
 /// (`HeldByForeignDescriptor`), nothing decided by it. procfix8: through `resources::procfs`; unreadable tables are not
 /// listed.
 pub fn holders_of(path: &Path) -> Vec<u32> {
-    let Ok(target) = fs::canonicalize(path) else {
+    let Ok(target) = crate::fsx::canonicalize("lock.file", path) else {
         return Vec::new();
     };
     let root = crate::resources::procfs::sys();

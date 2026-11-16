@@ -190,9 +190,9 @@ fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
             )));
         }
     }
-    let ledger = fs::canonicalize(&c.ledger_file)
+    let ledger = crate::fsx::canonicalize("cpu_policy", &c.ledger_file)
         .map_err(io_err(format!("canonicalize {}", c.ledger_file.display())))?;
-    let locks = fs::canonicalize(&c.lock_dir)
+    let locks = crate::fsx::canonicalize("cpu_policy", &c.lock_dir)
         .map_err(io_err(format!("canonicalize {}", c.lock_dir.display())))?;
     if ledger.starts_with(&locks) {
         return Err(PolicyError::Config(format!(
@@ -285,7 +285,7 @@ pub struct HeldAfterRelease {
 /// Processes of our uid that have `path` open (a scan of the descriptor tables; unreadable tables are skipped).
 /// Diagnostics only (a human decides; nothing is signalled, nothing decided). procfix8: through `resources::procfs`.
 pub fn lock_holders(path: &Path) -> Vec<u32> {
-    let Ok(target) = fs::canonicalize(path) else {
+    let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {
         return Vec::new();
     };
     let me = std::process::id();
@@ -1495,6 +1495,24 @@ pub fn describe_exclusions(p: &SitePolicy) -> String {
 #[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
+    /// procfix7 round 6 (gate10 m10-6, mutation M8): a pause flag whose presence cannot be checked (here ENOTDIR: a
+    /// component of its path is a file) BLOCKS like a present one; only a proven absent flag (ENOENT) does not.
+    #[test]
+    fn an_unreadable_pause_flag_blocks() {
+        let d = std::env::temp_dir().join(format!("pf10-pause-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("file"), b"x").unwrap();
+        let unknown = d.join("file").join("PAUSE");
+        let absent = d.join("PAUSE");
+        let r = read_pause(std::slice::from_ref(&absent));
+        assert!(r.is_empty(), "a proven absent flag does not block: {r:?}");
+        let r = read_pause(&[unknown, absent]);
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(r[0].contains("cannot be checked"), "{r:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     use super::*;
 
     /// The example of `plan/auto-campaign/interfaces/process-layer.md` section 7 (this host's values) parses and

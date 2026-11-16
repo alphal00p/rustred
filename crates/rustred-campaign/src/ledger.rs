@@ -2041,7 +2041,8 @@ impl Drop for Ledger {
 }
 
 fn check_lock(cdir: &Path, lock: &CampaignLock) -> Result<(), LedgerError> {
-    let canon = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let canon =
+        |p: &Path| crate::fsx::canonicalize("ledger.dir", p).unwrap_or_else(|_| p.to_path_buf());
     if canon(lock.dir()) != canon(cdir) || !lock.is_intact() {
         return Err(LedgerError::WrongLock {
             lock_dir: lock.dir().to_path_buf(),

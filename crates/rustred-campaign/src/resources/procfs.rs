@@ -517,9 +517,10 @@ impl ProcRoot {
     /// reads the leaders' lists only, from pid 1 and from this process: a child of a non-leader thread is not reached;
     /// the walk is a lower bound, the listing must contain it.)
     pub fn pids_proven(&self, known_alive: &[u32]) -> ProcResult<Vec<u32>> {
-        let began = now_ticks();
-        let v = self.pids()?;
-        let listed: BTreeSet<u32> = v.iter().copied().collect();
+        // procfix7 round 6 (gate10 batch_rv): the walk runs BEFORE the listing, so that the caller's reads follow the
+        // listing as closely as before (a walk between the listing and the reads widened the window in which a short-
+        // lived process listed is gone when read). A process the walk reached that is alive after the listing and
+        // started before it began existed during the whole listing: a complete listing contains it.
         let mut reached: BTreeSet<u32> = BTreeSet::new();
         // from the namespace's init and from this process (a process forked by a non-leader thread, e.g. a test harness
         // spawning the supervisor, is not on its parent's leader list; this process's own children are)
@@ -543,6 +544,9 @@ impl ProcRoot {
                 }
             }
         }
+        let began = now_ticks();
+        let v = self.pids()?;
+        let listed: BTreeSet<u32> = v.iter().copied().collect();
         for &w in reached.iter().chain(known_alive.iter()) {
             if listed.contains(&w) {
                 continue;
