@@ -1782,6 +1782,11 @@ fn b2_face_by_face() {
             let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
             let mut faces: BTreeMap<String, u64> = BTreeMap::new();
             let mut keys_out: Vec<String> = Vec::new();
+            // a key can lie in several listed elements (main and blocked sub-partition elements overlap): every count is in
+            // DISTINCT keys (TRICKS 39); duplicate rows are counted apart
+            let mut seen_keys: std::collections::HashSet<Vec<i32>> =
+                std::collections::HashSet::new();
+            let mut duplicate_rows = 0u64;
             for l in &cov.listed {
                 let i = l["element"].as_u64().unwrap() as usize;
                 let el = &cp.elements[i];
@@ -1804,6 +1809,10 @@ fn b2_face_by_face() {
                 match sized {
                     Some(()) => {
                         for k in keys_here {
+                            if !seen_keys.insert(k.clone()) {
+                                duplicate_rows += 1;
+                                continue;
+                            }
                             res_keys += 1;
                             let d = match &g5 {
                                 Some(g) => format!("{:?}", g.first_match(&k)),
@@ -1854,7 +1863,7 @@ fn b2_face_by_face() {
             cone_lines.push(json!({
                 "cone": tag, "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
                 "uncovered": cov.uncovered, "undecided": cov.undecided,
-                "residual": {"cell_keys_in_cone": res_keys, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
+                "residual": {"cell_keys_in_cone": res_keys, "duplicate_rows_skipped": duplicate_rows, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
                 "terminals": terminals.as_ref().map(|(t, m)| json!({"terminal_set_sha256": m["sha256"], "terminal_keys": t.len(),
                     "open_terminal_keys": open_terminals, "open_keys_not_terminal": open_not_terminal.len(), "open_not_terminal_first": open_not_terminal.iter().take(20).collect::<Vec<_>>(),
                     "open_set_equals_terminals_in_cone": open_not_terminal.is_empty() && unsized_cells == 0 && cov.undecided == 0})),
