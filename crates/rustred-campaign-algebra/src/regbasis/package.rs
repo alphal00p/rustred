@@ -25,6 +25,8 @@ use rustred_campaign_core::accept::rule::RuleText;
 use rustred_campaign_core::closure::bodies::{
     RhsSlot, Sectors, TermClass, parse_rhs_pattern, rule_point,
 };
+use rustred_campaign_core::cover::Dispatch;
+use rustred_campaign_core::domain::Verdict;
 use rustred_campaign_core::epsdepth::{KeyStatus, ReductionSource, Terms};
 use rustred_campaign_core::import::ImportedSet;
 use rustred_campaign_core::key::{Key, parse_key};
@@ -46,6 +48,9 @@ pub enum Serv {
     Table(i64),
     /// A relation entry of the segments.
     Entry,
+    /// A key OUTSIDE the certified list served by the package table's first match (opt-in,
+    /// [`PackageSource::serve_outside_by_table`]): `(table, record)` of the strict import, as the engine dispatches.
+    TableAt(usize, usize),
 }
 
 struct Rec {
@@ -73,6 +78,8 @@ pub struct PackageStats {
     pub blocked_by_restored_locus: u64,
     pub elided_unrestored_hits: u64,
     pub outside_certified: u64,
+    /// Instantiations at keys outside the certified list served by the table's first match (opt-in).
+    pub outside_served_by_table: u64,
 }
 
 /// The package as a reduction source.
@@ -91,6 +98,12 @@ pub struct PackageSource<'a> {
     by_index: HashMap<i64, (usize, usize)>,
     recs: HashMap<(usize, usize), Rec>,
     restored: HashMap<String, Vec<String>>,
+    /// Interned indices of the keys reported Open to the composition (outside the certified set): the exact open set
+    /// of the cones composed so far (only nonzero instantiated terms are followed).
+    open_seen: std::sync::Mutex<HashSet<usize>>,
+    /// Serve keys outside the certified list by the table's first match (the engine's dispatch); off by default.
+    outside_by_table: bool,
+    fm_cache: std::sync::Mutex<HashMap<Key, Option<(usize, usize)>>>,
     pub stats: PackageStats,
 }
 
@@ -240,16 +253,74 @@ impl<'a> PackageSource<'a> {
             by_index,
             recs: HashMap::new(),
             restored,
+            open_seen: std::sync::Mutex::new(HashSet::new()),
+            outside_by_table: false,
+            fm_cache: std::sync::Mutex::new(HashMap::new()),
             stats,
         })
     }
 
-    pub fn terminals(&self) -> &[Key] {
-        &self.terminals
+    /// Serve keys OUTSIDE the certified list by the package table's first match (strict import's dispatcher), as the
+    /// engine does before it falls back to relation entries and face recipes: `Covered` serves; `Blocked` by elided
+    /// witness loci serves through the restored loci (BLOCK on the locus, as for certified keys); every other dispatch
+    /// (uncovered, pole / exception / bound blocks, undecided, outside the chart) leaves the key open.
+    pub fn serve_outside_by_table(&mut self, on: bool) {
+        self.outside_by_table = on;
     }
 
+    /// How `k` is served: the certified list, else (opt-in) the table's first match.
     pub fn serv(&self, k: &[i32]) -> Option<Serv> {
-        self.certified.get(k).copied()
+        if let Some(s) = self.certified.get(k) {
+            return Some(*s);
+        }
+        if !self.outside_by_table {
+            return None;
+        }
+        if let Ok(c) = self.fm_cache.lock()
+            && let Some(hit) = c.get(k)
+        {
+            return hit.map(|(t, r)| Serv::TableAt(t, r));
+        }
+        let hit = match self.set.disp.first_match(k) {
+            Ok(Dispatch::Covered(rr)) => Some((rr.table, rr.record)),
+            Ok(Dispatch::Blocked {
+                at,
+                reason: Verdict::Elided,
+            }) => Some((at.table, at.record)),
+            _ => None,
+        };
+        if let Ok(mut c) = self.fm_cache.lock() {
+            c.insert(k.to_vec(), hit);
+        }
+        hit.map(|(t, r)| Serv::TableAt(t, r))
+    }
+
+    /// `(table, record)` of a table server.
+    fn table_pos(&self, s: Serv) -> Result<(usize, usize), String> {
+        match s {
+            Serv::Table(ix) => self
+                .by_index
+                .get(&ix)
+                .copied()
+                .ok_or_else(|| format!("no table record with index {ix}")),
+            Serv::TableAt(t, r) => Ok((t, r)),
+            _ => Err("not a table server".into()),
+        }
+    }
+
+    /// The keys reported Open to the composition so far (sorted), and forget them.
+    pub fn take_open_keys(&mut self) -> Vec<Key> {
+        let ix: Vec<usize> = match self.open_seen.get_mut() {
+            Ok(set) => set.drain().collect(),
+            Err(_) => vec![],
+        };
+        let mut v: Vec<Key> = ix.into_iter().map(|i| self.keys[i].clone()).collect();
+        v.sort();
+        v
+    }
+
+    pub fn terminals(&self) -> &[Key] {
+        &self.terminals
     }
 
     /// Intern a key (any key; status from the certified list).
@@ -325,17 +396,19 @@ impl<'a> PackageSource<'a> {
 
     /// The top-sector terms of the relation serving `k` (coefficients at the key / rule point, exact).
     fn relation_of(&mut self, k: &[i32]) -> Result<Vec<(Key, TCoeff)>, String> {
-        match self.certified.get(k).copied() {
+        let served = self.serv(k);
+        if matches!(served, Some(Serv::TableAt(..))) {
+            self.stats.outside_served_by_table += 1;
+        }
+        match served {
             None => {
                 self.stats.outside_certified += 1;
                 Err("key outside the package's certified set".into())
             }
             Some(Serv::Terminal(_)) => Ok(vec![]),
-            Some(Serv::Table(ix)) => {
-                let (t, r) = *self
-                    .by_index
-                    .get(&ix)
-                    .ok_or_else(|| format!("no table record with index {ix}"))?;
+            Some(s @ (Serv::Table(_) | Serv::TableAt(..))) => {
+                let (t, r) = self.table_pos(s)?;
+                let ix = self.set.rules[t][r].index.unwrap_or(-1);
                 self.rec(t, r)?;
                 let arity = self.arity;
                 let mut pt = vec![];
@@ -467,17 +540,15 @@ impl<'a> PackageSource<'a> {
     /// The TOP-sector term keys of the relation serving `k`, WITHOUT coefficients (keys-only superset: every top term is
     /// followed, also one whose coefficient vanishes at the key). The witness-locus BLOCK is applied as in the exact path.
     fn terms_keys_only(&mut self, k: &[i32]) -> Result<Vec<Key>, String> {
-        match self.certified.get(k).copied() {
+        match self.serv(k) {
             None => {
                 self.stats.outside_certified += 1;
                 Err("key outside the package's certified set".into())
             }
             Some(Serv::Terminal(_)) => Ok(vec![]),
-            Some(Serv::Table(ix)) => {
-                let (t, r) = *self
-                    .by_index
-                    .get(&ix)
-                    .ok_or_else(|| format!("no table record with index {ix}"))?;
+            Some(s @ (Serv::Table(_) | Serv::TableAt(..))) => {
+                let (t, r) = self.table_pos(s)?;
+                let ix = self.set.rules[t][r].index.unwrap_or(-1);
                 self.rec(t, r)?;
                 let e = &self.recs[&(t, r)];
                 let mut pt = vec![];
@@ -598,15 +669,21 @@ impl ReductionSource for PackageSource<'_> {
         self.keys[i].clone()
     }
     fn status(&self, i: usize) -> KeyStatus {
-        match self.certified.get(&self.keys[i]) {
-            Some(Serv::Terminal(j)) => KeyStatus::Terminal(*j),
+        match self.serv(&self.keys[i]) {
+            Some(Serv::Terminal(j)) => KeyStatus::Terminal(j),
             Some(_) => KeyStatus::Served,
-            None => KeyStatus::Open("key outside the package's certified set".into()),
+            None => {
+                if let Ok(mut set) = self.open_seen.lock() {
+                    set.insert(i);
+                }
+                KeyStatus::Open("key outside the package's certified set".into())
+            }
         }
     }
     fn server(&self, i: usize) -> String {
-        match self.certified.get(&self.keys[i]) {
+        match self.serv(&self.keys[i]) {
             Some(Serv::Table(ix)) => format!("table#{ix}"),
+            Some(Serv::TableAt(t, r)) => format!("table@{t}:{r}"),
             Some(Serv::Entry) => "entry".into(),
             Some(Serv::Terminal(j)) => format!("terminal#{j}"),
             None => "none".into(),

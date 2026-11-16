@@ -1660,7 +1660,8 @@ fn read_relations(path: &Path, want: &dyn Fn(usize) -> bool) -> Result<Vec<RelIn
 }
 
 /// `rr_regbasis package-relations --package DIR --import-spec SPEC --relations REL.jsonl --record R.json --out OUT.jsonl
-/// [--loci F]... [--batch 16] [--keys-only] [--sample-check N --seed S] [--max-depth 4000] [--index-dir I]`:
+/// [--loci F]... [--batch 16] [--keys-only] [--outside-by-table] [--sample-check N --seed S] [--max-depth 4000]
+/// [--index-dir I]`:
 /// per delivered relation `K = sum_j c_j K_j (+ sub-sector terms)`, its TOP-sector right-hand side composed EXACTLY in d
 /// down to the package's terminals (lane epsdepth's composition, exact backend, over the package source), then
 /// multiplied by M (T = M R) of the record: the relation's coefficients ON R, their exact orders at d0, the verdict
@@ -1755,6 +1756,10 @@ fn package_relations_cmd(args: &[String]) -> Result<(), String> {
         alg,
         lau.clone(),
     )?;
+    if flag("--outside-by-table") {
+        src.serve_outside_by_table(true);
+        log("keys outside the certified list: served by the table's first match where it covers them (--outside-by-table)");
+    }
     log(&format!(
         "package: {} certified keys, {} entries, {} segment files, terminals {:?}",
         src.stats.certified_keys,
@@ -2094,6 +2099,16 @@ fn package_relations_cmd(args: &[String]) -> Result<(), String> {
             writeln!(out, "{line}").map_err(|e| e.to_string())?;
         }
         out.flush().map_err(|e| e.to_string())?;
+        // the exact open set of this batch's cones (keys outside the certified set met with a nonzero coefficient)
+        let open_keys = src.take_open_keys();
+        if !open_keys.is_empty() {
+            let op = PathBuf::from(format!("{}.open-keys.jsonl", out_path.display()));
+            let mut of = std::fs::OpenOptions::new().create(true).append(true).open(&op).map_err(|e| e.to_string())?;
+            for k in &open_keys {
+                writeln!(of, "{}", json!({"batch": bi, "key": k})).map_err(|e| e.to_string())?;
+            }
+            log(&format!("batch {bi}: {} open keys (exact cone) -> {}", open_keys.len(), op.display()));
+        }
         log(&format!(
             "batch {bi}: {} relations, rhs keys {} ({} composed now), cone {:?} keys, max height {:?}, {:.1} s; source {}",
             chunk.len(),
@@ -2185,6 +2200,9 @@ fn package_closure_cmd(args: &[String]) -> Result<(), String> {
     let alg = SymbolicaAlgebra::new().map_err(|e| e.to_string())?;
     let lau = SymbolicaLaurent::new(&d0t)?;
     let mut src = PackageSource::open(&set, &pkg.join("keys.jsonl"), &segs, &loci, alg, lau)?;
+    if args.iter().any(|a| a == "--outside-by-table") {
+        src.serve_outside_by_table(true);
+    }
     let n = src.terminals().len();
     for t in src.terminals().to_vec() {
         src.intern(&t);
