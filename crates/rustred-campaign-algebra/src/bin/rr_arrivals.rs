@@ -1875,6 +1875,36 @@ fn arrival_dr(a: &Args) {
     );
 }
 
+/// `check-zero-claims --spec S --proofs P [..] --out F`: load proof files (zero lines, hand-down class included) for the
+/// spec's import set through the CORE loader (`import::zero_proofs::ZeroProofs::load`: zerosfix3 semantics, every proved
+/// claim re-checked against its record's own text; a false claim refuses), and write its counters (or the refusal).
+fn check_zero_claims(a: &Args) {
+    let spec = a.spec.clone().unwrap_or_else(|| die("--spec missing"));
+    let out = a.out.clone().unwrap_or_else(|| die("--out missing"));
+    if a.proofs.is_empty() {
+        die("--proofs missing");
+    }
+    let (set, _) = load_spec(&spec, &a.index_dir, |_| {});
+    let r = rustred_campaign_core::import::zero_proofs::ZeroProofs::load(
+        &set,
+        &a.proofs,
+        &rustred_campaign_core::import::zero_proofs::LoadOptions::default(),
+    );
+    let s = match r {
+        Ok(z) => {
+            json!({"schema": "rustred.campaign.zero-claims-check.v1", "spec": spec, "proofs": a.proofs,
+            "loaded": true, "stats": z.stats,
+            "ok": z.stats.claims_false == 0 && z.stats.claims_unchecked == 0 && z.stats.den_text_mismatch == 0})
+        }
+        Err(e) => {
+            json!({"schema": "rustred.campaign.zero-claims-check.v1", "spec": spec, "proofs": a.proofs,
+            "loaded": false, "refusal": String::from(e), "ok": false})
+        }
+    };
+    write_json(&out, &s);
+    println!("{}", canonical_json(&s));
+}
+
 fn header_family(p: &Path) -> Option<String> {
     let h = rustred_campaign_core::import::lines::read_header("arrivals", p).ok()?;
     h.raw
@@ -1907,6 +1937,7 @@ fn main() {
         "cone-excess" => cone_excess(&a),
         "edge-cone" => edge_cone(&a),
         "arrival-dr" => arrival_dr(&a),
+        "check-zero-claims" => check_zero_claims(&a),
         x => die(&format!("unknown command {x}")),
     }
 }
