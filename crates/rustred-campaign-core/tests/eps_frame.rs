@@ -33,6 +33,13 @@ fn header_of(text: &str) -> TableHeader {
     }
 }
 
+/// sha256 (hex) of a file: evidence entries are pinned (closeloop4 M1).
+fn file_sha256(p: &std::path::Path) -> String {
+    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+    h.update(&std::fs::read(p).unwrap());
+    h.finish_hex()
+}
+
 fn header_file(name: &str) -> TableHeader {
     header_of(&std::fs::read_to_string(data(name)).unwrap())
 }
@@ -780,13 +787,9 @@ fn eps_check_full(
                      "table_terminals": "ledger_and_residuals"}],
     });
     if let Some(f) = facts {
-        // int7: spec evidence names the family it was produced for and is pinned by its sha256 (closeloop4,
-        // audit-closeloop m4 / M1): the table's family, the file's digest
-        let family = tf.header.as_ref().unwrap().family.clone();
-        let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
-        h.update(&std::fs::read(f).unwrap());
-        spec["evidence"] = serde_json::json!({"facts": [{"path": f.display().to_string(), "family": family,
-                                                          "sha256": h.finish_hex()}]});
+        // pinned and family-bound evidence (closeloop4 M1 / m4): sha256 of the file, the table family
+        spec["evidence"] = serde_json::json!({"facts": [{"path": f.display().to_string(),
+            "sha256": file_sha256(f), "family": tf.header.as_ref().and_then(|h| h.family.clone())}]});
     }
     let spec = TableSetSpec::from_json(&spec.to_string()).unwrap();
     let set = load_with_eps(&spec, dir, &LoadOptions::default()).unwrap();
@@ -1095,8 +1098,68 @@ fn eps_campaign_node() {
                 let b = EpsBox::from_clause(&frame, &c, &node).map_err(|e| e.to_string())?;
                 line["box"] = serde_json::json!(format!("eps_box({})", c.origin));
                 line["box_layers"] = serde_json::json!(b.layers);
+                line["eps_weights_table"] =
+                    serde_json::json!(b.eps.iter().map(|&(_, w)| w).collect::<Vec<_>>());
+                line["eps_part_cap"] = serde_json::json!(b.eps_part_cap);
                 let mut v = vec![];
-                b.for_each_key(|k| v.push(k.to_vec()));
+                let (mut subset, mut double, mut total) = (0u64, 0u64, 0u64);
+                let count_only = mode == "count";
+                b.for_each_key(|k| {
+                    if let (Some(sd), Some((d, _))) = (c.subset_d_max, b.measure(k))
+                        && d <= i64::from(sd)
+                    {
+                        subset += 1;
+                    }
+                    double += u64::from(b.double_counted(k));
+                    total += 1;
+                    if !count_only {
+                        v.push(k.to_vec());
+                    }
+                });
+                line["box_keys"] = serde_json::json!(total);
+                line["box_subset_d_max"] = serde_json::json!(c.subset_d_max);
+                line["box_subset_keys"] = serde_json::json!(subset);
+                line["box_double_counted_keys"] = serde_json::json!(double);
+                line["max_eps_weight"] = serde_json::json!(b.eps.iter().map(|&(_, w)| w).max());
+                // the base key (every line at 1, every numerator at 0) in the box?
+                let base: Vec<i32> = (0..frame.arity())
+                    .map(|i| i32::from(frame.is_line(i)))
+                    .collect();
+                line["base_key_in_box"] = serde_json::json!(b.contains(&base));
+                // the node data (targets.tsv: eps_weights, eps_total, E) against the table frame
+                if let Ok(tp) = std::env::var("EPSC_TARGETS") {
+                    let tsv = std::fs::read_to_string(&tp).map_err(|e| e.to_string())?;
+                    let mut lines = tsv.lines();
+                    let hdr: Vec<&str> = lines.next().unwrap_or("").split('\t').collect();
+                    let col = |name: &str| hdr.iter().position(|h| *h == name);
+                    if let (Some(ci), Some(cw), Some(ct), Some(ce)) =
+                        (col("id"), col("eps_weights"), col("eps_total"), col("E"))
+                        && let Some(row) = lines
+                            .map(|l| l.split('\t').collect::<Vec<_>>())
+                            .find(|r| r.get(ci) == Some(&node.as_str()))
+                    {
+                        let mut tw: Vec<u32> = row[cw]
+                            .trim_matches(|c| c == '[' || c == ']')
+                            .split(',')
+                            .filter_map(|x| x.trim().parse().ok())
+                            .collect();
+                        tw.sort();
+                        let mut kw: Vec<u32> = b.eps.iter().map(|&(_, w)| w).collect();
+                        kw.sort();
+                        let te: i64 = row[ct].trim().parse().unwrap_or(-1);
+                        let tlines: i64 = row[ce].trim().parse().unwrap_or(-1);
+                        line["targets_eps_weights"] = serde_json::json!(tw);
+                        line["targets_eps_total"] = serde_json::json!(te);
+                        line["targets_E"] = serde_json::json!(tlines);
+                        line["weights_match"] = serde_json::json!(
+                            tw == kw
+                                && te == kw.iter().map(|&w| i64::from(w)).sum::<i64>()
+                                && tlines == frame.n_lines() as i64
+                        );
+                    } else {
+                        line["weights_match"] = serde_json::json!(null);
+                    }
+                }
                 v
             }
             Err(_) => layer_keys(&frame, layer),
@@ -1123,11 +1186,9 @@ fn eps_campaign_node() {
         if mode == "k" {
             spec["policies"] = serde_json::json!({"witness_check": "off_diagnostic", "tier": "K"});
         } else if let Ok(f) = std::env::var("EPSC_FACTS") {
-            // int7: spec evidence names its family and is pinned (closeloop4, audit-closeloop m4 / M1)
-            let family = header_of(&head).family;
-            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
-            h.update(&std::fs::read(&f).map_err(|e| e.to_string())?);
-            spec["evidence"] = serde_json::json!({"facts": [{"path": f, "family": family, "sha256": h.finish_hex()}]});
+            let fam = header_of(&head).family;
+            spec["evidence"] = serde_json::json!({"facts": [{"path": f.clone(),
+                "sha256": file_sha256(std::path::Path::new(&f)), "family": fam}]});
         }
         let spec = TableSetSpec::from_json(&spec.to_string()).map_err(|e| e.to_string())?;
         let set = load_with_eps(&spec, &dir, &LoadOptions::default())
@@ -1249,4 +1310,58 @@ fn eps_box_is_data_driven() {
     }
     // the integer box still refuses eps frames
     assert!(f.require_integer_only_for("x").is_err());
+}
+
+/// The answered BOXDEF B clause options: rank from n <= 0 vs from below the floor, carriers = eps total, caps, the
+/// double-count flag (w >= 3), the D subset.
+#[test]
+fn eps_box_answered_options() {
+    use rustred_campaign_core::boxdef::{EpsBox, EpsBoxClause};
+    let clause = |rank: &str, caps: bool| {
+        let caps = if caps {
+            r#""line_power_cap":5,"eps_part_cap":{"constant":5,"plus_e":true},"#
+        } else {
+            r#""line_power_cap":null,"eps_part_cap":null,"#
+        };
+        EpsBoxClause::from_json(&format!(
+            r#"{{"schema":"rustred.campaign.eps-box-clause.v1","d_coef":1,"e_coef":1,"eps_coef":1,"constant":-11,
+               "d_max_constant":4,"carriers":"eps_total",{caps}"subset_d_max":4,
+               "dots_floor":"one_minus_weight","rank_from":"{rank}","origin":"test"}}"#
+        ))
+        .unwrap()
+    };
+    // slot 0 eps with w = 3 (shift (12-3d)/2), lines 1..5, numerators 6, 7: E = 6, e = 3, d_max = 7
+    let h = header_of(
+        r#"{"type":"header","denominators":8,"mask":"11111100","power_shifts":["(12-3*d)/2","0","0","0","0","0","0","0"],"order":{"two_sided":[true,false,false,false,false,false,false,false]}}"#,
+    );
+    let f = NodeFrame::from_header_eps_aware(&h).unwrap();
+    let np = EpsBox::from_clause(&f, &clause("nonpositive", true), "t").unwrap();
+    let bf = EpsBox::from_clause(&f, &clause("below_floor", false), "t").unwrap();
+    assert_eq!(np.layers.last().unwrap()[0], 7, "D <= 4 + e");
+    assert_eq!(
+        np.layers.first().unwrap(),
+        &[2, 0],
+        "r_max = D + 6 + 3 - 11"
+    );
+    assert_eq!(np.eps_part_cap, Some(8));
+    let k = |a: i32| vec![a, 1, 1, 1, 1, 1, 0, 0];
+    // floor 1 - 3 = -2: n = -1 is dots 1 AND rank 1 under nonpositive (flagged), dots 1 only under below_floor
+    assert_eq!(np.measure(&k(-1)), Some((1, 1)));
+    assert!(np.double_counted(&k(-1)) && !np.double_counted(&k(-2)) && !np.double_counted(&k(1)));
+    assert_eq!(bf.measure(&k(-1)), Some((1, 0)));
+    assert_eq!(bf.measure(&k(-4)), Some((0, 2)));
+    assert!(!bf.double_counted(&k(-1)));
+    // caps: an integer line at power 6 and an eps part above 5 + e are outside the capped box
+    assert_eq!(np.measure(&[1, 6, 1, 1, 1, 1, 0, 0]), None);
+    assert_eq!(np.measure(&k(9)), None);
+    assert!(bf.measure(&k(9)).is_some());
+    for b in [&np, &bf] {
+        let mut keys = vec![];
+        b.for_each_key(|x| keys.push(x.to_vec()));
+        let n = keys.len();
+        keys.sort();
+        keys.dedup();
+        assert_eq!(keys.len(), n);
+        assert!(keys.iter().all(|x| b.contains(x)));
+    }
 }

@@ -1,0 +1,25 @@
+{
+ "schema": "rustred.campaign.eps-box-clause.v1",
+ "origin": "BOXDEF.v3 section B + addendum 2026-11-15T10:26Z (plan/basis-study/BOXDEF.v3.sectionB.addendum.md): one origin per eps line at 1 - w, no caps, run band D <= 4 + e, subset D <= 4",
+ "d_coef": 1,
+ "e_coef": 1,
+ "eps_coef": 1,
+ "constant": -11,
+ "d_max_constant": 4,
+ "carriers": "eps_total",
+ "dots_floor": "one_minus_weight",
+ "rank_from": "below_floor",
+ "line_power_cap": null,
+ "eps_part_cap": null,
+ "subset_d_max": 4,
+ "tags": {
+  "weights_and_e": "read (Q1; per-node data targets.tsv)",
+  "r_bound": "read (Q1: r <= D + E + e - 11)",
+  "dots_floor_and_rank": "decided (addendum 1: one origin per eps line at 1 - w: D = n - (1 - w) for n >= 1 - w, r = (1 - w) - n below)",
+  "E": "read (Q3)",
+  "carriers": "coordinator's reading (addendum 2: run band D <= 4 + e; subset D <= 4 reported)",
+  "caps": "none (addendum 2)",
+  "lower_bounds": "inferred (Q5: D >= 0, r >= 0)",
+  "empty_base": "follows from the formula (addendum 3)"
+ }
+}

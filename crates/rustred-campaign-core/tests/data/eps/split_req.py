@@ -14,7 +14,27 @@ for l in open(src):
     # engine-line7b reads an optional "chart" (and an offset always reads the exact record)
     by.setdefault(v["chart"], []).append({"table": q["table"], "offset": q["offset"], "rule": q["rule"],
                                           "chart": v["chart"], "keys": q["keys"]})
-for c, reqs in by.items():
-    with open(f"{outbase}.{c}", "w") as o:
-        for r in reqs: o.write(json.dumps(r) + "\n")
-print(" ".join(sorted(by)))
+# child jobs of at most MAXK keys (env SPLIT_MAX_KEYS, default 500000): a record's keys may be split across jobs
+import os
+maxk = int(os.environ.get("SPLIT_MAX_KEYS", "500000"))
+names = []
+for c, reqs in sorted(by.items()):
+    part, used, out = 0, 0, []
+    def flush():
+        global part, used, out
+        if out:
+            name = f"{c}.{part}"
+            with open(f"{outbase}.{name}", "w") as o:
+                for r in out: o.write(json.dumps(r) + "\n")
+            names.append(name)
+            part += 1; used = 0; out = []
+    for r in reqs:
+        keys = r["keys"]
+        while keys:
+            room = maxk - used
+            if room <= 0:
+                flush(); room = maxk
+            take, keys = keys[:room], keys[room:]
+            out.append(dict(r, keys=take)); used += len(take)
+    flush()
+print(" ".join(names))

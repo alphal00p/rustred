@@ -470,22 +470,20 @@ pub(crate) fn load_inner(
     // ---- the frame: the header line of the first file of `frame_from` (the file itself is verified when its source is
     // loaded)
     let (fsrc, fhead) = frame_header(spec, base)?;
-    // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load only (frame, charts, domains,
-    // labels (chart, index), dispatcher, bodies parsed); a campaign load refuses it, typed: the closure, check,
+    // epsframe: an eps-shifted (two-sided) family is accepted by the CLASSIFY-ONLY load and by load_with_eps only
+    // (frame, charts, domains, labels (chart, index), dispatcher, bodies); a campaign load refuses it, typed: the
     // partition, loci and termmin read line signs (integer-only; interfaces/campaign-core-domain.md "Eps")
     let frame = if validate_bodies_only || eps_aware {
         NodeFrame::from_header_eps_aware(&fhead)
     } else {
-        NodeFrame::from_header(&fhead).map_err(|e| {
-            match NodeFrame::from_header_eps_aware(&fhead) {
-                Ok(f) => FrameError::Unsupported(format!(
-                    "eps-shifted family (eps axes {:?}, kshift {:?}): a campaign load (closure, check, partition, \
-                     loci, termmin) is integer-only; only the classify-only load accepts it",
-                    f.eps_axes(),
-                    f.kshift()
-                )),
-                Err(_) => e,
-            }
+        NodeFrame::from_header(&fhead).map_err(|e| match NodeFrame::from_header_eps_aware(&fhead) {
+            Ok(f) => FrameError::Unsupported(format!(
+                "eps-shifted family (eps axes {:?}, kshift {:?}): a campaign load (closure, check, partition, \
+                 loci, termmin) is integer-only; only the classify-only load and load_with_eps accept it",
+                f.eps_axes(),
+                f.kshift()
+            )),
+            Err(_) => e,
         })
     }
     .map_err(|e| ImportError::Source {

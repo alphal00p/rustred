@@ -1,0 +1,6 @@
+{"schema":"rustred.campaign.eps-box-clause.v1",
+ "origin":"lane basis-census band rule (epsband.py: rank (1-w)-n below the floor, no caps) - for the cross-check only",
+ "d_coef":1,"e_coef":1,"eps_coef":1,"constant":-11,
+ "d_max_constant":4,"carriers":"eps_total",
+ "dots_floor":"one_minus_weight","rank_from":"below_floor",
+ "line_power_cap":null,"eps_part_cap":null,"subset_d_max":4}
