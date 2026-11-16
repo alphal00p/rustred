@@ -87,7 +87,7 @@ static int decide(const char *op, const char *path) {
     const char *ev = getenv("G8_EVERY"); int e = ev ? atoi(ev) : 1; if (e < 1) e = 1;
     if (n >= f && n <= tt && ((n - f) % e) == e - 1) fail = 1; }
   const char *pr = getenv("G8_PROB");   // per-mille probability (thread-local xorshift), within FROM..TO when FROM is set
-  if (pr) { static __thread unsigned long long x = 0; if (!x) x = 0x9E3779B97F4A7C15ULL ^ ((unsigned long long)syscall(SYS_gettid) << 17) ^ (unsigned long long)n;
+  if (pr) { static __thread unsigned long long x = 0; if (!x) x = 0x9E3779B97F4A7C15ULL ^ ((unsigned long long)syscall(SYS_gettid) << 17) ^ (unsigned long long)n ^ __builtin_ia32_rdtsc() /* gate9: per run */;
     x ^= x << 13; x ^= x >> 7; x ^= x << 17; int inr = 1;
     if (from) { const char *to = getenv("G8_TO"); inr = n >= atoi(from) && n <= (to ? atoi(to) : 0x7fffffff); }
     fail = inr && (int)(x % 1000) < atoi(pr); }
@@ -196,6 +196,10 @@ int statx(int d, const char *p, int fl, unsigned int mask, struct statx *b) {
   if (p && !*p && (fl & AT_EMPTY_PATH) && d >= 0 && d < MAXFD && fdpath[d]) {
     pthread_mutex_lock(&mu); if (fdpath[d]) { strncpy(fp, fdpath[d], sizeof fp - 1); fp[sizeof fp - 1] = 0; path = fp; }
     pthread_mutex_unlock(&mu); }
+  /* gate9: the FIRST statx of a process always passes (a failed first statx sends Rust std into its availability probe,
+     which crashes under LD_PRELOAD: SIGSEGV in any Rust program, an artefact of the harness) */
+  static int first_statx_done = 0;
+  if (!__atomic_exchange_n(&first_statx_done, 1, __ATOMIC_SEQ_CST)) return r(d, p, fl, mask, b);
   if (path && *path && decide("stat", path) && !mode_is("short") && !mode_is("trunc")) { errno = mode_errno(); return -1; }
   return r(d, p, fl, mask, b);
 }
