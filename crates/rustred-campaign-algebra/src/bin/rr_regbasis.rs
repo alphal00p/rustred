@@ -25,12 +25,16 @@ use rustred_campaign_algebra::regbasis::build::{BuildInput, Published, construct
 use rustred_campaign_algebra::regbasis::tower::{TowerInput, TowerSeed, tower};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::boxdef::{BoxDef, blake3_hex};
-use rustred_campaign_core::epsdepth::{ComposeParams, EpsBox, EpsBoxChecked, ReductionSource};
+use rustred_campaign_core::epsdepth::{
+    ComposeParams, EpsBox, EpsBoxChecked, ReductionSource, compose_streaming,
+};
 use rustred_campaign_core::import::{self, LoadOptions, TableSetSpec};
 use rustred_campaign_core::key::Key;
 use rustred_campaign_core::regbasis::record::Binding;
 use rustred_campaign_core::regbasis::{Availability, Compose, RegBasisSpec, rank_of};
 use serde_json::{Value, json};
+use symbolica::domains::rational::Q as QF;
+type QPc = rustred_campaign_algebra::regbasis::series::QP;
 
 struct EpsAvail(EpsBoxChecked);
 
@@ -697,13 +701,16 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
             let v: HashMap<Comp, Laurent> = match src.status(k) {
                 KeyStatus::Terminal(j) => {
                     let mut m = HashMap::new();
-                    let one_s = rustred_campaign_algebra::regbasis::series::expand_t_ratio(
+                    let _one_s = rustred_campaign_algebra::regbasis::series::expand_t_ratio(
                         &ZP::new(&Z, None, tv.clone()).one(),
                         &ZP::new(&Z, None, tv.clone()).one(),
                         big,
                         &tv,
                     );
-                    m.insert(Comp::T(j), Laurent::normalised(0, one_s.poly.clone(), big));
+                    m.insert(
+                        Comp::T(j),
+                        Laurent::normalised(0, QPc::new(&QF, None, tv.clone()).one(), big),
+                    );
                     m
                 }
                 _ => {
@@ -721,7 +728,7 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
                                 let child = vecs.get(c).ok_or("child vector missing (cycle?)")?;
                                 let vlow = child
                                     .values()
-                                    .map(|y| y.valuation().unwrap_or(y.prec))
+                                    .map(|y| y.valuation().unwrap_or(y.prec()))
                                     .min()
                                     .unwrap_or(0);
                                 let e = expand(x, rk - vlow);
@@ -760,10 +767,10 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
             let decided = y.decides_pole();
             let val = y.valuation();
             match comp {
-                Comp::T(j) => tpart.push(json!({"terminal": j, "valuation": val, "precision": y.prec,
+                Comp::T(j) => tpart.push(json!({"terminal": j, "valuation": val, "precision": y.prec(),
                     "leading": val.map(|v| rustred_campaign_algebra::regbasis::series::rational_text(&y.coeff(v).unwrap()))})),
                 Comp::S(sk) => {
-                    if val.is_none() && y.prec >= 1 {
+                    if val.is_none() && y.prec() >= 1 {
                         continue; // zero to a deciding precision: the coefficient of s is O(t^prec), no pole
                     }
                     let p = val.map_or(0, |v| (-v).max(0));
@@ -780,7 +787,7 @@ fn subsector_cmd(args: &[String]) -> Result<(), String> {
                         Ok(_) => "blocked / undecided in this set",
                         Err(_) => "outside the dispatcher's domain",
                     };
-                    rows.push(json!({"key": sk, "dropped_line_slots": dropped, "valuation": val, "precision": y.prec,
+                    rows.push(json!({"key": sk, "dropped_line_slots": dropped, "valuation": val, "precision": y.prec(),
                         "decided": decided, "pole_order": p,
                         "leading": val.map(|v| rustred_campaign_algebra::regbasis::series::rational_text(&y.coeff(v).unwrap())),
                         "set": disp}));
@@ -1321,7 +1328,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
                 4,
                 &tv,
             );
-            Laurent::normalised(0, o.poly.clone(), big)
+            Laurent::normalised(0, QPc::new(&QF, None, tv.clone()).one(), big)
         };
         let expand = |x: &TCoeff, prec: i64| -> Laurent {
             match tcoeff_rf(x, &tv) {
@@ -1405,7 +1412,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
                 });
                 continue;
             }
-            let vlow = wk.valuation().unwrap_or(wk.prec);
+            let vlow = wk.valuation().unwrap_or(wk.prec());
             for (c, x) in top_cache.get(&k).map(|v| v.as_slice()).unwrap_or(&[]) {
                 if matches!(x, TCoeff::Zero) || need.get(c).copied().unwrap_or(i64::MIN) == i64::MIN
                 {
@@ -1435,7 +1442,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
             .map(|y| match y {
                 None => json!({"zero": true}),
                 Some(y) => {
-                    json!({"valuation": y.valuation(), "precision": y.prec, "leading": lead(y)})
+                    json!({"valuation": y.valuation(), "precision": y.prec(), "leading": lead(y)})
                 }
             })
             .collect();
@@ -1452,7 +1459,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
                             acc = acc.add(&y.mul(&mexp[ii][jj]));
                         }
                     }
-                    json!({"valuation": acc.valuation(), "precision": acc.prec, "leading": lead(&acc)})
+                    json!({"valuation": acc.valuation(), "precision": acc.prec(), "leading": lead(&acc)})
                 })
                 .collect();
             json!({"record": info, "coefficients": v})
@@ -1469,20 +1476,20 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
                     maxp = maxp.max(-v);
                     format!("pole of order {}", -v)
                 }
-                Some(v) if v < y.prec => {
+                Some(v) if v < y.prec() => {
                     n_reg += 1;
                     format!("regular (order {v})")
                 }
-                _ if y.prec >= 1 => {
+                _ if y.prec() >= 1 => {
                     n_vanish += 1;
                     format!(
                         "regular, O(t^{}) (zero to the precision; leading coefficient beyond it)",
-                        y.prec
+                        y.prec()
                     )
                 }
                 _ => {
                     n_undec += 1;
-                    format!("undecided (precision {})", y.prec)
+                    format!("undecided (precision {})", y.prec())
                 }
             };
             let dropped: Vec<usize> = sk
@@ -1493,7 +1500,7 @@ fn subweights_cmd(args: &[String]) -> Result<(), String> {
                 .map(|(i, _)| i)
                 .collect();
             rows.push(json!({"key": sk, "dropped_line_slots": dropped, "status": status, "valuation": y.valuation(),
-                "precision": y.prec, "leading": lead(y)}));
+                "precision": y.prec(), "leading": lead(y)}));
         }
         // first-level sub-sector terms of the root's own relation, BEFORE composition
         let first_level: Vec<Value> = match sub_cache.get(&root) {
@@ -1606,8 +1613,802 @@ fn dispatch_cmd(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
+/// One relation of the input list: target key, top-sector rhs (key, coefficient text in d), own pole order if given.
+struct RelIn {
+    idx: usize,
+    key: Key,
+    top: Vec<(Key, String)>,
+    sub_terms: usize,
+}
+
+fn read_relations(path: &Path, want: &dyn Fn(usize) -> bool) -> Result<Vec<RelIn>, String> {
+    use std::io::BufRead;
+    let f = std::fs::File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut out = vec![];
+    for (i, line) in std::io::BufReader::new(f).lines().enumerate() {
+        let line = line.map_err(|e| e.to_string())?;
+        if line.trim().is_empty() || !want(i) {
+            continue;
+        }
+        let v: Value =
+            serde_json::from_str(&line).map_err(|e| format!("relations line {}: {e}", i + 1))?;
+        let key: Key = serde_json::from_value(v["key"].clone())
+            .map_err(|e| format!("relations line {}: key: {e}", i + 1))?;
+        let mut top = vec![];
+        let mut sub_terms = 0usize;
+        for t in v["rhs"].as_array().ok_or("relations: rhs")? {
+            let kind = t[2].as_str().unwrap_or("top");
+            if kind != "top" {
+                sub_terms += 1;
+                continue;
+            }
+            let k = rustred_campaign_core::key::parse_key(t[0].as_str().ok_or("rhs key")?)
+                .map_err(|e| e.to_string())?;
+            top.push((k, t[1].as_str().ok_or("rhs coefficient")?.to_string()));
+        }
+        out.push(RelIn {
+            idx: i,
+            key,
+            top,
+            sub_terms,
+        });
+    }
+    Ok(out)
+}
+
+/// `rr_regbasis package-relations --package DIR --import-spec SPEC --relations REL.jsonl --record R.json --out OUT.jsonl
+/// [--loci F]... [--batch 16] [--keys-only] [--sample-check N --seed S] [--max-depth 4000] [--index-dir I]`:
+/// per delivered relation `K = sum_j c_j K_j (+ sub-sector terms)`, its TOP-sector right-hand side composed EXACTLY in d
+/// down to the package's terminals (lane epsdepth's composition, exact backend, over the package source), then
+/// multiplied by M (T = M R) of the record: the relation's coefficients ON R, their exact orders at d0, the verdict
+/// spurious (no pole on R) / inherent (a pole survives on R) / undecided (why). Checkpointed per relation (OUT.jsonl:
+/// relations already there are skipped). `--keys-only`: the keys-only SUPERSET cone of each batch (every term followed)
+/// and its open keys, no composition.
+fn package_relations_cmd(args: &[String]) -> Result<(), String> {
+    use rustred_campaign_algebra::epsdepth::TRational;
+    use rustred_campaign_algebra::regbasis::adapter::rf_t_to_d;
+    use rustred_campaign_algebra::regbasis::exact::row_times;
+    use rustred_campaign_algebra::regbasis::package::PackageSource;
+    use rustred_campaign_algebra::regbasis::series::{RF, parse_rf, rf_text, rf_valuation};
+    use std::collections::{HashMap, HashSet};
+    use std::io::Write as _;
+    let get = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    let getall = |name: &str| -> Vec<String> {
+        args.iter()
+            .enumerate()
+            .filter(|(_, a)| a.as_str() == name)
+            .filter_map(|(i, _)| args.get(i + 1).cloned())
+            .collect()
+    };
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    if !licensed() {
+        return Err("no Symbolica licence (source WS/ops/env.sh)".into());
+    }
+    let t0 = Instant::now();
+    let log = |m: &str| eprintln!("[{:>9.1}s] {m}", t0.elapsed().as_secs_f64());
+    let pkg = PathBuf::from(get("--package").ok_or("missing --package")?);
+    let spec_path = get("--import-spec").ok_or("missing --import-spec")?;
+    let rel_path = PathBuf::from(get("--relations").ok_or("missing --relations")?);
+    let out_path = PathBuf::from(get("--out").ok_or("missing --out")?);
+    let batch: usize = get("--batch").and_then(|x| x.parse().ok()).unwrap_or(16);
+    let max_depth: i64 = get("--max-depth")
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(4000);
+    let keys_only = flag("--keys-only");
+    let rec: Value = serde_json::from_str(
+        &std::fs::read_to_string(get("--record").ok_or("missing --record")?)
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let d0t = rec["binding"]["d0"].as_str().unwrap_or("4").to_string();
+    let d0 = rustred_campaign_algebra::valuation::D0::parse(&d0t).map_err(|e| e.to_string())?;
+    let m_texts: Vec<Vec<String>> =
+        serde_json::from_value(rec["M"].clone()).map_err(|e| format!("record M: {e}"))?;
+    let m: Vec<Vec<RF>> = m_texts
+        .iter()
+        .map(|r| r.iter().map(|t| parse_rf(t)).collect::<Result<Vec<_>, _>>())
+        .collect::<Result<_, _>>()?;
+    let rec_terminals: Vec<Key> =
+        serde_json::from_value(rec["terminals"].clone()).map_err(|e| e.to_string())?;
+    // strict import of the package table
+    let ts = TableSetSpec::read(Path::new(&spec_path)).map_err(|e| e.to_string())?;
+    let opts = LoadOptions {
+        index_dir: get("--index-dir").map(PathBuf::from),
+    };
+    let set = import::load_with(&ts, Path::new("/"), &opts).map_err(|e| e.to_string())?;
+    log(&format!(
+        "strict import of the package table: {} table(s), {} records",
+        set.rules.len(),
+        set.rules.iter().map(|t| t.len()).sum::<usize>()
+    ));
+    let mut segs: Vec<PathBuf> = vec![];
+    for e in std::fs::read_dir(pkg.join("relations")).map_err(|e| e.to_string())? {
+        let d = e.map_err(|e| e.to_string())?.path();
+        if d.is_dir() {
+            for f in std::fs::read_dir(&d).map_err(|e| e.to_string())? {
+                let f = f.map_err(|e| e.to_string())?.path();
+                if f.file_name()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|n| n.starts_with("seg-") && n.ends_with(".jsonl"))
+                {
+                    segs.push(f);
+                }
+            }
+        }
+    }
+    segs.sort();
+    let loci: Vec<PathBuf> = getall("--loci").into_iter().map(PathBuf::from).collect();
+    let alg = SymbolicaAlgebra::new().map_err(|e| e.to_string())?;
+    let lau = SymbolicaLaurent::new(&d0t)?;
+    let mut src = PackageSource::open(
+        &set,
+        &pkg.join("keys.jsonl"),
+        &segs,
+        &loci,
+        alg,
+        lau.clone(),
+    )?;
+    log(&format!(
+        "package: {} certified keys, {} entries, {} segment files, terminals {:?}",
+        src.stats.certified_keys,
+        src.stats.entries,
+        segs.len(),
+        src.terminals()
+    ));
+    if src.terminals() != rec_terminals.as_slice() {
+        return Err(format!(
+            "package terminals {:?} differ from the record's {:?}",
+            src.terminals(),
+            rec_terminals
+        ));
+    }
+    let n = src.terminals().len();
+    for t in src.terminals().to_vec() {
+        src.intern(&t);
+    }
+    // relations to do (checkpoint: skip those already in OUT)
+    let mut done: HashSet<usize> = HashSet::new();
+    if let Ok(t) = std::fs::read_to_string(&out_path) {
+        for l in t.lines() {
+            if let Ok(v) = serde_json::from_str::<Value>(l)
+                && let Some(i) = v["idx"].as_u64()
+            {
+                done.insert(i as usize);
+            }
+        }
+    }
+    let only: Option<HashSet<usize>> =
+        get("--only").map(|s| s.split(',').filter_map(|x| x.trim().parse().ok()).collect());
+    let want = |i: usize| !done.contains(&i) && only.as_ref().is_none_or(|o| o.contains(&i));
+    let rels = read_relations(&rel_path, &want)?;
+    log(&format!(
+        "relations to do: {} (already done: {})",
+        rels.len(),
+        done.len()
+    ));
+    let mut out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&out_path)
+        .map_err(|e| e.to_string())?;
+    let params = ComposeParams {
+        target: 1,
+        max_depth,
+        keep_coefficients: false,
+        progress: flag("--progress"),
+        ..ComposeParams::default()
+    };
+    let mut ex = SymbolicaExact::new()?;
+    // resumable vector cache: one line per composed rhs key {key, vec | err}
+    let vcache_path = PathBuf::from(
+        get("--vec-cache").unwrap_or_else(|| format!("{}.vec-cache.jsonl", out_path.display())),
+    );
+    let mut vcache: HashMap<Key, Result<Vec<Option<String>>, String>> = HashMap::new();
+    if let Ok(t) = std::fs::read_to_string(&vcache_path) {
+        for l in t.lines() {
+            if let Ok(v) = serde_json::from_str::<Value>(l)
+                && let Ok(k) = serde_json::from_value::<Key>(v["key"].clone())
+            {
+                let e = match v["err"].as_str() {
+                    Some(er) => Err(er.to_string()),
+                    None => serde_json::from_value::<Vec<Option<String>>>(v["vec"].clone())
+                        .map_err(|e| e.to_string()),
+                };
+                vcache.insert(k, e);
+            }
+        }
+        log(&format!("vector cache: {} rhs keys loaded", vcache.len()));
+    }
+    // SECOND ROUTE (--backend laurent): truncated Laurent series (lane epsdepth's SymbolicaLaurent, Symbolica Series) with
+    // tracked absolute precision; the target precision is raised (x2) until every order on R is decided.
+    if get("--backend").as_deref() == Some("laurent") {
+        use rustred_campaign_algebra::epsdepth::QSeries;
+        use rustred_campaign_algebra::regbasis::series::{Laurent, QP, expand_rf, t_vars};
+        use symbolica::domains::rational::Q as QF2;
+        let tv = t_vars();
+        let to_laurent = |s: &QSeries| -> Laurent {
+            let (lo, prec) = SymbolicaLaurent::series_order(s);
+            match lo {
+                None => Laurent::zero(prec, &tv),
+                Some(lo) => {
+                    let mut p = QP::new(&QF2, None, tv.clone());
+                    for e in lo..prec {
+                        if let Some(c) = SymbolicaLaurent::series_coefficient(s, e)
+                            && !c.is_zero()
+                        {
+                            p.append_monomial(c, &[(e - lo) as u16]);
+                        }
+                    }
+                    Laurent::normalised(lo, p, prec)
+                }
+            }
+        };
+        let mut target: i64 = get("--target").and_then(|x| x.parse().ok()).unwrap_or(8);
+        let mut pending: Vec<&RelIn> = rels.iter().collect();
+        let mut lau2 = lau.clone();
+        while !pending.is_empty() && target <= 1024 {
+            let tb = Instant::now();
+            let mut uniq: Vec<Key> = pending
+                .iter()
+                .flat_map(|r| r.top.iter().map(|(k, _)| k.clone()))
+                .collect();
+            uniq.sort();
+            uniq.dedup();
+            let sel: Vec<usize> = uniq.iter().map(|k| src.intern(k)).collect();
+            let p2 = ComposeParams {
+                target,
+                max_depth,
+                keep_coefficients: false,
+                ..ComposeParams::default()
+            };
+            let mut vecs: HashMap<usize, Result<Vec<Option<Laurent>>, String>> = HashMap::new();
+            compose_streaming(
+                &mut src,
+                &mut lau2,
+                &sel,
+                n,
+                &p2,
+                Some(&mut |g: usize, r: Result<&[Option<QSeries>], &str>| {
+                    vecs.insert(
+                        g,
+                        r.map(|v| v.iter().map(|c| c.as_ref().map(&to_laurent)).collect())
+                            .map_err(|e| e.to_string()),
+                    );
+                }),
+            )?;
+            let big = i64::MAX / 8;
+            let mexp: Vec<Vec<Laurent>> = m
+                .iter()
+                .map(|row| {
+                    row.iter()
+                        .map(|e| expand_rf(e, d0.value(), target + 64, &tv))
+                        .collect()
+                })
+                .collect();
+            let mut next = vec![];
+            for r in pending {
+                let mut acc: Vec<Laurent> = (0..n).map(|_| Laurent::zero(big, &tv)).collect();
+                let mut why = None;
+                for (k, ct) in &r.top {
+                    let g = src.index_of(k).expect("interned");
+                    match vecs.get(&g) {
+                        Some(Ok(v)) => {
+                            let c = expand_rf(&parse_rf(ct)?, d0.value(), target + 64, &tv);
+                            for (j, x) in v.iter().enumerate() {
+                                if let Some(x) = x {
+                                    acc[j] = acc[j].add(&c.mul(x));
+                                }
+                            }
+                        }
+                        Some(Err(e)) => {
+                            why = Some(format!("rhs key {k:?}: {e}"));
+                            break;
+                        }
+                        None => {
+                            why = Some(format!("rhs key {k:?}: not handed over"));
+                            break;
+                        }
+                    }
+                }
+                if let Some(w) = why {
+                    writeln!(out, "{}", json!({"idx": r.idx, "key": r.key, "route": "laurent", "verdict": "undecided", "why": w})).map_err(|e| e.to_string())?;
+                    continue;
+                }
+                let on_r: Vec<Laurent> = (0..n)
+                    .map(|jj| {
+                        let mut a = Laurent::zero(big, &tv);
+                        for (ii, x) in acc.iter().enumerate() {
+                            a = a.add(&x.mul(&mexp[ii][jj]));
+                        }
+                        a
+                    })
+                    .collect();
+                if on_r
+                    .iter()
+                    .all(|x| x.decides_pole() && (x.valuation().is_some() || x.prec() >= 1))
+                {
+                    let ord: Vec<Value> = on_r
+                        .iter()
+                        .map(|x| match x.valuation() {
+                            Some(v) => json!(v),
+                            None => json!(format!("O(t^{})", x.prec())),
+                        })
+                        .collect();
+                    let pole = on_r
+                        .iter()
+                        .filter_map(|x| x.valuation())
+                        .map(|v| (-v).max(0))
+                        .max()
+                        .unwrap_or(0);
+                    writeln!(out, "{}", json!({"idx": r.idx, "key": r.key, "route": "laurent", "target": target,
+                        "verdict": if pole == 0 { "spurious" } else { "inherent" }, "pole_order_on_R": pole, "orders_on_R": ord,
+                        "precision_on_R": on_r.iter().map(|x| x.prec()).collect::<Vec<_>>()})).map_err(|e| e.to_string())?;
+                } else {
+                    next.push(r);
+                }
+            }
+            out.flush().map_err(|e| e.to_string())?;
+            log(&format!(
+                "laurent route: target {target}: {} decided, {} raised, {:.1} s",
+                rels.len() - next.len(),
+                next.len(),
+                tb.elapsed().as_secs_f64()
+            ));
+            pending = next;
+            target *= 2;
+        }
+        for r in pending {
+            writeln!(out, "{}", json!({"idx": r.idx, "key": r.key, "route": "laurent", "verdict": "undecided", "why": "precision cap 1024 reached"})).map_err(|e| e.to_string())?;
+        }
+        return Ok(());
+    }
+    for (bi, chunk) in rels.chunks(batch.max(1)).enumerate() {
+        let tb = Instant::now();
+        let mut uniq: Vec<Key> = chunk
+            .iter()
+            .flat_map(|r| r.top.iter().map(|(k, _)| k.clone()))
+            .collect();
+        uniq.sort();
+        uniq.dedup();
+        if keys_only {
+            let (cone, open, height) = src.cone_keys_only(&uniq, usize::MAX)?;
+            for r in chunk {
+                let line = json!({"idx": r.idx, "key": r.key, "mode": "keys_only_superset", "batch": bi, "batch_rhs_keys": uniq.len(),
+                    "batch_cone_keys": cone, "batch_height": height, "batch_open": open.len(),
+                    "batch_open_examples": open.iter().take(5).map(|(k, e)| json!({"key": k, "why": e})).collect::<Vec<_>>()});
+                writeln!(out, "{line}").map_err(|e| e.to_string())?;
+            }
+            log(&format!(
+                "batch {bi}: {} relations, rhs keys {}, keys-only superset cone {cone}, height {height}, open {} ({:.1} s)",
+                chunk.len(),
+                uniq.len(),
+                open.len(),
+                tb.elapsed().as_secs_f64()
+            ));
+            continue;
+        }
+        // composed vectors of the rhs keys: from the cache (resume), else composed now and appended to the cache
+        let todo: Vec<Key> = uniq
+            .iter()
+            .filter(|k| !vcache.contains_key(*k))
+            .cloned()
+            .collect();
+        let sel: Vec<usize> = todo.iter().map(|k| src.intern(k)).collect();
+        let gk: HashMap<usize, Key> = sel.iter().copied().zip(todo.iter().cloned()).collect();
+        let key_of = |g: usize| -> Key { gk.get(&g).cloned().unwrap_or_default() };
+        let mut comp_stats = None;
+        if !sel.is_empty() {
+            let mut vc = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&vcache_path)
+                .map_err(|e| e.to_string())?;
+            let mut newv: Vec<(usize, Result<Vec<Option<String>>, String>)> = vec![];
+            let mut sink_err: Option<String> = None;
+            let comp = compose_streaming(
+                &mut src,
+                &mut ex,
+                &sel,
+                n,
+                &params,
+                Some(&mut |g: usize, r: Result<&[Option<TRational>], &str>| {
+                    let v: Result<Vec<Option<String>>, String> = r
+                        .map(|v| {
+                            v.iter()
+                                .map(|c| c.as_ref().map(|x| rf_text(&rf_t_to_d(x, d0.value()))))
+                                .collect()
+                        })
+                        .map_err(|e| e.to_string());
+                    newv.push((g, v.clone()));
+                    if let Err(e) = writeln!(
+                        vc,
+                        "{}",
+                        json!({"key": key_of(g), "vec": v.as_ref().ok(), "err": v.as_ref().err()})
+                    ) {
+                        sink_err = Some(e.to_string());
+                    }
+                }),
+            )?;
+            if let Some(e) = sink_err {
+                return Err(e);
+            }
+            comp_stats = Some(comp.stats);
+            for (g, v) in newv {
+                vcache.insert(key_of(g), v);
+            }
+        }
+        for r in chunk {
+            let mut acc: Vec<RF> = (0..n).map(|_| parse_rf("0").expect("zero")).collect();
+            let mut why: Option<String> = None;
+            for (k, ct) in &r.top {
+                match vcache.get(k) {
+                    Some(Ok(v)) => {
+                        let c = parse_rf(ct)?;
+                        for (j, comp_j) in v.iter().enumerate() {
+                            if let Some(x) = comp_j {
+                                let xd = parse_rf(x)?;
+                                acc[j] = &acc[j] + &(&c * &xd);
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        why = Some(format!("rhs key {k:?}: {e}"));
+                        break;
+                    }
+                    None => {
+                        why = Some(format!("rhs key {k:?}: not handed over by the composition"));
+                        break;
+                    }
+                }
+            }
+            let line = match why {
+                Some(w) => {
+                    json!({"idx": r.idx, "key": r.key, "verdict": "undecided", "why": w, "top_terms": r.top.len(), "sub_terms_not_composed": r.sub_terms})
+                }
+                None => {
+                    let on_r = row_times(&acc, &m);
+                    let ord_t: Vec<Option<i64>> =
+                        acc.iter().map(|x| rf_valuation(x, d0.value())).collect();
+                    let ord_r: Vec<Option<i64>> =
+                        on_r.iter().map(|x| rf_valuation(x, d0.value())).collect();
+                    let pole = ord_r
+                        .iter()
+                        .filter_map(|o| *o)
+                        .map(|v| (-v).max(0))
+                        .max()
+                        .unwrap_or(0);
+                    json!({"idx": r.idx, "key": r.key, "verdict": if pole == 0 { "spurious" } else { "inherent" },
+                        "pole_order_on_R": pole, "orders_on_R": ord_r, "orders_on_T": ord_t,
+                        "coefficients_on_R": on_r.iter().map(rf_text).collect::<Vec<_>>(),
+                        "top_terms": r.top.len(), "sub_terms_not_composed": r.sub_terms})
+                }
+            };
+            writeln!(out, "{line}").map_err(|e| e.to_string())?;
+        }
+        out.flush().map_err(|e| e.to_string())?;
+        log(&format!(
+            "batch {bi}: {} relations, rhs keys {} ({} composed now), cone {:?} keys, max height {:?}, {:.1} s; source {}",
+            chunk.len(),
+            uniq.len(),
+            todo.len(),
+            comp_stats.as_ref().map(|s| s.cone_keys),
+            comp_stats.as_ref().map(|s| s.max_height),
+            tb.elapsed().as_secs_f64(),
+            serde_json::to_string(&src.stats).unwrap_or_default()
+        ));
+    }
+    Ok(())
+}
+
+/// `rr_regbasis package-closure --package DIR --import-spec SPEC --record R.json --out OUT.jsonl [--loci F]...
+/// [--keys box|all] [--chunk 200000] [--index-dir I]`: certificate c2 over a PACKAGE's certified keys: every selected key
+/// composed EXACTLY in d onto the package's terminals (lane epsdepth's composition, exact backend, over the package
+/// source) and multiplied by M of the record: its orders on T and on R at d0. OUT.jsonl gets one line per key with a pole
+/// on R (and every key's orders when --all-lines); a summary line per chunk (resumable: chunks already summarised are
+/// skipped). Modulo sub-sectors (top-sector composition), like every statement of this lane.
+fn package_closure_cmd(args: &[String]) -> Result<(), String> {
+    use rustred_campaign_algebra::epsdepth::TRational;
+    use rustred_campaign_algebra::regbasis::adapter::rf_t_to_d;
+    use rustred_campaign_algebra::regbasis::exact::row_times;
+    use rustred_campaign_algebra::regbasis::package::{PackageSource, Serv};
+    use rustred_campaign_algebra::regbasis::series::{RF, parse_rf, rf_valuation};
+    use std::collections::{BTreeMap, HashSet};
+    use std::io::Write as _;
+    let get = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    let getall = |name: &str| -> Vec<String> {
+        args.iter()
+            .enumerate()
+            .filter(|(_, a)| a.as_str() == name)
+            .filter_map(|(i, _)| args.get(i + 1).cloned())
+            .collect()
+    };
+    if !licensed() {
+        return Err("no Symbolica licence (source WS/ops/env.sh)".into());
+    }
+    let t0 = Instant::now();
+    let log = |m: &str| eprintln!("[{:>9.1}s] {m}", t0.elapsed().as_secs_f64());
+    let pkg = PathBuf::from(get("--package").ok_or("missing --package")?);
+    let spec_path = get("--import-spec").ok_or("missing --import-spec")?;
+    let out_path = PathBuf::from(get("--out").ok_or("missing --out")?);
+    let which = get("--keys").unwrap_or_else(|| "all".into());
+    let chunk: usize = get("--chunk")
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(200_000);
+    let all_lines = args.iter().any(|a| a == "--all-lines");
+    let rec: Value = serde_json::from_str(
+        &std::fs::read_to_string(get("--record").ok_or("missing --record")?)
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    let d0t = rec["binding"]["d0"].as_str().unwrap_or("4").to_string();
+    let d0 = rustred_campaign_algebra::valuation::D0::parse(&d0t).map_err(|e| e.to_string())?;
+    let m_texts: Vec<Vec<String>> =
+        serde_json::from_value(rec["M"].clone()).map_err(|e| format!("record M: {e}"))?;
+    let m: Vec<Vec<RF>> = m_texts
+        .iter()
+        .map(|r| r.iter().map(|t| parse_rf(t)).collect::<Result<Vec<_>, _>>())
+        .collect::<Result<_, _>>()?;
+    let ts = TableSetSpec::read(Path::new(&spec_path)).map_err(|e| e.to_string())?;
+    let opts = LoadOptions {
+        index_dir: get("--index-dir").map(PathBuf::from),
+    };
+    let set = import::load_with(&ts, Path::new("/"), &opts).map_err(|e| e.to_string())?;
+    let mut segs: Vec<PathBuf> = vec![];
+    for e in std::fs::read_dir(pkg.join("relations")).map_err(|e| e.to_string())? {
+        let d = e.map_err(|e| e.to_string())?.path();
+        if d.is_dir() {
+            for f in std::fs::read_dir(&d).map_err(|e| e.to_string())? {
+                let f = f.map_err(|e| e.to_string())?.path();
+                if f.file_name()
+                    .and_then(|x| x.to_str())
+                    .is_some_and(|n| n.starts_with("seg-") && n.ends_with(".jsonl"))
+                {
+                    segs.push(f);
+                }
+            }
+        }
+    }
+    segs.sort();
+    let loci: Vec<PathBuf> = getall("--loci").into_iter().map(PathBuf::from).collect();
+    let alg = SymbolicaAlgebra::new().map_err(|e| e.to_string())?;
+    let lau = SymbolicaLaurent::new(&d0t)?;
+    let mut src = PackageSource::open(&set, &pkg.join("keys.jsonl"), &segs, &loci, alg, lau)?;
+    let n = src.terminals().len();
+    for t in src.terminals().to_vec() {
+        src.intern(&t);
+    }
+    // selected keys: all certified (non-terminal) keys, or the in-box ones, in the file order
+    let mut keys: Vec<Key> = vec![];
+    {
+        use std::io::BufRead;
+        let f = std::fs::File::open(pkg.join("keys.jsonl")).map_err(|e| e.to_string())?;
+        for line in std::io::BufReader::new(f).lines() {
+            let line = line.map_err(|e| e.to_string())?;
+            let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            if which == "box" && v[3].as_bool() != Some(true) {
+                continue;
+            }
+            let k = rustred_campaign_core::key::parse_key(v[0].as_str().unwrap_or(""))
+                .map_err(|e| e.to_string())?;
+            if !matches!(src.serv(&k), Some(Serv::Terminal(_))) {
+                keys.push(k);
+            }
+        }
+    }
+    let mut done: HashSet<usize> = HashSet::new();
+    if let Ok(t) = std::fs::read_to_string(&out_path) {
+        for l in t.lines() {
+            if let Ok(v) = serde_json::from_str::<Value>(l)
+                && v["summary_chunk"].as_u64().is_some()
+            {
+                done.insert(v["summary_chunk"].as_u64().unwrap_or(0) as usize);
+            }
+        }
+    }
+    log(&format!(
+        "{} keys selected ({which}), chunks of {chunk}, {} chunks already done",
+        keys.len(),
+        done.len()
+    ));
+    let mut out = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&out_path)
+        .map_err(|e| e.to_string())?;
+    let params = ComposeParams {
+        target: 1,
+        max_depth: 1_000_000,
+        keep_coefficients: false,
+        ..ComposeParams::default()
+    };
+    let mut ex = SymbolicaExact::new()?;
+    let (mut tot, mut tot_pole_r, mut tot_pole_t, mut tot_und) = (0usize, 0usize, 0usize, 0usize);
+    for (ci, ch) in keys.chunks(chunk.max(1)).enumerate() {
+        if done.contains(&ci) {
+            continue;
+        }
+        let tc = Instant::now();
+        let sel: Vec<usize> = ch.iter().map(|k| src.intern(k)).collect();
+        let gk: std::collections::HashMap<usize, Key> =
+            sel.iter().copied().zip(ch.iter().cloned()).collect();
+        let (mut cnt, mut pole_r, mut pole_t, mut und) = (0usize, 0usize, 0usize, 0usize);
+        let mut hist: BTreeMap<String, usize> = BTreeMap::new();
+        let mut lines: Vec<String> = vec![];
+        let comp = compose_streaming(
+            &mut src,
+            &mut ex,
+            &sel,
+            n,
+            &params,
+            Some(&mut |g: usize, r: Result<&[Option<TRational>], &str>| {
+                cnt += 1;
+                let key = gk.get(&g).cloned().unwrap_or_default();
+                match r {
+                    Err(e) => {
+                        und += 1;
+                        if lines.len() < 100_000 {
+                            lines.push(json!({"key": key, "undecided": e}).to_string());
+                        }
+                    }
+                    Ok(v) => {
+                        let vt: Vec<RF> = v
+                            .iter()
+                            .map(|c| match c {
+                                Some(x) => rf_t_to_d(x, d0.value()),
+                                None => parse_rf("0").expect("zero"),
+                            })
+                            .collect();
+                        let on_r = row_times(&vt, &m);
+                        let ot: Vec<Option<i64>> =
+                            vt.iter().map(|x| rf_valuation(x, d0.value())).collect();
+                        let or: Vec<Option<i64>> =
+                            on_r.iter().map(|x| rf_valuation(x, d0.value())).collect();
+                        let pt = ot
+                            .iter()
+                            .filter_map(|o| *o)
+                            .map(|v| (-v).max(0))
+                            .max()
+                            .unwrap_or(0);
+                        let pr = or
+                            .iter()
+                            .filter_map(|o| *o)
+                            .map(|v| (-v).max(0))
+                            .max()
+                            .unwrap_or(0);
+                        if pt > 0 {
+                            pole_t += 1;
+                        }
+                        *hist.entry(format!("T{pt}")).or_insert(0) += 1;
+                        if pr > 0 {
+                            pole_r += 1;
+                            lines.push(json!({"key": key, "pole_on_R": pr, "orders_on_R": or, "orders_on_T": ot}).to_string());
+                        } else if all_lines {
+                            lines.push(
+                                json!({"key": key, "orders_on_R": or, "orders_on_T": ot})
+                                    .to_string(),
+                            );
+                        }
+                    }
+                }
+            }),
+        )?;
+        for l in &lines {
+            writeln!(out, "{l}").map_err(|e| e.to_string())?;
+        }
+        writeln!(out, "{}", json!({"summary_chunk": ci, "keys": ch.len(), "handed_over": cnt, "with_pole_on_R": pole_r,
+            "with_pole_on_T": pole_t, "undecided": und, "pole_order_on_T_histogram": hist, "cone_keys": comp.stats.cone_keys,
+            "max_height": comp.stats.max_height, "seconds": tc.elapsed().as_secs_f64()})).map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
+        tot += ch.len();
+        tot_pole_r += pole_r;
+        tot_pole_t += pole_t;
+        tot_und += und;
+        log(&format!(
+            "chunk {ci}: {} keys, pole on R {pole_r}, pole on T {pole_t}, undecided {und}, cone {}, height {}, {:.1} s",
+            ch.len(),
+            comp.stats.cone_keys,
+            comp.stats.max_height,
+            tc.elapsed().as_secs_f64()
+        ));
+    }
+    log(&format!(
+        "DONE this run: {tot} keys, with pole on R {tot_pole_r}, with pole on T {tot_pole_t}, undecided {tot_und}; source {}",
+        serde_json::to_string(&src.stats).unwrap_or_default()
+    ));
+    Ok(())
+}
+
+/// `rr_regbasis package-spec --package DIR --out-dir D [--node NAME]`: from a node service package (SUMMARY.json:
+/// `table`, `table_sha256`; keys.jsonl: in-box flag in column 4) write D/import-spec.json (one `engine_table` source over
+/// the package table, strict policies: elided witness loci BLOCK, witness check on, tier K, evidence `imported`) and
+/// D/start-box-keys.jsonl (the in-box keys: the start set). Prints both paths.
+fn package_spec_cmd(args: &[String]) -> Result<(), String> {
+    use std::io::{BufRead, Write as _};
+    let get = |name: &str| -> Option<String> {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1).cloned())
+    };
+    let pkg = PathBuf::from(get("--package").ok_or("missing --package")?);
+    let od = PathBuf::from(get("--out-dir").ok_or("missing --out-dir")?);
+    std::fs::create_dir_all(&od).map_err(|e| e.to_string())?;
+    let summary: Value = serde_json::from_str(
+        &std::fs::read_to_string(pkg.join("SUMMARY.json")).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    // the table of THIS package directory (SUMMARY may name the build path of an earlier copy): the *.jsonl table whose
+    // first line is a table_dump header
+    let mut table: Option<PathBuf> = None;
+    for e in std::fs::read_dir(&pkg).map_err(|e| e.to_string())? {
+        let p = e.map_err(|e| e.to_string())?.path();
+        if p.extension().is_some_and(|x| x == "jsonl") {
+            let mut first = String::new();
+            std::io::BufReader::new(std::fs::File::open(&p).map_err(|e| e.to_string())?)
+                .read_line(&mut first)
+                .map_err(|e| e.to_string())?;
+            if first.contains("\"table_dump.v1\"") {
+                table = Some(p);
+            }
+        }
+    }
+    let table = table.ok_or("no table_dump.v1 table in the package directory")?;
+    let sha = summary["table_sha256"]
+        .as_str()
+        .ok_or("SUMMARY.json: table_sha256")?
+        .to_string();
+    let node = get("--node")
+        .or_else(|| summary["node"].as_str().map(str::to_string))
+        .unwrap_or_else(|| "node".into());
+    let start = od.join("start-box-keys.jsonl");
+    let mut w = std::fs::File::create(&start).map_err(|e| e.to_string())?;
+    let mut nbox = 0usize;
+    for line in std::io::BufReader::new(
+        std::fs::File::open(pkg.join("keys.jsonl")).map_err(|e| e.to_string())?,
+    )
+    .lines()
+    {
+        let line = line.map_err(|e| e.to_string())?;
+        let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+        if v[3].as_bool() == Some(true) {
+            writeln!(w, "{}", v[0]).map_err(|e| e.to_string())?;
+            nbox += 1;
+        }
+    }
+    let spec = json!({"schema": "rustred.campaign.import-spec.v1", "node": node, "frame_from": "pkg",
+        "start": {"path": start.to_string_lossy(), "format": "keys_jsonl"},
+        "required_evidence": "imported",
+        "policies": {"elided": "block", "witness_check": "on", "tier": "K"},
+        "sources": [{"id": "pkg", "kind": "engine_table", "class": "package", "hand_name": {"template": "pkg#{label}"},
+                     "path": table.to_string_lossy(), "sha256": sha, "removed": []}]});
+    let sp = od.join("import-spec.json");
+    std::fs::write(
+        &sp,
+        serde_json::to_string_pretty(&spec).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    println!("{}\n{} ({nbox} in-box keys)", sp.display(), start.display());
+    Ok(())
+}
+
 fn run() -> Result<(), String> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some("package-spec") {
+        return package_spec_cmd(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("package-closure") {
+        return package_closure_cmd(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("package-relations") {
+        return package_relations_cmd(&args[1..]);
+    }
     if args.first().map(String::as_str) == Some("dispatch") {
         return dispatch_cmd(&args[1..]);
     }

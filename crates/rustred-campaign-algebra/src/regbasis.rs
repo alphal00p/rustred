@@ -20,6 +20,7 @@ pub mod build;
 pub mod exact;
 pub mod lattice;
 pub mod need;
+pub mod package;
 pub mod series;
 pub mod standin;
 pub mod tower;
