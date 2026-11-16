@@ -77,6 +77,9 @@ fn d_peak() -> u64 {
     1 << 30
 }
 
+/// Test stand: a key the fake child answers SOLVED under a step, with its right-hand-side keys.
+pub type FakeAnswer = (Vec<i32>, Vec<Vec<i64>>);
+
 /// One node of the ship campaign (data).
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -117,7 +120,7 @@ pub struct NodeEntry {
     pub expected_peak_bytes: u64,
     /// Test stand: per step a list of [key, [rhs keys]] the fake child answers SOLVED (others: no relation).
     #[serde(default)]
-    pub fake: Option<BTreeMap<String, Vec<(Vec<i32>, Vec<Vec<i64>>)>>>,
+    pub fake: Option<BTreeMap<String, Vec<FakeAnswer>>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]

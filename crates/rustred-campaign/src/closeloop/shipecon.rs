@@ -252,20 +252,15 @@ fn rules_of(set: &ImportedSet) -> Vec<(RuleRef, u64)> {
     out
 }
 
+/// The original statement's service of every key (the served-key-set check's start).
+type ServedMap = BTreeMap<Vec<i32>, ship::ServedAt>;
+
 /// The census and the "before" view: from the statement rows when given, else from a check of the original spec.
 fn census_and_before(
     cfg: &ShipRunConfig,
     set: &ImportedSet,
     say: &dyn Fn(String),
-) -> Result<
-    (
-        Census,
-        ClosureView,
-        Value,
-        BTreeMap<Vec<i32>, ship::ServedAt>,
-    ),
-    String,
-> {
+) -> Result<(Census, ClosureView, Value, ServedMap), String> {
     let t0 = Instant::now();
     let mut b = CensusBuilder::new(rules_of(set), cfg.policy.candidates.max_keys_per_rule)?;
     let mut v = ClosureView::default();
