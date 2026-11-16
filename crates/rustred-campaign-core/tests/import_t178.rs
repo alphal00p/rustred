@@ -139,6 +139,23 @@ fn hand_format() -> HandFormat {
     }
 }
 
+/// int8: the statement's in-box key count (its summary.json `in_box`).
+fn summary_in_box(stmt: &Path) -> u64 {
+    let s: Value =
+        serde_json::from_str(&std::fs::read_to_string(stmt.join("summary.json")).unwrap()).unwrap();
+    s["in_box"].as_u64().unwrap()
+}
+
+/// int8: the statement directory's SHA256SUMS as file name -> sha256.
+fn statement_sums(dir: &Path) -> BTreeMap<String, String> {
+    std::fs::read_to_string(dir.join("SHA256SUMS"))
+        .unwrap()
+        .lines()
+        .filter_map(|l| l.split_once("  "))
+        .map(|(h, n)| (n.to_string(), h.to_string()))
+        .collect()
+}
+
 fn verify_sums(dir: &Path) {
     for l in std::fs::read_to_string(dir.join("SHA256SUMS"))
         .unwrap()
@@ -248,9 +265,14 @@ fn build_spec(ws: &Path, stmt: &Path, pins: &BTreeMap<String, String>) -> Value 
     sources.push(json!({"id":"symmetry","kind":"supplied_relations","class":"symmetry","path": sym, "sha256": sym_sha,
         "verification":{"path": ws.join("SCRATCHPAD/t178-close/data/symrules.verify.json").display().to_string()},
         "hand_name":{"template":"symmetry#{index}"}}));
-    sources.push(json!({"id":"terminals","kind":"terminals","path": stmt.join("terminals.json").display().to_string()}));
+    // int8: the statement's own files carry their pins from its SHA256SUMS (verified by `verify_sums`); a terminals
+    // source without its sha256 is refused since closeloop4 (also on the earlier statement)
+    let sums = statement_sums(stmt);
+    sources.push(json!({"id":"terminals","kind":"terminals","path": stmt.join("terminals.json").display().to_string(),
+        "sha256": sums["terminals.json"]}));
     json!({"schema":"rustred.campaign.import-spec.v1","node":"T178","frame_from":"R0_try1","bits":6,
         "start":{"path": stmt.join("statement.jsonl").display().to_string(),"format":"hand_statement",
+                 "sha256": sums["statement.jsonl"],
                  "hand_format": serde_json::to_value(hand_format()).unwrap()},
         "required_evidence":"per-key","policies":{"tier":"K"},
         "sources": sources})
@@ -360,7 +382,12 @@ fn t178_reproduction_of_the_hand_statement() {
         let spec = TableSetSpec::from_json(&pin_ev(&sv)).unwrap();
         let set = load(&spec, Path::new("/")).unwrap();
         let t_load = t0.elapsed().as_secs_f64();
-        assert_eq!(set.start.len(), 286_066);
+        // int8: the statement's own box count (v1.0.3: the ENLARGED R* box, 286,286 keys; 040105Z had 286,066)
+        assert_eq!(
+            set.start.len() as u64,
+            summary_in_box(&stmt),
+            "start = the statement's in-box keys"
+        );
         if let Some(m) = &manifest {
             // the spec imports exactly the manifest's canonical byte copies (never the re-written mixed copies)
             for (class, shas) in m {
