@@ -947,7 +947,7 @@ pub struct CustomStep<const N: usize> {
     /// vk5l WP2: the recipe records of a boxed payload and their in-process
     /// solve ([`super::recipes`]).
     recipes: Option<Arc<RecipeDispatch>>,
-    /// Slot-permuted alias rules of the payload ([`super::table_import::SlotAliasRecord`]): tried after the rules.
+    /// Slot-permuted alias rules of the payload ([`super::table_import::SlotAliasRecord`]): dispatched in table order with the rules (`rules_before`).
     aliases: Vec<super::table_import::SlotAliasRecord>,
 }
 
@@ -1172,6 +1172,8 @@ impl<const N: usize> CustomStep<N> {
             return self.apply_recipe(recipes, index, powers);
         }
         let chart = self.chart(powers);
+        let alias = self.first_alias(powers);
+        let guards = conditions.len();
         let applied = apply_prepared_owner(
             &self.programs,
             &chart,
@@ -1183,13 +1185,20 @@ impl<const N: usize> CustomStep<N> {
         );
         match applied {
             Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
-            Ok(AppliedOwnerStep::Applied(terms, position)) => Ok(KeyApplied::Children(
-                terms,
-                KeyVia::Rule(mask(&chart), position),
-            )),
+            Ok(AppliedOwnerStep::Applied(terms, position)) => match alias {
+                // first match: an alias before the matched rule in the table wins
+                Some(alias) if alias.rules_before <= position => {
+                    conditions.truncate(guards);
+                    self.apply_alias(alias, powers)
+                }
+                _ => Ok(KeyApplied::Children(
+                    terms,
+                    KeyVia::Rule(mask(&chart), position),
+                )),
+            },
             Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
-                if let Some(applied) = self.apply_alias(powers)? {
-                    return Ok(applied);
+                if let Some(alias) = alias {
+                    return self.apply_alias(alias, powers);
                 }
                 match &self.recipes {
                     Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
@@ -1213,14 +1222,25 @@ impl<const N: usize> CustomStep<N> {
         }
     }
 
-    /// The first slot-permuted alias rule that applies to `powers` (in table order), after the ordinary rules found
-    /// none: `I(key) = c * I(image)`. The image must stay on the key's chart and be strictly lower in the owner's
-    /// order (fail closed otherwise). `None` when no alias applies.
-    fn apply_alias(&self, powers: &[i64]) -> Result<Option<KeyApplied>, PError> {
-        for alias in &self.aliases {
-            let Some(image) = alias.image(powers) else {
-                continue;
-            };
+    /// The first slot-permuted alias rule (in table order) whose domain holds `powers`. It applies when no ordinary
+    /// rule of the chart before it in the table matches (`rules_before`).
+    fn first_alias(&self, powers: &[i64]) -> Option<&super::table_import::SlotAliasRecord> {
+        self.aliases
+            .iter()
+            .find(|alias| alias.image(powers).is_some())
+    }
+
+    /// `I(key) = c * I(image)` by a slot-permuted alias rule whose domain holds `powers`. The image must stay on the
+    /// key's chart and be strictly lower in the owner's order (fail closed otherwise).
+    fn apply_alias(
+        &self,
+        alias: &super::table_import::SlotAliasRecord,
+        powers: &[i64],
+    ) -> Result<KeyApplied, PError> {
+        {
+            let image = alias
+                .image(powers)
+                .expect("the alias's domain holds the key");
             let failed = |detail: String| {
                 PError::MalformedLibrary(format!(
                     "custom owner on presentation {}: slot-permuted alias rule {} at {powers:?}: {detail}",
@@ -1259,12 +1279,11 @@ impl<const N: usize> CustomStep<N> {
                 .coefficient_context()
                 .base()
                 .integer(alias.coefficient);
-            return Ok(Some(KeyApplied::Children(
+            Ok(KeyApplied::Children(
                 std::collections::BTreeMap::from([(child, coefficient)]),
                 KeyVia::Alias,
-            )));
+            ))
         }
-        Ok(None)
     }
 
     /// vk5l WP2: a key outside the certified set (policy `Solve`): the
@@ -1297,6 +1316,8 @@ impl<const N: usize> CustomStep<N> {
             .is_none_or(|record| super::recipes::outside_settings_of(&record.node).rules_outside);
         if rules_outside {
             let chart = self.chart(powers);
+            let alias = self.first_alias(powers);
+            let guards = conditions.len();
             let applied = apply_prepared_owner(
                 &self.programs,
                 &chart,
@@ -1308,6 +1329,12 @@ impl<const N: usize> CustomStep<N> {
             );
             match applied {
                 Ok(AppliedOwnerStep::Terminal) => return Ok(KeyApplied::Terminal),
+                Ok(AppliedOwnerStep::Applied(_, position))
+                    if alias.is_some_and(|alias| alias.rules_before <= position) =>
+                {
+                    conditions.truncate(guards);
+                    return self.apply_alias(alias.expect("matched"), powers);
+                }
                 Ok(AppliedOwnerStep::Applied(terms, position)) => {
                     super::recipes::count_outside_rule_step();
                     return Ok(KeyApplied::Children(
@@ -1317,8 +1344,8 @@ impl<const N: usize> CustomStep<N> {
                 }
                 Ok(AppliedOwnerStep::Uncovered)
                 | Err(CandidateReductionError::Uncovered { .. }) => {
-                    if let Some(applied) = self.apply_alias(powers)? {
-                        return Ok(applied);
+                    if let Some(alias) = alias {
+                        return self.apply_alias(alias, powers);
                     }
                 }
                 Err(error) => return Err(self.step_error(class, error)),

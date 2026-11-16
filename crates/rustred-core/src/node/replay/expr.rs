@@ -398,24 +398,26 @@ impl Expr {
         let constant = |value: Rational| (vec![value], vec![Rational::one()]);
         let is_zero = |p: &[Rational]| p.iter().all(Rational::is_zero);
         let pole = || format!("undefined at the point: {}", short(&self.text));
-        let sum = |a: (Vec<Rational>, Vec<Rational>), b: (Vec<Rational>, Vec<Rational>), negate: bool| {
-            let bn = if negate { neg(&b.0) } else { b.0 };
-            if a.1 == b.1 {
-                (add(&a.0, &bn), a.1)
-            } else {
-                (add(&mul(&a.0, &b.1), &mul(&bn, &a.1)), mul(&a.1, &b.1))
-            }
-        };
-        let product = |a: (Vec<Rational>, Vec<Rational>), b: (Vec<Rational>, Vec<Rational>), divide: bool| {
-            if divide {
-                if is_zero(&b.0) {
-                    return Err(pole());
+        let sum =
+            |a: (Vec<Rational>, Vec<Rational>), b: (Vec<Rational>, Vec<Rational>), negate: bool| {
+                let bn = if negate { neg(&b.0) } else { b.0 };
+                if a.1 == b.1 {
+                    (add(&a.0, &bn), a.1)
+                } else {
+                    (add(&mul(&a.0, &b.1), &mul(&bn, &a.1)), mul(&a.1, &b.1))
                 }
-                Ok((mul(&a.0, &b.1), mul(&a.1, &b.0)))
-            } else {
-                Ok((mul(&a.0, &b.0), mul(&a.1, &b.1)))
-            }
-        };
+            };
+        let product =
+            |a: (Vec<Rational>, Vec<Rational>), b: (Vec<Rational>, Vec<Rational>), divide: bool| {
+                if divide {
+                    if is_zero(&b.0) {
+                        return Err(pole());
+                    }
+                    Ok((mul(&a.0, &b.1), mul(&a.1, &b.0)))
+                } else {
+                    Ok((mul(&a.0, &b.0), mul(&a.1, &b.1)))
+                }
+            };
         Ok(match node {
             Node::Num(digits) => {
                 let mut value = Integer::zero();
@@ -426,7 +428,10 @@ impl Expr {
             }
             Node::Var(k) => {
                 if *k == self.n {
-                    (vec![Rational::zero(), Rational::one()], vec![Rational::one()])
+                    (
+                        vec![Rational::zero(), Rational::one()],
+                        vec![Rational::one()],
+                    )
                 } else {
                     constant(Rational::from(Integer::from(point[*k])))
                 }
@@ -457,7 +462,11 @@ impl Expr {
                     for _ in 0..exponent.unsigned_abs() {
                         power = product(power, base.clone(), false)?;
                     }
-                    if exponent < 0 { product(constant(Rational::one()), power, true)? } else { power }
+                    if exponent < 0 {
+                        product(constant(Rational::one()), power, true)?
+                    } else {
+                        power
+                    }
                 } else {
                     let (x, y) = (self.in_d(a, point)?, self.in_d(b, point)?);
                     match op {
@@ -740,14 +749,22 @@ mod tests {
         assert!(!e.vanishes_in_d(&[3]).unwrap());
         // nonzero, but zero at both d = 37/7 and d = -11/5: was "zero"
         let f = Expr::parse("(7*d-37)*(5*d+11)*n0", 1).unwrap();
-        assert!(f.is_zero_at(&[1], Q { n: 37, d: 7 }).unwrap() && f.is_zero_at(&[1], Q { n: -11, d: 5 }).unwrap());
+        assert!(
+            f.is_zero_at(&[1], Q { n: 37, d: 7 }).unwrap()
+                && f.is_zero_at(&[1], Q { n: -11, d: 5 }).unwrap()
+        );
         assert!(!f.vanishes_in_d(&[1]).unwrap());
         assert!(f.vanishes_in_d(&[0]).unwrap());
         // a sum over different denominators that cancels exactly
         let g = Expr::parse("1/(d-2) - 1/(d-3) + 1/((d-2)*(d-3))", 1).unwrap();
         assert!(g.vanishes_in_d(&[0]).unwrap());
         // undefined at the point: a denominator vanishing identically
-        assert!(Expr::parse("1/(n0-1)", 1).unwrap().vanishes_in_d(&[1]).is_err());
+        assert!(
+            Expr::parse("1/(n0-1)", 1)
+                .unwrap()
+                .vanishes_in_d(&[1])
+                .is_err()
+        );
     }
 
     /// The zero test is exact beyond the two primes: P * P2 is zero modulo both but not zero.
