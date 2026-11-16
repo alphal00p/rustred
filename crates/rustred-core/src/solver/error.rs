@@ -29,8 +29,9 @@ pub enum SolverError {
     /// A sector-box seeding invariant failed, e.g. a representative sector
     /// carries columns but was never seeded.
     SeedingInvariant(String),
-    /// The strict sector-box master check failed (extra masters or a class
-    /// off its expected count after growth).
+    /// The strict sector-box master check failed (extra masters, a class
+    /// off its expected count after growth, or an unstable system), now or
+    /// earlier in the same session.
     MasterCheck(String),
 }
 
