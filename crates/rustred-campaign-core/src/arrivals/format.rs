@@ -38,12 +38,18 @@ pub struct ArrivalLine {
     pub exact_senders: Option<u64>,
     pub first: Sender,
     pub first_exact: Option<Sender>,
+    /// The CHAIN DEPTH of the key (hand-down steps from a start key of depth 0, min over senders); None = not tracked.
+    pub depth: Option<u32>,
 }
 
 impl ArrivalLine {
     pub fn json(&self) -> Value {
-        json!({"kind": "arrival", "key": self.key, "senders": self.senders, "exact_senders": self.exact_senders,
-            "first": self.first, "first_exact": self.first_exact})
+        let mut v = json!({"kind": "arrival", "key": self.key, "senders": self.senders, "exact_senders": self.exact_senders,
+            "first": self.first, "first_exact": self.first_exact});
+        if let Some(d) = self.depth {
+            v["depth"] = json!(d);
+        }
+        v
     }
 }
 
@@ -255,6 +261,7 @@ pub fn read_streamed(
                                 .map_err(|e| format!("{}: first_exact: {e}", at()))?,
                         ),
                     },
+                    depth: v["depth"].as_u64().map(|d| d as u32),
                 };
                 if a.senders == 0 {
                     return Err(format!("{}: a key without a sender", at()));
@@ -316,6 +323,7 @@ mod tests {
             exact_senders: Some(n),
             first: s.clone(),
             first_exact: Some(s),
+            depth: (n > 1).then_some(n as u32 - 1),
         }
     }
 

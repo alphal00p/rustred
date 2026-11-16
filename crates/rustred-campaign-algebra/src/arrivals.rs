@@ -734,6 +734,9 @@ pub struct WalkStats {
     pub handdown_unrouted: u64,
     pub seconds_closure: f64,
     pub seconds_handdowns: f64,
+    /// Closure keys per chain depth (streamed walk; empty elsewhere).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub depth_hist: BTreeMap<u32, u64>,
 }
 
 fn split_lines(frame_lines: &[bool], tk: &[i32]) -> (bool, u64) {
@@ -1537,6 +1540,7 @@ pub fn aggregate_each(
                 exact_senders: a.exact_level.then_some(a.exact_senders),
                 first: sender(a.first),
                 first_exact: a.first_exact.map(sender),
+                depth: None,
             })
             .collect();
         let mut s = est[e].clone();

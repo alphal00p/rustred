@@ -818,3 +818,124 @@ fn edge_bound_child_dr_never_exceeds_the_parent_terms_sub_sector_dr() {
         "the bound is attained on the grid ({attained} of {images})"
     );
 }
+
+/// CHAIN DEPTH (`closure-rows --arrivals` + `compute --depth`): box keys start at depth 0, an arriving key at the minimum
+/// depth of its arrival lines (a box key keeps 0); a closure key inherits the least start depth reaching it, an arrival
+/// gets min over its senders of (sender depth + 1). The keys, senders and first senders equal those of the untracked walk;
+/// `--trace-key` gives a closure path back to a start key; an arrival file without depths is refused under `--depth`.
+#[test]
+fn chain_depth_layers_box_and_arrival_starts() {
+    let Some(_a) = alg() else { return };
+    let t = build("depth");
+    let base = t.dir.join("base");
+    let (rc, s) = compute_x(&t, &base, "2", &[]);
+    assert_eq!(rc, 0, "{s}");
+    let src = format::read(&base.join("P-C.arrivals.jsonl")).unwrap();
+    let l0 = src.lines[0].clone();
+    // arrivals INTO P (P's frame): [1,1,1,1,0] is a box key (depth stays 0); [4,1,1,1,0] lies outside P's box (depth 3)
+    let mk = |key: Vec<i32>, d: Option<u32>| format::ArrivalLine {
+        key,
+        depth: d,
+        ..l0.clone()
+    };
+    let write = |name: &str, lines: Vec<format::ArrivalLine>| {
+        let p = t.dir.join(name);
+        format::write_stream(&p, &src.header, &mut lines.into_iter().map(Ok), &json!({})).unwrap();
+        p
+    };
+    let arr = write(
+        "into-P.arrivals.jsonl",
+        vec![
+            mk(vec![1, 1, 1, 1, 0], Some(2)),
+            mk(vec![4, 1, 1, 1, 0], Some(3)),
+        ],
+    );
+    let rows = t.dir.join("rows_arr.jsonl");
+    let (rc, s) = run(&[
+        "closure-rows",
+        "--spec",
+        t.pspec.to_str().unwrap(),
+        "--arrivals",
+        arr.to_str().unwrap(),
+        "--out",
+        rows.to_str().unwrap(),
+        "--threads",
+        "2",
+    ]);
+    assert_eq!(rc, 0, "{s}");
+    let (rc, plain) = compute_rows(&t, &rows, &t.dir.join("o_plain"), &[]);
+    assert_eq!(rc, 0, "{plain}");
+    let (rc, dep) = compute_rows(
+        &t,
+        &rows,
+        &t.dir.join("o_dep"),
+        &[
+            "--depth",
+            "--arrivals",
+            arr.to_str().unwrap(),
+            "--trace-key",
+            "[4,1,1,1,0]",
+            "--trace-key",
+            "[2,1,1,1,0]",
+        ],
+    );
+    assert_eq!(rc, 0, "{dep}");
+    let a = format::read(&t.dir.join("o_plain").join("P-C.arrivals.jsonl")).unwrap();
+    let b = format::read(&t.dir.join("o_dep").join("P-C.arrivals.jsonl")).unwrap();
+    assert_eq!(a.lines.len(), b.lines.len());
+    let mut depths = std::collections::BTreeSet::new();
+    for (x, y) in a.lines.iter().zip(&b.lines) {
+        assert_eq!((&x.key, x.senders, &x.first), (&y.key, y.senders, &y.first));
+        assert_eq!(x.depth, None);
+        depths.insert(y.depth.expect("a depth on every tracked line"));
+    }
+    // box-reached senders give depth 1; keys sent only from [4,1,1,1,0] (n0 - 1 = 3 on the hand-down terms) depth 4
+    assert_eq!(depths, [1, 4].into_iter().collect(), "{dep}");
+    assert!(
+        b.lines
+            .iter()
+            .filter(|l| l.depth == Some(4))
+            .all(|l| l.first.parent_key == vec![4, 1, 1, 1, 0])
+    );
+    // the closure histogram: every closure key at depth 0 except the arriving key [4,1,1,1,0] at depth 3
+    let hist = &dep["walk"]["depth_hist"];
+    assert_eq!(hist["3"], 1, "{dep}");
+    assert_eq!(
+        hist["0"].as_u64().unwrap() + 1,
+        dep["walk"]["closure_keys"].as_u64().unwrap(),
+        "{dep}"
+    );
+    assert!(plain["walk"].get("depth_hist").is_none(), "{plain}");
+    // traces: the arriving key is a start key of depth 3; [2,1,1,1,0] is a box start key
+    let tr = dep["trace"].as_array().unwrap();
+    assert_eq!(tr[0]["path"][0]["start"], true, "{dep}");
+    assert_eq!(tr[0]["depth"], 3, "{dep}");
+    assert_eq!(tr[1]["depth"], 0, "{dep}");
+    // --closure-only: no edge file
+    let (rc, co) = compute_rows(
+        &t,
+        &rows,
+        &t.dir.join("o_co"),
+        &[
+            "--depth",
+            "--arrivals",
+            arr.to_str().unwrap(),
+            "--closure-only",
+        ],
+    );
+    assert_eq!(rc, 0, "{co}");
+    assert_eq!(co["files"].as_array().unwrap().len(), 0, "{co}");
+    assert_eq!(co["walk"]["depth_hist"], *hist, "{co}");
+    // an arrival file without depths: refused under --depth
+    let nodepth = write(
+        "into-P-nodepth.arrivals.jsonl",
+        vec![mk(vec![4, 1, 1, 1, 0], None)],
+    );
+    let (rc, s) = compute_rows(
+        &t,
+        &rows,
+        &t.dir.join("o_nd"),
+        &["--depth", "--arrivals", nodepth.to_str().unwrap()],
+    );
+    assert_ne!(rc, 0, "an arrival file without depths must be refused: {s}");
+}

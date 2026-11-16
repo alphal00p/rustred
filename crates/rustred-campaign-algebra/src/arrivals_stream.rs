@@ -244,6 +244,11 @@ impl CompactRows {
         self.in_start.len()
     }
 
+    /// Whether key `ki` is a start key (`in_start`) of the rows.
+    pub fn is_start(&self, ki: usize) -> bool {
+        self.in_start[ki]
+    }
+
     pub fn n_served(&self) -> usize {
         self.s_key.len()
     }
@@ -339,9 +344,12 @@ struct SAcc {
     first: First,
     first_exact: Option<First>,
     exact_level: bool,
+    /// The chain depth of the key: min over senders of (the sender's closure depth + 1).
+    depth: u8,
 }
 
 fn smerge(b: &mut SAcc, a: SAcc) {
+    b.depth = b.depth.min(a.depth);
     b.senders += a.senders;
     b.first = fmin(a.first, b.first);
     b.exact_senders += a.exact_senders;
@@ -390,7 +398,7 @@ fn by_text(i: u32) -> Result<String, String> {
 }
 
 /// Run record: key length (u8), key bytes, senders u64, exact_senders u64, flags u8 (1 = exact level, 2 = first_exact),
-/// first (row, term, text) 3 x u32, first_exact 3 x u32 (zeros when absent); little endian.
+/// first (row, term, text) 3 x u32, first_exact 3 x u32 (zeros when absent), depth u8; little endian.
 fn put_run(w: &mut impl Write, k: &[i8], a: &SAcc) -> std::io::Result<()> {
     w.write_all(&[k.len() as u8])?;
     w.write_all(&k.iter().map(|&x| x as u8).collect::<Vec<u8>>())?;
@@ -405,6 +413,7 @@ fn put_run(w: &mut impl Write, k: &[i8], a: &SAcc) -> std::io::Result<()> {
     for v in [a.first.row, a.first.j, a.first.by, fe.row, fe.j, fe.by] {
         w.write_all(&v.to_le_bytes())?;
     }
+    w.write_all(&[a.depth])?;
     Ok(())
 }
 
@@ -424,7 +433,7 @@ impl RunReader {
         }
         let mut kb = vec![0u8; l[0] as usize];
         self.r.read_exact(&mut kb).map_err(err)?;
-        let mut b = [0u8; 8 + 8 + 1 + 24];
+        let mut b = [0u8; 8 + 8 + 1 + 24 + 1];
         self.r.read_exact(&mut b).map_err(err)?;
         let u64at = |i: usize| u64::from_le_bytes(b[i..i + 8].try_into().expect("8"));
         let u32at = |i: usize| u32::from_le_bytes(b[i..i + 4].try_into().expect("4"));
@@ -448,6 +457,7 @@ impl RunReader {
                 first,
                 first_exact: (flags & 2 != 0).then_some(fe),
                 exact_level: flags & 1 != 0,
+                depth: b[41],
             },
         )))
     }
@@ -471,6 +481,14 @@ pub struct StreamCfg {
     pub decisions_sample: usize,
     /// Collect the distinct routed hand-down term keys (diagnostic; memory grows with them).
     pub term_keys: bool,
+    /// CHAIN DEPTH: per key of the rows (CompactRows index), the depth of a start key (0 = the node's own start box, d =
+    /// arrived by d hand-down steps; 255 = not a start key). None = not tracked (every start key 0, no depth written).
+    pub start_depth: Option<Vec<u8>>,
+    /// Keys whose CLOSURE PATH is reported (`StreamResult::trace`): from the key back to a start key, each step the closure
+    /// parent (served row, top term) that first reached it with a non-zero coefficient.
+    pub trace: Vec<Vec<i32>>,
+    /// Stop after the closure (no hand-down, no edge file emitted).
+    pub closure_only: bool,
 }
 
 /// Keys of a record group decided per work item (the record is held only while a chunk is decided).
@@ -619,29 +637,90 @@ pub struct StreamResult {
     pub sample: Vec<(usize, Vec<HandTerm>)>,
     pub term_keys: BTreeSet<Vec<i32>>,
     pub spills: u64,
+    /// `StreamCfg::trace`: per traced key its closure path back to a start key.
+    pub trace: Vec<Value>,
 }
 
-/// The exact closure CL(S) on key indices (phase A of the module docs of `arrivals`, same rounds and decisions).
+/// The closure path of key `k` (`StreamCfg::trace`): steps from `k` back to a start key, each with the key's depth and the
+/// closure parent that reached it (parent key, applied key, record sha256, top term); the last step is the start key.
+fn closure_path(
+    set: &ImportedSet,
+    rows: &CompactRows,
+    dep: &[u8],
+    via: &[(u32, u32)],
+    k: &[i32],
+) -> Value {
+    let Some(mut ki) = rows.find(k) else {
+        return json!({"key": k, "in_rows": false});
+    };
+    if dep[ki] == UNREACHED {
+        return json!({"key": k, "in_rows": true, "reached": false});
+    }
+    let mut steps = vec![];
+    while steps.len() <= rows.n_keys() {
+        let (si, j) = via[ki];
+        let key = rows.key_i32(ki);
+        if si == u32::MAX {
+            steps.push(json!({"key": key, "depth": dep[ki], "start": true}));
+            break;
+        }
+        let (t, r) = rows.rec(si as usize);
+        let pk = rows.served_key(si as usize);
+        steps.push(json!({"key": key, "depth": dep[ki], "via": {"parent_key": rows.key_i32(pk),
+            "applied": rows.applied(si as usize), "record_sha256": set.rules[t][r].record_sha256, "top_term": j}}));
+        ki = pk;
+    }
+    json!({"key": k, "in_rows": true, "reached": true, "depth": steps.first().map(|s| s["depth"].clone()), "path": steps})
+}
+
+/// Depth of a key the closure did not reach.
+pub const UNREACHED: u8 = u8::MAX;
+
+/// The exact closure CL(S) on key indices (phase A of the module docs of `arrivals`, same rounds and decisions), with the
+/// CHAIN DEPTH of every reached key (UNREACHED = not reached): the closure is run in LAYERS of start depth (`start_depth`
+/// per key index; None = every start key depth 0): layer d starts from the unreached start keys of depth d and every key it
+/// adds gets depth d, so a key's depth is the minimum start depth over the start keys whose closure contains it (top
+/// terms add no hand-down step). The reached set is that of a single closure from all start keys.
 fn closure(
     set: &ImportedSet,
     rows: &CompactRows,
     cache: &RecCache<'_>,
     cfg: &WalkCfg,
+    start_depth: Option<&[u8]>,
+    mut via: Option<&mut Vec<(u32, u32)>>,
     st: &mut WalkStats,
-) -> Result<Vec<bool>, String> {
+) -> Result<Vec<u8>, String> {
     let t0 = std::time::Instant::now();
     let lines = set.frame.mask().to_vec();
     let n = set.arity();
     let nk = rows.n_keys();
-    let mut reached = vec![false; nk];
-    let mut frontier: Vec<u32> = vec![];
+    if let Some(sd) = start_depth
+        && sd.len() != nk
+    {
+        return Err(format!(
+            "start depths for {} keys, rows have {nk}",
+            sd.len()
+        ));
+    }
+    let sdep = |ki: usize| start_depth.map_or(0, |sd| sd[ki]);
+    let mut layers: BTreeMap<u8, Vec<u32>> = BTreeMap::new();
     for (ki, s) in rows.in_start.iter().enumerate() {
         if *s {
-            reached[ki] = true;
-            frontier.push(ki as u32);
+            let d = sdep(ki);
+            if d == UNREACHED {
+                return Err(format!(
+                    "start key {:?} without a start depth",
+                    rows.key_i32(ki)
+                ));
+            }
+            layers.entry(d).or_default().push(ki as u32);
         }
     }
-    st.start_keys = frontier.len() as u64;
+    st.start_keys = layers.values().map(Vec::len).sum::<usize>() as u64;
+    let mut dep = vec![UNREACHED; nk];
+    if let Some(v) = via.as_deref_mut() {
+        *v = vec![(u32::MAX, 0); nk];
+    }
     let tops = |si: usize| -> Vec<(u32, Vec<i32>)> {
         let (t, r) = rows.rec(si);
         let (mut buf, mut cm) = (vec![], vec![]);
@@ -663,95 +742,109 @@ fn closure(
             .collect()
     };
     let mut cand: BTreeMap<u32, Vec<(u32, u32)>> = BTreeMap::new();
-    while !frontier.is_empty() {
-        st.rounds += 1;
+    let mut n_reached = 0usize;
+    for (layer, starts) in layers {
+        let mut frontier: Vec<u32> = starts
+            .into_iter()
+            .filter(|&ki| dep[ki as usize] == UNREACHED)
+            .collect();
         for &ki in &frontier {
-            if let Some(si) = rows.served_of(ki as usize) {
-                for (j, tk) in tops(si) {
-                    let Some(tki) = rows.find(&tk) else {
-                        return Err(format!(
-                            "the rows file is not closed: {tk:?} (top term {j} of {:?}) is not a row",
-                            rows.key_i32(ki as usize)
-                        ));
-                    };
-                    if !reached[tki] {
-                        cand.entry(tki as u32).or_default().push((si as u32, j));
+            dep[ki as usize] = layer;
+        }
+        n_reached += frontier.len();
+        while !frontier.is_empty() {
+            st.rounds += 1;
+            for &ki in &frontier {
+                if let Some(si) = rows.served_of(ki as usize) {
+                    for (j, tk) in tops(si) {
+                        let Some(tki) = rows.find(&tk) else {
+                            return Err(format!(
+                                "the rows file is not closed: {tk:?} (top term {j} of {:?}) is not a row",
+                                rows.key_i32(ki as usize)
+                            ));
+                        };
+                        if dep[tki] == UNREACHED {
+                            cand.entry(tki as u32).or_default().push((si as u32, j));
+                        }
                     }
                 }
             }
-        }
-        let mut new: Vec<u32> = vec![];
-        loop {
-            let pend: Vec<(u32, (u32, u32))> = cand
-                .iter()
-                .filter_map(|(k, v)| v.first().map(|c| (*k, *c)))
-                .collect();
-            if pend.is_empty() {
-                break;
-            }
-            let mut by_rec: BTreeMap<RecKey, Vec<PendItem>> = BTreeMap::new();
-            for (pi, (_, (si, j))) in pend.iter().enumerate() {
-                by_rec
-                    .entry(rows.rec(*si as usize))
-                    .or_default()
-                    .push((*si as usize, *j, pi));
-            }
-            let groups: Vec<(RecKey, Vec<PendItem>)> = by_rec.into_iter().collect();
-            let res = par_map(
-                &groups,
-                cfg.threads,
-                |((t, r), items)| -> Result<Vec<(usize, CoefFact, bool)>, String> {
-                    cache.with(*t, *r, |e| {
-                        let mut out = vec![];
-                        for (si, j, pi) in items {
-                            let applied = rows.applied(*si);
-                            let pt =
-                                e.p.point(&applied)
-                                    .ok_or_else(|| format!("{applied:?}: no rule point"))?;
-                            let (w, by) = exact_word(&mut e.p, &mut e.me, *j as usize, &pt)?;
-                            out.push((*pi, w, by == "key:mod"));
+            let mut new: Vec<u32> = vec![];
+            loop {
+                let pend: Vec<(u32, (u32, u32))> = cand
+                    .iter()
+                    .filter_map(|(k, v)| v.first().map(|c| (*k, *c)))
+                    .collect();
+                if pend.is_empty() {
+                    break;
+                }
+                let mut by_rec: BTreeMap<RecKey, Vec<PendItem>> = BTreeMap::new();
+                for (pi, (_, (si, j))) in pend.iter().enumerate() {
+                    by_rec
+                        .entry(rows.rec(*si as usize))
+                        .or_default()
+                        .push((*si as usize, *j, pi));
+                }
+                let groups: Vec<(RecKey, Vec<PendItem>)> = by_rec.into_iter().collect();
+                let res = par_map(
+                    &groups,
+                    cfg.threads,
+                    |((t, r), items)| -> Result<Vec<(usize, CoefFact, bool)>, String> {
+                        cache.with(*t, *r, |e| {
+                            let mut out = vec![];
+                            for (si, j, pi) in items {
+                                let applied = rows.applied(*si);
+                                let pt =
+                                    e.p.point(&applied)
+                                        .ok_or_else(|| format!("{applied:?}: no rule point"))?;
+                                let (w, by) = exact_word(&mut e.p, &mut e.me, *j as usize, &pt)?;
+                                out.push((*pi, w, by == "key:mod"));
+                            }
+                            Ok(out)
+                        })
+                    },
+                );
+                let mut decided = vec![CoefFact::Unknown; pend.len()];
+                for r in res {
+                    for (pi, w, m) in r? {
+                        decided[pi] = w;
+                        st.top_decisions += 1;
+                        st.top_by_mod += m as u64;
+                    }
+                }
+                for ((k, c), w) in pend.iter().zip(decided) {
+                    if w == CoefFact::Zero {
+                        st.top_zero += 1;
+                        cand.get_mut(k).expect("pending").remove(0);
+                    } else {
+                        st.top_unknown += (w == CoefFact::Unknown) as u64;
+                        cand.remove(k);
+                        dep[*k as usize] = layer;
+                        if let Some(v) = via.as_deref_mut() {
+                            v[*k as usize] = *c;
                         }
-                        Ok(out)
-                    })
-                },
+                        n_reached += 1;
+                        new.push(*k);
+                    }
+                }
+                cand.retain(|_, v| !v.is_empty());
+            }
+            cand.clear();
+            new.sort_unstable();
+            eprintln!(
+                "[arrivals] closure round {} (depth layer {layer}): +{} keys, reached {n_reached}, top decisions {} ({:.0} s){}",
+                st.rounds,
+                new.len(),
+                st.top_decisions,
+                t0.elapsed().as_secs_f64(),
+                rss()
             );
-            let mut decided = vec![CoefFact::Unknown; pend.len()];
-            for r in res {
-                for (pi, w, m) in r? {
-                    decided[pi] = w;
-                    st.top_decisions += 1;
-                    st.top_by_mod += m as u64;
-                }
-            }
-            for ((k, _), w) in pend.iter().zip(decided) {
-                if w == CoefFact::Zero {
-                    st.top_zero += 1;
-                    cand.get_mut(k).expect("pending").remove(0);
-                } else {
-                    st.top_unknown += (w == CoefFact::Unknown) as u64;
-                    cand.remove(k);
-                    reached[*k as usize] = true;
-                    new.push(*k);
-                }
-            }
-            cand.retain(|_, v| !v.is_empty());
+            frontier = new;
         }
-        cand.clear();
-        new.sort_unstable();
-        eprintln!(
-            "[arrivals] closure round {}: +{} keys, reached {}, top decisions {} ({:.0} s){}",
-            st.rounds,
-            new.len(),
-            reached.iter().filter(|x| **x).count(),
-            st.top_decisions,
-            t0.elapsed().as_secs_f64(),
-            rss()
-        );
-        frontier = new;
     }
     cache.release_all();
     st.seconds_closure = t0.elapsed().as_secs_f64();
-    Ok(reached)
+    Ok(dep)
 }
 
 /// Exact-level results of the fallback per child key: (senders proved non-zero, their first).
@@ -780,6 +873,8 @@ struct LineIter<'a> {
     threads: usize,
     buf: VecDeque<Result<ArrivalLine, String>>,
     done: bool,
+    /// Write the chain depth of each line (start depths were given).
+    depth: bool,
 }
 
 const LINE_BLOCK: usize = 1 << 16;
@@ -841,7 +936,7 @@ impl LineIter<'_> {
         }
         let chunk = block.len().div_ceil(self.threads.max(1)).max(1);
         let parts: Vec<&[(CKey, SAcc)]> = block.chunks(chunk).collect();
-        let (set, rows) = (self.set, self.rows);
+        let (set, rows, track) = (self.set, self.rows, self.depth);
         let lines = par_map(
             &parts,
             self.threads,
@@ -858,6 +953,7 @@ impl LineIter<'_> {
                                 Some(f) => Some(make_sender(set, rows, f, &mut buf, &mut cm)?),
                                 None => None,
                             },
+                            depth: track.then_some(u32::from(a.depth)),
                         })
                     })
                     .collect()
@@ -919,22 +1015,63 @@ pub fn walk_stream(
         ..Default::default()
     };
     // --- A ---
-    let reached = closure(set, rows, cache, cfg, &mut st)?;
-    st.closure_keys = reached.iter().filter(|x| **x).count() as u64;
+    let mut via: Vec<(u32, u32)> = vec![];
+    let dep = closure(
+        set,
+        rows,
+        cache,
+        cfg,
+        scfg.start_depth.as_deref(),
+        (!scfg.trace.is_empty()).then_some(&mut via),
+        &mut st,
+    )?;
+    let trace: Vec<Value> = scfg
+        .trace
+        .iter()
+        .map(|k| closure_path(set, rows, &dep, &via, k))
+        .collect();
+    drop(via);
+    st.closure_keys = dep.iter().filter(|x| **x != UNREACHED).count() as u64;
     st.keys_only_not_reached = rows.n_keys() as u64 - st.closure_keys;
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
-    for (ki, r) in reached.iter().enumerate() {
-        if *r {
+    for (ki, d) in dep.iter().enumerate() {
+        if *d != UNREACHED {
             h.update(format!("{:?}\n", rows.key_i32(ki)).as_bytes());
         }
     }
     let closure_digest = format!("sha256:{}", h.finish_hex());
     let cl_served: Vec<u32> = (0..rows.n_served())
-        .filter(|&si| reached[rows.served_key(si)])
+        .filter(|&si| dep[rows.served_key(si)] != UNREACHED)
         .map(|si| si as u32)
         .collect();
-    drop(reached);
+    // the depth an arrival from served closure row ci gets: its key's depth + 1 (one hand-down step)
+    let cl_depth: Vec<u8> = cl_served
+        .iter()
+        .map(|&si| {
+            dep[rows.served_key(si as usize)]
+                .saturating_add(1)
+                .min(UNREACHED - 1)
+        })
+        .collect();
+    if scfg.start_depth.is_some() {
+        for d in dep.iter().filter(|d| **d != UNREACHED) {
+            *st.depth_hist.entry(*d as u32).or_default() += 1;
+        }
+    }
+    drop(dep);
     st.closure_served = cl_served.len() as u64;
+    if scfg.closure_only {
+        return Ok(StreamResult {
+            stats: st,
+            closure_digest,
+            unrouted: BTreeMap::new(),
+            other: BTreeMap::new(),
+            sample: vec![],
+            term_keys: BTreeSet::new(),
+            spills: 0,
+            trace,
+        });
+    }
     // --- B + C fused, per record group ---
     let t1 = std::time::Instant::now();
     let exp = ExpShards::new(cfg.cache_entries);
@@ -1078,8 +1215,10 @@ pub fn walk_stream(
                                 first: pk.first,
                                 first_exact: None,
                                 exact_level: false,
+                                depth: cl_depth[ci],
                             }
                         });
+                        m.depth = m.depth.min(cl_depth[ci]);
                         m.senders += 1;
                         m.first = fmin(m.first, pk.first);
                         if !wants {
@@ -1223,6 +1362,7 @@ pub fn walk_stream(
         sample,
         term_keys,
         spills: accs.spills,
+        trace,
     };
     // --- one edge at a time: merge (memory part + runs), stream its file ---
     for (e, est_e) in est.into_iter().enumerate() {
@@ -1238,6 +1378,7 @@ pub fn walk_stream(
             threads: cfg.threads,
             buf: VecDeque::new(),
             done: false,
+            depth: scfg.start_depth.is_some(),
         };
         let mut s = est_e;
         s.seconds = t0.elapsed().as_secs_f64();

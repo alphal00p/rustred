@@ -76,6 +76,11 @@ struct Args {
     cache_entries: usize,
     max_planes: usize,
     all_lines: bool,
+    /// compute: track the CHAIN DEPTH (box keys 0, arriving keys the min depth of their `--arrivals` lines).
+    depth: bool,
+    /// compute: report the closure path of these keys (`--trace-key '[..]'`); `--closure-only` stops after the closure.
+    trace_keys: Vec<Vec<i32>>,
+    closure_only: bool,
     no_structural: bool,
     decide_all_handdowns: bool,
     closed_sets: Vec<String>,
@@ -140,6 +145,12 @@ fn parse(args: &[String]) -> Args {
             "--cache-entries" => a.cache_entries = num(val(&mut i)),
             "--max-planes" => a.max_planes = num(val(&mut i)),
             "--all-lines" => a.all_lines = true,
+            "--depth" => a.depth = true,
+            "--trace-key" => a.trace_keys.push(
+                serde_json::from_str(&val(&mut i))
+                    .unwrap_or_else(|e| die(&format!("--trace-key: {e}"))),
+            ),
+            "--closure-only" => a.closure_only = true,
             "--no-structural" => a.no_structural = true,
             "--decide-all-handdowns" => a.decide_all_handdowns = true,
             "--closed-set" => a.closed_sets.push(val(&mut i)),
@@ -1003,6 +1014,48 @@ fn compute(a: &Args) {
     println!("{}", canonical_json(&s));
 }
 
+/// The start depth of every rows key (`compute --depth`): 0 for a key of the node's own start box, else the minimum
+/// `depth` of its lines in the `--arrivals` files (the same files `closure-rows` was given; every arrival line must carry
+/// a depth); UNREACHED for keys that are not start keys. A start key of the rows that is neither in the box nor in an
+/// arrival file is refused by the walk (no start depth).
+fn start_depths(
+    set: &ImportedSet,
+    rows: &arrivals::stream::CompactRows,
+    files: &[String],
+) -> Vec<u8> {
+    use arrivals::stream::UNREACHED;
+    let mut sd = vec![UNREACHED; rows.n_keys()];
+    for (ki, d) in sd.iter_mut().enumerate() {
+        if rows.is_start(ki) && set.start.contains(&rows.key_i32(ki)) {
+            *d = 0;
+        }
+    }
+    for p in files {
+        format::read_streamed(Path::new(p), &mut |l| {
+            let ki = rows
+                .find(&l.key)
+                .filter(|&ki| rows.is_start(ki))
+                .ok_or_else(|| {
+                    format!(
+                        "{p}: arrival key {:?} is not a start key of the rows",
+                        l.key
+                    )
+                })?;
+            let d = l.depth.ok_or_else(|| {
+                format!(
+                    "{p}: arrival line {:?} without a depth (--depth needs depth-tracked inputs)",
+                    l.key
+                )
+            })?;
+            let d = u8::try_from(d).unwrap_or(UNREACHED - 1).min(UNREACHED - 1);
+            sd[ki] = sd[ki].min(d);
+            Ok(())
+        })
+        .unwrap_or_else(|e| die(&e));
+    }
+    sd
+}
+
 /// `verify`: re-derive the arrival sets from the tables (hand-down terms decided PER KEY only: no structural proof is
 /// used), on all parent keys (`--sample 0`) or every k-th; compare with the files (key set, sender counts, first
 /// senders, exact counts when the file has the exact level), re-check every expansion used by a first sender with the
@@ -1039,6 +1092,9 @@ fn compute_stream(a: &Args) {
         spill_dir: a.spill_dir.clone().unwrap_or_else(|| out_dir.join("spill")),
         decisions_sample: a.decisions_sample,
         term_keys: a.dump_handdown_keys.is_some() || a.decisions_sample > 0,
+        start_depth: a.depth.then(|| start_depths(&set, &rows, &a.arrivals)),
+        trace: a.trace_keys.clone(),
+        closure_only: a.closure_only,
     };
     let tables = spec_tables(&set);
     let rows_id = rows.id();
@@ -1149,7 +1205,8 @@ fn compute_stream(a: &Args) {
         "other_children_masks": other.iter().map(|(m, c)| json!({"dropped_mask": format!("{m:#x}"),
             "dropped": (0..64).filter(|i| m >> i & 1 == 1).collect::<Vec<u32>>(), "terms": c})).collect::<Vec<_>>(),
         "walk": r.stats, "frame_checks": frame_checks, "seconds_load": t_load, "seconds": t0.elapsed().as_secs_f64(),
-        "threads": a.threads, "tool": arrivals::TOOL_VERSION});
+        "threads": a.threads, "tool": arrivals::TOOL_VERSION, "depth_tracked": a.depth, "closure_only": a.closure_only,
+        "trace": r.trace});
     write_json(&out_dir.join(format!("{parent}.summary.json")), &s);
     println!("{}", canonical_json(&s));
 }
