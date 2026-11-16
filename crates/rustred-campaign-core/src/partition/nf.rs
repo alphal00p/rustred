@@ -641,6 +641,12 @@ fn factor_can_vanish(f: &Poly, m: &[u128], pm: u128, p1: u128, p2: u128) -> bool
 /// m^e < pm`: never; `q = a x + b` in one variable: exactly at the residue `x = -b / a (mod pm)` inside the box;
 /// otherwise anywhere.
 fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
+    literal_modular_risk_with(f, m, true)
+}
+
+/// [`literal_modular_risk`] with the FACTOR criterion on (`factor = true`, the dispatcher's sharper test) or off (the
+/// plain VALUE BOUND `sum |c_q| prod m^e < pm`, the criterion an independent verifier states; never smaller radii).
+fn literal_modular_risk_with(f: &Poly, m: &[u128], factor: bool) -> Result<LitRisk, String> {
     let p1 = u128::from(ENGINE_PRIMES[0]);
     let p2 = u128::from(ENGINE_PRIMES[1]);
     // a coefficient beyond i128 (exact parser: big literal): the normal form cannot represent it either (the record
@@ -712,7 +718,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
     // divides q(pt) iff it divides some l_i(pt) or r(pt); a factor whose value bound stays below p (or a one-monomial
     // cofactor) is divisible by p only where it is 0, i.e. where q(pt) = 0. So each prime of pm must be reachable by a
     // "large" factor; products of small linear factors (high-degree exception members of real tables) never are.
-    if !factor_can_vanish(f, m, pm, p1, p2) {
+    if factor && !factor_can_vanish(f, m, pm, p1, p2) {
         return Ok(LitRisk::Points(vec![]));
     }
     // one-variable linear primitive part a x + b: the residue is solved exactly; anything else: the far radius
@@ -803,6 +809,17 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
 /// dispatcher and are not part of the engine's first match; the engine's modular REDUCTION at huge keys is a separate
 /// matter, interfaces/partition.md 14.)
 pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
+    modular_risk_with(d, true)
+}
+
+/// [`modular_risk`] WITHOUT the factor criterion: every literal whose plain value bound reaches the modulus counts
+/// (the criterion of an independent radius check, VERIFIER_SPEC item 4); its far radii are never larger than those of
+/// [`modular_risk`].
+pub fn modular_risk_value_bound(d: &CaseDomain) -> Option<ModularRisk> {
+    modular_risk_with(d, false)
+}
+
+fn modular_risk_with(d: &CaseDomain, factor: bool) -> Option<ModularRisk> {
     let m = match rule_point_bounds(d) {
         Ok(m) => m,
         Err(why) => return Some(ModularRisk::Anywhere(why)),
@@ -810,7 +827,7 @@ pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
     let mut points: Vec<(usize, i128)> = vec![];
     let mut far: Vec<(usize, i128)> = vec![];
     for (_, f) in reached_literals(d) {
-        match literal_modular_risk(f, &m) {
+        match literal_modular_risk_with(f, &m, factor) {
             Ok(LitRisk::Points(p)) => points.extend(p),
             Ok(LitRisk::Far(p)) => far.extend(p),
             Err(why) => return Some(ModularRisk::Anywhere(why)),

@@ -1585,6 +1585,39 @@ fn b2_face_by_face() {
             .replace(", ", "_")
             .replace(' ', "_")
     };
+    // PARAMETRIC_TERMINALS=<file>: the TERMINAL SET as an explicit input of every certificate (TRICKS 34): a JSON list of
+    // keys or JSONL rows {"key": [...]}; written into each certificate (keys + sha256) and every cone reports the open
+    // keys outside it (the statement is "open set = terminal set inside the cone")
+    let terminals: Option<(BTreeSet<Vec<i32>>, serde_json::Value)> =
+        std::env::var("PARAMETRIC_TERMINALS").ok().map(|p| {
+            let txt = std::fs::read_to_string(&p).unwrap();
+            let parsed = serde_json::from_str::<serde_json::Value>(&txt);
+            // a terminal-set document {"keys": [...]} (rustred.campaign.terminal-set.v1), a JSON list, or JSONL rows
+            let parsed = match parsed {
+                Ok(serde_json::Value::Object(o)) if o.get("keys").is_some_and(|k| k.is_array()) => {
+                    Ok(o["keys"].clone())
+                }
+                other => other,
+            };
+            let keys: Vec<Vec<i32>> = match parsed {
+                Ok(serde_json::Value::Array(a)) => a
+                    .iter()
+                    .map(|k| {
+                        serde_json::from_value(k.get("key").cloned().unwrap_or(k.clone())).unwrap()
+                    })
+                    .collect(),
+                _ => txt
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| {
+                        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                        serde_json::from_value(v.get("key").cloned().unwrap_or(v)).unwrap()
+                    })
+                    .collect(),
+            };
+            let meta = json!({"path": p, "sha256": sha256_file(Path::new(&p)), "keys": keys});
+            (keys.into_iter().collect(), meta)
+        });
     let mut queue: VecDeque<Vec<(usize, bool)>> = VecDeque::new();
     // PARAMETRIC_PIECE_LIST="1,2,8;2,6;0,5,9;...": explicit FACES instead of the split (each piece = the listed slots
     // beyond their boundary value: line >= 2 / numerator <= -1, EVERY other slot at its boundary value: line = 1 /
@@ -1734,11 +1767,17 @@ fn b2_face_by_face() {
             let cert = certificate(&cov, &capped, &frame);
             let chk = check_cone_certificate(&cert, &capped, &frame, None);
             let fid = file_id(&id);
+            let mut cert_v = serde_json::to_value(&cert).unwrap();
+            if let Some((_, meta)) = &terminals {
+                cert_v["terminals"] = meta.clone();
+            }
             std::fs::write(
                 dir.join(format!("{fid}.{tag}.certificate.json")),
-                serde_json::to_string(&cert).unwrap(),
+                serde_json::to_string(&cert_v).unwrap(),
             )
             .unwrap();
+            let mut open_not_terminal: Vec<Vec<i32>> = Vec::new();
+            let mut open_terminals = 0u64;
             let (mut res_keys, mut unsized_cells, mut open_keys) = (0u64, 0usize, 0u64);
             let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
             let mut faces: BTreeMap<String, u64> = BTreeMap::new();
@@ -1782,6 +1821,13 @@ fn b2_face_by_face() {
                                 d.chars().take(40).collect()
                             };
                             let open = why != "covered";
+                            if open && let Some((tset, _)) = &terminals {
+                                if tset.contains(&k) {
+                                    open_terminals += 1;
+                                } else if open_not_terminal.len() < 1000 {
+                                    open_not_terminal.push(k.clone());
+                                }
+                            }
                             if open {
                                 open_keys += 1;
                                 *faces
@@ -1809,6 +1855,9 @@ fn b2_face_by_face() {
                 "cone": tag, "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
                 "uncovered": cov.uncovered, "undecided": cov.undecided,
                 "residual": {"cell_keys_in_cone": res_keys, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
+                "terminals": terminals.as_ref().map(|(t, m)| json!({"terminal_set_sha256": m["sha256"], "terminal_keys": t.len(),
+                    "open_terminal_keys": open_terminals, "open_keys_not_terminal": open_not_terminal.len(), "open_not_terminal_first": open_not_terminal.iter().take(20).collect::<Vec<_>>(),
+                    "open_set_equals_terminals_in_cone": open_not_terminal.is_empty() && unsized_cells == 0 && cov.undecided == 0})),
                 "probes": cov.probes.len(), "probes_open_unexplained": cov.probes_open_unexplained,
                 "checker": {"ok": chk.ok(), "n_problems": chk.problems.len(), "problems": chk.problems.iter().take(10).collect::<Vec<_>>(), "witnesses_checked": chk.witnesses_checked, "probes_checked": chk.probes_checked},
             }));
@@ -2393,7 +2442,11 @@ fn element_probe(
 #[ignore]
 fn modular_radii() {
     use rustred_campaign_core::domain::{TargetMap, TargetSlot};
-    use rustred_campaign_core::partition::nf::{ModularRisk, modular_risk};
+    use rustred_campaign_core::partition::nf::{
+        ModularRisk, modular_risk, modular_risk_value_bound,
+    };
+    // PARAMETRIC_RADIUS_CRITERION=value: the plain value bound (no factor criterion; VERIFIER_SPEC item 4)
+    let value_bound = std::env::var("PARAMETRIC_RADIUS_CRITERION").as_deref() == Ok("value");
     let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
     let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
     let mut ld = load_any(&spec, None);
@@ -2438,7 +2491,12 @@ fn modular_radii() {
     for &ti in disp.priority() {
         let t = &disp.tables()[ti];
         for (ri, d) in t.domains.iter().enumerate() {
-            let Some(risk) = modular_risk(d) else {
+            let risk = if value_bound {
+                modular_risk_value_bound(d)
+            } else {
+                modular_risk(d)
+            };
+            let Some(risk) = risk else {
                 continue;
             };
             let label = t.labels.get(ri).copied().unwrap_or(-1);
@@ -2490,7 +2548,7 @@ fn modular_radii() {
         "records": disp.tables().iter().map(|t| t.domains.len()).sum::<usize>(),
         "records_with_far_risk": n_far, "records_with_point_risk": n_points, "records_with_anywhere_risk": n_any,
         "R": r_global.as_ref().map(|g| g.0), "R_binding_record": r_global.as_ref().map(|g| json!({"table": g.1, "label": g.2})),
-        "rule": "R = min over records and Far entries (v, r) of r - |o_v| - 2: every key with D + r <= R has |pt[v]| <= R + 1 + |o_v| < r",
+        "criterion": if value_bound { "value bound (no factor criterion)" } else { "factor criterion (dispatcher)" }, "rule": "R = min over records and Far entries (v, r) of r - |o_v| - 2: every key with D + r <= R has |pt[v]| <= R + 1 + |o_v| < r",
         "risks": recs,
     });
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
