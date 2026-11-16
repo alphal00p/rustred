@@ -181,6 +181,18 @@ struct FakeGen {
     ms: u64,
     /// face label -> {"rule": {record}} | {"stop": "budget_wall" | "open_obligations" | ...}
     faces: BTreeMap<String, Value>,
+    /// wireflow (a): the fake child's script of the symmetry-composite jobs (None = the real program).
+    #[serde(default)]
+    composite_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
+    /// wireflow (a): the fake child's script of the proof-symrows jobs.
+    #[serde(default)]
+    kernel_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
+    /// wireflow (f): the fake oracle of the seed-minimisation solves ([[key, [alts]], ..]).
+    #[serde(default)]
+    seedmin_oracle: Option<Vec<(Vec<i32>, Vec<super::seedmin::FakeAlt>)>>,
+    /// wireflow (g): the fake child's script of the regular-basis job (None = the real program).
+    #[serde(default)]
+    regbasis_ops: Option<Vec<rustred_campaign_contract::fake::FakeOp>>,
 }
 
 fn d_fake_program() -> String {
@@ -213,6 +225,12 @@ struct RfNode {
     pass: Option<JoinHandle<Result<P1, String>>>,
     p1: Option<Arc<P1>>,
     fake: Option<FakeGen>,
+    /// wireflow (a): the composite stage (rounds of symmetry-composite + proof-symrows jobs) before P1.
+    comp: super::wire_composite::Stage,
+    /// wireflow (f): the seed minimisation of the closing face recipes at P5.
+    minst: super::wire_seedmin::MinStage,
+    /// wireflow (e): the P5 variant phase (thread state).
+    varst: super::wire_variants::VarStage,
 }
 
 pub struct RepairFlowSource<S: WorkSource> {
@@ -220,6 +238,8 @@ pub struct RepairFlowSource<S: WorkSource> {
     cdir: PathBuf,
     nodes: Vec<RfNode>,
     programs: BTreeMap<String, PathBuf>,
+    /// The licence variable's NAME (wireflow (f): passed to the seed-minimisation children).
+    licence_env: Option<String>,
 }
 
 /// Wrap the closing loop's source (transparent when the campaign has no input of role `repairflow`).
@@ -267,6 +287,9 @@ pub fn wrap<S: WorkSource>(
                 pass: None,
                 p1: None,
                 fake: fake.clone(),
+                comp: Default::default(),
+                minst: Default::default(),
+                varst: Default::default(),
             });
         }
     }
@@ -279,6 +302,7 @@ pub fn wrap<S: WorkSource>(
             .iter()
             .map(|(k, p)| (k.clone(), p.path.clone()))
             .collect(),
+        licence_env: spec.licence.env.clone(),
     })
 }
 
@@ -311,6 +335,168 @@ impl<S: WorkSource> RepairFlowSource<S> {
         self.nodes.iter().position(|r| r.cfg.node == it.node)
     }
 
+    /// wireflow (a): the flow node of a composite-stage item (kinds symmetry-composite / proof-symrows).
+    fn stage_node_of_item(&self, st: &CampaignState, item: &str) -> Option<usize> {
+        let it = st.items.get(item)?;
+        if it.kind != super::wire_composite::KIND_COMPOSITE
+            && it.kind != super::wire_composite::KIND_KERNEL
+        {
+            return None;
+        }
+        self.nodes.iter().position(|r| r.cfg.node == it.node)
+    }
+
+    fn stage_fake(&self, i: usize) -> super::wire_composite::FakeOps {
+        match &self.nodes[i].fake {
+            Some(f) => super::wire_composite::FakeOps {
+                composite: f.composite_ops.clone(),
+                kernel: f.kernel_ops.clone(),
+            },
+            None => Default::default(),
+        }
+    }
+
+    /// wireflow (a): the composite stage of node `i` (None = the stage is off for the node; Some(true) = done).
+    fn stage_poll(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        rt: &mut Routing,
+    ) -> Result<Option<bool>, String> {
+        if !self.nodes[i].policy.route0.composite_jobs.enabled {
+            return Ok(None);
+        }
+        let n = self.nodes[i].n.clone();
+        if st
+            .inputs
+            .contains_key(&super::wire_composite::input_done(&n))
+        {
+            return Ok(Some(true));
+        }
+        let base_text = if st.inputs.contains_key(&input_import_spec(&n)) {
+            let t = String::from_utf8(read_input(st, &input_import_spec(&n))?)
+                .map_err(|e| format!("import spec: {e}"))?;
+            Some(with_route0(&t, &self.nodes[i].policy)?.0)
+        } else {
+            None
+        };
+        let fake = self.stage_fake(i);
+        let mut comp = std::mem::take(&mut self.nodes[i].comp);
+        let r = {
+            let c = super::wire_composite::Ctx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                policy: &self.nodes[i].policy,
+                programs: &self.programs,
+                fake: &fake,
+                base_text: base_text.as_deref(),
+            };
+            comp.poll(st, &c, rt)
+        };
+        self.nodes[i].comp = comp;
+        r.map(Some)
+    }
+
+    /// wireflow (f): the P5 seed minimisation of node `i` (true = done or off).
+    fn min_poll(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<bool, String> {
+        if !self.nodes[i].policy.seedmin.enabled {
+            return Ok(true);
+        }
+        let n = self.nodes[i].n.clone();
+        let fake = self.nodes[i]
+            .fake
+            .as_ref()
+            .and_then(|f| f.seedmin_oracle.clone().map(|o| (o, f.ms)));
+        let mut ms = std::mem::take(&mut self.nodes[i].minst);
+        let r = {
+            let c = super::wire_seedmin::MinCtx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                step: &self.nodes[i].policy.seedmin,
+                programs: &self.programs,
+                licence_env: self.licence_env.clone(),
+                fake,
+            };
+            ms.poll(st, &c, rt)
+        };
+        self.nodes[i].minst = ms;
+        r
+    }
+
+    /// wireflow (e): the P5 variant phase of node `i` (true = done or off).
+    fn var_poll(&mut self, st: &CampaignState, i: usize, rt: &mut Routing) -> Result<bool, String> {
+        if !self.nodes[i].policy.variants.enabled {
+            return Ok(true);
+        }
+        let n = self.nodes[i].n.clone();
+        let fake = self.nodes[i]
+            .fake
+            .as_ref()
+            .and_then(|f| f.seedmin_oracle.clone().map(|o| (o, f.ms)));
+        let mut vs = std::mem::take(&mut self.nodes[i].varst);
+        let r = {
+            let c = super::wire_variants::VarCtx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                step: &self.nodes[i].policy.variants,
+                programs: &self.programs,
+                licence_env: self.licence_env.clone(),
+                fake,
+            };
+            vs.poll(st, &c, rt)
+        };
+        self.nodes[i].varst = vs;
+        r
+    }
+
+    fn stage_ready(&mut self, st: &CampaignState, i: usize) -> Vec<JobRequest> {
+        let n = self.nodes[i].n.clone();
+        let fake = self.stage_fake(i);
+        let mut comp = std::mem::take(&mut self.nodes[i].comp);
+        let r = {
+            let c = super::wire_composite::Ctx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                policy: &self.nodes[i].policy,
+                programs: &self.programs,
+                fake: &fake,
+                base_text: None,
+            };
+            comp.ready(st, &c)
+        };
+        self.nodes[i].comp = comp;
+        r
+    }
+
+    fn stage_route(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        done: &Settled,
+    ) -> Result<Routing, String> {
+        let n = self.nodes[i].n.clone();
+        let fake = self.stage_fake(i);
+        let mut comp = std::mem::take(&mut self.nodes[i].comp);
+        let r = {
+            let c = super::wire_composite::Ctx {
+                cdir: &self.cdir,
+                n: &n,
+                cfg: &self.nodes[i].cfg,
+                policy: &self.nodes[i].policy,
+                programs: &self.programs,
+                fake: &fake,
+                base_text: None,
+            };
+            comp.route(st, &c, done)
+        };
+        self.nodes[i].comp = comp;
+        r
+    }
+
     fn s_items(&self, st: &CampaignState, i: usize) -> Vec<(String, ItemPhase, Vec<String>)> {
         let node = &self.nodes[i].cfg.node;
         st.items
@@ -330,9 +516,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let node = r.cfg.node.clone();
         let threads = r.cfg.check_threads.max(1);
         let rows = self.abs(&format!("{}/check.rows.jsonl", rf_dir(&r.n)));
+        let rounds = super::wire_composite::round_inputs(st, &r.n)?;
         let h = std::thread::Builder::new()
             .name(format!("repairflow-p1-{}", r.n))
-            .spawn(move || p1_pass(&node, &text, &base, &policy, threads, &rows))
+            .spawn(move || p1_pass(&node, &text, &base, &policy, threads, &rows, &rounds))
             .map_err(|e| format!("p1 thread: {e}"))?;
         self.nodes[i].pass = Some(h);
         Ok(())
@@ -603,6 +790,13 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let base_text = String::from_utf8(read_input(st, &input_import_spec(&n))?)
             .map_err(|e| format!("import spec: {e}"))?;
         let (base_text, _) = with_route0(&base_text, &self.nodes[i].policy)?;
+        // wireflow (a): every composite round's relations (re-verified by the import at load)
+        let rounds = super::wire_composite::round_inputs(st, &n)?;
+        let base_text = super::wire_composite::with_round_composites(
+            &base_text,
+            &rounds,
+            self.nodes[i].policy.route0.family.as_deref(),
+        )?;
         let mut v: Value = serde_json::from_str(&base_text).map_err(|e| e.to_string())?;
         let srcs = v
             .get_mut("sources")
@@ -1141,6 +1335,85 @@ impl<S: WorkSource> RepairFlowSource<S> {
         ));
         rt.accepts
             .push(record(format!("{exp}/face_recipes.jsonl"), fj.into_bytes()));
+        // wireflow (f): the minimised face recipes are the SHIPPED ones (export/minimised/), the record next to them;
+        // nothing is added without the seed-minimisation input (byte-identical export otherwise)
+        let mut manifest = manifest;
+        let mut seedmin_v = Value::Null;
+        if st
+            .inputs
+            .contains_key(&super::wire_seedmin::input_seedmin(&n))
+        {
+            let sm: Value =
+                serde_json::from_slice(&read_input(st, &super::wire_seedmin::input_seedmin(&n))?)
+                    .map_err(|e| format!("seedmin record: {e}"))?;
+            let mut summary = vec![];
+            for e in sm["recipes"].as_array().into_iter().flatten() {
+                let mut line = json!({"source": e["source"], "keys": e["keys"], "full_seeds": e["full_seeds"],
+                    "min_seeds": e["min_seeds"], "shipped": e["shipped"], "skipped": e["skipped"],
+                    "error": e["error"]});
+                if let Some(p) = e["minimised_recipe"]["path"].as_str() {
+                    let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
+                    let name = Path::new(p)
+                        .file_name()
+                        .map(|x| x.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    sums.push_str(&format!("{}  minimised/{name}\n", sha256_hex(&b)));
+                    line["file"] = json!(format!("minimised/{name}"));
+                    rt.accepts
+                        .push(record(format!("{exp}/minimised/{name}"), b));
+                }
+                summary.push(line);
+            }
+            let sb = json_bytes(&sm);
+            sums.push_str(&format!("{}  seedmin.json\n", sha256_hex(&sb)));
+            rt.accepts.push(record(format!("{exp}/seedmin.json"), sb));
+            manifest["seedmin"] = json!(summary);
+            seedmin_v = json!(summary);
+        }
+        // wireflow (e): the variant phase's shipped face recipes (export/variants/) and its record; nothing without its input
+        let mut variants_v = Value::Null;
+        if st
+            .inputs
+            .contains_key(&super::wire_variants::input_variants(&n))
+        {
+            let vr: Value =
+                serde_json::from_slice(&read_input(st, &super::wire_variants::input_variants(&n))?)
+                    .map_err(|e| format!("variants record: {e}"))?;
+            let mut summary = vec![];
+            for e in vr["faces"].as_array().into_iter().flatten() {
+                let mut line = json!({"face": e["face"], "closing": e["closing"], "keys": e["keys"],
+                    "tried": e["tried"], "improved_keys": e["improved_keys"], "shipped": e["shipped"]["step"]});
+                if let Some(p) = e["shipped"]["path"].as_str() {
+                    let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
+                    let name = Path::new(p)
+                        .file_name()
+                        .map(|x| x.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    sums.push_str(&format!("{}  variants/{name}\n", sha256_hex(&b)));
+                    line["file"] = json!(format!("variants/{name}"));
+                    rt.accepts.push(record(format!("{exp}/variants/{name}"), b));
+                }
+                summary.push(line);
+            }
+            let vb = json_bytes(&vr);
+            sums.push_str(&format!("{}  variants.json\n", sha256_hex(&vb)));
+            rt.accepts.push(record(format!("{exp}/variants.json"), vb));
+            manifest["variants"] = json!(summary);
+            variants_v = json!(summary);
+        }
+        // wireflow (c): the shipped case domains (export/regions/) and the record; nothing without the regions input
+        let mut regions_v = Value::Null;
+        if let Some((summary, files)) = super::wire_regions::export(st, &self.cdir, &n)? {
+            for (rel, b) in files {
+                sums.push_str(&format!("{}  {rel}\n", sha256_hex(&b)));
+                rt.accepts.push(record(format!("{exp}/{rel}"), b));
+            }
+            let rb = json_bytes(&summary["record"]);
+            sums.push_str(&format!("{}  regions.json\n", sha256_hex(&rb)));
+            rt.accepts.push(record(format!("{exp}/regions.json"), rb));
+            manifest["regions"] = summary["faces"].clone();
+            regions_v = summary["faces"].clone();
+        }
         let mb = json_bytes(&manifest);
         sums.push_str(&format!("{}  manifest.json\n", sha256_hex(&mb)));
         rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
@@ -1166,7 +1439,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let sym_keys = by_class.get("repair-symbolic").copied().unwrap_or(0);
         let face_keys = by_class.get("recipe-face").copied().unwrap_or(0);
         let def_keys = by_server.get("default-recipe").map(Vec::len).unwrap_or(0);
-        let rep = json!({
+        let mut rep = json!({
             "schema": REPORT_SCHEMA, "node": node,
             "policy": policy, "policy_digest": d.policy_digest,
             "faces": d.faces, "by_class_symbolic": d.by_class,
@@ -1185,6 +1458,24 @@ impl<S: WorkSource> RepairFlowSource<S> {
             "closeloop_final": {"verdict": fin["verdict"], "keys": fin["keys"], "economy": fin["economy"], "blockers": fin["blockers"]},
             "outside_chart_open": d.outside_chart.len(),
         });
+        if !seedmin_v.is_null() {
+            rep["seedmin"] = seedmin_v;
+        }
+        if !regions_v.is_null() {
+            rep["regions_shipped"] = regions_v;
+        }
+        if !variants_v.is_null() {
+            rep["variants"] = variants_v;
+        }
+        // wireflow (g): the regular-basis diagnostic's record (R next to the statement), only with its input
+        if st
+            .inputs
+            .contains_key(&super::wire_regbasis::input_regbasis(&n))
+        {
+            rep["regular_basis"] =
+                serde_json::from_slice(&read_input(st, &super::wire_regbasis::input_regbasis(&n))?)
+                    .map_err(|e| format!("regbasis record: {e}"))?;
+        }
         let rec = record(format!("{dir}/report.json"), json_bytes(&rep));
         self.reg(rt, input_report(&n), ROLE_RESULT, rec);
         Ok(())
@@ -1414,8 +1705,18 @@ fn p1_pass(
     policy: &RepairPolicy,
     threads: usize,
     rows: &Path,
+    rounds: &[(
+        u32,
+        rustred_campaign_core::repairflow::policy::CompositeInput,
+    )],
 ) -> Result<P1, String> {
     let (text, route0) = with_route0(text, policy)?;
+    // wireflow (a): the composite rounds' relations (none when the stage is off)
+    let text = super::wire_composite::with_round_composites(
+        &text,
+        rounds,
+        policy.route0.family.as_deref(),
+    )?;
     let text = text.as_str();
     let spec = TableSetSpec::from_json(text).map_err(|e| format!("import spec: {e}"))?;
     let set = rustred_campaign_core::import::load(&spec, base)
@@ -1738,6 +2039,31 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
     fn ready(&mut self, st: &CampaignState, ctx: &SourceContext, limit: usize) -> Vec<JobRequest> {
         let mut out = vec![];
         for i in 0..self.nodes.len() {
+            // wireflow (g): the P5 regular-basis diagnostic's job
+            let rb_fake = self.nodes[i]
+                .fake
+                .as_ref()
+                .and_then(|f| f.regbasis_ops.clone());
+            match super::wire_regbasis::ready(
+                st,
+                &self.cdir,
+                &self.nodes[i].n,
+                &self.nodes[i].policy.regbasis,
+                rb_fake.as_deref(),
+            ) {
+                Some(Ok(r)) => out.push(r),
+                Some(Err(e)) => eprintln!("repairflow: no regular-basis job: {e}"),
+                None => {}
+            }
+            // wireflow (a): the composite stage's jobs (before P1)
+            if self.nodes[i].policy.route0.composite_jobs.enabled
+                && !st
+                    .inputs
+                    .contains_key(&super::wire_composite::input_done(&self.nodes[i].n))
+            {
+                out.extend(self.stage_ready(st, i));
+                continue;
+            }
             if self.nodes[i].p1.is_none()
                 || st.inputs.contains_key(&input_extension(&self.nodes[i].n))
             {
@@ -1757,7 +2083,11 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                 continue;
             }
             let first = items.iter().map(|(it, _, _)| it.clone()).min();
-            let _ = &n;
+            let rank = if self.nodes[i].policy.pieces.plan {
+                super::wire_composite::piece_rank(st, &n)
+            } else {
+                BTreeMap::new()
+            };
             for (item, ph, jobs) in items {
                 if !answered && Some(&item) != first.as_ref() {
                     continue;
@@ -1776,12 +2106,17 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                 let Some(face) = self.face_of(st, i, &item) else {
                     continue;
                 };
-                let prio = 1_000_000_000
+                let mut prio = 1_000_000_000
                     - st.items
                         .get(&item)
                         .map(|x| x.weight as i64)
                         .unwrap_or(0)
                         .min(1);
+                // wireflow (d): the face jobs in PIECE ORDER of the last round's pieces plan (earlier group first;
+                // faces of one cyclic piece group share a rank); without a plan the order is unchanged
+                if let Some(g) = rank.get(&face.label) {
+                    prio += 1_000_000 - (*g as i64).min(999_999);
+                }
                 match self.job_request(i, &item, job, &face, prio) {
                     Ok(r) => out.push(r),
                     Err(e) => eprintln!("repairflow: no job for {item}: {e}"),
@@ -1800,6 +2135,23 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         ctx: &SourceContext,
         done: &Settled,
     ) -> Result<Routing, String> {
+        if let Some(i) = self.stage_node_of_item(st, &done.item) {
+            return self.stage_route(st, i, done);
+        }
+        // wireflow (g): the regular-basis diagnostic
+        if let Some(it) = st.items.get(&done.item)
+            && it.kind == super::wire_regbasis::KIND_REGBASIS
+            && let Some(i) = self.nodes.iter().position(|r| r.cfg.node == it.node)
+        {
+            return super::wire_regbasis::route(
+                st,
+                &self.cdir,
+                &self.nodes[i].n,
+                &self.nodes[i].cfg.node,
+                &self.nodes[i].policy.regbasis,
+                done,
+            );
+        }
         let Some(i) = self.node_of_item(st, &done.item) else {
             return self.inner.route(st, ctx, done);
         };
@@ -1926,7 +2278,8 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         verb: &str,
         target: &str,
     ) -> Result<Vec<Event>, String> {
-        if self.node_of_item(st, target).is_some() {
+        if self.node_of_item(st, target).is_some() || self.stage_node_of_item(st, target).is_some()
+        {
             return match verb {
                 "retry" | "skip" => Ok(vec![]),
                 v => Err(format!("verb {v} not supported by the repair flow")),
@@ -1962,7 +2315,27 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                         let p = h.join().map_err(|_| "p1 thread panicked".to_string())??;
                         self.nodes[i].p1 = Some(Arc::new(p));
                     }
-                    if self.nodes[i].p1.is_some() {
+                    // wireflow (f): the seed minimisation of the closing face recipes first (policy seedmin); wireflow (c):
+                    // then the composite rounds' region fits shipped as case domains (policy ship_regions)
+                    if self.nodes[i].p1.is_some()
+                        && self.min_poll(st, i, &mut rt)?
+                        && self.var_poll(st, i, &mut rt)?
+                        && super::wire_regions::poll(
+                            st,
+                            &self.cdir,
+                            &n,
+                            &self.nodes[i].policy.ship_regions,
+                            &mut rt,
+                        )?
+                        && super::wire_regbasis::poll(
+                            st,
+                            &self.cdir,
+                            &n,
+                            &self.nodes[i].cfg.node,
+                            &self.nodes[i].policy.regbasis,
+                            &mut rt,
+                        )?
+                    {
                         self.report(st, i, &mut rt)?;
                     }
                 }
@@ -1972,6 +2345,10 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
             if self.nodes[i].p1.is_none() {
                 if self.nodes[i].pass.is_none() {
                     if !st.inputs.contains_key(&input_import_spec(&n)) {
+                        continue;
+                    }
+                    // wireflow (a): the composite rounds come first (their relations enter P1's spec)
+                    if let Some(false) = self.stage_poll(st, i, &mut rt)? {
                         continue;
                     }
                     self.start_p1(st, i)?;
@@ -2036,7 +2413,9 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
         ctx: &SourceContext,
         done: &Settled,
     ) -> Result<Option<Vec<Event>>, String> {
-        if self.node_of_item(st, &done.item).is_some() {
+        if self.node_of_item(st, &done.item).is_some()
+            || self.stage_node_of_item(st, &done.item).is_some()
+        {
             return Ok(None);
         }
         self.inner.confirm_coverage(st, ctx, done)

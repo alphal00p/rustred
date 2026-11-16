@@ -86,12 +86,52 @@ pub struct AdmissionPolicy {
     pub max_skew: Duration,
     /// The low readings must span at least this long before victims are chosen (5 s).
     pub emergency_persist: Duration,
+    /// lane wireflow (zerosfix finding): the most memory the admission rule can EVER see on this host / in this cgroup,
+    /// [`host_ceiling`] = min(MemTotal, smallest cgroup memory.max + floor) (None: unknown, no ceiling check). A
+    /// candidate with floor + cap above it can never start: typed `NeverFits`, not a silent wait.
+    pub host_ceiling_bytes: Option<u64>,
+}
+
+/// lane wireflow (zerosfix finding): the most `MemInfo::effective_available_for(floor)` can ever be: MemAvailable <=
+/// MemTotal, and the cgroup headroom <= the smallest memory.max of the ancestry.
+pub fn host_ceiling(mem_total: u64, cgroup_limit: Option<u64>, floor: u64) -> u64 {
+    match cgroup_limit {
+        Some(l) => mem_total.min(l.saturating_add(floor)),
+        None => mem_total,
+    }
+}
+
+/// lane wireflow (zerosfix finding): the TYPED refusal at start when nothing can ever be admitted under this
+/// configuration (no job cap > 0 fits under the ceiling above the floor, or the campaign memory cap is 0). None = some
+/// job can be admitted.
+pub fn never_admits(
+    mem_total: u64,
+    cgroup_limit: Option<u64>,
+    floor: u64,
+    campaign_cap: Option<u64>,
+) -> Option<String> {
+    let ceil = host_ceiling(mem_total, cgroup_limit, floor);
+    let room = ceil.saturating_sub(floor);
+    if room == 0 {
+        return Some(format!(
+            "nothing can ever be admitted under this configuration: host_floor {floor} B leaves no room under \
+             min(MemTotal {mem_total} B, cgroup memory.max {} + floor) = {ceil} B",
+            cgroup_limit.map_or("none".to_string(), |l| format!("{l} B"))
+        ));
+    }
+    if campaign_cap == Some(0) {
+        return Some(
+            "nothing can ever be admitted under this configuration: mem_total is 0".into(),
+        );
+    }
+    None
 }
 
 impl AdmissionPolicy {
     pub fn new(core_budget: usize) -> Self {
         Self {
             floor_bytes: DEFAULT_FLOOR_BYTES,
+            host_ceiling_bytes: None,
             campaign_mem_cap_bytes: None,
             core_budget,
             max_bypass: 3,
@@ -316,6 +356,16 @@ pub fn admit_one(
     {
         return Decision::Wait(WaitReason::NeverFits {
             why: format!("cap {} > campaign memory cap {limit}", c.cap_bytes),
+        });
+    }
+    if let Some(ceil) = policy.host_ceiling_bytes
+        && policy.floor_bytes.saturating_add(c.cap_bytes) > ceil
+    {
+        return Decision::Wait(WaitReason::NeverFits {
+            why: format!(
+                "cap {} + host floor {} > {ceil}, the most this host / cgroup can ever offer (min(MemTotal, cgroup memory.max + floor))",
+                c.cap_bytes, policy.floor_bytes
+            ),
         });
     }
     let in_use: usize = running
@@ -612,6 +662,54 @@ mod tests {
         fn below(&mut self, n: u64) -> u64 {
             self.next() % n.max(1)
         }
+    }
+
+    /// lane wireflow (zerosfix finding): an 8 GB unit with a 75 GB spec floor on a host with 144 GB available. With
+    /// the default 50 GB in the cgroup sum the effective reading is headroom + 50 < 75 + cap: nothing is ever
+    /// admitted; with the spec's floor in the sum the 5 GB job starts (headroom >= cap). A cap above the cgroup's
+    /// memory.max (or floor + cap above MemTotal) can never start: typed NeverFits; a configuration with no room at
+    /// all is refused at start.
+    #[test]
+    fn the_cgroup_headroom_gets_the_spec_floor_and_impossible_configurations_are_typed() {
+        let m = crate::resources::MemInfo {
+            mem_total: 512 * GB,
+            mem_available: 144 * GB,
+            cgroup_headroom: Some(8 * GB - GB / 2),
+        };
+        let mut p = AdmissionPolicy::new(16);
+        p.floor_bytes = 75 * GB;
+        let old = HostView {
+            mem_available_bytes: m.effective_available(),
+            measured_at: Duration::ZERO,
+            now: Duration::ZERO,
+        };
+        assert!(matches!(
+            admit_one(&p, old, &[], &cand(1, 2, 5, 1)),
+            Decision::Wait(WaitReason::HostFloor { .. })
+        ));
+        let new = HostView {
+            mem_available_bytes: m.effective_available_for(p.floor_bytes),
+            ..old
+        };
+        assert_eq!(admit_one(&p, new, &[], &cand(1, 2, 5, 1)), Decision::Admit);
+        // the headroom still binds: a second 5 GB job waits while the first holds its cap
+        let running = [job(1, 5, 0, 1, 0)];
+        assert!(matches!(
+            admit_one(&p, new, &running, &cand(2, 2, 5, 1)),
+            Decision::Wait(WaitReason::HostFloor { .. })
+        ));
+        // the ceiling: an 8 GB memory.max never holds a 9 GB job; MemTotal never holds floor + cap above it
+        p.host_ceiling_bytes = Some(host_ceiling(512 * GB, Some(8 * GB), p.floor_bytes));
+        assert!(matches!(
+            admit_one(&p, new, &[], &cand(3, 2, 9, 1)),
+            Decision::Wait(WaitReason::NeverFits { .. })
+        ));
+        assert_eq!(admit_one(&p, new, &[], &cand(1, 2, 5, 1)), Decision::Admit);
+        assert_eq!(host_ceiling(64 * GB, None, 75 * GB), 64 * GB);
+        assert!(never_admits(64 * GB, None, 75 * GB, Some(7 * GB)).is_some());
+        assert!(never_admits(512 * GB, Some(0), 75 * GB, Some(7 * GB)).is_some());
+        assert!(never_admits(512 * GB, Some(8 * GB), 75 * GB, Some(0)).is_some());
+        assert!(never_admits(512 * GB, Some(8 * GB), 75 * GB, Some(7 * GB)).is_none());
     }
 
     fn cand(id: u64, peak_gb: u64, cap_gb: u64, cores: usize) -> Candidate {

@@ -287,6 +287,7 @@ impl<'a> ChildSolver<'a> {
             max_trace_rows: cfg.max_trace_rows,
             key_budget_s: cfg.key_budget_s,
             pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
+            pole_profiles: false,
         };
         let session = format!(
             "s{}",

@@ -82,6 +82,9 @@ pub fn run(spec_path: &Path) -> ! {
         .unwrap_or_default();
     let mut slow_ms = 0;
     let mut forge: Option<Vec<i64>> = None;
+    // wireflow (b): keys whose (plain) relation is shipped as a TWO-ROW form (one row of the element at the key, kind
+    // two_row, not plain): the import then admits it only through a kernel certificate
+    let mut two_row: Vec<Vec<i64>> = vec![];
     let (mut unsealed, mut tamper, mut pin_mismatch) = (false, false, false);
     for op in &ops {
         match op {
@@ -92,6 +95,7 @@ pub fn run(spec_path: &Path) -> ! {
             } => match status.as_deref() {
                 Some("slow") => slow_ms = *ms,
                 Some("forge_coefficient") => forge = key.clone(),
+                Some("two_row") => two_row.extend(key.clone()),
                 Some("unsealed") => unsealed = true,
                 Some("tamper_after_seal") => tamper = true,
                 Some("pin_mismatch") => pin_mismatch = true,
@@ -155,14 +159,28 @@ pub fn run(spec_path: &Path) -> ! {
         max_replacements: ctx.policy.composite.max_replacements,
     };
     let chart = ctx.set.frame.mask_string();
+    // the frame header's family (as the real tool writes it: the import refuses a supplied table of another family)
+    let family = rustred_campaign_core::repairflow::symflow::frame_table_path(&ctx.set)
+        .and_then(|p| {
+            let p = if Path::new(&p).is_absolute() {
+                PathBuf::from(&p)
+            } else {
+                PathBuf::from(req["import_base"].as_str().unwrap_or("/")).join(&p)
+            };
+            rustred_campaign_core::import::lines::read_header("frame", &p).ok()
+        })
+        .map(|h| h.raw["family"].clone())
+        .unwrap_or(json!("fake"));
     let mut table = vec![
-        json!({"type": "header", "schema": "table_dump.v1", "family": "fake", "producer": "rr_fake_child",
+        json!({"type": "header", "schema": "table_dump.v1", "family": family, "producer": "rr_fake_child",
         "kind": "symmetry-composite"})
         .to_string(),
     ];
     let mut ver = vec![];
     let mut kl = String::new();
     let mut cl = String::new();
+    // wireflow (c): the per-key records the region fit runs on (as the real tool)
+    let mut choice_recs = vec![];
     for k in &keys {
         nap(slow_ms);
         let line = match rows_by_element(&Independent, &ctx.group, k, ctx.policy.route0.max_terms) {
@@ -170,6 +188,7 @@ pub fn run(spec_path: &Path) -> ! {
                 let ch = KeyChoices::failed(k, &ctx.lines, &e);
                 cl.push_str(&serde_json::to_string(&ch).expect("json"));
                 cl.push('\n');
+                choice_recs.push(ch.clone());
                 json!({"key": k, "face": ch.face, "status": ch.status})
             }
             Ok(by) => {
@@ -177,6 +196,7 @@ pub fn run(spec_path: &Path) -> ! {
                 let ch = KeyChoices::of_composites(k, &kc, &ctx.lines);
                 cl.push_str(&serde_json::to_string(&ch).expect("json"));
                 cl.push('\n');
+                choice_recs.push(ch.clone());
                 if let Some(b) = kc.best() {
                     let idx = table.len() - 1;
                     let mut rec = shipped_record(&qf, k, b, &chart, idx);
@@ -196,14 +216,25 @@ pub fn run(spec_path: &Path) -> ! {
                             format!("{}/{}", q1.n, q1.d)
                         });
                     }
+                    let tr = two_row
+                        .iter()
+                        .any(|f| f.iter().map(|&x| x as i32).eq(k.iter().copied()));
+                    let mut vline =
+                        verification_record(&qf, k, b, &ctx.group_digest, "rr_fake_child/core-q");
+                    if tr {
+                        rec["kind"] = json!("symmetry-two_row");
+                        vline["plain"] = json!(false);
+                        vline["kind"] = json!("two_row");
+                        vline["combination"] = json!({"rows": [{"element": b.element, "seed": k}]});
+                    }
                     table.push(rec.to_string());
-                    ver.push(
-                        verification_record(&qf, k, b, &ctx.group_digest, "rr_fake_child/core-q")
-                            .to_string(),
-                    );
+                    ver.push(vline.to_string());
                 }
+                let tr = two_row
+                    .iter()
+                    .any(|f| f.iter().map(|&x| x as i32).eq(k.iter().copied()));
                 json!({"key": k, "face": ch.face, "status": "ok", "best": kc.best().map(|b| json!({
-                    "element": b.element, "terms": b.rhs.len(), "plain": b.is_plain(),
+                    "element": b.element, "terms": b.rhs.len(), "plain": b.is_plain() && !tr,
                     "replacements": b.replacements.len()})), "alternatives": kc.accepted().count()})
             }
         };
@@ -216,6 +247,14 @@ pub fn run(spec_path: &Path) -> ! {
         ("keys.jsonl", kl.into_bytes()),
         ("composite.table.jsonl", join(&table).into_bytes()),
         ("composite.verification.jsonl", join(&ver).into_bytes()),
+        // the real tool's sixth sealed file: lane regions' fit on the per-key choices (the policy's `regions`)
+        (
+            "regions.json",
+            (rustred_campaign_core::repairflow::symflow::fit_face_regions(&choice_recs, &ctx.policy.regions)
+                .to_string()
+                + "\n")
+                .into_bytes(),
+        ),
         ("report.json", (json!({"schema": "rustred.campaign.repairflow-symflow.v1", "producer": "rr_fake_child",
             "keys": keys.len()}).to_string() + "\n").into_bytes()),
     ];

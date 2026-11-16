@@ -154,6 +154,8 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
         key_budget_s: cfg.spec.caps.key_budget_s,
         // the termmin spec's setting (lane polefix, F4): "none" = no `choice` annotation
         pole_objective: cfg.spec.objective_setting()?,
+        // lane wireflow (h): the termmin spec's switch (the engine's pole order of the delivered relation)
+        pole_profiles: cfg.spec.pole_profiles,
     };
     let sampler = Arc::new(
         Sampler::spawn(SamplerConfig {

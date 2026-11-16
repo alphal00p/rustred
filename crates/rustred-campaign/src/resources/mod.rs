@@ -348,6 +348,27 @@ fn cgroup_headroom() -> Option<u64> {
     best
 }
 
+/// lane wireflow (zerosfix finding): the smallest `memory.max` over this process's cgroup-v2 ancestry (None: no limit
+/// found): what the cgroup headroom can be at most (the supervisor's start check and the admission ceiling).
+pub fn cgroup_limit() -> Option<u64> {
+    let cgroups = fs::read_to_string("/proc/self/cgroup").ok()?;
+    let group = cgroups.lines().find_map(|s| s.strip_prefix("0::"))?;
+    let root = Path::new("/sys/fs/cgroup");
+    let mut path = root.join(group.trim_start_matches('/'));
+    let mut best: Option<u64> = None;
+    loop {
+        if let Ok(max) = fs::read_to_string(path.join("memory.max"))
+            && let Ok(max) = max.trim().parse::<u64>()
+        {
+            best = Some(best.map_or(max, |b| b.min(max)));
+        }
+        if path == root || !path.pop() {
+            break;
+        }
+    }
+    best
+}
+
 /// Read host memory now. /proc/meminfo does not block like per-pid files do (guarded_run.py measured it), so this
 /// may be called from the control loop.
 pub fn host_memory() -> io::Result<MemInfo> {

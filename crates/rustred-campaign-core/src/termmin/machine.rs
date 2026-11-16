@@ -906,9 +906,10 @@ impl Termmin {
             });
         });
         // int7 (B1): the choice goes through the ONE selection function (poles::pole_objective, the spec's objective);
-        // the machine tries its steps in order and the first certifying one is the only candidate; no pole profile
-        // here yet: the choice records "no profile" (ranked by size). Lane polefix (audit r2-poles F4): with
-        // `pole_objective: "none"` no `choice` member at all (the record of a run without the pole code)
+        // the machine tries its steps in order and the first certifying one is the only candidate. Lane wireflow (h):
+        // with the spec's `pole_profiles` the engine's pole order of the delivered relation (`pole_order_d4` of the
+        // solved line) is its profile; without it the choice records "no profile" (ranked by size). Lane polefix
+        // (audit r2-poles F4): with `pole_objective: "none"` no `choice` member at all (a run without the pole code)
         let choice = match self.spec.objective_setting() {
             Ok(Some(obj)) => Some(
                 crate::poles::pole_objective(
@@ -921,7 +922,11 @@ impl Termmin {
                         excluded_by: None,
                         evidence_level: 0,
                         size: cand.rhs.len() as u64,
-                        pole_order: None,
+                        pole_order: if self.spec.pole_profiles {
+                            cand.payload["solved"]["pole_order_d4"].as_u64()
+                        } else {
+                            None
+                        },
                     }],
                     &[],
                     &obj,

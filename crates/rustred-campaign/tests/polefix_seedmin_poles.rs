@@ -290,7 +290,7 @@ fn the_node_pole_objective_setting_and_the_solved_choice() {
     let o = obj.nodes[0].pole_objective_setting().unwrap().unwrap();
     assert!(CloseLoopConfig::from_json(&cfg(r#","pole_objective":"off""#)).is_err());
     // the annotation names the objective in force (one candidate, no profile: ranked by size)
-    let c = solved_choice(&o, "rel-1", 7);
+    let c = solved_choice(&o, "rel-1", 7, None);
     assert_eq!(c["chosen"], "rel-1");
     assert_eq!(c["measures"], serde_json::json!(["size"]));
     assert_eq!(c["profile_used"], "none");

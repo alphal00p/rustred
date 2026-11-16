@@ -1,7 +1,7 @@
 //! Kind `symmetry-composite` (lane symjob; interfaces/symmetry-composite-job.md): the repair flow's symmetry COMPOSITE
 //! step run by `rr_rf_symflow` as a LEGACY child. This module is the contract side:
 //!
-//! - the child's own SEAL (directory `out/symflow/`: five files, `SHA256SUMS`, `result.json` written last) and its
+//! - the child's own SEAL (directory `out/symflow/`: six files, `SHA256SUMS`, `result.json` written last) and its
 //!   check against the job spec ([`check_child`]): request digest, input PINS, tool digest, every file digest and line
 //!   count, keys against the keys input, relation counts, the child's own independent re-check count;
 //! - the wrapper's sealed stream `out/results.jsonl` ([`results_records`], [`end_record`]) and its re-check by the
@@ -28,12 +28,15 @@ pub const RESULT_SCHEMA: &str = "rustred.campaign.symmetry-composite.result.v1";
 pub const VERIFICATION_SCHEMA: &str = "rustred.campaign.symmetry-composite.v1";
 /// The child's output directory under `out/`.
 pub const CHILD_DIR: &str = "symflow";
-/// The child's sealed files, in the order of `SHA256SUMS` and `result.outputs`.
-pub const CHILD_FILES: [&str; 5] = [
+/// The child's sealed files, in the order of `SHA256SUMS` and `result.outputs`. lane wireflow: `regions.json` (lane
+/// regions' fit, sealed by `rr_rf_symflow` since repairflow2 f77663c9) is one of them; with five names the contract
+/// refused every real result ("result.outputs lists 6 files").
+pub const CHILD_FILES: [&str; 6] = [
     "choices.jsonl",
     "keys.jsonl",
     "composite.table.jsonl",
     "composite.verification.jsonl",
+    "regions.json",
     "report.json",
 ];
 /// The shipped table and its verification lines.
@@ -133,7 +136,7 @@ pub struct ChildSeal {
     /// Index into `relations` for each key with a relation.
     pub relation_of: Vec<Option<u64>>,
     pub relations: Vec<SymRelation>,
-    /// (file, sha256, lines) of the five files and `result.json`.
+    /// (file, sha256, lines) of the child's files and `result.json`.
     pub files: Vec<(String, String, u64)>,
     pub request_sha256: String,
     pub request_blake3: String,
@@ -376,7 +379,7 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
     let sb = std::fs::read(dir.join(SUMS_FILE)).map_err(|e| uns(format!("{SUMS_FILE}: {e}")))?;
     if sb != sums.as_bytes() {
         return Err(uns(format!(
-            "{SUMS_FILE} is not the digest list of the five files"
+            "{SUMS_FILE} is not the digest list of the child's files"
         )));
     }
     files.push((
@@ -508,7 +511,16 @@ pub fn check_child(spec: &JobSpec, sha256: Sha256Fn) -> Result<ChildSeal, ChildR
             .iter()
             .map(|r| r["record_sha256"].as_str().unwrap_or_default().to_string())
             .collect();
-        if plain != records.is_empty() {
+        // wireflow (b): a TWO-ROW form (verification `kind` = `two_row`) is a combination of symmetry rows without
+        // catalogue rules: not plain, no replacements; it enters the import only through a kernel certificate (F8).
+        // `two_row_composite` (a near miss closed by catalogue rules) has replacements like any composite.
+        let two_row = vv["kind"] == "two_row";
+        if two_row && (plain || !records.is_empty()) {
+            return Err(at(
+                "a two_row relation must be non-plain without replacements".into(),
+            ));
+        }
+        if !two_row && plain != records.is_empty() {
             return Err(at(
                 "a plain relation with replacements or a composite without".into(),
             ));

@@ -105,7 +105,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                     return (22, "");
                 }
                 // lane coreseed: pole-regular-at reads nothing unless exit 0 with verified answers (38, never 22)
-                if e.kind == JobKind::PoleRegularAt && (e.verified.is_none() || c != 0) {
+                // lane wireflow (g): kind regular-basis shares the diagnostic rows 37 / 38 / 39
+                if matches!(e.kind, JobKind::PoleRegularAt | JobKind::RegularBasis)
+                    && (e.verified.is_none() || c != 0)
+                {
                     return (38, "");
                 }
                 // lane symcert: a proof-symrows certificate is read only at exit 0 when verified (43, never 22)
@@ -118,7 +121,7 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 if v.elided_loci > 0 {
                     return (25, "");
                 }
-                if e.kind == JobKind::PoleRegularAt {
+                if matches!(e.kind, JobKind::PoleRegularAt | JobKind::RegularBasis) {
                     return (37, "");
                 }
                 if e.kind == JobKind::ProofSymrows {
@@ -286,7 +289,7 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
             return (13, "b");
         }
         // lane coreseed: pole-regular-at's refused input is row 39 (nothing read, never attention)
-        if c == 41 && e.kind == JobKind::PoleRegularAt {
+        if c == 41 && matches!(e.kind, JobKind::PoleRegularAt | JobKind::RegularBasis) {
             return (39, "");
         }
         match c {
@@ -365,6 +368,7 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     let probe = v.relations.as_ref().is_some_and(|t| t.probe);
     let diagnostic_kind = e.kind == JobKind::NodeBasis
         || e.kind == JobKind::PoleRegularAt
+        || e.kind == JobKind::RegularBasis
         || (e.kind == JobKind::SolveRecipe && probe);
     // lane symcert: certificates only from proof-symrows, and only at exit 0
     if (accept == Accept::Certificates) != (e.kind == JobKind::ProofSymrows) {
@@ -406,7 +410,10 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
             )),
         };
     }
-    if e.kind == JobKind::NodeBasis || e.kind == JobKind::PoleRegularAt {
+    if matches!(
+        e.kind,
+        JobKind::NodeBasis | JobKind::PoleRegularAt | JobKind::RegularBasis
+    ) {
         return if c == 0 {
             Ok(())
         } else {

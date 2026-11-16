@@ -221,6 +221,8 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
         JobKind::SymmetryComposite => rustred_campaign_contract::classify::symcomp::argv(spec),
         // lane coreseed: rr_poles regular-at --requests (interfaces/coreseed.md 10)
         JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::argv(spec),
+        // lane wireflow (g): rr_regbasis --import-spec --statement-dir --out (interfaces/regbasis.md)
+        JobKind::RegularBasis => rustred_campaign_contract::regbasis::argv(spec),
         // lane symcert: rr_proof --symrows, argv from the pinned request (interfaces/proof-symrows-job.md 1)
         JobKind::ProofSymrows => rustred_campaign_contract::classify::symcert::argv(spec),
         k => Err(format!("kind {k:?} is not legacy-wrapped")),
@@ -526,6 +528,10 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
     // lane coreseed: kind pole-regular-at has its own wrapper (answers checked against the pinned requests)
     if spec.kind == JobKind::PoleRegularAt {
         return super::poleat::wrap(layout, spec, spec_blake3, wait);
+    }
+    // lane wireflow (g): kind regular-basis has its own wrapper (the record checked against the pinned statement)
+    if spec.kind == JobKind::RegularBasis {
+        return super::regbasis::wrap(layout, spec, spec_blake3, wait);
     }
     // lane symcert: kind proof-symrows has its own wrapper (one certificate checked against the pinned request)
     if spec.kind == JobKind::ProofSymrows {

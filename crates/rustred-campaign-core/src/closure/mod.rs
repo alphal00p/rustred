@@ -162,6 +162,13 @@ pub struct ClosureConfig {
     /// states no requirement, the walk demands the LOWEST level of the tier it runs at (a version-1 leaf set counts at
     /// that level; tier K demands nothing more of a leaf than its certification).
     pub leaf_requirement: Option<leaves::LeafRequirement>,
+    /// lane wireflow (closure.md 19, FACTS FROM THE FRONTIER): Tier C only. A key served by a rule whose regularity fact
+    /// at the key is UNKNOWN (no fact bound to the (record, key) pair; a credit image alike) is dispatched and its fact
+    /// requested as always, but NOT expanded: the walk reaches exactly the keys whose path runs through keys with their
+    /// facts bound (a term with a zero fact is no edge), and its fact requests are the FRONTIER. While such a key
+    /// exists the run is undecided (its request); with none the walk is the plain Tier C walk. Default false
+    /// (unchanged behaviour, identity unchanged).
+    pub stop_at_missing_facts: bool,
 }
 
 /// The per-key lift of records with elided / absent witness loci (closure.md section 16).
@@ -346,6 +353,7 @@ impl Default for ClosureConfig {
             per_key_lift: PerKeyLift::Off,
             leaves: vec![],
             leaf_requirement: None,
+            stop_at_missing_facts: false,
         }
     }
 }
@@ -888,6 +896,8 @@ pub struct Closure {
     disp_priority: Vec<usize>,
     excl_names: HashMap<Vec<i32>, Vec<(String, usize)>>,
     incremental: Option<IncrementalUse>,
+    /// lane wireflow: served keys the walk did not expand for a missing fact (`stop_at_missing_facts`)
+    frontier_stops: u64,
     /// recipe-served key -> (relation set, record index)
     recipe_of: BTreeMap<u32, (u32, u32)>,
     rset_names: Vec<(String, String)>,
@@ -1184,6 +1194,8 @@ struct ExpandOut {
     hd_codes: BTreeMap<u64, Vec<u64>>,
     hd_words: usize,
     hd_limit: usize,
+    /// lane wireflow: served keys not expanded for a missing fact (`stop_at_missing_facts`)
+    frontier_stops: u64,
 }
 
 impl ExpandOut {
@@ -1206,6 +1218,7 @@ impl ExpandOut {
             hd_codes: BTreeMap::new(),
             hd_words: 0,
             hd_limit: PIECE_HD_WORDS,
+            frontier_stops: 0,
         }
     }
     /// Buffer one exit code of child `m`; sort + dedup the piece's buffers when they exceed the limit (re-audit F9).
@@ -1652,6 +1665,14 @@ enum KeyRes {
 }
 
 impl KeyRes {
+    /// lane wireflow: a rule-served key (or credit image) whose regularity fact is unknown (no fact bound).
+    fn missing_fact(&self) -> bool {
+        match self {
+            KeyRes::Pos(_, Some(RegFact::Unknown)) => true,
+            KeyRes::Credit(c) => c.regularity_unknown && matches!(c.server, Server::Rule(_)),
+            _ => false,
+        }
+    }
     fn served(&self) -> Option<Served<'_>> {
         match self {
             KeyRes::Terminal(_) | KeyRes::Leaf(..) => None,
@@ -2169,6 +2190,10 @@ fn run(
         if cfg.per_key_lift != PerKeyLift::Off {
             c.insert("per_key_lift".into(), format!("{:?}", cfg.per_key_lift));
         }
+        // lane wireflow: only when on (every other identity unchanged)
+        if cfg.stop_at_missing_facts {
+            c.insert("stop_at_missing_facts".into(), "true".into());
+        }
         // what the dispatcher's credits rest on (witness check on / off, attestations checked / unchecked, chart)
         c.insert("dispatcher_summary".into(), format!("{:?}", disp.summary()));
         c.insert("max_rounds".into(), format!("{:?}", cfg.max_rounds));
@@ -2508,7 +2533,14 @@ fn run(
                                 let stp = stop_of(ctx, &d);
                                 let rec = ctx.recipe_match(&key, &d);
                                 let kr = dispose(ctx, &key, d, rec)?;
-                                if let Some(sv) = kr.served() {
+                                // lane wireflow: a key without its fact is the frontier (requested, not expanded)
+                                let stop_here = ctx.cfg.stop_at_missing_facts
+                                    && ctx.cfg.tier == Tier::C
+                                    && kr.missing_fact();
+                                if stop_here {
+                                    out.frontier_stops += 1;
+                                }
+                                if let Some(sv) = kr.served().filter(|_| !stop_here) {
                                     expand_served(
                                         ctx,
                                         sv,
@@ -2628,6 +2660,7 @@ fn run(
                 acc.violations += o.violations;
                 acc.pos_nonzero += o.pos_nonzero;
                 acc.unrepresentable += o.unrepresentable;
+                acc.frontier_stops += o.frontier_stops;
                 merge_capped(&mut acc.descent_w, o.descent_w, cfg.witness_cap);
                 merge_capped(&mut acc.failure_w, o.failure_w, cfg.witness_cap);
                 if let Some(e) = o.req_error.take() {
@@ -2754,6 +2787,7 @@ fn run(
         disp_priority: disp.priority().to_vec(),
         excl_names,
         incremental: cache.map(|_| inc_use),
+        frontier_stops: acc.frontier_stops,
         recipe_of,
         lifted,
         per_key_lifted,
@@ -2811,7 +2845,8 @@ fn run(
     };
     cl.leaf_walk = leaf_walk;
     cl.n_requests = cl.count_requests().map_err(io_err)?;
-    if cfg.longest_chain && !cl.truncated {
+    // (lane wireflow: a frontier walk's successors stop at keys without facts: no cycle / chain pass over it)
+    if cfg.longest_chain && !cl.truncated && cl.frontier_stops == 0 {
         chain_pass(&ctx, &mut cl)?;
     }
     cl.memory_estimate_bytes = cl.table.memory_bytes()
@@ -3216,6 +3251,11 @@ fn chain_pass(ctx: &Ctx, cl: &mut Closure) -> Result<(), ClosureError> {
 impl Closure {
     pub fn tier(&self) -> Tier {
         self.tier
+    }
+    /// lane wireflow (`stop_at_missing_facts`): the served keys the walk did not expand because their fact is missing
+    /// (the frontier; 0 = the plain Tier C walk).
+    pub fn frontier_stops(&self) -> u64 {
+        self.frontier_stops
     }
     /// lane layers (closure.md 18): whether reached key `i` is a leaf (of an earlier leaf set: neither dispatched nor
     /// expanded).

@@ -70,6 +70,9 @@ pub struct AcceptCtx<'a> {
     /// Lane polefix (audit r2-poles F4): the objective of the SOLVED line's `choice` annotation; `None` = off (no
     /// `choice` member: the line of a run without the pole code). Never read by the acceptance.
     pub pole_objective: Option<rustred_campaign_core::poles::PoleObjective>,
+    /// lane wireflow (h): the engine's per-key pole order at d = 4 of the delivered relation (`pole_order_d4` of the
+    /// SOLVED record, TRICKS 9 / 17: denominator factors at the key) is the choice's pole profile; false = "no profile".
+    pub pole_profiles: bool,
 }
 
 /// lane closeloop3 (closeloop.md 16.4): the cap a key hit, recorded on its answer line: `wall` (TIME-decided: the
@@ -93,6 +96,7 @@ pub fn solved_choice(
     obj: &rustred_campaign_core::poles::PoleObjective,
     relation_digest: &str,
     rhs_terms: usize,
+    pole_order: Option<u64>,
 ) -> Value {
     rustred_campaign_core::poles::pole_objective(
         &[rustred_campaign_core::poles::Candidate {
@@ -101,7 +105,7 @@ pub fn solved_choice(
             excluded_by: None,
             evidence_level: 0,
             size: rhs_terms as u64,
-            pole_order: None,
+            pole_order,
         }],
         &[],
         obj,
@@ -389,7 +393,13 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                         // the node's objective); one engine answer per key and no pole profile in the supervisor yet:
                         // "no profile", ranked by size. Lane polefix (F4): objective "none" = no `choice` member at all
                         if let Some(obj) = &c.pole_objective {
-                            v["choice"] = solved_choice(obj, &a.relation_digest, rhs_len);
+                            // lane wireflow (h): the engine's pole order of THIS relation at the key, when asked
+                            let po = if c.pole_profiles {
+                                rec["pole_order_d4"].as_u64()
+                            } else {
+                                None
+                            };
+                            v["choice"] = solved_choice(obj, &a.relation_digest, rhs_len, po);
                         }
                         out.lines.push(line(&v));
                         out.records.push((k32.clone(), rec.clone()));

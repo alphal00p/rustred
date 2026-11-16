@@ -223,6 +223,19 @@ pub struct NodeCfg {
     /// lane closeloop4 (closeloop.md 18): the standing second route of the exact tier's zero test (ON by default).
     #[serde(default)]
     pub second_route: SecondRouteCfg,
+    /// lane wireflow (d), closeloop.md 25: lane pieces' SHIP GATE in phase D (default `report`; omitted from any
+    /// serialisation at its default).
+    #[serde(default, skip_serializing_if = "ShipGateCfg::is_default")]
+    pub ship_gate: ShipGateCfg,
+    /// lane wireflow (h): the engine's per-key pole order at d = 4 (`pole_order_d4` of every delivered recipe
+    /// relation, frozen engine line7d on) becomes the pole profile of the closing loop's choice annotation (TRICKS 9:
+    /// decided per key on the DELIVERED relation, item 17). Default false = "no profile" (annotation as before).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pole_profiles: bool,
+    /// lane wireflow (b), closeloop.md 26: FACTS FROM THE FRONTIER with the node's FACTS BUDGET (exact tier only).
+    /// Absent (default) = the keys-only first pass as before (omitted from any serialisation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facts_frontier: Option<super::frontier::FrontierCfg>,
     /// lane closeloop4 (closeloop.md 19): which terminals are terminals (default: only the declared ones).
     #[serde(default)]
     pub terminals: TerminalsCfg,
@@ -411,6 +424,38 @@ fn d_store_threads() -> usize {
 }
 fn d_store_chunk() -> usize {
     64
+}
+
+/// lane wireflow (d), TRICKS 1 (gate half), closeloop.md 25: lane pieces' SHIP GATE over everything the decided Tier C
+/// check ships, before a node is called closed: every edge's descent under the full node order (streaming) AND a
+/// comparator-free Kahn acyclicity; a first-route zero drops an edge only when CONFIRMED (two independent producers or
+/// a structural proof, audit r2-planners G1); the check must be of this table set (G2).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ShipGateCfg {
+    /// `off` | `report` (DEFAULT: the gate runs at a candidate close and writes `final/ship-gate.json`; the verdict is
+    /// unchanged) | `enforce` (a failed or refused gate blocks the node: `ship_gate:<verdict>`).
+    pub mode: String,
+    /// Edges spilled to disk (CSR in chunks; memory ~ the keys) instead of held in memory (12 + 4 bytes per edge).
+    pub disk: bool,
+    /// Non-descending edges listed in the report (all are counted).
+    pub max_listed: usize,
+}
+
+impl Default for ShipGateCfg {
+    fn default() -> Self {
+        ShipGateCfg {
+            mode: "report".into(),
+            disk: true,
+            max_listed: 1000,
+        }
+    }
+}
+
+impl ShipGateCfg {
+    pub fn is_default(&self) -> bool {
+        *self == ShipGateCfg::default()
+    }
 }
 
 /// lane closeloop4 (closeloop.md 18): every zero-coefficient fact that changes the exact closure (a DECISIVE zero) is
@@ -760,6 +805,30 @@ impl CloseLoopConfig {
                 ));
             }
             n.pole_objective_setting()?;
+            // lane wireflow (d): the ship gate's mode is a closed word
+            if !matches!(n.ship_gate.mode.as_str(), "off" | "report" | "enforce") {
+                return Err(format!(
+                    "node {}: ship_gate.mode {:?} unknown (off | report | enforce)",
+                    n.node, n.ship_gate.mode
+                ));
+            }
+            // lane wireflow (b): the frontier mode asks facts, so it needs the exact tier with fact jobs; it replaces the
+            // keys-only first pass (`scale.keys_only_first: false` contradicts it)
+            if let Some(fr) = &n.facts_frontier {
+                fr.validate(&n.node)?;
+                if !n.exact_tier || !n.proof.as_ref().is_some_and(|p| p.facts) {
+                    return Err(format!(
+                        "node {}: facts_frontier needs exact_tier with proof.facts",
+                        n.node
+                    ));
+                }
+                if n.scale.as_ref().is_some_and(|s| !s.keys_only_first) {
+                    return Err(format!(
+                        "node {}: facts_frontier replaces the keys-only first pass: scale.keys_only_first false contradicts it",
+                        n.node
+                    ));
+                }
+            }
             if n.solve.max_keys_per_job == 0 || n.solve.threads == 0 || n.check_threads == 0 {
                 return Err(format!(
                     "node {}: max_keys_per_job, threads and check_threads must be >= 1",

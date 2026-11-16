@@ -239,12 +239,12 @@ pub fn load_import(spec: &JobSpec) -> Result<ImportCtx, String> {
     let set =
         rustred_campaign_core::import::load(&ts, &base).map_err(|e| format!("import load: {e}"))?;
     let lines = set.frame.mask().to_vec();
-    let fsrc = ts
-        .sources
-        .iter()
-        .find(|s| s.id == ts.frame_from)
-        .ok_or("import spec: frame_from")?;
-    let fpath = PathBuf::from(fsrc.path.clone().ok_or("frame_from path")?);
+    // the frame table as the tool finds it (`symflow::frame_table_path`: the frame source's file, or the first table of
+    // a table-set frame source: lane wireflow, a `tables_dir` frame has no `path`)
+    let fpath = PathBuf::from(
+        rustred_campaign_core::repairflow::symflow::frame_table_path(&set)
+            .ok_or("frame_from: no table file")?,
+    );
     let fpath = if fpath.is_absolute() {
         fpath
     } else {
@@ -288,6 +288,9 @@ pub struct AcceptedRelation {
     pub plain: bool,
     pub table_line: Vec<u8>,
     pub verification_line: Vec<u8>,
+    /// wireflow (b): a two-row form (verification `kind` two_row*): not same-backend checkable; a CANDIDATE for the
+    /// kernel route only (the import serves it only with a checked kernel certificate, audit F8).
+    pub kernel_only: bool,
 }
 
 /// The verdicts of the import's verification over a job's shipped relations.
@@ -360,7 +363,7 @@ pub fn verify_relations(
     };
     for r in &results.relations {
         let j = r.index as usize;
-        let check = || -> Result<(Vec<u8>, Vec<u8>), String> {
+        let check = || -> Result<(Vec<u8>, Vec<u8>, bool), String> {
             let tl = table.get(j + 1).ok_or("no table line")?;
             let vl = ver.get(j).ok_or("no verification line")?;
             if sha256_hex(tl) != r.line_sha256 || sha256_hex(vl) != r.verification_sha256 {
@@ -404,18 +407,37 @@ pub fn verify_relations(
             {
                 return Err("the cited records are not the sealed ones".into());
             }
+            // wireflow (b): a two-row form has no same-backend route (the composer's functions re-derive ONE element's
+            // image); it is kept as a kernel-only candidate (descent checked here; the kernel proves it or nothing does)
+            if vv["kind"]
+                .as_str()
+                .is_some_and(|k| k.starts_with("two_row"))
+            {
+                if let Some((q, _)) = rhs.iter().find(|(q, _)| {
+                    !rustred_campaign_core::repairflow::composite::import_lower(
+                        &ctx.lines,
+                        q,
+                        &key,
+                        &|a: &[i32], b: &[i32]| ctx.set.cmp.cmp(a, b),
+                    )
+                }) {
+                    return Err(format!("two-row term {q:?} is not lower than the key"));
+                }
+                return Ok((tl.clone(), vl.clone(), true));
+            }
             // the SAME-BACKEND re-check (interfaces/import.md 21 (c)): the composer's own functions, modular at d
             // values the child did not use; the one entry shared with the import's load-time verification
             verify_line(&ctx.set, &ctx.group, &key, &rhs, &vv, &lopts)?;
-            Ok((tl.clone(), vl.clone()))
+            Ok((tl.clone(), vl.clone(), false))
         };
         match check() {
-            Ok((t, v)) => out.accepted.push(AcceptedRelation {
+            Ok((t, v, kernel_only)) => out.accepted.push(AcceptedRelation {
                 index: r.index,
                 key: r.target.clone(),
                 plain: r.plain,
                 table_line: t,
                 verification_line: v,
+                kernel_only,
             }),
             Err(why) => out.refused.push((r.index, r.target.clone(), why)),
         }

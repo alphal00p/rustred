@@ -28,6 +28,18 @@ pub mod coreseed;
 pub mod seedmin;
 // lane symcert (interfaces/proof-symrows-job.md 5): kernel certificates of multi-term symmetry relations
 pub mod symcert;
+// lane wireflow (interfaces/repairflow.md 20): the composite step as child jobs + kernel certificates (FOR THE INTEGRATOR: one line)
+pub mod wire_composite;
+// lane wireflow (interfaces/repairflow.md 21): seed minimisation of the closing face recipes at P5
+pub mod wire_seedmin;
+// lane wireflow (c), interfaces/repairflow.md 22: the composite rounds' region fits shipped as case domains at P5
+pub mod wire_regions;
+// lane wireflow (g), interfaces/repairflow.md 23: the regular terminal set R as a phase-D diagnostic job at P5
+pub mod wire_regbasis;
+// lane wireflow (e), interfaces/repairflow.md 24: coreseed's budgeted variant phase after close-first, at P5
+pub mod wire_variants;
+// lane wireflow (b), closeloop.md 26: facts from the frontier + the facts budget
+pub mod frontier;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

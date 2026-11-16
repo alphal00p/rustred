@@ -60,6 +60,11 @@ pub enum JobKind {
     /// supervisor-side wrapper checks the kernel's answer against the pinned request and seals ONE certificate. Accept
     /// mode `certificates` (row 40): evidence of the per-key level of exactly the asked relation.
     ProofSymrows,
+    /// `rr_regbasis --import-spec --statement-dir --out` (lane wireflow (g); interfaces/regbasis.md): the REGULAR
+    /// terminal set R of a CLOSED node and its exact map, as a LEGACY DIAGNOSTIC child like `pole-regular-at`; the
+    /// supervisor-side wrapper checks the export object against the pinned statement and seals `out/results.jsonl`.
+    /// Accept mode `diagnostic_records` (rows 37-39): never rule or relation evidence, never a verdict.
+    RegularBasis,
 }
 
 /// Compliance level (1.1).
@@ -75,7 +80,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 19] = [
+    pub const ALL: [JobKind; 20] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -95,6 +100,7 @@ impl JobKind {
         JobKind::SymmetryComposite,
         JobKind::PoleRegularAt,
         JobKind::ProofSymrows,
+        JobKind::RegularBasis,
     ];
 
     pub const fn level(self) -> Level {
@@ -106,7 +112,8 @@ impl JobKind {
             | JobKind::CoefficientFacts
             | JobKind::SymmetryComposite
             | JobKind::PoleRegularAt
-            | JobKind::ProofSymrows => Level::Legacy,
+            | JobKind::ProofSymrows
+            | JobKind::RegularBasis => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -133,6 +140,7 @@ impl JobKind {
             JobKind::CoefficientFacts => "rr_coef_facts",
             JobKind::SymmetryComposite => "rr_rf_symflow",
             JobKind::PoleRegularAt => "rr_poles",
+            JobKind::RegularBasis => "rr_regbasis",
         }
     }
 
@@ -167,7 +175,8 @@ impl JobKind {
             | JobKind::NodeBasis
             | JobKind::SymmetryComposite
             | JobKind::PoleRegularAt
-            | JobKind::ProofSymrows => Some(&RESULT_OUTPUTS),
+            | JobKind::ProofSymrows
+            | JobKind::RegularBasis => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -196,6 +205,8 @@ impl JobKind {
             JobKind::PoleRegularAt => &POLE_REGULAR_AT_ARGS,
             // lane symcert: every parameter is in the pinned request (the wrapper builds the argv from it)
             JobKind::ProofSymrows => &[],
+            // lane wireflow (g): the construction's bounds (rr_regbasis' own flags)
+            JobKind::RegularBasis => &REGULAR_BASIS_ARGS,
         }
     }
 
@@ -225,6 +236,11 @@ impl JobKind {
             // lane coreseed: the pinned request lines (record + key pairs)
             JobKind::PoleRegularAt => Some(InputRoles {
                 required: &["requests"],
+                optional: &[],
+            }),
+            // lane wireflow (g): the effective import spec and the statement directory's three files
+            JobKind::RegularBasis => Some(InputRoles {
+                required: &["import_spec", "statement", "terminals", "sums"],
                 optional: &[],
             }),
             // line 7: the presented family and the terminal keys (JSONL, put lowest)
@@ -257,6 +273,7 @@ impl JobKind {
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
+                | JobKind::RegularBasis
         )
     }
 
@@ -271,6 +288,7 @@ impl JobKind {
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
+                | JobKind::RegularBasis
         )
     }
 
@@ -567,6 +585,12 @@ pub const NODE_BASIS_ARGS: [ArgRule; 5] = [
 /// `proof-instantiate` (line 7, coord-ec2-instantiate.md 2d): `--elided-loci refuse` (the default when absent: the
 /// R-f refusal) or `facts` (records with elided witness loci answer coefficient facts only, never regularity).
 /// Lane coreseed: kind `pole-regular-at` (`--d0` a decimal dimension, `--threads` the child's threads).
+/// lane wireflow (g): rr_regbasis' construction bounds.
+pub const REGULAR_BASIS_ARGS: [ArgRule; 3] = [
+    a("--max-depth", ArgShape::UInt),
+    a("--exact-max-keys", ArgShape::UInt),
+    a("--cache-mb", ArgShape::UInt),
+];
 pub const POLE_REGULAR_AT_ARGS: [ArgRule; 2] =
     [a("--d0", ArgShape::Decimal), a("--threads", ArgShape::UInt)];
 pub const PROOF_INSTANTIATE_ARGS: [ArgRule; 1] =
@@ -1233,6 +1257,7 @@ impl JobSpec {
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
+                | JobKind::RegularBasis
         ) {
             return Ok(());
         }

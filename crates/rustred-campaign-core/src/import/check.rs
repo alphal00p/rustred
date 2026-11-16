@@ -224,6 +224,9 @@ pub struct CheckResult {
     /// built from this result is bound to (closure.md 18).
     pub leaf_walk: BTreeMap<String, String>,
     pub credit_images: Vec<Vec<i32>>,
+    /// lane wireflow ([`check_frontier`]): served keys the walk did not expand because their fact is missing (the
+    /// frontier); 0 for every other check.
+    pub frontier_stops: u64,
 }
 
 /// lane layers: the leaves a check met.
@@ -400,7 +403,7 @@ pub fn check(
     ev: &Evidence,
     opts: &CheckOptions,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, &set.start, &[], None)
+    check_inner(set, ev, opts, None, &set.start, &[], None, false)
 }
 
 /// lane layers (closure.md 18): the walk components of this set's configuration (tables, relation sets of the
@@ -475,7 +478,7 @@ pub fn check_from_with_leaves(
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, start, leaves, None)
+    check_inner(set, ev, opts, None, start, leaves, None, false)
 }
 
 /// audit r2-planners L1: [`check_from_with_leaves`] with the CONSUMING run's leaf requirement (its required level, tier,
@@ -489,7 +492,7 @@ pub fn check_from_with_leaves_required(
     leaves: &[Arc<crate::closure::LeafSet>],
     required: Option<&crate::closure::LeafRequirement>,
 ) -> Result<CheckResult, ImportError> {
-    check_inner(set, ev, opts, None, start, leaves, required)
+    check_inner(set, ev, opts, None, start, leaves, required, false)
 }
 
 /// A row sink of [`check_streamed`].
@@ -543,6 +546,44 @@ pub fn check_streamed_with_leaves_required(
     leaves: &[Arc<crate::closure::LeafSet>],
     required: Option<&crate::closure::LeafRequirement>,
 ) -> Result<CheckResult, ImportError> {
+    streamed_inner(set, ev, opts, rows_path, start, leaves, required, false)
+}
+
+/// lane wireflow (interfaces/closeloop.md 26, FACTS FROM THE FRONTIER): the Tier C walk from `start` with `leaves` that
+/// STOPS at every rule-served key without its fact (closure `stop_at_missing_facts`): such a key is dispatched and its
+/// fact requested but not expanded, so the reached keys are those whose path runs through keys with facts and the
+/// walk's fact requests are the FRONTIER ([`CheckResult::fact_requests`]). With no such key the result is the plain
+/// Tier C walk's. Rows are streamed to `rows_path` (as [`check_streamed_with_leaves`]) when given, else kept in memory
+/// (as [`check_from_with_leaves`]). The tier is always C (`opts.tier` is ignored).
+pub fn check_frontier(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: Option<&std::path::Path>,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+) -> Result<CheckResult, ImportError> {
+    let opts = CheckOptions {
+        tier: Some(Tier::C),
+        ..opts.clone()
+    };
+    match rows_path {
+        Some(p) => streamed_inner(set, ev, &opts, p, start, leaves, None, true),
+        None => check_inner(set, ev, &opts, None, start, leaves, None, true),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn streamed_inner(
+    set: &ImportedSet,
+    ev: &Evidence,
+    opts: &CheckOptions,
+    rows_path: &std::path::Path,
+    start: &crate::closure::KeySet,
+    leaves: &[Arc<crate::closure::LeafSet>],
+    required: Option<&crate::closure::LeafRequirement>,
+    frontier: bool,
+) -> Result<CheckResult, ImportError> {
     use std::io::Write;
     if let Some(d) = rows_path.parent() {
         std::fs::create_dir_all(d).map_err(|e| super::error::io_err(d, e))?;
@@ -564,7 +605,16 @@ pub fn check_streamed_with_leaves_required(
             n += 1;
             Ok(())
         };
-        check_inner(set, ev, opts, Some(&mut sink), start, leaves, required)?
+        check_inner(
+            set,
+            ev,
+            opts,
+            Some(&mut sink),
+            start,
+            leaves,
+            required,
+            frontier,
+        )?
     };
     w.flush().map_err(|e| super::error::io_err(rows_path, e))?;
     res.streamed = Some(StreamedRows {
@@ -619,6 +669,7 @@ pub(crate) fn relation_level(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn check_inner(
     set: &ImportedSet,
     ev: &Evidence,
@@ -627,6 +678,7 @@ fn check_inner(
     start: &crate::closure::KeySet,
     leaves: &[Arc<crate::closure::LeafSet>],
     leaf_required: Option<&crate::closure::LeafRequirement>,
+    frontier: bool,
 ) -> Result<CheckResult, ImportError> {
     let t0 = std::time::Instant::now();
     let tier = opts.tier.unwrap_or(match set.spec.policies.tier {
@@ -699,6 +751,7 @@ fn check_inner(
                     zero_route: vec![],
                 })
         }),
+        stop_at_missing_facts: frontier,
         ..Default::default()
     };
     let c = closure(&set.disp, &set.bodies, &set.cmp, start, &cfg, ev)
@@ -1164,6 +1217,7 @@ fn check_inner(
         seconds: t0.elapsed().as_secs_f64(),
         key_set_digest,
         required,
+        frontier_stops: c.frontier_stops(),
     })
 }
 

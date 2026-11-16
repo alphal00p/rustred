@@ -30,6 +30,32 @@ pub struct RecipeContext<'a> {
 /// shells in the harder unit, an EXPLICIT offset list since `rustred.recipe.v1` has no S1m2 shell).
 pub const MIXED_SHELL: &str = "mixed_shell";
 
+/// lane wireflow (e), interfaces/repairflow.md 21: a mixed-shell VARIANT step `mixed_shell[@up][+SHELL]*`: `@up` adds the
+/// up centres (each dotted line one step up, each face numerator one step up: TRICKS 13 / 15), `+SHELL` appends shells to
+/// the policy's `recipes.mixed_shells` (e.g. `+S2+S2m1`: TRICKS 6). The core-recipe escalation of lane coreseed (rule A,
+/// smallest shell first, then S2 / S2m1, then other centres) written as face-recipe steps: the closing loop solves and
+/// certifies them through its own accept chain. Returns (up, extra shells) or None when `name` is not of this family.
+pub fn mixed_shell_variant(name: &str) -> Option<Result<(bool, Vec<String>), String>> {
+    let rest = name.strip_prefix(MIXED_SHELL)?;
+    let (up, rest) = match rest.strip_prefix("@up") {
+        Some(r) => (true, r),
+        None => (false, rest),
+    };
+    if !(rest.is_empty() || rest.starts_with('+')) {
+        return Some(Err(format!(
+            "step {name}: expected mixed_shell[@up][+SHELL]*"
+        )));
+    }
+    let mut extra = vec![];
+    for sh in rest.split('+').filter(|x| !x.is_empty()) {
+        if let Err(e) = crate::termmin::steps::parse_shell(sh) {
+            return Some(Err(format!("step {name}: {e}")));
+        }
+        extra.push(sh.to_string());
+    }
+    Some(Ok((up, extra)))
+}
+
 /// The face recipe of the mixed-shell step: the offsets of `termmin::steps::mixed_shell_offsets` at the face's LOWEST key
 /// (face lines at 2, face numerators at -1): they depend on the key only through its dotted lines, so they are uniform
 /// over the face; one centre per seed, shell S0, no floor; domain = the proper face.
@@ -37,6 +63,18 @@ pub fn mixed_shell_recipe(
     face: &Face,
     lines: &[bool],
     shells: &[String],
+    ctx: &RecipeContext<'_>,
+) -> Result<Recipe, String> {
+    mixed_shell_recipe_step(face, lines, shells, false, MIXED_SHELL, ctx)
+}
+
+/// The face recipe of a mixed-shell step or variant (`step` = its name, written into the id and the provenance).
+pub fn mixed_shell_recipe_step(
+    face: &Face,
+    lines: &[bool],
+    shells: &[String],
+    up: bool,
+    step: &str,
     ctx: &RecipeContext<'_>,
 ) -> Result<Recipe, String> {
     let n = lines.len();
@@ -53,7 +91,7 @@ pub fn mixed_shell_recipe(
             }
         })
         .collect();
-    let offs = crate::termmin::steps::mixed_shell_offsets(&rep, lines, shells)?;
+    let offs = crate::termmin::steps::mixed_shell_offsets_with(&rep, lines, shells, up)?;
     let slots = face.slots();
     let fixed: Vec<Option<i32>> = (0..n)
         .map(|i| (!slots.contains(&i)).then_some(if lines[i] { 1 } else { 0 }))
@@ -65,7 +103,7 @@ pub fn mixed_shell_recipe(
     let r = Recipe {
         schema: RECIPE_SCHEMA.into(),
         relation_rule: None,
-        id: format!("rf/{}/{MIXED_SHELL}", face_tag(face)),
+        id: format!("rf/{}/{step}", face_tag(face)),
         arity: n,
         chart: lines.iter().map(|&l| if l { '1' } else { '0' }).collect(),
         domain: RecipeDomain {
@@ -88,10 +126,17 @@ pub fn mixed_shell_recipe(
         elimination: RecipeElimination {
             convention: RECIPE_ELIMINATION.into(),
         },
-        provenance: Some(serde_json::json!({
-            "node": ctx.node, "node_order": ctx.node_order, "face": face.label(), "step": MIXED_SHELL,
-            "shells_harder_unit": shells, "producer": "repairflow", "policy": ctx.policy_digest,
-        })),
+        provenance: Some({
+            let mut p = serde_json::json!({
+                "node": ctx.node, "node_order": ctx.node_order, "face": face.label(), "step": step,
+                "shells_harder_unit": shells, "producer": "repairflow", "policy": ctx.policy_digest,
+            });
+            // only a variant names its up centres (the plain step's recipe bytes are unchanged)
+            if up {
+                p["up_centres"] = serde_json::json!(true);
+            }
+            p
+        }),
     };
     r.validate()?;
     Ok(r)
@@ -119,6 +164,16 @@ pub fn face_recipe(
 ) -> Result<Recipe, String> {
     if step_name == MIXED_SHELL {
         return mixed_shell_recipe(face, lines, &ctx.mixed_shells, ctx);
+    }
+    if let Some(v) = mixed_shell_variant(step_name) {
+        let (up, extra) = v?;
+        let mut shells = ctx.mixed_shells.clone();
+        for sh in extra {
+            if !shells.contains(&sh) {
+                shells.push(sh);
+            }
+        }
+        return mixed_shell_recipe_step(face, lines, &shells, up, step_name, ctx);
     }
     let st = parse_step(step_name).map_err(|e| e.to_string())?;
     if st.relation.is_none() {
