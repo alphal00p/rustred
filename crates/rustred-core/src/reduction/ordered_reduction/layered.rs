@@ -328,6 +328,7 @@ pub(super) fn eligible<K: ConcurrentOrderedKernel>(
             arithmetic,
             OrderedWeightArithmetic::ModularSampled(..)
                 | OrderedWeightArithmetic::ModularPolynomial(..)
+                | OrderedWeightArithmetic::Tadic(..)
         )
         && Lifter::of(*arithmetic).is_some_and(|(common, _)| !common.cross_check_exact)
         && kernel.detached_stepper().is_some()
@@ -349,6 +350,7 @@ where
 {
     let workers = Workers::new(threads)?;
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
+    super::refuse_unaccepted_tadic(kernel, &arithmetic)?;
     let mut recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
     recorder.set_modular_round(tail.modular_round);
     recorder.set_par_replay(tail.par_replay);
@@ -376,7 +378,8 @@ where
     );
     kernel.record_work(work);
     let output = output?;
-    modular_output(recorder, output, composer.as_deref()).map_err(Into::into)
+    let targets = super::tadic_targets(kernel, &arithmetic, &output)?;
+    modular_output(recorder, output, composer.as_deref(), targets).map_err(Into::into)
 }
 
 /// The forward pass: layered windows per phase.

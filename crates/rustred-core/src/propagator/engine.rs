@@ -851,6 +851,7 @@ impl PEngine {
         mut inspector: Option<&mut dyn PInspector>,
         retain: bool,
         outside: &mut BTreeSet<super::library::POutsideKey>,
+        tadic: Option<Option<u8>>,
     ) -> Result<OrderedOutput, PError> {
         // p requests run the p profile (M5 batch 2) unless the caller chose one.
         let scheduler = scheduler.resolve_profile(OrderedProfile::P);
@@ -902,6 +903,7 @@ impl PEngine {
             },
             inspector,
             outside: BTreeSet::new(),
+            tadic,
         };
         let output = run_with_step_cache_and_options(
             &mut kernel,
@@ -3115,6 +3117,10 @@ struct PKernel<'l, 'r> {
     inspector: Option<&'r mut dyn PInspector>,
     /// vk5l WP2: keys of boxed nodes outside their certified sets, met so far.
     outside: BTreeSet<super::library::POutsideKey>,
+    /// helper-vh2: `Some` when the caller (`PLibrary::reduce_tadic`) reads
+    /// t-adic series; `Some(Some(loops))` when it maps the terminals onto the
+    /// masters (the targets are then raised by the poles of the basis rows).
+    tadic: Option<Option<u8>>,
 }
 
 impl PKernel<'_, '_> {
@@ -3277,6 +3283,32 @@ impl OrderedKernel for PKernel<'_, '_> {
             Some(census) => census.popped(phase, kind, id, hash),
             None => Ok(()),
         }
+    }
+
+    fn accepts_tadic(&self) -> bool {
+        self.tadic.is_some()
+    }
+
+    /// helper-vh2: `order` minus the lowest valuation at `d0` of the exact
+    /// multipliers `PLibrary::reduce_tadic` applies to the terminal.
+    fn tadic_targets(
+        &self,
+        terminals: &[IntegralKey],
+        options: &crate::reduction::TadicOptions,
+    ) -> Result<Vec<i32>, PError> {
+        let loops = self.tadic.flatten();
+        let library = self.stepper.library;
+        terminals
+            .iter()
+            .map(|key| {
+                let (terminal, tag) = self
+                    .stepper
+                    .engine
+                    .decode_terminal(key, library.terminal_limit())?;
+                let lowest = library.tadic_row_valuation(loops, terminal, &tag, options.d0)?;
+                Ok(options.order - lowest)
+            })
+            .collect()
     }
 
     /// p5l-library-3: the Custom programs of lazy payloads are not used by

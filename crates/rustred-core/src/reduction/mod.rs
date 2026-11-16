@@ -47,8 +47,11 @@ pub use ordered_reduction::{
     OrderedCompositionPlan, OrderedCompositionStage, OrderedProfile, OrderedSchedulerOptions,
     OrderedTailTable, OrderedTailTableStatistics, OrderedTerminalComposer,
     OrderedTerminalComposerSlot, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
-    PolynomialDenominators, PolynomialOptions, SampledOptions,
+    PolynomialDenominators, PolynomialOptions, SampledOptions, TADIC_PRECISION_FAILURE,
+    TadicImage, TadicOptions, TadicSeries, TadicTerminals, add_series, expand_coefficient,
+    is_precision_failure, scale_series,
 };
+pub(crate) use ordered_reduction::coefficient_valuation;
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,
     accumulate_master_in_request, coefficient_cache_weight, convolve_factor_expansion_in_request,

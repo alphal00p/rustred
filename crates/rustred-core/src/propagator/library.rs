@@ -12,7 +12,7 @@ use crate::family::IntegralKey;
 use crate::reduction::{
     OrderedPhaseEvent, OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
     OrderedStepCacheBinding, OrderedWeightArithmetic, ReductionError, ReductionLimits,
-    ReductionStatistics,
+    ReductionStatistics, TadicSeries, add_series, coefficient_valuation, scale_series,
 };
 use crate::solver::{CandidateOrderedReductionProgress, UnresolvedPolicy};
 
@@ -269,6 +269,50 @@ pub struct PTerm {
 pub struct PStatistics {
     pub work: ReductionStatistics,
     pub progress: CandidateOrderedReductionProgress,
+}
+
+/// helper-vh2: one output of a t-adic reduction modulo one prime: the
+/// Laurent series in `t = d - d0` of the coefficient of `basis` (with `tag`),
+/// modulo the prime, through its precision.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PTadicTerm {
+    pub basis: PBasis,
+    pub tag: GammaTag,
+    pub series: TadicSeries,
+}
+
+/// helper-vh2: the outputs of a t-adic reduction modulo one prime.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PTadicImage {
+    pub prime: u64,
+    pub terms: Vec<PTadicTerm>,
+}
+
+/// helper-vh2: result of [`PLibrary::reduce_tadic`]: the same terms as
+/// [`PLibrary::reduce`] (bases and tags), each as a truncated Laurent series
+/// at `d0` modulo every prime instead of an exact rational function. Every
+/// series reaches the absolute precision `order` (the library raises the
+/// terminal targets by the poles of its basis rows); `TadicSeries::precision`
+/// states it per term.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PTadicReduction {
+    pub dimension: i64,
+    pub d0: i64,
+    pub order: i32,
+    pub images: Vec<PTadicImage>,
+    pub nonzero_conditions: Vec<Coefficient>,
+    pub statistics: PStatistics,
+    pub outside_certified: Vec<POutsideKey>,
+    pub relation_cache: super::relation_entries::RelationCacheStatistics,
+}
+
+/// One engine run of a request (shared by `reduce` and `reduce_tadic`).
+struct PRun<'s> {
+    loops: u8,
+    engine: &'s PEngine,
+    output: crate::reduction::ordered_reduction::OrderedOutput,
+    outside: BTreeSet<POutsideKey>,
+    cache_before: super::relation_entries::RelationCacheStatistics,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -875,6 +919,52 @@ impl PLibrary {
     /// count and arithmetic returns the same terms and conditions.
     #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     pub fn reduce(&self, request: PReductionRequest<'_>) -> Result<PReduction, PError> {
+        // helper-vh2: the t-adic arithmetic has no exact terms (fail closed).
+        if matches!(request.arithmetic, OrderedWeightArithmetic::Tadic(..)) {
+            return Err(PError::Unsupported(
+                "the t-adic arithmetic returns truncated series; call PLibrary::reduce_tadic"
+                    .into(),
+            ));
+        }
+        let (onto_masters, limits) = (request.onto_masters, request.limits);
+        let run = self.run_request(request, false)?;
+        let mut terms = PTermSum::default();
+        let raw = run
+            .output
+            .terms
+            .iter()
+            .map(|(key, coefficient)| {
+                let (terminal, tag) = run.engine.decode_terminal(key, self.terminal_limit())?;
+                Ok((terminal, tag, coefficient.clone()))
+            })
+            .collect::<Result<Vec<_>, PError>>()?;
+        if onto_masters {
+            self.onto_masters(run.loops, raw, &limits, &mut terms)?;
+        } else {
+            for (terminal, tag, coefficient) in raw {
+                terms.add(self, Self::plain_basis(terminal), tag, coefficient, &limits)?;
+            }
+        }
+        Ok(PReduction {
+            dimension: i64::from(run.loops),
+            terms: terms.into_terms(),
+            nonzero_conditions: run.output.nonzero_conditions,
+            statistics: PStatistics {
+                work: run.output.work,
+                progress: run.output.progress,
+            },
+            outside_certified: run.outside.into_iter().collect(),
+            relation_cache: super::relation_entries::relation_cache_statistics()
+                .since(&run.cache_before),
+        })
+    }
+
+    /// The engine run of one request (the body of [`Self::reduce`] before
+    /// its terminals are mapped). `tadic`: the run accepts the t-adic
+    /// arithmetic, and its terminal targets are raised by the poles of the
+    /// basis rows when the request maps onto the masters.
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
+    fn run_request(&self, request: PReductionRequest<'_>, tadic: bool) -> Result<PRun<'_>, PError> {
         let PReductionRequest {
             inputs,
             arithmetic,
@@ -924,37 +1014,195 @@ impl PLibrary {
                 inspector,
                 retain,
                 &mut outside,
+                tadic.then_some(onto_masters.then_some(loops)),
             )
             .map_err(with_request)
             .map_err(|error| self.with_recipe_chain(engine, error))?;
-        let mut terms = PTermSum::default();
-        let raw = output
-            .terms
-            .iter()
-            .map(|(key, coefficient)| {
-                let (terminal, tag) = engine.decode_terminal(key, self.terminal_limit())?;
-                Ok((terminal, tag, coefficient.clone()))
+        Ok(PRun {
+            loops,
+            engine,
+            output,
+            outside,
+            cache_before,
+        })
+    }
+
+    /// helper-vh2: reduce one weighted sum of inputs with the t-adic
+    /// arithmetic ([`OrderedWeightArithmetic::Tadic`]): the terms of
+    /// [`Self::reduce`] (same bases, tags and `onto_masters` convention), each
+    /// as its Laurent series at `d0` modulo every replayed prime, through at
+    /// least the absolute precision `order`. Weights must be constant in `d`
+    /// for the series of a weighted sum to be the weighted sum of the series
+    /// (any exact weights are allowed: they are part of the trace).
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
+    pub fn reduce_tadic(&self, request: PReductionRequest<'_>) -> Result<PTadicReduction, PError> {
+        let OrderedWeightArithmetic::Tadic(_, options) = request.arithmetic else {
+            return Err(PError::Unsupported(
+                "reduce_tadic needs the tadic arithmetic".into(),
+            ));
+        };
+        let onto_masters = request.onto_masters;
+        let run = self.run_request(request, true)?;
+        let engine_error = |detail: &str| {
+            PError::Engine(ReductionError::ModularWeights {
+                detail: detail.to_owned(),
             })
-            .collect::<Result<Vec<_>, PError>>()?;
-        if onto_masters {
-            self.onto_masters(loops, raw, &limits, &mut terms)?;
-        } else {
-            for (terminal, tag, coefficient) in raw {
-                terms.add(self, Self::plain_basis(terminal), tag, coefficient, &limits)?;
+        };
+        let tadic = run
+            .output
+            .tadic
+            .as_ref()
+            .ok_or_else(|| engine_error("a t-adic request returned no series"))?;
+        // Per live terminal: its outputs (basis, tag, exact multiplier).
+        let mut rows = Vec::with_capacity(tadic.terminals.len());
+        for key in &tadic.terminals {
+            let (terminal, tag) = run.engine.decode_terminal(key, self.terminal_limit())?;
+            rows.push(if onto_masters {
+                self.tadic_rows(run.loops, terminal, &tag)?
+            } else {
+                vec![(Self::plain_basis(terminal), tag, None)]
+            });
+        }
+        let mut images = Vec::with_capacity(tadic.images.len());
+        for image in &tadic.images {
+            let mut sums: BTreeMap<(PBasisOrder, GammaTag), TadicSeries> = BTreeMap::new();
+            for (entries, series) in rows.iter().zip(&image.terminals) {
+                for (basis, tag, multiplier) in entries {
+                    let value = match multiplier {
+                        None => series.clone(),
+                        Some(multiplier) => {
+                            scale_series(series, multiplier, options.d0, image.prime)
+                                .map_err(PError::Engine)?
+                                .ok_or_else(|| {
+                                    engine_error(
+                                        "a t-adic prime divides the leading Taylor coefficient \
+                                         of a basis-row denominator; rerun with another seed",
+                                    )
+                                })?
+                        }
+                    };
+                    match sums.entry((PBasisOrder::of(basis.clone()), tag.clone())) {
+                        std::collections::btree_map::Entry::Vacant(entry) => {
+                            entry.insert(value);
+                        }
+                        std::collections::btree_map::Entry::Occupied(mut entry) => {
+                            let sum = add_series(entry.get(), &value, image.prime);
+                            entry.insert(sum);
+                        }
+                    }
+                }
+            }
+            images.push(PTadicImage {
+                prime: image.prime,
+                terms: sums
+                    .into_iter()
+                    .map(|((basis, tag), series)| PTadicTerm {
+                        basis: basis.into_basis(),
+                        tag,
+                        series,
+                    })
+                    .collect(),
+            });
+        }
+        Ok(PTadicReduction {
+            dimension: i64::from(run.loops),
+            d0: options.d0,
+            order: options.order,
+            images,
+            nonzero_conditions: run.output.nonzero_conditions,
+            statistics: PStatistics {
+                work: run.output.work,
+                progress: run.output.progress,
+            },
+            outside_certified: run.outside.into_iter().collect(),
+            relation_cache: super::relation_entries::relation_cache_statistics()
+                .since(&run.cache_before),
+        })
+    }
+
+    /// helper-vh2: the outputs of one terminal under [`Self::onto_masters`]:
+    /// `(basis, tag, exact multiplier)`, the multiplier being `(d-3)^L`
+    /// times the basis-row coefficient (the same convention as
+    /// `onto_masters`, which multiplies the exact coefficient by both).
+    /// TODO(helper-vh2): share this with `onto_masters` once the exact path
+    /// may be touched (kept separate so that the gated exact path is
+    /// byte-for-byte unchanged).
+    fn tadic_rows(
+        &self,
+        loops: u8,
+        terminal: PTerminalId,
+        tag: &GammaTag,
+    ) -> Result<Vec<(PBasis, GammaTag, Option<Coefficient>)>, PError> {
+        let context = &self.context;
+        let exact = ReductionLimits::default().exact_algebra;
+        let algebra = |error| PError::Engine(ReductionError::ExactAlgebra(error));
+        let l = i16::from(loops);
+        let scheme = GammaTag::from_pairs([(1, -l), (-1, -2 * l), (-2, l)])?;
+        let d = context.parameter("d").ok_or(PError::ContextMismatch)?;
+        let d_minus_3 = context
+            .try_sub(&d, &context.integer(3), exact)
+            .map_err(algebra)?;
+        let mut factor = context.one();
+        for _ in 0..loops {
+            factor = context
+                .try_mul(&factor, &d_minus_3, exact)
+                .map_err(algebra)?;
+        }
+        let tag = tag.add(&scheme);
+        tag.encode_dense(&mut Vec::new())?;
+        let Some(map) = self
+            .basis_map
+            .as_ref()
+            .filter(|_| (terminal.0 as usize) < self.terminals.len())
+        else {
+            return Ok(vec![(Self::plain_basis(terminal), tag, Some(factor))]);
+        };
+        let row = map.map(terminal, &tag)?;
+        if row.is_empty() {
+            return Err(PError::MalformedLibrary(format!(
+                "the basis map has no row for terminal {}",
+                terminal.0
+            )));
+        }
+        let mut entries = Vec::with_capacity(row.len());
+        for term in row {
+            if !context.contains(&term.coefficient) {
+                return Err(PError::ContextMismatch);
+            }
+            term.tag.encode_dense(&mut Vec::new())?;
+            let multiplier = context
+                .try_mul(&factor, &term.coefficient, exact)
+                .map_err(algebra)?;
+            entries.push((term.basis, term.tag, Some(multiplier)));
+        }
+        Ok(entries)
+    }
+
+    /// helper-vh2: the smallest valuation at `d0` (over Q) of the exact
+    /// multipliers of one terminal's outputs (`0` when it has none that is
+    /// nonzero): its t-adic target is `order` minus this.
+    pub(crate) fn tadic_row_valuation(
+        &self,
+        loops: Option<u8>,
+        terminal: PTerminalId,
+        tag: &GammaTag,
+        d0: i64,
+    ) -> Result<i32, PError> {
+        let Some(loops) = loops else {
+            return Ok(0);
+        };
+        let mut lowest: Option<i32> = None;
+        for (_, _, multiplier) in self.tadic_rows(loops, terminal, tag)? {
+            let Some(multiplier) = multiplier else {
+                continue;
+            };
+            if let Some(valuation) =
+                coefficient_valuation(&multiplier, d0).map_err(PError::Engine)?
+            {
+                lowest = Some(lowest.map_or(valuation, |lowest| lowest.min(valuation)));
             }
         }
-        Ok(PReduction {
-            dimension: i64::from(loops),
-            terms: terms.into_terms(),
-            nonzero_conditions: output.nonzero_conditions,
-            statistics: PStatistics {
-                work: output.work,
-                progress: output.progress,
-            },
-            outside_certified: outside.into_iter().collect(),
-            relation_cache: super::relation_entries::relation_cache_statistics()
-                .since(&cache_before),
-        })
+        Ok(lowest.unwrap_or(0))
     }
 
     /// vk5l-physrun channel replay: reduce several input sums ("channels") of
@@ -1244,6 +1492,24 @@ enum PBasisOrder {
     Unit,
     Master(PMasterName),
     Residual(PTerminalId),
+}
+
+impl PBasisOrder {
+    fn of(basis: PBasis) -> Self {
+        match basis {
+            PBasis::Unit => Self::Unit,
+            PBasis::Master(name) => Self::Master(name),
+            PBasis::Residual(id) => Self::Residual(id),
+        }
+    }
+
+    fn into_basis(self) -> PBasis {
+        match self {
+            Self::Unit => PBasis::Unit,
+            Self::Master(name) => PBasis::Master(name),
+            Self::Residual(id) => PBasis::Residual(id),
+        }
+    }
 }
 
 impl PTermSum {

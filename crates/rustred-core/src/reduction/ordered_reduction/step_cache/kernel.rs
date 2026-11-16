@@ -405,6 +405,18 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
     ) -> Option<std::sync::Arc<dyn crate::reduction::OrderedTerminalComposer>> {
         self.inner.terminal_composer()
     }
+    // helper-vh2: the t-adic hooks are the adapter's (cached steps are
+    // weight independent).
+    fn accepts_tadic(&self) -> bool {
+        self.inner.accepts_tadic()
+    }
+    fn tadic_targets(
+        &self,
+        terminals: &[crate::family::IntegralKey],
+        options: &crate::reduction::TadicOptions,
+    ) -> Result<Vec<i32>, Self::Error> {
+        self.inner.tadic_targets(terminals, options)
+    }
     fn limits(&self) -> ReductionLimits {
         self.inner.limits()
     }

@@ -490,7 +490,8 @@ fn probes(arithmetic: OrderedWeightArithmetic) -> bool {
     match arithmetic {
         OrderedWeightArithmetic::Exact => false,
         OrderedWeightArithmetic::ModularSampled(common, _)
-        | OrderedWeightArithmetic::ModularPolynomial(common, _) => !common.cross_check_exact,
+        | OrderedWeightArithmetic::ModularPolynomial(common, _)
+        | OrderedWeightArithmetic::Tadic(common, _) => !common.cross_check_exact,
     }
 }
 

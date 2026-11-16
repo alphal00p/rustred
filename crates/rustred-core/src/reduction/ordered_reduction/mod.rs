@@ -20,7 +20,12 @@ pub(crate) mod tail;
 
 pub use arithmetic::{
     ModularCommon, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
-    PolynomialDenominators, PolynomialOptions, SampledOptions,
+    PolynomialDenominators, PolynomialOptions, SampledOptions, TadicOptions,
+};
+pub(crate) use modular::tadic::coefficient_valuation;
+pub use modular::tadic::{
+    TADIC_PRECISION_FAILURE, TadicImage, TadicSeries, TadicTerminals, add_series,
+    expand_coefficient, is_precision_failure, scale_series,
 };
 pub use composition::{
     ComposedTerminals, OrderedCompositionPlan, OrderedCompositionStage, OrderedTerminalComposer,
@@ -151,6 +156,23 @@ pub(crate) trait OrderedKernel {
     fn terminal_composer(&self) -> Option<std::sync::Arc<dyn OrderedTerminalComposer>> {
         None
     }
+    /// helper-vh2: whether this adapter consumes the series outputs of the
+    /// t-adic arithmetic (`OrderedOutput::tadic`). Every other adapter reads
+    /// exact terms, so a t-adic request fails closed on it.
+    fn accepts_tadic(&self) -> bool {
+        false
+    }
+    /// helper-vh2: the absolute precision each live terminal (in key order)
+    /// must reach in a t-adic request so that the adapter's final outputs
+    /// reach `options.order` (an adapter that multiplies a terminal by exact
+    /// coefficients with poles at `d0` raises its target by their order).
+    fn tadic_targets(
+        &self,
+        terminals: &[IntegralKey],
+        options: &TadicOptions,
+    ) -> Result<Vec<i32>, Self::Error> {
+        Ok(vec![options.order; terminals.len()])
+    }
     /// rr-frontier diagnostics (`memstats`): allocator bytes owned by a key.
     /// Default: nothing measured.
     /// fwd-opt light steps on the calling thread (see
@@ -183,6 +205,9 @@ pub(crate) struct OrderedOutput {
     /// Lifted outputs of the caller's terminal composition (modular
     /// requests with a composer that planned them).
     pub composed: Option<ComposedTerminals>,
+    /// helper-vh2: the series of the live terminals of a t-adic request
+    /// (`terms` is then empty).
+    pub tadic: Option<TadicTerminals>,
     pub nonzero_conditions: Vec<Coefficient>,
     pub work: ReductionStatistics,
     pub progress: CandidateOrderedReductionProgress,
@@ -1145,7 +1170,8 @@ fn run_sequential<K: OrderedKernel>(
             .map(exact_output)
         }
         OrderedWeightArithmetic::ModularSampled(..)
-        | OrderedWeightArithmetic::ModularPolynomial(..) => run_modular(
+        | OrderedWeightArithmetic::ModularPolynomial(..)
+        | OrderedWeightArithmetic::Tadic(..) => run_modular(
             kernel,
             request,
             initial,
@@ -1231,7 +1257,8 @@ pub(crate) fn run_with_options<K: ConcurrentOrderedKernel>(
         // their sequential journal; their steps are computed ahead of time by
         // the workers.
         OrderedWeightArithmetic::ModularSampled(..)
-        | OrderedWeightArithmetic::ModularPolynomial(..) => {
+        | OrderedWeightArithmetic::ModularPolynomial(..)
+        | OrderedWeightArithmetic::Tadic(..) => {
             match tail.pipeline.then(|| kernel.detached_stepper()).flatten() {
                 // rr-par: the next window is computed while this one is
                 // merged and recorded.
@@ -1289,6 +1316,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<OrderedOutput, K::Error> {
     let (common, lifter) = Lifter::of(arithmetic).expect("modular arithmetic");
+    refuse_unaccepted_tadic(kernel, &arithmetic)?;
     let mut recorder = ModularRecorder::try_new(kernel.context(), kernel.limits(), common, lifter)?;
     recorder.set_modular_round(tail.modular_round);
     recorder.set_par_replay(tail.par_replay);
@@ -1400,15 +1428,47 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         kernel.set_light(false);
         output.and_then(|output| {
             kernel.forward_finished();
-            modular_output(weights, output, composer.as_deref()).map_err(Into::into)
+            let targets = tadic_targets(kernel, &arithmetic, &output)?;
+            modular_output(weights, output, composer.as_deref(), targets).map_err(Into::into)
         })
     }
+}
+
+/// helper-vh2: a t-adic request on an adapter that reads exact terms only is
+/// refused before any work (its exact terms would be empty: a silent zero).
+fn refuse_unaccepted_tadic<K: OrderedKernel>(
+    kernel: &K,
+    arithmetic: &OrderedWeightArithmetic,
+) -> Result<(), K::Error> {
+    if matches!(arithmetic, OrderedWeightArithmetic::Tadic(..)) && !kernel.accepts_tadic() {
+        return Err(modular::error(
+            "the t-adic arithmetic returns truncated series, not exact terms; this adapter \
+             reads exact terms (use the propagator library's reduce_tadic)",
+        )
+        .into());
+    }
+    Ok(())
+}
+
+/// helper-vh2: the per-terminal target precisions of a t-adic request (the
+/// adapter's, in the key order of the live terminals); `None` otherwise.
+fn tadic_targets<K: OrderedKernel, W>(
+    kernel: &K,
+    arithmetic: &OrderedWeightArithmetic,
+    output: &RawOutput<W>,
+) -> Result<Option<Vec<i32>>, K::Error> {
+    let OrderedWeightArithmetic::Tadic(_, options) = arithmetic else {
+        return Ok(None);
+    };
+    let keys: Vec<IntegralKey> = output.terms.keys().cloned().collect();
+    kernel.tadic_targets(&keys, options).map(Some)
 }
 
 fn exact_output(output: RawOutput<Coefficient>) -> OrderedOutput {
     OrderedOutput {
         terms: output.terms,
         composed: None,
+        tadic: None,
         nonzero_conditions: output.nonzero_conditions,
         work: output.work,
         progress: output.progress,
@@ -1425,44 +1485,92 @@ fn cross_checked_output(
         .into_iter()
         .map(|(key, (e, m))| ((key.clone(), e), (key, m)))
         .unzip();
-    let (reconstructed, statistics) = weights.modular.finish(modular, None)?;
+    let (reconstructed, statistics) = weights.modular.finish(modular, None, None)?;
     modular::report_statistics(&statistics);
-    let modular::Finished::Terminals(reconstructed) = reconstructed else {
-        return Err(modular::error(
-            "a cross-checked request composed its terminals",
-        ));
+    let tadic = match reconstructed {
+        modular::Finished::Terminals(reconstructed) => {
+            if reconstructed != exact {
+                return Err(modular::error(
+                    "modular reconstruction differs from the exact terminal map",
+                ));
+            }
+            None
+        }
+        // helper-vh2: every series must be the Laurent expansion of the
+        // exact terminal through its precision.
+        modular::Finished::Tadic(tadic) => {
+            cross_check_tadic(&exact, &tadic)?;
+            Some(tadic)
+        }
+        modular::Finished::Composed(_) => {
+            return Err(modular::error(
+                "a cross-checked request composed its terminals",
+            ));
+        }
     };
-    if reconstructed != exact {
-        return Err(modular::error(
-            "modular reconstruction differs from the exact terminal map",
-        ));
-    }
     Ok(OrderedOutput {
+        // A t-adic request returns its series (and, cross-checked, the exact
+        // terms they were compared with).
         terms: exact,
         composed: None,
+        tadic,
         nonzero_conditions: output.nonzero_conditions,
         work: output.work,
         progress: output.progress,
     })
 }
 
+/// helper-vh2: compare every t-adic series with the expansion of the exact
+/// terminal coefficient (`cross_check_exact`).
+fn cross_check_tadic(
+    exact: &BTreeMap<IntegralKey, Coefficient>,
+    tadic: &TadicTerminals,
+) -> Result<(), ReductionError> {
+    if tadic.terminals.len() != exact.len()
+        || tadic.terminals.iter().zip(exact.keys()).any(|(a, b)| a != b)
+    {
+        return Err(modular::error(
+            "the t-adic terminals differ from the exact terminal map",
+        ));
+    }
+    for image in &tadic.images {
+        for (series, coefficient) in image.terminals.iter().zip(exact.values()) {
+            let expected =
+                expand_coefficient(coefficient, tadic.d0, image.prime, series.precision())?
+                    .ok_or_else(|| {
+                        modular::error("a t-adic prime is bad for an exact terminal coefficient")
+                    })?;
+            if expected != *series {
+                return Err(modular::error(
+                    "a t-adic series differs from the expansion of the exact terminal",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Replay the recorded trace and reconstruct the exact terminals, or only
-/// their composition when `composer` plans one.
+/// their composition when `composer` plans one, or (t-adic) their series.
 fn modular_output(
     weights: ModularRecorder,
     output: RawOutput<modular::ModularWeight>,
     composer: Option<&dyn OrderedTerminalComposer>,
+    tadic_targets: Option<Vec<i32>>,
 ) -> Result<OrderedOutput, ReductionError> {
     crate::prof!(FinOutput);
-    let (finished, statistics) = weights.finish(output.terms, composer)?;
+    let (finished, statistics) =
+        weights.finish(output.terms, composer, tadic_targets.as_deref())?;
     modular::report_statistics(&statistics);
-    let (terms, composed) = match finished {
-        modular::Finished::Terminals(terms) => (terms, None),
-        modular::Finished::Composed(composed) => (BTreeMap::new(), Some(composed)),
+    let (terms, composed, tadic) = match finished {
+        modular::Finished::Terminals(terms) => (terms, None, None),
+        modular::Finished::Composed(composed) => (BTreeMap::new(), Some(composed), None),
+        modular::Finished::Tadic(tadic) => (BTreeMap::new(), None, Some(tadic)),
     };
     Ok(OrderedOutput {
         terms,
         composed,
+        tadic,
         nonzero_conditions: output.nonzero_conditions,
         work: output.work,
         progress: output.progress,
@@ -3613,7 +3721,9 @@ mod tests {
                     options,
                 )
             }
-            OrderedWeightArithmetic::Exact => unreachable!("modular arithmetics only"),
+            OrderedWeightArithmetic::Exact | OrderedWeightArithmetic::Tadic(..) => {
+                unreachable!("lifted modular arithmetics only")
+            }
         };
         for arithmetic in [
             sampled(2, 8),
