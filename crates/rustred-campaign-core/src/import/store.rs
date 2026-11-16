@@ -197,6 +197,10 @@ pub struct EvidenceStore {
     meta: StoreMeta,
     dir: PathBuf,
     data: File,
+    /// lane wireflow (performance, no semantic change): `data.bin` held in memory when it is at most
+    /// [`MEM_RESIDENT_MAX`] bytes; lookups then decode from memory instead of one `pread` per lookup (a closing loop with
+    /// many small stores looked every term of every key up in every store: hundreds of millions of syscalls).
+    mem: Option<Vec<u8>>,
     index: Vec<BlockIdx>,
     rec_of_sha: HashMap<String, u32>,
     /// `built` | `reused`.
@@ -205,8 +209,12 @@ pub struct EvidenceStore {
 
 /// One cached lookup per store and thread: (store id, record id, key, entry).
 type CacheSlot = (u64, u32, Vec<i32>, Option<Arc<StoreEntry>>);
-/// Stores with their own slot per thread (an evidence set holds a few stores; more evict round-robin).
-const CACHE_SLOTS: usize = 16;
+/// Stores with their own slot per thread (an evidence set holds a few stores; more evict round-robin). lane wireflow:
+/// 16 -> 256: a big-node closing loop attaches one store per 64 evidence files (55 on T162's margin after its per-key
+/// proofs); with fewer slots than stores every repeated per-term lookup of a key missed.
+const CACHE_SLOTS: usize = 256;
+/// lane wireflow: `data.bin` files up to this size are read into memory at open (see [`EvidenceStore`]).
+pub const MEM_RESIDENT_MAX: u64 = 64 << 20;
 thread_local! {
     static CACHE: RefCell<Vec<CacheSlot>> = const { RefCell::new(Vec::new()) };
 }
@@ -1098,6 +1106,14 @@ impl EvidenceStore {
         }
         let dp = dir.join("data.bin");
         let data = File::open(&dp).map_err(|e| io_err(&dp, e))?;
+        let mem = match data.metadata() {
+            Ok(m) if m.len() <= MEM_RESIDENT_MAX => {
+                let mut b = vec![0u8; m.len() as usize];
+                data.read_exact_at(&mut b, 0).map_err(|e| io_err(&dp, e))?;
+                Some(b)
+            }
+            _ => None,
+        };
         let rec_of_sha = meta
             .records
             .iter()
@@ -1109,6 +1125,7 @@ impl EvidenceStore {
             meta,
             dir: dir.to_path_buf(),
             data,
+            mem,
             index,
             rec_of_sha,
             origin: "opened".into(),
@@ -1168,8 +1185,16 @@ impl EvidenceStore {
             return None;
         }
         let b = &self.index[pos - 1];
-        let mut buf = vec![0u8; b.len as usize];
-        self.data.read_exact_at(&mut buf, b.off).ok()?;
+        let owned;
+        let buf: &[u8] = match &self.mem {
+            Some(m) => m.get(b.off as usize..(b.off + b.len as u64) as usize)?,
+            None => {
+                let mut v = vec![0u8; b.len as usize];
+                self.data.read_exact_at(&mut v, b.off).ok()?;
+                owned = v;
+                &owned
+            }
+        };
         let mut p = 0usize;
         let mut k = Vec::with_capacity(self.meta.arity);
         while p < buf.len() {
