@@ -1090,8 +1090,8 @@ X	tests/gate9_ledger_create.rs	45	test			let _ = Command::new("sh")
 D	tests/gate9_ledger_create.rs	62	test			std::fs::write(
 E	tests/gate9_ledger_create.rs	90	test			rec.exists()
 R	tests/gate9_ledger_create.rs	95	test			let dp: u32 = std::fs::read_to_string(&rec)
-R	tests/gate9_ledger_create.rs	156	test			let failed = std::fs::read_to_string(&log)
-X	tests/gate9_ledger_create.rs	156	test			let failed = std::fs::read_to_string(&log)
+R	tests/gate9_ledger_create.rs	162	test			let failed = std::fs::read_to_string(&log)
+X	tests/gate9_ledger_create.rs	162	test			let failed = std::fs::read_to_string(&log)
 D	tests/gate9_orig_ledger_lock.rs	147	test			rustred_campaign::atomic::write_json_atomic(&d.join(lock::OWNER_FILE), &rec).unwrap();
 X	tests/gate9_orig_ledger_lock.rs	268	test			if lock::start_ticks(child_pid).is_err()
 R	tests/gate9_orig_ledger_lock.rs	269	test			|| std::fs::read_to_string(format!("/proc/{child_pid}/stat"))

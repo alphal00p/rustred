@@ -151,6 +151,12 @@ fn g9_b1_unreadable_manifest_never_creates_a_new_ledger_over_a_campaign() {
             ("G8_ERRNO", errno),
             ("PATH", path.to_str().unwrap()),
         ];
+        // procfix7 round 5: session 1's records, to check that the history is never replaced (a typed stop writes
+        // nothing; a run that continues only appends)
+        let before: Vec<String> = records(&d)
+            .iter()
+            .map(|r| serde_json::to_string(r).unwrap())
+            .collect();
         let mut c = start(&sp, &d, &["--plain"], &env);
         let code = wait(&mut c, Duration::from_secs(600));
         let failed = std::fs::read_to_string(&log)
@@ -158,9 +164,12 @@ fn g9_b1_unreadable_manifest_never_creates_a_new_ledger_over_a_campaign() {
             .lines()
             .filter(|l| l.ends_with("FAILED"))
             .count();
+        // procfix7 round 5: since G9-B1's fix the FIRST failed stat of the manifest stops the start typed (exit 70 / 71,
+        // nothing opened, created or deleted), so one injected failure is the precondition (it was two: the old code
+        // stat'ed again in create_with)
         assert!(
-            failed >= 2,
-            "precondition: the injector failed the manifest stats"
+            failed >= 1,
+            "precondition: the injector failed the manifest stat"
         );
         let survivor = alive(dp);
         let sessions = supervisor_sessions(&d);
@@ -170,9 +179,15 @@ fn g9_b1_unreadable_manifest_never_creates_a_new_ledger_over_a_campaign() {
             "errno {errno}: exit 0 with the crashed session's live marked daemon {dp}: {}",
             log_tail(&d)
         );
+        let after: Vec<String> = records(&d)
+            .iter()
+            .map(|r| serde_json::to_string(r).unwrap())
+            .collect();
         assert!(
-            sessions >= 2,
-            "errno {errno}: the campaign's history was replaced by a new ledger (SupervisorStarted records: {sessions}; exit {code}): {}",
+            sessions >= 1 && after.len() >= before.len() && after[..before.len()] == before[..],
+            "errno {errno}: the campaign's history was replaced or altered (SupervisorStarted records: {sessions}; records {} -> {}; exit {code}): {}",
+            before.len(),
+            after.len(),
             log_tail(&d)
         );
     }

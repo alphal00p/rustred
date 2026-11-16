@@ -481,13 +481,14 @@ pub struct TokenScan {
     /// Read completely: the environment carries `TOKEN_ENV=<token>`.
     pub holders: Vec<u32>,
     /// procfix7 round 5 (gate9 minor, lock.rs:457-461): processes of OUR REAL UID whose environment (or status) could not
-    /// be read (also after re-reads across an exec window, about 0.5 s): they MAY hold the token (never "not a holder").
+    /// be read (also after re-reads across an exec window, about 0.1 s more): they MAY hold the token (never "not a holder").
     pub possible: Vec<(u32, String)>,
 }
 
-/// The token scan, typed (procfix7 round 5): Err when the /proc listing fails (never "no holder"); a candidate whose
-/// environ read fails is re-read (bounded: the exec window of a fresh child), then reported in `possible` when it runs
-/// under our real uid; a process of another uid (EACCES) is not a candidate; a process that vanished is not listed.
+/// The token scan, typed (procfix7 round 5): Err when the /proc listing fails (never "no holder"); only processes of
+/// our real uid are candidates; a zombie without a live thread (atomic count) holds nothing, a zombie leader with one is
+/// read through it; an environ read that fails is re-read (bounded: a fresh child's exec window), then reported in
+/// `possible`; a process that vanished is not listed.
 pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
     let mut out = TokenScan::default();
     if token.is_empty() {
@@ -511,10 +512,29 @@ pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
                 continue;
             }
         }
+        // a zombie leader: read through a live thread; a zombie without one (the atomic thread count, G9-B2) has no
+        // environment and holds nothing (the namespace's init keeps hundreds of unreaped zombies: no per-zombie waits)
+        let tid = match root.stat(p) {
+            Err(ProcError::Gone) => continue,
+            Err(ProcError::Unreadable(w)) => {
+                out.possible.push((p, format!("stat: {w}")));
+                continue;
+            }
+            Ok(st) if st.is_dead() => match crate::resources::live_thread_at(&root, p) {
+                Ok(crate::resources::LiveThread::NoneAlive) | Err(ProcError::Gone) => continue,
+                Ok(crate::resources::LiveThread::Found(t, _)) => Some(t),
+                Err(ProcError::Unreadable(w)) => {
+                    out.possible.push((p, format!("threads: {w}")));
+                    continue;
+                }
+            },
+            Ok(_) => None,
+        };
+        // the environ read itself waits out an exec window by evidence (procfs); a few more tries for a fresh child
         let mut last = String::new();
         let mut read = None;
-        for k in 0..10u64 {
-            match root.environ(p, None, std::time::Duration::from_millis(250)) {
+        for k in 0..3u64 {
+            match root.environ(p, tid, std::time::Duration::from_millis(250)) {
                 Ok(env) => {
                     read = Some(env);
                     break;
@@ -522,7 +542,7 @@ pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
                 Err(ProcError::Gone) => break,
                 Err(ProcError::Unreadable(w)) => {
                     last = w;
-                    std::thread::sleep(std::time::Duration::from_millis(10 * (k + 1)));
+                    std::thread::sleep(std::time::Duration::from_millis(20 * (k + 1)));
                 }
             }
         }
