@@ -1613,7 +1613,24 @@ fn b2_face_by_face() {
     }
     let mut n_run = 0usize;
     while let Some(choice) = queue.pop_front() {
-        let piece = face_piece(&frame, &choice).expect("piece");
+        let mut piece = face_piece(&frame, &choice).expect("piece");
+        // PARAMETRIC_CAP_BOX=R: the piece is also capped to the box |k_s - boundary| <= R per slot (lines <= R + 1,
+        // numerators >= -R), which contains the cone D + r <= R: keys outside it are served by the cap records, so
+        // the partition (and every blocked sub-partition) only describes the box (a radius-R statement)
+        if let Ok(rb) = std::env::var("PARAMETRIC_CAP_BOX") {
+            let rb: i64 = rb.parse().unwrap();
+            for s in 0..frame.arity() {
+                let mut a = vec![0i64; frame.arity()];
+                if frame.is_line(s) {
+                    a[s] = 1;
+                    piece.constraints.push((a, rb + 1));
+                } else {
+                    a[s] = -1;
+                    piece.constraints.push((a, rb));
+                }
+            }
+            piece.label = format!("{} [box {rb}]", piece.label);
+        }
         let id = piece.label.clone();
         let children = |q: &mut VecDeque<Vec<(usize, bool)>>| {
             let s = slots[choice.len()];
@@ -2094,6 +2111,9 @@ fn redispatch_keys() {
     let mut served_by_table: BTreeMap<String, u64> = BTreeMap::new();
     let mut served_by_record: BTreeMap<String, u64> = BTreeMap::new();
     let mut open_keys: Vec<serde_json::Value> = Vec::new();
+    // per key: the serving record (table#label) or the open reason, in input order
+    let mut per_key =
+        std::io::BufWriter::new(std::fs::File::create(format!("{out}.keys.jsonl")).unwrap());
     for line in f.lines() {
         let line = line.unwrap();
         if line.trim().is_empty() {
@@ -2139,6 +2159,29 @@ fn redispatch_keys() {
                 }
             }
         };
+        {
+            use std::io::Write;
+            let rec = |r: &rustred_campaign_core::cover::RuleRef| {
+                json!(format!(
+                    "{}#{}",
+                    g5.tables()[r.table].name,
+                    g5.tables()[r.table].labels[r.record]
+                ))
+            };
+            let (served, at) = match &d {
+                Ok(Dispatch::Covered(r)) => (rec(r), serde_json::Value::Null),
+                Ok(Dispatch::Blocked { at, .. }) | Ok(Dispatch::Undecided { at, .. }) => {
+                    (serde_json::Value::Null, rec(at))
+                }
+                _ => (serde_json::Value::Null, serde_json::Value::Null),
+            };
+            writeln!(
+                per_key,
+                "{}",
+                json!({"key": k, "served": served, "why": why, "at": at})
+            )
+            .unwrap();
+        }
         if why != "covered" {
             open += 1;
             if open_keys.len() < 2000 {
