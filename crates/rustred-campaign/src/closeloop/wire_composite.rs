@@ -733,8 +733,12 @@ impl Stage {
             limit: None,
         };
         let prog_sha = self.program_sha(c.programs, &cj.program)?;
-        // content-addressed job directory: a restart reuses the files written before
-        let tag = &blake3_hex(&req.keys_bytes())[..16];
+        // content-addressed job directory: a restart reuses the files written before; the program's SHA-256 and the
+        // policy are part of the address (a changed binary or policy gets fresh files: the request pins both)
+        let mut addr = req.keys_bytes();
+        addr.extend_from_slice(prog_sha.as_bytes());
+        addr.extend_from_slice(&pb);
+        let tag = &blake3_hex(&addr)[..16];
         let jdir = dir.join(format!("job.{tag}"));
         let files = if jdir.join("request.json").exists() {
             existing_job_files(&jdir)?
