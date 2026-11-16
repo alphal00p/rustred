@@ -56,10 +56,8 @@ enum Mode {
     Kernel,
     /// composite jobs, no kernel configured
     NoKernel,
-    /// the stage absent
+    /// the stage absent (the explicit-default policy is written by its test)
     Off,
-    /// the stage written out with its default values (= off)
-    OffExplicit,
 }
 
 fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64, rounds: u32) -> (PathBuf, PathBuf) {
@@ -105,17 +103,10 @@ fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64, rounds: u32) -> (Path
                     "cap_bytes": 1073741824u64, "expected_peak_bytes": 268435456u64});
             }
         }
-        Mode::OffExplicit => {
-            route0["composite_jobs"] = json!({"enabled": false, "max_rounds": 4, "program": "rr_rf_symflow",
-                "threads": 1, "max_attempts": 2, "kernel": null});
-        }
         Mode::Off => {}
     }
-    let mut rp = json!({"symbolic": {"enabled": false}, "recipes": {"enabled": false}, "route0": route0,
+    let rp = json!({"symbolic": {"enabled": false}, "recipes": {"enabled": false}, "route0": route0,
         "shadow_test": false, "proposals": {"declare_terminal": false}});
-    if mode == Mode::OffExplicit {
-        rp["tworow"] = json!({"enabled": false});
-    }
     let policy = dir.join("repairflow.json");
     std::fs::write(
         &policy,
@@ -171,6 +162,40 @@ fn run_long(spec: &Path, cdir: &Path, extra: &[&str]) -> Vec<i32> {
         "campaign did not finish: exit codes {codes:?}; log {}",
         log_tail(cdir)
     );
+}
+
+/// A record (JSON, JSONL or text) with the campaign's temp root replaced by `<ROOT>` and every `spec_digest` member
+/// removed (a digest over a spec text that names absolute paths of its own campaign).
+fn norm_record(b: &[u8], cdir: &Path) -> String {
+    fn strip(v: &mut Value) {
+        match v {
+            Value::Object(m) => {
+                m.remove("spec_digest");
+                m.values_mut().for_each(strip);
+            }
+            Value::Array(a) => a.iter_mut().for_each(strip),
+            _ => {}
+        }
+    }
+    let root = cdir.parent().unwrap_or(cdir).display().to_string();
+    let text = String::from_utf8_lossy(b).replace(&root, "<ROOT>");
+    match serde_json::from_str::<Value>(&text) {
+        Ok(mut v) => {
+            strip(&mut v);
+            v.to_string()
+        }
+        Err(_) => text
+            .lines()
+            .map(|l| match serde_json::from_str::<Value>(l) {
+                Ok(mut v) => {
+                    strip(&mut v);
+                    v.to_string()
+                }
+                Err(_) => l.to_string(),
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    }
 }
 
 fn read_json(p: &Path) -> Value {
@@ -382,9 +407,9 @@ fn interrupt_and_resume_gives_the_same_rounds_and_statement() {
     );
     assert!(codes.len() > 1, "no interrupt happened: {codes:?}");
     let o = outcome(&cb);
-    // the round record names CDIR paths of its own campaign: compare it with the directory names normalised
-    let norm =
-        |b: &[u8], d: &Path| String::from_utf8_lossy(b).replace(&d.display().to_string(), "<CDIR>");
+    // the records name paths of their own campaign (CDIR, material): compare with the temp roots normalised and the
+    // digests over absolute-path texts (`spec_digest` of a round / P1 spec) removed
+    let norm = |b: &[u8], d: &Path| norm_record(b, d);
     assert_eq!(
         norm(&o.0, &cb),
         norm(&reference.0, &ca),
@@ -411,8 +436,26 @@ fn interrupt_and_resume_gives_the_same_rounds_and_statement() {
 #[test]
 fn the_stage_off_absent_or_explicit_gives_identical_results() {
     let (_g, frame) = setup_or_skip!();
-    let (_ta, spa, ca) = setup("wfoff", &frame, Mode::Off, 10);
-    let (_tb, spb, cb) = setup("wfoffx", &frame, Mode::OffExplicit, 10);
+    // ONE material directory (the import spec's paths enter the spec digest), two policy files, two campaigns
+    let (t, spa, ca) = setup("wfoff", &frame, Mode::Off, 10);
+    let mdir = t.path.join("material");
+    let pol_a = mdir.join("repairflow.json");
+    let mut pv: Value = serde_json::from_slice(&std::fs::read(&pol_a).unwrap()).unwrap();
+    pv["repair_policy"]["route0"]["composite_jobs"] = json!({"enabled": false, "max_rounds": 4,
+        "program": "rr_rf_symflow", "threads": 1, "max_attempts": 2, "kernel": null});
+    pv["repair_policy"]["tworow"] = json!({"enabled": false});
+    pv["repair_policy"]["pieces"] = json!({"plan": false});
+    let pol_b = mdir.join("repairflow.explicit.json");
+    std::fs::write(&pol_b, serde_json::to_vec_pretty(&pv).unwrap()).unwrap();
+    let mut sv: Value = serde_json::from_slice(&std::fs::read(&spa).unwrap()).unwrap();
+    for i in sv["inputs"].as_array_mut().unwrap() {
+        if i["id"] == "repairflow" {
+            i["path"] = json!(pol_b.display().to_string());
+            i["blake3"] = json!(blake3_file(&pol_b));
+        }
+    }
+    let spb = write_spec(&t, "spec.explicit.json", &sv);
+    let cb = t.cdir("cdir-explicit");
     for (sp, c) in [(&spa, &ca), (&spb, &cb)] {
         let codes = run_long(sp, c, &["--plain"]);
         assert!(
