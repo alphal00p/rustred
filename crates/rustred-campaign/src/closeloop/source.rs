@@ -52,6 +52,8 @@ struct ProofIssued {
     zeros2: BTreeSet<(String, Vec<i32>)>,
     jobs: u64,
     attention: u64,
+    /// lane wireflow (b): first-route fact jobs (rr_proof facts + exact evaluation), the facts budget's job count.
+    fact_jobs: u64,
 }
 
 enum PassResult {
@@ -800,6 +802,7 @@ impl CloseFromMaterialSource {
                 out.zeros2.extend(b.pairs());
             } else if b.kind == "facts" || b.kind == "exact" {
                 out.facts.extend(b.pairs());
+                out.fact_jobs += 1;
             } else {
                 out.spans.extend(b.pairs());
             }
@@ -835,6 +838,10 @@ impl CloseFromMaterialSource {
         }
         // lane closeloop4: proposals waiting for the operator: no pass until a decision is recorded
         if self.awaiting(st, i).is_some() {
+            return None;
+        }
+        // lane wireflow (b): a facts-budget end waits for the operator's raise
+        if self.awaiting_budget(st, i).is_some() {
             return None;
         }
         let node = &r.cfg.node;
@@ -908,6 +915,8 @@ impl CloseFromMaterialSource {
             .map(|(_, p, b)| (p, b))
             .collect();
         let pi = self.proof_issued(st, i)?;
+        // lane wireflow (b): the operator's facts-budget raises (ledger order; the last one is in force)
+        let raises = self.facts_budget_raises(st, i)?;
         let proof_files = self
             .inputs_of_role(st, i, ROLE_PROOFS)
             .into_iter()
@@ -1044,6 +1053,11 @@ impl CloseFromMaterialSource {
             issued_zeros2: pi.zeros2,
             second_route: r.cfg.second_route,
             ship_gate: r.cfg.ship_gate.clone(),
+            frontier: r
+                .cfg
+                .facts_frontier
+                .as_ref()
+                .map(|c| super::frontier::FrontierIn::new(c, &raises, pi.fact_jobs)),
             terminals: r.cfg.terminals,
             terminal_decisions: decisions,
             pins_recorded,
@@ -1439,6 +1453,42 @@ impl CloseFromMaterialSource {
             let (ev, rec) = self.decision_record(i, d)?;
             rt.events.push(ev);
             rt.accepts.push(rec);
+        }
+        // lane wireflow (b), closeloop.md 26: a FACTS-BUDGET end: the saved frontier (pairs file) and its record
+        if let Some((rec_v, pairs)) = &out.facts_budget {
+            use super::frontier::{ROLE_FBUDGET, ROLE_FRONTIER, input_fbudget, input_frontier};
+            for (input, role, rel, body) in [
+                (
+                    input_frontier(&n, k),
+                    ROLE_FRONTIER,
+                    format!("{}/frontier/facts-frontier.r{k}.jsonl", node_dir(&n)),
+                    pairs.clone(),
+                ),
+                (
+                    input_fbudget(&n, k),
+                    ROLE_FBUDGET,
+                    format!("{}/frontier/facts-budget.r{k}.json", node_dir(&n)),
+                    json_bytes(rec_v),
+                ),
+            ] {
+                let rec = record(rel, body);
+                let fr = rec.file_ref();
+                rt.events.push(Event::InputRegistered {
+                    input,
+                    role: role.into(),
+                    path: self.abs(&rec.path).display().to_string(),
+                    bytes: fr.bytes,
+                    blake3: fr.blake3,
+                });
+                rt.accepts.push(rec);
+            }
+            rt.events.push(Event::Note {
+                text: format!(
+                    "closeloop {node}: facts budget (round {k}): {} frontier pairs saved; `{}`",
+                    rec_v["wanted"]["pairs"],
+                    rec_v["resume"].as_str().unwrap_or("")
+                ),
+            });
         }
         // lane t266run (closeloop.md 17): the escalation's records (symmetry attempts, step recipes, accepted terminals)
         if let Some(e) = &out.escalation {
@@ -2460,6 +2510,113 @@ impl CloseFromMaterialSource {
         Some((k, count))
     }
 
+    /// lane wireflow (b), closeloop.md 26: the round of node `i`'s latest FACTS-BUDGET end when no raise was recorded
+    /// after it (the node waits for the operator).
+    fn awaiting_budget(&self, st: &CampaignState, i: usize) -> Option<u32> {
+        let n = &self.nodes[i].n;
+        if st.inputs.contains_key(&input_final(n)) {
+            return None;
+        }
+        let pre = format!("closeloop:{n}:facts-budget:r");
+        let (k, seq) = st
+            .inputs
+            .iter()
+            .filter(|(id, r)| id.starts_with(&pre) && r.role == super::frontier::ROLE_FBUDGET)
+            .filter_map(|(id, r)| {
+                id[pre.len()..]
+                    .parse::<u32>()
+                    .ok()
+                    .map(|k| (k, r.registered_seq))
+            })
+            .max()?;
+        let rpre = super::frontier::input_fraise_prefix(n);
+        let raised = st
+            .inputs
+            .iter()
+            .any(|(id, r)| id.starts_with(&rpre) && r.registered_seq > seq);
+        (!raised).then_some(k)
+    }
+
+    /// lane wireflow (b): the recorded facts-budget raises of node `i` in ledger order (BLAKE3-verified records).
+    fn facts_budget_raises(&self, st: &CampaignState, i: usize) -> Result<Vec<Value>, String> {
+        let rpre = super::frontier::input_fraise_prefix(&self.nodes[i].n);
+        let mut ids: Vec<(u64, String)> = st
+            .inputs
+            .iter()
+            .filter(|(id, r)| id.starts_with(&rpre) && r.role == super::frontier::ROLE_FRAISE)
+            .map(|(id, r)| (r.registered_seq, id.clone()))
+            .collect();
+        ids.sort();
+        ids.iter()
+            .map(|(_, id)| {
+                serde_json::from_slice(&self.input_file(st, id)?).map_err(|e| format!("{id}: {e}"))
+            })
+            .collect()
+    }
+
+    /// lane wireflow (b): the operator's `raise-facts-budget` request: a raise record per node waiting on its facts
+    /// budget (the named node, or every waiting node).
+    fn raise_facts_budget(
+        &mut self,
+        st: &CampaignState,
+        req: &crate::supervisor::ControlRequest,
+    ) -> Result<Routing, String> {
+        let mut rt = Routing::default();
+        let targets: Vec<usize> = (0..self.nodes.len())
+            .filter(|&i| {
+                req.target
+                    .as_deref()
+                    .is_none_or(|t| t == self.nodes[i].cfg.node)
+            })
+            .filter(|&i| self.awaiting_budget(st, i).is_some())
+            .collect();
+        if targets.is_empty() {
+            return Err(format!(
+                "no node {}waits on its facts budget",
+                req.target
+                    .as_deref()
+                    .map(|t| format!("{t} "))
+                    .unwrap_or_default()
+            ));
+        }
+        let payload = req.payload.clone().unwrap_or(Value::Null);
+        let by = if req.by.is_empty() {
+            "operator"
+        } else {
+            &req.by
+        };
+        for i in targets {
+            let n = self.nodes[i].n.clone();
+            let v = super::frontier::raise_record(
+                &self.nodes[i].cfg.node,
+                &req.id,
+                by,
+                req.reason.as_deref().unwrap_or(""),
+                &payload,
+            )?;
+            let rec = record(
+                format!("{}/frontier/raise.{}.json", node_dir(&n), safe(&req.id)),
+                json_bytes(&v),
+            );
+            let fr = rec.file_ref();
+            rt.events.push(Event::InputRegistered {
+                input: super::frontier::input_fraise(&n, &safe(&req.id)),
+                role: super::frontier::ROLE_FRAISE.into(),
+                path: self.abs(&rec.path).display().to_string(),
+                bytes: fr.bytes,
+                blake3: fr.blake3,
+            });
+            rt.accepts.push(rec);
+            rt.events.push(Event::Note {
+                text: format!(
+                    "closeloop {}: facts budget raised by {by} to max_pairs {}, max_jobs {} ({})",
+                    self.nodes[i].cfg.node, v["max_pairs"], v["max_jobs"], req.id
+                ),
+            });
+        }
+        Ok(rt)
+    }
+
     /// The ledger input and the file of a terminal decision.
     fn decision_record(
         &self,
@@ -2915,6 +3072,22 @@ impl WorkSource for CloseFromMaterialSource {
                 v.push(format!("node {}: {m}", r.cfg.node));
             }
         }
+        // lane wireflow (b): facts-budget ends
+        for i in (0..self.nodes.len()).filter(|&i| self.nodes[i].running.is_none()) {
+            if let Some(k) = self.awaiting_budget(st, i) {
+                let n = &self.nodes[i].n;
+                let resume = self
+                    .input_file(st, &super::frontier::input_fbudget(n, k))
+                    .ok()
+                    .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+                    .and_then(|x| x["resume"].as_str().map(String::from))
+                    .unwrap_or_default();
+                v.push(format!(
+                    "{}: facts budget (round {k}, frontier saved); `{resume}`",
+                    self.nodes[i].cfg.node
+                ));
+            }
+        }
         (!v.is_empty()).then(|| v.join(" | "))
     }
 
@@ -2924,6 +3097,10 @@ impl WorkSource for CloseFromMaterialSource {
         st: &CampaignState,
         req: &crate::supervisor::ControlRequest,
     ) -> Result<Routing, String> {
+        // lane wireflow (b): the facts-budget raise is the same route (an operator decision of this source)
+        if req.verb == super::frontier::VERB_RAISE {
+            return self.raise_facts_budget(st, req);
+        }
         let mut rt = Routing::default();
         let targets: Vec<usize> = (0..self.nodes.len())
             .filter(|&i| {

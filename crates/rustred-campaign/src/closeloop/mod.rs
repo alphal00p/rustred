@@ -32,6 +32,8 @@ pub mod symcert;
 pub mod wire_composite;
 // lane wireflow (interfaces/repairflow.md 21): seed minimisation of the closing face recipes at P5
 pub mod wire_seedmin;
+// lane wireflow (b), closeloop.md 26: facts from the frontier + the facts budget
+pub mod frontier;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;

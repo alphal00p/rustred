@@ -1331,6 +1331,7 @@ pub fn compose(
         leaves,
         leaf_walk: BTreeMap::new(),
         credit_images: vec![],
+        frontier_stops: 0,
     })
 }
 

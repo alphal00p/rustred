@@ -20,6 +20,8 @@ pub const USAGE: &str = "usage:
   rr_campaign control CDIR pause [NODE|ITEM]|resume [NODE|ITEM]|stop|retry ITEM|skip ITEM|resolve JOB [--reason TEXT]
   rr_campaign control CDIR resolve-terminals [--node NODE] (--accept KEYS_FILE | --reject) [--reason TEXT]
       (terminal proposals of the closing loop: the listed keys are accepted as terminals, the other proposals rejected)
+  rr_campaign control CDIR raise-facts-budget [--node NODE] --max-pairs P --max-jobs J [--reason TEXT]
+      (a node ended by its facts budget resumes with this budget: closing loop, facts from the frontier)
   rr_campaign verify CDIR
   rr_campaign result CDIR
   rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)";
@@ -128,6 +130,8 @@ struct Flags {
     node: Option<String>,
     accept: Option<PathBuf>,
     reject: bool,
+    // lane wireflow (b): raise-facts-budget
+    max_pairs: Option<u64>,
 }
 
 fn parse(rest: &[String]) -> Result<Flags, String> {
@@ -156,6 +160,13 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             "--node" => f.node = Some(val("--node")?),
             "--accept" => f.accept = Some(val("--accept")?.into()),
             "--reject" => f.reject = true,
+            "--max-pairs" => {
+                f.max_pairs = Some(
+                    val("--max-pairs")?
+                        .parse()
+                        .map_err(|_| "--max-pairs: a number")?,
+                )
+            }
             "--accept-truncation-to" => {
                 f.accept_truncation_to = Some(
                     val("--accept-truncation-to")?
@@ -759,6 +770,29 @@ fn cmd_control(rest: &[String]) -> i32 {
             f.node.as_deref(),
             f.reason.as_deref(),
             Some(payload),
+        ) {
+            Ok(p) => {
+                outln!("request written: {}", p.display());
+                exit::OK
+            }
+            Err((c, m)) => {
+                errln!("{m}");
+                c
+            }
+        };
+    }
+    // lane wireflow (b), closeloop.md 26: the operator's facts-budget raise (same route as resolve-terminals)
+    if verb == "raise-facts-budget" {
+        let (Some(p), Some(j)) = (f.max_pairs, f.max_jobs) else {
+            errln!("raise-facts-budget: --max-pairs P and --max-jobs J are required\n{USAGE}");
+            return exit::USAGE;
+        };
+        return match write_control_payload(
+            Path::new(cdir),
+            verb,
+            f.node.as_deref(),
+            f.reason.as_deref(),
+            Some(serde_json::json!({"max_pairs": p, "max_jobs": j})),
         ) {
             Ok(p) => {
                 outln!("request written: {}", p.display());

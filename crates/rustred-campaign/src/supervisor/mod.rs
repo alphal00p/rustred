@@ -3716,8 +3716,12 @@ impl Supervisor {
             let req: Option<ControlRequest> = std::fs::read(&p)
                 .ok()
                 .and_then(|b| serde_json::from_slice(&b).ok());
-            // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals)
-            if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve-terminals") {
+            // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals; lane
+            // wireflow, closeloop.md 26: a facts-budget raise)
+            if let Some(r) = req
+                .as_ref()
+                .filter(|r| r.verb == "resolve-terminals" || r.verb == "raise-facts-budget")
+            {
                 self.apply_source_decision(r);
                 if self.ledger_dead.is_some() {
                     return;
@@ -3761,11 +3765,11 @@ impl Supervisor {
             Err(why) => {
                 self.log.line(
                     "WARN",
-                    &format!("control {} (resolve-terminals) refused: {why}", r.id),
+                    &format!("control {} ({}) refused: {why}", r.id, r.verb),
                 );
                 self.note(format!(
-                    "control_refused {{\"id\":{:?},\"verb\":\"resolve-terminals\",\"reason\":{why:?}}}",
-                    r.id
+                    "control_refused {{\"id\":{:?},\"verb\":{:?},\"reason\":{why:?}}}",
+                    r.id, r.verb
                 ));
                 return;
             }
@@ -3790,8 +3794,9 @@ impl Supervisor {
             Ok(true) => self.log.line(
                 "INFO",
                 &format!(
-                    "control {}: resolve-terminals recorded (by {})",
+                    "control {}: {} recorded (by {})",
                     r.id,
+                    r.verb,
                     if r.by.is_empty() { "operator" } else { &r.by }
                 ),
             ),

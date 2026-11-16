@@ -139,6 +139,8 @@ pub struct PassIn {
     pub second_route: SecondRouteCfg,
     /// lane wireflow (d), closeloop.md 25: the ship gate of phase D.
     pub ship_gate: super::config::ShipGateCfg,
+    /// lane wireflow (b), closeloop.md 26: facts from the frontier with the facts budget in force (None = off).
+    pub frontier: Option<super::frontier::FrontierIn>,
     /// closeloop.md 19: the terminal policy and the recorded decisions (ledger order).
     pub terminals: TerminalsCfg,
     pub terminal_decisions: Vec<TerminalDecision>,
@@ -217,6 +219,7 @@ impl PassIn {
             issued_facts2: BTreeSet::new(),
             second_route: SecondRouteCfg::default(),
             ship_gate: Default::default(),
+            frontier: None,
             terminals: TerminalsCfg::default(),
             terminal_decisions: vec![],
             pins_recorded: None,
@@ -281,6 +284,9 @@ pub struct PassOut {
     pub pins: BTreeMap<String, String>,
     /// lane t266run: the escalation output of the pass (closeloop.md 17).
     pub escalation: Option<EscOut>,
+    /// lane wireflow (b), closeloop.md 26: a FACTS-BUDGET end (its record, the saved frontier's pairs file): no final
+    /// verdict, the node waits for the operator's raise.
+    pub facts_budget: Option<(Value, Vec<u8>)>,
 }
 
 impl std::fmt::Debug for PassOut {
@@ -718,9 +724,34 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     };
     // lane t266run: with `scale.keys_only_first: false` the exact tier runs at once (its own fact / proof requests
     // drive the jobs; only sensible when the evidence is mostly in, else the requests are many)
-    let skip_k = inp.exact_tier && inp.scale.as_ref().is_some_and(|s| !s.keys_only_first);
+    // lane wireflow (b), closeloop.md 26: FACTS FROM THE FRONTIER: pass 1 is the Tier C walk that STOPS at every
+    // rule-served key without its fact (its fact requests are the frontier) instead of the keys-only superset
+    let frontier = inp.frontier.as_ref().filter(|_| inp.exact_tier);
+    let skip_k = frontier.is_none()
+        && inp.exact_tier
+        && inp.scale.as_ref().is_some_and(|s| !s.keys_only_first);
     let res_k: Option<CheckResult> = if skip_k {
         None
+    } else if frontier.is_some() {
+        let open_start;
+        let (start, leaves) = match &layer_plan {
+            Some(lp) => {
+                open_start = lp.open_start();
+                (&open_start, lp.base_leaves())
+            }
+            None => (&set.start, vec![]),
+        };
+        Some(
+            rustred_campaign_core::import::check::check_frontier(
+                &set,
+                &ev,
+                &opts_k,
+                stream_k.then_some(krows.as_path()),
+                start,
+                &leaves,
+            )
+            .map_err(|e| format!("frontier check: {e}"))?,
+        )
     } else {
         Some(match &layer_plan {
             // lane layers: one keys-only walk of the layers that are not frozen, the frozen ones as leaves
@@ -801,7 +832,13 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let n_missing: usize = missing_facts.values().map(BTreeSet::len).sum::<usize>()
         + missing_exact.values().map(BTreeSet::len).sum::<usize>();
     let can_ask_facts = inp.proof.as_ref().is_some_and(|p| p.facts);
-    let tier_c_now = inp.exact_tier && n_missing == 0;
+    // lane wireflow (b): the frontier walk's stops (keys without their fact, not expanded). The exact tier is reached
+    // only at the FIXED POINT: no stop, so the frontier walk is the plain Tier C walk
+    let frontier_stops = frontier
+        .and(res_k.as_ref())
+        .map(|r| r.frontier_stops)
+        .unwrap_or(0);
+    let tier_c_now = inp.exact_tier && n_missing == 0 && frontier_stops == 0;
     // lane zeros2 (closeloop.md 23): the mode of the zero-term route (DEFAULT structural; without exact evaluation
     // configured every zero to confirm blocks below: a zero is never accepted on one route unless `off` is explicit)
     // (int7: defined before the layer walk, whose freeze gate needs it)
@@ -1430,6 +1467,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     }
     // new proof / fact batches (closeloop.md 13.1)
     let mut proof_batches: Vec<ProofBatch> = vec![];
+    // lane wireflow (b): the frontier's wanted (pairs, jobs), its pairs file when they did not fit, the prefetch record
+    let mut frontier_wanted: (u64, u64) = (0, 0);
+    let mut facts_stop: Option<Vec<u8>> = None;
+    let mut frontier_pf = json!({"considered": false});
     if let (Some(pp), false) = (&inp.proof, closed) {
         // lane t266run: per-key proofs only for the closure that is decided (the exact tier when it is wanted): the
         // keys-only superset holds keys reached only through zero terms
@@ -1514,66 +1555,97 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                     }
                 }
             }
-            let mut by_table: BTreeMap<String, Vec<(RecordReq, u64)>> = BTreeMap::new();
-            for ((t, r), ks) in &missing_facts {
-                let info = &set.rules[*t][*r];
-                by_table.entry(info.path.clone()).or_default().push((
-                    RecordReq {
-                        rule: info.index.unwrap_or(info.label),
-                        offset: info.offset,
-                        record_sha256: info.record_sha256.clone(),
-                        keys: ks.iter().cloned().collect(),
-                        ..Default::default()
-                    },
-                    (set.bodies.n_terms(*t, *r) as u64).max(1),
-                ));
-            }
-            let cap = pp.max_fact_keys_per_job.max(1);
-            // lane t266run: a term cap too (keys x the record's term count), at least one key per job
-            let tcap = pp.max_fact_terms_per_job.unwrap_or(u64::MAX).max(1);
-            for (table, recs) in by_table {
-                let mut cur: Vec<RecordReq> = vec![];
-                let mut n = 0usize;
-                let mut nt = 0u64;
-                for (rr, terms) in recs {
-                    let per = ((tcap / terms) as usize).clamp(1, cap);
-                    for chunk in rr.keys.chunks(per) {
-                        let ct = chunk.len() as u64 * terms;
-                        if (n + chunk.len() > cap || nt.saturating_add(ct) > tcap)
-                            && !cur.is_empty()
-                        {
-                            proof_batches.push(ProofBatch {
-                                kind: "facts".into(),
-                                reason: REASON_FACTS.into(),
-                                table: table.clone(),
-                                records: std::mem::take(&mut cur),
-                                relation_source: None,
-                            });
-                            n = 0;
-                            nt = 0;
-                        }
-                        n += chunk.len();
-                        nt = nt.saturating_add(ct);
-                        cur.push(RecordReq {
-                            keys: chunk.to_vec(),
-                            ..rr.clone()
-                        });
+            if let Some(fin) = frontier {
+                // lane wireflow (b): the frontier's facts (+ once the prefetch) within the FACTS BUDGET
+                let cap = pp
+                    .max_fact_keys_per_job
+                    .max(1)
+                    .min(fin.cfg.max_keys_per_job as usize);
+                let pairs_used = inp.issued_facts.len() as u64;
+                let (mut pf_f, mut pf_e) = (BTreeMap::new(), BTreeMap::new());
+                let mut pf_v = json!({"considered": false});
+                if fin.cfg.prefetch_outside && inp.issued_facts.is_empty() && !tier_c_now {
+                    // lane allnodes' PREFETCH, once before the node's first fact job: the keys-only superset's
+                    // rule-served keys outside the box (the walk's rows kept next to the round's rows)
+                    let sup_rows = inp.rows_path.with_extension("superset.jsonl");
+                    let opts_sup = CheckOptions {
+                        threads,
+                        tier: Some(Tier::K),
+                        max_rounds: None,
+                    };
+                    let sup = match &layer_plan {
+                        Some(lp) => super::layers::check_k(
+                            &set,
+                            &ev,
+                            &opts_sup,
+                            Some(sup_rows.as_path()),
+                            lp,
+                        )?,
+                        None => rustred_campaign_core::import::check::check_streamed(
+                            &set, &ev, &opts_sup, &sup_rows,
+                        )
+                        .map_err(|e| format!("prefetch superset: {e}"))?,
+                    };
+                    let sup_keys = sup.streamed.as_ref().map(|x| x.rows).unwrap_or(0);
+                    drop(sup);
+                    let (f, e) = super::frontier::outside_pairs(
+                        &set,
+                        &ev,
+                        &sup_rows,
+                        &inp.issued_facts,
+                        exact_eval,
+                    )?;
+                    pf_f = super::frontier::minus(&f, &missing_facts);
+                    pf_e = super::frontier::minus(&e, &missing_exact);
+                    pf_v = json!({"considered": true, "superset_keys": sup_keys,
+                        "outside_pairs": super::frontier::count(&pf_f) + super::frontier::count(&pf_e)});
+                }
+                let pf_n = super::frontier::count(&pf_f) + super::frontier::count(&pf_e);
+                let fb_without = fact_batches(&set, &missing_facts, &missing_exact, pp, cap);
+                let fb_with = if pf_n > 0 {
+                    fact_batches(
+                        &set,
+                        &super::frontier::union(&missing_facts, &pf_f),
+                        &super::frontier::union(&missing_exact, &pf_e),
+                        pp,
+                        cap,
+                    )
+                } else {
+                    fb_without.clone()
+                };
+                let pj = |b: &[ProofBatch]| {
+                    (b.iter().map(ProofBatch::keys).sum::<u64>(), b.len() as u64)
+                };
+                let (with, without) = (pj(&fb_with), pj(&fb_without));
+                frontier_wanted = without;
+                let fit = if with.0 == 0 {
+                    super::frontier::Fit::All
+                } else {
+                    super::frontier::fit(fin, pairs_used, with, without)
+                };
+                match fit {
+                    super::frontier::Fit::All => {
+                        pf_v["issued"] = json!(pf_n > 0);
+                        proof_batches.extend(fb_with);
+                    }
+                    super::frontier::Fit::FrontierOnly => {
+                        pf_v["issued"] = json!(false);
+                        pf_v["skipped"] = json!("facts budget");
+                        proof_batches.extend(fb_without);
+                    }
+                    super::frontier::Fit::Stop => {
+                        pf_v["issued"] = json!(false);
+                        facts_stop = Some(super::frontier::pairs_jsonl(
+                            &set,
+                            &missing_facts,
+                            &missing_exact,
+                        ));
                     }
                 }
-                if !cur.is_empty() {
-                    proof_batches.push(ProofBatch {
-                        kind: "facts".into(),
-                        reason: REASON_FACTS.into(),
-                        table,
-                        records: cur,
-                        relation_source: None,
-                    });
-                }
-            }
-            // lane closeloop3: the elided records' facts, exact evaluation (one `coefficient-facts` job per table
-            // and at most `exact_keys_per_job` (record, key) pairs)
-            if let Some(cap) = pp.exact_keys_per_job {
-                proof_batches.extend(exact_batches(&set, &missing_exact, cap.max(1)));
+                frontier_pf = pf_v;
+            } else {
+                let cap = pp.max_fact_keys_per_job.max(1);
+                proof_batches.extend(fact_batches(&set, &missing_facts, &missing_exact, pp, cap));
             }
         }
         // lane closeloop4: the second route of the facts to confirm (kept apart: reason second_route)
@@ -1666,6 +1738,65 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 "budget: {left} of {proof_wanted} wanted proof jobs issued (max_proof_jobs {}, {} issued before)",
                 inp.budgets.max_proof_jobs, inp.proof_jobs_issued
             ));
+        }
+    }
+    // lane wireflow (b), closeloop.md 26: the FACTS-BUDGET end (the frontier did not fit and nothing else is issued:
+    // typed, the frontier saved, no final verdict) and the round's frontier record
+    let facts_stop_now = facts_stop.is_some() && batches.is_empty() && proof_batches.is_empty();
+    let mut facts_budget_out: Option<(Value, Vec<u8>)> = None;
+    let mut frontier_v: Option<Value> = None;
+    if let Some(fin) = frontier {
+        let pairs_used = inp.issued_facts.len() as u64;
+        let fact_jobs: Vec<&ProofBatch> = proof_batches
+            .iter()
+            .filter(|b| b.reason == REASON_FACTS || b.reason == REASON_EXACT)
+            .collect();
+        let pairs_req: u64 = fact_jobs.iter().map(|b| b.keys()).sum();
+        let end = if tier_c_now {
+            "fixed_point"
+        } else if facts_stop_now {
+            "facts_budget"
+        } else if facts_stop.is_some() {
+            "facts_budget_deferred"
+        } else if pairs_req == 0 {
+            "stuck"
+        } else {
+            "continue"
+        };
+        match end {
+            "facts_budget" => blocking.push(format!(
+                "facts_budget: the frontier's {} pairs in {} jobs do not fit (max_pairs {}, {} used; max_jobs {}, {} used)",
+                frontier_wanted.0, frontier_wanted.1, fin.max_pairs, pairs_used, fin.max_jobs, fin.jobs_used
+            )),
+            "facts_budget_deferred" => blocking.push(format!(
+                "facts_budget_deferred: the frontier's {} pairs wait (other jobs run first)",
+                frontier_wanted.0
+            )),
+            "stuck" => blocking.push(format!(
+                "facts_frontier_stuck: {frontier_stops} frontier keys without a usable fact (asked before)"
+            )),
+            _ => {}
+        }
+        let res_f = res_k.as_ref();
+        frontier_v = Some(json!({"mode": "facts_from_the_frontier",
+            "closure_keys": keys_only_n, "frontier_keys": frontier_stops,
+            "frontier_pairs": frontier_wanted.0, "pairs_requested": pairs_req, "jobs": fact_jobs.len(),
+            "zero_terms_dropped": res_f.map(|r| r.summary.terms.dropped_zero).unwrap_or(0),
+            "prefetch": frontier_pf, "budget": fin.budget_json(pairs_used), "end": end}));
+        if let (true, Some(pairs)) = (facts_stop_now, facts_stop.take()) {
+            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+            h.update(&pairs);
+            let rec = super::frontier::budget_record(
+                &inp.node,
+                inp.round,
+                fin,
+                pairs_used,
+                frontier_wanted,
+                frontier_stops,
+                &frontier_v.as_ref().expect("frontier record")["prefetch"],
+                &h.finish_hex(),
+            );
+            facts_budget_out = Some((rec, pairs));
         }
     }
     let mut esc_wait: Option<Value> = None;
@@ -1833,6 +1964,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     });
     let mut check_v = check_v;
     check_v["escalation"] = esc_summary(esc_out.as_ref(), uncovered.len());
+    if let Some(v) = frontier_v {
+        check_v["frontier"] = v;
+    }
     // lane layers (closeloop.md 23): per layer frozen / walked, verdict, leaves met, relative to which leaf sets
     if let Some(lp) = &layer_plan {
         check_v["layers"] = super::layers::layers_json(lp, layer_walked.as_deref().unwrap_or(&[]));
@@ -1855,7 +1989,13 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // a terminal only by a decision (operator, or `auto` within `max_auto`); until then the node has no final verdict
     let mut terminal_proposals: Option<Value> = None;
     let mut terminal_decision: Option<TerminalDecision> = None;
-    if !closed && batches.is_empty() && proof_batches.is_empty() && !budget_stop && !progress {
+    if !closed
+        && batches.is_empty()
+        && proof_batches.is_empty()
+        && !budget_stop
+        && !progress
+        && !facts_stop_now
+    {
         let rejected: BTreeSet<Vec<i32>> = inp
             .terminal_decisions
             .iter()
@@ -1927,7 +2067,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     }
     let mut final_ = if terminal_proposals.is_some() || terminal_decision.is_some() {
         None
-    } else if closed || (batches.is_empty() && proof_batches.is_empty() && !progress) {
+    } else if closed
+        || (batches.is_empty() && proof_batches.is_empty() && !progress && !facts_stop_now)
+    {
         let verdict = if closed {
             "closed"
         } else if budget_stop {
@@ -2087,6 +2229,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         terminal_decision,
         pins,
         escalation: esc_out,
+        facts_budget: facts_budget_out,
     })
 }
 
@@ -2788,4 +2931,76 @@ mod big_node_pin_tests {
         assert!(e.starts_with(UNPINNED_BIG_NODE), "{e}");
         let _ = std::fs::remove_dir_all(&base);
     }
+}
+
+/// lane wireflow (b): the fact jobs of `missing_facts` (rr_proof, per table, at most `cap` keys and the proof's term
+/// cap per job) and of `missing_exact` (exact evaluation, when configured): the closing loop's fact batching as before,
+/// as a function (the frontier mode sizes its budget with it).
+fn fact_batches(
+    set: &ImportedSet,
+    missing_facts: &BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
+    missing_exact: &BTreeMap<(usize, usize), BTreeSet<Vec<i32>>>,
+    pp: &ProofPlan,
+    cap: usize,
+) -> Vec<ProofBatch> {
+    let mut proof_batches: Vec<ProofBatch> = vec![];
+    let mut by_table: BTreeMap<String, Vec<(RecordReq, u64)>> = BTreeMap::new();
+    for ((t, r), ks) in missing_facts {
+        let info = &set.rules[*t][*r];
+        by_table.entry(info.path.clone()).or_default().push((
+            RecordReq {
+                rule: info.index.unwrap_or(info.label),
+                offset: info.offset,
+                record_sha256: info.record_sha256.clone(),
+                keys: ks.iter().cloned().collect(),
+                ..Default::default()
+            },
+            (set.bodies.n_terms(*t, *r) as u64).max(1),
+        ));
+    }
+    // lane t266run: a term cap too (keys x the record's term count), at least one key per job
+    let tcap = pp.max_fact_terms_per_job.unwrap_or(u64::MAX).max(1);
+    for (table, recs) in by_table {
+        let mut cur: Vec<RecordReq> = vec![];
+        let mut n = 0usize;
+        let mut nt = 0u64;
+        for (rr, terms) in recs {
+            let per = ((tcap / terms) as usize).clamp(1, cap);
+            for chunk in rr.keys.chunks(per) {
+                let ct = chunk.len() as u64 * terms;
+                if (n + chunk.len() > cap || nt.saturating_add(ct) > tcap) && !cur.is_empty() {
+                    proof_batches.push(ProofBatch {
+                        kind: "facts".into(),
+                        reason: REASON_FACTS.into(),
+                        table: table.clone(),
+                        records: std::mem::take(&mut cur),
+                        relation_source: None,
+                    });
+                    n = 0;
+                    nt = 0;
+                }
+                n += chunk.len();
+                nt = nt.saturating_add(ct);
+                cur.push(RecordReq {
+                    keys: chunk.to_vec(),
+                    ..rr.clone()
+                });
+            }
+        }
+        if !cur.is_empty() {
+            proof_batches.push(ProofBatch {
+                kind: "facts".into(),
+                reason: REASON_FACTS.into(),
+                table,
+                records: cur,
+                relation_source: None,
+            });
+        }
+    }
+    // lane closeloop3: the elided records' facts, exact evaluation (one `coefficient-facts` job per table
+    // and at most `exact_keys_per_job` (record, key) pairs)
+    if let Some(cap) = pp.exact_keys_per_job {
+        proof_batches.extend(exact_batches(set, missing_exact, cap.max(1)));
+    }
+    proof_batches
 }

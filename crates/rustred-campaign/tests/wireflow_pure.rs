@@ -1,6 +1,7 @@
-//! Lane wireflow (closeloop.md 25, item h): pure tests (no process). The node settings `ship_gate` and `pole_profiles`
-//! are omitted from the node's serialisation at their defaults (config digests unchanged), parse and validate; the
-//! closing loop's choice annotation takes the engine's per-key pole order when `pole_profiles` is on.
+//! Lane wireflow (closeloop.md 25 / 26, items h, b): pure tests (no process). The node settings `ship_gate`,
+//! `pole_profiles` and `facts_frontier` are omitted from the node's serialisation at their defaults (config digests
+//! unchanged), parse and validate; the closing loop's choice annotation takes the engine's per-key pole order when
+//! `pole_profiles` is on.
 
 use rustred_campaign::closeloop::accept::solved_choice;
 use rustred_campaign::closeloop::config::CloseLoopConfig;
@@ -46,4 +47,51 @@ fn the_choice_uses_the_engine_pole_order_when_given() {
     assert_ne!(none, reg, "{none} vs {reg}");
     assert_ne!(reg, sing, "{reg} vs {sing}");
     assert!(none.to_string().contains("none"), "{none}");
+}
+
+#[test]
+fn facts_frontier_is_omitted_when_absent_and_validated_when_given() {
+    let d = CloseLoopConfig::from_json(&cfg("")).unwrap();
+    assert!(d.nodes[0].facts_frontier.is_none());
+    assert!(
+        !serde_json::to_string(&d.nodes[0])
+            .unwrap()
+            .contains("facts_frontier")
+    );
+    let proof = r#","exact_tier":true,"proof":{"program":"rr_proof","family":"/f"}"#;
+    let on = CloseLoopConfig::from_json(&cfg(&format!(
+        r#"{proof},"facts_frontier":{{"max_pairs":100000,"max_jobs":40}}"#
+    )))
+    .unwrap();
+    let f = on.nodes[0].facts_frontier.as_ref().unwrap();
+    assert_eq!(
+        (
+            f.max_pairs,
+            f.max_jobs,
+            f.max_keys_per_job,
+            f.prefetch_outside
+        ),
+        (100000, 40, 500000, true)
+    );
+    // without the exact tier, with too large chunks, with a misspelt field, against keys_only_first false: refused
+    assert!(
+        CloseLoopConfig::from_json(&cfg(r#","facts_frontier":{"max_pairs":1,"max_jobs":1}"#))
+            .is_err()
+    );
+    assert!(
+        CloseLoopConfig::from_json(&cfg(&format!(
+            r#"{proof},"facts_frontier":{{"max_pairs":1,"max_jobs":1,"max_keys_per_job":500001}}"#
+        )))
+        .is_err()
+    );
+    assert!(
+        CloseLoopConfig::from_json(&cfg(&format!(
+            r#"{proof},"facts_frontier":{{"max_pairs":1,"max_jobs":1,"prefetch":false}}"#
+        )))
+        .is_err()
+    );
+    assert!(CloseLoopConfig::from_json(&cfg(&format!(
+        r#"{proof},"scale":{{"keys_only_first":false}},"facts_frontier":{{"max_pairs":1,"max_jobs":1}}"#
+    )))
+    .is_err());
 }

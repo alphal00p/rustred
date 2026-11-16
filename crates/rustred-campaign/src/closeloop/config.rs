@@ -232,6 +232,10 @@ pub struct NodeCfg {
     /// decided per key on the DELIVERED relation, item 17). Default false = "no profile" (annotation as before).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub pole_profiles: bool,
+    /// lane wireflow (b), closeloop.md 26: FACTS FROM THE FRONTIER with the node's FACTS BUDGET (exact tier only).
+    /// Absent (default) = the keys-only first pass as before (omitted from any serialisation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facts_frontier: Option<super::frontier::FrontierCfg>,
     /// lane closeloop4 (closeloop.md 19): which terminals are terminals (default: only the declared ones).
     #[serde(default)]
     pub terminals: TerminalsCfg,
@@ -807,6 +811,23 @@ impl CloseLoopConfig {
                     "node {}: ship_gate.mode {:?} unknown (off | report | enforce)",
                     n.node, n.ship_gate.mode
                 ));
+            }
+            // lane wireflow (b): the frontier mode asks facts, so it needs the exact tier with fact jobs; it replaces the
+            // keys-only first pass (`scale.keys_only_first: false` contradicts it)
+            if let Some(fr) = &n.facts_frontier {
+                fr.validate(&n.node)?;
+                if !n.exact_tier || !n.proof.as_ref().is_some_and(|p| p.facts) {
+                    return Err(format!(
+                        "node {}: facts_frontier needs exact_tier with proof.facts",
+                        n.node
+                    ));
+                }
+                if n.scale.as_ref().is_some_and(|s| !s.keys_only_first) {
+                    return Err(format!(
+                        "node {}: facts_frontier replaces the keys-only first pass: scale.keys_only_first false contradicts it",
+                        n.node
+                    ));
+                }
             }
             if n.solve.max_keys_per_job == 0 || n.solve.threads == 0 || n.check_threads == 0 {
                 return Err(format!(
