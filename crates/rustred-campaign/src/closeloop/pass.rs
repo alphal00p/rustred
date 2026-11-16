@@ -596,9 +596,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         let elided = set
             .find_sha(sha)
             .is_some_and(|(t, r)| set.rules[t][r].witness == WitnessKind::Elided);
-        if c.agree() {
+        // lane zerosfix3: only an INDEPENDENT agreement confirms; a disagreement always disputes; an agreement of two
+        // dependent / unknown producers does neither (status `not_independent`, blocking)
+        if c.confirms() {
             ev.confirm_basis(sha, key, zeros::confirmed_basis(c.first, elided));
-        } else {
+        } else if !c.agree() {
             ev.dispute(sha, key);
         }
         second.compared.insert((sha.clone(), key.clone()), c);
@@ -626,15 +628,20 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         let Some((zt, zr)) = set.find_sha(&sha) else {
             continue;
         };
+        // lane zerosfix3: the PRODUCER (memory and stores alike), never a confirmed basis word
         let first = ev
-            .fact_basis(&zeros::rule_id(&set, zt, zr), &key)
+            .fact_producer(&zeros::rule_id(&set, zt, zr), &key)
             .unwrap_or("none");
         let Some(c) = zeros::compare_zeros(&set, &ev, &zans, &sha, &key) else {
             continue;
         };
         if !c.differ.is_empty() {
             ev.dispute(&sha, &key);
-        } else if c.agree() && c.first_zero > 0 {
+        } else if c.agree()
+            && c.first_zero > 0
+            && zeros::zero_route_of(first) == zeros::ZeroRoute::Zeros
+        {
+            // (the zeros route confirms only a producer it is independent of: never exact_eval, never an unknown word)
             ev.confirm_basis(&sha, &key, zeros::zeros_basis(first, &c));
         }
         zcmp.insert((sha, key), (first, c));
@@ -752,7 +759,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             &ev,
             &krows,
             &inp.issued_facts,
+            exact_eval,
             &mut missing_facts,
+            &mut missing_exact,
             &mut elided_no_facts,
         )?;
     } else if inp.exact_tier {
@@ -872,6 +881,10 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         .or(res_k.as_ref())
         .ok_or("no check result")?;
     let required = inp.required.unwrap_or(res.required);
+    // lane zerosfix3 (audit-r2-zeros F8): the decided check DROPPED coefficient-fact zeros whenever it ran at Tier C: the
+    // exact tier reached, or (`exact_tier: false`) the spec's own policy tier C. Every second route (decisive, elided,
+    // all zeros) and the descent scan run on it; before, `exact_tier: false` skipped them all and closed on one route.
+    let second_route_on = tier_c_now || (!inp.exact_tier && res.tier == Tier::C);
     let (strict, strict_why) = strictness(&set);
     let diagnostic = res.summary.diagnostic || res.summary.verdict == Verdict::Diagnostic;
     let tier_c = res.tier == Tier::C;
@@ -972,7 +985,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // standing DESCENT gate (every followed edge strictly lower under the node's FULL comparator; the closure's own
     // Tarjan pass for cycles): `closed` needs non_descending_edges == 0 and cycles == 0
     let mut zeros_missing: zeros::ZerosMissing = BTreeMap::new();
-    let scan_all = if tier_c_now {
+    let scan_all = if second_route_on {
         Some(match &layer_walked {
             // lane layers: the walked layers' own scans (frozen layers are never scanned again); int7: each layer's
             // scan collects its zero pairs as well (zeros2's all_zeros route covers every walked layer)
@@ -1016,7 +1029,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "non_descending_list": bad.into_iter().take(1000).collect::<Vec<_>>()});
     }
     let zeros_disputed = zcmp.values().filter(|(_, c)| !c.differ.is_empty()).count() as u64;
-    if tier_c_now && (inp.second_route.decisive_zeros || inp.second_route.elided || zeros_on) {
+    if second_route_on && (inp.second_route.decisive_zeros || inp.second_route.elided || zeros_on) {
         let mut scan = scan_all.clone().unwrap_or_default();
         if !inp.second_route.decisive_zeros {
             scan.decisive.clear();
@@ -1052,6 +1065,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         type ZPair = (usize, usize, Vec<i32>, Vec<u32>);
         let mut zpairs: Vec<ZPair> = vec![];
         let mut zeros_same_backend = 0u64;
+        let (mut zeros_compared_by_route1, mut zeros_basis_unknown) = (0u64, 0u64);
         if zeros_on {
             let mut seen: HashSet<(usize, usize, Vec<i32>)> = HashSet::new();
             for zp in std::mem::take(&mut scan.zero_pairs) {
@@ -1059,16 +1073,35 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                     continue;
                 }
                 let sha = set.rules[zp.table][zp.record].record_sha256.clone();
-                if pairs.contains_key(&(sha.clone(), zp.applied.clone())) {
+                let id = (sha, zp.applied);
+                if pairs.contains_key(&id) {
                     continue;
                 }
-                let first = ev.fact_basis(&zeros::rule_id(&set, zp.table, zp.record), &zp.applied);
-                if first == Some("exact_eval") {
-                    zeros_same_backend += 1;
-                    pairs.insert((sha, zp.applied), (zp.table, zp.record, false, true));
+                // lane zerosfix3: a pair closeloop4's route compared term by term already (decisive / elided in an
+                // earlier pass) keeps THAT comparison as its second route (the zeros route skips it, closeloop.md 23.3)
+                if second.compared.contains_key(&id) {
+                    zeros_compared_by_route1 += 1;
+                    pairs.insert(id, (zp.table, zp.record, false, false));
                     continue;
                 }
-                zpairs.push((zp.table, zp.record, zp.applied, zp.terms));
+                // lane zerosfix3: routed by the fact's PRODUCER (memory and evidence stores alike)
+                let first = ev
+                    .fact_producer(&zeros::rule_id(&set, zp.table, zp.record), &id.1)
+                    .unwrap_or("none");
+                match zeros::zero_route_of(first) {
+                    zeros::ZeroRoute::Compare => {
+                        zeros_same_backend += 1;
+                        pairs.insert(id, (zp.table, zp.record, false, true));
+                    }
+                    zeros::ZeroRoute::Zeros => {
+                        zpairs.push((zp.table, zp.record, id.1, zp.terms));
+                    }
+                    // no route knows the word: the status table below blocks the pair (`basis_unknown`)
+                    zeros::ZeroRoute::Unknown => {
+                        zeros_basis_unknown += 1;
+                        pairs.insert(id, (zp.table, zp.record, false, false));
+                    }
+                }
             }
         }
         let rr_proof_ok = inp.proof.as_ref().is_some_and(|p| p.facts);
@@ -1084,29 +1117,43 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             mut unavailable,
             mut no_first,
         ) = (0u64, 0u64, 0u64, 0u64, 0u64, 0u64);
+        // lane zerosfix3: agreement of dependent producers; first-route words no route knows (by word)
+        let mut not_independent = 0u64;
+        let mut basis_unknown: BTreeMap<&'static str, u64> = BTreeMap::new();
         let mut status_of: BTreeMap<(String, Vec<i32>), &'static str> = BTreeMap::new();
         for ((sha, key), (t, r, dec, _)) in &pairs {
             let st = if let Some(c) = second.compared.get(&(sha.clone(), key.clone())) {
-                if c.agree() {
+                if !c.agree() {
+                    disagree += 1;
+                    "disagreement"
+                } else if c.confirms() {
                     confirmed += 1;
                     "confirmed"
                 } else {
-                    disagree += 1;
-                    "disagreement"
+                    not_independent += 1;
+                    "not_independent"
                 }
             } else {
                 let rid = zeros::rule_id(&set, *t, *r);
-                let first = ev.fact_basis(&rid, key);
-                match first.and_then(zeros::second_route_of) {
-                    // no fact bound: no zero was used at this pair (its terms are edges); a DECISIVE zero always
-                    // has one, so this is only an elided pair whose first route did not run (nothing to confirm)
+                // lane zerosfix3: the PRODUCER (memory and evidence stores alike), never a confirmed basis word
+                let first = ev.fact_producer(&rid, key);
+                match first.map(|w| (w, zeros::second_route_of(w))) {
+                    // no fact bound: no zero was used at this pair (every term is Unknown = an edge, the closure
+                    // drops nothing here); a DECISIVE zero always has one (blocks if not: first_fact_missing)
                     None => {
                         if *dec {
                             no_first += 1;
                         }
                         "no_fact"
                     }
-                    Some(route) => {
+                    // lane zerosfix3 (audit-r2-zeros F6): a fact whose producer no route knows (`store` of a pre-v3
+                    // store, `unknown_producer`, ...) BLOCKS, decisive and elided alike: never "unconfirmed, not
+                    // blocking"
+                    Some((w, None)) => {
+                        *basis_unknown.entry(w).or_default() += 1;
+                        "basis_unknown"
+                    }
+                    Some((_, Some(route))) => {
                         if inp.issued_facts2.contains(&(sha.clone(), key.clone())) {
                             unanswered += 1;
                             "unanswered"
@@ -1134,7 +1181,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             let c = second.compared.get(&id);
             let first = c
                 .map(|c| c.first)
-                .or_else(|| ev.fact_basis(&zeros::rule_id(&set, z.table, z.record), &z.applied))
+                .or_else(|| ev.fact_producer(&zeros::rule_id(&set, z.table, z.record), &z.applied))
                 .unwrap_or("none");
             decisive_lines.push(zeros::decisive_line(
                 &set,
@@ -1158,7 +1205,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             z_terms += terms.len() as u64;
             let id = (set.rules[*zt][*zr].record_sha256.clone(), applied.clone());
             match zcmp.get(&id) {
-                Some((_, c)) if c.agree() => {
+                // (zpairs hold only zeros-routed producers; the guard repeats it: the zeros route confirms nothing else)
+                Some((f, c)) if c.agree() && zeros::zero_route_of(f) == zeros::ZeroRoute::Zeros => {
                     z_conf += 1;
                     z_conf_terms += c.first_zero;
                     z_struct += c.by_structural;
@@ -1222,6 +1270,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "disagreements": zeros_disputed, "pending": z_pending, "unanswered": z_unanswered,
             "incomplete": z_incomplete, "unavailable": z_unavailable, "unbound": zans.unbound.len(),
             "same_backend_to_rr_proof": zeros_same_backend,
+            "compared_by_route1": zeros_compared_by_route1, "basis_unknown": zeros_basis_unknown,
             "proofs": {"lines": zs.lines, "proved": zs.proved, "nowhere_zero": zs.proved_nowhere_zero,
                        "not_proved": zs.not_proved, "excluded": zs.excluded, "records": zs.records,
                        "foreign": zs.foreign, "tools": zs.tools},
@@ -1244,6 +1293,13 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         if no_first > 0 {
             blocking.push(format!("second_route_first_fact_missing:{no_first}"));
         }
+        let n_basis_unknown: u64 = basis_unknown.values().sum();
+        if n_basis_unknown > 0 {
+            blocking.push(format!("second_route_basis_unknown:{n_basis_unknown}"));
+        }
+        if not_independent > 0 {
+            blocking.push(format!("second_route_not_independent:{not_independent}"));
+        }
         let by_kind = scan.decisive.iter().fold(BTreeMap::new(), |mut m, z| {
             *m.entry(z.kind).or_insert(0u64) += 1;
             m
@@ -1255,6 +1311,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "decisive_pairs": decisive_pairs, "elided_pairs": elided_pairs, "pairs": pairs.len(),
             "confirmed": confirmed, "disagreements": disputed_all, "pending": pending, "unanswered": unanswered,
             "unavailable": unavailable, "first_route_missing": no_first,
+            "basis_unknown": n_basis_unknown, "basis_unknown_words": basis_unknown,
+            "not_independent": not_independent,
             "zero_terms": {"top": scan.zero_top, "positive_numerator": scan.zero_positive_numerator,
                            "other": scan.zero_other},
             "keys_scanned": scan.keys_scanned, "scan_s": scan.seconds, "compare_s": second.seconds,
@@ -1268,6 +1326,12 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let contradicted = ev.conflicts_used();
     if !contradicted.is_empty() {
         blocking.push(format!("contradicting_proofs:{}", contradicted.len()));
+    }
+    // lane zerosfix3: two evidence stores state different facts for one (record, key) (memory mode refuses such
+    // files at load): the pair's fact was unusable (every answer unknown) and the node is blocked by name
+    let fact_conflicts = ev.fact_conflicts_used();
+    if !fact_conflicts.is_empty() {
+        blocking.push(format!("contradicting_facts:{}", fact_conflicts.len()));
     }
     let closed = certified == keys && blocking.is_empty();
     // a verdict blocker without a per-key count counts as one defect (the node machine needs defect > 0 to end)
@@ -1708,6 +1772,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "schema": CHECK_SCHEMA, "node": inp.node, "round": inp.round, "target": inp.target,
         "spec_digest": res.spec_digest, "key_set_digest": res.key_set_digest,
         "tier": format!("{:?}", res.tier), "exact_tier": {"wanted": inp.exact_tier, "reached": tier_c_now,
+            "second_routes_run": second_route_on,
             "facts_missing_keys": n_missing, "keys_only_closure": keys_only_n,
             "facts_unavailable_elided_keys": elided_no_facts,
             "exact_eval": exact_eval,
@@ -1725,6 +1790,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         "relations": {"records": rels.len(), "proved": proved.len(), "proof_verdicts": relation_proof_status},
         "evidence_import": serde_json::to_value(&ev.counts).unwrap_or(Value::Null),
         "contradicting_proofs": contradicted.iter().take(50)
+            .map(|(sha, k)| json!({"record_sha256": sha, "key": k})).collect::<Vec<_>>(),
+        "contradicting_facts": fact_conflicts.iter().take(50)
             .map(|(sha, k)| json!({"record_sha256": sha, "key": k})).collect::<Vec<_>>(),
         "requests": {"solve": res.solve_requests.len(), "solve_new": new_reqs.len(),
                      "solve_by_source": solve_by_source, "fact_records": res.fact_requests.len(),

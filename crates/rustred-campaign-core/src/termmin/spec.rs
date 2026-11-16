@@ -162,6 +162,11 @@ pub struct TermminSpec {
     /// solve configuration runs the fake child; a real engine never sees them).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fake_quirks: Vec<String>,
+    /// The objective of the `choice` annotation of an elimination ([`crate::poles::PoleObjective::setting`]: absent =
+    /// default, `"none"` = no annotation, an object = its measures / guard; audit r2-poles F4). Omitted from the
+    /// canonical spec when absent (digests unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_objective: Option<Value>,
 }
 
 impl Default for TermminSpec {
@@ -180,6 +185,7 @@ impl Default for TermminSpec {
             nodes: BTreeMap::new(),
             mixed_shell: MixedShell::default(),
             fake_quirks: vec![],
+            pole_objective: None,
         }
     }
 }
@@ -233,10 +239,17 @@ impl TermminSpec {
             ));
         }
         self.steps()?;
+        self.objective_setting()?;
         for n in self.nodes.keys() {
             self.for_node(n)?;
         }
         Ok(())
+    }
+
+    /// The pole objective of the elimination's `choice` annotation (`None` = off: no annotation).
+    pub fn objective_setting(&self) -> Result<Option<crate::poles::PoleObjective>, String> {
+        crate::poles::PoleObjective::setting(self.pole_objective.as_ref())
+            .map_err(|e| format!("termmin spec: {e}"))
     }
 
     /// The parsed escalation sequence.
@@ -302,6 +315,7 @@ impl TermminSpec {
             ));
         }
         s.steps()?;
+        s.objective_setting()?;
         Ok(s)
     }
 

@@ -5,9 +5,14 @@
 //! its CPUs, at most `threads_per_job` (<= 4) threads per child. Every settled trial is appended to `journal.jsonl`
 //! (digest -> answers): a restarted run replays it (resume). Run directories are removed after settling unless
 //! `keep_run_dirs`. A relation is answered `Relation` only when the adapter ACCEPTED its record (contract checks, SOLVED,
-//! exact proof ok, bound to the request); its pole order comes from the configured [`RelationPoles`] judge BEFORE the
-//! answer is journaled. Fake mode: a data oracle writes the fake child's script per job. Run inside a private pid
-//! namespace (L10). Generic: node, paths, order, chart and CPUs are configuration.
+//! exact proof ok, bound to the request); its pole order comes from the configured [`RelationPoles`] judge, and the
+//! orders that judge leaves undecided from ONE `pole-regular-at` job per batch, only when the minimiser's
+//! `pole_objective` is on. CLOSE FIRST (lane polefix, audit r2-poles F10): a settled, decided trial is journaled AT
+//! ONCE, before any pole job; the records still waiting for a pole order go to `poles_pending.jsonl`, the job's orders
+//! are journaled as a later line of the same trial (the last line wins), and a resumed run asks the job again for the
+//! orders still undecided (same answers as an uninterrupted run; the solve is never repeated). Fake mode: a data oracle
+//! writes the fake child's script per job. Run inside a private pid namespace (L10). Generic: node, paths, order, chart
+//! and CPUs are configuration.
 
 use crate::adapters::job::{InputFile, JobAdapter, Program, RunOptions, run_attempt};
 use crate::adapters::poleat::{PoleAdapter, PoleRequest};
@@ -127,6 +132,9 @@ pub struct ChildConfig {
     /// coreseed's PolesCfg: program rr_poles, Invocation::Legacy) per batch, through the process layer; None = they stay
     /// undecided (the policy's on_undecided_regularity decides).
     pub poles: Option<crate::closeloop::coreseed::PolesCfg>,
+    /// The minimiser policy's `pole_objective` (`on` | `off`, lane polefix F10): `off` = NO pole job at all (the
+    /// in-process judge's verdicts are recorded as they are; the minimiser does not read them).
+    pub pole_objective: String,
     pub verbose: bool,
     /// planfix (audit r2-planners ITEM 6): the children's site policy (thread cap, heartbeat, stop grace).
     pub site: crate::closeloop::coreseed::ChildSitePolicy,
@@ -155,8 +163,20 @@ pub struct ChildTrialSolver {
     caps: EngineCaps,
     journal: BTreeMap<String, Vec<TrialAnswer>>,
     journal_path: PathBuf,
+    /// Journaled trials whose relations still wait for a pole order (digest -> (answer index, key, record)), from
+    /// `poles_pending.jsonl` (resume) or this run.
+    poles_pending: BTreeMap<String, Vec<(usize, Key, Value)>>,
     seen_records: BTreeSet<String>,
     pub stats: Stats,
+}
+
+/// One line of `poles_pending.jsonl`: a journaled relation without its pole order yet.
+#[derive(Serialize, Deserialize)]
+struct PendingLine {
+    digest: String,
+    index: usize,
+    key: Key,
+    record: Value,
 }
 
 enum Raw {
@@ -243,6 +263,30 @@ impl ChildTrialSolver {
                 }
             }
         }
+        if !matches!(cfg.pole_objective.as_str(), "on" | "off") {
+            return Err(format!(
+                "pole_objective {:?} (on | off)",
+                cfg.pole_objective
+            ));
+        }
+        // relations journaled before their pole order came back (an interrupted pole job): asked again on first use
+        let mut poles_pending: BTreeMap<String, Vec<(usize, Key, Value)>> = BTreeMap::new();
+        if let Ok(t) = std::fs::read_to_string(cfg.work_root.join("poles_pending.jsonl")) {
+            for l in t.lines() {
+                // a torn last line (a crash while writing) is ignored: that order stays undecided
+                let Ok(p) = serde_json::from_str::<PendingLine>(l) else {
+                    continue;
+                };
+                let waiting = journal.get(&p.digest).is_some_and(|a: &Vec<TrialAnswer>| {
+                    matches!(a.get(p.index), Some(TrialAnswer::Relation(f)) if f.pole == PoleOrder::Undecided)
+                });
+                let e = poles_pending.entry(p.digest.clone()).or_default();
+                if waiting && !e.iter().any(|x| x.0 == p.index) {
+                    e.push((p.index, p.key, p.record));
+                }
+            }
+            poles_pending.retain(|_, v| !v.is_empty());
+        }
         Ok(ChildTrialSolver {
             cfg,
             sampler,
@@ -250,9 +294,27 @@ impl ChildTrialSolver {
             caps,
             journal,
             journal_path,
+            poles_pending,
             seen_records: BTreeSet::new(),
             stats: Stats::default(),
         })
+    }
+
+    /// True iff undecided pole orders are asked from a `pole-regular-at` job (configured AND the objective is on).
+    fn pole_job_wanted(&self) -> bool {
+        self.cfg.poles.is_some() && self.cfg.pole_objective == "on"
+    }
+
+    fn append_pending(&self, p: &PendingLine) -> Result<(), String> {
+        let path = self.cfg.work_root.join("poles_pending.jsonl");
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut s = serde_json::to_string(p).map_err(|e| e.to_string())?;
+        s.push('\n');
+        f.write_all(s.as_bytes()).map_err(|e| e.to_string())
     }
 
     pub fn journal_len(&self) -> usize {
@@ -538,11 +600,14 @@ impl ChildTrialSolver {
             return none();
         };
         self.stats.pole_jobs += 1;
-        let work = self
-            .cfg
-            .work_root
-            .join("poles")
-            .join(format!("{:06}", self.stats.pole_jobs));
+        // a fresh directory per job: the counter restarts with every solver (resume), so the next FREE number is taken
+        // (an earlier run's job directory, e.g. of an interrupted or failed pole job, is never reused)
+        let base = self.cfg.work_root.join("poles");
+        let mut n = self.stats.pole_jobs;
+        while base.join(format!("{n:06}")).exists() {
+            n += 1;
+        }
+        let work = base.join(format!("{n:06}"));
         let opts = RunOptions {
             cpus: vec![],
             memory_cap_bytes: Some(pc.cap_bytes),
@@ -711,8 +776,9 @@ impl TrialSolver for ChildTrialSolver {
                     let mut v = vec![];
                     for (ki, (raw, k)) in raws.into_iter().zip(&t.keys).enumerate() {
                         let (a, rec) = self.answer_and_record(raw, k, &t.centre);
+                        // F10: no pole job when the objective is off
                         if let Some(r) = rec
-                            && self.cfg.poles.is_some()
+                            && self.pole_job_wanted()
                         {
                             pending.push((d.idx, ki, k.clone(), r));
                         }
@@ -730,42 +796,71 @@ impl TrialSolver for ChildTrialSolver {
                 d.cpu_s,
                 d.wall_s
             ));
-            let waits_for_poles = pending.iter().any(|p| p.0 == d.idx);
-            if answers.iter().all(decided) && !waits_for_poles {
+            // CLOSE FIRST (F10): a decided trial is journaled when it is SOLVED, before any pole job; the records that
+            // wait for a pole order are kept beside it (a resumed run asks again, never solves again)
+            if answers.iter().all(decided) {
                 let line = JournalLine {
                     digest: digests[d.idx].clone(),
                     label: t.label.clone(),
                     answers: answers.clone(),
                 };
                 self.append_journal(&line)?;
+                for p in pending.iter().filter(|p| p.0 == d.idx) {
+                    self.append_pending(&PendingLine {
+                        digest: digests[d.idx].clone(),
+                        index: p.1,
+                        key: p.2.clone(),
+                        record: p.3.clone(),
+                    })?;
+                }
             }
             transient.insert(digests[d.idx].clone(), answers.clone());
             self.journal.insert(digests[d.idx].clone(), answers);
         }
-        // the pole orders the in-process judge left undecided: ONE pole-regular-at job, then the waiting trials are
-        // journaled (a job that answered nothing leaves them undecided and unjournaled: a resumed run asks again)
+        // journaled trials of this call still waiting for a pole order (an interrupted pole job of an earlier run)
+        if self.pole_job_wanted() {
+            for (i, dg) in digests.iter().enumerate() {
+                if digests[..i].contains(dg) {
+                    continue;
+                }
+                if let Some(w) = self.poles_pending.remove(dg) {
+                    for (ki, k, r) in w {
+                        pending.push((i, ki, k, r));
+                    }
+                }
+            }
+        }
+        // the pole orders the in-process judge left undecided: ONE pole-regular-at job; every trial that got an order
+        // is journaled AGAIN with it (a later line of the same digest: the last line wins on resume); orders the job
+        // did not give stay undecided and pending (a resumed run asks again)
         if !pending.is_empty() {
             let pairs: Vec<(Key, Value)> =
                 pending.iter().map(|p| (p.2.clone(), p.3.clone())).collect();
             let got = self.pole_job(&pairs);
-            let answered = got.iter().all(Option::is_some);
-            for ((ti, ki, _, _), g) in pending.iter().zip(&got) {
-                if let (Some(o), Some(ans)) = (g, self.journal.get_mut(&digests[*ti]))
-                    && let TrialAnswer::Relation(f) = &mut ans[*ki]
-                {
-                    f.pole = *o;
+            let mut updated: BTreeSet<usize> = BTreeSet::new();
+            for ((ti, ki, k, r), g) in pending.iter().zip(&got) {
+                match (g, self.journal.get_mut(&digests[*ti])) {
+                    (Some(o), Some(ans)) => {
+                        if let TrialAnswer::Relation(f) = &mut ans[*ki] {
+                            f.pole = *o;
+                            updated.insert(*ti);
+                        }
+                    }
+                    _ => {
+                        // not answered: kept for a later call or a resumed run
+                        self.poles_pending
+                            .entry(digests[*ti].clone())
+                            .or_default()
+                            .push((*ki, k.clone(), r.clone()));
+                    }
                 }
             }
-            let mut done: BTreeSet<usize> = BTreeSet::new();
-            for (ti, _, _, _) in &pending {
-                if !answered || !done.insert(*ti) {
-                    continue;
-                }
-                let answers = self.journal[&digests[*ti]].clone();
+            for ti in updated {
+                let answers = self.journal[&digests[ti]].clone();
                 if answers.iter().all(decided) {
                     let line = JournalLine {
-                        digest: digests[*ti].clone(),
-                        label: trials[*ti].label.clone(),
+                        digest: digests[ti].clone(),
+                        label: trials[ti].label.clone(),
                         answers,
                     };
                     self.append_journal(&line)?;

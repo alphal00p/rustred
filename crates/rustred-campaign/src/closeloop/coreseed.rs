@@ -286,6 +286,7 @@ impl<'a> ChildSolver<'a> {
             order: cfg.order.clone(),
             max_trace_rows: cfg.max_trace_rows,
             key_budget_s: cfg.key_budget_s,
+            pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
         };
         let session = format!(
             "s{}",
@@ -971,6 +972,20 @@ impl CoreSolver for ChildSolver<'_> {
                        "requests_solved": self.requests_solved});
         self.append("progress.jsonl", &v);
         self.say(&format!("phase {phase}: {partial}"));
+    }
+
+    /// Lane polefix (audit r2-poles F2): the close-first report is written atomically next to the journal
+    /// (`core.close_first.json`) the moment the core hands it over, before any variant or list request: an interrupted
+    /// or budgeted later phase loses nothing of it (a restart replays the journal and writes the same bytes).
+    fn publish(&mut self, report: &rustred_campaign_core::coreseed::CoreReport) {
+        let path = self.side_file("core.close_first.json");
+        match crate::atomic::write_json_atomic(&path, report) {
+            Ok(()) => self.say(&format!("close-first report published: {}", path.display())),
+            Err(e) => {
+                let v = json!({"publish_error": e.to_string(), "utc": utc_now()});
+                self.append("progress.jsonl", &v);
+            }
+        }
     }
 }
 

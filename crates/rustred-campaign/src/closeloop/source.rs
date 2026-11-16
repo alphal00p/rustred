@@ -2037,6 +2037,8 @@ impl CloseFromMaterialSource {
                 .unwrap_or_default(),
             max_trace_rows: r.cfg.solve.max_trace_rows,
             key_budget_s: r.cfg.solve.key_budget_s,
+            // lane polefix (F4): the node's setting (validated with the config)
+            pole_objective: r.cfg.pole_objective_setting().unwrap_or_default(),
         };
         let d = decide(&ctx, &done.canonical_lines)?;
         if let (None, Some(e)) = (self.nodes[i].pins.get(&b.source), &d.engine_digest)

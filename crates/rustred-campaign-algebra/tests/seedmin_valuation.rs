@@ -39,7 +39,10 @@ fn the_real_valuation_and_the_temporary_judge_agree_on_engine_coefficient_texts(
         (vec![("I(1,1,0)", "(8-3*d)/(-14+6*d)")], 0),
         (vec![("I(1,1,0)", "(8-3*d)/(-8+2*d)"), ("I(1,0,0)", "2")], 1),
         (
-            vec![("I(1,1,0)", "1/(d-4)^2"), ("I(1,0,0)", "(d-4)/(d-1)")],
+            vec![
+                ("I(1,1,0)", "(1)/(16-8*d+d^2)"),
+                ("I(1,0,0)", "(d-4)/(d-1)"),
+            ],
             2,
         ),
         (vec![("I(1,1,0)", "(d-4)/((d-4)^3*(d-1))")], 2),
@@ -53,6 +56,20 @@ fn the_real_valuation_and_the_temporary_judge_agree_on_engine_coefficient_texts(
         assert_eq!(a, PoleOrder::Order { order: want }, "{rhs:?}");
         assert_eq!(a, b, "{rhs:?}");
     }
+    // lane polefix (audit r2-poles F5): outside the ENGINE's printed form the text judge answers undecided (sound),
+    // never a guess; the exact judge still reads it
+    let hand = rec(
+        &key,
+        &[("I(1,1,0)", "1/(d-4)^2"), ("I(1,0,0)", "(d-4)/(d-1)")],
+    );
+    assert_eq!(
+        PolesJudge.pole_order_of(&hand, &[2, 1, 0], "4"),
+        PoleOrder::Order { order: 2 }
+    );
+    assert_eq!(
+        LocalValuationJudge.pole_order_of(&hand, &[2, 1, 0], "4"),
+        PoleOrder::Undecided
+    );
 }
 
 #[test]
