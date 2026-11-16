@@ -534,6 +534,45 @@ fn merge_into(
     Ok(())
 }
 
+/// The entries of an accumulator map sorted by key, with a memory peak of max(map, vector) instead of map + vector: the entries
+/// are streamed unsorted to `tmp` (run record format), the map is freed, and they are read back into a vector of exact capacity.
+fn sorted_entries(m: HashMap<CKey, SAcc>, tmp: &Path) -> Result<Vec<(CKey, SAcc)>, String> {
+    let n = m.len();
+    if n == 0 {
+        return Ok(vec![]);
+    }
+    let err = |x: std::io::Error| format!("{}: {x}", tmp.display());
+    {
+        let f = std::fs::File::create(tmp).map_err(err)?;
+        let mut w = BufWriter::with_capacity(1 << 20, f);
+        for (k, a) in &m {
+            put_run(&mut w, k, a).map_err(err)?;
+        }
+        w.flush().map_err(err)?;
+    }
+    drop(m);
+    let f = std::fs::File::open(tmp).map_err(err)?;
+    let mut rr = RunReader {
+        r: BufReader::with_capacity(1 << 20, f),
+        path: tmp.to_path_buf(),
+    };
+    let mut v = Vec::with_capacity(n);
+    while let Some(x) = rr.next()? {
+        v.push(x);
+    }
+    drop(rr);
+    std::fs::remove_file(tmp).map_err(err)?;
+    if v.len() != n {
+        return Err(format!(
+            "{}: {} entries read back, {n} written",
+            tmp.display(),
+            v.len()
+        ));
+    }
+    v.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    Ok(v)
+}
+
 fn spill(g: &mut Accs, cfg: &StreamCfg) -> Result<(), String> {
     std::fs::create_dir_all(&cfg.spill_dir)
         .map_err(|e| format!("{}: {e}", cfg.spill_dir.display()))?;
@@ -543,8 +582,7 @@ fn spill(g: &mut Accs, cfg: &StreamCfg) -> Result<(), String> {
             continue;
         }
         let m = std::mem::take(&mut g.maps[e]);
-        let mut v: Vec<(CKey, SAcc)> = m.into_iter().collect();
-        v.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        let v = sorted_entries(m, &cfg.spill_dir.join(format!("sort.e{e}.s{seq}.tmp")))?;
         let p = cfg.spill_dir.join(format!("run.e{e}.s{seq}.bin"));
         let f = std::fs::File::create(&p).map_err(|x| format!("{}: {x}", p.display()))?;
         let mut w = BufWriter::with_capacity(1 << 20, f);
@@ -1466,8 +1504,11 @@ pub fn walk_stream(
     // --- one edge at a time: merge (memory part + runs), stream its file ---
     for (e, est_e) in est.into_iter().enumerate() {
         let m = std::mem::take(&mut accs.maps[e]);
-        let mut mem: Vec<(CKey, SAcc)> = m.into_iter().collect();
-        mem.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        if !m.is_empty() {
+            std::fs::create_dir_all(&scfg.spill_dir)
+                .map_err(|x| format!("{}: {x}", scfg.spill_dir.display()))?;
+        }
+        let mem = sorted_entries(m, &scfg.spill_dir.join(format!("sort.e{e}.final.tmp")))?;
         let runs = std::mem::take(&mut accs.runs[e]);
         let mut it = LineIter {
             merger: Merger::new(mem, &runs)?,
