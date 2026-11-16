@@ -81,6 +81,8 @@ struct Args {
     /// compute: report the closure path of these keys (`--trace-key '[..]'`); `--closure-only` stops after the closure.
     trace_keys: Vec<Vec<i32>>,
     closure_only: bool,
+    /// compute: write the exact closure keys (depth, kind) to this file (with `.uncovered.jsonl` beside it).
+    closure_out: Option<PathBuf>,
     no_structural: bool,
     structural_min_keys: usize,
     decide_all_handdowns: bool,
@@ -152,6 +154,7 @@ fn parse(args: &[String]) -> Args {
                     .unwrap_or_else(|e| die(&format!("--trace-key: {e}"))),
             ),
             "--closure-only" => a.closure_only = true,
+            "--closure-out" => a.closure_out = Some(PathBuf::from(val(&mut i))),
             "--no-structural" => a.no_structural = true,
             "--structural-min-keys" => {
                 a.structural_min_keys = val(&mut i)
@@ -1102,6 +1105,7 @@ fn compute_stream(a: &Args) {
         start_depth: a.depth.then(|| start_depths(&set, &rows, &a.arrivals)),
         trace: a.trace_keys.clone(),
         closure_only: a.closure_only,
+        closure_out: a.closure_out.clone(),
     };
     let tables = spec_tables(&set);
     let rows_id = rows.id();
@@ -1213,7 +1217,7 @@ fn compute_stream(a: &Args) {
             "dropped": (0..64).filter(|i| m >> i & 1 == 1).collect::<Vec<u32>>(), "terms": c})).collect::<Vec<_>>(),
         "walk": r.stats, "frame_checks": frame_checks, "seconds_load": t_load, "seconds": t0.elapsed().as_secs_f64(),
         "threads": a.threads, "tool": arrivals::TOOL_VERSION, "depth_tracked": a.depth, "closure_only": a.closure_only,
-        "trace": r.trace});
+        "trace": r.trace, "closure_out": r.closure_out});
     write_json(&out_dir.join(format!("{parent}.summary.json")), &s);
     println!("{}", canonical_json(&s));
 }

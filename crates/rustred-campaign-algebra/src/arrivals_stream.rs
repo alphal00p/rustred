@@ -29,6 +29,8 @@ pub struct CompactRows {
     /// Every closure key, one byte per slot, sorted.
     keys: Vec<i8>,
     in_start: Vec<bool>,
+    /// Per key: 0 served by a rule record, 1 terminal (declared), 2 open (uncovered / blocked).
+    kind: Vec<u8>,
     /// Rule-served rows in key order: key index, table, record.
     s_key: Vec<u32>,
     s_table: Vec<u32>,
@@ -135,6 +137,7 @@ impl CompactRows {
         let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
         let mut keys: Vec<i8> = vec![];
         let mut in_start: Vec<bool> = vec![];
+        let mut kinds: Vec<u8> = vec![];
         // per key in file order: (table, record), u32::MAX = not rule-served
         let mut srv: Vec<(u32, u32)> = vec![];
         let mut applied: HashMap<u32, Box<[i32]>> = HashMap::new();
@@ -184,6 +187,7 @@ impl CompactRows {
                         .map_err(|_| format!("{}: too many rows", path.display()))?;
                     keys.extend_from_slice(&kb);
                     in_start.push(s);
+                    kinds.push(kind);
                     srv.push(sv);
                     match kind {
                         1 => terminal += 1,
@@ -213,6 +217,7 @@ impl CompactRows {
             arity: n,
             keys: Vec::with_capacity(nk * n),
             in_start: Vec::with_capacity(nk),
+            kind: Vec::with_capacity(nk),
             s_key: vec![],
             s_table: vec![],
             s_record: vec![],
@@ -226,6 +231,7 @@ impl CompactRows {
             let o = o as usize;
             out.keys.extend_from_slice(kat(o));
             out.in_start.push(in_start[o]);
+            out.kind.push(kinds[o]);
             let (t, r) = srv[o];
             if t != u32::MAX {
                 let si = out.s_key.len() as u32;
@@ -242,6 +248,11 @@ impl CompactRows {
 
     pub fn n_keys(&self) -> usize {
         self.in_start.len()
+    }
+
+    /// The row kind of key `ki`: 0 served by a rule record, 1 terminal, 2 open.
+    pub fn kind(&self, ki: usize) -> u8 {
+        self.kind[ki]
     }
 
     /// Whether key `ki` is a start key (`in_start`) of the rows.
@@ -489,6 +500,9 @@ pub struct StreamCfg {
     pub trace: Vec<Vec<i32>>,
     /// Stop after the closure (no hand-down, no edge file emitted).
     pub closure_only: bool,
+    /// Write the exact closure (every reached key with its chain depth and row kind) to this file (RRKEYS01 format; module
+    /// fn `write_closure`) and its open keys to `<file>.uncovered.jsonl`.
+    pub closure_out: Option<PathBuf>,
 }
 
 /// Keys of a record group decided per work item (the record is held only while a chunk is decided).
@@ -639,6 +653,8 @@ pub struct StreamResult {
     pub spills: u64,
     /// `StreamCfg::trace`: per traced key its closure path back to a start key.
     pub trace: Vec<Value>,
+    /// `StreamCfg::closure_out`: what was written (paths, sha256, counts per kind and depth).
+    pub closure_out: Option<Value>,
 }
 
 /// The closure path of key `k` (`StreamCfg::trace`): steps from `k` back to a start key, each with the key's depth and the
@@ -671,6 +687,65 @@ fn closure_path(
         ki = pk;
     }
     json!({"key": k, "in_rows": true, "reached": true, "depth": steps.first().map(|s| s["depth"].clone()), "path": steps})
+}
+
+/// The exact closure as a key file: magic `RRKEYS01`, u32 LE header length, header JSON, then per reached key in key order:
+/// arity x i8 (the node's table frame), u8 chain depth (0 when depths are not tracked), u8 row kind (0 covered by a rule record,
+/// 1 terminal, 2 UNCOVERED). The open (uncovered) reached keys also go to `<path>.uncovered.jsonl` ({"key", "depth"} lines).
+fn write_closure(
+    set: &ImportedSet,
+    rows: &CompactRows,
+    dep: &[u8],
+    path: &Path,
+) -> Result<Value, String> {
+    use std::io::Write;
+    let io = |e: std::io::Error| format!("{}: {e}", path.display());
+    let n = set.arity();
+    let frame: String = set
+        .frame
+        .mask()
+        .iter()
+        .map(|&l| if l { '1' } else { '0' })
+        .collect();
+    let hdr = json!({"schema": "rustred.campaign.closure-keys.v1", "frame": frame, "arity": n, "rows": rows.path,
+        "rows_sha256": rows.sha256,
+        "record": format!("{n} x i8 key (table frame), u8 chain depth, u8 kind (0 covered by a rule record, 1 terminal, 2 UNCOVERED)")});
+    let hb = hdr.to_string().into_bytes();
+    let tmp = path.with_extension("partial");
+    let mut w =
+        std::io::BufWriter::with_capacity(1 << 22, std::fs::File::create(&tmp).map_err(io)?);
+    w.write_all(b"RRKEYS01").map_err(io)?;
+    w.write_all(&(hb.len() as u32).to_le_bytes()).map_err(io)?;
+    w.write_all(&hb).map_err(io)?;
+    let up = PathBuf::from(format!("{}.uncovered.jsonl", path.display()));
+    let mut wu = std::io::BufWriter::new(std::fs::File::create(&up).map_err(io)?);
+    let mut by_kind = [0u64; 3];
+    let mut by_kind_depth: BTreeMap<String, u64> = BTreeMap::new();
+    let mut hs = rustred_campaign_core::closure::sha256::Sha256::new();
+    for (ki, &d) in dep.iter().enumerate() {
+        if d == UNREACHED {
+            continue;
+        }
+        let kd = rows.kind(ki).min(2);
+        let mut rec: Vec<u8> = rows.key(ki).iter().map(|&x| x as u8).collect();
+        rec.push(d);
+        rec.push(kd);
+        w.write_all(&rec).map_err(io)?;
+        hs.update(&rec);
+        by_kind[kd as usize] += 1;
+        *by_kind_depth.entry(format!("{kd}/{d}")).or_default() += 1;
+        if kd == 2 {
+            writeln!(wu, "{}", json!({"key": rows.key_i32(ki), "depth": d})).map_err(io)?;
+        }
+    }
+    w.flush().map_err(io)?;
+    drop(w);
+    wu.flush().map_err(io)?;
+    std::fs::rename(&tmp, path).map_err(io)?;
+    Ok(
+        json!({"path": path, "uncovered": up, "records_sha256": hs.finish_hex(), "covered": by_kind[0], "terminal": by_kind[1],
+        "uncovered_keys": by_kind[2], "by_kind_depth": by_kind_depth}),
+    )
 }
 
 /// Depth of a key the closure did not reach.
@@ -1031,6 +1106,10 @@ pub fn walk_stream(
         .map(|k| closure_path(set, rows, &dep, &via, k))
         .collect();
     drop(via);
+    let closure_out = match &scfg.closure_out {
+        Some(p) => Some(write_closure(set, rows, &dep, p)?),
+        None => None,
+    };
     st.closure_keys = dep.iter().filter(|x| **x != UNREACHED).count() as u64;
     st.keys_only_not_reached = rows.n_keys() as u64 - st.closure_keys;
     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -1070,6 +1149,7 @@ pub fn walk_stream(
             term_keys: BTreeSet::new(),
             spills: 0,
             trace,
+            closure_out,
         });
     }
     // --- B + C fused, per record group ---
@@ -1381,6 +1461,7 @@ pub fn walk_stream(
         term_keys,
         spills: accs.spills,
         trace,
+        closure_out,
     };
     // --- one edge at a time: merge (memory part + runs), stream its file ---
     for (e, est_e) in est.into_iter().enumerate() {

@@ -972,3 +972,47 @@ fn structural_min_keys_changes_only_the_provenance() {
     assert_eq!(b["walk"]["by_structural_zero"], 0, "{b}");
     assert_eq!(b["walk"]["by_structural_nonzero"], 0, "{b}");
 }
+
+/// `--closure-out F` (with `--closure-only`): every reached key once, in key order, with its depth and row kind; the counts agree
+/// with the walk's closure size and depth histogram; the uncovered list holds exactly the kind-2 records.
+#[test]
+fn closure_out_lists_the_exact_closure_with_depth_and_kind() {
+    let Some(_a) = alg() else { return };
+    let t = build("clout");
+    let out = t.dir.join("o_cl");
+    let f = t.dir.join("closure.keys.bin");
+    let (rc, s) = compute_rows(
+        &t,
+        &t.rows,
+        &out,
+        &[
+            "--depth",
+            "--closure-only",
+            "--closure-out",
+            f.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(rc, 0, "{s}");
+    let b = std::fs::read(&f).unwrap();
+    assert_eq!(&b[..8], b"RRKEYS01");
+    let hl = u32::from_le_bytes(b[8..12].try_into().unwrap()) as usize;
+    let hdr: Value = serde_json::from_slice(&b[12..12 + hl]).unwrap();
+    let n = hdr["arity"].as_u64().unwrap() as usize;
+    let recs: Vec<&[u8]> = b[12 + hl..].chunks(n + 2).collect();
+    assert_eq!(
+        recs.len() as u64,
+        s["walk"]["closure_keys"].as_u64().unwrap(),
+        "{s}"
+    );
+    assert!(recs.windows(2).all(|w| {
+        let k = |r: &[u8]| r[..n].iter().map(|&x| x as i8).collect::<Vec<i8>>();
+        k(w[0]) < k(w[1])
+    }));
+    let kinds: Vec<u8> = recs.iter().map(|r| r[n + 1]).collect();
+    let unc = kinds.iter().filter(|&&k| k == 2).count();
+    let ul = std::fs::read_to_string(format!("{}.uncovered.jsonl", f.display())).unwrap();
+    assert_eq!(ul.lines().count(), unc);
+    assert_eq!(s["closure_out"]["uncovered_keys"], unc as u64, "{s}");
+    let d0 = recs.iter().filter(|r| r[n] == 0).count() as u64;
+    assert_eq!(s["walk"]["depth_hist"]["0"].as_u64().unwrap(), d0, "{s}");
+}
