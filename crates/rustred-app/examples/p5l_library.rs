@@ -530,6 +530,7 @@ fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
 
 fn reduce_files_cli(args: &[String]) {
     let (library, _) = load(&args[0], false);
+    let pruning = target_keep_from_env();
     let context = library.coefficient_context();
     let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
     let modular = args.get(2).map(String::as_str) == Some("modular");
@@ -557,7 +558,7 @@ fn reduce_files_cli(args: &[String]) {
             inputs,
             arithmetic,
             scheduler: OrderedSchedulerOptions::default(),
-            step_cache: Some(Arc::clone(&cache)),
+            step_cache: if pruning { None } else { Some(Arc::clone(&cache)) },
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: false,
             limits: ReductionLimits::default(),
@@ -572,9 +573,26 @@ fn reduce_files_cli(args: &[String]) {
         std::fs::rename(&tmp, output).expect("rename output");
         let saved = if std::env::var("P_STEP_CACHE").is_ok() { format!("{:?}", cache.save().map(|_| "saved")) } else { "mem".into() };
         let st = cache.statistics();
-        eprintln!("chunk {input}: {n} inputs, {} in {:.1} s {} cache {saved} {st:?}",
-            if result.is_ok() { "ok" } else { "ERROR" }, started.elapsed().as_secs_f64(), stamp());
+        eprintln!("chunk {input}: {n} inputs, {} in {:.1} s {} pruned {} cache {saved} {st:?}",
+            if result.is_ok() { "ok" } else { "ERROR" }, started.elapsed().as_secs_f64(), stamp(),
+            rustred::propagator::engine::target_pruned_count());
     }
+}
+
+/// needs-compose: P_TARGET_KEEP=<file of owner class names, one per line> turns on target-master descent pruning
+/// (rustred::propagator::engine::set_target_keep_classes); returns whether it is on.
+fn target_keep_from_env() -> bool {
+    let Ok(path) = std::env::var("P_TARGET_KEEP") else { return false };
+    let mut set = std::collections::HashSet::new();
+    for line in std::fs::read_to_string(&path).expect("P_TARGET_KEEP file").lines() {
+        let line = line.trim();
+        if line.is_empty() { continue; }
+        let hex = line.rsplit('-').next().unwrap();
+        set.insert(u64::from_str_radix(hex, 16).expect("a class name ending in -<16 hex>"));
+    }
+    eprintln!("target pruning ON: {} kept owner classes from {path}", set.len());
+    assert!(rustred::propagator::engine::set_target_keep_classes(set), "target set twice");
+    true
 }
 
 /// needs-compose: an exact integer (any size) as a coefficient, by base-10^9 chunks.
@@ -653,6 +671,7 @@ fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
 
 fn reduce_file_cli(args: &[String]) {
     let (library, _) = load(&args[0], false);
+    let pruning = target_keep_from_env();
     let context = library.coefficient_context();
     let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
     let arithmetic = match args.get(2).map(String::as_str) {
@@ -677,7 +696,8 @@ fn reduce_file_cli(args: &[String]) {
         limits: ReductionLimits::default(),
         inspector: None,
     });
-    eprintln!("reduce-file: reduced in {:.2} s {}", started.elapsed().as_secs_f64(), stamp());
+    eprintln!("reduce-file: reduced in {:.2} s {} (target pruning {pruning}: {} keys dropped)", started.elapsed().as_secs_f64(), stamp(),
+        rustred::propagator::engine::target_pruned_count());
     print_reduction(&library, result);
 }
 

@@ -656,6 +656,16 @@ impl PEngine {
         self.owner_sectors.get(&(presentation, support)).copied()
     }
 
+    /// needs-compose: whether a key on the sector of `powers` on `presentation` survives [`TARGET_KEEP`].
+    fn target_kept_sector(&self, library: &PLibrary, presentation: PresentationId, powers: &[i64]) -> Result<bool, PError> {
+        let Some(keep) = TARGET_KEEP.get() else { return Ok(true) };
+        let support = self.shape(presentation)?.support(powers);
+        Ok(match self.sector(library, presentation, support)? {
+            Sector::Zero => true,
+            Sector::Owner(class) | Sector::Routed { class, .. } => keep.contains(&class.0),
+        })
+    }
+
     /// The Route key of `powers` on `presentation` with `tag`.
     fn route_key(
         &self,
@@ -736,6 +746,10 @@ impl PEngine {
                 )));
             }
             self.sector(library, presentation, support)?;
+            if !self.target_kept_sector(library, presentation, key.powers())? {
+                TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                continue;
+            }
             let key = self.route_key(presentation, key.powers(), &one)?;
             merge(context, limits, &mut initial, key, coefficient)?;
         }
@@ -2630,6 +2644,17 @@ impl<'l> PStepper<'l> {
                     child.powers.len()
                 )));
             }
+            if target_pruning_on() {
+                let kept = match child.stage {
+                    PStage::Route => self.engine.target_kept_sector(self.library, child.presentation, &child.powers)?,
+                    PStage::Apply => true, // checked on the key below
+                };
+                if !kept {
+                    TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    super::step_memo::put_powers(child.powers);
+                    continue;
+                }
+            }
             let (key, coefficient) = match child.stage {
                 PStage::Route => self.route_child(
                     child.presentation,
@@ -2639,6 +2664,13 @@ impl<'l> PStepper<'l> {
                 )?,
                 PStage::Apply => self.apply_child(&child)?,
             };
+            if let (Some(keep), PKey::Apply { class, .. }) = (TARGET_KEEP.get(), &key) {
+                if !keep.contains(&class.0) {
+                    TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    super::step_memo::put_powers(child.powers);
+                    continue;
+                }
+            }
             if self.keep_canonical_child(&key, &coefficient)? {
                 pairs.push((key, coefficient));
             }
@@ -2650,6 +2682,11 @@ impl<'l> PStepper<'l> {
             // materialised and summed, the others stay light.
             let mut light_pairs: Vec<(PKey, u64)> = Vec::with_capacity(children.len());
             for (powers, handle) in children {
+                if !self.engine.target_kept_sector(self.library, presentation, &powers)? {
+                    TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    super::step_memo::put_powers(powers);
+                    continue;
+                }
                 let (key, negative) =
                     self.route_child_with(presentation, &powers, &tag, false, |b| !b)?;
                 super::step_memo::put_powers(powers);
@@ -3257,6 +3294,29 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
 /// program whose order of these owners differs holds representatives chosen
 /// in the old order. Process-wide; empty (the default) changes nothing.
 static REFRESH_CLASSES: std::sync::RwLock<BTreeSet<u64>> = std::sync::RwLock::new(BTreeSet::new());
+
+/// needs-compose: TARGET-MASTER DESCENT PRUNING. When set, a scheduled key whose owner class (its Apply class, or the owner /
+/// routed class of its Route sector) is not in this set is dropped (treated as contributing nothing). Sound for the
+/// coefficients of the target terminals when the set is closed upwards under the topology DAG (every owner whose sector
+/// contains a target terminal's sector as a contraction minor), because the decomposition onto the terminals is unique and a
+/// terminal enters only the reduction of keys whose sector contains it. The coefficients of all other terminals are then
+/// WRONG by design. Process-wide, set once; unset = no pruning. Never use with a persistent step cache.
+static TARGET_KEEP: std::sync::OnceLock<std::collections::HashSet<u64>> = std::sync::OnceLock::new();
+static TARGET_PRUNED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Set the kept owner classes of [`TARGET_KEEP`] (once per process).
+pub fn set_target_keep_classes(classes: std::collections::HashSet<u64>) -> bool {
+    TARGET_KEEP.set(classes).is_ok()
+}
+
+/// Keys dropped by [`TARGET_KEEP`] so far in this process.
+pub fn target_pruned_count() -> u64 {
+    TARGET_PRUNED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn target_pruning_on() -> bool {
+    TARGET_KEEP.get().is_some()
+}
 
 /// Set the classes of [`REFRESH_CLASSES`] for the requests that start after
 /// this call (dry census only; never set it while a cache serves programs
