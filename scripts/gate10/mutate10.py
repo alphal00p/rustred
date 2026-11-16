@@ -7,7 +7,7 @@ muts={
  # M2 fsx: a listing entry error is skipped (an incomplete listing reads complete)
  'M2': ('fsx.rs', '            Err(e) => return Listing::Failed(e),\n        };\n        let file_type', '            Err(_) => continue,\n        };\n        let file_type', 1),
  # M3 G9-B2 revert: one task listing, none live caught = NoneAlive
- 'M3': ('resources/mod.rs', '    Err(ProcError::Unreadable(format!(\n        "pid {pid}: the kernel counts', '    if counted < u64::MAX { return Ok(LiveThread::NoneAlive); }\n    Err(ProcError::Unreadable(format!(\n        "pid {pid}: the kernel counts', 1),
+ 'M3': ('resources/mod.rs', '    Err(ProcError::Unreadable(format!(\n        "pid {pid}: the kernel counts', '    if counted < u32::MAX { return Ok(LiveThread::NoneAlive); }\n    Err(ProcError::Unreadable(format!(\n        "pid {pid}: the kernel counts', 1),
  # M4 the final sweep's vanished rule off
  'M4': ('supervisor/mod.rs', '        if vanished.is_empty() {\n            return Ok(());\n        }', '        if true || vanished.is_empty() {\n            return Ok(());\n        }', 1),
  # M5 the own-tree (waitid ECHILD) proof always "no descendant"
