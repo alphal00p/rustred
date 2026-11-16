@@ -888,6 +888,9 @@ pub struct ImproveNode {
     /// candidates with their sealed table) for the pole objective (section 6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole_scores: Option<crate::economy::genchoice::FileEntry>,
+    /// The dependence table of published symbols (sha256-bound; absent = upper bound), as in genchoice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependences: Option<crate::economy::genchoice::FileEntry>,
 }
 
 /// The improve config (campaign input of role `genchoice`, schema [`IMPROVE_CONFIG_SCHEMA`]).

@@ -21,6 +21,8 @@ fn score(max: Option<u32>, kwp: u64) -> PoleScore {
         rules_with_pole: None,
         composed_max_order: None,
         form: ScoreForm::Count,
+        level: ScoreLevel::Rule,
+        dependences_sha256: None,
     }
 }
 
@@ -292,7 +294,7 @@ fn score_form_is_named_and_rank_is_refused_until_the_replay_exists() {
     assert_eq!(p.score, ScoreForm::Count);
     let v = serde_json::to_value(&p).unwrap();
     assert_eq!(v["score"], "count", "the settings name the form");
-    let rank = PolePolicy { score: ScoreForm::Rank, ..PolePolicy::default() };
+    let rank = PolePolicy { score: ScoreForm::Rank, level: ScoreLevel::Composed, ..PolePolicy::default() };
     assert!(rank.check().unwrap_err().starts_with(RANK_NOT_AVAILABLE));
     let c = [cand(0, 1, 1, Some(score(Some(1), 1)))];
     assert!(choose_poles(&c, Some(0), &rank).unwrap_err().starts_with(RANK_NOT_AVAILABLE));
@@ -311,6 +313,36 @@ fn score_form_is_named_and_rank_is_refused_until_the_replay_exists() {
     assert!(choose_poles(&[cand(0, 1, 1, Some(r))], Some(0), &p).is_err());
     // genchoice and improve configs refuse rank at load
     let g: rustred_campaign_core::economy::genchoice::Policy =
-        serde_json::from_str(r#"{"poles":{"score":"rank"}}"#).unwrap();
+        serde_json::from_str(r#"{"poles":{"score":"rank","level":"composed"}}"#).unwrap();
     assert!(g.check().unwrap_err().contains(RANK_NOT_AVAILABLE));
+}
+
+#[test]
+fn every_score_carries_its_level_and_only_composed_is_an_objective() {
+    let mut s = score(Some(1), 3);
+    assert_eq!((s.level, s.claim()), (ScoreLevel::Rule, "screen"));
+    assert_eq!(serde_json::to_value(&s).unwrap()["level"], "rule");
+    s.level = ScoreLevel::Node;
+    assert_eq!(s.claim(), "screen", "node-local is a screen (TRICKS 27: wrong on T201)");
+    s.level = ScoreLevel::Composed;
+    assert_eq!(s.claim(), "objective_upper_bound", "no dependence table: upper bound");
+    s.dependences_sha256 = Some("a".repeat(64));
+    assert_eq!(s.claim(), "objective");
+    // rank form only at composed level
+    let mut r = score(Some(0), 0);
+    r.form = ScoreForm::Rank;
+    assert!(r.check().unwrap_err().starts_with(LEVEL_REFUSED));
+    let p = PolePolicy { score: ScoreForm::Rank, ..PolePolicy::default() };
+    assert!(p.check().unwrap_err().starts_with(LEVEL_REFUSED));
+    // decisions carry level, claim and the dependence state; levels never mix
+    let d = choose_poles(&[cand(0, 1, 1, Some(score(Some(1), 1)))], Some(0), &PolePolicy::default()).unwrap().unwrap();
+    assert_eq!((d.score_level, d.claim, d.dependences_sha256.clone()), (ScoreLevel::Rule, "screen", None));
+    let mut n = score(Some(1), 1);
+    n.level = ScoreLevel::Node;
+    assert!(choose_poles(&[cand(0, 1, 1, Some(score(Some(1), 1))), cand(1, 1, 1, Some(n))], Some(0), &PolePolicy::default())
+        .unwrap_err()
+        .contains("level"));
+    // a score line of rank form below composed is refused at parse
+    let l = json!({"schema": SCORE_SCHEMA, "node": "T1", "scope": "table", "cand": "a", "score": r});
+    assert!(parse_scores(&l.to_string()).unwrap_err().contains(LEVEL_REFUSED));
 }

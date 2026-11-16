@@ -49,6 +49,33 @@ impl ScoreForm {
 
 /// The typed refusal of `poles.score: rank` (the error text starts with it).
 pub const RANK_NOT_AVAILABLE: &str = "rank_not_available";
+
+/// The LEVEL a score was computed at (TRICKS item 27; ANSWER-POLE-OBJECTIVE.md 5): `rule` = route poles of the relation
+/// serving each key (today's census); `node` = composed inside one node; `composed` = the full reduction down to the masters,
+/// printed dependences substituted. A node-local statement was shown wrong on T201 (candidate #7 cancels once the full
+/// reduction is composed): `rule` and `node` are SCREENS (they rank candidates and say where to look); only `composed` may
+/// be quoted as "missing coefficients" / "inherent" ([`PoleScore::claim`]).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScoreLevel {
+    #[default]
+    Rule,
+    Node,
+    Composed,
+}
+
+impl ScoreLevel {
+    pub fn word(&self) -> &'static str {
+        match self {
+            ScoreLevel::Rule => "rule",
+            ScoreLevel::Node => "node",
+            ScoreLevel::Composed => "composed",
+        }
+    }
+}
+
+/// The typed refusal of a score / policy at a level that cannot carry its claim (rank form below `composed`).
+pub const LEVEL_REFUSED: &str = "pole_level_refused";
 pub const DECISION_SCHEMA: &str = "rustred.campaign.pole-choice.v1";
 
 /// The route-pole score of a candidate table (box keys) or rule (the keys it serves).
@@ -75,6 +102,13 @@ pub struct PoleScore {
     /// The score's form (always `count` today: route-pole counts, a proxy of the exact rank form).
     #[serde(default)]
     pub form: ScoreForm,
+    /// The level it was computed at (always `rule` today: the route-pole census).
+    #[serde(default)]
+    pub level: ScoreLevel,
+    /// sha256 of the dependence table of published symbols substituted before counting (`composed` level); None =
+    /// no table: an UPPER BOUND.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependences_sha256: Option<String>,
 }
 
 fn u(v: &Value, k: &str) -> Result<u64, String> {
@@ -86,6 +120,28 @@ fn u(v: &Value, k: &str) -> Result<u64, String> {
 impl PoleScore {
     pub fn decided(&self) -> bool {
         self.max_order.is_some()
+    }
+
+    /// What this score may be quoted as: `screen` (rule / node level: ranks candidates, says where to look),
+    /// `objective_upper_bound` (composed, no dependence table substituted), `objective` (composed, dependences
+    /// substituted): only the last two may be reported as missing coefficients / inherent.
+    pub fn claim(&self) -> &'static str {
+        match (self.level, &self.dependences_sha256) {
+            (ScoreLevel::Rule | ScoreLevel::Node, _) => "screen",
+            (ScoreLevel::Composed, None) => "objective_upper_bound",
+            (ScoreLevel::Composed, Some(_)) => "objective",
+        }
+    }
+
+    /// A rank-form score exists only at `composed` level.
+    pub fn check(&self) -> Result<(), String> {
+        if self.form == ScoreForm::Rank && self.level != ScoreLevel::Composed {
+            return Err(format!(
+                "{LEVEL_REFUSED}: a rank-form score at level {} (the rank of rho is defined on the composed reduction only)",
+                self.level.word()
+            ));
+        }
+        Ok(())
     }
 
     /// The `box` section of a `rustred.campaign.route-pole-census.v1` summary.
@@ -115,6 +171,8 @@ impl PoleScore {
             rules_with_pole: b.get("rules_with_pole").and_then(Value::as_u64),
             composed_max_order: None,
             form: ScoreForm::Count,
+            level: ScoreLevel::Rule,
+            dependences_sha256: None,
         })
     }
 
@@ -131,6 +189,8 @@ impl PoleScore {
             rules_with_pole: None,
             composed_max_order: None,
             form: ScoreForm::Count,
+            level: ScoreLevel::Rule,
+            dependences_sha256: None,
         })
     }
 
@@ -188,6 +248,9 @@ pub fn parse_scores(text: &str) -> Result<Vec<ScoreLine>, String> {
         if s.scope == "rule" && s.rule_index.is_none() {
             return Err(format!("pole scores line {}: rule scope without rule_index", n + 1));
         }
+        s.score
+            .check()
+            .map_err(|e| format!("pole scores line {}: {e}", n + 1))?;
         out.push(s);
     }
     Ok(out)
@@ -202,6 +265,8 @@ pub struct PolePolicy {
     pub use_poles: bool,
     /// The score form (`count` today; `rank` refused: [`RANK_NOT_AVAILABLE`]).
     pub score: ScoreForm,
+    /// The level of the scores this choice reads (`rule` today); every score must carry it (levels never mix).
+    pub level: ScoreLevel,
     /// Lexicographic measures of `poles::select` (words: regular, max_pole_order, sum_pole_orders, singular_terms, size);
     /// time (cpu ms) and the candidate index break the remaining ties.
     pub measures: Vec<String>,
@@ -222,6 +287,7 @@ impl Default for PolePolicy {
         PolePolicy {
             use_poles: true,
             score: ScoreForm::Count,
+            level: ScoreLevel::Rule,
             measures: vec!["regular".into(), "max_pole_order".into(), "size".into()],
             max_size_ratio: Value::String(DEFAULT_MAX_SIZE_RATIO.into()),
         }
@@ -241,6 +307,12 @@ impl PolePolicy {
         .map_err(|e| format!("poles policy: {}", e.0))
     }
     pub fn check(&self) -> Result<(), String> {
+        if self.score == ScoreForm::Rank && self.level != ScoreLevel::Composed {
+            return Err(format!(
+                "{LEVEL_REFUSED}: poles.score rank needs poles.level composed (the rank of rho is defined on the full \
+                 composed reduction only)"
+            ));
+        }
         if self.score == ScoreForm::Rank {
             return Err(format!(
                 "{RANK_NOT_AVAILABLE}: poles.score rank (the rank of rho over the box after substituting printed \
@@ -269,6 +341,11 @@ pub struct PoleCand {
 pub struct PoleDecision {
     /// The score form the decision was made with (`count` today).
     pub score_form: ScoreForm,
+    /// The level of the scores (`rule` today) and what the decision may be quoted as (`screen` below `composed`).
+    pub score_level: ScoreLevel,
+    pub claim: &'static str,
+    /// sha256 of the substituted dependence table, or None = upper bound (no table given).
+    pub dependences_sha256: Option<String>,
     pub winner: usize,
     pub size_winner: Option<usize>,
     /// The pole objective chose another candidate than the size choice.
@@ -309,6 +386,33 @@ pub fn choose_poles(
             pol.score.word()
         ));
     }
+    if cands.iter().any(|c| c.score.as_ref().is_some_and(|s| s.level != pol.level)) {
+        return Err(format!(
+            "pole objective: a score of another level than poles.level {} (rule, node and composed scores never mix)",
+            pol.level.word()
+        ));
+    }
+    let deps: Vec<Option<String>> = cands
+        .iter()
+        .filter_map(|c| c.score.as_ref().map(|s| s.dependences_sha256.clone()))
+        .collect();
+    if deps.windows(2).any(|w| w[0] != w[1]) {
+        return Err("pole objective: scores computed with different dependence tables never mix".into());
+    }
+    let dependences_sha256 = deps.into_iter().next().flatten();
+    let claim = PoleScore {
+        keys: 0,
+        keys_with_pole: 0,
+        undecided: 0,
+        max_order: None,
+        keys_by_order: BTreeMap::new(),
+        rules_with_pole: None,
+        composed_max_order: None,
+        form: pol.score,
+        level: pol.level,
+        dependences_sha256: dependences_sha256.clone(),
+    }
+    .claim();
     let obj = pol.objective()?;
     let adm: Vec<&PoleCand> = cands.iter().filter(|c| c.admissible).collect();
     if adm.is_empty() {
@@ -326,6 +430,9 @@ pub fn choose_poles(
             .unwrap_or(adm[0].cand);
         return Ok(Some(PoleDecision {
             score_form: pol.score,
+            score_level: pol.level,
+            claim,
+            dependences_sha256,
             winner: w,
             size_winner,
             changed: false,
@@ -368,6 +475,9 @@ pub fn choose_poles(
     let tied = adm.len() > 1 && pv.iter().all(|v| v.is_some() && *v == pv[0]);
     Ok(Some(PoleDecision {
         score_form: pol.score,
+        score_level: pol.level,
+        claim,
+        dependences_sha256,
         winner,
         size_winner,
         changed: size_winner.is_some_and(|w| w != winner),
@@ -508,6 +618,7 @@ pub fn rechoice(choice: &Value, scores: &[ScoreLine], pol: &PolePolicy) -> Resul
             _ => None,
         });
     let d = choose_poles(&pc, size_winner, pol)?;
-    Ok(Some(json!({"schema": DECISION_SCHEMA, "node": node, "select": select, "score_form": pol.score.word(), "policy": pol,
+    Ok(Some(json!({"schema": DECISION_SCHEMA, "node": node, "select": select, "score_form": pol.score.word(),
+        "score_level": pol.level.word(), "policy": pol,
         "candidates": rows, "decision": d})))
 }

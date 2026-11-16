@@ -209,6 +209,15 @@ impl ImproveSource {
                 None => im::ImproveRecord::empty(&e.node, &ts2, &rules),
             };
             record.align(&rules);
+            if let Some(f) = &e.dependences {
+                let (_, _, h) = file_digests(Path::new(&f.path))?;
+                if h != f.sha256 {
+                    return Err(format!(
+                        "improve: {}: dependence table {} sha256 {h} differs from the config's",
+                        e.node, f.path
+                    ));
+                }
+            }
             let pole_scores = match &e.pole_scores {
                 Some(f) => {
                     let (_, _, h) = file_digests(Path::new(&f.path))?;
@@ -676,6 +685,12 @@ impl ImproveSource {
             totals: json!({"targets": targets.len(), "candidates": targets.iter().map(|(_, c)| c.len()).sum::<usize>(),
                 "objective": if p.poles_on() { "poles" } else { "size" },
                 "score_form": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.score.word()),
+                "score_level": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.level.word()),
+                "dependences": if p.poles_on() {
+                    self.nodes[i].e.dependences.as_ref().map_or(json!("upper_bound"), |f| json!(f))
+                } else {
+                    Value::Null
+                },
                 "decided_from_scores": self.nodes[i].decisions.len(), "unscored_rules": self.nodes[i].unscored.len(),
                 "replaced": repl.len(), "table_bytes_before": self.nodes[i].table_bytes, "table_bytes_after": out_bytes,
                 "targets_bytes_before": tb, "targets_bytes_after": after.iter().map(|e| e.bytes).sum::<u64>(),

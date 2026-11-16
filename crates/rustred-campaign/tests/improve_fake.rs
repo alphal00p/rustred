@@ -397,6 +397,9 @@ fn improve_poles_generates_then_decides_from_scores_and_never_regenerates() {
     assert!(e1["why"].as_str().unwrap().contains("pole objective"));
     assert_eq!(rec2["runs"][1]["totals"]["objective"], "poles");
     assert_eq!(rec2["runs"][1]["totals"]["score_form"], "count", "records name the score form");
+    assert_eq!(rec2["runs"][1]["totals"]["score_level"], "rule", "and its level");
+    assert_eq!(rec2["runs"][1]["totals"]["dependences"], "upper_bound", "no dependence table given");
+    assert_eq!(e1["pole"]["level"], "rule");
     assert_eq!(e1["pole"]["form"], "count");
     // run 3: the improved table, unchanged scores: the `original` lines describe the old table: nothing to do
     let c3 = cfg("p3.json", Path::new(&out), Some(&rec2p), &s2p);

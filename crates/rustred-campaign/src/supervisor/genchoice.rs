@@ -481,6 +481,15 @@ impl GenChoiceSource {
                     ));
                 }
             }
+            if let Some(f) = &e.dependences {
+                let (_, _, h) = file_digests(Path::new(&f.path))?;
+                if h != f.sha256 {
+                    return Err(format!(
+                        "genchoice: {}: dependence table {} sha256 {h} differs from the config's {}",
+                        e.node, f.path, f.sha256
+                    ));
+                }
+            }
             let pole_scores = match &e.pole_scores {
                 Some(f) => {
                     let (_, _, h) = file_digests(Path::new(&f.path))?;
@@ -974,6 +983,8 @@ impl GenChoiceSource {
                 .collect();
             let d = ps::choose_poles(&pc, winner, &p.poles)?;
             poles_section = Some(json!({
+                "score_form": p.poles.score.word(), "score_level": p.poles.level.word(),
+                "dependences": self.nodes[i].e.dependences.as_ref().map_or(json!("upper_bound"), |f| json!(f)),
                 "scores_file": self.nodes[i].e.pole_scores,
                 "scores": pc.iter().map(|c| json!({"cand": cands[c.cand].id, "size": c.size,
                     "cpu_ms": c.time_ms, "score": c.score.as_ref().map_or(json!("undecided"), |s| json!(s))}))
