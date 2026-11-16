@@ -1396,3 +1396,16 @@ mod tests {
         assert!(rec.verify(Some(proof("exact_partition"))).is_err());
     }
 }
+
+/// Lane sizegen (interfaces/genchoice.md): the generation-choice portfolio of a whole node. Declared here until the
+/// integration lane adds `pub mod genchoice;` to lib.rs (REQUEST TO I-INT in notes/implementer.sizegen.md).
+#[path = "genchoice.rs"]
+pub mod genchoice;
+
+/// Lane sizegen (interfaces/genchoice.md 5): the improvement record and improve mode (same I-INT request as genchoice).
+#[path = "improve.rs"]
+pub mod improve;
+
+/// Lane sizegen ITEM 2 (interfaces/genchoice.md 6): pole score and pole objective of the generation choice and improve.
+#[path = "polescore.rs"]
+pub mod polescore;
