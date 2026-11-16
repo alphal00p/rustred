@@ -289,7 +289,13 @@ fn mul_to(
 ) -> Result<TadicSeries, String> {
     let c_low = c.start.max(c_valuation);
     if a.coefficients.is_empty() || c.coefficients.is_empty() {
-        let available = (a.precision() + c_low).min(c.precision() + a.start);
+        // a = O(t^Pa): the product is O(t^(Pa + v(c))) whatever c's precision; c = O(t^Pc) with a known: the
+        // product is O(t^min(a.start + Pc, Pa + v(c))).
+        let available = if a.coefficients.is_empty() {
+            a.precision() + c_low
+        } else {
+            (a.precision() + c_low).min(c.precision() + a.start)
+        };
         if available < precision {
             return Err(typed(
                 "TADIC_PRECISION_FAILURE",
