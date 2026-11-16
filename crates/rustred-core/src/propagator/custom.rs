@@ -2927,6 +2927,10 @@ pub struct CustomReplay {
     pub boundary: Vec<(Vec<i64>, Coefficient)>,
     /// Rule applications.
     pub steps: usize,
+    /// Keys still to reduce when the replay stopped at its step cap
+    /// (`RUSTRED_P_REPLAY_MAX_STEPS`, a diagnostic: e.g. one step checks the
+    /// seed's own rule application); empty for a complete replay.
+    pub open: Vec<(Vec<i64>, Coefficient)>,
 }
 
 /// Each seed (a key of the owner support) reduced with the owner's program,
@@ -2958,6 +2962,9 @@ pub fn replay_custom_payload(
                 map.insert(key, value);
             }
         };
+    let max_steps: Option<usize> = std::env::var("RUSTRED_P_REPLAY_MAX_STEPS")
+        .ok()
+        .and_then(|value| value.trim().parse().ok());
     let mut replays = Vec::with_capacity(seeds.len());
     for seed in seeds {
         if support_of(seed) != support {
@@ -2973,6 +2980,10 @@ pub fn replay_custom_payload(
         while let Some(((order, key), weight)) = queue.pop_last() {
             if weight.is_zero() {
                 continue;
+            }
+            if max_steps.is_some_and(|max| steps >= max) {
+                queue.insert((order, key), weight);
+                break;
             }
             steps += 1;
             match ops.apply_powers(&key)? {
@@ -3005,11 +3016,16 @@ pub fn replay_custom_payload(
                 .filter(|(_, value)| !value.is_zero())
                 .collect()
         };
+        let open = queue
+            .into_iter()
+            .map(|((_, key), value)| (key, value))
+            .collect();
         replays.push(CustomReplay {
             seed: seed.clone(),
             residuals: nonzero(residuals),
             boundary: nonzero(boundary),
             steps,
+            open: nonzero(open),
         });
     }
     Ok(replays)
