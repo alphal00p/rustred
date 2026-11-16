@@ -1585,6 +1585,44 @@ fn cached_zero_certificates(
     Ok(proofs.as_ref().clone())
 }
 
+/// Run `f` with this thread's zero analyzer of `family` (engine threading, batch 10): one analyzer
+/// per (thread, family), built on first use and kept (its Symanzik polynomials on this thread's
+/// polynomial context), so the many owners of one family and later requests reuse it instead of
+/// rebuilding it per owner and per pool thread. An entry holds its family alive (its address cannot
+/// be reused by another family); the map is cleared beyond 64 families.
+fn with_family_analyzer<R>(
+    family: &Arc<crate::family::IntegralFamily>,
+    f: impl FnOnce(&zero::Analyzer) -> Result<R, PError>,
+) -> Result<R, PError> {
+    type Entry = (
+        Arc<crate::family::IntegralFamily>,
+        std::rc::Rc<zero::Analyzer>,
+    );
+    thread_local! {
+        static ANALYZERS: std::cell::RefCell<std::collections::HashMap<usize, Entry>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    let key = Arc::as_ptr(family) as usize;
+    let cached = ANALYZERS.with_borrow(|map| map.get(&key).map(|(_, analyzer)| analyzer.clone()));
+    let analyzer = match cached {
+        Some(analyzer) => analyzer,
+        None => {
+            let analyzer =
+                std::rc::Rc::new(zero::Analyzer::try_unrestricted(family).map_err(|error| {
+                    PError::Unsupported(format!("custom owner zero analysis: {error}"))
+                })?);
+            ANALYZERS.with_borrow_mut(|map| {
+                if map.len() >= 64 {
+                    map.clear();
+                }
+                map.insert(key, (Arc::clone(family), analyzer.clone()));
+            });
+            analyzer
+        }
+    };
+    f(&analyzer)
+}
+
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
 ///
@@ -1610,10 +1648,6 @@ fn zero_certificates_with(
 ) -> Result<Vec<zero::Certificate>, PError> {
     use rayon::prelude::*;
     let family = &presentation.family;
-    let analyzer_of = || {
-        zero::Analyzer::try_unrestricted(family)
-            .map_err(|error| PError::Unsupported(format!("custom owner zero analysis: {error}")))
-    };
     let arity = presentation.slots.len();
     let decide =
         |analyzer: &zero::Analyzer, subset: u64| -> Result<Option<zero::Certificate>, PError> {
@@ -1640,30 +1674,19 @@ fn zero_certificates_with(
     }
     let mut proofs = Vec::new();
     if rayon::current_thread_index().is_some() && subsets.len() >= parallel_min_subsets {
-        // ONE analyzer per pool thread, built on that thread's first subset (rayon's map_init would
-        // build one per work split: thousands of Symanzik constructions)
-        let analyzers: Vec<std::sync::OnceLock<Result<zero::Analyzer, PError>>> = (0
-            ..rayon::current_num_threads())
-            .map(|_| std::sync::OnceLock::new())
-            .collect();
         let decided: Vec<Result<Option<zero::Certificate>, PError>> = subsets
             .par_iter()
             .with_min_len(16)
-            .map(|&subset| {
-                let slot = rayon::current_thread_index().unwrap_or(0) % analyzers.len().max(1);
-                match analyzers[slot].get_or_init(analyzer_of) {
-                    Ok(analyzer) => decide(analyzer, subset),
-                    Err(error) => Err(error.clone()),
-                }
-            })
+            .map(|&subset| with_family_analyzer(family, |analyzer| decide(analyzer, subset)))
             .collect();
         for result in decided {
             proofs.extend(result?);
         }
     } else {
-        let analyzer = analyzer_of()?;
         for subset in subsets {
-            proofs.extend(decide(&analyzer, subset)?);
+            proofs.extend(with_family_analyzer(family, |analyzer| {
+                decide(analyzer, subset)
+            })?);
         }
     }
     Ok(proofs)
