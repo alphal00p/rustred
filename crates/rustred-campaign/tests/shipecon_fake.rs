@@ -117,6 +117,7 @@ fn config(dir: &Path, out: &str, previous: Option<PathBuf>, fake: ShipFake) -> S
         rule_index: None,
         check_mode: "full".into(),
         later_rule_probe: None,
+        final_probe: None,
         resume_trials: None,
         previous_solved: None,
         previous_work: None,

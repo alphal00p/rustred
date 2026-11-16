@@ -83,6 +83,10 @@ pub struct ShipRunConfig {
     /// migrated keys: a key with a position is taken by a later table rule (the engine's own dispatch; replaces the
     /// tentative set, which in local mode sees only the selected rules). Given: every examined rule is re-decided.
     pub later_rule_probe: Option<PathBuf>,
+    /// Local mode: `rr_node first-match` output on the FINAL shipped table (only the migrating rules out) for the migrated
+    /// keys: a key the engine still gives to a table rule would make its entry DEAD (never shipped: the key goes to
+    /// `later_table_rule`; local mode then reverts its rule).
+    pub final_probe: Option<PathBuf>,
     /// `trials.jsonl` of an interrupted run (the per-job checkpoint): a trial is reused when the recipe generated now
     /// has the same sha256 and its verdict is deterministic or was measured under the same bound.
     pub resume_trials: Option<PathBuf>,
@@ -1370,6 +1374,26 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
     let local = cfg.check_mode == "local";
     if local && !p.coverage.require_rhs_in_certified_set {
         return Err("check_mode local needs coverage.require_rhs_in_certified_set".into());
+    }
+    if local && let Some(fp) = &cfg.final_probe {
+        let text = std::fs::read_to_string(fp).map_err(|e| format!("{}: {e}", fp.display()))?;
+        let mut taken: BTreeSet<Vec<i32>> = BTreeSet::new();
+        for l in text.lines().filter(|l| !l.trim().is_empty()) {
+            let v: Value = serde_json::from_str(l).map_err(|e| format!("{}: {e}", fp.display()))?;
+            if !v["position"].is_null()
+                && let Ok(k) = serde_json::from_value::<Vec<i32>>(v["key"].clone())
+            {
+                taken.insert(k);
+            }
+        }
+        let n: usize = decisions
+            .iter_mut()
+            .map(|d| ship::drop_dead_entries(d, &taken))
+            .sum();
+        check_log.push(
+            json!({"mode": "local", "final_probe": fp.display().to_string(),
+            "dead_entries_dropped": n}),
+        );
     }
     if local {
         // every migrated key: served by its certified relation (the accept chain: exact proof, regularity, strict
