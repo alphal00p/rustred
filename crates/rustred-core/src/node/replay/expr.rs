@@ -3,6 +3,8 @@
 //! linear-form extraction and a conservative syntactic degree. Mirrors `Expr` of p5l-replay.v1.
 
 use super::arith::{self, Q};
+use symbolica::domains::integer::Integer;
+use symbolica::domains::rational::Rational;
 
 #[derive(Clone, Debug)]
 pub enum Node {
@@ -331,9 +333,96 @@ impl Expr {
         self.at_mod(p, &pt, dv)
     }
 
-    /// Exact zero test at an integer point and rational d (two independent 61-bit primes).
+    /// EXACT zero test at an integer point and rational d. A nonzero residue modulo either 61-bit prime proves the
+    /// value nonzero; when both residues are zero the value is evaluated exactly in big rationals (a nonzero value
+    /// divisible by both primes, |value| >= P * P2 ~ 2^122, was read as zero before: the two-prime test alone was
+    /// exact only for values below that bound, i.e. for keys up to a radius).
     pub fn is_zero_at(&self, point: &[i64], d: Q) -> Result<bool, Unknown> {
-        Ok(self.at_point(arith::P, point, d)? == 0 && self.at_point(arith::P2, point, d)? == 0)
+        if self.at_point(arith::P, point, d)? != 0 || self.at_point(arith::P2, point, d)? != 0 {
+            return Ok(false);
+        }
+        Ok(self.exact_at(point, d)?.is_zero())
+    }
+
+    /// The exact value at an integer point and rational d (Err at a pole).
+    pub fn exact_at(&self, point: &[i64], d: Q) -> Result<Rational, Unknown> {
+        let d = Rational::from((Integer::from(d.n), Integer::from(d.d)));
+        self.exact(&self.root, point, &d)
+    }
+
+    fn exact(&self, node: &Node, point: &[i64], d: &Rational) -> Result<Rational, Unknown> {
+        let pole = || format!("pole: {}", short(&self.text));
+        let divide = |x: &Rational, y: &Rational| -> Result<Rational, Unknown> {
+            if y.is_zero() {
+                return Err(pole());
+            }
+            Ok(x / y)
+        };
+        Ok(match node {
+            Node::Num(digits) => {
+                let mut value = Integer::zero();
+                for c in digits.bytes() {
+                    value = &(&value * &Integer::from(10)) + &Integer::from(i64::from(c - b'0'));
+                }
+                Rational::from(value)
+            }
+            Node::Var(k) => {
+                if *k == self.n {
+                    d.clone()
+                } else {
+                    Rational::from(Integer::from(point[*k]))
+                }
+            }
+            Node::Neg(a) => -self.exact(a, point, d)?,
+            Node::Sum(terms) => {
+                let mut acc = Rational::zero();
+                for (negated, term) in terms {
+                    let value = self.exact(term, point, d)?;
+                    acc = if *negated {
+                        &acc - &value
+                    } else {
+                        &acc + &value
+                    };
+                }
+                acc
+            }
+            Node::Prod(factors) => {
+                let mut acc = Rational::one();
+                for (op, factor) in factors {
+                    let value = self.exact(factor, point, d)?;
+                    acc = if *op == '/' {
+                        divide(&acc, &value)?
+                    } else {
+                        &acc * &value
+                    };
+                }
+                acc
+            }
+            Node::Bin(op, a, b) => {
+                if *op == '^' {
+                    let base = self.exact(a, point, d)?;
+                    let exponent = const_int(b)?.n;
+                    let mut power = Rational::one();
+                    for _ in 0..exponent.unsigned_abs() {
+                        power = &power * &base;
+                    }
+                    if exponent < 0 {
+                        divide(&Rational::one(), &power)?
+                    } else {
+                        power
+                    }
+                } else {
+                    let (x, y) = (self.exact(a, point, d)?, self.exact(b, point, d)?);
+                    match op {
+                        '+' => &x + &y,
+                        '-' => &x - &y,
+                        '*' => &x * &y,
+                        '/' => divide(&x, &y)?,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        })
     }
 
     /// Exact linear form `[const, n0.., n{n-1}, d]` (Err if not affine).
@@ -512,6 +601,23 @@ fn short(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::node::replay::arith::P;
+
+    /// The zero test is exact beyond the two primes: P * P2 is zero modulo both but not zero.
+    #[test]
+    fn zero_test_is_exact_beyond_the_two_primes() {
+        let e = Expr::parse("5316911983139663417828251946283171871*n0", 1).unwrap();
+        assert_eq!(e.at_point(P, &[1], Q::int(3)).unwrap(), 0);
+        assert!(!e.is_zero_at(&[1], Q::int(3)).unwrap());
+        assert!(e.is_zero_at(&[0], Q::int(3)).unwrap());
+        let f = Expr::parse("(n0-2)*(d-3)/n0", 1).unwrap();
+        assert!(f.is_zero_at(&[2], Q::int(5)).unwrap());
+        assert!(f.is_zero_at(&[7], Q::int(3)).unwrap());
+        assert!(!f.is_zero_at(&[7], Q::int(5)).unwrap());
+        assert_eq!(
+            f.exact_at(&[4], Q { n: 7, d: 2 }).unwrap(),
+            Rational::from((Integer::from(1), Integer::from(4)))
+        );
+    }
 
     #[test]
     fn parse_eval_precedence() {
