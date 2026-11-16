@@ -4,6 +4,7 @@ use symbolica::domains::{Ring, RingOps};
 use symbolica::utils::resources::{self, ResourceLimitError};
 
 use super::field::{Fe, batch_invert, horner, reduce};
+use super::simd::{Coefficient, Kernel};
 use super::{OpTag, Trace};
 
 pub(super) enum ReplayError {
@@ -113,6 +114,7 @@ pub(super) fn replay(
     let mut cancel_checks = 0;
     let interval = checkpoint_interval(width);
     let mut countdown = interval;
+    let kernel = Kernel::new(field);
     for op in &trace.ops {
         countdown -= 1;
         if countdown == 0 {
@@ -151,30 +153,13 @@ pub(super) fn replay(
         };
         let assign = matches!(tag, OpTag::Init | OpTag::New | OpTag::TermNew);
         let reference = op.coefficient;
-        if reference.is_constant() {
-            let c = table.constants[reference.index()];
-            if assign {
-                for (d, s) in destination.iter_mut().zip(source) {
-                    *d = field.mul(s, &c);
-                }
-            } else {
-                for (d, s) in destination.iter_mut().zip(source) {
-                    *d = field.add(&*d, &field.mul(s, &c));
-                }
-            }
+        let coefficient = if reference.is_constant() {
+            Coefficient::Constant(table.constants[reference.index()])
         } else {
             let row = reference.index() * width;
-            let c = &table.polynomials[row..row + width];
-            if assign {
-                for ((d, s), c) in destination.iter_mut().zip(source).zip(c) {
-                    *d = field.mul(s, c);
-                }
-            } else {
-                for ((d, s), c) in destination.iter_mut().zip(source).zip(c) {
-                    *d = field.add(&*d, &field.mul(s, c));
-                }
-            }
-        }
+            Coefficient::Row(&table.polynomials[row..row + width])
+        };
+        kernel.apply(field, destination, source, coefficient, assign);
     }
     Ok(ReplayBatch {
         values: terminals,
