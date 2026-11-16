@@ -19,6 +19,7 @@ mod origins;
 mod poles;
 mod radius;
 mod rat;
+mod reduce;
 mod selftest;
 mod sha256;
 mod symcheck;
@@ -204,6 +205,10 @@ fn main() {
         "poles" => poles::cmd(a),
         "radius" => radius::cmd(a),
         "symcheck" => symcheck::cmd(a),
+        "samplepoles" => poles::cmd_samplepoles(a),
+        "myreduce" => reduce::cmd(a),
+        "onelevel" => reduce::cmd_onelevel(a),
+        "termcheck" => reduce::cmd_termcheck(a),
         _ => die(&format!("unknown command {cmd}")),
     }
 }

@@ -12,6 +12,8 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::{Value, json};
+use symbolica::domains::integer::Integer;
+use symbolica::domains::rational::Rational;
 use symbolica::poly::PolyVariable;
 use symbolica::poly::factor::Factorize;
 
@@ -509,4 +511,183 @@ pub fn run_with(
         "verdict": if violations.is_empty() && undecided.is_empty() { "YES" } else { "NO" },
     });
     Ok(res)
+}
+
+fn parse_q(t: &str) -> Rational {
+    let t = t.trim();
+    match t.split_once('/') {
+        Some((a, b)) => Rational::from((
+            a.trim().parse::<i64>().unwrap(),
+            b.trim().parse::<i64>().unwrap(),
+        )),
+        None => Rational::from(t.parse::<i64>().unwrap()),
+    }
+}
+
+/// `samplepoles --table T --radius R [--dims 37/7,-11/5,9/13] [--out FILE]`: every key of the region at which the
+/// rule selected at first match has a written divisor vanishing EXACTLY at one of the engine's sample values of d
+/// (the engine's modular evaluation then fails there: "coefficient pole" in the reduction, or an exactly-zero ISP
+/// coefficient read as nonzero). Same exact face method as `poles`, on D(n, d_s) instead of the d-coefficients.
+pub fn cmd_samplepoles(mut a: Args) {
+    let tp = a.need("--table");
+    let r: i128 = a
+        .need("--radius")
+        .parse()
+        .unwrap_or_else(|_| die("--radius"));
+    let dims: Vec<String> = a
+        .take("--dims")
+        .unwrap_or_else(|| "37/7,-11/5,9/13".into())
+        .split(',')
+        .map(|s| s.to_string())
+        .collect();
+    let out = a.take("--out");
+    a.done();
+    let t = Table::load(&tp).unwrap_or_else(|e| die(&e));
+    let n = t.n;
+    let ctx = Ctx {
+        t: &t,
+        region: Region {
+            mask: t.mask.clone(),
+            r: Some(r),
+        },
+        n,
+        vars: poly_vars(n),
+        point_cap: 5_000,
+        zero_cap: 100_000,
+    };
+    let dq: Vec<Rational> = dims.iter().map(|s| parse_q(s)).collect();
+    let mut hits: Vec<Value> = vec![];
+    let mut whole: Vec<Value> = vec![];
+    let mut undecided: Vec<Value> = vec![];
+    let mut pairs = 0usize;
+    let mut filtered_dfree = 0usize;
+    let mut filtered_lead = 0usize;
+    let mut pos = 0usize;
+    let t0 = std::time::Instant::now();
+    for_each_line(&tp, |_, _, v| {
+        if v["type"].as_str() != Some("rule") {
+            return Ok(());
+        }
+        let rule = parse_rule(&v, n, pos).map_err(|e| e.to_string())?;
+        pos += 1;
+        let mut f = Face::top();
+        for (i, x) in rule.fixed.iter().enumerate() {
+            if let Some(x) = x {
+                match f.pin(n, i, *x) {
+                    Some(g) => f = g,
+                    None => return Ok(()),
+                }
+            }
+        }
+        for e in &rule.equations {
+            if let Some(l) = &e.lin {
+                match f.add_eq(l) {
+                    Some(g) => f = g,
+                    None => return Ok(()),
+                }
+            }
+        }
+        if !f.feasible(&ctx.region) {
+            return Ok(());
+        }
+        let rt0 = std::time::Instant::now();
+        let mut dens: BTreeMap<String, (ZPoly, Vec<usize>)> = BTreeMap::new();
+        for (ti, term) in v["rhs"].as_array().unwrap().iter().enumerate() {
+            let text = term[1].as_str().unwrap_or("");
+            if !text.contains('/') && !text.contains("^-") && !text.contains("^(-") {
+                continue;
+            }
+            let e = Expr::parse(text, n).map_err(|e| format!("rule {}: {e}", rule.pos))?;
+            for dnode in e.divisors() {
+                let z = to_zpoly(&dnode, n, &ctx.vars)?;
+                dens.entry(format!("{z}")).or_insert_with(|| (z, vec![])).1.push(ti);
+            }
+        }
+        for (dtext, (d, terms)) in &dens {
+            // exact filters: a d-free divisor vanishes at a key for every d, and its loci are excluded on the selected
+            // domain by `poles`; d_s = p/q (lowest terms) can be a root of the integer polynomial D(k, .) only if q
+            // divides its leading coefficient (rational root theorem), so a nonzero constant leading d-coefficient
+            // not divisible by q rules d_s out at every key.
+            let ulist = d.to_univariate_polynomial_list(n);
+            if ulist.len() <= 1 && ulist.first().is_none_or(|(_, e)| *e == 0) {
+                filtered_dfree += dims.len();
+                continue;
+            }
+            let (top, _) = ulist.iter().max_by_key(|(_, e)| *e).unwrap();
+            let top_const: Option<Integer> = if top.is_constant() { top.coefficients.first().cloned() } else { None };
+            let base = zpoly_to_q(d);
+            for (ds, dval) in dims.iter().zip(&dq) {
+                if let Some(c) = &top_const {
+                    let q = dval.denominator();
+                    if !(c % &q).is_zero() {
+                        filtered_lead += 1;
+                        continue;
+                    }
+                }
+                pairs += 1;
+                let q = restrict(&base.replace(n, dval), &f, n);
+                if q.is_zero() {
+                    whole.push(json!({"rule": rule.pos, "d": ds, "divisor": crate::coef::short(dtext), "terms": terms.len()}));
+                    continue;
+                }
+                if q.is_constant() {
+                    continue;
+                }
+                let faces = match ctx.locus_faces(&f, std::slice::from_ref(&q), 0) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        undecided.push(json!({"rule": rule.pos, "d": ds, "divisor": crate::coef::short(dtext), "why": e}));
+                        continue;
+                    }
+                };
+                for g in faces {
+                    if ctx.branch_contains(&rule, &g).is_some() {
+                        continue;
+                    }
+                    // at most point_cap points per face; the face itself is reported with its selected witnesses
+                    let (pts, more) = g.lattice_points_upto(&ctx.region, ctx.point_cap);
+                    let mut sel = 0usize;
+                    for k in pts {
+                        let mut assign = k.clone();
+                        assign.push(0);
+                        if !qpoly_eval(&q, &assign).is_zero() {
+                            continue;
+                        }
+                        if dispatch::first_match(&t, &k) == Some(rule.pos) {
+                            sel += 1;
+                            if sel <= 20 {
+                                hits.push(json!({"rule": rule.pos, "key": k, "d": ds,
+                                    "divisor": crate::coef::short(dtext), "terms": terms}));
+                            }
+                        }
+                    }
+                    if more || sel > 20 {
+                        undecided.push(json!({"rule": rule.pos, "d": ds, "divisor": crate::coef::short(dtext),
+                            "why": format!("face only partly enumerated ({} selected sample-pole keys among the first {} points; witnesses listed)", sel, ctx.point_cap),
+                            "face": g.describe(), "more_points": more}));
+                    }
+                }
+            }
+        }
+        if rt0.elapsed().as_secs_f64() > 2.0 {
+            eprintln!("rule {} took {:.1} s ({} divisors)", rule.pos, rt0.elapsed().as_secs_f64(), dens.len());
+        }
+        if rule.pos % 250 == 0 {
+            eprintln!("at rule {} after {:.0} s, {} analysed, {} hits", rule.pos, t0.elapsed().as_secs_f64(), pairs, hits.len());
+        }
+        Ok(())
+    })
+    .unwrap_or_else(|e| die(&e));
+    let mut keys: Vec<Value> = hits.iter().map(|h| h["key"].clone()).collect();
+    keys.sort_by_key(|k| k.to_string());
+    keys.dedup();
+    let res = json!({"schema": "rr_pverify.samplepoles.v1", "table": tp, "radius": r.to_string(), "dims": dims,
+        "divisor_dim_pairs_analysed": pairs, "skipped_d_free": filtered_dfree,
+        "skipped_by_leading_coefficient": filtered_lead, "selected_keys_with_a_sample_pole": keys.len(), "hits": hits,
+        "divisor_zero_on_whole_case": whole, "undecided": undecided, "seconds": t0.elapsed().as_secs_f64()});
+    let s = serde_json::to_string_pretty(&res).unwrap();
+    if let Some(p) = out {
+        std::fs::write(&p, &s).unwrap();
+    }
+    println!("{s}");
 }

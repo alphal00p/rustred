@@ -137,9 +137,26 @@ impl Face {
         (0..n).filter(|v| self.pivot_expr(*v).is_none()).collect()
     }
 
-    /// A pinned coordinate that is not an integer: the face holds no lattice point.
+    /// A row without integer solutions: the face holds no lattice point. Row k_p = c + sum a_f k_f, scaled by the
+    /// lcm L of its denominators: L k_p - sum (L a_f) k_f = L c has an integer solution only if the gcd of the integer
+    /// coefficients divides L c (a necessary condition; a pinned non-integer coordinate is the special case).
     pub fn has_fractional_pin(&self) -> bool {
-        self.rows.iter().any(|(_, e)| e.is_const() && !e.c.is_int())
+        self.rows.iter().any(|(_, e)| {
+            let mut l: i128 = e.c.d;
+            for a in &e.a {
+                if !a.is_zero() {
+                    l = l / crate::expr::gcd(l, a.d) * a.d;
+                }
+            }
+            let mut g: i128 = l; // coefficient of k_p
+            for a in &e.a {
+                if !a.is_zero() {
+                    g = crate::expr::gcd(g, a.n * (l / a.d));
+                }
+            }
+            let c = e.c.n * (l / e.c.d);
+            g != 0 && c % g != 0
+        })
     }
 
     /// Region constraints as affine forms `g >= 0` in the key variables (pivots substituted).
@@ -278,8 +295,27 @@ impl Face {
         s
     }
 
+    /// The first lattice points (at most `cap`) of the face in a BOUNDED region, and whether there are more.
+    pub fn lattice_points_upto(&self, region: &Region, cap: usize) -> (Vec<Vec<i64>>, bool) {
+        let mut out = vec![];
+        let more = self.lattice_points_capped(region, cap, &mut out).is_err();
+        out.truncate(cap);
+        (out, more)
+    }
+
     /// Every lattice point of the face in a BOUNDED region, or Err(count so far) when more than `cap`.
     pub fn lattice_points(&self, region: &Region, cap: usize) -> Result<Vec<Vec<i64>>, usize> {
+        let mut out = vec![];
+        self.lattice_points_capped(region, cap, &mut out)?;
+        Ok(out)
+    }
+
+    fn lattice_points_capped(
+        &self,
+        region: &Region,
+        cap: usize,
+        out: &mut Vec<Vec<i64>>,
+    ) -> Result<(), usize> {
         let n = region.mask.len();
         let r = region
             .r
@@ -287,10 +323,12 @@ impl Face {
         let free = self.free_vars(n);
         let budget = r - self.pinned_dr(region);
         if budget < 0 {
-            return Ok(vec![]);
+            return Ok(());
         }
-        let mut out = vec![];
         let mut assign = vec![0i64; n];
+        // visited assignments are capped too (most may be rejected): exceeding it counts as "more points"
+        let mut visits: usize = 0;
+        let visit_cap = cap.saturating_mul(200).max(2_000_000);
         #[allow(clippy::too_many_arguments)]
         fn rec(
             face: &Face,
@@ -302,8 +340,14 @@ impl Face {
             out: &mut Vec<Vec<i64>>,
             cap: usize,
             r: i128,
+            visits: &mut usize,
+            visit_cap: usize,
         ) -> Result<(), usize> {
             let n = region.mask.len();
+            *visits += 1;
+            if *visits > visit_cap {
+                return Err(out.len());
+            }
             if idx == free.len() {
                 let mut k = vec![0i64; n];
                 for i in 0..n {
@@ -335,7 +379,19 @@ impl Face {
                 } else {
                     -(y as i64)
                 };
-                rec(face, region, free, idx + 1, left - y, assign, out, cap, r)?;
+                rec(
+                    face,
+                    region,
+                    free,
+                    idx + 1,
+                    left - y,
+                    assign,
+                    out,
+                    cap,
+                    r,
+                    visits,
+                    visit_cap,
+                )?;
             }
             Ok(())
         }
@@ -346,11 +402,13 @@ impl Face {
             0,
             budget,
             &mut assign,
-            &mut out,
+            out,
             cap,
             r,
+            &mut visits,
+            visit_cap,
         )?;
-        Ok(out)
+        Ok(())
     }
 }
 
@@ -450,5 +508,16 @@ mod tests {
         let b = f.pin(n, 0, 4).unwrap().pin(n, 1, 1).unwrap();
         assert_eq!(a, b);
         assert_eq!(g.pin(n, 1, 1).unwrap(), a);
+        // integrality: 3 k0 + 3 k1 = 7 has no integer point; 2 k0 - 4 k1 = 6 has
+        let mut l2 = Lin::var(n, 0);
+        l2.a[0] = Rat::int(3);
+        l2.a[1] = Rat::int(3);
+        l2.c = Rat::int(-7);
+        assert!(!f.add_eq(&l2).unwrap().feasible(&region));
+        let mut l3 = Lin::var(n, 0);
+        l3.a[0] = Rat::int(2);
+        l3.a[1] = Rat::int(-4);
+        l3.c = Rat::int(-6);
+        assert!(!f.add_eq(&l3).unwrap().has_fractional_pin());
     }
 }
