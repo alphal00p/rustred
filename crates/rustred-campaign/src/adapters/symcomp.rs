@@ -239,12 +239,12 @@ pub fn load_import(spec: &JobSpec) -> Result<ImportCtx, String> {
     let set =
         rustred_campaign_core::import::load(&ts, &base).map_err(|e| format!("import load: {e}"))?;
     let lines = set.frame.mask().to_vec();
-    let fsrc = ts
-        .sources
-        .iter()
-        .find(|s| s.id == ts.frame_from)
-        .ok_or("import spec: frame_from")?;
-    let fpath = PathBuf::from(fsrc.path.clone().ok_or("frame_from path")?);
+    // the frame table as the tool finds it (`symflow::frame_table_path`: the frame source's file, or the first table of
+    // a table-set frame source: lane wireflow, a `tables_dir` frame has no `path`)
+    let fpath = PathBuf::from(
+        rustred_campaign_core::repairflow::symflow::frame_table_path(&set)
+            .ok_or("frame_from: no table file")?,
+    );
     let fpath = if fpath.is_absolute() {
         fpath
     } else {

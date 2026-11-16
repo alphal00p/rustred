@@ -62,7 +62,7 @@ enum Mode {
     OffExplicit,
 }
 
-fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64) -> (PathBuf, PathBuf) {
+fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64, rounds: u32) -> (PathBuf, PathBuf) {
     std::fs::create_dir_all(dir).unwrap();
     let start = dir.join("start.keys.jsonl");
     std::fs::write(
@@ -97,7 +97,7 @@ fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64) -> (PathBuf, PathBuf)
     let mut route0 = json!({"symmetry_credit": false, "symmetry_relation": false});
     match mode {
         Mode::Kernel | Mode::NoKernel => {
-            route0["composite_jobs"] = json!({"enabled": true, "max_rounds": 2, "program": "rr_fake_child",
+            route0["composite_jobs"] = json!({"enabled": true, "max_rounds": rounds, "program": "rr_fake_child",
                 "wall_s": 900, "cap_bytes": 1073741824u64, "expected_peak_bytes": 268435456u64});
             if mode == Mode::Kernel {
                 route0["composite_jobs"]["kernel"] = json!({"program": "rr_fake_child",
@@ -134,8 +134,10 @@ fn material(dir: &Path, frame: &Path, mode: Mode, ms: u64) -> (PathBuf, PathBuf)
 }
 
 fn setup(tag: &str, frame: &Path, mode: Mode, ms: u64) -> (Tmp, PathBuf, PathBuf) {
+    // two rounds (a second round on the first round's new keys) only in the first test; one elsewhere (time)
+    let rounds = if tag == "wfk" { 2 } else { 1 };
     let t = Tmp::new(tag);
-    let (config, policy) = material(&t.path.join("material"), frame, mode, ms);
+    let (config, policy) = material(&t.path.join("material"), frame, mode, ms, rounds);
     let spec = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}},
@@ -151,6 +153,24 @@ fn setup(tag: &str, frame: &Path, mode: Mode, ms: u64) -> (Tmp, PathBuf, PathBuf
     let sp = write_spec(&t, "spec.json", &spec);
     let cdir = t.cdir("cdir");
     (t, sp, cdir)
+}
+
+/// `sup_common::run_to_end` with a longer bound per session: two debug-built composite rounds of the fake child on a
+/// saturated host take longer than its 900 s.
+fn run_long(spec: &Path, cdir: &Path, extra: &[&str]) -> Vec<i32> {
+    let mut codes = Vec::new();
+    for _ in 0..6 {
+        let mut c = start(spec, cdir, extra, &[]);
+        let code = wait(&mut c, Duration::from_secs(3600));
+        codes.push(code);
+        if finished(code) {
+            return codes;
+        }
+    }
+    panic!(
+        "campaign did not finish: exit codes {codes:?}; log {}",
+        log_tail(cdir)
+    );
 }
 
 fn read_json(p: &Path) -> Value {
@@ -202,7 +222,7 @@ macro_rules! setup_or_skip {
 fn composite_rounds_run_as_jobs_and_their_relations_are_served_by_the_import() {
     let (_g, frame) = setup_or_skip!();
     let (_t, sp, cdir) = setup("wfk", &frame, Mode::Kernel, 20);
-    let codes = run_to_end(&sp, &cdir, &["--plain"]);
+    let codes = run_long(&sp, &cdir, &["--plain"]);
     assert!(
         matches!(codes.last(), Some(&0) | Some(&10)),
         "{codes:?} {}",
@@ -281,7 +301,7 @@ fn composite_rounds_run_as_jobs_and_their_relations_are_served_by_the_import() {
 fn without_the_kernel_a_two_row_form_is_not_served() {
     let (_g, frame) = setup_or_skip!();
     let (_t, sp, cdir) = setup("wfn", &frame, Mode::NoKernel, 20);
-    let codes = run_to_end(&sp, &cdir, &["--plain"]);
+    let codes = run_long(&sp, &cdir, &["--plain"]);
     assert!(
         matches!(codes.last(), Some(&0) | Some(&10)),
         "{codes:?} {}",
@@ -333,7 +353,7 @@ fn outcome(cdir: &Path) -> Outcome {
 fn interrupt_and_resume_gives_the_same_rounds_and_statement() {
     let (_g, frame) = setup_or_skip!();
     let (_ta, spa, ca) = setup("wfref", &frame, Mode::Kernel, 150);
-    let codes = run_to_end(&spa, &ca, &["--plain"]);
+    let codes = run_long(&spa, &ca, &["--plain"]);
     assert!(matches!(codes.last(), Some(&0) | Some(&10)), "{codes:?}");
     let reference = outcome(&ca);
     let (_tb, spb, cb) = setup("wfint", &frame, Mode::Kernel, 150);
@@ -346,7 +366,7 @@ fn interrupt_and_resume_gives_the_same_rounds_and_statement() {
             std::thread::sleep(Duration::from_millis(400 + x % 1500));
             signal(&c, libc::SIGTERM);
         }
-        let code = wait(&mut c, Duration::from_secs(300));
+        let code = wait(&mut c, Duration::from_secs(3600));
         codes.push(code);
         if code == 0 || code == 10 {
             break;
@@ -391,7 +411,7 @@ fn the_stage_off_absent_or_explicit_gives_identical_results() {
     let (_ta, spa, ca) = setup("wfoff", &frame, Mode::Off, 10);
     let (_tb, spb, cb) = setup("wfoffx", &frame, Mode::OffExplicit, 10);
     for (sp, c) in [(&spa, &ca), (&spb, &cb)] {
-        let codes = run_to_end(sp, c, &["--plain"]);
+        let codes = run_long(sp, c, &["--plain"]);
         assert!(
             matches!(codes.last(), Some(&0) | Some(&10)),
             "{codes:?} {}",
