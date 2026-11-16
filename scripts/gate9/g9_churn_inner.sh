@@ -7,7 +7,7 @@ tag=$1; mode=$2; life=$3; nz=${4:-}
 R=$S/runs/churn/$tag; [ -e "$R" ] && { echo "exists: $R"; exit 3; }; mkdir -p $R
 cat > $R/wrap.sh <<W
 #!$BASH_BIN
-if [ "\$1" = job ] && [ ! -e $R/churn.pid ]; then $S/bin/g9churn $R/churn.pid $life $nz; fi
+if [ "\$1" = job ] && mkdir $R/churn.once 2>/dev/null; then $S/bin/g9churn $R/churn.pid $life $nz; fi
 exec $FC "\$@"
 W
 chmod 755 $R/wrap.sh
@@ -18,7 +18,8 @@ if [ $mode = crash ]; then
   for i in $(seq 1 300); do [ -s $R/churn.pid ] && break; sleep 0.1; done
   sleep 0.5; kill -KILL $SUP; wait $SUP 2>/dev/null
   CP=$(cat $R/churn.pid); echo "session 1 SIGKILLed; churner $CP state $(st $CP) threads $(ls /proc/$CP/task 2>/dev/null | wc -l) marker $(tr '\0' '\n' < /proc/$CP/task/$(ls /proc/$CP/task | tail -1)/environ 2>/dev/null | grep -c RR_CAMPAIGN_JOB)"
-  timeout -s KILL 900 $RC run --spec $R/spec.json --dir $R/c --plain > $R/run2.out 2>&1; rc=$?; out=$R/run2.out
+  [ -n "${DELAY_US:-}" ] && export LD_PRELOAD=$S/bin/g9fault.so G8_MATCH=/proc/$CP/task/ G8_OPS=open G8_ERRNO=delay G8_DELAY_US=$DELAY_US G8_FROM=1 G8_LOG=$R/fault.log
+  timeout -s KILL 900 ${NICE2:+nice -n $NICE2} $RC run --spec $R/spec.json --dir $R/c --plain > $R/run2.out 2>&1; rc=$?; out=$R/run2.out
 else
   timeout -s KILL 900 $RC run --spec $R/spec.json --dir $R/c --plain > $R/run1.out 2>&1; rc=$?; out=$R/run1.out
   CP=$(cat $R/churn.pid 2>/dev/null)

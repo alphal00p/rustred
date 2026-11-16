@@ -1,4 +1,4 @@
-// gate9 LD_PRELOAD fault injector (extends gate8 g8fault.c: + getdents64/pidfd_open/waitid via syscall(), waitpid/waitid/wait4,
+// gate9 LD_PRELOAD fault injector (G8_ERRNO=delay + G8_DELAY_US: an open of a candidate is DELAYED, never failed; extends gate8 g8fault.c: + getdents64/pidfd_open/waitid via syscall(), waitpid/waitid/wait4,
 // clock_gettime (CLOCK_BOOTTIME / MONOTONIC / REALTIME: op "clock"), G8_ERRNO=pshort = POSIX short read (fewer bytes, NOT torn);
 // ops: open,read,readdir,opendir,stat,readlink,getdents,wait,clock,pidfd; G8_MATCH "*" matches every path (and the path-less ops)).
 // gate8 LD_PRELOAD fault injector (test harness only, ONLY inside private namespaces). Extends gate7's g7fault.c.
@@ -111,7 +111,7 @@ static void forget_fd(int fd) {
 #define OPENWRAP(name)                                                                                                  \
   int name(const char *p, int f, ...) {                                                                                \
     mode_t mo = 0; if (f & (O_CREAT | O_TMPFILE)) { va_list a; va_start(a, f); mo = va_arg(a, int); va_end(a); }      \
-    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { errno = mode_errno(); return -1; }            \
+    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { if (mode_is("delay")) { const char *dl = getenv("G8_DELAY_US"); usleep(dl ? atoi(dl) : 1000); } else { errno = mode_errno(); return -1; } } \
     static int (*r)(const char *, int, ...) = 0; if (!r) r = dlsym(RTLD_NEXT, #name);                                 \
     int fd = r(p, f, mo); remember_fd(fd, p); return fd; }
 OPENWRAP(open)
@@ -119,7 +119,7 @@ OPENWRAP(open64)
 #define OPENATWRAP(name)                                                                                                \
   int name(int d, const char *p, int f, ...) {                                                                         \
     mode_t mo = 0; if (f & (O_CREAT | O_TMPFILE)) { va_list a; va_start(a, f); mo = va_arg(a, int); va_end(a); }      \
-    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { errno = mode_errno(); return -1; }            \
+    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { if (mode_is("delay")) { const char *dl = getenv("G8_DELAY_US"); usleep(dl ? atoi(dl) : 1000); } else { errno = mode_errno(); return -1; } } \
     static int (*r)(int, const char *, int, ...) = 0; if (!r) r = dlsym(RTLD_NEXT, #name);                            \
     int fd = r(d, p, f, mo); remember_fd(fd, p); return fd; }
 OPENATWRAP(openat)

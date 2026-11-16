@@ -1,4 +1,4 @@
-// gate9 LD_PRELOAD fault injector (extends gate8 g8fault.c: + getdents64/pidfd_open/waitid via syscall(), waitpid/waitid/wait4,
+// gate9 LD_PRELOAD fault injector (G8_ERRNO=delay + G8_DELAY_US: an open of a candidate is DELAYED, never failed; extends gate8 g8fault.c: + getdents64/pidfd_open/waitid via syscall(), waitpid/waitid/wait4,
 // clock_gettime (CLOCK_BOOTTIME / MONOTONIC / REALTIME: op "clock"), G8_ERRNO=pshort = POSIX short read (fewer bytes, NOT torn);
 // ops: open,read,readdir,opendir,stat,readlink,getdents,wait,clock,pidfd; G8_MATCH "*" matches every path (and the path-less ops)).
 // gate8 LD_PRELOAD fault injector (test harness only, ONLY inside private namespaces). Extends gate7's g7fault.c.
@@ -87,7 +87,7 @@ static int decide(const char *op, const char *path) {
     const char *ev = getenv("G8_EVERY"); int e = ev ? atoi(ev) : 1; if (e < 1) e = 1;
     if (n >= f && n <= tt && ((n - f) % e) == e - 1) fail = 1; }
   const char *pr = getenv("G8_PROB");   // per-mille probability (thread-local xorshift), within FROM..TO when FROM is set
-  if (pr) { static __thread unsigned long long x = 0; if (!x) x = 0x9E3779B97F4A7C15ULL ^ ((unsigned long long)syscall(SYS_gettid) << 17) ^ (unsigned long long)n;
+  if (pr) { static __thread unsigned long long x = 0; if (!x) x = 0x9E3779B97F4A7C15ULL ^ ((unsigned long long)syscall(SYS_gettid) << 17) ^ (unsigned long long)n ^ __builtin_ia32_rdtsc() /* gate9: per run */;
     x ^= x << 13; x ^= x >> 7; x ^= x << 17; int inr = 1;
     if (from) { const char *to = getenv("G8_TO"); inr = n >= atoi(from) && n <= (to ? atoi(to) : 0x7fffffff); }
     fail = inr && (int)(x % 1000) < atoi(pr); }
@@ -111,7 +111,7 @@ static void forget_fd(int fd) {
 #define OPENWRAP(name)                                                                                                  \
   int name(const char *p, int f, ...) {                                                                                \
     mode_t mo = 0; if (f & (O_CREAT | O_TMPFILE)) { va_list a; va_start(a, f); mo = va_arg(a, int); va_end(a); }      \
-    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { errno = mode_errno(); return -1; }            \
+    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { if (mode_is("delay")) { const char *dl = getenv("G8_DELAY_US"); usleep(dl ? atoi(dl) : 1000); } else { errno = mode_errno(); return -1; } } \
     static int (*r)(const char *, int, ...) = 0; if (!r) r = dlsym(RTLD_NEXT, #name);                                 \
     int fd = r(p, f, mo); remember_fd(fd, p); return fd; }
 OPENWRAP(open)
@@ -119,7 +119,7 @@ OPENWRAP(open64)
 #define OPENATWRAP(name)                                                                                                \
   int name(int d, const char *p, int f, ...) {                                                                         \
     mode_t mo = 0; if (f & (O_CREAT | O_TMPFILE)) { va_list a; va_start(a, f); mo = va_arg(a, int); va_end(a); }      \
-    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { errno = mode_errno(); return -1; }            \
+    if (decide("open", p) && !mode_is("short") && !mode_is("trunc")) { if (mode_is("delay")) { const char *dl = getenv("G8_DELAY_US"); usleep(dl ? atoi(dl) : 1000); } else { errno = mode_errno(); return -1; } } \
     static int (*r)(int, const char *, int, ...) = 0; if (!r) r = dlsym(RTLD_NEXT, #name);                            \
     int fd = r(d, p, f, mo); remember_fd(fd, p); return fd; }
 OPENATWRAP(openat)
@@ -196,6 +196,10 @@ int statx(int d, const char *p, int fl, unsigned int mask, struct statx *b) {
   if (p && !*p && (fl & AT_EMPTY_PATH) && d >= 0 && d < MAXFD && fdpath[d]) {
     pthread_mutex_lock(&mu); if (fdpath[d]) { strncpy(fp, fdpath[d], sizeof fp - 1); fp[sizeof fp - 1] = 0; path = fp; }
     pthread_mutex_unlock(&mu); }
+  /* gate9: the FIRST statx of a process always passes (a failed first statx sends Rust std into its availability probe,
+     which crashes under LD_PRELOAD: SIGSEGV in any Rust program, an artefact of the harness) */
+  static int first_statx_done = 0;
+  if (!__atomic_exchange_n(&first_statx_done, 1, __ATOMIC_SEQ_CST)) return r(d, p, fl, mask, b);
   if (path && *path && decide("stat", path) && !mode_is("short") && !mode_is("trunc")) { errno = mode_errno(); return -1; }
   return r(d, p, fl, mask, b);
 }

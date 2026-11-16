@@ -4,7 +4,14 @@
 //! after the listing is never examined (also `guard::read_facts` zombie_without_threads, `read_proc_facts` dead). After a
 //! supervisor crash the resumed session's recovery and final sweeps are "proven": FINISHED, exit 0, the process alive.
 //!
-//! Ignored (needs a C compiler: `gate9_churn.c`, a copy of implementer-scratch/gate9/src/g9churn.c): FAILS on 9876cba2.
+//! Without help the evasion is timing-dependent (2 of 2 survived in the auditor's first batch, 0 of 84 later). Here it is
+//! made DETERMINISTIC without failing any read: the resumed supervisor's opens of the churner's `/proc/<pid>/task/<tid>/*`
+//! files are DELAYED by 2 ms (the gate9 LD_PRELOAD injector `gate9_g9fault.c`, mode `delay`: a descheduled supervisor), so
+//! each listed thread really exits before it is read (6 of 6 rc 0 with the churner alive in the auditor's runs, even with
+//! 500 us thread lives; a churner whose main thread lives is killed).
+//!
+//! Ignored (needs a C compiler: `gate9_churn.c` = implementer-scratch/gate9/src/g9churn.c, `gate9_g9fault.c`): FAILS on
+//! 9876cba2.
 //! Run explicitly, ONLY inside a private pid namespace:
 //! `LIGHT_PIDNS=1 light_build.sh gate9 test -p rustred-campaign --test gate9_churn -- --ignored`.
 
@@ -54,11 +61,21 @@ fn g9_b2_zombie_leader_thread_churn_never_survives_an_exit_0() {
         .arg("-lpthread")
         .env("PATH", path_env())
         .status();
-    if !built.is_ok_and(|s| s.success()) {
-        eprintln!("SKIPPED: no C compiler for the churner");
+    let so = probe.path.join("g9fault.so");
+    let built2 = Command::new("cc")
+        .args(["-shared", "-fPIC", "-O1", "-o"])
+        .arg(&so)
+        .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/gate9_g9fault.c"))
+        .arg("-ldl")
+        .arg("-lpthread")
+        .env("PATH", path_env())
+        .status();
+    if !built.is_ok_and(|s| s.success()) || !built2.is_ok_and(|s| s.success()) {
+        eprintln!("SKIPPED: no C compiler for the churner / the injector");
         return;
     }
-    for life_us in [50u32, 0] {
+    let so_s = so.to_str().unwrap().to_string();
+    for life_us in [500u32, 50, 0] {
         let t = Tmp::new(&format!("g9-churn-{life_us}"));
         let rec = t.path.join("churn.pid");
         let wrap = t.path.join("wrap.sh");
@@ -96,7 +113,16 @@ fn g9_b2_zombie_leader_thread_churn_never_survives_an_exit_0() {
             .parse()
             .unwrap();
         assert!(alive_threads(cp) >= 2, "precondition: the churner lives");
-        let mut s2 = start(&sp, &d, &["--plain"], &[]);
+        let m = format!("/proc/{cp}/task/");
+        let env = [
+            ("LD_PRELOAD", so_s.as_str()),
+            ("G8_MATCH", m.as_str()),
+            ("G8_OPS", "open"),
+            ("G8_ERRNO", "delay"),
+            ("G8_DELAY_US", "2000"),
+            ("G8_FROM", "1"),
+        ];
+        let mut s2 = start(&sp, &d, &["--plain"], &env);
         let code = wait(&mut s2, Duration::from_secs(900));
         let survivor = alive_threads(cp) >= 2;
         kill_pid(cp);
