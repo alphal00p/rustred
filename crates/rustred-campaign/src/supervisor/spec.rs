@@ -465,13 +465,9 @@ impl CampaignSpec {
             if !self.programs.contains_key("rr_fake_child") {
                 return Err("a synthetic campaign needs programs.rr_fake_child".into());
             }
-        } else if !self
-            .inputs
-            .iter()
-            .any(|i| {
-                i.role == "closeloop" || i.role == "shipecon" || i.role == super::genchoice::CONFIG_ROLE
-            })
-        {
+        } else if !self.inputs.iter().any(|i| {
+            i.role == "closeloop" || i.role == "shipecon" || i.role == super::genchoice::CONFIG_ROLE
+        }) {
             // lane closeloop (closeloop.md 6.2): a close-from-material campaign names its config as an input; lane
             // shipecon (shipecon.md 13): a ship-economy campaign names its node file (REQUEST TO I-INT: keep); lane
             // sizegen (interfaces/genchoice.md): a generation-choice campaign names its config (role genchoice)

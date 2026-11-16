@@ -271,7 +271,8 @@ pub fn set_block_cache_capacity(n: usize) {
     BLOCK_CACHE_CAP.store(n, AtOrd::Relaxed);
 }
 
-static BLOCK_CACHE_CAP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
+static BLOCK_CACHE_CAP: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(usize::MAX);
 
 // ---------------------------------------------------------------- encoding
 
@@ -1288,7 +1289,9 @@ impl EvidenceStore {
         if cap > 0 {
             let hit = BLOCKS.with(|c| {
                 let mut c = c.borrow_mut();
-                let i = c.iter().position(|(id, pos, _)| *id == self.id && *pos == bi)?;
+                let i = c
+                    .iter()
+                    .position(|(id, pos, _)| *id == self.id && *pos == bi)?;
                 let slot = c.remove(i);
                 let b = slot.2.clone();
                 c.insert(0, slot);
@@ -1303,7 +1306,9 @@ impl EvidenceStore {
         let mut buf = vec![0u8; b.len as usize];
         self.data.read_exact_at(&mut buf, b.off).ok()?;
         self.reads.block_reads.fetch_add(1, AtOrd::Relaxed);
-        self.reads.bytes_read.fetch_add(b.len as u64, AtOrd::Relaxed);
+        self.reads
+            .bytes_read
+            .fetch_add(b.len as u64, AtOrd::Relaxed);
         let buf = Arc::new(buf);
         if cap > 0 {
             BLOCKS.with(|c| {

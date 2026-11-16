@@ -192,10 +192,18 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             "--cpus" => f.cpus = Some(val("--cpus")?),
             "--mem-cap" => f.mem_cap = Some(val("--mem-cap")?),
             "--check-threads" => {
-                f.check_threads = Some(val("--check-threads")?.parse().map_err(|_| "--check-threads: a number")?)
+                f.check_threads = Some(
+                    val("--check-threads")?
+                        .parse()
+                        .map_err(|_| "--check-threads: a number")?,
+                )
             }
             "--store-threads" => {
-                f.store_threads = Some(val("--store-threads")?.parse().map_err(|_| "--store-threads: a number")?)
+                f.store_threads = Some(
+                    val("--store-threads")?
+                        .parse()
+                        .map_err(|_| "--store-threads: a number")?,
+                )
             }
             "--max-jobs" => {
                 f.max_jobs = Some(

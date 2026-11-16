@@ -2864,13 +2864,22 @@ fn run(
         )
     };
     cl.leaf_walk = leaf_walk;
-    phase_log(format_args!("closure: leaf walk done, {:.1} s", t0.elapsed().as_secs_f64()));
+    phase_log(format_args!(
+        "closure: leaf walk done, {:.1} s",
+        t0.elapsed().as_secs_f64()
+    ));
     cl.n_requests = cl.count_requests().map_err(io_err)?;
-    phase_log(format_args!("closure: requests counted, {:.1} s", t0.elapsed().as_secs_f64()));
+    phase_log(format_args!(
+        "closure: requests counted, {:.1} s",
+        t0.elapsed().as_secs_f64()
+    ));
     // (lane wireflow: a frontier walk's successors stop at keys without facts: no cycle / chain pass over it)
     if cfg.longest_chain && !cl.truncated && cl.frontier_stops == 0 {
         chain_pass(&ctx, &mut cl)?;
-        phase_log(format_args!("closure: chain pass done, {:.1} s", t0.elapsed().as_secs_f64()));
+        phase_log(format_args!(
+            "closure: chain pass done, {:.1} s",
+            t0.elapsed().as_secs_f64()
+        ));
     }
     cl.memory_estimate_bytes = cl.table.memory_bytes()
         + cl.res.capacity() * 4

@@ -775,8 +775,14 @@ fn normalized(v: Value, cdir: &Path) -> Value {
         Value::Object(m) => Value::Object(
             m.into_iter()
                 .filter(|(k, _)| {
-                    !(k.ends_with("_s") || k.contains("seconds") || k.contains("elapsed") || k.contains("utc")
-                        || k.contains("threads") || k.ends_with("_ms") || k == "spec_digest" || k == "dir"
+                    !(k.ends_with("_s")
+                        || k.contains("seconds")
+                        || k.contains("elapsed")
+                        || k.contains("utc")
+                        || k.contains("threads")
+                        || k.ends_with("_ms")
+                        || k == "spec_digest"
+                        || k == "dir"
                         || k == "store_reads")
                 })
                 .map(|(k, x)| (k, normalized(x, cdir)))
@@ -821,9 +827,11 @@ fn first_diff(a: &Value, b: &Value, path: &str) -> Option<String> {
             }
             None
         }
-        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
-            x.iter().zip(y).enumerate().find_map(|(i, (u, v))| first_diff(u, v, &format!("{path}[{i}]")))
-        }
+        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => x
+            .iter()
+            .zip(y)
+            .enumerate()
+            .find_map(|(i, (u, v))| first_diff(u, v, &format!("{path}[{i}]"))),
         _ if a == b => None,
         _ => Some(format!("{path}: {a} vs {b}")),
     }
@@ -833,10 +841,21 @@ fn first_diff(a: &Value, b: &Value, path: &str) -> Option<String> {
 fn thread_counts_are_launch_time_resources_and_never_change_the_check_record() {
     let _g = serial();
     // (accepted set, dispositions, check records, statement bytes) of the first thread setting
-    type Reference = (BTreeSet<(String, String, String)>, Vec<(String, String)>, Vec<Value>, Vec<u8>);
+    type Reference = (
+        BTreeSet<(String, String, String)>,
+        Vec<(String, String)>,
+        Vec<Value>,
+        Vec<u8>,
+    );
     let mut reference: Option<Reference> = None;
     // (threads, store block cache): the read-path cache (lane t266run) must not change a result either
-    for (t, cache) in [("1", "64"), ("4", "64"), ("16", "64"), ("4", "0"), ("16", "1")] {
+    for (t, cache) in [
+        ("1", "64"),
+        ("4", "64"),
+        ("16", "64"),
+        ("4", "0"),
+        ("16", "1"),
+    ] {
         let (_t, sp, cdir) = setup(&format!("t2th{t}c{cache}"), 3, Some(2), true, 20);
         let mut codes = vec![];
         for _ in 0..6 {
@@ -856,7 +875,10 @@ fn thread_counts_are_launch_time_resources_and_never_change_the_check_record() {
         assert_eq!(codes.last(), Some(&0), "threads {t}: {}", log_tail(&cdir));
         assert_eq!(result_json(&cdir)["verdict"], "closed", "threads {t}");
         let recs = format!("{:?}", records(&cdir));
-        assert!(recs.contains("session_resources") && recs.contains("check_threads"), "threads {t}: no session record");
+        assert!(
+            recs.contains("session_resources") && recs.contains("check_threads"),
+            "threads {t}: no session record"
+        );
         // evidence files named by a check record: their content without per-run provenance, re-hashed
         let rehash = |mut v: Value| -> Value {
             if let Some(fs) = v["evidence_import"]["files"].as_array_mut() {
@@ -878,7 +900,9 @@ fn thread_counts_are_launch_time_resources_and_never_change_the_check_record() {
                                 Err(_) => l.replace(&root, "TMP"),
                             })
                             .collect();
-                        f[1] = json!(rustred_campaign_core::closure::sha256::sha256_tag(lines.join("\n").as_bytes()));
+                        f[1] = json!(rustred_campaign_core::closure::sha256::sha256_tag(
+                            lines.join("\n").as_bytes()
+                        ));
                     }
                 }
             }
@@ -889,21 +913,36 @@ fn thread_counts_are_launch_time_resources_and_never_change_the_check_record() {
             .map(|(_, b)| normalized(rehash(serde_json::from_slice(b).unwrap()), &cdir))
             .collect();
         assert!(!checks.is_empty());
-        let stmt = std::fs::read(cdir.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+        let stmt =
+            std::fs::read(cdir.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
         let (items, esc) = decisions(&cdir);
         let esc: Vec<(String, String)> = esc
             .into_iter()
-            .map(|(id, b)| (id, String::from_utf8_lossy(&b).replace(&cdir.display().to_string(), "CDIR")))
+            .map(|(id, b)| {
+                (
+                    id,
+                    String::from_utf8_lossy(&b).replace(&cdir.display().to_string(), "CDIR"),
+                )
+            })
             .collect();
         match &reference {
             None => reference = Some((items, esc, checks, stmt)),
             Some((ri, re, rc, rs)) => {
                 assert_eq!(&items, ri, "threads {t}: items differ");
                 assert_eq!(&esc, re, "threads {t}: escalation records differ");
-                assert_eq!(checks.len(), rc.len(), "threads {t}: number of check records");
+                assert_eq!(
+                    checks.len(),
+                    rc.len(),
+                    "threads {t}: number of check records"
+                );
                 for (k, (a, b)) in checks.iter().zip(rc).enumerate() {
-                    assert_eq!(first_diff(a, b, ""), None, "threads {t}: check record {k} differs; files {} vs {}",
-                        a["evidence_import"]["files"], b["evidence_import"]["files"]);
+                    assert_eq!(
+                        first_diff(a, b, ""),
+                        None,
+                        "threads {t}: check record {k} differs; files {} vs {}",
+                        a["evidence_import"]["files"],
+                        b["evidence_import"]["files"]
+                    );
                 }
                 assert!(&stmt == rs, "threads {t}: statements differ");
             }
@@ -921,23 +960,57 @@ fn escalation_key_budget_follows_the_step_depth() {
         node["escalation"]["key_budget_s_by_depth"] = json!({"0": 123});
         node["solve"]["key_budget_s"] = json!(77);
     });
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0), "{}", log_tail(&cdir));
+    assert_eq!(
+        run_to_end(&sp, &cdir, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&cdir)
+    );
     let mut seen = std::collections::BTreeMap::new();
     for e in std::fs::read_dir(cdir.join("jobs")).unwrap().flatten() {
         let j = e.path().join("job.json");
-        let Ok(t) = std::fs::read_to_string(&j) else { continue };
+        let Ok(t) = std::fs::read_to_string(&j) else {
+            continue;
+        };
         let v: Value = serde_json::from_str(&t).unwrap();
         if v["kind"] != "solve-recipe" {
             continue;
         }
         let args: Vec<String> = serde_json::from_value(v["args"].clone()).unwrap_or_default();
-        let budget = args.iter().position(|a| a == "--key-budget-s").map(|i| args[i + 1].clone());
-        let recipe = v["inputs"].as_array().unwrap().iter().find(|i| i["role"] == "recipe").unwrap()["path"].as_str().unwrap().to_string();
-        let step = if recipe.contains(".d0_") { "d0" } else if recipe.contains(".d1_") { "d1" } else { "other" };
-        seen.entry(step).or_insert_with(BTreeSet::new).insert(budget);
+        let budget = args
+            .iter()
+            .position(|a| a == "--key-budget-s")
+            .map(|i| args[i + 1].clone());
+        let recipe = v["inputs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|i| i["role"] == "recipe")
+            .unwrap()["path"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let step = if recipe.contains(".d0_") {
+            "d0"
+        } else if recipe.contains(".d1_") {
+            "d1"
+        } else {
+            "other"
+        };
+        seen.entry(step)
+            .or_insert_with(BTreeSet::new)
+            .insert(budget);
     }
-    assert_eq!(seen.get("d0"), Some(&BTreeSet::from([Some("123".to_string())])), "{seen:?}");
-    assert_eq!(seen.get("d1"), Some(&BTreeSet::from([Some("77".to_string())])), "{seen:?}");
+    assert_eq!(
+        seen.get("d0"),
+        Some(&BTreeSet::from([Some("123".to_string())])),
+        "{seen:?}"
+    );
+    assert_eq!(
+        seen.get("d1"),
+        Some(&BTreeSet::from([Some("77".to_string())])),
+        "{seen:?}"
+    );
 }
 
 // ------------------------------------------------------------------------------------------- prior campaign's work
@@ -948,8 +1021,11 @@ fn escalation_key_budget_follows_the_step_depth() {
 fn prior_manifest(cdir: &Path, out: &Path) -> String {
     let st = state(cdir);
     let mut files: std::collections::BTreeMap<&str, Vec<Value>> = Default::default();
-    let mut rows: Vec<(u64, String, String)> =
-        st.inputs.values().map(|r| (r.registered_seq, r.role.clone(), r.path.clone())).collect();
+    let mut rows: Vec<(u64, String, String)> = st
+        .inputs
+        .values()
+        .map(|r| (r.registered_seq, r.role.clone(), r.path.clone()))
+        .collect();
     rows.sort();
     for (_, role, path) in rows {
         let key = match role.as_str() {
@@ -962,7 +1038,9 @@ fn prior_manifest(cdir: &Path, out: &Path) -> String {
         let p = Path::new(&path);
         let mut f = json!({"path": path, "sha256": rustred_campaign_core::import::lines::file_sha256(p).unwrap()});
         if key == "relations" {
-            let head: Value = serde_json::from_str(std::fs::read_to_string(p).unwrap().lines().next().unwrap()).unwrap();
+            let head: Value =
+                serde_json::from_str(std::fs::read_to_string(p).unwrap().lines().next().unwrap())
+                    .unwrap();
             f["source"] = head["recipe_source"].clone();
         }
         files.entry(key).or_default().push(f);
@@ -989,22 +1067,43 @@ fn jobs_by_kind(cdir: &Path) -> std::collections::BTreeMap<String, usize> {
 fn an_earlier_campaigns_relations_and_proofs_serve_without_new_jobs() {
     let _g = serial();
     let (_ta, spa, ca) = setup("t2pra", 4, Some(3), false, 20);
-    assert_eq!(run_to_end(&spa, &ca, &["--plain"]).last(), Some(&0), "{}", log_tail(&ca));
+    assert_eq!(
+        run_to_end(&spa, &ca, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&ca)
+    );
     assert_eq!(result_json(&ca)["verdict"], "closed");
     let a_jobs = jobs_by_kind(&ca);
-    assert!(a_jobs.get("solverecipe").copied().unwrap_or(0) > 0, "{a_jobs:?}");
+    assert!(
+        a_jobs.get("solverecipe").copied().unwrap_or(0) > 0,
+        "{a_jobs:?}"
+    );
     let man = ca.parent().unwrap().join("prior.json");
     let sha = prior_manifest(&ca, &man);
     let (_tb, spb, cb) = setup_tweak("t2prb", 4, Some(3), false, 20, false, |node| {
         node["prior"] = json!({"manifest": man.display().to_string(), "sha256": sha});
     });
-    assert_eq!(run_to_end(&spb, &cb, &["--plain"]).last(), Some(&0), "{}", log_tail(&cb));
+    assert_eq!(
+        run_to_end(&spb, &cb, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&cb)
+    );
     let r = result_json(&cb);
     assert_eq!(r["verdict"], "closed", "{r:#}");
     assert_eq!(r["label"], result_json(&ca)["label"]);
     let b_jobs = jobs_by_kind(&cb);
-    assert_eq!(b_jobs.get("solverecipe"), None, "B solved again: {b_jobs:?}");
-    assert!(b_jobs.get("proofinstancespan").copied().unwrap_or(0) < a_jobs.get("proofinstancespan").copied().unwrap_or(0), "relation proofs re-run: {b_jobs:?} vs {a_jobs:?}");
+    assert_eq!(
+        b_jobs.get("solverecipe"),
+        None,
+        "B solved again: {b_jobs:?}"
+    );
+    assert!(
+        b_jobs.get("proofinstancespan").copied().unwrap_or(0)
+            < a_jobs.get("proofinstancespan").copied().unwrap_or(0),
+        "relation proofs re-run: {b_jobs:?} vs {a_jobs:?}"
+    );
     // the statements are equal: the same keys, servers, levels, bases
     let a = std::fs::read(ca.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
     let b = std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();

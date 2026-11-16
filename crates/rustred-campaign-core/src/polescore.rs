@@ -62,10 +62,13 @@ impl PoleScore {
 
     /// The `box` section of a `rustred.campaign.route-pole-census.v1` summary.
     pub fn from_census_summary(v: &Value) -> Result<PoleScore, String> {
-        if v.get("schema").and_then(Value::as_str) != Some("rustred.campaign.route-pole-census.v1") {
+        if v.get("schema").and_then(Value::as_str) != Some("rustred.campaign.route-pole-census.v1")
+        {
             return Err("pole score: not a route-pole census summary".into());
         }
-        let b = v.get("box").ok_or("pole score: census summary without a box section")?;
+        let b = v
+            .get("box")
+            .ok_or("pole score: census summary without a box section")?;
         let undecided = u(b, "undecided")?;
         let mut keys_by_order = BTreeMap::new();
         if let Some(m) = b.get("keys_by_order").and_then(Value::as_object) {
@@ -156,7 +159,10 @@ pub fn parse_scores(text: &str) -> Result<Vec<ScoreLine>, String> {
             return Err(format!("pole scores line {}: scope {:?}", n + 1, s.scope));
         }
         if s.scope == "rule" && s.rule_index.is_none() {
-            return Err(format!("pole scores line {}: rule scope without rule_index", n + 1));
+            return Err(format!(
+                "pole scores line {}: rule scope without rule_index",
+                n + 1
+            ));
         }
         out.push(s);
     }
@@ -313,7 +319,12 @@ pub fn choose_poles(
     // every admissible candidate decided and equal on the pole measures: the size (then time) decided
     let pv: Vec<Option<Vec<u64>>> = adm
         .iter()
-        .map(|c| c.score.as_ref().filter(|s| s.decided()).map(|s| pole_values(s, pol)))
+        .map(|c| {
+            c.score
+                .as_ref()
+                .filter(|s| s.decided())
+                .map(|s| pole_values(s, pol))
+        })
         .collect();
     let tied = adm.len() > 1 && pv.iter().all(|v| v.is_some() && *v == pv[0]);
     Ok(Some(PoleDecision {
@@ -344,16 +355,28 @@ pub fn pole_values(score: &PoleScore, pol: &PolePolicy) -> Vec<u64> {
     pol.measures
         .iter()
         .filter_map(|m| match m.as_str() {
-            "regular" => Some(if score.decided() { u64::from(max > 0) } else { u64::MAX }),
+            "regular" => Some(if score.decided() {
+                u64::from(max > 0)
+            } else {
+                u64::MAX
+            }),
             "max_pole_order" => Some(max),
             "sum_pole_orders" => Some(if !score.decided() {
                 u64::MAX
             } else if score.keys_by_order.is_empty() {
                 max
             } else {
-                score.keys_by_order.iter().map(|(&o, &n)| u64::from(o) * n).sum()
+                score
+                    .keys_by_order
+                    .iter()
+                    .map(|(&o, &n)| u64::from(o) * n)
+                    .sum()
             }),
-            "singular_terms" => Some(if score.decided() { score.keys_with_pole } else { u64::MAX }),
+            "singular_terms" => Some(if score.decided() {
+                score.keys_with_pole
+            } else {
+                u64::MAX
+            }),
             _ => None,
         })
         .collect()
@@ -380,19 +403,46 @@ pub fn rule_pole_verdict(
     ) else {
         return Err(format!(
             "pole_undecided ({})",
-            if old_score.is_some_and(PoleScore::decided) { "candidate" } else { "table rule" }
+            if old_score.is_some_and(PoleScore::decided) {
+                "candidate"
+            } else {
+                "table rule"
+            }
         ));
     };
     let (ov, nv) = (pole_values(os, pol), pole_values(ns, pol));
     let cands = [
-        PoleCand { cand: 0, admissible: true, size: old.monomials, time_ms: 0, score: Some(os.clone()) },
-        PoleCand { cand: 1, admissible: true, size: new.monomials, time_ms: 0, score: Some(ns.clone()) },
+        PoleCand {
+            cand: 0,
+            admissible: true,
+            size: old.monomials,
+            time_ms: 0,
+            score: Some(os.clone()),
+        },
+        PoleCand {
+            cand: 1,
+            admissible: true,
+            size: new.monomials,
+            time_ms: 0,
+            score: Some(ns.clone()),
+        },
     ];
     let d = choose_poles(&cands, Some(0), pol)?.ok_or("pole objective: no decision")?;
-    let tag = |s: &PoleScore| format!("max {} / {} keys", s.max_order.unwrap_or(0), s.keys_with_pole);
+    let tag = |s: &PoleScore| {
+        format!(
+            "max {} / {} keys",
+            s.max_order.unwrap_or(0),
+            s.keys_with_pole
+        )
+    };
     if d.winner != 1 {
         return Err(if !d.rejected_for_size.is_empty() {
-            format!("size_guard (poles {} vs {}, ratio {})", tag(ns), tag(os), d.max_size_ratio)
+            format!(
+                "size_guard (poles {} vs {}, ratio {})",
+                tag(ns),
+                tag(os),
+                d.max_size_ratio
+            )
         } else {
             format!("poles_not_better ({} vs {})", tag(ns), tag(os))
         });
@@ -402,18 +452,33 @@ pub fn rule_pole_verdict(
     }
     crate::economy::improve::replacement_verdict(old, new, min_gain)?;
     // equal poles: the size rule decided; worse poles: the old rule's better class exceeded the size tolerance
-    Ok(if nv == ov { "replaced_size" } else { "replaced_size_guard" }.into())
+    Ok(if nv == ov {
+        "replaced_size"
+    } else {
+        "replaced_size_guard"
+    }
+    .into())
 }
 
 /// The pole re-choice of a FINISHED generation choice (`choice.json` of schema genchoice-choice.v1) from table-scope
 /// scores: every acceptable full table with its size (the choice's `select` measure), time and score; the decision.
 /// `pol.use = false`: `Ok(None)`.
-pub fn rechoice(choice: &Value, scores: &[ScoreLine], pol: &PolePolicy) -> Result<Option<Value>, String> {
+pub fn rechoice(
+    choice: &Value,
+    scores: &[ScoreLine],
+    pol: &PolePolicy,
+) -> Result<Option<Value>, String> {
     if pol.is_ignored() {
         return Ok(None);
     }
-    let node = choice.get("node").and_then(Value::as_str).ok_or("choice: no node")?;
-    let select = choice.get("select").and_then(Value::as_str).unwrap_or("use_cost");
+    let node = choice
+        .get("node")
+        .and_then(Value::as_str)
+        .ok_or("choice: no node")?;
+    let select = choice
+        .get("select")
+        .and_then(Value::as_str)
+        .unwrap_or("use_cost");
     let cands = choice
         .get("candidates")
         .and_then(Value::as_array)
@@ -421,27 +486,58 @@ pub fn rechoice(choice: &Value, scores: &[ScoreLine], pol: &PolePolicy) -> Resul
     let mut pc = vec![];
     let mut rows = vec![];
     for c in cands {
-        let idx = c.get("index").and_then(Value::as_u64).ok_or("choice: candidate index")? as usize;
-        let id = c.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-        for r in c.get("full").and_then(Value::as_array).into_iter().flatten() {
+        let idx = c
+            .get("index")
+            .and_then(Value::as_u64)
+            .ok_or("choice: candidate index")? as usize;
+        let id = c
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        for r in c
+            .get("full")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if r.get("acceptable").and_then(Value::as_bool) != Some(true) {
                 continue;
             }
-            let Some(m) = r.get("measure").filter(|m| m.is_object()) else { continue };
+            let Some(m) = r.get("measure").filter(|m| m.is_object()) else {
+                continue;
+            };
             let size = match select {
-                "bytes" => m.get("table_bytes").and_then(Value::as_u64).unwrap_or(u64::MAX),
-                "max_monomials" => m.get("max_monomials").and_then(Value::as_u64).unwrap_or(u64::MAX),
-                _ => m.get("use_cost_ns").and_then(Value::as_f64).map_or(u64::MAX, |x| x.round() as u64),
+                "bytes" => m
+                    .get("table_bytes")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(u64::MAX),
+                "max_monomials" => m
+                    .get("max_monomials")
+                    .and_then(Value::as_u64)
+                    .unwrap_or(u64::MAX),
+                _ => m
+                    .get("use_cost_ns")
+                    .and_then(Value::as_f64)
+                    .map_or(u64::MAX, |x| x.round() as u64),
             };
             let time = r.get("cpu_ms").and_then(Value::as_u64).unwrap_or(0);
             let score = scores
                 .iter()
                 .find(|s| s.scope == "table" && s.node == node && s.cand == id)
                 .map(|s| s.score.clone());
-            rows.push(json!({"cand": idx, "id": id, "size": size, "table_bytes": m.get("table_bytes"),
+            rows.push(
+                json!({"cand": idx, "id": id, "size": size, "table_bytes": m.get("table_bytes"),
                 "rules": m.get("rules"), "max_monomials": m.get("max_monomials"), "cpu_ms": time,
-                "score": score.as_ref().map_or(Value::String("undecided".into()), |s| json!(s))}));
-            pc.push(PoleCand { cand: idx, admissible: true, size, time_ms: time, score });
+                "score": score.as_ref().map_or(Value::String("undecided".into()), |s| json!(s))}),
+            );
+            pc.push(PoleCand {
+                cand: idx,
+                admissible: true,
+                size,
+                time_ms: time,
+                score,
+            });
         }
     }
     let size_winner = choice
@@ -457,6 +553,8 @@ pub fn rechoice(choice: &Value, scores: &[ScoreLine], pol: &PolePolicy) -> Resul
             _ => None,
         });
     let d = choose_poles(&pc, size_winner, pol)?;
-    Ok(Some(json!({"schema": DECISION_SCHEMA, "node": node, "select": select, "policy": pol,
-        "candidates": rows, "decision": d})))
+    Ok(Some(
+        json!({"schema": DECISION_SCHEMA, "node": node, "select": select, "policy": pol,
+        "candidates": rows, "decision": d}),
+    ))
 }

@@ -116,21 +116,39 @@ impl Prior {
         };
         let got = file_sha256(&c.manifest)?;
         if got != c.sha256 {
-            return Err(format!("prior manifest {}: sha256 {got} differs from the pinned {}", c.manifest.display(), c.sha256));
+            return Err(format!(
+                "prior manifest {}: sha256 {got} differs from the pinned {}",
+                c.manifest.display(),
+                c.sha256
+            ));
         }
-        let m: Value = serde_json::from_slice(&std::fs::read(&c.manifest).map_err(|e| e.to_string())?)
-            .map_err(|e| format!("prior manifest {}: {e}", c.manifest.display()))?;
+        let m: Value =
+            serde_json::from_slice(&std::fs::read(&c.manifest).map_err(|e| e.to_string())?)
+                .map_err(|e| format!("prior manifest {}: {e}", c.manifest.display()))?;
         if m["schema"] != "rustred.campaign.closeloop-prior.v1" {
-            return Err(format!("prior manifest {}: schema {}", c.manifest.display(), m["schema"]));
+            return Err(format!(
+                "prior manifest {}: schema {}",
+                c.manifest.display(),
+                m["schema"]
+            ));
         }
         let files = |k: &str| -> Result<Vec<(PathBuf, String, Value)>, String> {
             let mut v = vec![];
             for f in m[k].as_array().into_iter().flatten() {
-                let p = PathBuf::from(f["path"].as_str().ok_or_else(|| format!("prior {k}: path"))?);
-                let want = f["sha256"].as_str().ok_or_else(|| format!("prior {k}: sha256"))?;
+                let p = PathBuf::from(
+                    f["path"]
+                        .as_str()
+                        .ok_or_else(|| format!("prior {k}: path"))?,
+                );
+                let want = f["sha256"]
+                    .as_str()
+                    .ok_or_else(|| format!("prior {k}: sha256"))?;
                 let got = file_sha256(&p)?;
                 if got != want {
-                    return Err(format!("prior {k} {}: sha256 {got} differs from the manifest's {want}", p.display()));
+                    return Err(format!(
+                        "prior {k} {}: sha256 {got} differs from the manifest's {want}",
+                        p.display()
+                    ));
                 }
                 v.push((p.clone(), file_blake3(&p)?, f.clone()));
             }
@@ -138,12 +156,18 @@ impl Prior {
         };
         Ok(Prior {
             recipes: files("recipes")?.into_iter().map(|(p, _, _)| p).collect(),
-            answers: files("answers")?.into_iter().map(|(p, b, _)| (p, b)).collect(),
+            answers: files("answers")?
+                .into_iter()
+                .map(|(p, b, _)| (p, b))
+                .collect(),
             relations: files("relations")?
                 .into_iter()
                 .map(|(p, b, f)| (p, b, f["source"].as_str().unwrap_or("").to_string()))
                 .collect(),
-            proofs: files("proofs")?.into_iter().map(|(p, b, _)| (p, b)).collect(),
+            proofs: files("proofs")?
+                .into_iter()
+                .map(|(p, b, _)| (p, b))
+                .collect(),
         })
     }
 }
@@ -1017,7 +1041,11 @@ impl CloseFromMaterialSource {
         let in_flight = self.in_flight(st, i);
         // lane t266run: an earlier campaign's proof files first (prior inputs), then this campaign's
         let mut proof_files: Vec<(PathBuf, String)> = self.nodes[i].prior.proofs.clone();
-        proof_files.extend(self.inputs_of_role(st, i, ROLE_PROOFS).into_iter().map(|(_, p, b)| (p, b)));
+        proof_files.extend(
+            self.inputs_of_role(st, i, ROLE_PROOFS)
+                .into_iter()
+                .map(|(_, p, b)| (p, b)),
+        );
         let fact_files = self
             .inputs_of_role(st, i, ROLE_FACTS)
             .into_iter()
@@ -1249,7 +1277,9 @@ impl CloseFromMaterialSource {
             .as_ref()
             .zip(super::derived::step_of_source(source))
             .and_then(|(e, st)| {
-                let depth = rustred_campaign_core::import::recipe_steps::parse_step(st).ok()?.depth;
+                let depth = rustred_campaign_core::import::recipe_steps::parse_step(st)
+                    .ok()?
+                    .depth;
                 e.key_budget_s_by_depth.get(&depth).copied()
             });
         by_depth.or(cfg.solve.key_budget_s)

@@ -530,12 +530,16 @@ pub fn pole_targets(
                 .iter()
                 .filter(|c| {
                     !e.is_some_and(|e| {
-                        e.tried.iter().any(|t| t.scope == "rule_poles" && t.cand == c.name)
+                        e.tried
+                            .iter()
+                            .any(|t| t.scope == "rule_poles" && t.cand == c.name)
                     })
                 })
                 .map(|c| {
                     let sc = scores.iter().find(|s| {
-                        s.scope == "rule" && s.cand == c.name && s.rule_index == Some(rules[i].index)
+                        s.scope == "rule"
+                            && s.cand == c.name
+                            && s.rule_index == Some(rules[i].index)
                             && s.table.is_some()
                     });
                     let step = match sc {

@@ -490,8 +490,12 @@ impl GenChoiceSource {
                             e.node, f.path, f.sha256
                         ));
                     }
-                    let t = std::fs::read_to_string(&f.path).map_err(|er| format!("{}: {er}", f.path))?;
-                    Some(ps::parse_scores(&t).map_err(|er| format!("genchoice: {}: {er}", e.node))?)
+                    let t = std::fs::read_to_string(&f.path)
+                        .map_err(|er| format!("{}: {er}", f.path))?;
+                    Some(
+                        ps::parse_scores(&t)
+                            .map_err(|er| format!("genchoice: {}: {er}", e.node))?,
+                    )
                 }
                 None => None,
             };
@@ -967,7 +971,9 @@ impl GenChoiceSource {
                         time_ms: r.cpu_ms,
                         score: scores
                             .iter()
-                            .find(|s| s.scope == "table" && s.node == node && s.cand == cands[r.cand].id)
+                            .find(|s| {
+                                s.scope == "table" && s.node == node && s.cand == cands[r.cand].id
+                            })
                             .map(|s| s.score.clone()),
                     })
                 })

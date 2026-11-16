@@ -1370,7 +1370,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let contradicted = ev.conflicts_used();
     // lane t266run (read path): the evidence stores' lookup counters of this pass (diagnosis, not a result)
     let store_reads = {
-        let per: Vec<(String, rustred_campaign_core::import::store::StoreReadStats)> = ev.store_read_stats();
+        let per: Vec<(String, rustred_campaign_core::import::store::StoreReadStats)> =
+            ev.store_read_stats();
         let sum = |f: fn(&rustred_campaign_core::import::store::StoreReadStats) -> u64| -> u64 {
             per.iter().map(|(_, s)| f(s)).sum()
         };

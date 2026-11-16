@@ -1758,7 +1758,9 @@ fn package_relations_cmd(args: &[String]) -> Result<(), String> {
     )?;
     if flag("--outside-by-table") {
         src.serve_outside_by_table(true);
-        log("keys outside the certified list: served by the table's first match where it covers them (--outside-by-table)");
+        log(
+            "keys outside the certified list: served by the table's first match where it covers them (--outside-by-table)",
+        );
     }
     log(&format!(
         "package: {} certified keys, {} entries, {} segment files, terminals {:?}",
@@ -2103,11 +2105,19 @@ fn package_relations_cmd(args: &[String]) -> Result<(), String> {
         let open_keys = src.take_open_keys();
         if !open_keys.is_empty() {
             let op = PathBuf::from(format!("{}.open-keys.jsonl", out_path.display()));
-            let mut of = std::fs::OpenOptions::new().create(true).append(true).open(&op).map_err(|e| e.to_string())?;
+            let mut of = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&op)
+                .map_err(|e| e.to_string())?;
             for k in &open_keys {
                 writeln!(of, "{}", json!({"batch": bi, "key": k})).map_err(|e| e.to_string())?;
             }
-            log(&format!("batch {bi}: {} open keys (exact cone) -> {}", open_keys.len(), op.display()));
+            log(&format!(
+                "batch {bi}: {} open keys (exact cone) -> {}",
+                open_keys.len(),
+                op.display()
+            ));
         }
         log(&format!(
             "batch {bi}: {} relations, rhs keys {} ({} composed now), cone {:?} keys, max height {:?}, {:.1} s; source {}",

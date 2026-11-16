@@ -224,13 +224,7 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
     // Self-test: a planted snippet is caught.
     let planted =
         "fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-    assert!(
-        allowed
-            .iter()
-            .filter(|(p, _)| has_form(planted, p))
-            .count()
-            >= 3
-    );
+    assert!(allowed.iter().filter(|(p, _)| has_form(planted, p)).count() >= 3);
     // int8: `raise(` is the call of a function NAMED raise; an identifier that only ends in "raise" is not the form.
     for caught in [
         "unsafe { libc::raise(9) };",

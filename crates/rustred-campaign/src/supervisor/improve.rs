@@ -218,14 +218,16 @@ impl ImproveSource {
                             e.node, f.path
                         ));
                     }
-                    let t = std::fs::read_to_string(&f.path).map_err(|er| format!("{}: {er}", f.path))?;
+                    let t = std::fs::read_to_string(&f.path)
+                        .map_err(|er| format!("{}: {er}", f.path))?;
                     // an `original` line describes the rule of the table it was computed on: a line bound to
                     // another table (an earlier, since improved one) is not this table's score
                     ps::parse_scores(&t)?
                         .into_iter()
                         .filter(|l| l.node == e.node)
                         .filter(|l| {
-                            !(l.cand == "original" && l.table.as_ref().is_some_and(|t| t.sha256 != ts2))
+                            !(l.cand == "original"
+                                && l.table.as_ref().is_some_and(|t| t.sha256 != ts2))
                         })
                         .collect()
                 }
@@ -416,22 +418,31 @@ impl ImproveSource {
                 let own = self.nodes[i]
                     .pole_scores
                     .iter()
-                    .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(old.index))
+                    .find(|s| {
+                        s.scope == "rule" && s.cand == "original" && s.rule_index == Some(old.index)
+                    })
                     .map(|s| s.score.clone());
                 let t = line.table.as_ref().expect("decide steps carry a table");
                 let (_, _, h) = file_digests(Path::new(&t.path))?;
                 let (verdict, new) = if h != t.sha256 {
-                    (format!("table_changed (sha256 {h} vs the score's {})", t.sha256), None)
+                    (
+                        format!("table_changed (sha256 {h} vs the score's {})", t.sha256),
+                        None,
+                    )
                 } else {
                     // the candidate's rule as the CANONICAL line (what a size-mode replacement writes and measures)
-                    let raw = std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
+                    let raw =
+                        std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
                     let mut found = None;
                     for l in raw.lines() {
-                        let Ok(c) = rustred_campaign_contract::canon::canonical_line(l.as_bytes()) else {
+                        let Ok(c) = rustred_campaign_contract::canon::canonical_line(l.as_bytes())
+                        else {
                             continue;
                         };
                         let c = String::from_utf8_lossy(&c).into_owned();
-                        if let Some(r) = im::TableRule::from_line(&c)?.filter(|r| r.case == old.case) {
+                        if let Some(r) =
+                            im::TableRule::from_line(&c)?.filter(|r| r.case == old.case)
+                        {
                             found = Some((r, c));
                             break;
                         }
@@ -589,7 +600,9 @@ impl ImproveSource {
             let own_score = self.nodes[i]
                 .pole_scores
                 .iter()
-                .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index))
+                .find(|s| {
+                    s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index)
+                })
                 .map(|s| s.score.clone());
             if let Some(v) = pole_tried.remove(&e.index) {
                 e.tried.extend(v);
@@ -607,11 +620,20 @@ impl ImproveSource {
                     let own = self.nodes[i]
                         .pole_scores
                         .iter()
-                        .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index))
+                        .find(|s| {
+                            s.scope == "rule"
+                                && s.cand == "original"
+                                && s.rule_index == Some(e.index)
+                        })
                         .map(|s| s.score.clone());
                     let tag = |s: Option<&ps::PoleScore>| {
                         s.map_or("undecided".to_string(), |s| {
-                            format!("max order {} on {} of {} keys", s.max_order.map_or("?".into(), |m| m.to_string()), s.keys_with_pole, s.keys)
+                            format!(
+                                "max order {} on {} of {} keys",
+                                s.max_order.map_or("?".into(), |m| m.to_string()),
+                                s.keys_with_pole,
+                                s.keys
+                            )
                         })
                     };
                     format!(
@@ -998,8 +1020,13 @@ impl WorkSource for ImproveSource {
             .get(&done.job)
             .and_then(|j| j.run_dir.clone())
             .unwrap_or_default();
-        let table_path = (done.table.is_some() && !run_dir.is_empty())
-            .then(|| Path::new(&run_dir).join("out").join("F.table.jsonl").display().to_string());
+        let table_path = (done.table.is_some() && !run_dir.is_empty()).then(|| {
+            Path::new(&run_dir)
+                .join("out")
+                .join("F.table.jsonl")
+                .display()
+                .to_string()
+        });
         let mut new_lines = Vec::new();
         if verdict != "ok" {
             new_line = None;

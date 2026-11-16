@@ -15,8 +15,8 @@
 //! One JSON line per run is appended to `AN_OUT`. Nothing here knows a node: names, paths and numbers are env / spec data.
 
 use rustred_campaign::closeloop::zeros;
-use rustred_campaign_core::import::load::{LoadOptions, load_with};
 use rustred_campaign_core::import::check::check_streamed;
+use rustred_campaign_core::import::load::{LoadOptions, load_with};
 use rustred_campaign_core::import::{CheckOptions, Evidence, RowStatus, TableSetSpec};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -97,7 +97,12 @@ fn allnodes_node() {
     let index_dir = std::env::var("AN_INDEX").ok().map(PathBuf::from);
     let facts: Vec<PathBuf> = std::env::var("AN_FACTS")
         .ok()
-        .map(|s| s.split(':').filter(|x| !x.is_empty()).map(PathBuf::from).collect())
+        .map(|s| {
+            s.split(':')
+                .filter(|x| !x.is_empty())
+                .map(PathBuf::from)
+                .collect()
+        })
         .unwrap_or_default();
     std::fs::create_dir_all(&dir).unwrap();
     let t0 = std::time::Instant::now();
@@ -145,7 +150,8 @@ fn allnodes_node() {
         let s = &r.summary;
         line["tier"] = json!(format!("{:?}", r.tier));
         line["verdict"] = serde_json::to_value(s.verdict).unwrap();
-        line["verdict_if_not_diagnostic"] = serde_json::to_value(s.verdict_if_not_diagnostic).unwrap();
+        line["verdict_if_not_diagnostic"] =
+            serde_json::to_value(s.verdict_if_not_diagnostic).unwrap();
         line["blockers"] = serde_json::to_value(&s.blocking).unwrap_or(Value::Null);
         line["keys"] = json!(s.keys_total);
         line["keys_in_start"] = json!(s.keys_in_start);
@@ -209,10 +215,14 @@ fn allnodes_node() {
                     continue;
                 }
                 // the winning record by its sha256 (the set's own index; never by position)
-                let Some((t, o)) = v["server"]["record_sha256"].as_str().and_then(|x| set.find_sha(x)) else {
+                let Some((t, o)) = v["server"]["record_sha256"]
+                    .as_str()
+                    .and_then(|x| set.find_sha(x))
+                else {
                     continue;
                 };
-                let key: Vec<i32> = serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
+                let key: Vec<i32> =
+                    serde_json::from_value(v["key"].clone()).map_err(|e| e.to_string())?;
                 by.entry((t, o)).or_default().push(key);
             }
             let mut pre = vec![];
@@ -244,8 +254,10 @@ fn allnodes_node() {
                         .or_default()
                         .push(d.applied.clone());
                     let info = &set.rules[d.table][d.record];
-                    pairs.push(json!({"record_sha256": info.record_sha256, "applied": d.applied,
-                        "key": d.key, "kind": d.kind, "term_key": d.term_key}));
+                    pairs.push(
+                        json!({"record_sha256": info.record_sha256, "applied": d.applied,
+                        "key": d.key, "kind": d.kind, "term_key": d.term_key}),
+                    );
                 }
                 let mut zreq = vec![];
                 for ((t, rr), mut keys) in by {
@@ -303,7 +315,8 @@ fn zero_second_route(
     for l in text.lines().filter(|l| !l.trim().is_empty()) {
         let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
         let sha = v["record_sha256"].as_str().unwrap_or_default().to_string();
-        let key: Vec<i32> = serde_json::from_value(v["applied"].clone()).map_err(|e| e.to_string())?;
+        let key: Vec<i32> =
+            serde_json::from_value(v["applied"].clone()).map_err(|e| e.to_string())?;
         if !seen.insert((sha.clone(), key.clone())) {
             continue;
         }

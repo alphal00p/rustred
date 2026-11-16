@@ -648,20 +648,43 @@ fn store_block_cache_never_changes_a_check_and_saves_reads() {
                               "proofs":[{"path": pp.display().to_string()}]});
     // spec evidence pinned and with its family (as the other tests: `pin_ev`)
     let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
-    let so = StoreOptions { dir: d.join("s"), budget_bytes: 1, threads: 2 };
+    let so = StoreOptions {
+        dir: d.join("s"),
+        budget_bytes: 1,
+        threads: 2,
+    };
     let mut reference = None;
     let mut reads = std::collections::BTreeMap::new();
     for cap in [0usize, 1, 64] {
         import::store::set_block_cache_capacity(cap);
         for threads in [1usize, 4, 16] {
-            let ev = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so.clone()) }).unwrap();
-            let r = check(&set, &ev, &CheckOptions { threads, ..Default::default() }).unwrap();
+            let ev = Evidence::from_spec_with(
+                &set,
+                &d,
+                &EvidenceOptions {
+                    store: Some(so.clone()),
+                },
+            )
+            .unwrap();
+            let r = check(
+                &set,
+                &ev,
+                &CheckOptions {
+                    threads,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
             let s = sig(&r);
             match &reference {
                 None => reference = Some(s),
                 Some(x) => assert_eq!(&s, x, "cache {cap} threads {threads}"),
             }
-            let st: u64 = ev.store_read_stats().iter().map(|(_, s)| s.block_reads).sum();
+            let st: u64 = ev
+                .store_read_stats()
+                .iter()
+                .map(|(_, s)| s.block_reads)
+                .sum();
             reads.insert((cap, threads), st);
         }
     }

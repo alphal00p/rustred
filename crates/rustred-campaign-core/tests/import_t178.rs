@@ -160,10 +160,7 @@ fn pinned_statement(ws: &Path) -> Option<(PathBuf, String, BTreeMap<String, Stri
         .map(PathBuf::from)
         .unwrap_or_else(|| ws.join("plan/auto-campaign/reports/T178-MARGIN-SERVICES.json"));
     let v: Value = serde_json::from_str(&std::fs::read_to_string(&f).ok()?).ok()?;
-    let s = v["services"]
-        .as_array()?
-        .iter()
-        .find(|s| s["order"] == 1)?;
+    let s = v["services"].as_array()?.iter().find(|s| s["order"] == 1)?;
     let pins = s["tables"]
         .as_array()?
         .iter()

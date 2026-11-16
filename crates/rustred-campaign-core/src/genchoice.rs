@@ -1152,7 +1152,9 @@ pub fn next_step_with(
     p: &Policy,
 ) -> NextStep {
     if p.full.max_first_attempts == 0 {
-        return NextStep::NoCandidate("probe stage only (full.max_first_attempts = 0): no full run".into());
+        return NextStep::NoCandidate(
+            "probe stage only (full.max_first_attempts = 0): no full run".into(),
+        );
     }
     let get = |c: usize| done.iter().find(|r| r.cand == c);
     let mut first_attempts = 0u32;
@@ -1430,7 +1432,10 @@ impl Config {
             for (what, h) in [
                 ("family_sha256", Some(&n.family_sha256)),
                 ("box.sha256", n.r#box.as_ref().map(|b| &b.sha256)),
-                ("pole_scores.sha256", n.pole_scores.as_ref().map(|b| &b.sha256)),
+                (
+                    "pole_scores.sha256",
+                    n.pole_scores.as_ref().map(|b| &b.sha256),
+                ),
             ] {
                 if let Some(h) = h
                     && (h.len() != 64

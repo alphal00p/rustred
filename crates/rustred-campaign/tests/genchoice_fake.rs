@@ -254,7 +254,11 @@ fn a_job_cap_above_the_campaign_memory_total_is_refused_at_start_not_waited_for(
 fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_choice() {
     let _g = serial();
     for (tag, poles, want) in [
-        ("gcpoles", json!({"max_size_ratio": "unbounded"}), "bfi-rung-std"),
+        (
+            "gcpoles",
+            json!({"max_size_ratio": "unbounded"}),
+            "bfi-rung-std",
+        ),
         ("gcpolesoff", json!({"use": false}), "isp_rev-default-std"),
     ] {
         let t = Tmp::new(tag);
@@ -267,10 +271,14 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
         let scores = m.join("scores.jsonl");
         std::fs::write(
             &scores,
-            [sc("isp_rev-default-std", 2), sc("bfi-rung-std", 0), sc("id-rung-std", 1)]
-                .iter()
-                .map(|l| format!("{l}\n"))
-                .collect::<String>(),
+            [
+                sc("isp_rev-default-std", 2),
+                sc("bfi-rung-std", 0),
+                sc("id-rung-std", 1),
+            ]
+            .iter()
+            .map(|l| format!("{l}\n"))
+            .collect::<String>(),
         )
         .unwrap();
         let mut v: Value = serde_json::from_slice(&std::fs::read(&cfg).unwrap()).unwrap();
@@ -297,12 +305,28 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
         assert_eq!(cand(&c, want)["verdict"], "winner");
         if tag == "gcpoles" {
             let d = &c["poles"]["decision"];
-            assert_eq!((d["reason"].clone(), d["changed"].clone()), (json!("regular"), json!(true)), "{d:#}");
-            assert!(c["poles"]["scores"].as_array().unwrap().iter().any(|s| s["score"] == "undecided"),
-                "unscored acceptable tables are recorded as undecided");
+            assert_eq!(
+                (d["reason"].clone(), d["changed"].clone()),
+                (json!("regular"), json!(true)),
+                "{d:#}"
+            );
+            assert!(
+                c["poles"]["scores"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|s| s["score"] == "undecided"),
+                "unscored acceptable tables are recorded as undecided"
+            );
         } else {
-            assert!(c.get("poles").is_none(), "ignored: nothing about poles in the choice");
-            assert!(c["policy"].get("poles").is_none(), "ignored: the effective policy as before");
+            assert!(
+                c.get("poles").is_none(),
+                "ignored: nothing about poles in the choice"
+            );
+            assert!(
+                c["policy"].get("poles").is_none(),
+                "ignored: the effective policy as before"
+            );
         }
     }
 }

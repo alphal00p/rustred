@@ -223,7 +223,9 @@ fn t266_exact_tier_with_exported_evidence() {
         serde_json::to_string(&ev.counts.stores).unwrap()
     );
     // `T266RUN_OUT`: the output directory (default <scratch>/exact)
-    let out = std::env::var_os("T266RUN_OUT").map(PathBuf::from).unwrap_or_else(|| s.join("exact"));
+    let out = std::env::var_os("T266RUN_OUT")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| s.join("exact"));
     std::fs::create_dir_all(&out).unwrap();
     let t2 = std::time::Instant::now();
     let res = import::check::check_streamed(
