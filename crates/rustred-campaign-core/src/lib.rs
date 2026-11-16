@@ -61,3 +61,5 @@ pub mod coreseed;
 pub mod seedmin;
 // lane symcert (interfaces/proof-symrows-job.md 7): REQUEST TO I-INT, one line
 pub mod symcert;
+// lane parametric (interfaces/parametric.md; whole-domain descent B1, cone coverage B2): REQUEST TO I-INT, one line
+pub mod parametric;

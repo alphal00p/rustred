@@ -507,7 +507,7 @@ pub const ON_HEAVY: ArgRule = ArgRule {
     strict_values: Some(&["refuse", "proceed"]),
 };
 
-const GENERATE_ARGS: [ArgRule; 43] = [
+const GENERATE_ARGS: [ArgRule; 44] = [
     a("--order", ArgShape::JsonOrName),
     // lane eng2: return the sub-cases instead of descending into them (node-loop.md 5.2)
     a("--descend", ArgShape::Choice(&["open"])),
@@ -543,6 +543,10 @@ const GENERATE_ARGS: [ArgRule; 43] = [
     a("--seed-pose-min-rows", ArgShape::UInt),
     a("--sampled-from-rows", ArgShape::UInt),
     a("--seed-pose-keep", ArgShape::Decimal),
+    // lane sizegen (interfaces/genchoice.md 1; request 2026-11-15 item (b)): the seed-pose rung's trigger (the default
+    // relation's cost above which the pose portfolio is measured; engine default 5e3). Takes effect only with an engine
+    // frozen from a contract carrying this line (the engine checks job args against its own copy).
+    a("--seed-pose-trigger", ArgShape::Decimal),
     a("--seed-centre-offset", ArgShape::Spec),
     // lane engbase (engine line, coord-ec1-seed-centre.md v2): t266-tight seed layer cap `D,R[,B]` (needs --max-depth)
     a("--seed-layer-cap", ArgShape::Spec),

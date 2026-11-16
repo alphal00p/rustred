@@ -24,7 +24,9 @@ pub const USAGE: &str = "usage:
       (a node ended by its facts budget resumes with this budget: closing loop, facts from the frontier)
   rr_campaign verify CDIR
   rr_campaign result CDIR
-  rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)";
+  rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)
+  rr_campaign poles-choose --choice CHOICE.json --scores SCORES.jsonl [--policy POLES.json] --out OUT.json
+      (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
 macro_rules! outln {
@@ -93,6 +95,16 @@ pub fn main_with(args: &[String]) -> i32 {
         "watch" | "dashboard" => cmd_watch(rest),
         "result" => cmd_result(rest),
         "rebuild-manifest" => cmd_rebuild_manifest(rest),
+        "poles-choose" => match supervisor::genchoice::poles_choose(rest) {
+            Ok(t) => {
+                outln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("poles-choose: {e}");
+                exit::USAGE
+            }
+        },
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK

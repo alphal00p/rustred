@@ -7,7 +7,11 @@
 //! together with the work source's routing events. Every crash point is recovered by [`Supervisor::recover`].
 
 pub mod failpoint;
+// lane sizegen (interfaces/genchoice.md): the generation-choice portfolio of whole nodes
+pub mod genchoice;
+// lane sizegen (interfaces/genchoice.md 5): improve mode on an existing table
 pub mod identity;
+pub mod improve;
 pub mod orphans;
 pub mod result;
 pub mod spec;
@@ -1054,6 +1058,15 @@ impl Supervisor {
         );
         let source: Box<dyn WorkSource> = match &opts.spec.synthetic {
             Some(s) => Box::new(ScriptedWorkSource::new(s.clone())),
+            // lane sizegen (interfaces/genchoice.md): an input of role `genchoice` names the portfolio config
+            None if opts
+                .spec
+                .inputs
+                .iter()
+                .any(|i| i.role == genchoice::CONFIG_ROLE) =>
+            {
+                genchoice::source_from_spec(&opts.spec, &cdir).map_err(RunExit::Refused)?
+            }
             // lane closeloop (closeloop.md 6.2): an input of role `closeloop` names the close-from-material config
             None if opts
                 .spec

@@ -468,13 +468,16 @@ impl CampaignSpec {
         } else if !self
             .inputs
             .iter()
-            .any(|i| i.role == "closeloop" || i.role == "shipecon")
+            .any(|i| {
+                i.role == "closeloop" || i.role == "shipecon" || i.role == super::genchoice::CONFIG_ROLE
+            })
         {
             // lane closeloop (closeloop.md 6.2): a close-from-material campaign names its config as an input; lane
-            // shipecon (shipecon.md 13): a ship-economy campaign names its node file (REQUEST TO I-INT: keep)
+            // shipecon (shipecon.md 13): a ship-economy campaign names its node file (REQUEST TO I-INT: keep); lane
+            // sizegen (interfaces/genchoice.md): a generation-choice campaign names its config (role genchoice)
             return Err(
-                "only synthetic, close-from-material (an input of role closeloop) and ship-economy (an input of role \
-                 shipecon) campaigns are supported by this version"
+                "only synthetic, close-from-material (an input of role closeloop), ship-economy (an input of role \
+                 shipecon) and generation-choice (role genchoice) campaigns are supported by this version"
                     .into(),
             );
         }
