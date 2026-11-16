@@ -1027,6 +1027,25 @@ fn closure_out_lists_the_exact_closure_with_depth_and_kind() {
     assert_eq!(s["closure_out"]["uncovered_keys"], unc as u64, "{s}");
     let d0 = recs.iter().filter(|r| r[n] == 0).count() as u64;
     assert_eq!(s["walk"]["depth_hist"]["0"].as_u64().unwrap(), d0, "{s}");
+    // first match: one line per serving record, keys summing to the covered closure keys
+    let fm = std::fs::read_to_string(format!("{}.first_match.jsonl", f.display())).unwrap();
+    let total: u64 = fm
+        .lines()
+        .map(|l| {
+            serde_json::from_str::<Value>(l).unwrap()["keys"]
+                .as_u64()
+                .unwrap()
+        })
+        .sum();
+    assert_eq!(
+        total,
+        kinds.iter().filter(|&&k| k == 0).count() as u64,
+        "{fm}"
+    );
+    assert_eq!(
+        s["closure_out"]["records_used"].as_u64().unwrap() as usize,
+        fm.lines().count()
+    );
 }
 
 /// Merged shard line: senders, depth, least first sender (parent key, term).

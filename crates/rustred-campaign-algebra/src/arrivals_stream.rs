@@ -764,6 +764,8 @@ fn write_closure(
     let mut wu = std::io::BufWriter::new(std::fs::File::create(&up).map_err(io)?);
     let mut by_kind = [0u64; 3];
     let mut by_kind_depth: BTreeMap<String, u64> = BTreeMap::new();
+    // FIRST MATCH: the record serving each covered closure key (the dispatcher's first match, as in the rows), keys per depth
+    let mut first_match: BTreeMap<RecKey, BTreeMap<u8, u64>> = BTreeMap::new();
     let mut hs = rustred_campaign_core::closure::sha256::Sha256::new();
     for (ki, &d) in dep.iter().enumerate() {
         if d == UNREACHED {
@@ -780,13 +782,34 @@ fn write_closure(
         if kd == 2 {
             writeln!(wu, "{}", json!({"key": rows.key_i32(ki), "depth": d})).map_err(io)?;
         }
+        if let Some(si) = rows.served_of(ki) {
+            *first_match
+                .entry(rows.rec(si))
+                .or_default()
+                .entry(d)
+                .or_default() += 1;
+        }
     }
     w.flush().map_err(io)?;
     drop(w);
     wu.flush().map_err(io)?;
     std::fs::rename(&tmp, path).map_err(io)?;
+    let fp = PathBuf::from(format!("{}.first_match.jsonl", path.display()));
+    let mut wf = std::io::BufWriter::new(std::fs::File::create(&fp).map_err(io)?);
+    let mut fm: Vec<(u64, RecKey, &BTreeMap<u8, u64>)> = first_match
+        .iter()
+        .map(|(k, v)| (v.values().sum::<u64>(), *k, v))
+        .collect();
+    fm.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    for (n_keys, (t, r), byd) in &fm {
+        let info = &set.rules[*t][*r];
+        writeln!(wf, "{}", json!({"table": t, "record": r, "record_sha256": info.record_sha256, "keys": n_keys,
+            "keys_by_depth": byd.iter().map(|(d, c)| (d.to_string(), *c)).collect::<BTreeMap<_, _>>()}))
+        .map_err(io)?;
+    }
+    wf.flush().map_err(io)?;
     Ok(
-        json!({"path": path, "uncovered": up, "records_sha256": hs.finish_hex(), "covered": by_kind[0], "terminal": by_kind[1],
+        json!({"path": path, "uncovered": up, "first_match": fp, "records_used": fm.len(), "records_sha256": hs.finish_hex(), "covered": by_kind[0], "terminal": by_kind[1],
         "uncovered_keys": by_kind[2], "by_kind_depth": by_kind_depth}),
     )
 }
