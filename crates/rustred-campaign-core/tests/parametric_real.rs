@@ -1586,12 +1586,30 @@ fn b2_face_by_face() {
             .replace(' ', "_")
     };
     let mut queue: VecDeque<Vec<(usize, bool)>> = VecDeque::new();
-    for code in 0..(1usize << depth) {
-        queue.push_back(
-            (0..depth)
-                .map(|j| (slots[j], (code >> (depth - 1 - j)) & 1 == 1))
-                .collect(),
-        );
+    // PARAMETRIC_PIECE_LIST="1,2,8;2,6;0,5,9;...": explicit FACES instead of the split (each piece = the listed slots
+    // beyond their boundary value: line >= 2 / numerator <= -1, EVERY other slot at its boundary value: line = 1 /
+    // numerator = 0); "none" = the corner
+    if let Ok(list) = std::env::var("PARAMETRIC_PIECE_LIST") {
+        for face in list.split(';').filter(|x| !x.trim().is_empty()) {
+            let beyond: BTreeSet<usize> = face
+                .split(',')
+                .filter(|x| !x.trim().is_empty() && x.trim() != "none")
+                .map(|x| x.trim().parse().unwrap())
+                .collect();
+            queue.push_back(
+                (0..frame.arity())
+                    .map(|s| (s, beyond.contains(&s)))
+                    .collect(),
+            );
+        }
+    } else {
+        for code in 0..(1usize << depth) {
+            queue.push_back(
+                (0..depth)
+                    .map(|j| (slots[j], (code >> (depth - 1 - j)) & 1 == 1))
+                    .collect(),
+            );
+        }
     }
     let mut n_run = 0usize;
     while let Some(choice) = queue.pop_front() {
@@ -2038,6 +2056,12 @@ fn redispatch_keys() {
     let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
         .ok()
         .map(|f| restore_loci(&mut ld, &f));
+    let bank_loci = std::env::var("PARAMETRIC_BANK_LOCI")
+        .ok()
+        .map(|f| restore_bank_loci(&mut ld, &f));
+    if let Some(b) = &bank_loci {
+        eprintln!("bank witness loci: {b}");
+    }
     let mut notcarried = 0usize;
     if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
         use rustred_campaign_core::cover::{Assurance, WitnessStatus};
@@ -2068,6 +2092,8 @@ fn redispatch_keys() {
     let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
     let mut faces: BTreeMap<String, u64> = BTreeMap::new();
     let mut served_by_table: BTreeMap<String, u64> = BTreeMap::new();
+    let mut served_by_record: BTreeMap<String, u64> = BTreeMap::new();
+    let mut open_keys: Vec<serde_json::Value> = Vec::new();
     for line in f.lines() {
         let line = line.unwrap();
         if line.trim().is_empty() {
@@ -2090,6 +2116,13 @@ fn redispatch_keys() {
                 *served_by_table
                     .entry(g5.tables()[r.table].name.clone())
                     .or_default() += 1;
+                *served_by_record
+                    .entry(format!(
+                        "{}#{}",
+                        g5.tables()[r.table].name,
+                        g5.tables()[r.table].labels[r.record]
+                    ))
+                    .or_default() += 1;
                 "covered".to_string()
             }
             other => {
@@ -2108,6 +2141,9 @@ fn redispatch_keys() {
         };
         if why != "covered" {
             open += 1;
+            if open_keys.len() < 2000 {
+                open_keys.push(json!({"key": k, "why": why}));
+            }
             *faces
                 .entry(format!("{:?}", face_of(&lines, &k)))
                 .or_default() += 1;
@@ -2120,6 +2156,7 @@ fn redispatch_keys() {
         "restored_loci": restored, "notcarried_witness_check_disabled": notcarried, "fall_through": "reduced (decision G5)",
         "fall_through_stats": {"poles": st.poles, "redundant": st.redundant, "moved_unknown": st.moved_unknown, "moved_nonempty": st.moved_nonempty},
         "keys_checked": n, "open": open, "by_dispatch": reasons, "open_by_face": faces, "covered_by_table": served_by_table,
+        "covered_by_record": served_by_record, "open_keys_first_2000": open_keys, "bank_witness_loci": bank_loci,
     });
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!("redispatch: {n} keys, {open} open");
@@ -2316,7 +2353,15 @@ fn modular_radii() {
     use rustred_campaign_core::partition::nf::{ModularRisk, modular_risk};
     let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
     let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
-    let ld = load_any(&spec, None);
+    let mut ld = load_any(&spec, None);
+    // the same restored witness loci as the coverage runs (moved loci become exception members: literals the engine
+    // evaluates)
+    if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+        eprintln!("restored loci: {}", restore_loci(&mut ld, &f));
+    }
+    if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+        eprintln!("bank witness loci: {}", restore_bank_loci(&mut ld, &f));
+    }
     let mode = std::env::var("PARAMETRIC_FALLTHROUGH").unwrap_or_default();
     let disp = match mode.as_str() {
         "1" => rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap(),
