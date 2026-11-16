@@ -1,0 +1,6 @@
+ns8r.sh inj NS-trunc-both-1 r G8_MATCH=/proc G8_OPS=readdir,getdents G8_FROM=1 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj NS-trunc-both-100 r G8_MATCH=/proc G8_OPS=readdir,getdents G8_FROM=100 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj NS-trunc-both-400 r G8_MATCH=/proc G8_OPS=readdir,getdents G8_FROM=400 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8u.sh inj NSu-trunc-both-1 u G8_MATCH=/proc G8_OPS=readdir,getdents G8_FROM=1 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8u.sh inj NSu-trunc-both-100 u G8_MATCH=/proc G8_OPS=readdir,getdents G8_FROM=100 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh live NSL-trunc-both-100 r G8_MATCH=/proc G8_OPS=readdir,getdents G8_FROM=100 G8_ERRNO=trunc G8_TIMEOUT=1200
