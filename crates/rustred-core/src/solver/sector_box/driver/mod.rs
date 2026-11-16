@@ -94,6 +94,12 @@ pub struct BoxLaportaSession<const N: usize> {
     selection: Option<SelectionState<N>>,
     /// The selected system over Q(params), keyed by the selection hash.
     exact_system: Option<(String, Arc<super::system::ExactSystem<N>>)>,
+    /// The last +1 stability verdict; an `extend` that seeds nothing keeps it.
+    stability_verdict: Option<bool>,
+    /// Set when `Strict` refused the system: the session is failed from then
+    /// on (every later `extend` refuses with this verdict, and the selection
+    /// is dropped, so nothing unverified is materialised or checkpointed).
+    refused: Option<String>,
 }
 
 /// Second-sample seed: an independent stream derived from the first.
@@ -337,6 +343,8 @@ impl<const N: usize> BoxLaportaSession<N> {
             progress: None,
             selection: None,
             exact_system: None,
+            stability_verdict: None,
+            refused: None,
         })
     }
 
@@ -439,6 +447,11 @@ impl<const N: usize> BoxLaportaSession<N> {
         targets: &[[i16; N]],
         preferred: &[[i16; N]],
     ) -> Result<ModularReport<N>, SolverError> {
+        if let Some(verdict) = &self.refused {
+            return Err(SolverError::MasterCheck(format!(
+                "the session was refused under Strict earlier: {verdict}"
+            )));
+        }
         let started = Instant::now();
         for values in targets.iter().chain(preferred) {
             self.check_powers(values)?;
@@ -511,9 +524,10 @@ impl<const N: usize> BoxLaportaSession<N> {
             Some(delta) if !self.boxes.is_empty() && seeded => {
                 self.enlarge(delta)?;
                 selection = self.select()?;
-                Some(selection.masters == before)
+                self.stability_verdict = Some(selection.masters == before);
+                self.stability_verdict
             }
-            _ => None,
+            _ => self.stability_verdict,
         };
         self.masters = selection.masters.clone();
         let reports = self.sector_reports(&selection.masters)?;
@@ -549,21 +563,29 @@ impl<const N: usize> BoxLaportaSession<N> {
         self.refresh_totals();
         let seeds = reports.iter().map(|report| report.seeds).sum();
         let hull_seeds = reports.iter().map(|report| report.hull_seeds).sum();
-        if self.options.master_check == MasterCheckMode::Strict && !master_check.passed() {
-            return Err(SolverError::MasterCheck(format!(
+        let refusal = if self.options.master_check != MasterCheckMode::Strict {
+            None
+        } else if !master_check.passed() {
+            Some(format!(
                 "{} extra masters {:?}, classes below expected {:?}, above expected {:?}",
                 master_check.extra.len(),
                 master_check.extra,
                 master_check.missing,
                 master_check.excess
-            )));
-        }
-        if self.options.master_check == MasterCheckMode::Strict && stable == Some(false) {
-            return Err(SolverError::MasterCheck(format!(
+            ))
+        } else if stable == Some(false) {
+            Some(format!(
                 "the +1 stability enlargement changed the masters ({} before, {} after): the system is under-seeded",
                 before.len(),
                 self.masters.len()
-            )));
+            ))
+        } else {
+            None
+        };
+        if let Some(verdict) = refusal {
+            self.selection = None;
+            self.refused = Some(verdict.clone());
+            return Err(SolverError::MasterCheck(verdict));
         }
         let masters: BTreeSet<[i16; N]> = self.masters.iter().copied().collect();
         let preferred_not_masters = self
