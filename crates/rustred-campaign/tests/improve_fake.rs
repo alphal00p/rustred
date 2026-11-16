@@ -209,6 +209,7 @@ fn improve_replaces_only_verified_smaller_rules_records_everything_and_iterates(
     // the largest 2 are now rules 1 (tried) and 0 (rung / tight tried): nothing new
     let res2 = read_json(&d2.join("genchoice/toy/improve/result.r2.json"));
     assert_eq!(res2["nothing_to_try"], true, "{res2:#}");
+    assert_eq!(res2["skipped_by_record"], json!([1, 0]), "the relaunch skips what the record holds: {res2:#}");
     assert_eq!(res2["table_out"]["sha256"], res["table_out"]["sha256"]);
     // run 3: widen the filter: rule 2 only; rung gives 5 < 10 monomials
     let rec2 = PathBuf::from(res2["record"]["path"].as_str().unwrap());

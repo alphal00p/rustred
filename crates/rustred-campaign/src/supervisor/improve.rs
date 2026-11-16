@@ -98,6 +98,10 @@ struct NodeRt {
     pole_scores: Vec<ps::ScoreLine>,
     /// IMPROVE POLES: rule indices without a decided own score (not targeted).
     unscored: Vec<i64>,
+    /// Rules inside the filter window the record already holds completely (skipped by this run).
+    skipped: Vec<i64>,
+    /// Reference yield of the tranche stop (bytes per CPU-h).
+    ref_yield: Option<f64>,
 }
 
 pub struct ImproveSource {
@@ -263,6 +267,14 @@ impl ImproveSource {
             } else {
                 (im::targets(&rules, &record, &cfg.improve), vec![], vec![])
             };
+            let skipped = if cfg.improve.poles_on() {
+                vec![]
+            } else {
+                im::skipped_by_record(&rules, &record, &cfg.improve)
+            };
+            let ref_yield = cfg.improve.yield_stop.as_ref().and_then(|y| {
+                y.reference_bytes_per_cpu_h.or_else(|| im::reference_yield(&record))
+            });
             nodes.push(NodeRt {
                 e: e.clone(),
                 family_blake3: fb3,
@@ -276,6 +288,8 @@ impl ImproveSource {
                 decisions,
                 pole_scores,
                 unscored,
+                skipped,
+                ref_yield,
             });
         }
         Ok(ImproveSource {
@@ -360,6 +374,36 @@ impl ImproveSource {
             .is_some_and(|b| Self::spent_ms(st, node) >= b.saturating_mul(1000))
     }
 
+    /// Bytes saved so far by the qualifying candidates of this run (best per rule).
+    fn saved_so_far(&mut self, st: &CampaignState, i: usize) -> u64 {
+        let node = self.nodes[i].e.node.clone();
+        let targets = self.nodes[i].targets.clone();
+        let mut saved = 0u64;
+        for (pos, cands) in &targets {
+            let old = self.nodes[i].rules[*pos].clone();
+            let best = cands
+                .iter()
+                .filter_map(|c| self.answer(st, &item_id(&node, old.index, c)))
+                .filter(|a| a.verdict == "ok")
+                .filter_map(|a| a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes)))
+                .min();
+            if let Some(b) = best {
+                saved += old.bytes.saturating_sub(b);
+            }
+        }
+        saved
+    }
+
+    /// (yield so far in bytes per CPU-h, the run is below the tranche stop line).
+    fn yield_state(&mut self, st: &CampaignState, i: usize) -> (Option<f64>, bool) {
+        let Some(y) = self.cfg.improve.yield_stop.clone() else {
+            return (None, false);
+        };
+        let spent = Self::spent_ms(st, &self.nodes[i].e.node);
+        let saved = self.saved_so_far(st, i);
+        im::yield_check(saved, spent, self.nodes[i].ref_yield, &y)
+    }
+
     /// The result of a node: improved table (when a rule was replaced), replaced rules, the appended record, the import
     /// spec; registered as `improve:<node>:result`.
     fn finish_node(
@@ -385,7 +429,7 @@ impl ImproveSource {
                     .is_some_and(|it| Self::final_phase(&it.phase));
                 match (fin, self.answer(st, &item)) {
                     (true, Some(a)) => per_rule.entry(idx).or_default().push(a),
-                    _ => untried.entry(idx).or_default().push(format!("{c}: not run (total budget improve.budget_cpu_s spent or no settled attempt)")),
+                    _ => untried.entry(idx).or_default().push(format!("{c}: not run (improve.budget_cpu_s spent, tranche yield stop, or no settled attempt)")),
                 }
             }
         }
@@ -673,6 +717,15 @@ impl ImproveSource {
             })
             .collect();
         let (out_bytes, _, _) = file_digests(Path::new(&out_path))?;
+        let (yield_now, yield_stopped) = self.yield_state(st, i);
+        let saved_now = self.saved_so_far(st, i);
+        let yield_json = json!({"bytes_saved": saved_now, "cpu_h": Self::spent_ms(st, &node) as f64 / 3.6e6,
+            "bytes_per_cpu_h": yield_now, "reference_bytes_per_cpu_h": self.nodes[i].ref_yield,
+            "min_fraction": p.yield_stop.as_ref().map(|y| y.min_fraction), "stopped_by_yield": yield_stopped,
+            "next_tranche_advised": match (yield_now, self.nodes[i].ref_yield, &p.yield_stop) {
+                (Some(v), Some(r), Some(y)) => Some(v >= y.min_fraction * r),
+                _ => None,
+            }});
         rec.table_sha256 = out_sha.clone();
         rec.runs.push(im::RunEntry {
             run,
@@ -684,6 +737,7 @@ impl ImproveSource {
             spent_cpu_ms: Self::spent_ms(st, &node),
             totals: json!({"targets": targets.len(), "candidates": targets.iter().map(|(_, c)| c.len()).sum::<usize>(),
                 "objective": if p.poles_on() { "poles" } else { "size" },
+                "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
                 "score_form": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.score.word()),
                 "score_level": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.level.word()),
                 "dependences": if p.poles_on() {
@@ -724,6 +778,7 @@ impl ImproveSource {
             "table_out": {"path": out_path, "sha256": out_sha, "bytes": out_bytes},
             "replaced": repl.len(), "record": {"path": self.cdir.join(&rec_rel).display().to_string(), "sha256": rec_sha},
             "import_spec": import.as_ref().map(|_| self.cdir.join(format!("{}/import.r{run}.json", dir(&node))).display().to_string()),
+            "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
             "nothing_to_try": targets.is_empty() && self.nodes[i].decisions.is_empty()});
         let r = AcceptedRecord {
             path: format!("{}/result.r{run}.json", dir(&node)),
@@ -826,7 +881,10 @@ impl WorkSource for ImproveSource {
         let mut out = Vec::new();
         for i in 0..self.nodes.len() {
             let node = self.nodes[i].e.node.clone();
-            if st.inputs.contains_key(&input_result(&node)) || self.budget_spent(st, &node) {
+            if st.inputs.contains_key(&input_result(&node))
+                || self.budget_spent(st, &node)
+                || self.yield_state(st, i).1
+            {
                 continue;
             }
             let n = &self.nodes[i];
@@ -1138,7 +1196,9 @@ impl WorkSource for ImproveSource {
                         .is_some_and(|j| !matches!(j.state, AttemptState::Failed(_)))
             });
             let all_final = items.iter().all(|it| Self::final_phase(&it.phase));
-            if all_final || (!running && self.budget_spent(st, &node)) {
+            if all_final
+                || (!running && (self.budget_spent(st, &node) || self.yield_state(st, i).1))
+            {
                 self.finish_node(st, i, &mut rt)?;
             }
         }

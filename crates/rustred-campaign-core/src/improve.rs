@@ -404,12 +404,74 @@ pub struct ImprovePolicy {
     pub subtree_max_cases: u64,
     /// Cost model of `filter.by: use_cost` (genchoice's; repairflow.md 2).
     pub cost: crate::economy::genchoice::CostModel,
+    /// TRANCHE YIELD STOP (implementer 2026-11-16): the run stops starting candidates once its yield (bytes saved per
+    /// CPU-h, by the qualifying candidates so far) falls below `min_fraction` x the reference yield (the record's first
+    /// improve run that saved bytes, unless given); None = no yield stop.
+    pub yield_stop: Option<YieldStop>,
     /// IMPROVE POLES (section 6): the pole objective instead of size (None = size). Targets = the rules whose own
     /// rule-scope score has a pole (worst first); candidates run single-case (`--descend open`); a fresh candidate is
     /// `pole_score_pending` until its rule-scope score is supplied (node `pole_scores`), then decided by
     /// [`crate::economy::polescore::rule_pole_verdict`] without being generated again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub poles: Option<crate::economy::polescore::PolePolicy>,
+}
+
+/// See [`ImprovePolicy::yield_stop`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct YieldStop {
+    /// Stop below this fraction of the reference yield (default 1/3: "within a factor 3 of the first tranche").
+    pub min_fraction: f64,
+    /// Reference yield in bytes per CPU-h; None = from the record ([`reference_yield`]); no reference = no stop.
+    pub reference_bytes_per_cpu_h: Option<f64>,
+    /// No stop before this much CPU is spent in the run (noise of the first jobs).
+    pub min_cpu_s: u64,
+}
+
+impl Default for YieldStop {
+    fn default() -> Self {
+        YieldStop {
+            min_fraction: 1.0 / 3.0,
+            reference_bytes_per_cpu_h: None,
+            min_cpu_s: 3600,
+        }
+    }
+}
+
+/// The reference yield of a record: bytes saved per CPU-h of its first improve run that saved bytes.
+pub fn reference_yield(rec: &ImproveRecord) -> Option<f64> {
+    rec.runs.iter().filter(|r| r.mode == "improve" && r.spent_cpu_ms > 0).find_map(|r| {
+        let b = r.totals.get("table_bytes_before")?.as_u64()?;
+        let a = r.totals.get("table_bytes_after")?.as_u64()?;
+        (b > a).then(|| (b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6))
+    })
+}
+
+/// Yield of a run so far and whether it is below the stop line: (bytes per CPU-h, stop).
+pub fn yield_check(saved_bytes: u64, spent_cpu_ms: u64, reference: Option<f64>, y: &YieldStop) -> (Option<f64>, bool) {
+    if spent_cpu_ms == 0 {
+        return (None, false);
+    }
+    let v = saved_bytes as f64 / (spent_cpu_ms as f64 / 3.6e6);
+    let stop = spent_cpu_ms >= y.min_cpu_s.saturating_mul(1000)
+        && reference.is_some_and(|r| v < y.min_fraction * r);
+    (Some(v), stop)
+}
+
+/// The rules inside the filter window that the record already holds completely (every candidate tried): skipped.
+pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePolicy) -> Vec<i64> {
+    let mut idx: Vec<usize> = (0..rules.len()).collect();
+    let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
+    idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
+    idx.into_iter()
+        .filter(|&i| p.filter.min_monomials.is_none_or(|m| rules[i].monomials >= m))
+        .take(p.filter.largest.unwrap_or(usize::MAX))
+        .filter(|&i| {
+            let key = rules[i].key();
+            p.candidates.iter().all(|c| rec.tried(&key, &c.name))
+        })
+        .map(|i| rules[i].index)
+        .collect()
 }
 
 impl ImprovePolicy {
@@ -451,6 +513,7 @@ impl Default for ImprovePolicy {
             subtree: true,
             subtree_max_cases: 64,
             cost: crate::economy::genchoice::CostModel::default(),
+            yield_stop: Some(YieldStop::default()),
             poles: None,
         }
     }

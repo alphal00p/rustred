@@ -288,3 +288,27 @@ fn replacement_follows_the_size_measure() {
     // size_of under use_cost: 30 ns/B + 20 us + 100 ns/monomial
     assert_eq!(size_of(&[&old], RankBy::UseCost, &c), 6_300_000_000 + 20_000 + 319_500);
 }
+
+#[test]
+fn tranche_yield_stop_and_record_skips() {
+    let mut rec = ImproveRecord::empty("T", &"0".repeat(64), &[]);
+    rec.runs.push(RunEntry {
+        run: 1,
+        mode: "improve".into(),
+        settings: serde_json::json!({}),
+        table_in_sha256: None,
+        table_out_sha256: "x".into(),
+        budget_cpu_ms: None,
+        spent_cpu_ms: 3_600_000 * 10,
+        totals: serde_json::json!({"table_bytes_before": 3_000_000_000u64, "table_bytes_after": 1_000_000_000u64}),
+    });
+    let r = reference_yield(&rec).unwrap();
+    assert_eq!(r, 200_000_000.0, "2 GB in 10 CPU-h");
+    let y = YieldStop::default();
+    assert!((y.min_fraction - 1.0 / 3.0).abs() < 1e-12);
+    // 50 MB per CPU-h after 2 CPU-h: below 1/3 x 200 MB: stop; before min_cpu_s: no stop
+    assert_eq!(yield_check(100_000_000, 7_200_000, Some(r), &y), (Some(50_000_000.0), true));
+    assert!(!yield_check(1, 60_000, Some(r), &y).1);
+    assert!(!yield_check(100_000_000, 7_200_000, None, &y).1, "no reference: no stop");
+    assert!(!yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1, "70 MB/CPU-h >= 66.7: go on");
+}
