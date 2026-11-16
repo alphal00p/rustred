@@ -1,0 +1,3 @@
+ns8r.sh inj cal-r r G8_MATCH=* G8_OPS=open,read,readdir,opendir,stat,readlink,getdents,wait,clock,pidfd
+ns8u.sh inj cal-u u G8_MATCH=* G8_OPS=open,read,readdir,opendir,stat,readlink,getdents,wait,clock,pidfd
+ns8r.sh live cal-lr r G8_MATCH=* G8_OPS=open,read,readdir,opendir,stat,readlink,getdents,wait,clock,pidfd
