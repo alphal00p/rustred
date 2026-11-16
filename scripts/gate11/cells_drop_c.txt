@@ -1,0 +1,138 @@
+ns8r.sh g11_drop_inner.sh D-daemon-r-dup-c r daemon G11_MODE=dup
+ns8u.sh g11_drop_inner.sh D-daemon-u-dup-c u daemon G11_MODE=dup
+ns8u.sh g11_droplive_inner.sh L-daemon-u-drop-c u daemon G11_DROP_FILE=@DPFILE@
+ns8r.sh g11_drop_inner.sh K-daemon-r-dropk2-c r daemon G11_MODE=dropk G11_K=2
+ns8r.sh g11_drop_inner.sh K-daemon-r-dropk4-c r daemon G11_MODE=dropk G11_K=4
+ns8r.sh g11_drop_inner.sh KK-daemon-r-keepk4-c r daemon G11_MODE=keepk G11_K=4
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk0-c r daemon G11_MODE=dropk G11_K=0
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk2-c r daemon G11_MODE=dropk G11_K=2
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk4-c r daemon G11_MODE=dropk G11_K=4
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk6-c r daemon G11_MODE=dropk G11_K=6
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk8-c r daemon G11_MODE=dropk G11_K=8
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk10-c r daemon G11_MODE=dropk G11_K=10
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk12-c r daemon G11_MODE=dropk G11_K=12
+ns8r.sh g11_droplive_inner.sh LK-daemon-r-dropk14-c r daemon G11_MODE=dropk G11_K=14
+ns8r.sh g11_drop_inner.sh D-thread-r-drop-c r thread G11_DROP_FILE=@DPFILE@
+ns8r.sh g11_drop_inner.sh D-thread-r-ctl-c r thread G11_ARGV1=nomatch
+ns8r.sh g11_drop_inner.sh D-thread-r-range-c r thread G11_MODE=droprange G11_LO=2 G11_HI=@DP@
+ns8r.sh g11_drop_inner.sh D-thread-r-dup-c r thread G11_MODE=dup
+ns8r.sh g11_drop_inner.sh D-thread-r-reorder-c r thread G11_MODE=reorder
+ns8r.sh g11_drop_inner.sh D-thread-r-dropT-c r thread G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g11_droplive_inner.sh L-thread-r-drop-c r thread G11_DROP_FILE=@DPFILE@
+ns8u.sh g11_drop_inner.sh D-thread-u-drop-c u thread G11_DROP_FILE=@DPFILE@
+ns8u.sh g11_drop_inner.sh D-thread-u-ctl-c u thread G11_ARGV1=nomatch
+ns8u.sh g11_drop_inner.sh D-thread-u-range-c u thread G11_MODE=droprange G11_LO=2 G11_HI=@DP@
+ns8u.sh g11_drop_inner.sh D-thread-u-dup-c u thread G11_MODE=dup
+ns8u.sh g11_drop_inner.sh D-thread-u-reorder-c u thread G11_MODE=reorder
+ns8u.sh g11_drop_inner.sh D-thread-u-dropT-c u thread G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g11_droplive_inner.sh L-thread-u-drop-c u thread G11_DROP_FILE=@DPFILE@
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk0-c r thread G11_MODE=dropk G11_K=0
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk0-c r thread G11_MODE=keepk G11_K=0
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk1-c r thread G11_MODE=dropk G11_K=1
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk1-c r thread G11_MODE=keepk G11_K=1
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk2-c r thread G11_MODE=dropk G11_K=2
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk2-c r thread G11_MODE=keepk G11_K=2
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk3-c r thread G11_MODE=dropk G11_K=3
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk3-c r thread G11_MODE=keepk G11_K=3
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk4-c r thread G11_MODE=dropk G11_K=4
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk4-c r thread G11_MODE=keepk G11_K=4
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk5-c r thread G11_MODE=dropk G11_K=5
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk5-c r thread G11_MODE=keepk G11_K=5
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk6-c r thread G11_MODE=dropk G11_K=6
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk6-c r thread G11_MODE=keepk G11_K=6
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk7-c r thread G11_MODE=dropk G11_K=7
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk7-c r thread G11_MODE=keepk G11_K=7
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk8-c r thread G11_MODE=dropk G11_K=8
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk8-c r thread G11_MODE=keepk G11_K=8
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk9-c r thread G11_MODE=dropk G11_K=9
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk9-c r thread G11_MODE=keepk G11_K=9
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk10-c r thread G11_MODE=dropk G11_K=10
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk10-c r thread G11_MODE=keepk G11_K=10
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk11-c r thread G11_MODE=dropk G11_K=11
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk11-c r thread G11_MODE=keepk G11_K=11
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk12-c r thread G11_MODE=dropk G11_K=12
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk12-c r thread G11_MODE=keepk G11_K=12
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk13-c r thread G11_MODE=dropk G11_K=13
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk13-c r thread G11_MODE=keepk G11_K=13
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk14-c r thread G11_MODE=dropk G11_K=14
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk14-c r thread G11_MODE=keepk G11_K=14
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk15-c r thread G11_MODE=dropk G11_K=15
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk15-c r thread G11_MODE=keepk G11_K=15
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk16-c r thread G11_MODE=dropk G11_K=16
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk16-c r thread G11_MODE=keepk G11_K=16
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk17-c r thread G11_MODE=dropk G11_K=17
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk17-c r thread G11_MODE=keepk G11_K=17
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk18-c r thread G11_MODE=dropk G11_K=18
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk18-c r thread G11_MODE=keepk G11_K=18
+ns8r.sh g11_drop_inner.sh K-thread-r-dropk19-c r thread G11_MODE=dropk G11_K=19
+ns8r.sh g11_drop_inner.sh KK-thread-r-keepk19-c r thread G11_MODE=keepk G11_K=19
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk0-c r thread G11_MODE=dropk G11_K=0
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk2-c r thread G11_MODE=dropk G11_K=2
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk4-c r thread G11_MODE=dropk G11_K=4
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk6-c r thread G11_MODE=dropk G11_K=6
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk8-c r thread G11_MODE=dropk G11_K=8
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk10-c r thread G11_MODE=dropk G11_K=10
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk12-c r thread G11_MODE=dropk G11_K=12
+ns8r.sh g11_droplive_inner.sh LK-thread-r-dropk14-c r thread G11_MODE=dropk G11_K=14
+ns8r.sh g11_drop_inner.sh D-zleader-r-drop-c r zleader G11_DROP_FILE=@DPFILE@
+ns8r.sh g11_drop_inner.sh D-zleader-r-ctl-c r zleader G11_ARGV1=nomatch
+ns8r.sh g11_drop_inner.sh D-zleader-r-range-c r zleader G11_MODE=droprange G11_LO=2 G11_HI=@DP@
+ns8r.sh g11_drop_inner.sh D-zleader-r-dup-c r zleader G11_MODE=dup
+ns8r.sh g11_drop_inner.sh D-zleader-r-reorder-c r zleader G11_MODE=reorder
+ns8r.sh g11_drop_inner.sh D-zleader-r-dropT-c r zleader G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g11_droplive_inner.sh L-zleader-r-drop-c r zleader G11_DROP_FILE=@DPFILE@
+ns8u.sh g11_drop_inner.sh D-zleader-u-drop-c u zleader G11_DROP_FILE=@DPFILE@
+ns8u.sh g11_drop_inner.sh D-zleader-u-ctl-c u zleader G11_ARGV1=nomatch
+ns8u.sh g11_drop_inner.sh D-zleader-u-range-c u zleader G11_MODE=droprange G11_LO=2 G11_HI=@DP@
+ns8u.sh g11_drop_inner.sh D-zleader-u-dup-c u zleader G11_MODE=dup
+ns8u.sh g11_drop_inner.sh D-zleader-u-reorder-c u zleader G11_MODE=reorder
+ns8u.sh g11_drop_inner.sh D-zleader-u-dropT-c u zleader G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g11_droplive_inner.sh L-zleader-u-drop-c u zleader G11_DROP_FILE=@DPFILE@
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk0-c r zleader G11_MODE=dropk G11_K=0
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk0-c r zleader G11_MODE=keepk G11_K=0
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk1-c r zleader G11_MODE=dropk G11_K=1
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk1-c r zleader G11_MODE=keepk G11_K=1
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk2-c r zleader G11_MODE=dropk G11_K=2
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk2-c r zleader G11_MODE=keepk G11_K=2
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk3-c r zleader G11_MODE=dropk G11_K=3
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk3-c r zleader G11_MODE=keepk G11_K=3
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk4-c r zleader G11_MODE=dropk G11_K=4
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk4-c r zleader G11_MODE=keepk G11_K=4
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk5-c r zleader G11_MODE=dropk G11_K=5
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk5-c r zleader G11_MODE=keepk G11_K=5
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk6-c r zleader G11_MODE=dropk G11_K=6
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk6-c r zleader G11_MODE=keepk G11_K=6
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk7-c r zleader G11_MODE=dropk G11_K=7
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk7-c r zleader G11_MODE=keepk G11_K=7
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk8-c r zleader G11_MODE=dropk G11_K=8
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk8-c r zleader G11_MODE=keepk G11_K=8
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk9-c r zleader G11_MODE=dropk G11_K=9
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk9-c r zleader G11_MODE=keepk G11_K=9
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk10-c r zleader G11_MODE=dropk G11_K=10
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk10-c r zleader G11_MODE=keepk G11_K=10
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk11-c r zleader G11_MODE=dropk G11_K=11
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk11-c r zleader G11_MODE=keepk G11_K=11
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk12-c r zleader G11_MODE=dropk G11_K=12
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk12-c r zleader G11_MODE=keepk G11_K=12
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk13-c r zleader G11_MODE=dropk G11_K=13
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk13-c r zleader G11_MODE=keepk G11_K=13
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk14-c r zleader G11_MODE=dropk G11_K=14
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk14-c r zleader G11_MODE=keepk G11_K=14
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk15-c r zleader G11_MODE=dropk G11_K=15
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk15-c r zleader G11_MODE=keepk G11_K=15
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk16-c r zleader G11_MODE=dropk G11_K=16
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk16-c r zleader G11_MODE=keepk G11_K=16
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk17-c r zleader G11_MODE=dropk G11_K=17
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk17-c r zleader G11_MODE=keepk G11_K=17
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk18-c r zleader G11_MODE=dropk G11_K=18
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk18-c r zleader G11_MODE=keepk G11_K=18
+ns8r.sh g11_drop_inner.sh K-zleader-r-dropk19-c r zleader G11_MODE=dropk G11_K=19
+ns8r.sh g11_drop_inner.sh KK-zleader-r-keepk19-c r zleader G11_MODE=keepk G11_K=19
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk0-c r zleader G11_MODE=dropk G11_K=0
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk2-c r zleader G11_MODE=dropk G11_K=2
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk4-c r zleader G11_MODE=dropk G11_K=4
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk6-c r zleader G11_MODE=dropk G11_K=6
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk8-c r zleader G11_MODE=dropk G11_K=8
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk10-c r zleader G11_MODE=dropk G11_K=10
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk12-c r zleader G11_MODE=dropk G11_K=12
+ns8r.sh g11_droplive_inner.sh LK-zleader-r-dropk14-c r zleader G11_MODE=dropk G11_K=14
