@@ -867,6 +867,7 @@ pub(super) fn recipe_statistics_json() -> serde_json::Value {
         "misses": relations.misses, "inserts": relations.inserts,
         "inserts_skipped_cap": relations.inserts_skipped_cap, "foreign": relations.foreign,
         "corrupt": relations.corrupt, "bytes_written": relations.bytes_written,
+        "over_table_hits": relations.over_table_hits,
     });
     let roots = rustred::propagator::recipes::recipe_cache_roots();
     serde_json::json!({

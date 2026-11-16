@@ -1150,6 +1150,16 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
+        // vk5l WP2 (manifest): a shipped entry with precedence `over_table`
+        // comes before the table's first match
+        if let Some(recipes) = &self.recipes
+            && let Some((relation, id)) = recipes.entry_over_table(powers)?
+        {
+            return Ok(KeyApplied::Children(
+                relation_children(&relation, &id)?,
+                KeyVia::Recipe,
+            ));
+        }
         if let Some(recipes) = &self.recipes
             && recipes.order() == RecipeDispatchOrder::RecipesFirst
             && !self.residuals.contains(integral)
@@ -1208,6 +1218,16 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
+        // (0) a shipped entry with precedence `over_table` (node manifest)
+        if let Some(recipes) = &self.recipes
+            && let Some((relation, id)) = recipes.entry_over_table(powers)?
+        {
+            super::recipes::count_outside_entry_hit();
+            return Ok(KeyApplied::Children(
+                relation_children(&relation, &id)?,
+                KeyVia::Recipe,
+            ));
+        }
         // (1) the table's first match (parametric, strictly lowering rules),
         // unless the node's settings forbid rules outside the set
         let rules_outside = self

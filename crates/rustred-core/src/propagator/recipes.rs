@@ -1433,6 +1433,11 @@ pub fn count_outside_rule_step() {
     OUTSIDE_RULE_STEPS.fetch_add(1, Ordering::Relaxed);
 }
 
+/// vk5l WP2: an outside key served by a shipped entry before the table.
+pub fn count_outside_entry_hit() {
+    OUTSIDE_ENTRY_HITS.fetch_add(1, Ordering::Relaxed);
+}
+
 /// The counters since the start of the process.
 pub fn recipe_statistics() -> RecipeStatistics {
     RecipeStatistics {
@@ -1920,6 +1925,24 @@ impl RecipeDispatch {
     /// checked as a fresh solve is ([`Self::verified`]; an entry that fails is
     /// ignored with one stderr line). Returns the relation and the id of the
     /// recipe (or relation source) the entry names.
+    /// vk5l WP2 (manifest): the relation of `key` from a shipped entry whose
+    /// node manifest says `over_table` (used BEFORE the table's first match);
+    /// `None` for every other key, with nothing read. Checked as
+    /// [`Self::served_entry`].
+    pub fn entry_over_table(&self, key: &[i64]) -> Result<Option<(Arc<Relation>, String)>, PError> {
+        if !self.cache.over_table() {
+            return Ok(None);
+        }
+        if !self.cache.is_over_table(&self.bundle.to_table(key)) {
+            return Ok(None);
+        }
+        let found = self.served_entry(key)?;
+        if found.is_some() {
+            super::relation_entries::count_over_table_hit();
+        }
+        Ok(found)
+    }
+
     pub fn served_entry(&self, key: &[i64]) -> Result<Option<(Arc<Relation>, String)>, PError> {
         if let Some((relation, id)) = self
             .outside
@@ -3248,6 +3271,88 @@ mod kite_tests {
             other => panic!("expected OutsideCertifiedSet, got {other:?}"),
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// vk5l WP2 (manifest, plan/ARTIFACT_MANIFEST.md): a shipped node
+    /// directory written by `write_node_service` with precedence `over_table`
+    /// serves its keys BEFORE the table's first match (counted
+    /// `over_table_hits`); the same entries with `after_table` leave a key the
+    /// rules take to the rules.
+    #[test]
+    fn manifest_precedence_over_table_puts_entries_before_the_rules() {
+        use super::super::relation_entries::{
+            EntryMeta, EntryPrecedence, RelationStore, build_entry, write_node_service,
+        };
+        let node = "KITE-manifest";
+        let _fake = install(node, vec![]);
+        let imported = import(node, &[], None).unwrap();
+        let bundle = recipes_of_source(
+            &crate::propagator::custom::custom_payload_family_source(&imported.payload).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let identity = bundle_node_identity(&bundle);
+        let base =
+            std::env::temp_dir().join(format!("rr-manifest-dispatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let key = dot(0); // a certified key the table's rules take
+        let body = json!({"type": "relation", "key": key, "verdict": "SOLVED", "all_lower": true,
+            "proof": {"ok": true, "kind": "symverify"}, "relation_digest": null,
+            "determinism_id": "rustred.relation-import.v1/kind=test/statement=manifest",
+            "rhs": [["I(1,1,1,1,1)", "7", "top"]]});
+        let meta = EntryMeta {
+            node: node.to_owned(),
+            node_identity: identity.clone(),
+            package_revision: None,
+            recipe_id: format!("{node}/manifest-test"),
+            recipe: json!({}),
+            recipe_digest: String::new(),
+            relation_rule: "test".to_owned(),
+            evidence_level: "per-key",
+            pole_order_at_4: Some(0),
+            regular_alternative: "not_tried",
+            outside_certified_set: false,
+            written_by: "test".to_owned(),
+        };
+        let cache = base.join("cache");
+        RelationStore::new(node, &identity, &[], Some(&cache))
+            .put(&build_entry(&meta, &key, body))
+            .unwrap();
+        let reduce_with = |precedence: EntryPrecedence| {
+            let ship = base.join(precedence.name());
+            write_node_service(
+                node,
+                &identity,
+                std::slice::from_ref(&cache),
+                &ship,
+                "t",
+                precedence,
+                &Value::Null,
+            )
+            .unwrap();
+            set_recipe_cache_roots_for(
+                node,
+                RecipeCacheRoots {
+                    user: None,
+                    prefilled: vec![ship],
+                    ..Default::default()
+                },
+            );
+            let served = certified_library_without_recipes(node);
+            let before = super::super::relation_entries::relation_cache_statistics();
+            let reduced = reduce(&served, key, None, PUncoveredPolicy::Reject).unwrap();
+            let stats = super::super::relation_entries::relation_cache_statistics().since(&before);
+            (format!("{:?}", reduced.terms), stats.over_table_hits)
+        };
+        let (over, over_hits) = reduce_with(EntryPrecedence::OverTable);
+        let (after, after_hits) = reduce_with(EntryPrecedence::AfterTable);
+        assert!(
+            over_hits >= 1 && after_hits == 0,
+            "{over_hits} {after_hits}"
+        );
+        assert_ne!(over, after, "the entry, not the rule, served the key");
+        assert!(over.contains('7'), "{over}");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     fn certified_library_without_recipes(node: &str) -> Arc<PLibrary> {

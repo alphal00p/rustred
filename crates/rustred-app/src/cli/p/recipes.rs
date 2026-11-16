@@ -7,6 +7,9 @@
 //! rustred p-recipes prefill --record <dir>/<label>.json --out <cache root> [--threads <t>] [--only <text>]
 //! rustred p-recipes replay  --record <dir>/<label>.json --seeds <seeds.json> --out <replay.json>
 //!                           [--recipe-cache <dir>] [--recipe-prefilled <dir>[,..]] [--recipe-workers <n>]
+//! rustred p-recipes index   (--record <dir>/<label>.json | --node <N> --identity <id>) --from <root>[,..]
+//!                           --out <root> --revision <name> [--precedence over_table|after_table]
+//!                           [--manifest-extra <fields.json>]
 //! ```
 //!
 //! `solve` is the recipe verb (`rr_node solve-recipe`, `node::recipe::run_batch`)
@@ -20,7 +23,12 @@
 //! the optional pre-filled download, loaded read-only with
 //! `RUSTRED_P_RECIPE_PREFILLED` (or `--recipe-prefilled`). `replay` reduces seeds
 //! (TABLE slots) with the payload's program, recipes included, as
-//! `p-import-table --replay` does.
+//! `p-import-table --replay` does. `index` writes the shipped form of one node's
+//! relations (plan/ARTIFACT_MANIFEST.md) from cache / shipped roots:
+//! `<out>/<node>-<id16>/merged-<revision>.jsonl`, `index.jsonl` and
+//! `MANIFEST.json` (`rustred.node-service-manifest.v1`, default precedence
+//! `over_table`; `--manifest-extra` fields such as `table` / `verification`
+//! are merged in); the output node directory must not hold entries yet.
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::PathBuf;
@@ -98,17 +106,94 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     let command = arguments
         .next()
         .and_then(|command| command.into_string().ok())
-        .ok_or_else(|| usage("give a subcommand: solve, keys, prefill, replay"))?;
+        .ok_or_else(|| usage("give a subcommand: solve, keys, prefill, replay, index"))?;
     let rest: Vec<OsString> = arguments.collect();
     match command.as_str() {
         "solve" => solve(rest),
         "keys" => keys(rest),
         "prefill" => prefill(rest),
         "replay" => replay(rest),
+        "index" => index(rest),
         other => Err(usage(format!(
-            "unknown subcommand {other:?} (solve, keys, prefill, replay)"
+            "unknown subcommand {other:?} (solve, keys, prefill, replay, index)"
         ))),
     }
+}
+
+fn index(arguments: Vec<OsString>) -> Result<(), CliError> {
+    use rustred::propagator::relation_entries::{EntryPrecedence, write_node_service};
+    let options = Options::parse(
+        arguments,
+        &[],
+        &[
+            "--record",
+            "--node",
+            "--identity",
+            "--from",
+            "--out",
+            "--revision",
+            "--precedence",
+            "--manifest-extra",
+        ],
+    )?;
+    let (node, identity) = match options.get("--record") {
+        Some(record) => {
+            let loaded = load_owner(&PathBuf::from(record))?;
+            let source = rustred::propagator::custom::custom_payload_family_source(&loaded.payload)
+                .map_err(failed)?;
+            let bundle = recipes_of_source(&source)
+                .map_err(failed)?
+                .ok_or_else(|| usage("the payload carries no recipe / relation binding"))?;
+            let identity = rustred::propagator::recipes::bundle_node_identity(&bundle);
+            (bundle.node, identity)
+        }
+        None => (
+            options.need("--node")?.to_owned(),
+            options.need("--identity")?.to_owned(),
+        ),
+    };
+    let sources: Vec<PathBuf> = options
+        .need("--from")?
+        .split(',')
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+        .collect();
+    let precedence = match options.get("--precedence").unwrap_or("over_table") {
+        "over_table" => EntryPrecedence::OverTable,
+        "after_table" => EntryPrecedence::AfterTable,
+        other => {
+            return Err(usage(format!(
+                "--precedence {other:?}: over_table or after_table"
+            )));
+        }
+    };
+    let extra = match options.get("--manifest-extra") {
+        Some(path) => {
+            serde_json::from_str(&read(path)?).map_err(|error| usage(format!("{path}: {error}")))?
+        }
+        None => serde_json::Value::Null,
+    };
+    let summary = write_node_service(
+        &node,
+        &identity,
+        &sources,
+        &PathBuf::from(options.need("--out")?),
+        options.need("--revision")?,
+        precedence,
+        &extra,
+    )
+    .map_err(CliError::OutputIo)?;
+    let _ = writeln!(
+        std::io::stdout().lock(),
+        "index {node} ({identity}): {} entries, {} bytes, {} sha256 {} ({}) -> {}",
+        summary.entries,
+        summary.bytes,
+        summary.merged_file,
+        summary.merged_sha256,
+        precedence.name(),
+        summary.directory.display()
+    );
+    Ok(())
 }
 
 fn read(path: &str) -> Result<String, CliError> {
