@@ -179,12 +179,13 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
     ) -> Result<(BTreeMap<IntegralKey, Coefficient>, Vec<Coefficient>), CandidateReductionError>
     {
         let mut conditions = Vec::new();
+        // engine-specialize: the guards are deduplicated through a hash set (same first-appearance order as the
+        // previous linear `contains`, which compared every new guard with every kept one: quadratic per rule)
+        let mut seen: std::collections::HashSet<CoefficientPolynomial> =
+            std::collections::HashSet::new();
         let mut nonzero = |condition: &CoefficientPolynomial| {
-            if !condition.is_constant() {
-                let condition: Coefficient = condition.clone().into();
-                if !conditions.contains(&condition) {
-                    conditions.push(condition);
-                }
+            if !condition.is_constant() && seen.insert(condition.clone()) {
+                conditions.push(condition.clone().into());
             }
         };
         self.validate_target_with_conditions(target, &mut nonzero)?;
@@ -416,12 +417,13 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         CandidateReductionError,
     > {
         let mut conditions = Vec::new();
+        // engine-specialize: the guards are deduplicated through a hash set (same first-appearance order as the
+        // previous linear `contains`, which compared every new guard with every kept one: quadratic per rule)
+        let mut seen: std::collections::HashSet<CoefficientPolynomial> =
+            std::collections::HashSet::new();
         let mut nonzero = |condition: &CoefficientPolynomial| {
-            if !condition.is_constant() {
-                let condition: Coefficient = condition.clone().into();
-                if !conditions.contains(&condition) {
-                    conditions.push(condition);
-                }
+            if !condition.is_constant() && seen.insert(condition.clone()) {
+                conditions.push(condition.clone().into());
             }
         };
         self.validate_target_with_conditions(target, &mut nonzero)?;
