@@ -2675,12 +2675,12 @@ impl<'l> PStepper<'l> {
                 )?,
                 PStage::Apply => self.apply_child(&child)?,
             };
-            if let (Some(keep), PKey::Apply { class, .. }) = (TARGET_KEEP.get(), &key) {
-                if !keep.contains(&class.0) {
-                    TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    super::step_memo::put_powers(child.powers);
-                    continue;
-                }
+            if let (Some(keep), PKey::Apply { class, .. }) = (TARGET_KEEP.get(), &key)
+                && !keep.contains(&class.0)
+            {
+                TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                super::step_memo::put_powers(child.powers);
+                continue;
             }
             if self.keep_canonical_child(&key, &coefficient)? {
                 pairs.push((key, coefficient));
