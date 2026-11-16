@@ -267,3 +267,24 @@ fn filter_ranks_by_bytes_when_asked() {
     p.filter.by = RankBy::Bytes;
     assert_eq!(targets(&rules, &rec, &p)[0].0, 1, "by bytes");
 }
+
+#[test]
+fn replacement_follows_the_size_measure() {
+    use rustred_campaign_core::economy::genchoice::CostModel;
+    // the legacy record: few monomials, huge bytes; the regenerated sub-table: many monomials, far fewer bytes
+    let mut old = rule(&line(7, "[null,1,0]", "I(n0,1,0)", "[]", 3195));
+    old.bytes = 210_000_000;
+    let mut a = rule(&line(7, "[null,1,0]", "I(n0,1,0)", "[]", 900_000));
+    a.bytes = 16_000_000;
+    let mut b = rule(&line(8, "[1,1,0]", "I(1,1,0)", "[]", 100_000));
+    b.bytes = 1_800_000;
+    let sub = vec![a.clone(), b];
+    let c = CostModel::default();
+    assert!(subtree_verdict(&old, &sub, 1.0).unwrap_err().starts_with("not_smaller"), "by monomials: refused");
+    assert_eq!(subtree_verdict_by(&old, &sub, 1.0, RankBy::Bytes, &c), Ok(()));
+    assert_eq!(subtree_verdict_by(&old, &sub, 1.0, RankBy::UseCost, &c), Ok(()));
+    assert_eq!(replacement_verdict_by(&old, &a, 1.0, RankBy::Bytes, &c), Ok(()));
+    assert!(replacement_verdict_by(&a, &old, 1.0, RankBy::Bytes, &c).is_err());
+    // size_of under use_cost: 30 ns/B + 20 us + 100 ns/monomial
+    assert_eq!(size_of(&[&old], RankBy::UseCost, &c), 6_300_000_000 + 20_000 + 319_500);
+}

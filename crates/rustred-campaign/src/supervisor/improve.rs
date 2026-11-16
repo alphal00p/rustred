@@ -389,11 +389,17 @@ impl ImproveSource {
                 .filter(|a| a.verdict == "ok" && (a.new_line.is_some() || !a.new_lines.is_empty()))
                 .min_by_key(|a| {
                     let r = a.new_rule.as_ref().expect("ok verdict has a rule");
-                    (
-                        a.sub_monomials.unwrap_or(r.monomials),
-                        a.sub_bytes.unwrap_or(r.bytes),
-                        a.cand.clone(),
-                    )
+                    let (m, b) = (a.sub_monomials.unwrap_or(r.monomials), a.sub_bytes.unwrap_or(r.bytes));
+                    let c = &p.cost;
+                    let primary = match p.filter.by {
+                        im::RankBy::Monomials => m,
+                        im::RankBy::Bytes => b,
+                        im::RankBy::UseCost => (c.load_ns_per_byte * b as f64
+                            + c.apply_ns_base * a.sub_rules.unwrap_or(1) as f64
+                            + c.apply_ns_per_monomial * m as f64)
+                            .round() as u64,
+                    };
+                    (primary, m, b, a.cand.clone())
                 });
             if let Some(b) = best {
                 let lines = match &b.new_line {
@@ -967,12 +973,24 @@ impl WorkSource for ImproveSource {
                 "subtree_incomplete ({status}: not closed within improve.subtree_max_cases)"
             ),
             Some(_) if subtree => {
-                match im::subtree_verdict(&old, &sub_rules, self.cfg.improve.min_gain) {
+                match im::subtree_verdict_by(
+                    &old,
+                    &sub_rules,
+                    self.cfg.improve.min_gain,
+                    self.cfg.improve.filter.by,
+                    &self.cfg.improve.cost,
+                ) {
                     Ok(()) => "ok".to_string(),
                     Err(w) => w,
                 }
             }
-            Some(n) => match im::replacement_verdict(&old, n, self.cfg.improve.min_gain) {
+            Some(n) => match im::replacement_verdict_by(
+                &old,
+                n,
+                self.cfg.improve.min_gain,
+                self.cfg.improve.filter.by,
+                &self.cfg.improve.cost,
+            ) {
                 Ok(()) => "ok".to_string(),
                 Err(w) => w,
             },
