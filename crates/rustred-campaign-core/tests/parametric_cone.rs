@@ -463,3 +463,42 @@ fn reduced_fall_through_drops_only_loci_the_exceptions_already_exclude() {
         o => panic!("{o:?}"),
     }
 }
+
+#[test]
+fn region_keys_each_enumerates_a_lattice_region_inside_a_cone_exactly() {
+    use rustred_campaign_core::loci::region::Region;
+    use rustred_campaign_core::parametric::cone::region_keys_each;
+    use rustred_campaign_core::partition::exact::Affine;
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    // x0 = 1 + t0, x1 = 1 + t0 + t1, x2 = -t1, t0 >= 0, t1 >= 0 (a correlated lattice region, not a cell)
+    let aff = |c: i128, a: i128, b: i128| Affine {
+        coef: vec![a, b],
+        c,
+    };
+    let reg = Region {
+        k: 2,
+        x: vec![aff(1, 1, 0), aff(1, 1, 1), aff(0, 0, -1)],
+        cons: vec![aff(0, 1, 0), aff(0, 0, 1)],
+        names: vec!["t0".into(), "t1".into()],
+    };
+    for s in 0..7i64 {
+        let cone = Cone::excess_simplex(&f, s);
+        let mut got = Vec::new();
+        region_keys_each(&reg, &cone, 1_000_000, &mut |k| got.push(k.to_vec())).unwrap();
+        got.sort();
+        let mut want = Vec::new();
+        for k0 in 1..20 {
+            for k2 in -20..1 {
+                let k1 = k0 - k2;
+                let k = vec![k0, k1, k2];
+                if cone.contains(&k) {
+                    want.push(k);
+                }
+            }
+        }
+        want.sort();
+        assert_eq!(got, want, "S = {s}");
+    }
+    // unbounded without a cone
+    assert!(region_keys_each(&reg, &Cone::orthant(), 1_000_000, &mut |_| {}).is_none());
+}
