@@ -243,12 +243,15 @@ struct RoutedOut {
     kernel_jobs: Vec<KernelJob>,
 }
 
+/// A pass thread of round k.
+type Pass<T> = (u32, JoinHandle<Result<T, String>>);
+
 /// The per-node runtime state of the composite stage (threads only; everything else is in the ledger).
 #[derive(Default)]
 pub struct Stage {
-    plan_pass: Option<(u32, JoinHandle<Result<PlanOut, String>>)>,
-    route_pass: Option<(u32, JoinHandle<Result<RoutedOut, String>>)>,
-    round_pass: Option<(u32, JoinHandle<Result<Vec<u8>, String>>)>,
+    plan_pass: Option<Pass<PlanOut>>,
+    route_pass: Option<Pass<RoutedOut>>,
+    round_pass: Option<Pass<Vec<u8>>>,
     prog_sha: BTreeMap<String, String>,
 }
 
@@ -316,6 +319,7 @@ fn asked_before(st: &CampaignState, n: &str, k: u32) -> Result<BTreeSet<Vec<i32>
 }
 
 /// Step 1 (thread): load + check, the new uncovered keys by face.
+#[allow(clippy::too_many_arguments)]
 fn plan_pass(
     node: &str,
     round: u32,
@@ -541,10 +545,7 @@ impl Stage {
                 let settled: SettledRec =
                     serde_json::from_slice(&read_input(st, &input_settled(n, k))?)
                         .map_err(|e| format!("composite settled r{k}: {e}"))?;
-                let kroute = match kernel_route(c) {
-                    Ok(x) => Ok(x),
-                    Err(why) => Err(why),
-                };
+                let kroute = kernel_route(c);
                 let kcfg = c.policy.route0.composite_jobs.kernel.clone();
                 let pieces = c.policy.pieces.clone();
                 let cdir = c.cdir.to_path_buf();
@@ -1014,6 +1015,7 @@ fn existing_job_files(dir: &Path) -> Result<symcomp::JobFiles, String> {
 }
 
 /// Step 3 (thread): the same-backend filter of the settled attempt; the accepted records; the kernel jobs' files.
+#[allow(clippy::too_many_arguments)]
 fn route_pass(
     cdir: &Path,
     n: &str,

@@ -225,22 +225,12 @@ pub struct TwoRowStep {
 /// to the IBP core. The plan is bound to the table set (`check_plan_table_set`, audit G2) and recorded with the round;
 /// the face jobs of P1 are then issued in piece order (earlier group first). A record and an order, never a condition
 /// of serving a key (the import and the closing loop judge every relation).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct PiecesStep {
     pub plan: bool,
     pub ranking: crate::pieces::plan::Ranking,
     pub options: crate::pieces::keychoices::KeyChoicesOptions,
-}
-
-impl Default for PiecesStep {
-    fn default() -> Self {
-        PiecesStep {
-            plan: false,
-            ranking: Default::default(),
-            options: Default::default(),
-        }
-    }
 }
 
 impl PiecesStep {

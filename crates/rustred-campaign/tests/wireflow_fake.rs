@@ -323,7 +323,10 @@ fn without_the_kernel_a_two_row_form_is_not_served() {
     let rows = statement(&cdir);
     if let Some(r0) = rows.get(&key_text(&keys()[0])) {
         let t = r0.to_string();
-        assert!(!t.contains("same_backend") && !t.contains("kernel_certified"), "{r0:#}");
+        assert!(
+            !t.contains("same_backend") && !t.contains("kernel_certified"),
+            "{r0:#}"
+        );
         if t.contains("rf:symmetry-composite") {
             assert!(t.contains("\"basis\":\"symmetry_relation\""), "{r0:#}");
         }
