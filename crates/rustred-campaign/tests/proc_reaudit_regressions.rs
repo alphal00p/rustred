@@ -58,13 +58,13 @@ fn launcher_with(f: impl FnOnce(&mut RealConfig)) -> RealLauncher {
 
 /// Live (not dead) process with this start time? (A dead main thread with a live thread counts as alive.)
 fn alive(pid: u32, start: u64) -> bool {
-    read_stat(pid).ok().flatten().is_some_and(|s| {
+    read_stat(pid).ok().is_some_and(|s| {
         s.start_ticks == start
             && (!s.is_dead()
-                || rustred_campaign::resources::live_thread(pid)
-                    .ok()
-                    .flatten()
-                    .is_some())
+                || matches!(
+                    rustred_campaign::resources::live_thread(pid),
+                    Ok(rustred_campaign::resources::LiveThread::Found(..))
+                ))
     })
 }
 
@@ -76,7 +76,7 @@ fn read_pid_file(p: &Path) -> u32 {
 }
 
 fn start_of(pid: u32) -> u64 {
-    read_stat(pid).unwrap().unwrap().start_ticks
+    read_stat(pid).unwrap().start_ticks
 }
 
 /// SIGKILL a process of the test's own making (our descendant in our namespace) after checking its start time.
@@ -96,7 +96,7 @@ fn my_zombies() -> Vec<u32> {
     let mut out = Vec::new();
     for e in fs::read_dir("/proc").unwrap().flatten() {
         if let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok())
-            && let Ok(Some(s)) = read_stat(pid)
+            && let Ok(s) = read_stat(pid)
             && s.ppid == me
             && s.state == 'Z'
         {

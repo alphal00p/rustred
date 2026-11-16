@@ -38,7 +38,7 @@ fn path_env() -> std::ffi::OsString {
 }
 
 fn state_of(pid: u32) -> Option<char> {
-    read_stat(pid).ok().flatten().map(|s| s.state)
+    read_stat(pid).ok().map(|s| s.state)
 }
 
 fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
@@ -103,7 +103,7 @@ fn m1_flipping_members_are_never_left_stopped_and_decoys_untouched() {
     );
     let id = "pf6flip.0123456789abcdef";
     let other = "pf6othr.0123456789abcdef:job-t0:a1";
-    let bound = read_stat(std::process::id()).unwrap().unwrap().start_ticks;
+    let bound = read_stat(std::process::id()).unwrap().start_ticks;
     let spawn_flip = |mark: &str| {
         Command::new(&flip)
             .env_clear()
@@ -421,7 +421,6 @@ fn daemons(dir: &Path) -> Vec<(u32, u64)> {
 fn alive_with(pid: u32, start: u64) -> bool {
     read_stat(pid)
         .ok()
-        .flatten()
         .is_some_and(|s| s.start_ticks == start && !s.is_dead())
 }
 

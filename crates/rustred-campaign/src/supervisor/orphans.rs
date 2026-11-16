@@ -37,13 +37,15 @@ pub struct ScanRules {
     pub roots: Vec<PathBuf>,
 }
 
+/// The current boot id; None when it cannot be read (procfix7 B1: unknown is never "another boot").
 fn current_boot_id() -> Option<String> {
+    // procfix8-ok: unknown (Gone or Unreadable) is None, and `other_boot` answers false for it (never "another boot")
     crate::resources::boot_id().ok()
 }
 
 /// The cwd of `pid` relative to the campaign directories, for logs only ("inside" / "outside <cwd>" / "unreadable").
 pub fn cwd_note(pid: u32, roots: &[PathBuf]) -> String {
-    match fs::read_link(format!("/proc/{pid}/cwd")) {
+    match crate::resources::procfs::sys().cwd(pid) {
         Ok(cwd) if roots.iter().any(|r| cwd.starts_with(r)) => {
             "cwd inside the campaign directories".into()
         }
@@ -97,10 +99,11 @@ pub fn canonical_root(p: &Path) -> PathBuf {
     fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-/// Start ticks of this process (the supervisor), the lower bound of everything it launches.
+/// Start ticks of this process (the supervisor), the lower bound of everything it launches. procfix8: an unreadable own
+/// stat gives 0 (the WIDEST bound: every process since boot is a candidate), never a narrower one.
 pub fn own_start_ticks() -> u64 {
-    crate::resources::read_stat(std::process::id())
-        .ok()
-        .flatten()
-        .map_or(0, |s| s.start_ticks)
+    match crate::resources::read_stat(std::process::id()) {
+        Ok(s) => s.start_ticks,
+        Err(_) => 0,
+    }
 }

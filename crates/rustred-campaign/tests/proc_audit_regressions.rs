@@ -67,7 +67,6 @@ fn alive(c: &mut Child) -> bool {
 fn pid_alive(pid: u32, start: u64) -> bool {
     read_stat(pid)
         .ok()
-        .flatten()
         .is_some_and(|s| s.start_ticks == start && !s.is_dead())
 }
 
@@ -288,7 +287,7 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     let mut lead = force_pid(id2.pid, || decoy_session(&script, None));
     lead.wait().unwrap();
     let member = read_pid_file(&pidfile);
-    let mstart = read_stat(member).unwrap().unwrap().start_ticks;
+    let mstart = read_stat(member).unwrap().start_ticks;
     let r = second
         .reattach(
             &id2,
@@ -399,7 +398,7 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
         h.usage().is_some_and(|u| u.groups.contains(&g))
     });
     wait_until("group ended and reaped", LONG, || {
-        read_stat(g).ok().flatten().is_none()
+        read_stat(g).ok().is_none()
     });
     // The handle's last usage still names group g. A decoy now creates a leaderless group g in its own session.
     let mfile = dir.path().join("dm.pid");
@@ -407,12 +406,8 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     let mut dl = force_pid(g, || decoy_session(&dscript, None));
     dl.wait().unwrap();
     let dm = read_pid_file(&mfile);
-    let dstart = read_stat(dm).unwrap().unwrap().start_ticks;
-    assert_eq!(
-        read_stat(dm).unwrap().unwrap().pgrp,
-        g,
-        "decoy member is in group g"
-    );
+    let dstart = read_stat(dm).unwrap().start_ticks;
+    assert_eq!(read_stat(dm).unwrap().pgrp, g, "decoy member is in group g");
     h.terminate(Duration::from_secs(2), KillReason::Stop);
     let r = drive(&mut h);
     assert!(r.verification.is_verified(), "{r:?}");
@@ -787,7 +782,7 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     );
     let mut h = l.launch(&sh(dir.path(), "sub", &script)).unwrap();
     let d = read_pid_file(&f);
-    let st = read_stat(d).unwrap().unwrap();
+    let st = read_stat(d).unwrap();
     assert_eq!(st.ppid, std::process::id(), "re-parented to the subreaper");
     let r = drive(&mut h);
     assert!(r.verification.is_verified(), "{r:?}");
@@ -795,7 +790,6 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     wait_until("daemon reaped (no zombie)", Duration::from_secs(60), || {
         read_stat(d)
             .ok()
-            .flatten()
             .is_none_or(|s| s.start_ticks != st.start_ticks)
     });
 }
@@ -880,9 +874,9 @@ fn a_minor_m2_zombie_non_child_is_not_signalled() {
     let mut h = l.launch(&sh(dir.path(), "m2z", &script)).unwrap();
     let z = read_pid_file(&f);
     wait_until("zombie", Duration::from_secs(30), || {
-        read_stat(z).ok().flatten().is_none_or(|s| s.is_dead())
+        read_stat(z).ok().is_none_or(|s| s.is_dead())
     });
-    if let Some(st) = read_stat(z).unwrap() {
+    if let Ok(st) = read_stat(z) {
         let id = ProcessIdentity {
             pid: z,
             start_ticks: st.start_ticks,
@@ -1017,10 +1011,10 @@ fn b_c3_leaderless_session_with_older_record_is_refused() {
         None,
     );
     let lead_pid = lead.id();
-    let lead_start = read_stat(lead_pid).unwrap().unwrap().start_ticks;
+    let lead_start = read_stat(lead_pid).unwrap().start_ticks;
     lead.wait().unwrap();
     let m = read_pid_file(&f);
-    let mstart = read_stat(m).unwrap().unwrap().start_ticks;
+    let mstart = read_stat(m).unwrap().start_ticks;
     let rec = ProcessIdentity {
         pid: lead_pid,
         start_ticks: lead_start.saturating_sub(100),
@@ -1067,7 +1061,6 @@ fn b_c4_orphans_daemons_and_escapees() {
     wait_until("daemon dead", Duration::from_secs(30), || {
         read_stat(d)
             .ok()
-            .flatten()
             .is_none_or(|s| s.is_dead() || s.comm != "sleep")
     });
     // (c) setsid escapee allocating beyond the cap.
@@ -1098,9 +1091,7 @@ fn b_c4_orphans_daemons_and_escapees() {
     let camp = fs::read_to_string(&cfile).unwrap();
     sup.kill_now(KillReason::Other("test kills the helper supervisor".into()));
     drive(&mut sup);
-    let gstat = read_stat(gc)
-        .unwrap()
-        .expect("grandchild survives its supervisor");
+    let gstat = read_stat(gc).expect("grandchild survives its supervisor");
     let scan = scan_campaign(&camp, 0, &BTreeSet::new()).unwrap();
     let p = scan
         .processes
@@ -1129,10 +1120,7 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
     let tl = read_pid_file(&dir.path().join("tl.pid"));
     let id = ProcessIdentity::capture(tl).unwrap();
     wait_until("main thread exited", LONG, || {
-        read_stat(id.pid)
-            .ok()
-            .flatten()
-            .is_some_and(|s| s.is_dead())
+        read_stat(id.pid).ok().is_some_and(|s| s.is_dead())
     });
     let mut second = launcher();
     let Reattached::Live(mut a) = second.reattach(&id, "tl", ReattachChoice::Adopt).unwrap() else {
@@ -1155,14 +1143,11 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
         "thread leader gone (no live thread)",
         Duration::from_secs(30),
         || {
-            read_stat(tl)
-                .ok()
-                .flatten()
-                .is_none_or(|s| s.start_ticks != tstart)
-                || rustred_campaign::resources::live_thread_stat(tl)
-                    .ok()
-                    .flatten()
-                    .is_none()
+            read_stat(tl).ok().is_none_or(|s| s.start_ticks != tstart)
+                || !matches!(
+                    rustred_campaign::resources::live_thread(tl),
+                    Ok(rustred_campaign::resources::LiveThread::Found(..))
+                )
         },
     );
 }

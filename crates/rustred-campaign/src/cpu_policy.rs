@@ -282,31 +282,28 @@ pub struct HeldAfterRelease {
     pub holders: Vec<u32>,
 }
 
-/// Processes of our uid that have `path` open (a scan of /proc/<pid>/fd; unreadable entries are skipped). Diagnostics
-/// only (a human decides; nothing is signalled).
+/// Processes of our uid that have `path` open (a scan of the descriptor tables; unreadable tables are skipped).
+/// Diagnostics only (a human decides; nothing is signalled, nothing decided). procfix8: through `resources::procfs`.
 pub fn lock_holders(path: &Path) -> Vec<u32> {
     let Ok(target) = fs::canonicalize(path) else {
         return Vec::new();
     };
     let me = std::process::id();
-    let mut out = Vec::new();
-    let Ok(rd) = fs::read_dir("/proc") else {
-        return out;
+    let root = crate::resources::procfs::sys();
+    let pids = match root.pids() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
     };
-    for e in rd.flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
-            continue;
-        };
+    let mut out = Vec::new();
+    for pid in pids {
         if pid == me {
             continue;
         }
-        let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
-            continue;
+        let holds = match root.fd_targets(pid) {
+            Ok(t) => t.contains(&target),
+            Err(_) => false,
         };
-        if fds
-            .flatten()
-            .any(|f| fs::read_link(f.path()).is_ok_and(|l| l == target))
-        {
+        if holds {
             out.push(pid);
         }
     }

@@ -583,6 +583,18 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
     }
     match crate::lock::read_owner(cdir) {
         Ok(Some(o)) => match crate::lock::liveness(&o.identity) {
+            // procfix8: an owner whose liveness cannot be read is not "ok" (the run would refuse the lock)
+            crate::lock::Liveness::Unknown(w) => {
+                pf(
+                    out,
+                    "REFUSE",
+                    &format!(
+                        "the recorded owner pid {} cannot be judged ({w}); check it, then run again",
+                        o.identity.pid
+                    ),
+                );
+                refuse(exit::PF_LOCK, &mut code);
+            }
             crate::lock::Liveness::Alive => {
                 pf(
                     out,

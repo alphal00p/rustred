@@ -97,8 +97,8 @@ fn mj_a_parent_chains_of_real_processes() {
         targets: Default::default(),
         earliest: sup_start,
     };
-    let root = Path::new("/proc");
-    let c = |pid: u32, r: &LineageRules| classify_hidden_at(root, pid, start_ticks(pid), r);
+    let root = rustred_campaign::resources::procfs::sys();
+    let c = |pid: u32, r: &LineageRules| classify_hidden_at(&root, pid, start_ticks(pid), r);
     assert!(
         matches!(c(oc, &live_only), Hidden::NotOurs(_)),
         "{:?}",
@@ -108,10 +108,7 @@ fn mj_a_parent_chains_of_real_processes() {
     // The orphan's real parent is pid 1 (the namespace init, older than the session, no target): not ours under the
     // live-only rule, possibly ours once pid 1 is a recorded ancestor of an earlier (dead) session.
     assert_eq!(
-        rustred_campaign::resources::read_stat(orphan)
-            .unwrap()
-            .unwrap()
-            .ppid,
+        rustred_campaign::resources::read_stat(orphan).unwrap().ppid,
         1
     );
     assert!(matches!(c(orphan, &live_only), Hidden::NotOurs(_)));

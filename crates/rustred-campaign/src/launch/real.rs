@@ -37,8 +37,8 @@ use super::{
 use crate::cpu_policy::CpuLease;
 use crate::resources::{
     CampaignMarker, InvalidMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, MemKind,
-    ProcStat, ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, read_bounded,
-    request_reap, run_bounded, scan_campaign, ticks_per_second,
+    ProcStat, ProcessIdentity, Sampler, SessionUsage, Snapshot, ValidPid, boot_id, request_reap,
+    run_bounded, scan_campaign, ticks_per_second,
 };
 use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
@@ -118,19 +118,19 @@ impl Default for RealConfig {
 /// inode separates processes that are pid 1 of different namespaces), the same for every launcher of the process.
 pub fn adhoc_campaign_id() -> String {
     let me = std::process::id();
-    let start = crate::resources::read_stat(me)
-        .ok()
-        .flatten()
-        .map_or(0, |s| s.start_ticks);
-    let ns = fs::read_link("/proc/self/ns/pid")
-        .ok()
-        .and_then(|l| {
-            l.to_str()
-                .and_then(|s| s.strip_prefix("pid:["))
-                .and_then(|s| s.strip_suffix(']'))
-                .map(str::to_string)
-        })
-        .unwrap_or_else(|| "0".into());
+    // An identifier, never a proof: an unreadable part is written as 0 (procfix8: explicit, not a default of a read).
+    let start = match crate::resources::read_stat(me) {
+        Ok(s) => s.start_ticks,
+        Err(_) => 0,
+    };
+    let ns = match crate::resources::procfs::sys().self_ns_link("pid") {
+        Ok(l) => l
+            .strip_prefix("pid:[")
+            .and_then(|s| s.strip_suffix(']'))
+            .unwrap_or("0")
+            .to_string(),
+        Err(_) => "0".into(),
+    };
     format!("adhoc-{ns}-{me}-{start}")
 }
 
@@ -265,7 +265,8 @@ pub fn in_private_namespace() -> bool {
     if unsafe { libc::getpid() } == 1 {
         return true;
     }
-    match fs::read_to_string("/proc/self/uid_map") {
+    // procfix8: an unreadable uid map counts as a namespace (the conservative answer: no systemd scope)
+    match crate::resources::procfs::sys().self_uid_map() {
         Ok(m) => {
             let f: Vec<&str> = m.split_whitespace().collect();
             f != ["0", "0", "4294967295"]
@@ -736,25 +737,14 @@ pub fn peek_exit(pid: u32) -> io::Result<Option<ExitState>> {
 /// every such fd close-on-exec in the child anyway; this lists what the supervisor inherited from its own parent.
 pub fn audit_inheritable_fds() -> io::Result<Vec<(RawFd, String)>> {
     let mut out = Vec::new();
-    for entry in fs::read_dir("/proc/self/fd")? {
-        let entry = entry?;
-        let Some(fd) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<RawFd>().ok())
-        else {
-            continue;
-        };
+    for (fd, target) in crate::resources::procfs::sys().self_fds()? {
         if fd < 3 {
             continue;
         }
         // SAFETY: fcntl F_GETFD on an integer; EBADF if it was the directory fd of this very listing, now closed.
         let fl = unsafe { libc::fcntl(fd, libc::F_GETFD) };
         if fl >= 0 && fl & libc::FD_CLOEXEC == 0 {
-            let target = fs::read_link(entry.path())
-                .map(|p| p.display().to_string())
-                .unwrap_or_default();
-            out.push((fd, target));
+            out.push((fd, target.display().to_string()));
         }
     }
     Ok(out)
@@ -887,7 +877,7 @@ impl ChildLauncher for RealLauncher {
         };
         let mut cmd = match &barrier {
             Some((r, _)) => {
-                let mut c = Command::new("/proc/self/exe");
+                let mut c = Command::new(crate::resources::procfs::SELF_EXE);
                 let hash = token
                     .as_ref()
                     .map(|t| blake3::hash(t).to_hex().to_string())
@@ -1665,11 +1655,10 @@ impl RealChild {
             return None;
         }
         if self.scope_dir.is_none() {
-            let path = PathBuf::from(format!("/proc/{}/cgroup", self.sid));
-            if let crate::resources::ReadOutcome::Data(b) =
-                read_bounded(&path, Duration::from_millis(200))
+            // procfix8: an unreadable cgroup file leaves the scope unknown for now (read again at the next sample)
+            if let Ok(text) =
+                crate::resources::procfs::sys().cgroup_text(self.sid, Duration::from_millis(200))
             {
-                let text = String::from_utf8_lossy(&b);
                 // The belt needs the strict form (this leader's own transient scope, our user manager, dev/inode).
                 if self.scope.is_none() {
                     self.scope = ScopeRef::from_leader_cgroup(

@@ -1182,6 +1182,8 @@ impl Supervisor {
                 .collect(),
             campaign_key: key,
         };
+        // procfix7 (gate7 B1): an unreadable boot id is the empty string here; `read_recovery_facts` then finds no session
+        // procfix8-ok: of this boot and stops typed before deciding anything
         let boot_id = crate::resources::boot_id().unwrap_or_default();
         let started_utc = clock.now_utc().to_iso();
         let dir_ids = dir_id(&cdir).zip(dir_id(&crate::ledger::ledger_dir(&cdir)));
@@ -1463,7 +1465,9 @@ impl Supervisor {
         let mut min_ticks = min_ticks;
         {
             // an unreadable current time namespace against a recorded one counts as different (more conservative)
-            let now = crate::resources::lineage::own_time_ns();
+            // (Gone: no time namespaces on this kernel; Unreadable: unknown; both compare as "none recorded now")
+            // procfix8-ok: an unknown current one against a recorded one counts as different (the filter below)
+            let now: Option<u64> = crate::resources::lineage::own_time_ns().ok();
             let other: Vec<String> = lineages
                 .iter()
                 .filter(|l| l.boot_id == self.boot_id && l.time_ns.is_some() && l.time_ns != now)
@@ -4543,7 +4547,7 @@ impl Supervisor {
                 }
                 (pids, parts.join("; "))
             }
-            Err(e) => (Vec::new(), format!("/proc scan failed: {e}")),
+            Err(e) => (Vec::new(), format!("proc scan failed: {e}")),
         }
     }
 

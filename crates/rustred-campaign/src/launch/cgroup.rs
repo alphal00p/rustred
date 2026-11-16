@@ -80,7 +80,7 @@ impl CgroupRoot {
     /// launch), move it into `<own>/supervisor`, enable `+memory` for children, and return `<own>` as the root.
     /// Refuses (Err with the reason) in every other case; it never moves a process other than this one.
     pub fn prepare_in_own_scope() -> Result<Self, String> {
-        let own = crate::resources::own_cgroup_dir().ok_or("no cgroup-v2 membership")?;
+        let own = crate::resources::own_cgroup_dir()?;
         // SAFETY: getuid has no arguments and cannot fail.
         let uid = unsafe { libc::getuid() };
         let meta = fs::metadata(&own).map_err(|e| format!("{}: {e}", own.display()))?;
@@ -256,7 +256,7 @@ impl CgroupRoot {
     /// (the leaf proves membership and kills race-free; memory caps stay with the chosen cap mechanism). Refuses in every
     /// other case, e.g. in a zellij shell (root-owned session scope).
     pub fn probe_tracking() -> Result<Self, String> {
-        let own = crate::resources::own_cgroup_dir().ok_or("no cgroup-v2 membership")?;
+        let own = crate::resources::own_cgroup_dir()?;
         let mut candidates = vec![own.clone()];
         if own.file_name().is_some_and(|n| n == "supervisor")
             && let Some(p) = own.parent()
@@ -496,8 +496,8 @@ impl ScopeRef {
                 continue;
             }
             match crate::resources::read_stat(pid) {
-                Ok(Some(st)) if !st.is_dead() => out.push(pid),
-                Ok(_) => {}
+                Ok(st) if !st.is_dead() => out.push(pid),
+                Ok(_) | Err(crate::resources::ProcError::Gone) => {}
                 Err(e) => return Err(format!("stat of scope member {pid}: {e}")),
             }
         }

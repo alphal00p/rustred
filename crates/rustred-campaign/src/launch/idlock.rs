@@ -180,6 +180,7 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
         file,
         "{} {}",
         std::process::id(),
+        // procfix8-ok: diagnostic content of the lock file (the flock is the lock; nothing is decided by it)
         crate::resources::boot_id().unwrap_or_default()
     );
     let l = Arc::new(IdLock {

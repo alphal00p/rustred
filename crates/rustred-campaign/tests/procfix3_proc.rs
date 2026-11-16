@@ -57,7 +57,7 @@ fn marker_of(pid: u32) -> Option<String> {
 }
 
 fn live(pid: u32) -> bool {
-    read_stat(pid).ok().flatten().is_some_and(|s| !s.is_dead())
+    read_stat(pid).ok().is_some_and(|s| !s.is_dead())
 }
 
 fn kill_own(pid: u32) {
@@ -256,9 +256,8 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     std::thread::sleep(Duration::from_millis(50));
     let bound = read_stat(std::process::id())
         .unwrap()
-        .unwrap()
         .start_ticks
-        .max(read_stat(old.id()).unwrap().unwrap().start_ticks + 1);
+        .max(read_stat(old.id()).unwrap().start_ticks + 1);
     std::thread::sleep(Duration::from_millis(30));
     let mut decoys = vec![
         spawn(&[], "exec sleep 600"),

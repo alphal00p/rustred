@@ -212,7 +212,7 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
     // hard kill of the supervisor (its child lives on)
     kill(helper.id(), libc::SIGKILL);
     helper.wait().unwrap();
-    assert!(lock::start_ticks(child_pid).is_some(), "child still alive");
+    assert!(lock::start_ticks(child_pid).is_ok(), "child still alive");
     let (lk, out) =
         lock::acquire(&d, &clk, &["successor".into()]).expect("takeover despite the live child");
     let LockOutcome::TookOver {
@@ -246,7 +246,7 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
     drop(lk);
     kill(child_pid, libc::SIGKILL);
     for _ in 0..100 {
-        if lock::start_ticks(child_pid).is_none()
+        if lock::start_ticks(child_pid).is_err()
             || std::fs::read_to_string(format!("/proc/{child_pid}/stat"))
                 .is_ok_and(|s| s.contains(") Z "))
         {

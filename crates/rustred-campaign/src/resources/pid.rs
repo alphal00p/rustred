@@ -18,15 +18,14 @@ use std::sync::OnceLock;
 /// PID_MAX_LIMIT on 64-bit Linux: the largest value pid_max can be set to.
 pub const PID_MAX_LIMIT: u32 = 4_194_304;
 
-/// `/proc/sys/kernel/pid_max`, read once (PID_MAX_LIMIT when unreadable or out of range).
+/// `/proc/sys/kernel/pid_max`, read once (PID_MAX_LIMIT when unreadable or out of range). procfix8: an unreadable value
+/// widens the VALIDITY range of a recorded pid to the kernel's hard limit (every pid up to it can exist); it never
+/// authorises a signal (every signal path verifies the identity read now).
 pub fn pid_max() -> u32 {
     static MAX: OnceLock<u32> = OnceLock::new();
-    *MAX.get_or_init(|| {
-        std::fs::read_to_string("/proc/sys/kernel/pid_max")
-            .ok()
-            .and_then(|s| s.trim().parse::<u32>().ok())
-            .filter(|&m| (2..=PID_MAX_LIMIT).contains(&m))
-            .unwrap_or(PID_MAX_LIMIT)
+    *MAX.get_or_init(|| match super::procfs::sys().pid_max() {
+        Ok(m) if (2..=PID_MAX_LIMIT).contains(&m) => m,
+        Ok(_) | Err(_) => PID_MAX_LIMIT,
     })
 }
 

@@ -46,6 +46,7 @@
 use super::cgroup::ScopeRef;
 use super::guard::{self, ProcessTarget, Proof, StartRule, Verdict};
 use super::{Enumeration, LeftoverRecord, UnattributedChild, VerifiedBy};
+use crate::resources::procfs::{self, ProcError};
 use crate::resources::{
     CampaignMarker, FactRead, Leaders, MarkerFact, ProcFacts, children_of, our_uid, own_children,
     own_children_by_scan, read_proc_facts, request_reap, scan_marked_inline,
@@ -178,6 +179,13 @@ struct Hunt<'a> {
     unattributed: BTreeMap<(u32, u64), UnattributedChild>,
     killed: Vec<LeftoverRecord>,
     cgroup_ok: bool,
+    /// procfix8 (gate8, item 4): every candidate of this hunt invocation that was ours or inconclusive (pid -> start
+    /// held, 0 when unknown). A proof pass classifies directly every suspect its enumeration did not reach; one leaves
+    /// only by a complete read (its process gone by pidfd / ENOENT / ESRCH or another start time, or conclusively not
+    /// J's), so a pass whose enumeration misses one cannot prove the end.
+    suspects: BTreeMap<u32, u64>,
+    /// The pids classified in the current proof pass.
+    classified_now: BTreeSet<u32>,
 }
 
 impl Hunt<'_> {
@@ -211,6 +219,63 @@ impl Hunt<'_> {
     /// Classify one candidate. `parent`: the process whose children list named it (None: a full listing). The pidfd is
     /// opened FIRST; the facts are valid only if the pidfd still reports the process alive after the reads.
     fn classify(&mut self, pid: u32, parent: Option<u32>) -> (Class, Option<OwnedFd>) {
+        let (class, fd) = self.classify_inner(pid, parent);
+        self.classified_now.insert(pid);
+        match &class {
+            Class::Ours(_, f) => {
+                self.suspects.insert(pid, f.stat.start_ticks);
+            }
+            Class::Inconclusive(_) => {
+                self.suspects.entry(pid).or_insert(0);
+            }
+            Class::NotOurs { .. } | Class::Dead => {}
+        }
+        (class, fd)
+    }
+
+    /// procfix8 (item 4): the suspects of this hunt that the current pass did not classify: Ok(survivors) or Err
+    /// (inconclusive).
+    fn recheck_suspects(&mut self, survivors: &mut Vec<LeftoverRecord>) -> Result<(), String> {
+        let pending: Vec<(u32, u64)> = self
+            .suspects
+            .iter()
+            .filter(|(p, _)| !self.classified_now.contains(p))
+            .map(|(p, s)| (*p, *s))
+            .collect();
+        for (pid, start) in pending {
+            if self.registered(pid) || pid == self.s.sid {
+                self.suspects.remove(&pid);
+                continue;
+            }
+            match crate::resources::read_stat(pid) {
+                Err(ProcError::Gone) => {
+                    self.suspects.remove(&pid);
+                    continue;
+                }
+                Err(ProcError::Unreadable(w)) => {
+                    return Err(format!("suspect {pid} of this hunt: stat unreadable: {w}"));
+                }
+                Ok(st) if start != 0 && st.start_ticks != start => {
+                    // the pid names a newer process: the suspect is dead
+                    self.suspects.remove(&pid);
+                    continue;
+                }
+                Ok(_) => {}
+            }
+            match self.classify(pid, None).0 {
+                Class::Ours(_, f) => survivors.push(record(&f)),
+                Class::Inconclusive(e) => {
+                    return Err(format!("suspect {pid} of this hunt: {e}"));
+                }
+                Class::NotOurs { .. } | Class::Dead => {
+                    self.suspects.remove(&pid);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn classify_inner(&mut self, pid: u32, parent: Option<u32>) -> (Class, Option<OwnedFd>) {
         let me = me();
         let not_ours = |descend: bool, facts: Option<ProcFacts>| Class::NotOurs {
             unattributed: false,
@@ -327,7 +392,7 @@ impl Hunt<'_> {
                 // when its verified parent chain proves it outside every session of the campaign (resources::lineage);
                 // otherwise (e.g. below this supervisor) the pass stays inconclusive. Never signalled either way.
                 match crate::resources::lineage::classify_unreadable(
-                    std::path::Path::new("/proc"),
+                    &procfs::sys(),
                     &facts.stat,
                     &self.s.marker.campaign_id,
                 ) {
@@ -415,11 +480,11 @@ impl Hunt<'_> {
                 continue;
             }
             match crate::resources::read_stat(pid) {
-                Ok(Some(st)) => {
+                Ok(st) => {
                     out.insert(pid, st.start_ticks);
                 }
-                Ok(None) => {}
-                Err(e) => return Err(format!("stat of child {pid}: {e}")),
+                Err(ProcError::Gone) => {}
+                Err(ProcError::Unreadable(e)) => return Err(format!("stat of child {pid}: {e}")),
             }
         }
         Ok(out)
@@ -495,7 +560,7 @@ impl Hunt<'_> {
                             .filter(|st| st.start_ticks >= self.s.launch_ticks)
                             .map(|st| (st.pid, None)),
                     ),
-                    Err(e) => inconclusive = Some(format!("/proc listing: {e}")),
+                    Err(e) => inconclusive = Some(format!("proc listing: {e}")),
                 },
             }
             // The belt (procfix3): every live process of our uid carrying J's exact marker, wherever it is.
@@ -513,9 +578,9 @@ impl Hunt<'_> {
             let member_pids: Vec<u32> = known.keys().copied().collect();
             for m in member_pids {
                 match children_of(m) {
-                    Ok(Some(k)) => queue.extend(k.into_iter().map(|p| (p, Some(m)))),
-                    Ok(None) => {}
-                    Err(e) => inconclusive = Some(e),
+                    Ok(k) => queue.extend(k.into_iter().map(|p| (p, Some(m)))),
+                    Err(ProcError::Gone) => {}
+                    Err(e) => inconclusive = Some(format!("children of member {m}: {e}")),
                 }
             }
             let mut seen: BTreeSet<u32> = BTreeSet::new();
@@ -550,11 +615,14 @@ impl Hunt<'_> {
                                 changed = true;
                                 if self.s.enumeration == Enumeration::SubreaperTree {
                                     match children_of(pid) {
-                                        Ok(Some(k)) => {
+                                        Ok(k) => {
                                             queue.extend(k.into_iter().map(|c| (c, Some(pid))))
                                         }
-                                        Ok(None) => {}
-                                        Err(e) => inconclusive = Some(e),
+                                        Err(ProcError::Gone) => {}
+                                        Err(e) => {
+                                            inconclusive =
+                                                Some(format!("children of member {pid}: {e}"))
+                                        }
                                     }
                                 }
                                 known.insert(
@@ -596,9 +664,9 @@ impl Hunt<'_> {
                         // gate-A M-1: a marker-less process of the job does not shield its descendants.
                         if descend && self.s.enumeration == Enumeration::SubreaperTree {
                             match children_of(pid) {
-                                Ok(Some(k)) => queue.extend(k.into_iter().map(|c| (c, Some(pid)))),
-                                Ok(None) => {}
-                                Err(e) => inconclusive = Some(e),
+                                Ok(k) => queue.extend(k.into_iter().map(|c| (c, Some(pid)))),
+                                Err(ProcError::Gone) => {}
+                                Err(e) => inconclusive = Some(format!("children of {pid}: {e}")),
                             }
                         }
                     }
@@ -742,13 +810,21 @@ impl Hunt<'_> {
             && !live.is_empty()
         {
             for pid in &live {
-                if let Ok(Some(st)) = crate::resources::read_stat(*pid) {
-                    self.killed.push(LeftoverRecord {
+                // a record of what the scope kill takes (diagnostics); an unreadable stat is recorded without details
+                match crate::resources::read_stat(*pid) {
+                    Ok(st) => self.killed.push(LeftoverRecord {
                         pid: *pid,
                         start_ticks: st.start_ticks,
                         pgrp: st.pgrp,
                         comm: format!("{} <killed through the job's systemd scope>", st.comm),
-                    });
+                    }),
+                    Err(ProcError::Gone) => {}
+                    Err(ProcError::Unreadable(_)) => self.killed.push(LeftoverRecord {
+                        pid: *pid,
+                        start_ticks: 0,
+                        pgrp: 0,
+                        comm: "<stat unreadable, killed through the job's systemd scope>".into(),
+                    }),
                 }
             }
             let r = scope.kill_members();
@@ -764,6 +840,7 @@ impl Hunt<'_> {
     fn pass(&mut self) -> Result<Vec<LeftoverRecord>, String> {
         let me = me();
         let mut survivors = Vec::new();
+        self.classified_now.clear();
         if self.s.pinned && !self.leader_pinned() {
             return Err("the leader is no longer held unreaped".into());
         }
@@ -776,11 +853,13 @@ impl Hunt<'_> {
                         // procfix7 (gate7 B1, the class): a child whose stat cannot be read makes the pass
                         // inconclusive (it was skipped before)
                         match crate::resources::read_stat(pid) {
-                            Ok(Some(st)) => {
+                            Ok(st) => {
                                 t0.insert(pid, st.start_ticks);
                             }
-                            Ok(None) => {}
-                            Err(e) => return Err(format!("stat of child {pid}: {e}")),
+                            Err(ProcError::Gone) => {}
+                            Err(ProcError::Unreadable(e)) => {
+                                return Err(format!("stat of child {pid}: {e}"));
+                            }
                         }
                     }
                 }
@@ -828,9 +907,9 @@ impl Hunt<'_> {
             }
             Enumeration::FullProc => {
                 let (all, vanished) =
-                    strict_listing_counted().map_err(|e| format!("/proc listing: {e}"))?;
+                    strict_listing_counted().map_err(|e| format!("proc listing: {e}"))?;
                 if vanished > 0 {
-                    return Err(format!("{vanished} /proc entries vanished during the pass"));
+                    return Err(format!("{vanished} proc entries vanished during the pass"));
                 }
                 for st in all {
                     if st.start_ticks < self.s.launch_ticks || st.pid == me || st.pid <= 1 {
@@ -844,6 +923,8 @@ impl Hunt<'_> {
                 }
             }
         }
+        // procfix8 (item 4): the suspects of this hunt the enumeration above did not reach
+        self.recheck_suspects(&mut survivors)?;
         // Belt 1 (procfix3): any live process of our uid with J's EXACT marker is a survivor, wherever it is. Only adds
         // survivors (an unreadable environ elsewhere on the host does not make the pass inconclusive: the strict tree
         // enumeration above is the proof; this belt catches what a tree walk cannot see).
@@ -919,8 +1000,10 @@ impl Hunt<'_> {
             if visited.len() > 65_536 {
                 return Err("more than 65,536 processes below marker-less job processes".into());
             }
-            let Some(kids) = children_of(n)? else {
-                continue;
+            let kids = match children_of(n) {
+                Ok(k) => k,
+                Err(ProcError::Gone) => continue,
+                Err(e) => return Err(format!("children of {n}: {e}")),
             };
             for c in kids {
                 match self.classify(c, Some(n)).0 {
@@ -979,6 +1062,8 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         unattributed: BTreeMap::new(),
         killed: Vec::new(),
         cgroup_ok: spec.cgroup.is_some(),
+        suspects: BTreeMap::new(),
+        classified_now: BTreeSet::new(),
     };
     if !spec.kill {
         return match h.two_passes() {

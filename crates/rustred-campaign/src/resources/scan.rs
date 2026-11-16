@@ -27,12 +27,11 @@
 use super::marked::{
     CampaignMarker, ENVIRON_READ_TIMEOUT, MarkedProcess, MarkerRead, read_marker_at,
 };
-use super::{MemInfo, ProcStat, host_memory, live_thread_stat, read_stat};
+use super::procfs::{self, ProcError, ProcResult};
+use super::{LiveThread, MemInfo, ProcStat, host_memory, live_thread};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 use std::io;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -399,7 +398,7 @@ fn run(shared: Arc<Shared>) {
         };
         for m in marked.iter_mut() {
             if !sids.contains(&m.session)
-                && let Some(r) = statm_rss(m.pid)
+                && let Ok(r) = statm_rss(m.pid)
             {
                 m.rss_bytes = r;
             }
@@ -470,30 +469,23 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
             .map(|n| n.get())
             .unwrap_or(1),
     );
-    let Ok(dir) = fs::read_dir("/proc") else {
-        return RawScan {
-            all,
-            foreign_pinned: pinned,
-            read_errors: 1,
-        };
+    // procfix8: every read through [`procfs`]; a failed read is COUNTED (sampler health), never a vanished process.
+    let root = procfs::sys();
+    let pids = match root.pids() {
+        Ok(p) => p,
+        Err(_) => {
+            return RawScan {
+                all,
+                foreign_pinned: pinned,
+                read_errors: 1,
+            };
+        }
     };
-    // Streamed: each process is read close to the moment it is listed.
-    for entry in dir {
-        let Ok(entry) = entry else {
-            read_errors += 1;
-            continue;
-        };
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let st = match read_stat(pid) {
-            Ok(Some(st)) => st,
-            Ok(None) => continue,
-            Err(_) => {
+    for pid in pids {
+        let st = match root.stat(pid) {
+            Ok(st) => st,
+            Err(ProcError::Gone) => continue,
+            Err(ProcError::Unreadable(_)) => {
                 read_errors += 1;
                 continue;
             }
@@ -501,9 +493,13 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         let st = if st.is_dead() {
             // A dead main thread with live threads still holds memory and still runs (audit B M1: also for adopted
             // jobs, which are not tracked by session). Zombies are few: the task listing is cheap.
-            match live_thread_stat(pid) {
-                Ok(Some(t)) => ProcStat { pid, ..t },
-                _ => st,
+            match live_thread(pid) {
+                Ok(LiveThread::Found(_, t)) => ProcStat { pid, ..t },
+                Ok(LiveThread::NoneAlive) | Err(ProcError::Gone) => st,
+                Err(ProcError::Unreadable(_)) => {
+                    read_errors += 1;
+                    st
+                }
             }
         } else {
             st
@@ -511,9 +507,12 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         if let Some(p) = pinned.as_mut()
             && !tracked.contains(&st.session)
             && pid != std::process::id()
-            && let Some(set) = restricted_affinity(pid, ncpu)
         {
-            p.extend(set);
+            match restricted_affinity(pid, ncpu) {
+                Ok(Some(set)) => p.extend(set),
+                Ok(None) | Err(ProcError::Gone) => {}
+                Err(ProcError::Unreadable(_)) => read_errors += 1,
+            }
         }
         all.push(st);
     }
@@ -528,21 +527,17 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
 /// APPROXIMATE per-CPU counter (`percpu_counter_read`): on this 384-CPU host it lags by up to ~2 x 384 pages per CPU and
 /// reads 0 for a small fresh process [computed 2026-11-14: stat 775 pages vs statm / status / smaps 1121 pages]; statm
 /// and status use the summed counter. Same in a pid namespace and on the host.
-fn statm_rss(pid: u32) -> Option<u64> {
-    let t = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
-    t.split_whitespace()
-        .nth(1)?
-        .parse::<u64>()
-        .ok()?
-        .checked_mul(super::page_size())
+fn statm_rss(pid: u32) -> ProcResult<u64> {
+    procfs::sys().statm_rss(pid)
 }
 
 /// Replace the approximate stat RSS of every live member of a tracked session by the exact statm value.
 fn refine_rss(raw: &mut RawScan, sids: &BTreeSet<u32>) {
     for p in raw.all.iter_mut() {
+        // an unreadable statm keeps the stat's approximate value (never zero)
         if sids.contains(&p.session)
             && !p.is_dead()
-            && let Some(r) = statm_rss(p.pid)
+            && let Ok(r) = statm_rss(p.pid)
         {
             p.rss_bytes = r;
         }
@@ -550,14 +545,13 @@ fn refine_rss(raw: &mut RawScan, sids: &BTreeSet<u32>) {
 }
 
 /// Affinity of a non-root process if it is restricted (fewer CPUs than the machine has), as pick.py `pinned()`.
-fn restricted_affinity(pid: u32, ncpu: usize) -> Option<BTreeSet<usize>> {
-    use std::os::unix::fs::MetadataExt;
-    let meta = fs::metadata(format!("/proc/{pid}")).ok()?;
-    if meta.uid() == 0 {
-        return None;
+/// Ok(None): root's, or not restricted.
+fn restricted_affinity(pid: u32, ncpu: usize) -> ProcResult<Option<BTreeSet<usize>>> {
+    if procfs::sys().owner_uid(pid)? == 0 {
+        return Ok(None);
     }
-    let set = super::affinity_of(pid).ok()??;
-    (set.len() < ncpu).then_some(set)
+    let set = super::affinity_of(pid)?;
+    Ok((set.len() < ncpu).then_some(set))
 }
 
 fn fold(raw: &RawScan, tracked: &mut BTreeMap<u32, Track>) -> BTreeMap<u32, SessionUsage> {
@@ -648,7 +642,7 @@ fn marked_of(
 ) -> (Vec<MarkedProcess>, usize) {
     let uid = super::our_uid();
     let me = std::process::id();
-    let root = Path::new("/proc");
+    let root = procfs::sys();
     let present: BTreeSet<(u32, u64)> = raw.all.iter().map(|p| (p.pid, p.start_ticks)).collect();
     cache.retain(|k, _| present.contains(k));
     let mut out = Vec::new();
@@ -665,24 +659,35 @@ fn marked_of(
             None => Some(0),
         };
         if let Some(n) = retry {
-            if p.is_dead() || super::owner_uid_at(root, p.pid) != Some(uid) {
-                // Not ours, or a zombie (no environ): remember as unmarked.
-                if !p.is_dead() {
-                    cache.insert(key, CachedMarker::NoMarker);
-                }
+            if p.is_dead() {
+                // a zombie (no environ): nothing to read now
                 continue;
             }
-            let mut r = read_marker_at(root, p.pid, None, ENVIRON_READ_TIMEOUT);
-            if r == MarkerRead::Unreadable
-                && let Ok(Some((tid, _))) = super::live_thread(p.pid)
+            // procfix8: an unreadable owner is UNREADABLE (counted, retried), never "not ours"
+            match super::owner_uid_at(&root, p.pid) {
+                Ok(u) if u == uid => {}
+                Ok(_) => {
+                    cache.insert(key, CachedMarker::NoMarker);
+                    continue;
+                }
+                Err(ProcError::Gone) => continue,
+                Err(ProcError::Unreadable(_)) => {
+                    cache.insert(key, CachedMarker::Unreadable(n + 1));
+                    unreadable += 1;
+                    continue;
+                }
+            }
+            let mut r = read_marker_at(&root, p.pid, None, ENVIRON_READ_TIMEOUT);
+            if matches!(r, MarkerRead::Unreadable(_))
+                && let Ok(LiveThread::Found(tid, _)) = super::live_thread(p.pid)
             {
                 // Main thread exited, a thread lives: its environ (same mm) is readable through the task entry.
-                r = read_marker_at(root, p.pid, Some(tid), ENVIRON_READ_TIMEOUT);
+                r = read_marker_at(&root, p.pid, Some(tid), ENVIRON_READ_TIMEOUT);
             }
             let v = match r {
                 MarkerRead::Marker(v) => CachedMarker::Value(v),
                 MarkerRead::NoMarker | MarkerRead::Gone => CachedMarker::NoMarker,
-                MarkerRead::Unreadable => CachedMarker::Unreadable(n + 1),
+                MarkerRead::Unreadable(_) => CachedMarker::Unreadable(n + 1),
             };
             cache.insert(key, v);
         }
@@ -703,17 +708,8 @@ fn marked_of(
 }
 
 /// `Pss` (bytes) of one process from smaps_rollup, bounded.
-fn pss_of(pid: u32) -> Option<u64> {
-    let path = Path::new("/proc").join(format!("{pid}/smaps_rollup"));
-    let super::ReadOutcome::Data(b) = super::read_bounded(&path, Duration::from_secs(1)) else {
-        return None;
-    };
-    String::from_utf8_lossy(&b).lines().find_map(|l| {
-        l.strip_prefix("Pss:")
-            .and_then(|r| r.split_whitespace().next())
-            .and_then(|kb| kb.parse::<u64>().ok())
-            .and_then(|kb| kb.checked_mul(1024))
-    })
+fn pss_of(pid: u32) -> ProcResult<u64> {
+    procfs::sys().smaps_pss(pid, Duration::from_secs(1))
 }
 
 /// Per tracked session: sum of Pss over its live members, None when any member's Pss could not be read.
@@ -725,8 +721,9 @@ fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u
         .filter(|p| sids.contains(&p.session) && !p.is_dead())
     {
         let e = out.entry(p.session).or_insert(Some(0));
+        // any member whose Pss cannot be read makes the session's Pss unknown (None), never smaller
         *e = match (*e, pss_of(p.pid)) {
-            (Some(a), Some(b)) => Some(a.saturating_add(b)),
+            (Some(a), Ok(b)) => Some(a.saturating_add(b)),
             _ => None,
         };
     }
@@ -864,10 +861,7 @@ mod tests {
         assert!(u.rss_bytes > 0, "{u:?}");
         assert!(u.pss_bytes.unwrap_or(0) > 0, "{u:?}");
         let exact = statm_rss(cpid).unwrap();
-        let approx = crate::resources::read_stat(cpid)
-            .unwrap()
-            .unwrap()
-            .rss_bytes;
+        let approx = crate::resources::read_stat(cpid).unwrap().rss_bytes;
         println!("sampler RSS {} (statm {exact}, stat {approx})", u.rss_bytes);
         s.untrack(sid);
         child.kill().unwrap();

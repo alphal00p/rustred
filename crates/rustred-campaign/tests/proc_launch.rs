@@ -172,11 +172,7 @@ fn cpu_pinning_is_effective() {
     let mut h = l.launch(&spec).unwrap();
     let sid = h.identity().pid;
     assert_eq!(
-        affinity_of(sid)
-            .unwrap()
-            .unwrap()
-            .into_iter()
-            .collect::<Vec<_>>(),
+        affinity_of(sid).unwrap().into_iter().collect::<Vec<_>>(),
         vec![cpu]
     );
     // The forked grandchild inherits the pinning.
@@ -189,7 +185,7 @@ fn cpu_pinning_is_effective() {
     });
     let snap = s.latest().unwrap();
     for m in &snap.session(sid).unwrap().members {
-        if let Some(a) = affinity_of(m.pid).unwrap() {
+        if let Ok(a) = affinity_of(m.pid) {
             assert_eq!(
                 a.into_iter().collect::<Vec<_>>(),
                 vec![cpu],

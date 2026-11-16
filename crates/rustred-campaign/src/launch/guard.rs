@@ -45,9 +45,10 @@
 //! audit A M4, also checked). Group numbers of OTHER groups (from a scan) are never signalled as groups (audit A M1):
 //! their members are signalled one by one through the checklist.
 
+use crate::resources::procfs::{self, ProcError, ProcRoot};
 use crate::resources::{
-    CampaignMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, ProcessIdentity, ValidPid,
-    boot_id, marker_in_environ, our_uid, page_size, parse_stat, run_bounded,
+    CampaignMarker, InvalidPid, Leaders, LiveThread, MARKER_VAR, MarkedProcess, ProcessIdentity,
+    ValidPid, boot_id, live_thread_at, marker_in_environ, our_uid, run_bounded,
 };
 use serde::Serialize;
 use std::io;
@@ -1266,7 +1267,8 @@ struct Facts {
     zombie_without_threads: bool,
     start_ticks: u64,
     session: u32,
-    uid: Option<u32>,
+    /// The owner of `/proc/<pid>` (effective uid), read completely (procfix8: an unreadable owner fails the read).
+    uid: u32,
     /// None: not read (not needed) ; Some(None): no marker ; Some(Some(v)): value.
     marker: Option<Result<Option<String>, String>>,
 }
@@ -1277,38 +1279,40 @@ enum Read {
     Failed(String),
 }
 
-/// Steps 4-7 reads (blocking; run on a helper thread). `root` is "/proc" in production (a seam for tests).
-fn read_facts(root: &Path, pid: u32, want_marker: bool) -> Read {
-    let stat_path = root.join(format!("{pid}/stat"));
-    let st = match std::fs::read(&stat_path) {
-        Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
-            Some(s) => s,
-            None => return Read::Failed("unparsable stat".into()),
-        },
-        Err(e) if matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH)) => {
-            return Read::Gone;
-        }
-        Err(e) => return Read::Failed(format!("stat: {e}")),
+/// Bound of the environ read of the checklist (it takes the target's mmap lock).
+const GUARD_ENVIRON_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Steps 4-7 reads (blocking; run on a helper thread). `root` is the real /proc in production (a seam for tests).
+/// procfix8 (gate8, the class): every read through [`procfs`]: Gone only for ENOENT / ESRCH of the PROCESS (never of a
+/// thread); an unreadable thread list or owner is Failed (it was "zombie without threads" / "gone": a target judged gone
+/// by a failed read made a hunt or sweep count it as dead).
+fn read_facts(root: &ProcRoot, pid: u32, want_marker: bool) -> Read {
+    let st = match root.stat(pid) {
+        Ok(s) => s,
+        Err(ProcError::Gone) => return Read::Gone,
+        Err(ProcError::Unreadable(w)) => return Read::Failed(format!("stat: {w}")),
     };
-    let mut env_path = root.join(format!("{pid}/environ"));
+    let mut tid = None;
     let mut zombie_without_threads = false;
     if st.is_dead() {
         // A dead main thread with live threads still runs (audit B M1): read the live thread's environ.
         match live_thread_at(root, pid) {
-            Some(tid) => env_path = root.join(format!("{pid}/task/{tid}/environ")),
-            None => zombie_without_threads = true,
+            Ok(LiveThread::Found(t, _)) => tid = Some(t),
+            Ok(LiveThread::NoneAlive) => zombie_without_threads = true,
+            Err(ProcError::Gone) => return Read::Gone,
+            Err(ProcError::Unreadable(w)) => return Read::Failed(format!("thread list: {w}")),
         }
     }
-    let uid = {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(root.join(pid.to_string()))
-            .ok()
-            .map(|m| m.uid())
+    let uid = match root.owner_uid(pid) {
+        Ok(u) => u,
+        Err(ProcError::Gone) => return Read::Gone,
+        Err(ProcError::Unreadable(w)) => return Read::Failed(format!("owner: {w}")),
     };
     let marker = if want_marker && !zombie_without_threads {
-        Some(match std::fs::read(&env_path) {
+        Some(match root.environ(pid, tid, GUARD_ENVIRON_TIMEOUT) {
             Ok(b) if b.is_empty() => Err("environ empty (no mm)".into()),
             Ok(b) => Ok(marker_in_environ(&b)),
+            Err(ProcError::Gone) if tid.is_none() => return Read::Gone,
             Err(e) => Err(format!("environ unreadable: {e}")),
         })
     } else {
@@ -1321,22 +1325,6 @@ fn read_facts(root: &Path, pid: u32, want_marker: bool) -> Read {
         uid,
         marker,
     })
-}
-
-fn live_thread_at(root: &Path, pid: u32) -> Option<u32> {
-    for e in std::fs::read_dir(root.join(format!("{pid}/task"))).ok()? {
-        let Ok(e) = e else { continue };
-        let Some(tid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
-            continue;
-        };
-        if let Ok(b) = std::fs::read(root.join(format!("{pid}/task/{tid}/stat")))
-            && let Some(st) = parse_stat(pid, &String::from_utf8_lossy(&b), page_size())
-            && !st.is_dead()
-        {
-            return Some(tid);
-        }
-    }
-    None
 }
 
 /// Judge the facts against the target (pure). Ok(()) = may signal.
@@ -1369,10 +1357,8 @@ fn judge(
             session: f.session,
         }));
     }
-    match f.uid {
-        Some(u) if u == uid => {}
-        Some(u) => return Err(Verdict::NotOurs(Refusal::OtherUid { uid: u })),
-        None => return Err(Verdict::Gone),
+    if f.uid != uid {
+        return Err(Verdict::NotOurs(Refusal::OtherUid { uid: f.uid }));
     }
     match &t.proof {
         Proof::PinnedSession(sid) => {
@@ -1421,7 +1407,7 @@ pub(crate) fn signal_verified(
     leaders: Option<&Leaders>,
     timeout: Duration,
 ) -> Verdict {
-    signal_verified_at(Path::new("/proc"), t, sig, leaders, timeout)
+    signal_verified_at(&procfs::sys(), t, sig, leaders, timeout)
 }
 
 /// Steps 1, 2 and (gate re-audit A m-1) the pinned-session PRE-check: for `Proof::PinnedSession(sid)` the session must
@@ -1468,7 +1454,7 @@ fn open_pidfd_checked(pid: ValidPid) -> Result<Option<OwnedFd>, Verdict> {
 }
 
 pub(crate) fn signal_verified_at(
-    root: &Path,
+    root: &ProcRoot,
     t: &ProcessTarget,
     sig: i32,
     leaders: Option<&Leaders>,
@@ -1486,11 +1472,11 @@ pub(crate) fn signal_verified_at(
     // 4-7 on a helper thread, bounded.
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
     let read = {
-        let root: PathBuf = root.to_path_buf();
+        let root: ProcRoot = root.clone();
         let p = t.pid;
         match run_bounded(timeout, move || read_facts(&root, p, want_marker)).done() {
             Some(r) => r,
-            None => return Verdict::Unverified(format!("/proc reads of pid {p} timed out")),
+            None => return Verdict::Unverified(format!("proc reads of pid {p} timed out")),
         }
     };
     judge_one(t, read, pidfd.as_ref(), pid, sig, leaders)
@@ -1510,7 +1496,7 @@ pub(crate) fn signal_with_pidfd(
         Err(v) => return v,
     };
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-    let read = read_facts(Path::new("/proc"), t.pid, want_marker);
+    let read = read_facts(&procfs::sys(), t.pid, want_marker);
     judge_one(t, read, Some(fd), pid, sig, leaders)
 }
 
@@ -1565,7 +1551,7 @@ fn with_pidfds_held(
             }
         };
         let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-        match read_facts(Path::new("/proc"), t.pid, want_marker) {
+        match read_facts(&procfs::sys(), t.pid, want_marker) {
             Read::Gone => out[k] = Some((Verdict::Gone, None)),
             Read::Failed(e) => out[k] = Some((Verdict::Unverified(e), None)),
             Read::Facts(facts) => ready.push((
@@ -1750,15 +1736,16 @@ fn judge_and_send_batch_held(
             },
             // No pidfd: re-read the start time right before kill (residual race of microseconds, documented).
             None => match crate::resources::read_stat(r.t.pid) {
-                Ok(Some(st)) if st.start_ticks == r.facts.start_ticks => {
+                Ok(st) if st.start_ticks == r.facts.start_ticks => {
                     match sys::kill_pid(r.pid, sig) {
                         Ok(()) => Sent::Ok,
                         Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
                         Err(e) => Sent::Failed(format!("send: {e}")),
                     }
                 }
-                Ok(_) => Sent::Gone,
-                Err(e) => Sent::Failed(format!("re-check: {e}")),
+                // another start time: the pid names a newer process, the target is dead; or ENOENT / ESRCH
+                Ok(_) | Err(ProcError::Gone) => Sent::Gone,
+                Err(ProcError::Unreadable(w)) => Sent::Failed(format!("re-check: {w}")),
             },
         };
         sent.push(res);
@@ -1935,18 +1922,11 @@ pub(crate) fn kill_all_pinned(leaders: &Leaders) -> usize {
 
 /// The pid a pidfd names (`Pid:` of `/proc/self/fdinfo/<fd>`, in our pid namespace): Ok(None) when its process has
 /// exited (-1 / 0); Err when the line cannot be read.
-fn pidfd_pid(fd: &OwnedFd) -> Result<Option<u32>, String> {
+fn pidfd_pid(fd: &OwnedFd) -> Result<procfs::PidfdPid, String> {
     use std::os::fd::AsRawFd;
-    let t = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", fd.as_raw_fd()))
-        .map_err(|e| format!("fdinfo of the pidfd: {e}"))?;
-    let v = t
-        .lines()
-        .find_map(|l| l.strip_prefix("Pid:"))
-        .ok_or_else(|| "fdinfo of the pidfd has no Pid line".to_string())?
-        .trim()
-        .parse::<i64>()
-        .map_err(|e| format!("fdinfo Pid: {e}"))?;
-    Ok(u32::try_from(v).ok().filter(|&p| p > 0))
+    procfs::sys()
+        .self_fdinfo_pid(fd.as_raw_fd())
+        .map_err(|e| format!("fdinfo of the pidfd: {e}"))
 }
 
 /// procfix6 (gate5 m1): SIGKILL or SIGCONT to processes this guard STOPPED, by the identity held at the stop: the SAME
@@ -1981,9 +1961,9 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
                 Err(e) => return Err(Verdict::Unverified(format!("boot id unreadable: {e}"))),
             }
             match pidfd_pid(fd) {
-                Ok(Some(p)) if p == h.pid => {}
-                Ok(None) => return Err(Verdict::Gone),
-                Ok(Some(p)) => {
+                Ok(procfs::PidfdPid::Pid(p)) if p == h.pid => {}
+                Ok(procfs::PidfdPid::Exited) => return Err(Verdict::Gone),
+                Ok(procfs::PidfdPid::Pid(p)) => {
                     return Err(Verdict::Unverified(format!(
                         "the pidfd names pid {p}, not the held pid {}",
                         h.pid
@@ -1991,7 +1971,7 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
                 }
                 Err(e) => return Err(Verdict::Unverified(e)),
             }
-            let f = match read_facts(Path::new("/proc"), h.pid, false) {
+            let f = match read_facts(&procfs::sys(), h.pid, false) {
                 Read::Gone => return Err(Verdict::Gone),
                 Read::Failed(e) => return Err(Verdict::Unverified(e)),
                 Read::Facts(f) => f,
@@ -2005,12 +1985,8 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
                     current: f.start_ticks,
                 }));
             }
-            if sig == libc::SIGKILL {
-                match f.uid {
-                    Some(u) if u == uid => {}
-                    Some(u) => return Err(Verdict::NotOurs(Refusal::OtherUid { uid: u })),
-                    None => return Err(Verdict::Gone),
-                }
+            if sig == libc::SIGKILL && f.uid != uid {
+                return Err(Verdict::NotOurs(Refusal::OtherUid { uid: f.uid }));
             }
             // The reads above described the pidfd's process only if it had not exited by now.
             if pidfd_exited(fd) == Some(true) {
@@ -2162,7 +2138,7 @@ pub(crate) fn reap_adopted(pid: u32, start_ticks: u64, own_session: u32) -> bool
     // SAFETY: getpid cannot fail.
     let me = unsafe { libc::getpid() } as u32;
     match crate::resources::read_stat(pid) {
-        Ok(Some(st))
+        Ok(st)
             if st.start_ticks == start_ticks
                 && st.is_dead()
                 && st.ppid == me
@@ -2170,7 +2146,8 @@ pub(crate) fn reap_adopted(pid: u32, start_ticks: u64, own_session: u32) -> bool
         {
             sys::reap_pidfd(&fd)
         }
-        _ => false,
+        // not reaped now (it waits for a later tick); a failed read never reaps
+        Ok(_) | Err(_) => false,
     }
 }
 
@@ -2200,7 +2177,7 @@ fn signal_batch_inline(
     for (k, pid, fd) in &fds {
         let t = &targets[*k];
         let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-        match read_facts(Path::new("/proc"), t.pid, want_marker) {
+        match read_facts(&procfs::sys(), t.pid, want_marker) {
             Read::Gone => out[*k] = Some(Verdict::Gone),
             Read::Failed(e) => out[*k] = Some(Verdict::Unverified(e)),
             Read::Facts(facts) => ready.push((
@@ -2391,7 +2368,7 @@ mod tests {
             zombie_without_threads: false,
             start_ticks: start,
             session,
-            uid: Some(uid),
+            uid,
             marker: Some(Ok(marker.map(str::to_string))),
         }
     }
@@ -2587,7 +2564,7 @@ mod tests {
         let m = CampaignMarker::new("c1-intent", "j1:a1").unwrap();
         let mut child = marked_sleep(&m.value());
         let pid = child.id();
-        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let st = crate::resources::read_stat(pid).unwrap();
         let t = ProcessTarget {
             pid,
             boot_id: boot_id().unwrap(),
@@ -2717,7 +2694,7 @@ mod tests {
             .spawn()
             .unwrap();
         let pid = child.id();
-        let real = crate::resources::read_stat(pid).unwrap().unwrap();
+        let real = crate::resources::read_stat(pid).unwrap();
         let root = std::env::temp_dir().join(format!("rr-guard-fifo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(pid.to_string())).unwrap();
@@ -2743,7 +2720,13 @@ mod tests {
             proof: Proof::Campaign("c1".into()),
         };
         let t0 = std::time::Instant::now();
-        let v = signal_verified_at(&root, &t, libc::SIGKILL, None, Duration::from_millis(300));
+        let v = signal_verified_at(
+            &ProcRoot::at(&root),
+            &t,
+            libc::SIGKILL,
+            None,
+            Duration::from_millis(300),
+        );
         assert!(matches!(v, Verdict::Unverified(_)), "{v:?}");
         assert!(t0.elapsed() < Duration::from_secs(5));
         assert!(
@@ -2820,7 +2803,7 @@ mod tests {
         let m = CampaignMarker::new(format!("c1-{tag}"), "j1:a1").unwrap();
         let mut a = dropping_child(&m.value());
         let pid = a.id();
-        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let st = crate::resources::read_stat(pid).unwrap();
         let t = ProcessTarget {
             pid,
             boot_id: boot_id().unwrap(),

@@ -9,8 +9,9 @@
 //! and the only reapers of the supervisor's children are this module (exact pids, never a catch-all wait) and the
 //! launcher (registered leaders, under the registry lock): a pidfd opened on a child pins that child.
 //!
-//! Strictness (RB-C1 a): every function here reports a failed read (EMFILE, ENFILE, EACCES, EIO, a parse failure) as an
-//! error, never as "no process". ENOENT / ESRCH of a whole /proc/<pid> directory means that process no longer exists.
+//! Strictness (RB-C1 a; procfix8: every read through [`procfs`]): every function here reports a failed read (EMFILE,
+//! ENFILE, EACCES, EIO, a torn read, a parse failure) as an error, never as "no process". ENOENT / ESRCH of a whole
+//! /proc/<pid> directory means that process no longer exists; of a task entry, that THREAD.
 //!
 //! The reaper: every zombie child of this process that is NOT a registered leader and NOT in the supervisor's own session
 //! is reaped by exact pid through a pidfd (`launch::guard::reap_adopted`), at most `max` per tick. Children in our own
@@ -19,72 +20,33 @@
 //! process: do not spawn setsid'd children outside the launcher and expect to wait for them yourself (their status would
 //! be taken by this reaper; a wait then fails with ECHILD).
 
-use super::{Leaders, ProcStat, page_size, parse_stat};
+use super::procfs::{self, ProcError, ProcResult};
+use super::{Leaders, ProcStat};
 use std::collections::BTreeSet;
-use std::fs;
-use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-
-fn is_gone(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH))
-}
 
 fn getpid() -> u32 {
     // SAFETY: getpid cannot fail.
     unsafe { libc::getpid() as u32 }
 }
 
-/// Children listed in `/proc/<pid>/task/*/children` (all threads). `Ok(None)`: the process does not exist.
-pub(crate) fn children_of(pid: u32) -> Result<Option<BTreeSet<u32>>, String> {
-    let task = format!("/proc/{pid}/task");
-    let rd = match fs::read_dir(&task) {
-        Ok(r) => r,
-        Err(e) if is_gone(&e) => return Ok(None),
-        Err(e) => return Err(format!("{task}: {e}")),
-    };
-    let mut out = BTreeSet::new();
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("{task}: {e}"))?;
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let f = format!("{task}/{tid}/children");
-        match fs::read_to_string(&f) {
-            Ok(t) => {
-                for w in t.split_whitespace() {
-                    out.insert(
-                        w.parse::<u32>()
-                            .map_err(|_| format!("{f}: unparsable {w:?}"))?,
-                    );
-                }
-            }
-            // A thread that exited between the listing and the read has no children to report.
-            Err(e) if is_gone(&e) => {}
-            Err(e) => return Err(format!("{f}: {e}")),
-        }
-    }
-    Ok(Some(out))
+/// Children listed in `/proc/<pid>/task/*/children` (all threads), read until two consecutive reads agree. Gone: the
+/// process does not exist (procfix8: [`procfs`] rules).
+pub(crate) fn children_of(pid: u32) -> ProcResult<BTreeSet<u32>> {
+    procfs::sys().children_of(pid)
 }
 
 /// Our own direct children from the kernel's children lists, read until two consecutive reads agree (at most 4 reads;
-/// the kernel documents the file as unreliable while the list changes).
+/// the kernel documents the file as unreliable while the list changes). procfix8: lists that keep changing are an
+/// error (it was the last read).
 pub(crate) fn own_children() -> Result<BTreeSet<u32>, String> {
-    let me = getpid();
-    let mut prev = children_of(me)?.ok_or("own /proc entry missing")?;
-    for _ in 0..3 {
-        let next = children_of(me)?.ok_or("own /proc entry missing")?;
-        if next == prev {
-            return Ok(next);
-        }
-        prev = next;
+    match children_of(getpid()) {
+        Ok(k) => Ok(k),
+        Err(ProcError::Gone) => Err("own /proc entry missing".into()),
+        Err(ProcError::Unreadable(w)) => Err(w),
     }
-    Ok(prev)
 }
 
 /// Our direct children by a STRICT full /proc listing (ppid == us): an independent second enumeration. Any listing or
@@ -100,50 +62,25 @@ pub(crate) fn own_children_by_scan() -> Result<BTreeSet<u32>, String> {
     Ok(out)
 }
 
-/// Every process of /proc with its stat, STRICT: a failed listing entry or a failed stat read (other than the process
-/// having vanished) is an error. Vanished processes are counted in the second value.
+/// Every process of /proc with its stat, STRICT: a failed listing (the two-enumeration rule) or a failed stat read
+/// (other than the process having vanished: ENOENT / ESRCH) is an error. Vanished processes are counted in the second
+/// value.
 pub(crate) fn strict_listing() -> Result<Vec<ProcStat>, String> {
     Ok(strict_listing_counted()?.0)
 }
 
 pub(crate) fn strict_listing_counted() -> Result<(Vec<ProcStat>, usize), String> {
-    let rd = fs::read_dir("/proc").map_err(|e| format!("/proc: {e}"))?;
+    let root = procfs::sys();
     let mut out = Vec::new();
     let mut vanished = 0usize;
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("/proc listing: {e}"))?;
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let p = format!("/proc/{pid}/stat");
-        match fs::read(&p) {
-            Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
-                Some(st) => out.push(st),
-                None => return Err(format!("{p}: unparsable")),
-            },
-            Err(e) if is_gone(&e) => vanished += 1,
-            Err(e) => return Err(format!("{p}: {e}")),
+    for pid in root.pids().map_err(|e| format!("proc listing: {e}"))? {
+        match root.stat(pid) {
+            Ok(st) => out.push(st),
+            Err(ProcError::Gone) => vanished += 1,
+            Err(ProcError::Unreadable(w)) => return Err(w),
         }
     }
     Ok((out, vanished))
-}
-
-/// Read an environ file; an EMPTY read is repeated once after 1 ms. Why: during execve the new mm is installed before
-/// its environment bounds are set (`env_start == env_end`), so a marked process caught in that window reads as empty
-/// (observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` were judged unmarked that way). The window is
-/// microseconds; an environment that is still empty 1 ms later is a real empty environment (`env -i`). Ok(None): empty.
-fn read_environ_settled(path: &str) -> io::Result<Option<Vec<u8>>> {
-    let b = fs::read(path)?;
-    if !b.is_empty() {
-        return Ok(Some(b));
-    }
-    std::thread::sleep(Duration::from_millis(1));
-    let b = fs::read(path)?;
-    Ok((!b.is_empty()).then_some(b))
 }
 
 /// What the environment of a process says about the campaign marker.
@@ -153,7 +90,8 @@ pub(crate) enum MarkerFact {
     Absent,
     /// The environ of a live process stayed empty (`env -i`): no marker NOW. Never cached (a later exec may change it).
     EmptyEnviron,
-    /// EACCES (non-dumpable / other uid), an empty environ of a live process, or another read error.
+    /// EACCES (non-dumpable / other uid), a torn read, a timeout, the live thread read through exited, or another read
+    /// error: unknown (procfix8: never Absent).
     Unreadable(String),
 }
 
@@ -172,51 +110,22 @@ pub(crate) struct ProcFacts {
 }
 
 pub(crate) enum FactRead {
+    /// The PROCESS is gone (ENOENT / ESRCH of its stat, task list or status; never of a thread).
     Gone,
     Facts(ProcFacts),
     Failed(String),
 }
 
-fn read_status_ruid(pid: u32) -> Result<Option<u32>, String> {
-    let p = format!("/proc/{pid}/status");
-    match fs::read_to_string(&p) {
-        Ok(t) => t
-            .lines()
-            .find_map(|l| l.strip_prefix("Uid:"))
-            .and_then(|r| r.split_whitespace().next())
-            .and_then(|v| v.parse::<u32>().ok())
-            .map(Some)
-            .ok_or_else(|| format!("{p}: no Uid line")),
-        Err(e) if is_gone(&e) => Ok(None),
-        Err(e) => Err(format!("{p}: {e}")),
-    }
-}
+/// Bound of the environ read of [`read_proc_facts`] (an environ read takes the target's mmap lock).
+const FACTS_ENVIRON_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// Thread states: (any live thread, all live threads stopped, a live thread id).
-fn thread_states(pid: u32) -> Result<Option<(bool, bool, Option<u32>)>, String> {
-    let task = format!("/proc/{pid}/task");
-    let rd = match fs::read_dir(&task) {
-        Ok(r) => r,
-        Err(e) if is_gone(&e) => return Ok(None),
-        Err(e) => return Err(format!("{task}: {e}")),
-    };
+/// Thread states: (any live thread, all live threads stopped, a live thread id). Gone: the process is gone. A thread
+/// that vanished between the listing and its read is left out (ENOENT / ESRCH of ITS stat).
+fn thread_states(root: &procfs::ProcRoot, pid: u32) -> ProcResult<(bool, bool, Option<u32>)> {
     let (mut any_live, mut all_stopped, mut live_tid) = (false, true, None);
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("{task}: {e}"))?;
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let f = format!("{task}/{tid}/stat");
-        match fs::read(&f) {
-            // A task being released reads as empty: it is gone.
-            Ok(b) if b.is_empty() => {}
-            Ok(b) => {
-                let st = parse_stat(pid, &String::from_utf8_lossy(&b), page_size())
-                    .ok_or_else(|| format!("{f}: unparsable"))?;
+    for tid in root.tasks(pid)? {
+        match root.task_stat(pid, tid) {
+            Ok(st) => {
                 if !st.is_dead() {
                     any_live = true;
                     live_tid.get_or_insert(tid);
@@ -225,29 +134,27 @@ fn thread_states(pid: u32) -> Result<Option<(bool, bool, Option<u32>)>, String> 
                     }
                 }
             }
-            Err(e) if is_gone(&e) => {}
-            Err(e) => return Err(format!("{f}: {e}")),
+            Err(ProcError::Gone) => {}
+            Err(e) => return Err(e),
         }
     }
-    Ok(Some((any_live, all_stopped, live_tid)))
+    Ok((any_live, all_stopped, live_tid))
 }
 
 /// Read the facts of `pid` strictly. `want_marker`: also read the environ (else `marker` = Absent, unused).
+/// procfix8: every read through [`procfs`]: Gone only for ENOENT / ESRCH of the process; everything else Failed (or
+/// `MarkerFact::Unreadable` for the environ).
 pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
-    let sp = format!("/proc/{pid}/stat");
-    let stat = match fs::read(&sp) {
-        Ok(b) if b.is_empty() => return FactRead::Gone,
-        Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
-            Some(s) => s,
-            None => return FactRead::Failed(format!("{sp}: unparsable")),
-        },
-        Err(e) if is_gone(&e) => return FactRead::Gone,
-        Err(e) => return FactRead::Failed(format!("{sp}: {e}")),
+    let root = procfs::sys();
+    let stat = match root.stat(pid) {
+        Ok(s) => s,
+        Err(ProcError::Gone) => return FactRead::Gone,
+        Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let (any_live, all_stopped, live_tid) = match thread_states(pid) {
-        Ok(Some(x)) => x,
-        Ok(None) => return FactRead::Gone,
-        Err(e) => return FactRead::Failed(e),
+    let (any_live, all_stopped, live_tid) = match thread_states(&root, pid) {
+        Ok(x) => x,
+        Err(ProcError::Gone) => return FactRead::Gone,
+        Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
     let dead = stat.is_dead() && !any_live;
     if dead {
@@ -260,25 +167,39 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
             all_stopped: false,
         });
     }
-    let real_uid = match read_status_ruid(pid) {
-        Ok(Some(u)) => u,
-        Ok(None) => return FactRead::Gone,
-        Err(e) => return FactRead::Failed(e),
+    let real_uid = match root.status(pid).and_then(|s| s.real_uid()) {
+        Ok(u) => u,
+        Err(ProcError::Gone) => return FactRead::Gone,
+        Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let marker = if want_marker && !dead {
-        let path = match (stat.is_dead(), live_tid) {
-            (true, Some(t)) => format!("/proc/{pid}/task/{t}/environ"),
-            _ => format!("/proc/{pid}/environ"),
+    let marker = if want_marker {
+        let tid = match (stat.is_dead(), live_tid) {
+            (true, Some(t)) => Some(t),
+            _ => None,
         };
-        match read_environ_settled(&path) {
-            Ok(Some(b)) => match super::marker_in_environ(&b) {
+        // An EMPTY environ is read again after 1 ms (the execve window: the new mm is installed before its environment
+        // bounds are set; observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` read empty once); empty twice is
+        // a real empty environment (`env -i`).
+        let read = || root.environ(pid, tid, FACTS_ENVIRON_TIMEOUT);
+        let r = match read() {
+            Ok(b) if b.is_empty() => {
+                std::thread::sleep(Duration::from_millis(1));
+                read()
+            }
+            other => other,
+        };
+        match r {
+            Ok(b) if b.is_empty() => MarkerFact::EmptyEnviron,
+            Ok(b) => match super::marker_in_environ(&b) {
                 Some(v) => MarkerFact::Value(v),
                 None => MarkerFact::Absent,
             },
-            // Empty twice, 1 ms apart: a live process without environment (`env -i`).
-            Ok(None) => MarkerFact::EmptyEnviron,
-            Err(e) if is_gone(&e) => return FactRead::Gone,
-            Err(e) => MarkerFact::Unreadable(format!("{path}: {e}")),
+            Err(ProcError::Gone) if tid.is_none() => return FactRead::Gone,
+            Err(ProcError::Gone) => MarkerFact::Unreadable(format!(
+                "the live thread {} of {pid} exited while its environ was read",
+                tid.unwrap_or(0)
+            )),
+            Err(ProcError::Unreadable(w)) => MarkerFact::Unreadable(w),
         }
     } else {
         MarkerFact::Absent
@@ -366,8 +287,14 @@ pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
     let mut reaped = 0usize;
     let mut outstanding = 0u64;
     for pid in kids {
-        let Ok(Some(st)) = super::read_stat(pid) else {
-            continue;
+        let st = match super::read_stat(pid) {
+            Ok(st) => st,
+            Err(ProcError::Gone) => continue,
+            // procfix8: not reaped this tick (it waits), counted
+            Err(ProcError::Unreadable(_)) => {
+                outstanding += 1;
+                continue;
+            }
         };
         if !st.is_dead() || st.ppid != me {
             continue;

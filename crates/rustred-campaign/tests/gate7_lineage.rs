@@ -88,7 +88,12 @@ fn g7_an_incomplete_session_list_turns_a_crashed_sessions_orphan_into_not_ours()
     )
     .unwrap();
     assert!(matches!(
-        classify_hidden_at(&f.0, 2001, 8_500, &full),
+        classify_hidden_at(
+            &rustred_campaign::resources::ProcRoot::at(&f.0),
+            2001,
+            8_500,
+            &full
+        ),
         Hidden::Possible(_)
     ));
     // the session list of a failed read: only the live session (earliest = its start, no targets)
@@ -103,7 +108,12 @@ fn g7_an_incomplete_session_list_turns_a_crashed_sessions_orphan_into_not_ours()
     // D starts before the bound of the partial rule: it is not even a candidate of a strict scan any more; classified
     // anyway, it is NOT OURS (systemd --user is old and no target)
     assert!(matches!(
-        classify_hidden_at(&f.0, 2001, 8_500, &partial),
+        classify_hidden_at(
+            &rustred_campaign::resources::ProcRoot::at(&f.0),
+            2001,
+            8_500,
+            &partial
+        ),
         Hidden::NotOurs(_)
     ));
 }

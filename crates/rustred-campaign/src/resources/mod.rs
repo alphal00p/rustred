@@ -24,6 +24,7 @@ mod children;
 pub mod lineage;
 mod marked;
 mod pid;
+pub mod procfs;
 mod scan;
 
 pub use bounded::{
@@ -41,8 +42,11 @@ pub use marked::{
     MarkerRead, environ_readable_at, hidden_descendants, hidden_descendants_at, marker_in_environ,
     our_uid, owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
 };
-pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, owner_uid_checked, scan_marked_inline};
+pub(crate) use marked::{
+    CandidateCheck, STRICT_ENVIRON_TIMEOUT, check_candidate, scan_marked_inline,
+};
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
+pub use procfs::{ProcError, ProcResult, ProcRoot};
 pub(crate) use scan::Leaders;
 pub use scan::{
     EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,
@@ -129,72 +133,49 @@ pub fn ticks_per_second() -> f64 {
     })
 }
 
-fn gone(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH))
+/// Read `/proc/<pid>/stat` (procfix8: [`procfs`] rules: Gone only for ENOENT / ESRCH; a torn or unparsable stat is
+/// Unreadable, never gone). This read can block in the kernel (see guarded_run.py): call it from a helper thread or
+/// for single pids only.
+pub fn read_stat(pid: u32) -> ProcResult<ProcStat> {
+    procfs::sys().stat(pid)
 }
 
-/// Read `/proc/<pid>/stat`. `Ok(None)`: the process does not exist (or vanished while being read).
-/// This read can block in the kernel (see guarded_run.py): call it from a helper thread or for single pids only.
-pub fn read_stat(pid: u32) -> io::Result<Option<ProcStat>> {
-    read_stat_path(pid, Path::new(&format!("/proc/{pid}/stat")))
+/// A live thread of a thread group (for a process whose main thread is a zombie: a dead leader with live threads still
+/// holds memory and can still fork; guarded_run.py `live_thread`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LiveThread {
+    /// A live thread: its id and its stat (the pid field is the process's pid).
+    Found(u32, ProcStat),
+    /// Every thread was read completely and is dead (a zombie without live threads).
+    NoneAlive,
 }
 
-pub(crate) fn read_stat_path(pid: u32, path: &Path) -> io::Result<Option<ProcStat>> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(parse_stat(
-            pid,
-            &String::from_utf8_lossy(&bytes),
-            page_size(),
-        )),
-        Err(e) if gone(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
-}
-
-/// For a process whose main thread is a zombie: the stat of a live thread, if any (a dead leader with live threads
-/// still holds memory and can still fork; guarded_run.py `live_thread`).
-pub fn live_thread_stat(pid: u32) -> io::Result<Option<ProcStat>> {
-    Ok(live_thread(pid)?.map(|(_, st)| st))
-}
-
-/// As [`live_thread_stat`], with the live thread's id.
-pub fn live_thread(pid: u32) -> io::Result<Option<(u32, ProcStat)>> {
-    let entries = match fs::read_dir(format!("/proc/{pid}/task")) {
-        Ok(e) => e,
-        Err(e) if gone(&e) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    for entry in entries {
-        // procfix7 (gate7 B1, the class): a failed entry read is an error, never "no live thread" (= dead)
-        let entry = entry?;
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if let Some(st) = read_stat_path(pid, Path::new(&format!("/proc/{pid}/task/{tid}/stat")))?
-            && !st.is_dead()
-        {
-            return Ok(Some((tid, st)));
+/// The first live thread of `pid` under `root`. Gone: the process is gone. procfix8: a thread that vanished between the
+/// listing and its read (ENOENT / ESRCH of ITS stat) is skipped; any other failed read is Unreadable (never "no live
+/// thread", which would read as dead).
+pub fn live_thread_at(root: &ProcRoot, pid: u32) -> ProcResult<LiveThread> {
+    for tid in root.tasks(pid)? {
+        match root.task_stat(pid, tid) {
+            Ok(st) if !st.is_dead() => return Ok(LiveThread::Found(tid, st)),
+            Ok(_) | Err(ProcError::Gone) => {}
+            Err(e) => return Err(e),
         }
     }
-    Ok(None)
+    Ok(LiveThread::NoneAlive)
+}
+
+/// [`live_thread_at`] on the real /proc.
+pub fn live_thread(pid: u32) -> ProcResult<LiveThread> {
+    live_thread_at(&procfs::sys(), pid)
 }
 
 /// `/proc/sys/kernel/random/boot_id`, cached for the life of the process.
-pub fn boot_id() -> io::Result<String> {
+pub fn boot_id() -> ProcResult<String> {
     static BOOT: OnceLock<String> = OnceLock::new();
     if let Some(b) = BOOT.get() {
         return Ok(b.clone());
     }
-    let b = fs::read_to_string("/proc/sys/kernel/random/boot_id")?
-        .trim()
-        .to_string();
-    if b.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "empty boot_id"));
-    }
+    let b = procfs::sys().boot_id()?;
     Ok(BOOT.get_or_init(|| b).clone())
 }
 
@@ -250,11 +231,12 @@ impl ProcessIdentity {
     /// Refuses pids outside 2..=pid_max (`InvalidPid` payload).
     pub fn capture(pid: u32) -> io::Result<Self> {
         ValidPid::new(i64::from(pid)).map_err(InvalidPid::into_io)?;
-        let st = read_stat(pid)?.ok_or_else(|| {
-            io::Error::new(
+        let st = read_stat(pid).map_err(|e| match e {
+            ProcError::Gone => io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("pid {pid} vanished before its identity was read"),
-            )
+            ),
+            e => io::Error::other(format!("identity of pid {pid}: {e}")),
         })?;
         Ok(Self {
             pid,
@@ -269,12 +251,14 @@ impl ProcessIdentity {
         if self.boot_id != boot_id()? {
             return Ok(Liveness::OtherBoot);
         }
-        match read_stat(self.pid)? {
-            None => Ok(Liveness::Gone),
-            Some(st) if st.start_ticks != self.start_ticks => Ok(Liveness::Recycled {
+        match read_stat(self.pid) {
+            Err(ProcError::Gone) => Ok(Liveness::Gone),
+            // procfix8: unreadable is an error, never "gone"
+            Err(e) => Err(io::Error::other(format!("pid {}: {e}", self.pid))),
+            Ok(st) if st.start_ticks != self.start_ticks => Ok(Liveness::Recycled {
                 current_start_ticks: st.start_ticks,
             }),
-            Some(st) => Ok(Liveness::Alive {
+            Ok(st) => Ok(Liveness::Alive {
                 zombie: st.is_dead(),
             }),
         }
@@ -330,10 +314,14 @@ pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
     Some((field("MemTotal:")?, field("MemAvailable:")?))
 }
 
-/// cgroup-v2 headroom walk (copied from shards/resources.rs `host_available` at b9f06de7).
-fn cgroup_headroom() -> Option<u64> {
-    let cgroups = fs::read_to_string("/proc/self/cgroup").ok()?;
-    let group = cgroups.lines().find_map(|s| s.strip_prefix("0::"))?;
+/// cgroup-v2 headroom walk (copied from shards/resources.rs `host_available` at b9f06de7). procfix8: an unreadable
+/// `/proc/self/cgroup` is an error (host_memory fails: admission charges as if nothing were available), never "no
+/// limit"; a host without the unified line has no headroom limit.
+fn cgroup_headroom() -> io::Result<Option<u64>> {
+    let group = match procfs::sys().self_cgroup_v2()? {
+        procfs::CgroupLine::Path(g) => g,
+        procfs::CgroupLine::NoUnified => return Ok(None),
+    };
     let root = Path::new("/sys/fs/cgroup");
     let mut path = root.join(group.trim_start_matches('/'));
     let mut best: Option<u64> = None;
@@ -351,13 +339,13 @@ fn cgroup_headroom() -> Option<u64> {
             break;
         }
     }
-    best
+    Ok(best)
 }
 
 /// Read host memory now. /proc/meminfo does not block like per-pid files do (guarded_run.py measured it), so this
 /// may be called from the control loop.
 pub fn host_memory() -> io::Result<MemInfo> {
-    let text = fs::read_to_string("/proc/meminfo")?;
+    let text = procfs::sys().meminfo()?;
     let (mem_total, mem_available) = parse_meminfo(&text).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -367,7 +355,7 @@ pub fn host_memory() -> io::Result<MemInfo> {
     Ok(MemInfo {
         mem_total,
         mem_available,
-        cgroup_headroom: cgroup_headroom(),
+        cgroup_headroom: cgroup_headroom()?,
     })
 }
 
@@ -445,25 +433,16 @@ pub fn format_cpu_list(cpus: &BTreeSet<usize>) -> String {
     parts.join(",")
 }
 
-/// `Cpus_allowed_list` of another process (from /proc/<pid>/status). `Ok(None)`: gone. May block: helper thread.
-pub fn affinity_of(pid: u32) -> io::Result<Option<BTreeSet<usize>>> {
-    let text = match fs::read_to_string(format!("/proc/{pid}/status")) {
-        Ok(t) => t,
-        Err(e) if gone(&e) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let line = text
-        .lines()
-        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no Cpus_allowed_list"))?;
-    parse_cpu_list(line)
-        .map(Some)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+/// `Cpus_allowed_list` of another process (from /proc/<pid>/status). May block: helper thread.
+pub fn affinity_of(pid: u32) -> ProcResult<BTreeSet<usize>> {
+    let st = procfs::sys().status(pid)?;
+    parse_cpu_list(st.field("Cpus_allowed_list")?)
+        .map_err(|e| ProcError::Unreadable(format!("Cpus_allowed_list of {pid}: {e}")))
 }
 
 /// Per-CPU (idle + iowait, total) jiffies from /proc/stat.
 pub fn read_cpu_times() -> io::Result<BTreeMap<usize, (u64, u64)>> {
-    Ok(parse_cpu_times(&fs::read_to_string("/proc/stat")?))
+    Ok(parse_cpu_times(&procfs::sys().cpu_stat()?))
 }
 
 pub fn parse_cpu_times(text: &str) -> BTreeMap<usize, (u64, u64)> {
@@ -551,11 +530,16 @@ pub fn idle_fractions(
     out
 }
 
-/// Path of this process's cgroup-v2 directory, if the unified hierarchy is mounted at /sys/fs/cgroup.
-pub fn own_cgroup_dir() -> Option<PathBuf> {
-    let cgroups = fs::read_to_string("/proc/self/cgroup").ok()?;
-    let group = cgroups.lines().find_map(|s| s.strip_prefix("0::"))?;
-    Some(Path::new("/sys/fs/cgroup").join(group.trim_start_matches('/')))
+/// Path of this process's cgroup-v2 directory (the unified hierarchy mounted at /sys/fs/cgroup). Err: unreadable, or no
+/// unified line.
+pub fn own_cgroup_dir() -> Result<PathBuf, String> {
+    match procfs::sys().self_cgroup_v2() {
+        Ok(procfs::CgroupLine::Path(g)) => {
+            Ok(Path::new("/sys/fs/cgroup").join(g.trim_start_matches('/')))
+        }
+        Ok(procfs::CgroupLine::NoUnified) => Err("no cgroup-v2 membership".into()),
+        Err(e) => Err(format!("own cgroup: {e}")),
+    }
 }
 
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
@@ -631,7 +615,7 @@ mod tests {
         assert!(parse_cpu_list("3-1").is_err());
         assert!(parse_cpu_list("x").is_err());
         assert!(!allowed_cpus().unwrap().is_empty());
-        let mine = affinity_of(std::process::id()).unwrap().unwrap();
+        let mine = affinity_of(std::process::id()).unwrap();
         assert_eq!(mine, allowed_cpus().unwrap());
     }
 

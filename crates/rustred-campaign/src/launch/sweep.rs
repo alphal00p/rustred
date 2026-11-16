@@ -29,15 +29,15 @@
 //! of one round): call it off the control loop.
 
 use super::guard::{self, ProcessTarget, StartRule, Verdict};
+use crate::resources::procfs::{self, ProcError};
 use crate::resources::{
-    CampaignMarker, FactRead, HiddenProcess, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT,
-    boot_id, children_of, describe_hidden, our_uid, owner_uid_checked, read_marker_at,
-    read_proc_facts, read_stat, request_reap, scan_marked_inline,
+    CampaignMarker, CandidateCheck, FactRead, HiddenProcess, MarkedProcess, MarkerRead,
+    STRICT_ENVIRON_TIMEOUT, boot_id, check_candidate, children_of, describe_hidden, our_uid,
+    owner_uid_at, read_marker_at, read_proc_facts, read_stat, request_reap, scan_marked_inline,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::os::fd::OwnedFd;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -151,6 +151,11 @@ struct Sweep<'a> {
     rounds: u32,
     /// procfix7: the possibly-ours unreadable candidates of the last strict scan.
     hidden: Vec<HiddenProcess>,
+    /// procfix8 (gate8, item 4): EVERY possibly-ours candidate any scan of this sweep reported (pid -> the start time held,
+    /// if one was read). A suspect leaves only by a COMPLETE direct read ([`check_candidate`]) that proves it dead, not a
+    /// candidate, unmarked or not ours; every proof pass re-checks the suspects its scan did not report, so a later scan
+    /// that misses one (a listing, a misread) cannot make the sweep conclusive.
+    suspects: BTreeMap<u32, Option<u64>>,
 }
 
 fn key(p: &MarkedProcess) -> Key {
@@ -158,6 +163,18 @@ fn key(p: &MarkedProcess) -> Key {
 }
 
 impl Sweep<'_> {
+    fn note_suspects(&mut self, hidden: &[HiddenProcess]) {
+        for h in hidden {
+            // the latest start time read wins (another start than the one held means the earlier process died and the
+            // pid names a new suspect)
+            let start = (h.start_ticks != 0).then_some(h.start_ticks);
+            let e = self.suspects.entry(h.pid).or_insert(start);
+            if start.is_some() {
+                *e = start;
+            }
+        }
+    }
+
     fn out_of_time(&self) -> bool {
         self.cancel.load(Ordering::SeqCst) || Instant::now() >= self.deadline
     }
@@ -182,25 +199,28 @@ impl Sweep<'_> {
     /// Marked children of a STOPPED member (its list is stable). Unreadable facts of a child: Err (inconclusive).
     fn marked_children(&mut self, pid: u32) -> Result<Vec<MarkedProcess>, String> {
         let mut out = Vec::new();
-        let Some(kids) = children_of(pid)? else {
-            return Ok(out);
+        let root = procfs::sys();
+        let kids = match children_of(pid) {
+            Ok(k) => k,
+            Err(ProcError::Gone) => return Ok(out),
+            Err(e) => return Err(format!("children of the stopped member {pid}: {e}")),
         };
         for c in kids {
             // procfix7 (gate7 B1, the class): a child whose owner cannot be read makes the round inconclusive
-            match owner_uid_checked(Path::new("/proc"), c) {
-                Ok(Some(u)) if u == self.uid => {}
-                Ok(_) => continue,
+            match owner_uid_at(&root, c) {
+                Ok(u) if u == self.uid => {}
+                Ok(_) | Err(ProcError::Gone) => continue,
                 Err(e) => return Err(format!("owner of child {c}: {e}")),
             }
             let st = match read_stat(c) {
-                Ok(Some(st)) => st,
-                Ok(None) => continue,
+                Ok(st) => st,
+                Err(ProcError::Gone) => continue,
                 Err(e) => return Err(format!("stat of child {c}: {e}")),
             };
             if st.start_ticks < self.s.not_before_ticks || st.is_dead() {
                 continue;
             }
-            match read_marker_at(Path::new("/proc"), c, None, STRICT_ENVIRON_TIMEOUT) {
+            match read_marker_at(&root, c, None, STRICT_ENVIRON_TIMEOUT) {
                 MarkerRead::Marker(v) => {
                     if let Some(m) = CampaignMarker::parse(&v)
                         && m.campaign_id == self.s.campaign_id
@@ -209,17 +229,21 @@ impl Sweep<'_> {
                         out.push(MarkedProcess::from_stat(&st, m.attempt_id));
                     }
                 }
-                MarkerRead::Unreadable => {
+                MarkerRead::Unreadable(w) => {
                     // A child of a stopped member descends from the campaign: never classified away.
                     self.hidden = vec![HiddenProcess {
                         pid: c,
                         start_ticks: st.start_ticks,
                         ppid: pid,
                         comm: st.comm.clone(),
-                        why: format!("environ unreadable; a child of the stopped member {pid}"),
+                        why: format!(
+                            "environ unreadable ({w}); a child of the stopped member {pid}"
+                        ),
                     }];
+                    let h = self.hidden.clone();
+                    self.note_suspects(&h);
                     return Err(format!(
-                        "environ of child {c} ({}) of the stopped member {pid} unreadable",
+                        "environ of child {c} ({}) of the stopped member {pid} unreadable: {w}",
                         st.comm
                     ));
                 }
@@ -340,10 +364,11 @@ impl Sweep<'_> {
                             describe_hidden(&scan.hidden)
                         ));
                     }
+                    self.note_suspects(&scan.hidden);
                     self.hidden = scan.hidden;
                     queue.extend(scan.processes);
                 }
-                Err(e) => inconclusive = Some(format!("/proc scan: {e}")),
+                Err(e) => inconclusive = Some(format!("proc scan: {e}")),
             }
             let pids: Vec<u32> = self.members.keys().map(|k| k.0).collect();
             for pid in pids {
@@ -554,14 +579,53 @@ impl Sweep<'_> {
         }
     }
 
-    /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive.
+    /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive. procfix8 (item 4): the
+    /// suspects of earlier scans that this scan did not report are checked directly; one that is still possibly ours
+    /// keeps the pass inconclusive, one that is marked is a survivor.
     fn pass(&mut self) -> Result<Vec<MarkedProcess>, String> {
-        let scan = scan_marked_inline(
+        let mut scan = scan_marked_inline(
             &self.s.campaign_id,
             self.s.not_before_ticks,
             self.s.only_attempt.as_deref(),
         )
-        .map_err(|e| format!("/proc scan: {e}"))?;
+        .map_err(|e| format!("proc scan: {e}"))?;
+        self.note_suspects(&scan.hidden);
+        let reported: std::collections::BTreeSet<u32> = scan
+            .processes
+            .iter()
+            .map(|p| p.pid)
+            .chain(scan.hidden.iter().map(|h| h.pid))
+            .collect();
+        let root = crate::resources::procfs::sys();
+        let only = self.s.only_attempt.clone();
+        let wanted = |a: &str| only.as_deref().is_none_or(|o| o == a);
+        let pending: Vec<(u32, Option<u64>)> = self
+            .suspects
+            .iter()
+            .filter(|(p, _)| !reported.contains(p))
+            .map(|(p, s)| (*p, *s))
+            .collect();
+        for (pid, start) in pending {
+            match check_candidate(
+                &root,
+                pid,
+                start,
+                &self.s.campaign_id,
+                self.s.not_before_ticks,
+                &wanted,
+                STRICT_ENVIRON_TIMEOUT,
+            ) {
+                CandidateCheck::NotCandidate | CandidateCheck::NotOurs => {
+                    self.suspects.remove(&pid);
+                }
+                CandidateCheck::Marked(m) => scan.processes.push(m),
+                CandidateCheck::Hidden(mut h) => {
+                    h.why = format!("{} (a suspect of an earlier scan of this sweep)", h.why);
+                    scan.unreadable += 1;
+                    scan.hidden.push(h);
+                }
+            }
+        }
         // Left entries that are no longer alive and marked drop out of the report.
         let alive: BTreeMap<Key, ()> = scan.processes.iter().map(|p| (key(p), ())).collect();
         self.left.retain(|k, _| alive.contains_key(k));
@@ -640,6 +704,7 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         stranded: BTreeMap::new(),
         rounds: 0,
         hidden: Vec::new(),
+        suspects: BTreeMap::new(),
     };
     w.retry_stranded();
     let reason = loop {
@@ -729,11 +794,11 @@ mod tests {
             .unwrap();
         assert!(st.success());
         let t0 = Instant::now();
-        while crate::resources::read_stat(pid).unwrap().unwrap().state != 'T' {
+        while crate::resources::read_stat(pid).unwrap().state != 'T' {
             assert!(t0.elapsed() < Duration::from_secs(10));
             std::thread::sleep(Duration::from_millis(5));
         }
-        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let st = crate::resources::read_stat(pid).unwrap();
         let id = "pf6strand.0123456789abcdef";
         let spec = SweepSpec {
             campaign_id: id.into(),
@@ -759,6 +824,7 @@ mod tests {
             stranded: BTreeMap::new(),
             rounds: 0,
             hidden: Vec::new(),
+            suspects: BTreeMap::new(),
         };
         let process = MarkedProcess::from_stat(&st, "j1:a1".into());
         let m = Member {
@@ -791,7 +857,7 @@ mod tests {
         assert_eq!(s[0].process.pid, pid);
         assert!(!r.empty());
         assert_eq!(
-            crate::resources::read_stat(pid).unwrap().unwrap().state,
+            crate::resources::read_stat(pid).unwrap().state,
             'T',
             "neither killed nor continued (the hold is unusable)"
         );

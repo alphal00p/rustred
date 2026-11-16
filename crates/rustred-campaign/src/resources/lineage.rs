@@ -41,11 +41,10 @@
 //! comes from another pid namespace, or when no rules were installed for the campaign in this process. Sessions of
 //! another boot contribute nothing (their processes cannot exist any more).
 
-use super::{ProcStat, read_stat_path};
+use super::ProcStat;
+use super::procfs::{self, ProcError, ProcResult, ProcRoot};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::os::unix::fs::MetadataExt;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 /// Prefix of the ledger note that records a session's lineage (`session_lineage {json}`).
@@ -76,18 +75,18 @@ pub struct SessionLineage {
 impl SessionLineage {
     /// The lineage of THIS process (pid, start, boot, pid namespace, verified ancestor chain).
     pub fn of_self() -> Result<Self, String> {
-        let root = Path::new("/proc");
+        let root = procfs::sys();
         let pid = std::process::id();
-        let st = read_stat_path(pid, &root.join(format!("{pid}/stat")))
-            .map_err(|e| format!("own stat: {e}"))?
-            .ok_or("own stat: gone")?;
+        let st = root.stat(pid).map_err(|e| format!("own stat: {e}"))?;
         Ok(Self {
             pid,
             start_ticks: st.start_ticks,
             boot_id: super::boot_id().map_err(|e| format!("boot id: {e}"))?,
             pid_ns: own_pid_ns().map_err(|e| format!("pid namespace: {e}"))?,
-            ancestors: verified_ancestors_at(root, pid, st.start_ticks)?,
-            time_ns: own_time_ns(),
+            ancestors: verified_ancestors_at(&root, pid, st.start_ticks)?,
+            // the RECORD of an unknown time namespace (MJ-2: a later session that reads one counts as another)
+            // procfix8-ok: Gone (no time namespaces) and Unreadable are both recorded as "unknown" (None), by design
+            time_ns: own_time_ns().ok(),
         })
     }
 
@@ -107,15 +106,14 @@ impl SessionLineage {
 }
 
 /// Inode of this process's pid namespace.
-pub fn own_pid_ns() -> std::io::Result<u64> {
-    Ok(std::fs::metadata("/proc/self/ns/pid")?.ino())
+pub fn own_pid_ns() -> ProcResult<u64> {
+    procfs::sys().self_ns_ino("pid")
 }
 
-/// procfix7 (gate7 MJ-2): inode of this process's time namespace (None: no time namespaces on this kernel).
-pub fn own_time_ns() -> Option<u64> {
-    std::fs::metadata("/proc/self/ns/time")
-        .ok()
-        .map(|m| m.ino())
+/// procfix7 (gate7 MJ-2): inode of this process's time namespace (Gone: no time namespaces on this kernel;
+/// Unreadable: unknown).
+pub fn own_time_ns() -> ProcResult<u64> {
+    procfs::sys().self_ns_ino("time")
 }
 
 impl SessionLineage {
@@ -137,39 +135,54 @@ enum LinkRead {
     Top,
     /// The real parent of `x` (identity and stat), verified: `x` re-read with the same start and the same parent.
     Parent(Link, ProcStat),
-    /// `x` is gone or its pid names another process now.
+    /// `x` is PROVED dead: its stat read ENOENT / ESRCH, or its pid names a process with another start time now (a pid is
+    /// not reused while its process lives, so (pid, start) is dead in both cases). Nothing else is Gone (procfix8).
     Gone,
     /// The parent changed while it was read (re-parenting, pid reuse): read the chain again.
     Changed,
     /// A contradiction the kernel's rules exclude (a parent that started after its child): never a proof.
     Inconsistent(String),
+    /// procfix8 (gate8 G8-B1): a read of the link failed for any reason other than ENOENT / ESRCH (EMFILE, EIO, a torn or
+    /// unparsable stat, ...): never Gone, never Changed; the candidate stays POSSIBLY ours.
+    Unreadable(String),
 }
 
-fn stat_at(root: &Path, pid: u32) -> Option<ProcStat> {
-    read_stat_path(pid, &root.join(format!("{pid}/stat")))
-        .ok()
-        .flatten()
-}
-
-fn read_link(root: &Path, x: Link) -> LinkRead {
-    let Some(sx) = stat_at(root, x.0) else {
-        return LinkRead::Gone;
+/// One verified link: the stat of `x`, the stat of its parent, the stat of `x` again. procfix8 (gate8 G8-B1): before,
+/// EVERY failed stat read was "no stat" and the candidate's own first or third read made it Gone (dropped by the strict
+/// scan: a recovery / final sweep "proven" with a live marked non-dumpable daemon). Now only ENOENT / ESRCH or a
+/// different start time of the HELD pid is Gone; every other failure is Unreadable.
+fn read_link(root: &ProcRoot, x: Link) -> LinkRead {
+    let sx = match root.stat(x.0) {
+        Ok(s) => s,
+        Err(ProcError::Gone) => return LinkRead::Gone,
+        Err(ProcError::Unreadable(w)) => {
+            return LinkRead::Unreadable(format!("stat of {}: {w}", x.0));
+        }
     };
     if sx.start_ticks != x.1 {
+        // pid x names a newer process: the one with start x.1 is dead
         return LinkRead::Gone;
     }
     if sx.ppid == 0 {
         return LinkRead::Top;
     }
-    let Some(sy) = stat_at(root, sx.ppid) else {
-        return LinkRead::Changed;
+    let sy = match root.stat(sx.ppid) {
+        Ok(s) => s,
+        // the parent died: the child is being re-parented; read the chain again
+        Err(ProcError::Gone) => return LinkRead::Changed,
+        Err(ProcError::Unreadable(w)) => {
+            return LinkRead::Unreadable(format!("stat of {} (parent of {}): {w}", sx.ppid, x.0));
+        }
     };
     // The child again: same process, same parent -> the parent read above IS its real parent (a real parent is always
     // older than its child, so a pid reused by a newer process cannot be named by the child's ppid at the re-read).
-    match stat_at(root, x.0) {
-        Some(s) if s.start_ticks == x.1 && s.ppid == sx.ppid => {}
-        Some(s) if s.start_ticks == x.1 => return LinkRead::Changed,
-        _ => return LinkRead::Gone,
+    match root.stat(x.0) {
+        Ok(s) if s.start_ticks == x.1 && s.ppid == sx.ppid => {}
+        Ok(s) if s.start_ticks == x.1 => return LinkRead::Changed,
+        Ok(_) | Err(ProcError::Gone) => return LinkRead::Gone,
+        Err(ProcError::Unreadable(w)) => {
+            return LinkRead::Unreadable(format!("stat of {} (re-read): {w}", x.0));
+        }
     }
     if sy.start_ticks > x.1 {
         return LinkRead::Inconsistent(format!(
@@ -181,7 +194,7 @@ fn read_link(root: &Path, x: Link) -> LinkRead {
 }
 
 /// The verified ancestor chain of `(pid, start)` under a proc root, parent first, up to the top of the namespace.
-pub fn verified_ancestors_at(root: &Path, pid: u32, start: u64) -> Result<Vec<Link>, String> {
+pub fn verified_ancestors_at(root: &ProcRoot, pid: u32, start: u64) -> Result<Vec<Link>, String> {
     'attempt: for _ in 0..5 {
         let mut out: Vec<Link> = Vec::new();
         let mut x = (pid, start);
@@ -197,7 +210,7 @@ pub fn verified_ancestors_at(root: &Path, pid: u32, start: u64) -> Result<Vec<Li
                 }
                 LinkRead::Gone if x.0 == pid => return Err(format!("pid {pid} is gone")),
                 LinkRead::Gone | LinkRead::Changed => continue 'attempt,
-                LinkRead::Inconsistent(e) => return Err(e),
+                LinkRead::Inconsistent(e) | LinkRead::Unreadable(e) => return Err(e),
             }
         }
     }
@@ -205,12 +218,11 @@ pub fn verified_ancestors_at(root: &Path, pid: u32, start: u64) -> Result<Vec<Li
 }
 
 /// Is `pid` the init of a pid namespace NESTED below the reader's (`NSpid` with two or more fields, the last 1)?
-/// None: unreadable / gone.
-fn nested_init(root: &Path, pid: u32) -> Option<bool> {
-    let t = std::fs::read_to_string(root.join(format!("{pid}/status"))).ok()?;
-    let line = t.lines().find_map(|l| l.strip_prefix("NSpid:"))?;
-    let f: Vec<&str> = line.split_whitespace().collect();
-    Some(f.len() >= 2 && f.last() == Some(&"1"))
+/// procfix8: Gone (the process died) and Unreadable are distinct errors (the caller retries on Gone; Unreadable keeps
+/// the candidate possibly ours).
+fn nested_init(root: &ProcRoot, pid: u32) -> ProcResult<bool> {
+    let f = root.status(pid)?.nspid()?;
+    Ok(f.len() >= 2 && f.last() == Some(&1))
 }
 
 /// The rules that classify an unreadable candidate (see the module documentation).
@@ -309,12 +321,13 @@ pub enum Hidden {
     NotOurs(String),
     /// Could descend from this campaign: the scan stays inconclusive.
     Possible(String),
-    /// The candidate itself is gone (or its pid names another process now): not a candidate.
+    /// The candidate itself is PROVED dead (its stat ENOENT / ESRCH, or its pid names a process with another start time
+    /// now): not a candidate. procfix8: never the result of a failed read.
     Gone,
 }
 
 /// Classify the candidate `(pid, start)` (its environ unreadable) under a proc root with `rules`.
-pub fn classify_hidden_at(root: &Path, pid: u32, start: u64, rules: &LineageRules) -> Hidden {
+pub fn classify_hidden_at(root: &ProcRoot, pid: u32, start: u64, rules: &LineageRules) -> Hidden {
     for _ in 0..3 {
         let mut x: Link = (pid, start);
         let mut hops = 0usize;
@@ -323,6 +336,10 @@ pub fn classify_hidden_at(root: &Path, pid: u32, start: u64, rules: &LineageRule
                 LinkRead::Gone if x.0 == pid => return Hidden::Gone,
                 LinkRead::Gone | LinkRead::Changed => break,
                 LinkRead::Inconsistent(e) => return Hidden::Possible(e),
+                // procfix8 (gate8 G8-B1): an unreadable link is never a reason to drop the candidate
+                LinkRead::Unreadable(e) => {
+                    return Hidden::Possible(format!("its parent chain cannot be read ({e})"));
+                }
                 LinkRead::Top => {
                     // Every link examined was young, not a stop: no session subtree and no re-parent target contains
                     // the chain (the top of the namespace is a recorded ancestor of every session).
@@ -339,14 +356,21 @@ pub fn classify_hidden_at(root: &Path, pid: u32, start: u64, rules: &LineageRule
                         ));
                     }
                     match nested_init(root, y.0) {
-                        Some(true) => {
+                        Ok(true) => {
                             return Hidden::Possible(format!(
                                 "its parent chain passes pid {} ({}), the init of a nested pid namespace",
                                 y.0, sy.comm
                             ));
                         }
-                        Some(false) => {}
-                        None => break,
+                        Ok(false) => {}
+                        // the parent died meanwhile: read the chain again
+                        Err(ProcError::Gone) => break,
+                        Err(ProcError::Unreadable(w)) => {
+                            return Hidden::Possible(format!(
+                                "the status of pid {} ({}) in its parent chain cannot be read ({w})",
+                                y.0, sy.comm
+                            ));
+                        }
                     }
                     if rules.targets.contains(&y) {
                         return Hidden::Possible(format!(
@@ -437,7 +461,7 @@ pub fn rules_for(campaign_id: &str) -> Option<Arc<LineageRules>> {
 }
 
 /// Classify a candidate of a strict scan of `campaign_id` whose environ could not be read (production: `/proc`).
-pub(crate) fn classify_unreadable(root: &Path, st: &ProcStat, campaign_id: &str) -> Hidden {
+pub(crate) fn classify_unreadable(root: &ProcRoot, st: &ProcStat, campaign_id: &str) -> Hidden {
     match rules_for(campaign_id) {
         Some(r) => classify_hidden_at(root, st.pid, st.start_ticks, &r),
         None => Hidden::Possible(
@@ -541,7 +565,9 @@ mod tests {
         )
         .unwrap();
         assert!(r.targets.is_empty() && r.earliest == 10_000);
-        let c = |pid: u32, start: u64, r: &LineageRules| classify_hidden_at(&f.0, pid, start, r);
+        let c = |pid: u32, start: u64, r: &LineageRules| {
+            classify_hidden_at(&ProcRoot::at(&f.0), pid, start, r)
+        };
         assert!(matches!(c(2001, 12_000, &r), Hidden::NotOurs(w) if w.contains("pid 700")));
         assert!(
             matches!(c(2002, 12_500, &r), Hidden::Possible(w) if w.contains("this supervisor"))
@@ -606,13 +632,13 @@ mod tests {
         assert!(r.targets.contains(&(810, 6_000)));
         // 810 now names a young process (start 15000): walked through, then 700 (old, not a target) decides.
         assert!(
-            matches!(classify_hidden_at(&f.0, 2001, 15_100, &r), Hidden::NotOurs(w) if w.contains("pid 700"))
+            matches!(classify_hidden_at(&ProcRoot::at(&f.0), 2001, 15_100, &r), Hidden::NotOurs(w) if w.contains("pid 700"))
         );
         // A parent younger than its child: inconsistent, never a proof.
         f.put(2050, "odd", 2051, 15_200, None);
         f.put(2051, "younger-parent", 700, 15_300, None);
         assert!(matches!(
-            classify_hidden_at(&f.0, 2050, 15_200, &r),
+            classify_hidden_at(&ProcRoot::at(&f.0), 2050, 15_200, &r),
             Hidden::Possible(_)
         ));
     }
@@ -680,6 +706,78 @@ mod tests {
         assert!(t.starts_with("session_lineage {"));
         assert_eq!(SessionLineage::parse_note(&t), Some(me));
         assert_eq!(SessionLineage::parse_note("session_lineagex {}"), None);
+    }
+
+    /// procfix8 (gate8 G8-B1): a failed read of ANY link of the chain (every errno mode, a torn or garbage stat or
+    /// status) makes the candidate POSSIBLY ours, never Gone and never "not ours"; only a complete chain proves either.
+    /// The candidate's clean classification here is NotOurs (its parent pid 1 is older than every session and no
+    /// target), so a misread that answered Gone (dropped) or NotOurs would be visible.
+    #[test]
+    fn g8_b1_a_failed_read_of_the_chain_is_possible_never_gone() {
+        use super::procfs::{Faults, Kind, Mode};
+        let f = Fake::new("g8b1");
+        f.put(1, "init", 0, 1, None);
+        f.put(2001, "daemon", 1, 15_100, None);
+        let rules = LineageRules {
+            live: (900, 10_000),
+            targets: BTreeSet::new(),
+            earliest: 10_000,
+        };
+        assert!(matches!(
+            classify_hidden_at(&ProcRoot::at(&f.0), 2001, 15_100, &rules),
+            Hidden::NotOurs(_)
+        ));
+        // the gate's pattern: every 2nd stat read of the candidate fails (EMFILE / EIO), and every other mode
+        for every in [1, 2, 3] {
+            for m in Mode::ALL {
+                if m == Mode::Partial {
+                    continue;
+                }
+                for (kind, pid) in [
+                    (Kind::Stat, Some(2001)),
+                    (Kind::Stat, Some(1)),
+                    (Kind::Status, Some(1)),
+                ] {
+                    let root =
+                        ProcRoot::at(&f.0).with_faults(Faults::new().rule(kind, m, every, pid));
+                    let h = classify_hidden_at(&root, 2001, 15_100, &rules);
+                    // a fault the walk did not meet leaves the clean answer; every met fault is Possible
+                    assert!(
+                        matches!(&h, Hidden::Possible(w) if w.contains("cannot be read"))
+                            || matches!(h, Hidden::NotOurs(_)),
+                        "{kind:?} {m:?} every {every} pid {pid:?}: {h:?}"
+                    );
+                    assert!(h != Hidden::Gone, "{kind:?} {m:?} every {every}: GONE");
+                }
+                // every read of the candidate's stat fails: always Possible
+                let root = ProcRoot::at(&f.0).with_faults(Faults::new().rule(
+                    Kind::Stat,
+                    m,
+                    1,
+                    Some(2001),
+                ));
+                assert!(
+                    matches!(
+                        classify_hidden_at(&root, 2001, 15_100, &rules),
+                        Hidden::Possible(_)
+                    ),
+                    "{m:?}"
+                );
+            }
+        }
+        // a partial read (7 bytes per read()) is complete: the clean answer
+        let root =
+            ProcRoot::at(&f.0).with_faults(Faults::new().rule(Kind::Stat, Mode::Partial, 1, None));
+        assert!(matches!(
+            classify_hidden_at(&root, 2001, 15_100, &rules),
+            Hidden::NotOurs(_)
+        ));
+        // only ENOENT of the candidate itself is Gone
+        std::fs::remove_dir_all(f.0.join("2001")).unwrap();
+        assert_eq!(
+            classify_hidden_at(&ProcRoot::at(&f.0), 2001, 15_100, &rules),
+            Hidden::Gone
+        );
     }
 
     /// procfix7 (gate7 MJ-2): a session of this boot that ran in another TIME namespace switches the rule OFF (start

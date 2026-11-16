@@ -37,7 +37,7 @@ use std::time::{Duration, Instant};
 pub const CAMP: &str = "rbcamp";
 
 pub fn stat(pid: u32) -> Option<ProcStat> {
-    read_stat(pid).ok().flatten()
+    read_stat(pid).ok()
 }
 
 /// Live (not zombie / dead) process with this start time? (A dead main thread with a live thread counts as alive.)
@@ -45,10 +45,10 @@ pub fn alive(pid: u32, start: u64) -> bool {
     stat(pid).is_some_and(|s| {
         s.start_ticks == start
             && (!s.is_dead()
-                || rustred_campaign::resources::live_thread(pid)
-                    .ok()
-                    .flatten()
-                    .is_some())
+                || matches!(
+                    rustred_campaign::resources::live_thread(pid),
+                    Ok(rustred_campaign::resources::LiveThread::Found(..))
+                ))
     })
 }
 
