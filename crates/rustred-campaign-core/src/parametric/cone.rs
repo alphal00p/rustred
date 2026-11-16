@@ -1366,3 +1366,68 @@ pub fn fall_through_poles_reduced(
     };
     Ok((d, st))
 }
+
+/// Every key of a LATTICE region (`x = x0 + M t`, constraints on `t`) inside `cone`, when the parameter box of
+/// `region and cone` (per-parameter ranges, rational projection with rounding: a superset) has at most `cap` points;
+/// `None` = unbounded or too large. Each parameter point satisfying the constraints gives its key (`x(t)`); keys outside
+/// `i32` are skipped. The companion of [`cell_keys_each`] for locus pieces / unresolved parts.
+pub fn region_keys_each(
+    region: &Region,
+    cone: &Cone,
+    cap: u64,
+    f: &mut dyn FnMut(&[i32]),
+) -> Option<()> {
+    let reg = with_cone(region, cone)?;
+    let k = reg.k;
+    let mut lo = vec![0i128; k];
+    let mut hi = vec![0i128; k];
+    for j in 0..k {
+        let (l, h) = reg.range_of(j).ok()?;
+        lo[j] = l?;
+        hi[j] = h?;
+        if lo[j] > hi[j] {
+            return Some(());
+        }
+    }
+    let mut size: u64 = 1;
+    for j in 0..k {
+        size = size.checked_mul(u64::try_from(hi[j] - lo[j] + 1).ok()?)?;
+        if size > cap {
+            return None;
+        }
+    }
+    let mut t = lo.clone();
+    loop {
+        if reg.contains_t(&t).unwrap_or(false) {
+            let key: Option<Vec<i32>> = reg
+                .x
+                .iter()
+                .map(|a| {
+                    let v = a
+                        .coef
+                        .iter()
+                        .zip(&t)
+                        .try_fold(a.c, |acc, (c, x)| acc.checked_add(c.checked_mul(*x)?))?;
+                    i32::try_from(v).ok()
+                })
+                .collect();
+            if let Some(key) = key
+                && cone.contains(&key)
+            {
+                f(&key);
+            }
+        }
+        let mut j = 0;
+        loop {
+            if j == k {
+                return Some(());
+            }
+            if t[j] < hi[j] {
+                t[j] += 1;
+                break;
+            }
+            t[j] = lo[j];
+            j += 1;
+        }
+    }
+}

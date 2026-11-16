@@ -1379,6 +1379,31 @@ fn b2_face_by_face() {
     let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
         .ok()
         .map(|f| restore_loci(&mut ld, &f));
+    // PARAMETRIC_NOTCARRIED=engine: records whose source carries NO witness loci (status NotCarried: T162's converted
+    // bank tables) are treated as the ENGINE treats them (its matcher never tests witness loci; it writes their
+    // vanishing sets into the exceptions): their witness check is disabled (Assurance::CheckDisabled, labelled in the
+    // evidence). Default: the core's fail-closed block (every key where such a record is selected is open).
+    let mut notcarried_disabled = 0usize;
+    if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
+        use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+        let mut tables = ld.disp.tables().to_vec();
+        for t in &mut tables {
+            for m in &mut t.meta {
+                if m.witness == WitnessStatus::NotCarried {
+                    m.witness_basis = Assurance::CheckDisabled;
+                    notcarried_disabled += 1;
+                }
+            }
+        }
+        let d = Dispatcher::new(tables, ld.disp.priority().to_vec()).unwrap();
+        ld.disp = match ld.disp.chart() {
+            Some(c) => d.with_chart(c.to_vec()).unwrap(),
+            None => d,
+        };
+        eprintln!(
+            "NotCarried records with the witness check disabled (engine semantics): {notcarried_disabled}"
+        );
+    }
     // decision G5 fall-through: "1" = every pole locus moved into the exceptions; "reduced" = loci proved disjoint
     // from their record's selected set dropped, the others moved (cone::fall_through_poles_reduced; same dispatch)
     // "core+g5": the partition runs on the CORE dispatch (a pole = stop set, blocked sub-partitions; equal to G5 on
@@ -1388,7 +1413,46 @@ fn b2_face_by_face() {
     let fall_through = ft_mode == "1" || ft_mode == "reduced";
     let fell;
     let mut ft_stats = serde_json::Value::Null;
-    let g5: Option<Dispatcher> = if ft_mode == "core+g5" {
+    // PARAMETRIC_REDISPATCH_SPEC: the residual keys are judged by ANOTHER dispatcher (sources list / import spec; same
+    // restored loci, NotCarried mode and reduced G5 fall-through), e.g. the catalogue + services on top of a cheaper
+    // partition; recorded in the evidence
+    let redispatch_spec = std::env::var("PARAMETRIC_REDISPATCH_SPEC").ok();
+    let g5: Option<Dispatcher> = if let Some(rs) = &redispatch_spec {
+        let mut l2 = load_any(Path::new(rs), None);
+        if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+            restore_loci(&mut l2, &f);
+        }
+        if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
+            use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+            let mut tables = l2.disp.tables().to_vec();
+            for t in &mut tables {
+                for m in &mut t.meta {
+                    if m.witness == WitnessStatus::NotCarried {
+                        m.witness_basis = Assurance::CheckDisabled;
+                    }
+                }
+            }
+            let d = Dispatcher::new(tables, l2.disp.priority().to_vec()).unwrap();
+            l2.disp = match l2.disp.chart() {
+                Some(c) => d.with_chart(c.to_vec()).unwrap(),
+                None => d,
+            };
+        }
+        let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+            &l2.disp,
+            &l2.frame,
+            &ProofBudget::default(),
+        )
+        .unwrap();
+        eprintln!(
+            "re-dispatcher {rs}: {} records ({}); reduced fall-through {}/{} redundant",
+            l2.jobs.len(),
+            l2.loader,
+            st.redundant,
+            st.poles
+        );
+        Some(d)
+    } else if ft_mode == "core+g5" {
         let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
             &ld.disp,
             &ld.frame,
@@ -1625,14 +1689,23 @@ fn b2_face_by_face() {
             for l in &cov.listed {
                 let i = l["element"].as_u64().unwrap() as usize;
                 let el = &cp.elements[i];
-                if el.kind != "generic" || res_keys >= residual_max {
+                if el.kind == "unexplored" || res_keys >= residual_max {
                     unsized_cells += 1;
                     continue;
                 }
                 let mut keys_here = Vec::new();
-                match cell_keys_each(&el.region(), &cone, &frame, 1_000_000, &mut |k| {
-                    keys_here.push(k.to_vec())
-                }) {
+                let mut push = |k: &[i32]| keys_here.push(k.to_vec());
+                let sized = if el.cell.is_some() {
+                    cell_keys_each(&el.region(), &cone, &frame, 1_000_000, &mut push)
+                } else {
+                    rustred_campaign_core::parametric::cone::region_keys_each(
+                        &el.region(),
+                        &cone,
+                        1_000_000,
+                        &mut push,
+                    )
+                };
+                match sized {
                     Some(()) => {
                         for k in keys_here {
                             res_keys += 1;
@@ -1784,6 +1857,7 @@ fn b2_face_by_face() {
         "spec": {"path": spec_path.display().to_string(), "sha256": sha256_file(&spec_path)},
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "restored_loci": restored, "fall_through": ft_mode, "fall_through_stats": ft_stats, "factor_exceptions": opts.factor_exceptions,
+        "notcarried_witness_check_disabled": notcarried_disabled, "residual_redispatch_spec": redispatch_spec,
         "budget_per_piece": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo, "rss_gb": rss_max >> 30},
         "pieces": {"done": done.len(), "refined": refined, "failed": failed.iter().map(|v| v["piece"].clone()).collect::<Vec<_>>(), "run_now": n_run},
     });
@@ -1913,4 +1987,117 @@ fn append_variant_changes_no_statement_key() {
         "append check: {n} keys, {changed} changed, {open_both} open in both; appended {} tables / {n_app} records",
         appended.len()
     );
+}
+
+/// Exact KEY-LEVEL re-dispatch: every key of PARAMETRIC_KEYS (a `*.cellkeys.jsonl`, rows `{"key", "open"}`; only open
+/// rows unless PARAMETRIC_KEYS_ALL=1) through the dispatcher of PARAMETRIC_SPEC (sources list or import spec), with
+/// PARAMETRIC_SUPPLIED_LOCI, PARAMETRIC_NOTCARRIED=engine and the decision-G5 reduced fall-through applied as in
+/// `b2_face_by_face`. Output PARAMETRIC_OUT (JSON): counts by dispatch reason and by face of the keys left open.
+#[test]
+#[ignore]
+fn redispatch_keys() {
+    use rustred_campaign_core::cover::Dispatch;
+    use rustred_campaign_core::partition::face_of;
+    use std::io::BufRead;
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let keys_p = PathBuf::from(std::env::var("PARAMETRIC_KEYS").expect("PARAMETRIC_KEYS"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let all = std::env::var("PARAMETRIC_KEYS_ALL").as_deref() == Ok("1");
+    let mut ld = load_any(
+        &spec,
+        std::env::var("PARAMETRIC_INDEX_DIR")
+            .ok()
+            .map(PathBuf::from),
+    );
+    if let Ok(x) = std::env::var("PARAMETRIC_EXTRA_SOURCES") {
+        ld = append_sources(ld, Path::new(&x));
+    }
+    let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
+        .ok()
+        .map(|f| restore_loci(&mut ld, &f));
+    let mut notcarried = 0usize;
+    if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
+        use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+        let mut tables = ld.disp.tables().to_vec();
+        for t in &mut tables {
+            for m in &mut t.meta {
+                if m.witness == WitnessStatus::NotCarried {
+                    m.witness_basis = Assurance::CheckDisabled;
+                    notcarried += 1;
+                }
+            }
+        }
+        let d = Dispatcher::new(tables, ld.disp.priority().to_vec()).unwrap();
+        ld.disp = match ld.disp.chart() {
+            Some(c) => d.with_chart(c.to_vec()).unwrap(),
+            None => d,
+        };
+    }
+    let (g5, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+        &ld.disp,
+        &ld.frame,
+        &ProofBudget::default(),
+    )
+    .unwrap();
+    let lines: Vec<bool> = (0..ld.frame.arity()).map(|i| ld.frame.is_line(i)).collect();
+    let f = std::io::BufReader::new(std::fs::File::open(&keys_p).unwrap());
+    let (mut n, mut open) = (0u64, 0u64);
+    let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+    let mut faces: BTreeMap<String, u64> = BTreeMap::new();
+    let mut served_by_table: BTreeMap<String, u64> = BTreeMap::new();
+    for line in f.lines() {
+        let line = line.unwrap();
+        if line.trim().is_empty() {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(&line).unwrap();
+        if !all && v["open"] != true {
+            continue;
+        }
+        let k: Vec<i32> = v["key"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_i64().unwrap() as i32)
+            .collect();
+        n += 1;
+        let d = g5.first_match(&k);
+        let why = match &d {
+            Ok(Dispatch::Covered(r)) => {
+                *served_by_table
+                    .entry(g5.tables()[r.table].name.clone())
+                    .or_default() += 1;
+                "covered".to_string()
+            }
+            other => {
+                let s = format!("{other:?}");
+                match s.find("reason: ") {
+                    Some(p) => format!(
+                        "blocked:{}",
+                        s[p + 8..]
+                            .chars()
+                            .take_while(|c| c.is_alphanumeric() || *c == '_')
+                            .collect::<String>()
+                    ),
+                    None => s.chars().take(40).collect(),
+                }
+            }
+        };
+        if why != "covered" {
+            open += 1;
+            *faces
+                .entry(format!("{:?}", face_of(&lines, &k)))
+                .or_default() += 1;
+        }
+        *reasons.entry(why).or_default() += 1;
+    }
+    let res = json!({
+        "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "loader": ld.loader,
+        "keys": {"path": keys_p.display().to_string(), "sha256": sha256_file(&keys_p), "only_open_rows": !all},
+        "restored_loci": restored, "notcarried_witness_check_disabled": notcarried, "fall_through": "reduced (decision G5)",
+        "fall_through_stats": {"poles": st.poles, "redundant": st.redundant, "moved_unknown": st.moved_unknown, "moved_nonempty": st.moved_nonempty},
+        "keys_checked": n, "open": open, "by_dispatch": reasons, "open_by_face": faces, "covered_by_table": served_by_table,
+    });
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!("redispatch: {n} keys, {open} open");
 }
