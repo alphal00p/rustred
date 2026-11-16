@@ -61,12 +61,20 @@ type ValuePass = (Vec<(Key, Vec<Vec<u64>>)>, Vec<(Key, Vec<Vec<u64>>)>, usize);
 /// The first fallback value of `d` not in `dims` (an integer above every integer of `dims` when `integer`).
 fn fallback_d(dims: &[Q], integer: bool) -> Q {
     if integer {
-        let top = dims.iter().filter(|d| d.d == 1).map(|d| d.n).max().unwrap_or(0);
+        let top = dims
+            .iter()
+            .filter(|d| d.d == 1)
+            .map(|d| d.n)
+            .max()
+            .unwrap_or(0);
         return Q { n: top + 1, d: 1 };
     }
     FALLBACK_D
         .into_iter()
-        .chain((1..).map(|k| Q { n: 1000 * k + 7, d: 997 }))
+        .chain((1..).map(|k| Q {
+            n: 1000 * k + 7,
+            d: 997,
+        }))
         .find(|f| !dims.contains(f))
         .expect("infinite")
 }
@@ -756,11 +764,15 @@ impl Table {
         let mut dims: Vec<Q> = dims.to_vec();
         let mut replaced: Vec<(String, String)> = vec![];
         let (out_m, out_l, lower_nonzero) = loop {
-            match self.reduce_values(primes, &dims, n, &roots, &nodes, &kind, &rule_of, &kids, &post, keep_lower)? {
+            match self.reduce_values(
+                primes, &dims, n, &roots, &nodes, &kind, &rule_of, &kids, &post, keep_lower,
+            )? {
                 Ok(values) => break values,
                 Err((poles, at)) => {
                     if replaced.len() + poles.len() > MAX_DIM_REPLACEMENTS {
-                        return Err(format!("coefficient pole at {at}: too many sample d replaced ({replaced:?})"));
+                        return Err(format!(
+                            "coefficient pole at {at}: too many sample d replaced ({replaced:?})"
+                        ));
                     }
                     for di in poles {
                         let fresh = fallback_d(&dims, dims[di].d == 1);
@@ -1564,8 +1576,16 @@ pub fn few_check(
     new_in_old: &Matrix,
     opt: &MapOptions,
 ) -> Result<Value, String> {
-    let ro = same_dims(old.reduce_mod(keys, &opt.primes, &opt.dims, false)?, &opt.dims)?.exact_masters()?;
-    let rn = same_dims(new.reduce_mod(keys, &opt.primes, &opt.dims, false)?, &opt.dims)?.exact_masters()?;
+    let ro = same_dims(
+        old.reduce_mod(keys, &opt.primes, &opt.dims, false)?,
+        &opt.dims,
+    )?
+    .exact_masters()?;
+    let rn = same_dims(
+        new.reduce_mod(keys, &opt.primes, &opt.dims, false)?,
+        &opt.dims,
+    )?
+    .exact_masters()?;
     let mut all = true;
     let mut detail = vec![];
     for (j, k) in keys.iter().enumerate() {
@@ -1638,12 +1658,18 @@ pub fn build_map(old: &mut Table, new: &mut Table, opt: &MapOptions) -> Result<V
     let a_red = if new_only.is_empty() {
         None
     } else {
-        Some(same_dims(old.reduce_mod(&new_only, &opt.primes, &opt.dims, false)?, &opt.dims)?)
+        Some(same_dims(
+            old.reduce_mod(&new_only, &opt.primes, &opt.dims, false)?,
+            &opt.dims,
+        )?)
     };
     let b_red = if old_only.is_empty() {
         None
     } else {
-        Some(same_dims(new.reduce_mod(&old_only, &opt.primes, &opt.dims, false)?, &opt.dims)?)
+        Some(same_dims(
+            new.reduce_mod(&old_only, &opt.primes, &opt.dims, false)?,
+            &opt.dims,
+        )?)
     };
     let a_ex = a_red
         .as_ref()
@@ -2086,19 +2112,30 @@ mod tests {
         ];
         let path = write("pole.jsonl", &lines);
         let mut t = Table::load(&path).unwrap();
-        let r = t.reduce_mod(&[vec![1, 2]], &PRIMES[..2], &check_dims(), false).unwrap();
-        assert_eq!(r.dims, vec![Q { n: 53, d: 11 }, Q { n: -11, d: 5 }, Q { n: 9, d: 13 }]);
+        let r = t
+            .reduce_mod(&[vec![1, 2]], &PRIMES[..2], &check_dims(), false)
+            .unwrap();
+        assert_eq!(
+            r.dims,
+            vec![Q { n: 53, d: 11 }, Q { n: -11, d: 5 }, Q { n: 9, d: 13 }]
+        );
         assert_eq!(r.stats["dims_replaced"], json!([["37/7", "53/11"]]));
         let ex = r.exact_masters().unwrap();
         for (di, d) in r.dims.iter().enumerate() {
             let d = rat_of_q(d);
-            let want = &(&d - &Rational::from(4)) / &(&(&Rational::from(7) * &d) - &Rational::from(37));
+            let want =
+                &(&d - &Rational::from(4)) / &(&(&Rational::from(7) * &d) - &Rational::from(37));
             assert_eq!(ex[0][&vec![2, 1]][di], want);
         }
         // integer samples (symbolic fits): 1002 is replaced by 1005 (above every sample)
         let dims: Vec<Q> = (0..4).map(|k| Q::int(1001 + k)).collect();
-        let r = t.reduce_mod(&[vec![1, 2]], &PRIMES[..2], &dims, false).unwrap();
-        assert_eq!(r.dims.iter().map(|d| d.n).collect::<Vec<_>>(), vec![1001, 1005, 1003, 1004]);
+        let r = t
+            .reduce_mod(&[vec![1, 2]], &PRIMES[..2], &dims, false)
+            .unwrap();
+        assert_eq!(
+            r.dims.iter().map(|d| d.n).collect::<Vec<_>>(),
+            vec![1001, 1005, 1003, 1004]
+        );
         // a comparison at the requested d refuses a replaced sample
         assert!(same_dims(r, &dims).is_err());
     }

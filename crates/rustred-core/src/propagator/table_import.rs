@@ -608,6 +608,9 @@ fn parse_key_any(text: &str, arity: usize) -> Result<Vec<AliasSlot>, PError> {
 pub struct SlotAliasRecord {
     /// The rule's index in the table (its first-match position).
     pub index: usize,
+    /// The number of ordinary rules of its chart before it in the table: a rule of the chart at a position at or
+    /// beyond this one comes AFTER the alias in first match (the alias wins where both apply).
+    pub rules_before: usize,
     pub chart: Vec<bool>,
     pub fixed: Vec<Option<i64>>,
     pub min: Vec<Option<i64>>,
@@ -641,29 +644,6 @@ impl SlotAliasRecord {
                 })
                 .collect(),
         )
-    }
-
-    /// Whether a rule with `fixed` and bounds `min` / `max` on the same chart may match a key of this alias's domain
-    /// (conservative: only fixed values and bounds are compared; a rule's equations / exceptions are ignored).
-    fn may_overlap(&self, fixed: &[Option<i64>], min: &[Option<i64>], max: &[Option<i64>]) -> bool {
-        (0..self.chart.len()).all(|slot| {
-            let low = self.min[slot].max(min[slot]);
-            let high = match (self.max[slot], max[slot]) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
-            let inside = |value: i64| {
-                low.is_none_or(|low| value >= low) && high.is_none_or(|high| value <= high)
-            };
-            match (self.fixed[slot], fixed[slot]) {
-                (Some(a), Some(b)) => a == b && inside(a),
-                (Some(a), None) | (None, Some(a)) => inside(a),
-                (None, None) => match (low, high) {
-                    (Some(low), Some(high)) => low <= high,
-                    _ => true,
-                },
-            }
-        })
     }
 }
 
@@ -745,6 +725,31 @@ fn slot_alias_record(
             "every index of the target must occur exactly once in the image",
         ));
     }
+    // a declared slot map (`rhs_slot_maps`, top level or in `symmetry_origin`: per rhs term, per term slot j the
+    // target slot whose index the term carries there, null for a constant) must be the one read from the symbols
+    let declared = record
+        .get("rhs_slot_maps")
+        .or_else(|| record["symmetry_origin"].get("rhs_slot_maps"));
+    if let Some(declared) = declared {
+        let map = declared
+            .as_array()
+            .filter(|maps| maps.len() == 1)
+            .and_then(|maps| maps[0].as_array())
+            .filter(|map| map.len() == arity)
+            .ok_or_else(|| malformed("rhs_slot_maps: one array of the arity per rhs term"))?;
+        for (j, part) in child.iter().enumerate() {
+            let agrees = match (*part, &map[j]) {
+                (AliasSlot::Fixed(_), Value::Null) => true,
+                (AliasSlot::Index { slot, .. }, entry) => entry.as_u64() == Some(slot as u64),
+                _ => false,
+            };
+            if !agrees {
+                return Err(refuse(
+                    "rhs_slot_maps disagrees with the symbols of the image",
+                ));
+            }
+        }
+    }
     let coefficient_text = pair[1]
         .as_str()
         .ok_or_else(|| malformed("rhs coefficient"))?
@@ -776,6 +781,7 @@ fn slot_alias_record(
     }
     Ok(SlotAliasRecord {
         index,
+        rules_before: 0,
         chart: permuted(chart, slot_map),
         fixed: permuted(fixed, slot_map),
         min: permuted(min, slot_map),
@@ -2696,25 +2702,11 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                         arity,
                         &slot_map,
                     )?;
-                    slot_aliases[sector].push(alias);
+                    slot_aliases[sector].push(SlotAliasRecord {
+                        rules_before: sectors[sector].rules,
+                        ..alias
+                    });
                     continue;
-                }
-                // first match: a rule AFTER an alias of its chart must be disjoint from the alias's domain (the
-                // aliases are dispatched after every ordinary rule of the owner)
-                if let Some(alias) = slot_aliases[sector].iter().find(|alias| {
-                    alias.may_overlap(
-                        &permuted(&rule_fixed, &slot_map),
-                        &permuted(&rule_min, &slot_map),
-                        &permuted(&rule_max, &slot_map),
-                    )
-                }) {
-                    return Err(gap(
-                        "slot_alias_order",
-                        format!(
-                            "rule {index} of chart {} may match a key of the slot-permuted alias rule {} before it",
-                            charts[sector], alias.index
-                        ),
-                    ));
                 }
                 let case_text = case_text(record)?;
                 let equations = record["equations"]
@@ -3215,17 +3207,6 @@ mod tests {
         let mut numerator = key;
         numerator[12] = -1;
         assert!(alias.image(&numerator).is_none());
-        // first match: a later rule fixing n2 = 1 is disjoint, one fixing n2 = 3 (others free) overlaps
-        let none = vec![None; arity];
-        let mut fixed_one = none.clone();
-        fixed_one[2] = Some(1);
-        assert!(!alias.may_overlap(&fixed_one, &none, &none));
-        let mut fixed_three = none.clone();
-        fixed_three[2] = Some(3);
-        assert!(alias.may_overlap(&fixed_three, &none, &none));
-        let mut zero = none.clone();
-        zero[0] = Some(0);
-        assert!(!alias.may_overlap(&zero, &none, &none));
         // the provenance line round-trips
         let line = format!(
             "imported{SLOT_ALIASES_MARKER}{}{SLOT_ORDER_MARKER}{{}}",
@@ -3233,6 +3214,30 @@ mod tests {
         );
         assert_eq!(slot_aliases_of_source(&line).unwrap(), vec![alias]);
         assert!(slot_aliases_of_source("imported").unwrap().is_empty());
+        // a declared rhs_slot_maps (implementer's form, in symmetry_origin or top level) is checked, and a record
+        // without "case" is read by its equations
+        let mut declared = record.clone();
+        declared.as_object_mut().unwrap().remove("case");
+        let mut map = vec![serde_json::Value::Null; arity];
+        map[1] = 2.into();
+        map[4] = 5.into();
+        map[8] = 9.into();
+        declared["symmetry_origin"] = serde_json::json!({"rhs_slot_maps": [map.clone()]});
+        assert!(
+            slot_alias_record(
+                &declared, 5240, &chart, &fixed, &min, &max, arity, &identity
+            )
+            .is_ok()
+        );
+        map[4] = 2.into();
+        declared["symmetry_origin"] = serde_json::json!({});
+        declared["rhs_slot_maps"] = serde_json::json!([map]);
+        assert!(
+            slot_alias_record(
+                &declared, 5240, &chart, &fixed, &min, &max, arity, &identity
+            )
+            .is_err()
+        );
         // not the alias form: two terms, or an index used twice
         let mut two = record.clone();
         two["rhs"] = serde_json::json!([
