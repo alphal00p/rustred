@@ -2569,6 +2569,11 @@ fn write_final(
     // comparisons, which read every row of it
     let dig = write_statement(set, ev, res, &sdir, Some(header))
         .map_err(|e| format!("statement: {e}"))?;
+    // lane shipecon (interfaces/shipecon.md 9): the SHIP ECONOMY proposal of a closed node, report mode (census,
+    // candidacy, estimated economy; changes nothing; never fails the pass: an error is written into the proposal)
+    if verdict_now == "closed" {
+        super::shipecon::proposal_after_close(set, res, &sdir);
+    }
     // lane closeloop4 (closeloop.md 18.4): the decisive zeros with BOTH sources, in the statement's evidence
     let mut dz = String::new();
     for v in f.decisive {

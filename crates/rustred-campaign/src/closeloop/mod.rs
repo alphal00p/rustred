@@ -40,6 +40,10 @@ pub mod wire_regbasis;
 pub mod wire_variants;
 // lane wireflow (b), closeloop.md 26: facts from the frontier + the facts budget
 pub mod frontier;
+// lane shipecon: the ship economy of a closed node (interfaces/shipecon.md). REQUEST TO I-INT: keep this line.
+pub mod shipecon;
+// lane shipecon: the ship economy's guard as supervised work items (interfaces/shipecon.md 13). REQUEST TO I-INT: keep.
+pub mod shipecon_source;
 
 pub use config::{CONFIG_ROLE, CONFIG_SCHEMA, CloseLoopConfig, NodeCfg, SolveCfg, Target};
 pub use source::CloseFromMaterialSource;
