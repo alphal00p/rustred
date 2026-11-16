@@ -1384,13 +1384,20 @@ fn b2_face_by_face() {
     // vanishing sets into the exceptions): their witness check is disabled (Assurance::CheckDisabled, labelled in the
     // evidence). Default: the core's fail-closed block (every key where such a record is selected is open).
     let mut notcarried_disabled = 0usize;
-    if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
+    let elided_engine = std::env::var("PARAMETRIC_ELIDED").as_deref() == Ok("engine");
+    if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") || elided_engine {
+        // PARAMETRIC_ELIDED=engine: records whose witness loci are ELIDED are applied as the engine applies them
+        // (its matcher never tests witness loci); labelled in the evidence (notcarried_witness_check_disabled counts both)
         use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+        let nc = std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine");
         let mut tables = ld.disp.tables().to_vec();
         for t in &mut tables {
-            for m in &mut t.meta {
-                if m.witness == WitnessStatus::NotCarried {
+            for (m, d) in t.meta.iter_mut().zip(t.domains.iter_mut()) {
+                if (nc && m.witness == WitnessStatus::NotCarried)
+                    || (elided_engine && m.witness == WitnessStatus::Elided)
+                {
                     m.witness_basis = Assurance::CheckDisabled;
+                    d.witness_elided = false;
                     notcarried_disabled += 1;
                 }
             }
@@ -1860,7 +1867,7 @@ fn b2_face_by_face() {
         "spec": {"path": spec_path.display().to_string(), "sha256": sha256_file(&spec_path)},
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "restored_loci": restored, "fall_through": ft_mode, "fall_through_stats": ft_stats, "factor_exceptions": opts.factor_exceptions,
-        "notcarried_witness_check_disabled": notcarried_disabled, "residual_redispatch_spec": redispatch_spec,
+        "notcarried_witness_check_disabled": notcarried_disabled, "elided_engine": elided_engine, "residual_redispatch_spec": redispatch_spec,
         "budget_per_piece": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo, "rss_gb": rss_max >> 30},
         "pieces": {"done": done.len(), "refined": refined, "failed": failed.iter().map(|v| v["piece"].clone()).collect::<Vec<_>>(), "run_now": n_run},
     });
@@ -2199,13 +2206,42 @@ fn element_probe(
         } else {
             region_keys_each(&el.region(), &cone, 2_000_000, &mut |_| nk += 1)
         };
+        let later = std::env::var("PARAMETRIC_PROBE_LATER").as_deref() == Ok("1");
         let blocker = el.blocked_by.map(|e| {
             let r = src.rule_ref(e);
             let applies = bx
                 .as_ref()
                 .and_then(|b| box_inside_domain(b, src.domain(e), frame, &budget));
+            let exact_lits = bx.as_ref().and_then(|b| {
+                rustred_campaign_core::parametric::cone::literals_exact_on_box(
+                    src.domain(e),
+                    b,
+                    1 << 20,
+                )
+            });
+            // the first LATER record (dispatch order) that applies on the whole element, with its own literal status
+            let mut later_rec = serde_json::Value::Null;
+            if later
+                && applies != Some(true)
+                && let Some(b) = &bx
+            {
+                for j in e + 1..src.len() {
+                    if box_inside_domain(b, src.domain(j), frame, &budget) == Some(true) {
+                        let rr = src.rule_ref(j);
+                        let ex = rustred_campaign_core::parametric::cone::literals_exact_on_box(
+                            src.domain(j),
+                            b,
+                            1 << 20,
+                        );
+                        later_rec = json!({"source": j, "table": disp.tables()[rr.table].name,
+                            "label": rr.label, "literals_exact_on_element": ex});
+                        break;
+                    }
+                }
+            }
             json!({"source": e, "table": disp.tables()[r.table].name, "label": r.label,
-                   "applies_on_whole_element": applies})
+                   "applies_on_whole_element": applies, "literals_exact_on_element": exact_lits,
+                   "later_container": later_rec})
         });
         let mut contained = serde_json::Value::Null;
         let mut contain_undecided = 0usize;
@@ -2252,4 +2288,269 @@ fn element_probe(
         }
     }
     f.flush().unwrap();
+}
+
+/// T178-UNBOXED item A': the stated radius R. For every record of the dispatch (PARAMETRIC_SPEC, PARAMETRIC_APPENDED,
+/// PARAMETRIC_FALLTHROUGH = 1 | reduced) its engine modular-zero risk (`partition::nf::modular_risk`): Far radii
+/// `(v, r)` (a misread needs |pt[v]| >= r), Points, Anywhere. A key with D + r <= R has every line <= R + 1 and every
+/// |numerator| <= R, so |pt[v]| <= R + 1 + |o_v| (o_v = the target offset of parameter v; an unmapped parameter keeps
+/// its fixed value). R_record = min over its Far entries of (r - |o_v| - 2); R = min over records. Points / Anywhere
+/// risks are listed (a Points risk inside the cone is a stop AT that point). Output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn modular_radii() {
+    use rustred_campaign_core::domain::{TargetMap, TargetSlot};
+    use rustred_campaign_core::partition::nf::{ModularRisk, modular_risk};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let ld = load_any(&spec, None);
+    let mode = std::env::var("PARAMETRIC_FALLTHROUGH").unwrap_or_default();
+    let disp = match mode.as_str() {
+        "1" => rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap(),
+        "reduced" => {
+            let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+                &ld.disp,
+                &ld.frame,
+                &ProofBudget::default(),
+            )
+            .unwrap();
+            eprintln!(
+                "reduced fall-through: {}",
+                serde_json::to_string(&json!({"poles": st.poles, "redundant": st.redundant,
+                    "moved_nonempty": st.moved_nonempty, "moved_unknown": st.moved_unknown}))
+                .unwrap()
+            );
+            d
+        }
+        _ => {
+            let d =
+                Dispatcher::new(ld.disp.tables().to_vec(), ld.disp.priority().to_vec()).unwrap();
+            match ld.disp.chart() {
+                Some(c) => d.with_chart(c.to_vec()).unwrap(),
+                None => d,
+            }
+        }
+    };
+    let mut recs = Vec::new();
+    let mut r_global: Option<(i128, String, i64)> = None;
+    let (mut n_far, mut n_points, mut n_any) = (0, 0, 0);
+    for &ti in disp.priority() {
+        let t = &disp.tables()[ti];
+        for (ri, d) in t.domains.iter().enumerate() {
+            let Some(risk) = modular_risk(d) else {
+                continue;
+            };
+            let label = t.labels.get(ri).copied().unwrap_or(-1);
+            let off = |v: usize| -> Option<i128> {
+                match &d.target {
+                    TargetMap::Canonical => Some(0),
+                    TargetMap::Pattern(slots) => slots.iter().find_map(|s| match *s {
+                        TargetSlot::Param { param, offset } if param == v => {
+                            Some(i128::from(offset).abs())
+                        }
+                        _ => None,
+                    }),
+                }
+            };
+            match &risk {
+                ModularRisk::Far(list) => {
+                    n_far += 1;
+                    let mut rr: Option<i128> = None;
+                    for &(v, r) in list {
+                        // unmapped parameter: fixed value (never reaches r if |fixed| < r)
+                        let Some(o) = off(v) else { continue };
+                        let b = r.abs() - o - 2;
+                        rr = Some(rr.map_or(b, |x| x.min(b)));
+                    }
+                    if let Some(b) = rr
+                        && r_global.as_ref().is_none_or(|g| b < g.0)
+                    {
+                        r_global = Some((b, t.name.clone(), label));
+                    }
+                    recs.push(json!({"table": t.name, "label": label, "kind": "far", "far": list, "r_record": rr}));
+                }
+                ModularRisk::Points(p) => {
+                    n_points += 1;
+                    recs.push(
+                        json!({"table": t.name, "label": label, "kind": "points", "points": p}),
+                    );
+                }
+                ModularRisk::Anywhere(w) => {
+                    n_any += 1;
+                    recs.push(
+                        json!({"table": t.name, "label": label, "kind": "anywhere", "why": w}),
+                    );
+                }
+            }
+        }
+    }
+    let res = json!({
+        "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "fall_through": mode,
+        "records": disp.tables().iter().map(|t| t.domains.len()).sum::<usize>(),
+        "records_with_far_risk": n_far, "records_with_point_risk": n_points, "records_with_anywhere_risk": n_any,
+        "R": r_global.as_ref().map(|g| g.0), "R_binding_record": r_global.as_ref().map(|g| json!({"table": g.1, "label": g.2})),
+        "rule": "R = min over records and Far entries (v, r) of r - |o_v| - 2: every key with D + r <= R has |pt[v]| <= R + 1 + |o_v| < r",
+        "risks": recs,
+    });
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "modular radii: far {n_far}, points {n_points}, anywhere {n_any}; R = {:?}",
+        r_global
+    );
+}
+
+/// T178-UNBOXED A': exact containment of given BOXES (PARAMETRIC_BOXES: JSON list of per-slot [lo|null, hi|null]) in
+/// the records of a dispatch (PARAMETRIC_SPEC, PARAMETRIC_APPENDED, PARAMETRIC_FALLTHROUGH = 1 | reduced): for each box
+/// every record that APPLIES on the whole box (`box_inside_domain`, budget PARAMETRIC_BOX_NODES, default 200,000) and the
+/// undecided ones with their exception branches; output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn box_containment() {
+    use rustred_campaign_core::parametric::cone::{box_inside_domain, literals_exact_on_box};
+    use rustred_campaign_core::partition::{DispatcherSource, DomainSource};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let boxes: Vec<Vec<(Option<i64>, Option<i64>)>> = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("PARAMETRIC_BOXES").expect("PARAMETRIC_BOXES"))
+            .unwrap(),
+    )
+    .unwrap();
+    let nodes: u64 = std::env::var("PARAMETRIC_BOX_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200_000);
+    let ld = load_any(&spec, None);
+    let disp = match std::env::var("PARAMETRIC_FALLTHROUGH").as_deref() {
+        Ok("reduced") => {
+            rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+                &ld.disp,
+                &ld.frame,
+                &ProofBudget::default(),
+            )
+            .unwrap()
+            .0
+        }
+        _ => rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap(),
+    };
+    let src = DispatcherSource::new(&disp);
+    let budget = ProofBudget {
+        max_nodes: nodes,
+        ..ProofBudget::default()
+    };
+    let mut res = Vec::new();
+    for bx in &boxes {
+        let (mut apply, mut undecided) = (Vec::new(), Vec::new());
+        for j in 0..src.len() {
+            let d = src.domain(j);
+            match box_inside_domain(bx, d, &ld.frame, &budget) {
+                Some(true) => {
+                    let r = src.rule_ref(j);
+                    apply.push(
+                        json!({"source": j, "table": disp.tables()[r.table].name, "label": r.label,
+                        "literals_exact_on_box": literals_exact_on_box(d, bx, 1 << 20)}),
+                    );
+                }
+                None => {
+                    let r = src.rule_ref(j);
+                    undecided.push(json!({"source": j, "table": disp.tables()[r.table].name, "label": r.label,
+                        "fixed": d.fixed, "bounds": d.bounds.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                        "exceptions": d.exceptions.iter().map(|b| b.iter().map(|p| p.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>()}));
+                }
+                Some(false) => {}
+            }
+        }
+        eprintln!(
+            "box: {} records apply on the whole box, {} undecided",
+            apply.len(),
+            undecided.len()
+        );
+        res.push(json!({"box": bx, "apply_on_whole_box": apply, "undecided": undecided}));
+    }
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+}
+
+/// T178-UNBOXED item D: the core side of the engine drill. Keys from PARAMETRIC_KEYS (one JSON array per line) are
+/// dispatched by the dispatcher of PARAMETRIC_SPEC (sources list; PARAMETRIC_FALLTHROUGH = reduced applies the G5
+/// transform, which on a table whose loci are already exception branches drops every pole); one line per key in
+/// PARAMETRIC_OUT: {"key", "label" (record label or null), "dispatch"}. Compared with `rr_node first-match` outside.
+#[test]
+#[ignore]
+fn drill_core_first_match() {
+    use rustred_campaign_core::cover::Dispatch;
+    use std::io::BufRead;
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let keys = std::env::var("PARAMETRIC_KEYS").expect("PARAMETRIC_KEYS");
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let mut ld = load_any(&spec, None);
+    let el = std::env::var("PARAMETRIC_ELIDED").as_deref() == Ok("engine");
+    let nc = std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine");
+    if el || nc {
+        use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+        let mut tables = ld.disp.tables().to_vec();
+        let mut n = 0;
+        for t in &mut tables {
+            for (m, d) in t.meta.iter_mut().zip(t.domains.iter_mut()) {
+                if (el && m.witness == WitnessStatus::Elided)
+                    || (nc && m.witness == WitnessStatus::NotCarried)
+                {
+                    m.witness_basis = Assurance::CheckDisabled;
+                    d.witness_elided = false;
+                    n += 1;
+                }
+            }
+        }
+        eprintln!("elided / not-carried records applied as the engine does: {n}");
+        let d = Dispatcher::new(tables, ld.disp.priority().to_vec()).unwrap();
+        ld.disp = match ld.disp.chart() {
+            Some(c) => d.with_chart(c.to_vec()).unwrap(),
+            None => d,
+        };
+    }
+    let (disp, st) = if std::env::var("PARAMETRIC_FALLTHROUGH").as_deref() == Ok("reduced") {
+        let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+            &ld.disp,
+            &ld.frame,
+            &ProofBudget::default(),
+        )
+        .unwrap();
+        (d, Some(st))
+    } else {
+        let d = Dispatcher::new(ld.disp.tables().to_vec(), ld.disp.priority().to_vec()).unwrap();
+        (
+            match ld.disp.chart() {
+                Some(c) => d.with_chart(c.to_vec()).unwrap(),
+                None => d,
+            },
+            None,
+        )
+    };
+    if let Some(st) = &st {
+        eprintln!(
+            "reduced fall-through: poles {} redundant {} moved {}",
+            st.poles,
+            st.redundant,
+            st.moved_unknown + st.moved_nonempty
+        );
+    }
+    let mut f = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
+    let mut n = 0u64;
+    for line in std::io::BufReader::new(std::fs::File::open(&keys).unwrap()).lines() {
+        let line = line.unwrap();
+        if line.trim().is_empty() {
+            continue;
+        }
+        let k: Vec<i32> = serde_json::from_str(&line).unwrap();
+        let d = disp.first_match(&k);
+        let (label, why) = match &d {
+            Ok(Dispatch::Covered(r)) => (json!(r.label), "covered".to_string()),
+            other => (
+                json!(null),
+                format!("{other:?}").chars().take(600).collect(),
+            ),
+        };
+        writeln!(f, "{}", json!({"key": k, "label": label, "dispatch": why})).unwrap();
+        n += 1;
+    }
+    f.flush().unwrap();
+    eprintln!("drill: {n} keys dispatched");
 }

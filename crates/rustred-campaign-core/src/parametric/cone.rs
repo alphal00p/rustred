@@ -1723,3 +1723,66 @@ pub fn sample_keys_beyond(
     }
     out
 }
+
+/// Can the ENGINE's two-prime zero test misread a literal of `d` (equations, exception members) on the box `bx`?
+/// `Some(true)` = NO literal can be misread there: for each literal `f = g q` (content `g`) the bound
+/// `sum |c_q| prod max|x_v|^e` over the box (unbounded ends clipped to the representable keys `|n| <= 2^31 + margin`)
+/// stays below `pm`, the product of the engine primes not dividing `g`; a nonzero `q(pt)` then never vanishes modulo
+/// `pm`, so the engine's test equals the exact one on the box (the core's `modular_zero_risk` argument, restricted to
+/// the box). `Some(false)` = some literal's bound reaches `pm` (a misread is not excluded by the bound); `None` =
+/// unreadable literal (beyond i128). The margin covers target-pattern offsets (`pt = n - o`).
+pub fn literals_exact_on_box(
+    d: &crate::domain::CaseDomain,
+    bx: &[(Option<i64>, Option<i64>)],
+    margin: u64,
+) -> Option<bool> {
+    use crate::poly::ENGINE_PRIMES;
+    let cap: u128 = (1u128 << 31) + u128::from(margin);
+    let maxabs: Vec<u128> = bx
+        .iter()
+        .map(|(l, h)| {
+            let l = l.map_or(cap, |v| u128::from(v.unsigned_abs()) + u128::from(margin));
+            let h = h.map_or(cap, |v| u128::from(v.unsigned_abs()) + u128::from(margin));
+            l.max(h).min(cap)
+        })
+        .collect();
+    let lits = d.equations.iter().chain(d.exceptions.iter().flatten());
+    for f in lits {
+        let terms = f.small_terms()?;
+        let mut g: u128 = 0;
+        for (_, c) in terms {
+            let (mut a, mut b) = (c.unsigned_abs(), g);
+            while b != 0 {
+                let r = a % b;
+                a = b;
+                b = r;
+            }
+            g = a;
+        }
+        if g == 0 || terms.len() <= 1 {
+            continue; // zero polynomial or a monomial: exact (a monomial vanishes modulo a huge prime only where 0)
+        }
+        let mut pm: u128 = 1;
+        for p in ENGINE_PRIMES {
+            if !g.is_multiple_of(u128::from(p)) {
+                pm = pm.saturating_mul(u128::from(p));
+            }
+        }
+        let mut bound: u128 = 0;
+        for (mo, c) in terms {
+            let mut t = c.unsigned_abs() / g;
+            for &(v, e) in mo.iter() {
+                let mv = *maxabs.get(usize::from(v)).unwrap_or(&cap);
+                t = mv
+                    .checked_pow(e)
+                    .and_then(|x| t.checked_mul(x))
+                    .unwrap_or(u128::MAX);
+            }
+            bound = bound.saturating_add(t);
+        }
+        if bound >= pm {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
