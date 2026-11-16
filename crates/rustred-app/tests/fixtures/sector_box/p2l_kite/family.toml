@@ -1,0 +1,33 @@
+schema = "rustred.project.toml.v1"
+parameters = ["d", "z"]
+
+[family]
+name = "P2L_m1"
+loop_momenta = ["k1", "k2"]
+external_momenta = ["q"]
+dimension = "d"
+
+[[family.denominators]]
+id = "D1"
+expression = "(k1)^2"
+
+[[family.denominators]]
+id = "D2"
+expression = "(k2)^2-z"
+
+[[family.denominators]]
+id = "D3"
+expression = "(k1+k2)^2"
+
+[[family.denominators]]
+id = "D4"
+expression = "(k1+q)^2"
+
+[[family.denominators]]
+id = "D5"
+expression = "(k1+k2+q)^2"
+
+[[kinematics.gram]]
+left = "q"
+right = "q"
+value = "-1"
