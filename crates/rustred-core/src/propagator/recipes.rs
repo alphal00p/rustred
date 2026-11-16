@@ -156,7 +156,11 @@ pub const OUTSIDE_MAX_SIZE_RATIO_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_SIZE_RATIO";
 /// fallback when none were set).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct POutsideSettings {
-    /// Recipe families tried at one key.
+    /// Recipe families tried at one key. 0 = LIST-ONLY (batch 11, for a
+    /// coverage pass): no recipe is solved; a key no rule and no shipped or
+    /// cached entry takes gets the typed refusal at once, which
+    /// `PUncoveredPolicy::Retain` keeps as a residual terminal, so one forward
+    /// pass lists every arrival outside the certified sets.
     pub max_recipes: usize,
     /// Trace-row cap of one solve.
     pub max_trace_rows: usize,
@@ -258,7 +262,11 @@ pub fn outside_settings_of(node: &str) -> POutsideSettings {
         return settings;
     }
     POutsideSettings {
-        max_recipes: env_cap(OUTSIDE_MAX_RECIPES_ENV, OUTSIDE_MAX_RECIPES),
+        // 0 is accepted here: list-only (see `POutsideSettings::max_recipes`)
+        max_recipes: std::env::var(OUTSIDE_MAX_RECIPES_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(OUTSIDE_MAX_RECIPES),
         max_trace_rows: env_cap(OUTSIDE_MAX_TRACE_ROWS_ENV, OUTSIDE_MAX_TRACE_ROWS),
         prefer_regular_at_4: !matches!(
             std::env::var(PREFER_REGULAR_ENV).as_deref().map(str::trim),
@@ -1461,6 +1469,9 @@ pub struct RecipeStatistics {
     pub outside_rule_steps: u64,
     pub outside_entry_hits: u64,
     pub outside_budget_hits: u64,
+    /// Keys outside a certified set left unsolved in list-only mode
+    /// (`max_recipes` 0): no rule or entry took them.
+    pub outside_listed: u64,
 }
 
 static SOLVES: AtomicU64 = AtomicU64::new(0);
@@ -1473,6 +1484,7 @@ static OUTSIDE_SOLVES: AtomicU64 = AtomicU64::new(0);
 static OUTSIDE_FAILURES: AtomicU64 = AtomicU64::new(0);
 static OUTSIDE_RULE_STEPS: AtomicU64 = AtomicU64::new(0);
 static OUTSIDE_ENTRY_HITS: AtomicU64 = AtomicU64::new(0);
+static OUTSIDE_LISTED: AtomicU64 = AtomicU64::new(0);
 static OUTSIDE_BUDGET_HITS: AtomicU64 = AtomicU64::new(0);
 
 /// vk5l WP2: an outside key taken by a table rule (counted by the step).
@@ -1499,6 +1511,7 @@ pub fn recipe_statistics() -> RecipeStatistics {
         outside_rule_steps: OUTSIDE_RULE_STEPS.load(Ordering::Relaxed),
         outside_entry_hits: OUTSIDE_ENTRY_HITS.load(Ordering::Relaxed),
         outside_budget_hits: OUTSIDE_BUDGET_HITS.load(Ordering::Relaxed),
+        outside_listed: OUTSIDE_LISTED.load(Ordering::Relaxed),
     }
 }
 
@@ -1792,6 +1805,11 @@ impl RecipeDispatch {
         if let Some(found) = self.served_entry(key)? {
             OUTSIDE_ENTRY_HITS.fetch_add(1, Ordering::Relaxed);
             return Ok(Some(found));
+        }
+        if outside_settings_of(&self.bundle.node).max_recipes == 0 {
+            // list-only: the caller's typed refusal (retained under Retain)
+            OUTSIDE_LISTED.fetch_add(1, Ordering::Relaxed);
+            return Ok(None);
         }
         self.solve_at_key(key, Vec::new(), true, None)
     }
@@ -3575,6 +3593,40 @@ mod kite_tests {
             .unwrap()
             .is_some()
         );
+    }
+
+    /// batch 11 (vk5l-physrun 630 coverage): max_recipes 0 is list-only: an
+    /// outside key no rule or entry takes is refused at once, no recipe solved.
+    #[test]
+    fn list_only_outside_settings_solve_nothing() {
+        let node = "KITE-out-list";
+        let three = [2, 2, 2, 1, 1];
+        let (_, solved) = toy(three);
+        let fake = install(node, vec![toy(dot(0)), (three.to_vec(), solved)]);
+        set_outside_settings_for(
+            node,
+            POutsideSettings {
+                max_recipes: 0,
+                ..POutsideSettings::default()
+            },
+        );
+        let imported = import(
+            node,
+            &[dot(0)],
+            Some(vec![record("kite/d0", &[dot(0)], &SHELLS)]),
+        )
+        .unwrap();
+        let (calls, listed) = (fake.calls(), recipe_statistics().outside_listed);
+        let found = crate::propagator::custom::custom_payload_solve_outside(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+            &presented(three),
+        )
+        .unwrap();
+        assert!(found.is_none());
+        assert_eq!(fake.calls(), calls, "no recipe solved");
+        assert!(recipe_statistics().outside_listed > listed);
     }
 
     #[test]
