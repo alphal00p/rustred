@@ -1016,3 +1016,48 @@ fn closure_out_lists_the_exact_closure_with_depth_and_kind() {
     let d0 = recs.iter().filter(|r| r[n] == 0).count() as u64;
     assert_eq!(s["walk"]["depth_hist"]["0"].as_u64().unwrap(), d0, "{s}");
 }
+
+/// Merged shard line: senders, depth, least first sender (parent key, term).
+type Merged = (u64, Option<u32>, (Vec<i32>, u32));
+
+/// `--shard I/K`: the shards' arrival files merged (keys union, senders summed, depth min, least first sender by (parent key,
+/// term)) are exactly the unsharded walk's.
+#[test]
+fn shards_merged_equal_the_unsharded_walk() {
+    let Some(_a) = alg() else { return };
+    let t = build("shard");
+    let (rc, s) = compute_rows(&t, &t.rows, &t.dir.join("o_full"), &["--depth"]);
+    assert_eq!(rc, 0, "{s}");
+    let full = format::read(&t.dir.join("o_full").join("P-C.arrivals.jsonl")).unwrap();
+    let mut merged: std::collections::BTreeMap<Vec<i32>, Merged> = Default::default();
+    for i in 0..3 {
+        let out = t.dir.join(format!("o_s{i}"));
+        let sh = format!("{i}/3");
+        let (rc, s) = compute_rows(&t, &t.rows, &out, &["--depth", "--shard", &sh]);
+        assert_eq!(rc, 0, "{s}");
+        let f = format::read(&out.join("P-C.arrivals.jsonl")).unwrap();
+        assert_eq!(f.header["shard"], sh.as_str());
+        for l in f.lines {
+            let fk = (l.first.parent_key.clone(), l.first.term);
+            let e = merged
+                .entry(l.key.clone())
+                .or_insert((0, l.depth, fk.clone()));
+            e.0 += l.senders;
+            e.1 = e.1.min(l.depth);
+            if fk < e.2 {
+                e.2 = fk;
+            }
+        }
+    }
+    assert_eq!(merged.len(), full.lines.len());
+    for l in &full.lines {
+        let m = &merged[&l.key];
+        assert_eq!((m.0, m.1), (l.senders, l.depth), "{:?}", l.key);
+        assert_eq!(
+            m.2,
+            (l.first.parent_key.clone(), l.first.term),
+            "{:?}",
+            l.key
+        );
+    }
+}

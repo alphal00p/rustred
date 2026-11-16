@@ -83,6 +83,8 @@ struct Args {
     closure_only: bool,
     /// compute: write the exact closure keys (depth, kind) to this file (with `.uncovered.jsonl` beside it).
     closure_out: Option<PathBuf>,
+    /// compute (streamed): `--shard I/K`
+    shard: Option<(usize, usize)>,
     no_structural: bool,
     structural_min_keys: usize,
     decide_all_handdowns: bool,
@@ -155,6 +157,15 @@ fn parse(args: &[String]) -> Args {
             ),
             "--closure-only" => a.closure_only = true,
             "--closure-out" => a.closure_out = Some(PathBuf::from(val(&mut i))),
+            "--shard" => {
+                let v = val(&mut i);
+                let (x, y) = v.split_once('/').unwrap_or_else(|| die("--shard I/K"));
+                let (x, y): (usize, usize) = (num(x.to_string()), num(y.to_string()));
+                if y == 0 || x >= y {
+                    die("--shard I/K with 0 <= I < K");
+                }
+                a.shard = Some((x, y));
+            }
             "--no-structural" => a.no_structural = true,
             "--structural-min-keys" => {
                 a.structural_min_keys = val(&mut i)
@@ -1106,6 +1117,7 @@ fn compute_stream(a: &Args) {
         trace: a.trace_keys.clone(),
         closure_only: a.closure_only,
         closure_out: a.closure_out.clone(),
+        shard: a.shard,
     };
     let tables = spec_tables(&set);
     let rows_id = rows.id();
@@ -1129,6 +1141,9 @@ fn compute_stream(a: &Args) {
         );
         // the file is deterministic: no wall-clock field (timings stay in the compute summary)
         h["walk"] = no_timing(serde_json::to_value(&r.stats).unwrap_or(Value::Null));
+        if let Some((x, y)) = a.shard {
+            h["shard"] = json!(format!("{x}/{y}"));
+        }
         let summ = json!({"edge_stats": no_timing(serde_json::to_value(&stats).unwrap_or(Value::Null)),
             "walk": no_timing(serde_json::to_value(&r.stats).unwrap_or(Value::Null))});
         let p = out_dir.join(format!("{}-{}.arrivals.jsonl", parent, e.child.label));
@@ -1217,7 +1232,7 @@ fn compute_stream(a: &Args) {
             "dropped": (0..64).filter(|i| m >> i & 1 == 1).collect::<Vec<u32>>(), "terms": c})).collect::<Vec<_>>(),
         "walk": r.stats, "frame_checks": frame_checks, "seconds_load": t_load, "seconds": t0.elapsed().as_secs_f64(),
         "threads": a.threads, "tool": arrivals::TOOL_VERSION, "depth_tracked": a.depth, "closure_only": a.closure_only,
-        "trace": r.trace, "closure_out": r.closure_out});
+        "trace": r.trace, "closure_out": r.closure_out, "shard": a.shard.map(|(x, y)| format!("{x}/{y}"))});
     write_json(&out_dir.join(format!("{parent}.summary.json")), &s);
     println!("{}", canonical_json(&s));
 }

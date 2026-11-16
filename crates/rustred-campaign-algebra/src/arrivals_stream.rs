@@ -500,6 +500,9 @@ pub struct StreamCfg {
     pub trace: Vec<Vec<i32>>,
     /// Stop after the closure (no hand-down, no edge file emitted).
     pub closure_only: bool,
+    /// SHARD (i, k): decide and transport only the record groups whose (table, record) hash is i mod k (the closure is computed in
+    /// full); the k shards' arrival files merged (keys union, depth min, senders summed, least first sender) are the unsharded walk's.
+    pub shard: Option<(usize, usize)>,
     /// Write the exact closure (every reached key with its chain depth and row kind) to this file (RRKEYS01 format; module
     /// fn `write_closure`) and its open keys to `<file>.uncovered.jsonl`.
     pub closure_out: Option<PathBuf>,
@@ -1220,6 +1223,9 @@ pub fn walk_stream(
         by_rec.entry(rows.rec(si as usize)).or_default().push(ci);
     }
     let mut groups: Vec<(RecKey, Vec<usize>)> = by_rec.into_iter().collect();
+    if let Some((i, k)) = scfg.shard {
+        groups.retain(|((t, r), _)| (t.wrapping_mul(1_000_003).wrapping_add(*r)) % k == i);
+    }
     // most expensive groups first (record bytes x (keys + a first-use allowance)): a heavy record with few keys must not
     // start last and run alone (the work order does not change any output: accumulators merge order-free)
     groups.sort_by_key(|((t, r), ks)| {
