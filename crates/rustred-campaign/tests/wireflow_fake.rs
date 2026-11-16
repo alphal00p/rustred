@@ -486,3 +486,71 @@ fn the_stage_off_absent_or_explicit_gives_identical_results() {
         "{pol}"
     );
 }
+
+/// wireflow (c), repairflow.md 22: with `ship_regions` the composite rounds' region fits that are EXACT on a face's keys,
+/// all certified, are shipped as case domains (export `regions/`, "verify per key at use"); every other face says why
+/// not. This node's gate cannot run (Tier K), so the test sets `require_gate: false`; the gate rule itself is
+/// unit-tested (closeloop::wire_regions). The round record keeps the per-face key lists the fit was made on.
+#[test]
+fn exact_region_fits_on_certified_keys_are_shipped_as_case_domains() {
+    let (_g, frame) = setup_or_skip!();
+    let (t, sp, cdir) = setup("wfreg", &frame, Mode::Kernel, 10);
+    let pol = t.path.join("material/repairflow.json");
+    let mut pv: Value = serde_json::from_slice(&std::fs::read(&pol).unwrap()).unwrap();
+    pv["repair_policy"]["ship_regions"] = json!({"enabled": true, "require_gate": false});
+    std::fs::write(&pol, serde_json::to_vec_pretty(&pv).unwrap()).unwrap();
+    let mut sv: Value = serde_json::from_slice(&std::fs::read(&sp).unwrap()).unwrap();
+    for i in sv["inputs"].as_array_mut().unwrap() {
+        if i["id"] == "repairflow" {
+            i["blake3"] = json!(blake3_file(&pol));
+        }
+    }
+    let sp = write_spec(&t, "spec.regions.json", &sv);
+    let codes = run_long(&sp, &cdir, &["--plain"]);
+    assert!(
+        matches!(codes.last(), Some(&0) | Some(&10)),
+        "{codes:?} {}",
+        log_tail(&cdir)
+    );
+    assert!(state(&cdir).inputs.contains_key("repairflow:N:regions"));
+    let keys: Value = serde_json::from_slice(
+        &std::fs::read(cdir.join("closeloop/N/repairflow/composite/r1/regions.keys.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(!keys["faces"].as_object().unwrap().is_empty(), "{keys:#}");
+    let rec: Value = serde_json::from_slice(
+        &std::fs::read(cdir.join("closeloop/N/repairflow/regions/regions.json")).unwrap(),
+    )
+    .unwrap();
+    let faces = rec["faces"].as_array().unwrap();
+    assert!(!faces.is_empty(), "{rec:#}");
+    let mut shipped = 0;
+    for f in faces {
+        if f["shipped"] == true {
+            shipped += 1;
+            let file = f["file"].as_str().unwrap();
+            let doc: Value = serde_json::from_slice(
+                &std::fs::read(cdir.join("closeloop/N/repairflow/export").join(file)).unwrap(),
+            )
+            .unwrap();
+            let cases = doc["case_domains"].as_array().unwrap();
+            assert!(!cases.is_empty(), "{doc:#}");
+            assert!(
+                cases
+                    .iter()
+                    .all(|c| c["use"].as_str().unwrap().contains("per key at use"))
+            );
+            assert_eq!(doc["keys"], f["keys"]);
+        } else {
+            assert!(f["why"].is_string(), "{f:#}");
+        }
+    }
+    assert_eq!(rec["shipped"], shipped);
+    eprintln!("regions record: {rec:#}");
+    let man: Value = serde_json::from_slice(
+        &std::fs::read(cdir.join("closeloop/N/repairflow/export/manifest.json")).unwrap(),
+    )
+    .unwrap();
+    assert!(man["regions"].is_object(), "{man:#}");
+    assert_eq!(verify(&cdir), 0);
+}

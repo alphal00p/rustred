@@ -167,6 +167,11 @@ pub struct TermminSpec {
     /// canonical spec when absent (digests unchanged).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole_objective: Option<Value>,
+    /// lane wireflow (h, TRICKS 9 / 17): the engine's per-key pole order at d = 4 of the DELIVERED relation
+    /// (`pole_order_d4` of the solved line, frozen engine line7d on) is the elimination choice's pole profile; false
+    /// (default, omitted from the canonical spec) = "no profile" (ranked by size, as before).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub pole_profiles: bool,
 }
 
 impl Default for TermminSpec {
@@ -186,6 +191,7 @@ impl Default for TermminSpec {
             mixed_shell: MixedShell::default(),
             fake_quirks: vec![],
             pole_objective: None,
+            pole_profiles: false,
         }
     }
 }

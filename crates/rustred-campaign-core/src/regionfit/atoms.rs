@@ -131,6 +131,47 @@ impl Atom {
             Atom::SumLe { i, j, c } => json!({"kind": self.kind(), "i": i, "j": j, "c": c}),
         }
     }
+    /// lane wireflow (c): the atom of [`Atom::json`] (None: not an atom of the family).
+    pub fn from_json(v: &serde_json::Value) -> Option<Atom> {
+        let u = |k: &str| v[k].as_u64().map(|x| x as usize);
+        let c = || v["c"].as_i64();
+        Some(match v["kind"].as_str()? {
+            "le_rel" => Atom::LeRel {
+                i: u("i")?,
+                j: u("j")?,
+            },
+            "lt_rel" => Atom::LtRel {
+                i: u("i")?,
+                j: u("j")?,
+            },
+            "eq_rel" => Atom::EqRel {
+                i: u("i")?,
+                j: u("j")?,
+            },
+            "eq_const" => Atom::EqConst {
+                i: u("i")?,
+                c: c()?,
+            },
+            "le_const" => Atom::LeConst {
+                i: u("i")?,
+                c: c()?,
+            },
+            "ge_const" => Atom::GeConst {
+                i: u("i")?,
+                c: c()?,
+            },
+            "parity" => Atom::Parity {
+                i: u("i")?,
+                odd: v["odd"].as_bool()?,
+            },
+            "sum_le" => Atom::SumLe {
+                i: u("i")?,
+                j: u("j")?,
+                c: c()?,
+            },
+            _ => return None,
+        })
+    }
     pub fn weight(&self, w: &KindWeights) -> u64 {
         match self {
             Atom::LeRel { .. } | Atom::LtRel { .. } | Atom::EqRel { .. } => w.rel,

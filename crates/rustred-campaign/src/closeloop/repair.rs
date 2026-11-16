@@ -1337,6 +1337,19 @@ impl<S: WorkSource> RepairFlowSource<S> {
             manifest["seedmin"] = json!(summary);
             seedmin_v = json!(summary);
         }
+        // wireflow (c): the shipped case domains (export/regions/) and the record; nothing without the regions input
+        let mut regions_v = Value::Null;
+        if let Some((summary, files)) = super::wire_regions::export(st, &self.cdir, &n)? {
+            for (rel, b) in files {
+                sums.push_str(&format!("{}  {rel}\n", sha256_hex(&b)));
+                rt.accepts.push(record(format!("{exp}/{rel}"), b));
+            }
+            let rb = json_bytes(&summary["record"]);
+            sums.push_str(&format!("{}  regions.json\n", sha256_hex(&rb)));
+            rt.accepts.push(record(format!("{exp}/regions.json"), rb));
+            manifest["regions"] = summary["faces"].clone();
+            regions_v = summary["faces"].clone();
+        }
         let mb = json_bytes(&manifest);
         sums.push_str(&format!("{}  manifest.json\n", sha256_hex(&mb)));
         rt.accepts.push(record(format!("{exp}/manifest.json"), mb));
@@ -1383,6 +1396,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
         });
         if !seedmin_v.is_null() {
             rep["seedmin"] = seedmin_v;
+        }
+        if !regions_v.is_null() {
+            rep["regions_shipped"] = regions_v;
         }
         let rec = record(format!("{dir}/report.json"), json_bytes(&rep));
         self.reg(rt, input_report(&n), ROLE_RESULT, rec);
@@ -2193,8 +2209,18 @@ impl<S: WorkSource> WorkSource for RepairFlowSource<S> {
                         let p = h.join().map_err(|_| "p1 thread panicked".to_string())??;
                         self.nodes[i].p1 = Some(Arc::new(p));
                     }
-                    // wireflow (f): the seed minimisation of the closing face recipes first (policy seedmin)
-                    if self.nodes[i].p1.is_some() && self.min_poll(st, i, &mut rt)? {
+                    // wireflow (f): the seed minimisation of the closing face recipes first (policy seedmin); wireflow (c):
+                    // then the composite rounds' region fits shipped as case domains (policy ship_regions)
+                    if self.nodes[i].p1.is_some()
+                        && self.min_poll(st, i, &mut rt)?
+                        && super::wire_regions::poll(
+                            st,
+                            &self.cdir,
+                            &n,
+                            &self.nodes[i].policy.ship_regions,
+                            &mut rt,
+                        )?
+                    {
                         self.report(st, i, &mut rt)?;
                     }
                 }

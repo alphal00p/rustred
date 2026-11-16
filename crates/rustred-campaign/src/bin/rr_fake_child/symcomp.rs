@@ -179,6 +179,8 @@ pub fn run(spec_path: &Path) -> ! {
     let mut ver = vec![];
     let mut kl = String::new();
     let mut cl = String::new();
+    // wireflow (c): the per-key records the region fit runs on (as the real tool)
+    let mut choice_recs = vec![];
     for k in &keys {
         nap(slow_ms);
         let line = match rows_by_element(&Independent, &ctx.group, k, ctx.policy.route0.max_terms) {
@@ -186,6 +188,7 @@ pub fn run(spec_path: &Path) -> ! {
                 let ch = KeyChoices::failed(k, &ctx.lines, &e);
                 cl.push_str(&serde_json::to_string(&ch).expect("json"));
                 cl.push('\n');
+                choice_recs.push(ch.clone());
                 json!({"key": k, "face": ch.face, "status": ch.status})
             }
             Ok(by) => {
@@ -193,6 +196,7 @@ pub fn run(spec_path: &Path) -> ! {
                 let ch = KeyChoices::of_composites(k, &kc, &ctx.lines);
                 cl.push_str(&serde_json::to_string(&ch).expect("json"));
                 cl.push('\n');
+                choice_recs.push(ch.clone());
                 if let Some(b) = kc.best() {
                     let idx = table.len() - 1;
                     let mut rec = shipped_record(&qf, k, b, &chart, idx);
@@ -243,8 +247,14 @@ pub fn run(spec_path: &Path) -> ! {
         ("keys.jsonl", kl.into_bytes()),
         ("composite.table.jsonl", join(&table).into_bytes()),
         ("composite.verification.jsonl", join(&ver).into_bytes()),
-        // the real tool's sixth sealed file (lane regions' fit; the fake fits nothing)
-        ("regions.json", (json!({"enabled": false}).to_string() + "\n").into_bytes()),
+        // the real tool's sixth sealed file: lane regions' fit on the per-key choices (the policy's `regions`)
+        (
+            "regions.json",
+            (rustred_campaign_core::repairflow::symflow::fit_face_regions(&choice_recs, &ctx.policy.regions)
+                .to_string()
+                + "\n")
+                .into_bytes(),
+        ),
         ("report.json", (json!({"schema": "rustred.campaign.repairflow-symflow.v1", "producer": "rr_fake_child",
             "keys": keys.len()}).to_string() + "\n").into_bytes()),
     ];

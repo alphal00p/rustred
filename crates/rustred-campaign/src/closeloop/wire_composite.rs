@@ -1204,6 +1204,26 @@ fn route_pass(
         Ok(b) => {
             let v: Value = serde_json::from_slice(&b).unwrap_or(Value::Null);
             accepts.push(rec(format!("{dir}/regions.json"), b));
+            // wireflow (c): the keys every face's fit was made on (the sealed per-key records with status ok), for the
+            // P5 shipping test "exact on the face's certified keys"
+            if let Ok(cb) = sealed_child_file(run_root, &spec, &s, "choices.jsonl") {
+                let mut by_face: BTreeMap<String, Vec<Value>> = BTreeMap::new();
+                for l in String::from_utf8_lossy(&cb).lines() {
+                    if let Ok(c) = serde_json::from_str::<Value>(l)
+                        && c["status"] == "ok"
+                        && let Some(f) = c["face"].as_str()
+                    {
+                        by_face
+                            .entry(f.to_string())
+                            .or_default()
+                            .push(c["key"].clone());
+                    }
+                }
+                accepts.push(rec(
+                    format!("{dir}/regions.keys.json"),
+                    json_bytes(&json!({"faces": by_face})),
+                ));
+            }
             regions_summary(&v)
         }
         Err(e) => json!({"error": e}),

@@ -740,7 +740,8 @@ impl TermminSource {
             key_budget_s: p.spec.caps.key_budget_s.or(p.cfg.solve.key_budget_s),
             // the node's setting (validated with the config; an unreadable one cannot reach here)
             pole_objective: p.cfg.pole_objective_setting().unwrap_or_default(),
-            pole_profiles: p.cfg.pole_profiles,
+            // lane wireflow (h): the node's switch or the termmin spec's
+            pole_profiles: p.cfg.pole_profiles || p.spec.pole_profiles,
         }
     }
 

@@ -32,6 +32,10 @@ pub struct RepairPolicy {
     /// wireflow (f): seed minimisation of the closing face recipes at P5 (default off; omitted from the digest).
     #[serde(skip_serializing_if = "SeedMinStep::is_default")]
     pub seedmin: SeedMinStep,
+    /// wireflow (c): the composite rounds' region fits SHIPPED as case domains at P5 (default off; omitted from the
+    /// digest while default).
+    #[serde(skip_serializing_if = "ShipRegionsStep::is_default")]
+    pub ship_regions: ShipRegionsStep,
     pub regions: RegionsPolicy,
     /// Extra evidence added to every spec the flow composes (typed slot: zero-fact sources of lane zeros2).
     pub evidence: ExtraEvidence,
@@ -55,6 +59,7 @@ impl Default for RepairPolicy {
             tworow: TwoRowStep::default(),
             pieces: PiecesStep::default(),
             seedmin: SeedMinStep::default(),
+            ship_regions: ShipRegionsStep::default(),
             regions: RegionsPolicy::default(),
             evidence: ExtraEvidence::default(),
             faces: FacesPolicy::default(),
@@ -276,6 +281,34 @@ impl Default for SeedMinStep {
 impl SeedMinStep {
     pub fn is_default(&self) -> bool {
         *self == SeedMinStep::default()
+    }
+}
+
+/// wireflow (c), TRICKS 2: at P5 the composite rounds' REGION FITS (lane regions' `regionfit` on the tool's per-key
+/// choices, sealed `regions.json`) are SHIPPED as case domains (condition = the region's atoms, choice = its element /
+/// image rule) when the fit is EXACT (no residual, no unservable key) on the face's keys, EVERY one of those keys is
+/// certified in the final statement, and the closing loop's SHIP GATE passed (`final/ship-gate.json`). A region is a
+/// generalisation, never a proof: whoever uses it verifies the relation per key at use. Never changes a verdict.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct ShipRegionsStep {
+    pub enabled: bool,
+    /// Ship only when the ship gate passed. Default true; false is for tests of a node whose gate cannot run (Tier K).
+    pub require_gate: bool,
+}
+
+impl Default for ShipRegionsStep {
+    fn default() -> Self {
+        ShipRegionsStep {
+            enabled: false,
+            require_gate: true,
+        }
+    }
+}
+
+impl ShipRegionsStep {
+    pub fn is_default(&self) -> bool {
+        *self == ShipRegionsStep::default()
     }
 }
 
