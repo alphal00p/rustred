@@ -73,7 +73,11 @@ pub(crate) fn strict_listing_counted() -> Result<(Vec<ProcStat>, usize), String>
     let root = procfs::sys();
     let mut out = Vec::new();
     let mut vanished = 0usize;
-    for pid in root.pids().map_err(|e| format!("proc listing: {e}"))? {
+    // procfix7 round 6 (gate10 G10-B1): the job-end proofs decide absence from this listing: its completeness proof
+    for pid in root
+        .pids_proven(&[])
+        .map_err(|e| format!("proc listing: {e}"))?
+    {
         match root.stat(pid) {
             Ok(st) => out.push(st),
             Err(ProcError::Gone) => vanished += 1,

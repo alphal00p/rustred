@@ -84,8 +84,19 @@ impl ScanRules {
 
 /// The freezing sweep of every marked process of this campaign (optionally one attempt), BLOCKING (restart time).
 pub fn sweep(rules: &ScanRules, only: Option<&str>, budget: Duration) -> SweepReport {
+    sweep_seeded(rules, only, &[], budget)
+}
+
+/// procfix7 round 6: [`sweep`] with SEEDED suspects (`launch::sweep::sweep_seeded`): pids the ledger recorded, each
+/// proven dead or not ours by its own pid.
+pub fn sweep_seeded(
+    rules: &ScanRules,
+    only: Option<&str>,
+    seeds: &[(u32, Option<u64>)],
+    budget: Duration,
+) -> SweepReport {
     match rules.sweep_spec(only, budget) {
-        Some(spec) => crate::launch::sweep::sweep(&spec, &AtomicBool::new(false)),
+        Some(spec) => crate::launch::sweep::sweep_seeded(&spec, seeds, &AtomicBool::new(false)),
         None => SweepReport {
             proven: true,
             reason: None,

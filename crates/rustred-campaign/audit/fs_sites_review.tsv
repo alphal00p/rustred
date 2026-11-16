@@ -93,3 +93,9 @@ src/tui/source.rs	R	match f.take(MAX_FILE_BYTES + 1).read_to_end(&mut b) {	typed
 src/tui/source.rs	F	let crate::fsx::Presence::Present(md) = crate::fsx::presence("tui", path) else {	viewer: mtime unknown (displayed as unknown)
 src/tui/terminal.rs	X	&& io::stdout().is_terminal()	viewer display settings (env / terminal), decides nothing
 src/tui/terminal.rs	X	&& std::env::var("TERM").ok().as_deref() != Some("dumb")	viewer display settings (env / terminal), decides nothing
+src/cpu_policy.rs	X	let Ok(target) = fs::canonicalize(path) else {	diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none
+src/launch/cgroup.rs	X	.open(probe.join("cgroup.procs"))	probe: only a proven writable cgroup.procs makes the root usable; an error = not usable (no cgroup: conservative)
+src/launch/guard.rs	X	let Ok(m) = file.metadata() else { return };	prealloc_tail: best effort (fstat of the held intent log descriptor); not a decision
+src/launch/guard.rs	X	}	prealloc_tail: best effort (fstat of the held intent log descriptor); not a decision
+src/lock.rs	X	let Ok(target) = fs::canonicalize(path) else {	diagnostics only: holders_of (reported with the refusal; nothing decided)
+src/supervisor/mod.rs	X	.open(dir.join("supervisor.log"))	the log file (diagnostics); a failure shows as a missing log, the ledger records the run

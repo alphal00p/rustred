@@ -442,9 +442,14 @@ impl ProcRoot {
             other => other,
         };
         let t1 = now_ticks();
-        let a = self.libc_entries(rel, fault).map_err(to_root)?;
+        let mut a = self.libc_entries(rel, fault).map_err(to_root)?;
         let t2 = now_ticks();
-        let b = self.getdents_entries(rel).map_err(to_root)?;
+        let mut b = self.getdents_entries(rel).map_err(to_root)?;
+        // test builds: both enumerations end early IN AGREEMENT (gate10 G10-B1: they share the kernel's getdents64)
+        if let Some(keep) = self.faults.as_ref().and_then(|f| f.trunc(kind)) {
+            a.truncate(keep);
+            b.truncate(keep);
+        }
         let sa: BTreeSet<u32> = a.iter().copied().collect();
         let sb: BTreeSet<u32> = b.iter().copied().collect();
         // An entry one enumeration lacks: fine if its process started after that enumeration began or is gone now;
@@ -476,18 +481,124 @@ impl ProcRoot {
 
     // ------------------------------------------------------------------------------------------------ typed readers
 
-    /// Every pid of the proc root (the listing rule).
+    /// Every pid of the proc root (the listing rule). procfix7 round 6 (gate10 G10-B1: the two enumerations share the
+    /// kernel's getdents64, so they can end early IN AGREEMENT): the listing must also contain its SENTINELS, processes
+    /// known to exist: this process and, on the system root, pid 1 of the namespace. A listing without them is
+    /// Unreadable (never "no such process"). A listing that decides ABSENCE uses [`ProcRoot::pids_proven`].
     pub fn pids(&self) -> ProcResult<Vec<u32>> {
-        self.numeric_listing(Kind::Listing, None, "", &|p| {
+        let v = self.numeric_listing(Kind::Listing, None, "", &|p| {
             self.stat(p).map(|s| s.start_ticks)
-        })
+        })?;
+        if self.is_system() {
+            let me = std::process::id();
+            for s in [me, 1] {
+                if !v.contains(&s) {
+                    return unreadable(format!(
+                        "{}: listing incomplete: it lacks pid {s}, which is known to exist ({})",
+                        self.what(""),
+                        if s == me {
+                            "this process"
+                        } else {
+                            "the namespace's init"
+                        }
+                    ));
+                }
+            }
+        }
+        Ok(v)
     }
 
-    /// The thread ids of `pid` (the listing rule). Gone: the process is gone.
+    /// procfix7 round 6 (gate10 G10-B1, THE LISTING RULE for absence): the proc root listing WITH a completeness proof:
+    /// (1) its sentinels ([`ProcRoot::pids`]) and every pid of `known_alive` the caller knows exists (its live children
+    /// from waitid / pidfds) that is still alive; (2) an INDEPENDENT second source that does not go through getdents64:
+    /// the children-list walk from pid 1 through `/proc/<p>/task/<p>/children` (a read of the kernel's children lists,
+    /// a separate structure): every process it reaches that is alive and started before the listing began must be in
+    /// the listing. A missing one makes the listing Unreadable ("listing incomplete"), never a smaller set. (The walk
+    /// reads the leaders' lists only, from pid 1 and from this process: a child of a non-leader thread is not reached;
+    /// the walk is a lower bound, the listing must contain it.)
+    pub fn pids_proven(&self, known_alive: &[u32]) -> ProcResult<Vec<u32>> {
+        let began = now_ticks();
+        let v = self.pids()?;
+        let listed: BTreeSet<u32> = v.iter().copied().collect();
+        let mut reached: BTreeSet<u32> = BTreeSet::new();
+        // from the namespace's init and from this process (a process forked by a non-leader thread, e.g. a test harness
+        // spawning the supervisor, is not on its parent's leader list; this process's own children are)
+        let mut stack: Vec<u32> = vec![1, std::process::id()];
+        while let Some(p) = stack.pop() {
+            match self.children(p, p) {
+                Ok(kids) => {
+                    for c in kids {
+                        if reached.insert(c) {
+                            stack.push(c);
+                        }
+                    }
+                }
+                // a process (or its leader) gone during the walk: its children were re-parented, the next one reaches them
+                Err(ProcError::Gone) => {}
+                Err(ProcError::Unreadable(w)) => {
+                    return unreadable(format!(
+                        "{}: the completeness walk (children lists from pid 1) failed at pid {p}: {w}",
+                        self.what("")
+                    ));
+                }
+            }
+        }
+        for &w in reached.iter().chain(known_alive.iter()) {
+            if listed.contains(&w) {
+                continue;
+            }
+            match self.stat(w) {
+                Err(ProcError::Gone) => {}                               // exited since
+                Ok(st) if st.start_ticks.saturating_add(2) > began => {} // started after the listing began
+                Ok(st) => {
+                    return unreadable(format!(
+                        "{}: listing incomplete: pid {w} ({}, start {}) is alive and was not listed",
+                        self.what(""),
+                        st.comm,
+                        st.start_ticks
+                    ));
+                }
+                Err(ProcError::Unreadable(e)) => {
+                    return unreadable(format!(
+                        "{}: listing completeness unknown: pid {w} is not listed and its stat is unreadable ({e})",
+                        self.what("")
+                    ));
+                }
+            }
+        }
+        Ok(v)
+    }
+
+    /// The thread ids of `pid` (the listing rule). Gone: the process is gone. procfix7 round 6 (G10-B1): the listing
+    /// must contain the LEADER (tid == pid: it stays listed, a zombie included, until the group is reaped) and, when the
+    /// kernel's atomic thread count (`Threads:`, read before and after) is the same both times, at least that many
+    /// threads; otherwise it is Unreadable ("task listing incomplete").
     pub fn tasks(&self, pid: u32) -> ProcResult<Vec<u32>> {
-        self.numeric_listing(Kind::Tasks, Some(pid), &format!("{pid}/task"), &|t| {
+        let before = self.status(pid).and_then(|s| s.threads());
+        let v = self.numeric_listing(Kind::Tasks, Some(pid), &format!("{pid}/task"), &|t| {
             self.task_stat(pid, t).map(|s| s.start_ticks)
-        })
+        })?;
+        if !v.contains(&pid) {
+            return match self.stat(pid) {
+                Err(ProcError::Gone) => Err(ProcError::Gone),
+                Err(e) => Err(e),
+                Ok(_) => unreadable(format!(
+                    "{}: task listing incomplete: it lacks the leader {pid}",
+                    self.what(&format!("{pid}/task"))
+                )),
+            };
+        }
+        if let (Ok(b), Ok(a)) = (before, self.status(pid).and_then(|s| s.threads()))
+            && a == b
+            && (v.len() as u32) < a
+        {
+            return unreadable(format!(
+                "{}: task listing incomplete: {} listed, the kernel counts {a} threads (unchanged during the listing)",
+                self.what(&format!("{pid}/task")),
+                v.len()
+            ));
+        }
+        Ok(v)
     }
 
     /// `/proc/<pid>/stat`, complete and parsed.
@@ -1129,6 +1240,11 @@ impl Mode {
 #[derive(Debug, Default)]
 pub struct Faults {
     rules: Vec<Rule>,
+    /// procfix7 round 6 (gate10 G10-B1, mutation tests): BOTH enumerations of the proc root listing end after this many
+    /// numeric entries, in agreement, without an error (`proc_trunc_at:<n>` keeps n - 1 entries).
+    trunc_root: Option<usize>,
+    /// The same for task listings (`proc_trunc_tasks_at:<n>`).
+    trunc_tasks: Option<usize>,
 }
 
 #[derive(Debug)]
@@ -1179,10 +1295,12 @@ impl Faults {
         None
     }
 
-    /// From the test build's failpoint value (`proc_<kind>_<mode>:<every>`, `proc_pid:<pid>`); None without a proc rule.
+    /// From the test build's failpoint value (`proc_<kind>_<mode>:<every>`, `proc_pid:<pid>`, `proc_trunc_at:<n>`,
+    /// `proc_trunc_tasks_at:<n>`); None without a proc rule.
     pub fn parse(v: &str) -> Option<Faults> {
         let mut pid = None;
         let mut rules = Vec::new();
+        let (mut trunc_root, mut trunc_tasks) = (None, None);
         for p in v.split(',').map(str::trim) {
             let Some((site, n)) = p.rsplit_once(':') else {
                 continue;
@@ -1192,6 +1310,14 @@ impl Faults {
             };
             if site == "proc_pid" {
                 pid = u32::try_from(n).ok();
+                continue;
+            }
+            if site == "proc_trunc_at" {
+                trunc_root = usize::try_from(n.saturating_sub(1)).ok();
+                continue;
+            }
+            if site == "proc_trunc_tasks_at" {
+                trunc_tasks = usize::try_from(n.saturating_sub(1)).ok();
                 continue;
             }
             let Some(rest) = site.strip_prefix("proc_") else {
@@ -1204,14 +1330,31 @@ impl Faults {
                 rules.push((k, m, n));
             }
         }
-        if rules.is_empty() {
+        if rules.is_empty() && trunc_root.is_none() && trunc_tasks.is_none() {
             return None;
         }
         let mut f = Faults::new();
         for (k, m, n) in rules {
             f = f.rule(k, m, n, pid);
         }
+        f.trunc_root = trunc_root;
+        f.trunc_tasks = trunc_tasks;
         Some(f)
+    }
+
+    /// Test builds: both enumerations of the proc root listing keep only their first `keep` numeric entries.
+    pub fn truncate_root(mut self, keep: usize) -> Self {
+        self.trunc_root = Some(keep);
+        self
+    }
+
+    /// The truncation of a listing of `kind` (tests), if any.
+    fn trunc(&self, kind: Kind) -> Option<usize> {
+        match kind {
+            Kind::Listing => self.trunc_root,
+            Kind::Tasks => self.trunc_tasks,
+            _ => None,
+        }
     }
 }
 
@@ -1242,6 +1385,69 @@ mod tests {
 
     fn me() -> u32 {
         std::process::id()
+    }
+
+    /// procfix7 round 6 (gate10 G10-B1): a proc root listing that both enumerations end early IN AGREEMENT is never a
+    /// complete answer: truncated before this process (its sentinel) it is Unreadable; truncated before a live orphan
+    /// that the children-list walk from pid 1 reaches (a setsid'd daemon re-parented to the namespace's init), the
+    /// proven listing is Unreadable as well; the full listing passes both.
+    #[test]
+    fn a_truncated_proc_listing_is_never_complete() {
+        if !crate::launch::in_private_namespace() {
+            eprintln!("SKIPPED: spawns a process: only inside a private pid namespace (rule L10)");
+            return;
+        }
+        let out = std::process::Command::new("sh")
+            .args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .output()
+            .unwrap();
+        let daemon: u32 = String::from_utf8_lossy(&out.stdout).trim().parse().unwrap();
+        // the orphan is re-parented to the namespace's init (this test binary is pid 1 under LIGHT_PIDNS)
+        let t0 = std::time::Instant::now();
+        while !ProcRoot::system()
+            .children(1, 1)
+            .is_ok_and(|k| k.contains(&daemon))
+        {
+            assert!(
+                t0.elapsed() < Duration::from_secs(10),
+                "the orphan never reached pid 1's list"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // older than the listing's start-time slack (2 clock ticks: a process started DURING a listing may be missing)
+        std::thread::sleep(Duration::from_millis(100));
+        let full = ProcRoot::system().pids_proven(&[]).unwrap();
+        assert!(full.contains(&daemon) && full.contains(&me()));
+        // truncated before everything: the sentinels are missing
+        let r = ProcRoot::system().with_faults(Faults::new().truncate_root(0));
+        assert!(
+            matches!(r.pids(), Err(ProcError::Unreadable(w)) if w.contains("listing incomplete")),
+            "an empty listing is never 'no process'"
+        );
+        // truncated just before the daemon (the sentinels this process and pid 1 kept when they come first)
+        let idx = full.iter().position(|&p| p == daemon).unwrap();
+        let r = ProcRoot::system().with_faults(Faults::new().truncate_root(idx));
+        let kept: Vec<u32> = full[..idx].to_vec();
+        if kept.contains(&me()) && kept.contains(&1) {
+            assert!(r.pids().is_ok(), "the sentinels alone are present");
+            assert!(
+                matches!(r.pids_proven(&[]), Err(ProcError::Unreadable(w)) if w.contains(&format!("pid {daemon}"))),
+                "the walk from pid 1 reaches the hidden orphan"
+            );
+        } else {
+            assert!(matches!(r.pids_proven(&[]), Err(ProcError::Unreadable(_))));
+        }
+        // a caller's known live process missing from a truncated listing is Unreadable too
+        let r = ProcRoot::system().with_faults(Faults::new().truncate_root(idx));
+        assert!(matches!(
+            r.pids_proven(&[daemon]),
+            Err(ProcError::Unreadable(_))
+        ));
+        let _ = std::process::Command::new("sh")
+            .args(["-c", &format!("kill -KILL {daemon}")])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .status();
     }
 
     /// Every kind of read of THIS process on the real /proc, under every fault mode: never Gone, never a wrong value.

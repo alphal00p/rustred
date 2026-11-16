@@ -241,7 +241,7 @@ pub fn campaign_spec(campaign: &str, files: &TmFiles, fake: &str, cpus: &str) ->
     json!({
         "schema": "rustred.campaign.spec.v1", "campaign": campaign,
         "programs": {"rr_fake_child": {"path": fake}},
-        "resources": {"policy": "plain", "cpus": cpus, "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+        "resources": {"policy": "plain", "cpus": cpus, "containment": "marker_only", "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},

@@ -2208,6 +2208,29 @@ fn write_final(
             }
         }
     }
+    // procfix7 round 6 (gate10 G10-B1, the listing rule): the files this pass wrote under known names are SENTINELS of
+    // the walk's listings (a listing can end early without an error): one that exists but was not listed fails the pass
+    for rel in [
+        "statement/statement.jsonl",
+        "statement/decisive_zeros.jsonl",
+        "open_keys.jsonl",
+        "clause_keys.jsonl",
+    ] {
+        let p = inp.final_dir.join(rel);
+        match crate::fsx::presence_lstat("closeloop.output", &p) {
+            crate::fsx::Presence::Present(m) if m.is_file() && !files.contains_key(rel) => {
+                return Err(format!(
+                    "{}: exists but the listing of {} did not show it (an incomplete listing)",
+                    p.display(),
+                    inp.final_dir.display()
+                ));
+            }
+            crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {}
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(format!("{} cannot be checked: {e}", p.display()));
+            }
+        }
+    }
     result["final_files_blake3"] = json!(files);
     Ok(FinalOut {
         verdict: verdict_now.to_string(),

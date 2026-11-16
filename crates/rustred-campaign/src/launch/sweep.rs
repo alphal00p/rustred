@@ -715,12 +715,24 @@ impl Sweep<'_> {
 /// Run one sweep (blocking; call it off the control loop). Signals only through `guard` (see the module documentation);
 /// every delivery is logged with the context "campaign sweep" (gate3 M2).
 pub fn sweep(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
+    sweep_seeded(spec, &[], cancel)
+}
+
+/// procfix7 round 6 (gate10 G10-B1 rule (3), M10-1): a sweep whose SUSPECTS start with `seeds` (pid, start time if
+/// recorded): processes the ledger recorded (job leaders of this boot, marked survivors, vanished processes of earlier
+/// sweeps). Each is proven dead or not ours BY ITS OWN PID (stat: ENOENT / ESRCH, another start time, unmarked, another
+/// uid: `check_candidate`), never by its absence from a listing; one still possibly ours keeps the sweep unproven.
+pub fn sweep_seeded(
+    spec: &SweepSpec,
+    seeds: &[(u32, Option<u64>)],
+    cancel: &AtomicBool,
+) -> SweepReport {
     guard::with_context("campaign sweep", spec.only_attempt.as_deref(), || {
-        sweep_inner(spec, cancel)
+        sweep_inner(spec, seeds, cancel)
     })
 }
 
-fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
+fn sweep_inner(spec: &SweepSpec, seeds: &[(u32, Option<u64>)], cancel: &AtomicBool) -> SweepReport {
     let boot = match boot_id() {
         Ok(b) => b,
         Err(e) => {
@@ -765,6 +777,9 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         suspects: BTreeMap::new(),
         vanished: BTreeMap::new(),
     };
+    for &(pid, start) in seeds {
+        w.suspects.entry(pid).or_insert(start);
+    }
     w.retry_stranded();
     let reason = loop {
         // A freeze that hit the bound still ends in the SIGKILL of every member; the proof below decides.
@@ -810,6 +825,16 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         .filter(|(k, _)| !w.killed.contains_key(k) && !w.killed_by_hold.contains_key(k))
         .map(|(_, p)| p)
         .collect();
+    // procfix7 round 6 (gate10 M10-1): a sweep in which a marked process was seen alive and exited before its stop is
+    // NEVER proven (a successor it started may run unseen); the caller keeps the end unproven until a LATER sweep, seeded
+    // with these pids, is proven
+    let reason = match reason {
+        None if !vanished.is_empty() => Some(format!(
+            "marked process(es) {:?} were seen alive and exited before their stop (a successor may run unseen)",
+            vanished.iter().map(|p| p.pid).collect::<Vec<_>>()
+        )),
+        r => r,
+    };
     SweepReport {
         killed: w.killed.into_values().collect(),
         killed_by_hold: w.killed_by_hold.into_values().collect(),

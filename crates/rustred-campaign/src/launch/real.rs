@@ -1224,6 +1224,8 @@ pub struct RealChild {
     hunt: Option<HuntTask>,
     hunt_cancel: Arc<AtomicBool>,
     next_hunt_at: Option<Instant>,
+    /// procfix7 round 6 (gate10 M10-2): hunts after an unverified end so far (the re-hunt interval doubles, capped).
+    rehunts: u32,
     last_hunt_reason: String,
     last_hunt_left: Vec<LeftoverRecord>,
     unattributed: Vec<UnattributedChild>,
@@ -1288,6 +1290,7 @@ impl RealChild {
             hunt: None,
             hunt_cancel: Arc::new(AtomicBool::new(false)),
             next_hunt_at: None,
+            rehunts: 0,
             last_hunt_reason: String::new(),
             last_hunt_left: Vec::new(),
             unattributed: Vec::new(),
@@ -1530,6 +1533,14 @@ impl RealChild {
             pass_gap: self.config.pass_gap,
             stop_wait: Duration::from_millis(500),
         }
+    }
+
+    /// procfix7 round 6 (gate10 M10-2): the interval before the next hunt of an unverified end: `rehunt_every` doubled
+    /// after every hunt that did not prove the end, capped at 64 x (5 s -> 320 s by default).
+    fn rehunt_delay(&mut self) -> Duration {
+        let d = self.config.rehunt_every * (1u32 << self.rehunts.min(6));
+        self.rehunts = self.rehunts.saturating_add(1);
+        d
     }
 
     fn start_hunt(&mut self) {
@@ -1906,14 +1917,14 @@ impl ChildHandle for RealChild {
                 }) => {
                     self.merge_killed(killed);
                     self.merge_unattributed(unattributed);
-                    self.next_hunt_at = Some(now + self.config.rehunt_every);
+                    self.next_hunt_at = Some(now + self.rehunt_delay());
                     self.finished = Some(self.report(Verification::Unverified {
                         leftovers: left,
                         reason,
                     }));
                 }
                 Some(HuntResult::Survivors { left }) => {
-                    self.next_hunt_at = Some(now + self.config.rehunt_every);
+                    self.next_hunt_at = Some(now + self.rehunt_delay());
                     self.finished = Some(self.report(Verification::Unverified {
                         leftovers: left,
                         reason: "the job still has live processes (monitored, not killed)".into(),
@@ -1925,7 +1936,7 @@ impl ChildHandle for RealChild {
                 && self.exit.is_some()
                 && self.next_hunt_at.is_none_or(|t| now >= t)
             {
-                self.next_hunt_at = Some(now + self.config.rehunt_every);
+                self.next_hunt_at = Some(now + self.rehunt_delay());
                 self.start_hunt();
             }
             return Ok(ChildProgress::Finished(
@@ -2063,7 +2074,7 @@ impl ChildHandle for RealChild {
             }
             Some(HuntResult::Survivors { .. }) => {
                 // Adopt never kills: the job is still running without its leader.
-                self.next_hunt_at = Some(now + self.config.rehunt_every);
+                self.next_hunt_at = Some(now + self.rehunt_delay());
                 return Ok(ChildProgress::Running);
             }
             Some(HuntResult::NotProven {

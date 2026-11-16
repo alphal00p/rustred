@@ -499,7 +499,7 @@ pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
     let uid = crate::resources::our_uid();
     let root = crate::resources::procfs::sys();
     let pids = root
-        .pids()
+        .pids_proven(&[])
         .map_err(|e| io::Error::other(format!("the token scan's /proc listing failed: {e}")))?;
     for p in pids.into_iter().filter(|&p| p != me) {
         // only a process of our real uid can carry our token (status stays readable for non-dumpable ones)

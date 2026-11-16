@@ -220,3 +220,31 @@ fn the_rule_is_not_switched_off_in_production_code() {
         bad.join("\n")
     );
 }
+
+/// procfix7 round 6 (gate10 m10-4: clippy's disallowed-methods is a PROCESS gate, and some error-collapsing forms
+/// (`File::open(p).is_ok()`, `canonicalize(..)` fallbacks, `read_link(..).is_ok()`, a DirEntry's `file_type()` mapped to
+/// a default) have no clippy rule): the suite itself runs the mechanical candidate list (audit/fs_sites.py) and fails
+/// when a PRODUCTION candidate has no review (audit/fs_sites_review.tsv) and no verdict the code shows by itself.
+#[test]
+fn every_production_candidate_of_the_mechanical_list_is_reviewed() {
+    let script = Path::new(env!("CARGO_MANIFEST_DIR")).join("audit/fs_sites.py");
+    let out = match std::process::Command::new("python3")
+        .arg("-I")
+        .arg(&script)
+        .arg("--check")
+        .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!("SKIPPED: python3 unavailable ({e})");
+            return;
+        }
+    };
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && text.contains("production candidates UNREVIEWED: 0"),
+        "audit/fs_sites.py --check failed (a new production site needs a review in audit/fs_sites_review.tsv):\n{text}\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}

@@ -59,6 +59,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+/// procfix7 round 6 (gate10 M10-2): pinned groups (session, launch ticks) whose group SIGKILL was delivered.
+static GROUP_KILLED: std::sync::Mutex<std::collections::BTreeSet<(u32, u64)>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
+
 /// What to hunt.
 #[derive(Clone, Debug)]
 pub(crate) struct HuntSpec {
@@ -523,7 +527,7 @@ impl Hunt<'_> {
         &mut self,
     ) -> Result<BTreeMap<u32, Member>, (String, BTreeMap<u32, Member>)> {
         let mut known: BTreeMap<u32, Member> = BTreeMap::new();
-        if self.s.pinned {
+        if self.s.pinned && !self.group_killed() {
             #[allow(clippy::let_underscore_must_use)]
             // ignored-ok (procfix7): the fixed point and two proof passes decide; a failed stop only costs rounds
             let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
@@ -742,12 +746,29 @@ impl Hunt<'_> {
         ))
     }
 
+    /// procfix7 round 6 (gate10 M10-2: an unproven end re-ran the hunt every few seconds and every round sent the pinned
+    /// group SIGSTOP + SIGKILL again, each a durable intent and a ledger record: ~97,000 records in 10 min). A SIGKILL
+    /// delivered to the pinned group (leader held UNREAPED: the session cannot be reused) reached every member of that
+    /// moment, and no fork completes with a fatal signal pending: later rounds of this job skip the GROUP signals; a live
+    /// member that is still found is stopped and killed by its own pidfd as before. Keyed by (session, launch time).
+    fn group_killed(&self) -> bool {
+        GROUP_KILLED
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&(self.s.sid, self.s.launch_ticks))
+    }
+
     /// Step 3: SIGKILL every stopped member (and the pinned group, and the cgroup); wait for the exits (bounded).
     fn kill_all(&mut self, known: BTreeMap<u32, Member>) -> Vec<LeftoverRecord> {
-        if self.s.pinned {
-            #[allow(clippy::let_underscore_must_use)]
-            // ignored-ok (procfix7): the proof passes decide; a survivor sends the hunt back (never a proof by itself)
-            let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL);
+        if self.s.pinned
+            && !self.group_killed()
+            && guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL).delivered()
+        {
+            // procfix7 round 6 (gate10 M10-2): delivered once per pinned group (the proof passes decide what is left)
+            GROUP_KILLED
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert((self.s.sid, self.s.launch_ticks));
         }
         if let Some(cg) = &self.s.cgroup {
             #[allow(clippy::let_underscore_must_use)]
@@ -805,10 +826,13 @@ impl Hunt<'_> {
         // The scope belt (procfix3): AFTER the guarded kills, whatever the job's own systemd scope still holds (e.g. a
         // descendant that cleared the marker and left the session) is killed by the kernel through `cgroup.kill` of
         // that scope (recorded from the pinned leader; checked again: same directory, our uid, our user manager).
-        if let Some(scope) = &self.s.scope
-            && let Ok(live) = scope.live_members()
-            && !live.is_empty()
+        // procfix7 round 6 (gate10 m10-3): the belt runs unless the scope is PROVEN empty (members() Ok and empty, which
+        // now includes the kernel's recursive populated 0): an unreadable scope is killed too (cgroup.kill is recursive)
+        let scope_live = self.s.scope.as_ref().map(|s| s.live_members());
+        if let (Some(scope), Some(live)) = (&self.s.scope, scope_live)
+            && !matches!(&live, Ok(v) if v.is_empty())
         {
+            let live = live.unwrap_or_default();
             for pid in &live {
                 // a record of what the scope kill takes (diagnostics); an unreadable stat is recorded without details
                 match crate::resources::read_stat(*pid) {

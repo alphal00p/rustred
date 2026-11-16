@@ -57,7 +57,7 @@ fn rel(p: &Path) -> String {
 const REVIEWED: &[(&str, usize)] = &[
     ("src/launch/cgroup.rs", 8),
     ("src/launch/guard.rs", 7),
-    ("src/launch/hunt.rs", 4),
+    ("src/launch/hunt.rs", 3),
     ("src/launch/idlock.rs", 6),
     ("src/launch/real.rs", 11),
     ("src/launch/sweep.rs", 1),

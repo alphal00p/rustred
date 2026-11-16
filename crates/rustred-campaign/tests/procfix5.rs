@@ -343,7 +343,13 @@ fn real_children_need_scope_containment_unless_marker_only() {
     let r = real.to_str().unwrap();
     let files = closeloop_support::toy(&t.path.join("m"), &closeloop_support::Toy::default(), r);
     let base = closeloop_support::campaign_spec(&t.campaign, &files, r, &cpus());
-    // default (scope): refused, nothing launched
+    // default (scope): refused, nothing launched (procfix7 round 6: the default without a scope is refused for every
+    // child, fake ones included; the support builders set the namespace override, removed here)
+    let mut base = base;
+    base["resources"]
+        .as_object_mut()
+        .unwrap()
+        .remove("containment");
     let p1 = write_spec(&t, "s1.json", &base);
     let d1 = t.cdir("refused");
     let mut c = start(&p1, &d1, &["--plain"], &[]);
@@ -353,11 +359,23 @@ fn real_children_need_scope_containment_unless_marker_only() {
         "{}",
         log_tail(&d1)
     );
-    assert!(
-        log_tail(&d1).contains("real children need scope containment"),
+    assert!(log_tail(&d1).contains("no job scope"), "{}", log_tail(&d1));
+    // procfix7 round 6: FAKE children without a scope are refused too (the scan-only proof is a test override)
+    let mut syn = spec(&t, serde_json::json!({"items": 2}), serde_json::json!({}));
+    syn["resources"]
+        .as_object_mut()
+        .unwrap()
+        .remove("containment");
+    let p0 = write_spec(&t, "s0.json", &syn);
+    let d0 = t.cdir("fake-refused");
+    let mut c = start(&p0, &d0, &["--plain"], &[]);
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(120)),
+        1,
         "{}",
-        log_tail(&d1)
+        log_tail(&d0)
     );
+    assert!(log_tail(&d0).contains("no job scope"), "{}", log_tail(&d0));
     assert!(
         !d1.join("jobs").exists() || std::fs::read_dir(d1.join("jobs")).unwrap().next().is_none(),
         "nothing launched"

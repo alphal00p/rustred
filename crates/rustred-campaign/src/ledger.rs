@@ -2156,6 +2156,20 @@ pub fn rebuild_manifest(cdir: &Path, lock: &CampaignLock) -> Result<RebuildRepor
             format!("segments must be numbered 1..=N without a gap, found {idx:?}"),
         ));
     }
+    // procfix7 round 6 (gate10 G10-B1, the listing rule): the listing's completeness is proven BY NAME (a listing can
+    // end early without an error): segment N + 1 must not exist; a rebuilt manifest never drops the tail of a history
+    let next = segment_name(idx.len() as u32 + 1);
+    match crate::fsx::presence_lstat("ledger.listing", &dir.join(&next)) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) => {
+            return Err(corrupt(
+                &next,
+                0,
+                "exists but the directory listing ended before it: the listing is incomplete; nothing rebuilt",
+            ));
+        }
+        crate::fsx::Presence::Unknown(e) => return Err(io_err(&dir.join(&next), "stat")(e)),
+    }
     let mark = read_commit_mark(&dir)?;
     let mut st = CampaignState::default();
     let (mut seq, mut head) = (0u64, GENESIS.to_string());
@@ -2370,6 +2384,30 @@ impl Ledger {
                 )));
             }
             crate::fsx::Listing::Failed(e) => return Err(io_err(&dir, "list")(e)),
+        }
+        // procfix7 round 6 (gate10 G10-B1, the listing rule): an empty listing is "proven empty" only with a second
+        // source that does not go through getdents64 (a listing can end early without an error): every name a ledger,
+        // or the residue of a crashed create, holds at its start is checked BY NAME
+        for name in [
+            MANIFEST_FILE.to_string(),
+            COMMIT_FILE.to_string(),
+            segment_name(1),
+            RECOVERY_PENDING_FILE.to_string(),
+        ] {
+            match crate::fsx::presence_lstat("ledger.listing", &dir.join(&name)) {
+                crate::fsx::Presence::Absent => {}
+                crate::fsx::Presence::Present(_) => {
+                    return Err(LedgerError::ManifestMissing {
+                        dir,
+                        found: format!(
+                            "{name} (not in the directory listing: an incomplete listing)"
+                        ),
+                    });
+                }
+                crate::fsx::Presence::Unknown(e) => {
+                    return Err(io_err(&dir.join(&name), "stat")(e));
+                }
+            }
         }
         let manifest = Manifest {
             schema: MANIFEST_SCHEMA.into(),

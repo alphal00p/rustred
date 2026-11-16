@@ -370,6 +370,24 @@ impl CgroupRoot {
     }
 }
 
+/// procfix7 round 6 (gate10 m10-3): `populated` of `<dir>/cgroup.events`: the kernel's RECURSIVE answer (a process in
+/// this cgroup or any child cgroup). A missing line or an unparsable value is an error.
+pub(super) fn populated(dir: &Path) -> io::Result<bool> {
+    let t = read(&dir.join("cgroup.events"))?;
+    match t
+        .lines()
+        .find_map(|l| l.strip_prefix("populated "))
+        .map(str::trim)
+    {
+        Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        other => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("cgroup.events: populated {other:?}"),
+        )),
+    }
+}
+
 /// Pids listed in `<dir>/cgroup.procs` (strict).
 pub(super) fn procs_of(dir: &Path) -> io::Result<Vec<u32>> {
     let t = read(&dir.join("cgroup.procs"))?;
@@ -516,6 +534,23 @@ impl ScopeRef {
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(format!("{}/cgroup.procs: {e}", self.dir.display())),
         };
+        // procfix7 round 6 (gate10 m10-3): cgroup.procs lists only the scope's OWN members; a process that moved into a
+        // child cgroup of the scope is not in it. The kernel's RECURSIVE answer is cgroup.events `populated`: a scope
+        // populated without a listed member is never "empty"
+        if pids.iter().all(|&p| p == self.sid) {
+            match populated(&self.dir) {
+                Ok(false) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+                Ok(true) if pids.contains(&self.sid) => {}
+                Ok(true) => {
+                    return Err(format!(
+                        "{}: populated (cgroup.events) but no member listed in cgroup.procs (a process in a child cgroup?)",
+                        self.dir.display()
+                    ));
+                }
+                Err(e) => return Err(format!("{}/cgroup.events: {e}", self.dir.display())),
+            }
+        }
         let mut out = Vec::new();
         for pid in pids {
             if pid == self.sid {
@@ -597,13 +632,15 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
             continue;
         }
         let procs = procs_of(&dir)?;
-        if procs.is_empty() {
+        // procfix7 round 6 (gate10 m10-3): empty only when the kernel's RECURSIVE populated flag says so (cgroup.procs
+        // lists only the scope's own members, not those of a child cgroup); cgroup.kill is recursive
+        if procs.is_empty() && !populated(&dir)? {
             return Ok(Some(0));
         }
         super::guard::cgroup_kill_logged(&dir, "job scope", || {
             write_file(&dir.join("cgroup.kill"), "1")
         })?;
-        return Ok(Some(procs.len()));
+        return Ok(Some(procs.len().max(1)));
     }
     Ok(None)
 }

@@ -125,7 +125,7 @@ pub fn spec(
     resources: serde_json::Value,
 ) -> serde_json::Value {
     let mut res = serde_json::json!({
-        "policy": "plain", "cpus": cpus(), "max_jobs": 8, "mem_total": "4G", "disk_floor": "1G",
+        "policy": "plain", "cpus": cpus(), "containment": "marker_only", "max_jobs": 8, "mem_total": "4G", "disk_floor": "1G",
         "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60, "start_timeout_s": 120
     });
     for (k, v) in resources.as_object().unwrap() {

@@ -276,7 +276,8 @@ fn strict_scan(
     validate_campaign_id(campaign_id).map_err(|e| std::io::Error::other(e.to_string()))?;
     let me = std::process::id();
     let mut out = CampaignScan::default();
-    for pid in root.pids()? {
+    // procfix7 round 6 (gate10 G10-B1): a listing that decides "no marked process" needs its completeness proof
+    for pid in root.pids_proven(&[])? {
         if pid <= 1 || pid == me {
             continue;
         }
@@ -335,7 +336,8 @@ pub fn hidden_descendants_at(
         Ok((st.ppid()?, st.real_uid()?, st.name().unwrap_or_default()))
     };
     let mut out = Vec::new();
-    for pid in root.pids()? {
+    // procfix7 round 6 (gate10 G10-B1): "no hidden descendant" needs the listing's completeness proof
+    for pid in root.pids_proven(&[])? {
         if pid == ancestor {
             continue;
         }
