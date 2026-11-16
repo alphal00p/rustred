@@ -141,6 +141,9 @@ pub struct PassIn {
     pub ship_gate: super::config::ShipGateCfg,
     /// lane wireflow (b), closeloop.md 26: facts from the frontier with the facts budget in force (None = off).
     pub frontier: Option<super::frontier::FrontierIn>,
+    /// lane wireflow (b): solve / proof items of the node still in flight when the pass started (frontier mode passes
+    /// while solves run): no final verdict, no terminal proposal, no facts-budget end while > 0. 0 otherwise.
+    pub in_flight: u64,
     /// closeloop.md 19: the terminal policy and the recorded decisions (ledger order).
     pub terminals: TerminalsCfg,
     pub terminal_decisions: Vec<TerminalDecision>,
@@ -220,6 +223,7 @@ impl PassIn {
             second_route: SecondRouteCfg::default(),
             ship_gate: Default::default(),
             frontier: None,
+            in_flight: 0,
             terminals: TerminalsCfg::default(),
             terminal_decisions: vec![],
             pins_recorded: None,
@@ -1452,18 +1456,44 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         let order: Vec<String> = set.rel_order.iter().map(|e| rel_name(&set, e)).collect();
         let mut srcs: Vec<&str> = by_source.keys().copied().collect();
         srcs.sort_by_key(|s| order.iter().position(|o| o == s).unwrap_or(usize::MAX));
-        for s in srcs {
-            let v = &by_source[s];
+        // lane wireflow (b), frontier mode: CHEAPEST FIRST (lowest D + r, then the smallest face) so the cheap keys
+        // close while the expensive ones run (the item order is the queue order)
+        let lines = set.frame.mask().to_vec();
+        let dr = |k: &[i32]| -> i64 {
+            k.iter()
+                .zip(&lines)
+                .map(|(&x, &l)| {
+                    if l {
+                        (x as i64 - 1).max(0)
+                    } else {
+                        (-(x as i64)).max(0)
+                    }
+                })
+                .sum()
+        };
+        let mut ranked: Vec<(i64, usize, usize, Batch)> = vec![];
+        for (si, s) in srcs.into_iter().enumerate() {
+            let mut v = by_source[s].clone();
+            if frontier.is_some() {
+                v.sort_by_key(|r| dr(&r.key));
+            }
+            let face = v.len();
             for chunk in v.chunks(inp.max_keys_per_job.max(1)) {
-                batches.push(Batch {
+                let b = Batch {
                     source: s.to_string(),
                     recipe_path: chunk[0].recipe_path.clone(),
                     recipe_sha256: chunk[0].recipe_sha256.clone(),
                     engine_digest: chunk[0].engine_digest.clone(),
                     keys: chunk.iter().map(|r| r.key.clone()).collect(),
-                });
+                };
+                let cost = b.keys.iter().map(|k| dr(k)).min().unwrap_or(0);
+                ranked.push((cost, face, si, b));
             }
         }
+        if frontier.is_some() {
+            ranked.sort_by_key(|(c, f, si, _)| (*c, *f, *si));
+        }
+        batches = ranked.into_iter().map(|x| x.3).collect();
     }
     // new proof / fact batches (closeloop.md 13.1)
     let mut proof_batches: Vec<ProofBatch> = vec![];
@@ -1745,7 +1775,11 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     }
     // lane wireflow (b), closeloop.md 26: the FACTS-BUDGET end (the frontier did not fit and nothing else is issued:
     // typed, the frontier saved, no final verdict) and the round's frontier record
-    let facts_stop_now = facts_stop.is_some() && batches.is_empty() && proof_batches.is_empty();
+    // (frontier mode: solves still in flight are other jobs too: the end waits for them)
+    let facts_stop_now = facts_stop.is_some()
+        && batches.is_empty()
+        && proof_batches.is_empty()
+        && inp.in_flight == 0;
     let mut facts_budget_out: Option<(Value, Vec<u8>)> = None;
     let mut frontier_v: Option<Value> = None;
     if let Some(fin) = frontier {
@@ -1757,6 +1791,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         let pairs_req: u64 = fact_jobs.iter().map(|b| b.keys()).sum();
         let end = if tier_c_now {
             "fixed_point"
+        } else if pairs_req == 0 && facts_stop.is_none() && inp.in_flight > 0 {
+            // the frontier waits for the solves in flight (their answers serve the keys it stops at)
+            "waiting_for_solves"
         } else if facts_stop_now {
             "facts_budget"
         } else if facts_stop.is_some() {
@@ -1785,7 +1822,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
             "closure_keys": keys_only_n, "frontier_keys": frontier_stops,
             "frontier_pairs": frontier_wanted.0, "pairs_requested": pairs_req, "jobs": fact_jobs.len(),
             "zero_terms_dropped": res_f.map(|r| r.summary.terms.dropped_zero).unwrap_or(0),
-            "prefetch": frontier_pf, "budget": fin.budget_json(pairs_used), "end": end}));
+            "prefetch": frontier_pf, "budget": fin.budget_json(pairs_used), "end": end,
+            "solves_in_flight": inp.in_flight}));
         if let (true, Some(pairs)) = (facts_stop_now, facts_stop.take()) {
             let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
             h.update(&pairs);
@@ -1998,6 +2036,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
         && !budget_stop
         && !progress
         && !facts_stop_now
+        && inp.in_flight == 0
     {
         let rejected: BTreeSet<Vec<i32>> = inp
             .terminal_decisions
@@ -2070,8 +2109,9 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     }
     let mut final_ = if terminal_proposals.is_some() || terminal_decision.is_some() {
         None
-    } else if closed
-        || (batches.is_empty() && proof_batches.is_empty() && !progress && !facts_stop_now)
+    } else if inp.in_flight == 0
+        && (closed
+            || (batches.is_empty() && proof_batches.is_empty() && !progress && !facts_stop_now))
     {
         let verdict = if closed {
             "closed"

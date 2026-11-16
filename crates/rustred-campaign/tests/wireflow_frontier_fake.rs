@@ -15,7 +15,7 @@
 mod closeloop_support;
 mod sup_common;
 
-use closeloop_support::{blake3_file, rule, sha256_file, write_table};
+use closeloop_support::{blake3_file, recipe, rule, sha256_file, write_table};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -371,5 +371,91 @@ fn an_interrupted_frontier_run_resumes_to_the_same_statement() {
     assert!(codes.len() > 1, "no interrupt happened: {codes:?}");
     assert!(statement(&cb) == statement(&ca), "statements differ");
     assert_eq!(pairs_asked(&cb), 5);
+    assert_eq!(verify(&cb), 0);
+}
+
+/// The FR material plus face R2 = [k,2,0] (a recipe): the start key [3,2,0] is uncovered by tables and served by SLOW
+/// recipe solves (the test sets the solve fake's ms) whose relations reach chain A ([k,1,0]).
+fn material_with_solves(dir: &Path) {
+    material(dir);
+    let r2 = recipe(dir, "R2.recipe.json", [None, Some(2), Some(0)]);
+    std::fs::write(dir.join("start.jsonl"), "[5,1,0]\n[3,2,0]\n").unwrap();
+    let sp = dir.join("import-spec.json");
+    let mut v: Value = serde_json::from_slice(&std::fs::read(&sp).unwrap()).unwrap();
+    v["sources"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"id": "R2", "kind": "recipe", "class": "recipe",
+        "path": r2.display().to_string(), "sha256": sha256_file(&r2)}));
+    std::fs::write(&sp, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    let mut o = String::new();
+    for k in 1..=3 {
+        let rhs = if k > 1 {
+            json!([[k - 1, 2, 0], [k, 1, 0]])
+        } else {
+            json!([[0, 2, 0], [1, 1, 0]])
+        };
+        o.push_str(&format!(
+            "{}\n",
+            json!({"source": "R2", "key": [k, 2, 0], "verdict": "SOLVED", "rhs": rhs})
+        ));
+    }
+    std::fs::write(dir.join("oracle.jsonl"), o).unwrap();
+}
+
+#[test]
+fn the_frontier_advances_while_slow_solves_run_and_ends_where_all_at_once_ends() {
+    let _g = serial();
+    let m = Tmp::new("wffmat5");
+    let mat = m.path.join("material");
+    material_with_solves(&mat);
+    let patch = |cdir_cfg: &Path| {
+        // slow solves: the solve fake's ms
+        let p = cdir_cfg.join("closeloop.json");
+        let mut v: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
+        v["nodes"][0]["solve"]["fake"]["ms"] = json!(2500);
+        v["nodes"][0]["solve"]["max_keys_per_job"] = json!(1);
+        // our recipe relations are per-key only with their bound proofs (fake span answers: exact in span)
+        v["nodes"][0]["proof"]["relations"] = json!(true);
+        std::fs::write(&p, serde_json::to_vec_pretty(&v).unwrap()).unwrap();
+    };
+    let run = |tag: &str, fr: Option<Value>| -> (Tmp, PathBuf) {
+        let t = Tmp::new(tag);
+        let cfg_dir = t.path.join("cfg");
+        let cfg = config(&cfg_dir, &mat, fr, 5);
+        patch(&cfg_dir);
+        let spec = json!({
+            "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
+            "programs": {"rr_fake_child": {"path": FAKE}},
+            "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+                          "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
+                          "start_timeout_s": 120},
+            "progress": {"cadence_seconds": 1},
+            "inputs": [{"id": "closeloop-config", "role": "closeloop", "path": cfg.display().to_string(),
+                        "blake3": blake3_file(&cfg)}]
+        });
+        let sp = write_spec(&t, "spec.json", &spec);
+        let cdir = t.cdir("cdir");
+        let codes = run_to_end(&sp, &cdir, &["--plain"]);
+        assert_eq!(codes.last(), Some(&0), "{codes:?} {}", log_tail(&cdir));
+        (t, cdir)
+    };
+    let (_ta, ca) = run("wffslow0", None);
+    let (_tb, cb) = run(
+        "wffslow1",
+        Some(json!({"max_pairs": 100, "max_jobs": 100, "prefetch_outside": false})),
+    );
+    assert_eq!(result(&ca)["verdict"], "closed", "{:#}", result(&ca));
+    assert_eq!(result(&cb)["verdict"], "closed", "{:#}", result(&cb));
+    assert!(statement(&cb) == statement(&ca), "statements differ");
+    // at least one frontier pass ran while a solve was in flight; no final was written before the solves ended
+    let cs = checks(&cb);
+    assert!(
+        cs.iter()
+            .any(|c| c["frontier"]["solves_in_flight"].as_u64().unwrap_or(0) > 0),
+        "{:#?}",
+        cs.iter().map(|c| &c["frontier"]).collect::<Vec<_>>()
+    );
+    assert_eq!(cs.last().unwrap()["frontier"]["solves_in_flight"], 0);
     assert_eq!(verify(&cb), 0);
 }

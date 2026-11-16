@@ -861,9 +861,51 @@ impl CloseFromMaterialSource {
                 && (!Self::item_final(&it.phase) || Self::memory_cap_held(st, id))
         });
         if busy {
+            // lane wireflow (b), closeloop.md 26: in frontier mode the frontier ADVANCES WHILE SOLVES RUN: a pass as soon
+            // as every fact / proof item is final (none held) and the last pass issued some (their answers are new)
+            if r.set.is_some() && r.cfg.facts_frontier.is_some() && self.frontier_may_advance(st, i)
+            {
+                return Some(Self::rounds_done(st, &r.n) + 1);
+            }
             return if r.set.is_none() { Some(0) } else { None };
         }
         Some(Self::rounds_done(st, &r.n) + 1)
+    }
+
+    /// lane wireflow (b): frontier mode, items in flight: true when no fact / proof item is open or held, no item is
+    /// held at its memory cap, and the last pass (round k = rounds done) issued fact / proof items.
+    fn frontier_may_advance(&self, st: &CampaignState, i: usize) -> bool {
+        let r = &self.nodes[i];
+        let node = &r.cfg.node;
+        let k = Self::rounds_done(st, &r.n);
+        let mut issued_last = false;
+        for (id, it) in st.items.iter().filter(|(_, it)| it.node == *node) {
+            if Self::memory_cap_held(st, id) {
+                return false;
+            }
+            if is_proof_kind(&it.kind) {
+                if !Self::item_final(&it.phase) {
+                    return false;
+                }
+                if parse_proof_item(&r.n, id).is_some_and(|(rk, _)| rk == k) {
+                    issued_last = true;
+                }
+            }
+        }
+        issued_last
+    }
+
+    /// lane wireflow (b): the node's solve / proof items not final (the pass's `in_flight`).
+    fn in_flight(&self, st: &CampaignState, i: usize) -> u64 {
+        let node = &self.nodes[i].cfg.node;
+        st.items
+            .values()
+            .filter(|it| {
+                it.node == *node
+                    && (it.kind == KIND_SOLVE || is_proof_kind(&it.kind))
+                    && !Self::item_final(&it.phase)
+            })
+            .count() as u64
     }
 
     fn start_pass(&mut self, st: &CampaignState, i: usize, round: u32) -> Result<(), String> {
@@ -917,6 +959,7 @@ impl CloseFromMaterialSource {
         let pi = self.proof_issued(st, i)?;
         // lane wireflow (b): the operator's facts-budget raises (ledger order; the last one is in force)
         let raises = self.facts_budget_raises(st, i)?;
+        let in_flight = self.in_flight(st, i);
         let proof_files = self
             .inputs_of_role(st, i, ROLE_PROOFS)
             .into_iter()
@@ -1058,6 +1101,7 @@ impl CloseFromMaterialSource {
                 .facts_frontier
                 .as_ref()
                 .map(|c| super::frontier::FrontierIn::new(c, &raises, pi.fact_jobs)),
+            in_flight,
             terminals: r.cfg.terminals,
             terminal_decisions: decisions,
             pins_recorded,
@@ -2787,7 +2831,11 @@ impl WorkSource for CloseFromMaterialSource {
                 let (k, j) = parse_solve_item(&self.nodes[i].n, &item)
                     .or_else(|| parse_proof_item(&self.nodes[i].n, &item))
                     .unwrap_or((0, 0));
-                let base = -(k as i64) * 1_000_000 - j as i64;
+                let mut base = -(k as i64) * 1_000_000 - j as i64;
+                // lane wireflow (b): frontier mode: fact / proof jobs (short, they advance the frontier) before solves
+                if ikind != KIND_SOLVE && self.nodes[i].cfg.facts_frontier.is_some() {
+                    base += 1_000_000_000;
+                }
                 let failed = jobs
                     .iter()
                     .filter(|x| {
