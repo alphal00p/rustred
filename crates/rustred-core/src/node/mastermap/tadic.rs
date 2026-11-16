@@ -277,11 +277,19 @@ fn add(p: u64, a: &TadicSeries, b: &TadicSeries) -> TadicSeries {
     })
 }
 
-/// `a * c` to absolute precision `precision` (the caller guarantees `a.precision() + c.start >= precision` and
-/// `c.precision() + a.start >= precision`; checked).
-fn mul_to(p: u64, a: &TadicSeries, c: &TadicSeries, precision: i32) -> Result<TadicSeries, String> {
+/// `a * c` to absolute precision `precision`; `c_valuation` is the EXACT valuation of `c` over Q (a lower bound of
+/// its order even when its expansion is only `O(t^P)` with `P <= c_valuation`). The caller guarantees
+/// `a.precision() + c_valuation >= precision` and `c.precision() + a.start >= precision`; checked.
+fn mul_to(
+    p: u64,
+    a: &TadicSeries,
+    c: &TadicSeries,
+    c_valuation: i32,
+    precision: i32,
+) -> Result<TadicSeries, String> {
+    let c_low = c.start.max(c_valuation);
     if a.coefficients.is_empty() || c.coefficients.is_empty() {
-        let available = (a.precision() + c.start).min(c.precision() + a.start);
+        let available = (a.precision() + c_low).min(c.precision() + a.start);
         if available < precision {
             return Err(typed(
                 "TADIC_PRECISION_FAILURE",
@@ -290,7 +298,7 @@ fn mul_to(p: u64, a: &TadicSeries, c: &TadicSeries, precision: i32) -> Result<Ta
         }
         return Ok(known_zero(precision));
     }
-    let available = (a.precision() + c.start).min(c.precision() + a.start);
+    let available = (a.precision() + c_low).min(c.precision() + a.start);
     if available < precision {
         return Err(typed(
             "TADIC_PRECISION_FAILURE",
@@ -726,7 +734,7 @@ impl Table {
                                 ),
                             ));
                         }
-                        let product = mul_to(p, &a, &cs, target)?;
+                        let product = mul_to(p, &a, &cs, e.valuation, target)?;
                         max_length = max_length.max((product.precision() - product.start).max(0) as usize);
                         slot[j] = Some(match slot[j].take() {
                             Some(old) => add(p, &old, &product),
