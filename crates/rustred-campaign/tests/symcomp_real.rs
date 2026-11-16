@@ -5,6 +5,13 @@
 //! counts from its notes: plain 237 / composite 44 / none 85 / over_cap 5). Run in a private pid namespace under the
 //! runner's own unit:
 //! `LIGHT_PIDNS=1 light_build.sh symjob test -p rustred-campaign --test symcomp_real -- --ignored --nocapture`
+//!
+//! int8 (round 3): the table set is the PINNED box statement v1.0.3 of T178: the arrival case's import spec keeps its
+//! order and fields but only the tables that service 1 of the coordinator's services file pins
+//! (`plan/auto-campaign/reports/T178-MARGIN-SERVICES.json`, `RUSTRED_T178_SERVICES` overrides), each with its sha256
+//! (verified at load). Left out: 10 order-B pieces the statement's table list does not pin (no statement key served by
+//! them; 8 without an end record, refused since partfix4: before int8 the spec could not load). An explicit
+//! RUSTRED_SYMCOMP_SPEC is used as given.
 
 mod adapters_support;
 use adapters_support::*;
@@ -26,16 +33,67 @@ fn env_path(k: &str, default: &str) -> PathBuf {
 }
 
 const RF: &str = "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/repairflow";
+const WS: &str = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev";
+
+/// int8: `base` (an import spec) restricted to the tables of T178's pinned statement (service 1 of the services file),
+/// each source with its sha256 pin; written under `dir`. Prints what was left out.
+fn pinned_spec(base: &str, dir: &std::path::Path) -> PathBuf {
+    let services = env_path(
+        "RUSTRED_T178_SERVICES",
+        &format!("{WS}/plan/auto-campaign/reports/T178-MARGIN-SERVICES.json"),
+    );
+    let sv: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&services).unwrap()).unwrap();
+    let s1 = sv["services"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["order"] == 1)
+        .expect("service 1 (the pinned statement)");
+    let pins: BTreeMap<&str, &str> = s1["tables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| (t["path"].as_str().unwrap(), t["sha256"].as_str().unwrap()))
+        .collect();
+    let mut spec: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(base).unwrap()).unwrap();
+    let mut left_out = vec![];
+    let sources: Vec<serde_json::Value> = spec["sources"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|s| {
+            let Some(sha) = s["path"].as_str().and_then(|p| pins.get(p)) else {
+                left_out.push(s["id"].as_str().unwrap_or("?").to_string());
+                return None;
+            };
+            let mut s = s.clone();
+            s["sha256"] = serde_json::json!(sha);
+            Some(s)
+        })
+        .collect();
+    eprintln!(
+        "pinned statement tables: {} of {} sources kept; left out {left_out:?}",
+        sources.len(),
+        sources.len() + left_out.len()
+    );
+    spec["sources"] = serde_json::Value::Array(sources);
+    let p = dir.join("import-spec.pinned.json");
+    std::fs::write(&p, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();
+    p
+}
 
 #[test]
 #[ignore = "real tool + Symbolica licence + T178 data: run by hand (module documentation)"]
 fn t178_arrival_keys_through_the_adapter_with_the_real_tool() {
     require_namespace();
     let bin = env_path("RUSTRED_SYMFLOW_BIN", "rr_rf_symflow");
-    let spec = env_path(
-        "RUSTRED_SYMCOMP_SPEC",
-        &format!("{RF}/t178faces/import-spec.json"),
-    );
+    let root = Root::new("real");
+    let spec = match std::env::var_os("RUSTRED_SYMCOMP_SPEC") {
+        Some(s) => PathBuf::from(s),
+        None => pinned_spec(&format!("{RF}/t178faces/import-spec.json"), root.path()),
+    };
     let keys_file = env_path(
         "RUSTRED_SYMCOMP_KEYS",
         &format!("{RF}/t178faces/I1.unserved.keys.jsonl"),
@@ -63,7 +121,6 @@ fn t178_arrival_keys_through_the_adapter_with_the_real_tool() {
         n += 1;
     }
     eprintln!("{n} keys on {} faces", faces.len());
-    let root = Root::new("real");
     let req = SymCompRequest {
         node: Some("T178arr".into()),
         import_spec: spec,

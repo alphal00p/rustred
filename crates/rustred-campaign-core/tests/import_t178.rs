@@ -1,9 +1,17 @@
-//! Lane import, BIG DATA (ignored): reproduction of the T178 hand statement statement-20261114T040105Z (boxed close
-//! with recipes, confirmed key by key by the independent checker) from the EXISTING material through the import:
-//! 37 order-B piece tables (generation order, the 16 elided records removed as the statement did), the 110 lane rules
-//! in NUMERIC FACE ID order (the coordinator's addendum), the 4 supplied symmetry relations (with their verification
-//! record), the 3 terminals. Closure under the STRICT core dispatcher, Tier K (the hand statement follows every top
-//! rhs key; T178's facts carry no record_sha256 and cannot be bound), both elided policies; comparison typed.
+//! Lane import, BIG DATA (ignored): reproduction of the T178 hand statement (boxed close with recipes, confirmed key by
+//! key by the independent checker) from the EXISTING material through the import: the order-B piece tables
+//! (generation order, the 16 elided records removed as the statement did), the 110 lane rules in NUMERIC FACE ID order
+//! (the coordinator's addendum), the 4 supplied symmetry relations (with their verification record), the 3 terminals.
+//! Closure under the STRICT core dispatcher, Tier K (the hand statement follows every top rhs key; T178's facts carry no
+//! record_sha256 and cannot be bound), both elided policies; comparison typed.
+//!
+//! int8 (round 3): the statement is the PINNED box statement v1.0.3 and every table source carries its sha256 pin from
+//! the coordinator's services file (`plan/auto-campaign/reports/T178-MARGIN-SERVICES.json`, service 1:
+//! statement_dir, statement_json_sha256, 138 tables with sha256; `RUSTRED_T178_SERVICES` overrides the path). A piece of
+//! the dispatch order that the statement's table list does not pin (10 order-B pieces: no rule of theirs is the first
+//! match of a statement key, 8 have no end record) is left out with its removed records, and named. Before int8 the
+//! test read the unpinned regenB set of statement-20261114T040105Z (34 tables without an end record at the time:
+//! refused since partfix4).
 //!
 //! Paths (test data only): `RUSTRED_IMPORT_WS` (default the p_integral_dev workspace), scratch output
 //! `RUSTRED_IMPORT_SCRATCH` (default /common/build-cache/$USER/p_integral_dev/implementer-scratch/import).
@@ -145,7 +153,35 @@ fn verify_sums(dir: &Path) {
     }
 }
 
-fn build_spec(ws: &Path, stmt: &Path) -> Value {
+/// int8: the pinned statement of T178 (service 1 of the services file): (statement dir, statement.json sha256, table
+/// path -> sha256).
+fn pinned_statement(ws: &Path) -> Option<(PathBuf, String, BTreeMap<String, String>)> {
+    let f = std::env::var_os("RUSTRED_T178_SERVICES")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| ws.join("plan/auto-campaign/reports/T178-MARGIN-SERVICES.json"));
+    let v: Value = serde_json::from_str(&std::fs::read_to_string(&f).ok()?).ok()?;
+    let s = v["services"]
+        .as_array()?
+        .iter()
+        .find(|s| s["order"] == 1)?;
+    let pins = s["tables"]
+        .as_array()?
+        .iter()
+        .map(|t| {
+            (
+                t["path"].as_str().unwrap().to_string(),
+                t["sha256"].as_str().unwrap().to_string(),
+            )
+        })
+        .collect();
+    Some((
+        PathBuf::from(s["statement_dir"].as_str()?),
+        s["statement_json_sha256"].as_str()?.to_string(),
+        pins,
+    ))
+}
+
+fn build_spec(ws: &Path, stmt: &Path, pins: &BTreeMap<String, String>) -> Value {
     let summary: Value =
         serde_json::from_str(&std::fs::read_to_string(stmt.join("summary.json")).unwrap()).unwrap();
     let rules: BTreeMap<String, Value> =
@@ -165,6 +201,7 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
             "reason": "elided witness loci: removed from the dispatch by the hand statement (skip_elided)"}));
     }
     let mut sources = vec![];
+    let mut unpinned = vec![];
     for n in summary["dispatch_order"].as_array().unwrap() {
         let n = n.as_str().unwrap();
         if n == "new" {
@@ -172,9 +209,20 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
         }
         let p = piece_path(&regen, n);
         assert!(p.is_file(), "{}", p.display());
+        // int8: only the statement's PINNED tables (a piece it does not pin serves no statement key)
+        let Some(sha) = pins.get(&p.display().to_string()) else {
+            removed.remove(n);
+            unpinned.push(n.to_string());
+            continue;
+        };
         sources.push(json!({"id": n, "kind":"engine_table", "class":"orderB", "path": p.display().to_string(),
-            "removed": removed.remove(n).unwrap_or_default(), "hand_name":{"template":"{source}#{ordinal}"}}));
+            "sha256": sha, "removed": removed.remove(n).unwrap_or_default(), "hand_name":{"template":"{source}#{ordinal}"}}));
     }
+    println!(
+        "T178 spec: {} order-B pieces pinned, {} left out (not in the statement's pinned table list): {unpinned:?}",
+        sources.len(),
+        unpinned.len()
+    );
     assert!(
         removed.is_empty(),
         "every skipped record belongs to a dispatched piece"
@@ -188,13 +236,19 @@ fn build_spec(ws: &Path, stmt: &Path) -> Value {
     new.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
     assert_eq!(new.len(), 110);
     for (_, name, v) in &new {
+        let sha = pins
+            .get(v["path"].as_str().unwrap())
+            .unwrap_or_else(|| panic!("lane rule {name}: table not pinned by the statement"));
         sources.push(
-            json!({"id": name, "kind":"engine_table", "class":"lane", "path": v["path"],
+            json!({"id": name, "kind":"engine_table", "class":"lane", "path": v["path"], "sha256": sha,
             "records":[v["index"]], "hand_name":{"template":"{source}"}}),
         );
     }
     let sym = rules["symmetry#0"]["path"].as_str().unwrap().to_string();
-    sources.push(json!({"id":"symmetry","kind":"supplied_relations","class":"symmetry","path": sym,
+    let sym_sha = pins
+        .get(&sym)
+        .expect("symmetry relations not pinned by the statement");
+    sources.push(json!({"id":"symmetry","kind":"supplied_relations","class":"symmetry","path": sym, "sha256": sym_sha,
         "verification":{"path": ws.join("SCRATCHPAD/t178-close/data/symrules.verify.json").display().to_string()},
         "hand_name":{"template":"symmetry#{index}"}}));
     sources.push(json!({"id":"terminals","kind":"terminals","path": stmt.join("terminals.json").display().to_string()}));
@@ -252,15 +306,23 @@ fn verify_manifest(dir: &Path) -> BTreeMap<String, Vec<String>> {
 #[ignore = "big data: the T178 hand statement and its material; run with --ignored in release"]
 fn t178_reproduction_of_the_hand_statement() {
     let ws = ws();
-    let stmt = ws.join("SCRATCHPAD/t178-close/statements/statement-20261114T040105Z");
+    let Some((stmt, stmt_sha, pins)) = pinned_statement(&ws) else {
+        println!("SKIP: services file (pinned T178 statement) missing");
+        return;
+    };
     if !stmt.join("statement.jsonl").is_file() {
         println!("SKIP: {} missing", stmt.display());
         return;
     }
+    assert_eq!(
+        import::lines::file_sha256(&stmt.join("statement.json")).unwrap(),
+        stmt_sha,
+        "statement.json differs from its pin"
+    );
     verify_sums(&stmt);
     let out = scratch().join("t178");
     std::fs::create_dir_all(&out).unwrap();
-    let spec_v = build_spec(&ws, &stmt);
+    let spec_v = build_spec(&ws, &stmt, &pins);
     std::fs::write(
         out.join("spec.T178.json"),
         serde_json::to_string_pretty(&spec_v).unwrap(),
@@ -386,13 +448,16 @@ fn t178_reproduction_of_the_hand_statement() {
 #[ignore = "big data: T178 order-B material and the engine-line recipes; run with --ignored in release"]
 fn t178_recipe_variant_solve_requests() {
     let ws = ws();
-    let stmt = ws.join("SCRATCHPAD/t178-close/statements/statement-20261114T040105Z");
+    let Some((stmt, _, pins)) = pinned_statement(&ws) else {
+        println!("SKIP: services file (pinned T178 statement) missing");
+        return;
+    };
     let rdir = ws.join("SCRATCHPAD/engine-line/t178");
     if !stmt.join("statement.jsonl").is_file() || !rdir.join("index.json").is_file() {
         println!("SKIP: material missing");
         return;
     }
-    let mut sv = build_spec(&ws, &stmt);
+    let mut sv = build_spec(&ws, &stmt, &pins);
     let srcs = sv["sources"].as_array_mut().unwrap();
     srcs.retain(|s| s["class"] != "lane");
     let tail: Vec<Value> = srcs.split_off(srcs.len() - 2); // symmetry, terminals
