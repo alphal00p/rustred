@@ -1379,7 +1379,9 @@ mod tests {
         .unwrap();
         // T = (d-2)(1 + (1 - 2)/(d-4))... now has a pole: -2/t - 1 + ...
         assert_eq!(images[0].terminals[0].valuation(), Some(-1));
-        assert_eq!(images[0].terminals[0].coefficients[0], u(-2));
+        // -2 modulo the replayed prime (the driver draws its own primes; the
+        // test field P is not one of them).
+        assert_eq!(images[0].terminals[0].coefficients[0], images[0].prime - 2);
     }
 
     /// The copy-on-pop / take-on-pop agreement condition (`slot_discipline`).
