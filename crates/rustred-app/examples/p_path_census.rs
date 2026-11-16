@@ -737,10 +737,18 @@ fn main() {
     let step_cache_stats = |label: &str| {
         if let Some(cache) = &step_cache {
             let s = cache.statistics();
-            serde_json::json!({"after": label, "records": s.records, "hits": s.hits,
+            let mut v = serde_json::json!({"after": label, "records": s.records, "hits": s.hits,
                 "misses": s.misses, "inserts": s.inserts, "skipped_inserts": s.skipped_inserts,
                 "resident_bytes": s.resident_bytes, "load_seconds": s.load_seconds,
-                "loaded_shards": s.loaded_shards, "rejected_shards": s.rejected_shards})
+                "loaded_shards": s.loaded_shards, "rejected_shards": s.rejected_shards});
+            // P_STEP_CACHE_MEASURE=1: the resident shards' heap measured on the allocator (diagnostic)
+            if flag("P_STEP_CACHE_MEASURE") {
+                let rss_before = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
+                let (estimated, measured) = cache.measure_resident_bytes();
+                v["measured"] = serde_json::json!({"estimated_bytes": estimated, "measured_bytes": measured,
+                    "ratio": measured as f64 / estimated.max(1) as f64, "statm": rss_before.trim()});
+            }
+            v
         } else {
             serde_json::Value::Null
         }

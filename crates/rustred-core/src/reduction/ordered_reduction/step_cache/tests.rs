@@ -405,6 +405,58 @@ fn copy_records_reversed(source: &OrderedStepCache, target: &OrderedStepCache) {
     }
 }
 
+/// batch 11 (vk5l-physrun memory finding): at the resident ceiling a directory-less cache drops its least recently
+/// used shards instead of freezing; results are unchanged, the census stays within the ceiling, and a dropped shard
+/// is repopulated by later runs.
+#[test]
+fn a_full_in_memory_cache_evicts_least_recently_used_shards() {
+    let artifact = derive_two_loop_unit_mass_sunset().unwrap();
+    let inputs = sunset_inputs(&artifact);
+    let exact = OrderedWeightArithmetic::Exact;
+    let uncached = closed_run(&artifact, &inputs, None, exact);
+    let full = OrderedStepCache::in_memory(closed_binding(&artifact), Default::default());
+    assert_same_run(
+        &uncached,
+        &closed_run(&artifact, &inputs, Some(&full), exact),
+    );
+    let statistics = full.statistics();
+    let largest = statistics
+        .shards
+        .iter()
+        .map(|shard| shard.resident_bytes)
+        .max()
+        .unwrap();
+    assert!(statistics.shards.len() >= 2 && statistics.resident_bytes > largest + largest / 2);
+    let limit = largest + largest / 2;
+    let options = |evict_when_full| OrderedStepCacheOptions {
+        max_resident_bytes: Some(limit),
+        evict_when_full,
+        ..Default::default()
+    };
+    let evicting = OrderedStepCache::in_memory(closed_binding(&artifact), options(true));
+    copy_records_reversed(&full, &evicting);
+    let after_copy = evicting.statistics();
+    assert!(after_copy.evicted_shards > 0, "{after_copy:?}");
+    assert!(after_copy.resident_bytes <= limit);
+    for _ in 0..2 {
+        assert_same_run(
+            &uncached,
+            &closed_run(&artifact, &inputs, Some(&evicting), exact),
+        );
+        assert!(evicting.statistics().resident_bytes <= limit);
+    }
+    // without eviction the same ceiling freezes the cache: inserts are skipped instead
+    let frozen = OrderedStepCache::in_memory(closed_binding(&artifact), options(false));
+    copy_records_reversed(&full, &frozen);
+    let frozen_statistics = frozen.statistics();
+    assert_eq!(frozen_statistics.evicted_shards, 0);
+    assert!(frozen_statistics.skipped_inserts > 0);
+    assert_same_run(
+        &uncached,
+        &closed_run(&artifact, &inputs, Some(&frozen), exact),
+    );
+}
+
 #[test]
 fn saved_shards_are_deterministic_lazy_and_reproduce_warm_runs() {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();

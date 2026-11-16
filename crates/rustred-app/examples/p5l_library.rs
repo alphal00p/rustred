@@ -895,7 +895,7 @@ fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(1);
-    library
+    let reduction = library
         .reduce(PReductionRequest {
             inputs,
             arithmetic: if std::env::var("P5L_REDUCE_ARITH").as_deref() == Ok("sampled") {
@@ -916,7 +916,34 @@ fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
             limits: ReductionLimits::default(),
             inspector: None,
         })
-        .unwrap()
+        .unwrap();
+    // P5L_STEP_CACHE_MEASURE=1: the in-memory step cache's estimated vs allocator-measured resident bytes
+    if std::env::var("P5L_STEP_CACHE_MEASURE").as_deref() == Ok("1")
+        && let Some(cache) = process_step_cache(library)
+    {
+        let (estimated, structural) = cache.measure_resident_bytes();
+        let s = cache.statistics();
+        let tail = cache.tail_statistics();
+        let rss = std::fs::read_to_string("/proc/self/statm")
+            .ok()
+            .and_then(|statm| statm.split_whitespace().nth(1)?.parse::<u64>().ok())
+            .map_or(0, |pages| pages * 4096);
+        eprintln!(
+            "step-cache-measure records {} estimated {estimated} structural {structural} ratio {:.2} evicted {} \
+             tail {:?} rss {rss}",
+            s.records,
+            structural as f64 / estimated.max(1) as f64,
+            s.evicted_shards,
+            tail.map(|t| (
+                t.entries,
+                t.edges,
+                t.values + t.coefficients + t.guards,
+                t.added_bytes,
+                t.full
+            )),
+        );
+    }
+    reduction
 }
 
 /// User + system CPU seconds of this process so far (/proc/self/stat, clock ticks of 1/100 s).

@@ -211,6 +211,12 @@ pub struct OrderedStepCacheOptions {
     pub budget_grant_bytes: usize,
     /// Largest shard file accepted on load.
     pub max_shard_file_bytes: u64,
+    /// At the resident ceiling, drop the least recently used shards that can
+    /// be dropped (every shard of a directory-less cache; a shard of a cache
+    /// directory only when it holds no unsaved record) instead of refusing
+    /// all further growth. Value-neutral: a dropped record only costs a
+    /// recomputation (or a reload). Off: the ceiling freezes the cache.
+    pub evict_when_full: bool,
 }
 
 impl Default for OrderedStepCacheOptions {
@@ -220,6 +226,7 @@ impl Default for OrderedStepCacheOptions {
             max_resident_bytes: None,
             budget_grant_bytes: 64 << 20,
             max_shard_file_bytes: 64 << 30,
+            evict_when_full: true,
         }
     }
 }
@@ -360,6 +367,9 @@ pub struct OrderedStepCacheStatistics {
     pub factor_basis: usize,
     /// A refused budget check stopped all further growth.
     pub budget_exhausted: bool,
+    /// Shards dropped at the resident ceiling (least recently used first) and their bytes.
+    pub evicted_shards: u64,
+    pub evicted_bytes: u64,
 }
 
 /// Result of [`OrderedStepCache::save`].
@@ -428,13 +438,73 @@ fn polynomial_bytes(polynomial: &Polynomial) -> usize {
         + large
 }
 
-fn coefficient_bytes(coefficient: &Coefficient) -> usize {
+pub(crate) fn coefficient_bytes(coefficient: &Coefficient) -> usize {
     COEFFICIENT_OVERHEAD
         + polynomial_bytes(&coefficient.numerator)
         + polynomial_bytes(&coefficient.denominator)
 }
 
 impl ShardData {
+    /// The heap bytes this shard's data holds, counted structurally from the
+    /// containers' capacities (allocator-independent; allocator rounding and
+    /// fragmentation not included): the check of the `bytes` estimate.
+    /// Diagnostic only (walks every coefficient).
+    fn structural_bytes(&self) -> usize {
+        fn polynomial(p: &Polynomial) -> usize {
+            p.coefficients.capacity() * std::mem::size_of::<Integer>()
+                + p.exponents.capacity() * 2
+                + p.coefficients
+                    .iter()
+                    .map(|c| match c {
+                        Integer::Large(_) => c.significant_bits().div_ceil(64) as usize * 8 + 16,
+                        _ => 0,
+                    })
+                    .sum::<usize>()
+        }
+        // hashbrown: buckets = next power of two >= 8/7 len, one control byte each
+        fn table<K, V>(len: usize, capacity: usize) -> usize {
+            let buckets = if capacity == 0 {
+                0
+            } else {
+                (capacity * 8 / 7).next_power_of_two()
+            };
+            let _ = len;
+            buckets * (std::mem::size_of::<(K, V)>() + 1)
+        }
+        let nodes = self.nodes.capacity() * 16
+            + self.nodes.iter().map(|node| 16 + node.len()).sum::<usize>()
+            + table::<Arc<[u8]>, u32>(self.node_index.len(), self.node_index.capacity());
+        let coefficients = self.coefficients.capacity() * 8
+            + self
+                .coefficients
+                .iter()
+                .map(|c| {
+                    16 + std::mem::size_of::<Coefficient>()
+                        + polynomial(&c.numerator)
+                        + polynomial(&c.denominator)
+                })
+                .sum::<usize>()
+            + table::<Arc<Coefficient>, u32>(
+                self.coefficient_index.len(),
+                self.coefficient_index.capacity(),
+            );
+        let factored = self.factored.capacity()
+            * std::mem::size_of::<Option<FactoredDenominator>>()
+            + self
+                .factored
+                .iter()
+                .flatten()
+                .map(FactoredDenominator::heap_bytes)
+                .sum::<usize>();
+        let records = table::<u32, Record>(self.records.len(), self.records.capacity())
+            + self
+                .records
+                .values()
+                .map(|r| 8 * (r.terms.len() + r.terminals.len()) + 4 * r.guards.len())
+                .sum::<usize>();
+        nodes + coefficients + factored + records
+    }
+
     fn node_id(&mut self, bytes: &[u8]) -> Result<u32, ReductionError> {
         if let Some(&id) = self.node_index.get(bytes) {
             return Ok(id);
@@ -505,6 +575,8 @@ struct Shard {
     inserts: AtomicU64,
     skipped_inserts: AtomicU64,
     opaque_hits: AtomicU64,
+    /// The cache clock at this shard's last lookup or insert (eviction order).
+    last_use: AtomicU64,
 }
 
 /// One step to record. Identities are encoded by
@@ -618,6 +690,10 @@ pub struct OrderedStepCache {
     granted: AtomicUsize,
     exhausted: AtomicBool,
     save_lock: Mutex<()>,
+    /// Lookup / insert clock for the eviction order, and the eviction counters.
+    clock: AtomicU64,
+    evicted_shards: AtomicU64,
+    evicted_bytes: AtomicU64,
     /// The tail table, read at its first use.
     tail: Mutex<Option<Arc<OrderedTailTable>>>,
 }
@@ -684,6 +760,9 @@ impl OrderedStepCache {
             granted: AtomicUsize::new(0),
             exhausted: AtomicBool::new(false),
             save_lock: Mutex::new(()),
+            clock: AtomicU64::new(0),
+            evicted_shards: AtomicU64::new(0),
+            evicted_bytes: AtomicU64::new(0),
             tail: Mutex::new(None),
         }
     }
@@ -713,6 +792,7 @@ impl OrderedStepCache {
                 .map(|directory| directory.join(TAIL_FILE)),
             tail_identity(&self.binding),
             self.options.populate,
+            self.options.max_resident_bytes,
             context,
         )?);
         *slot = Some(Arc::clone(&table));
@@ -851,6 +931,7 @@ impl OrderedStepCache {
                 misses: AtomicU64::new(0),
                 inserts: AtomicU64::new(0),
                 skipped_inserts: AtomicU64::new(0),
+                last_use: AtomicU64::new(0),
                 opaque_hits: AtomicU64::new(0),
             })
         }))
@@ -862,14 +943,22 @@ impl OrderedStepCache {
         if self.exhausted.load(Ordering::Relaxed) {
             return false;
         }
-        let total = self.resident.fetch_add(bytes, Ordering::Relaxed) + bytes;
-        if self
-            .options
-            .max_resident_bytes
-            .is_some_and(|limit| total > limit)
+        let mut total = self.resident.fetch_add(bytes, Ordering::Relaxed) + bytes;
+        if let Some(limit) = self.options.max_resident_bytes
+            && total > limit
         {
             self.resident.fetch_sub(bytes, Ordering::Relaxed);
-            return false;
+            if !self.options.evict_when_full || bytes > limit {
+                return false;
+            }
+            // drop least recently used shards until this growth fits (a
+            // quarter of the ceiling at once, so evictions stay rare)
+            self.evict((total - limit).max(limit / 4));
+            total = self.resident.fetch_add(bytes, Ordering::Relaxed) + bytes;
+            if total > limit {
+                self.resident.fetch_sub(bytes, Ordering::Relaxed);
+                return false;
+            }
         }
         while total > self.granted.load(Ordering::Relaxed) {
             let grant = self.options.budget_grant_bytes.max(bytes);
@@ -890,6 +979,63 @@ impl OrderedStepCache {
             }
         }
         true
+    }
+
+    /// Drop least recently used shards until `wanted` bytes are free or no
+    /// shard can be dropped. A shard is skipped when another thread holds it
+    /// (including the caller's own shard, locked for its insert or load), and
+    /// a shard of a cache directory unless it is clean (its records are then
+    /// reloaded from its file on the next lookup).
+    fn evict(&self, wanted: usize) {
+        let mut candidates: Vec<(u64, Arc<Shard>)> = self
+            .shards
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .map(|shard| (shard.last_use.load(Ordering::Relaxed), Arc::clone(shard)))
+            .collect();
+        candidates.sort_by_key(|(last_use, _)| *last_use);
+        let mut freed = 0usize;
+        for (_, shard) in candidates {
+            if freed >= wanted {
+                break;
+            }
+            let Ok(mut inner) = shard.inner.try_write() else {
+                continue;
+            };
+            let next = match &inner.state {
+                ShardState::Resident { file: None, .. } if self.directory.is_none() => {
+                    ShardState::Resident {
+                        file: None,
+                        dirty: false,
+                    }
+                }
+                ShardState::Resident {
+                    file: Some(entry),
+                    dirty: false,
+                } => ShardState::OnDisk(entry.clone()),
+                _ => continue,
+            };
+            let bytes = inner.data.bytes;
+            if bytes == 0 {
+                continue;
+            }
+            inner.state = next;
+            inner.data = ShardData::default();
+            drop(inner);
+            self.resident.fetch_sub(bytes, Ordering::Relaxed);
+            self.evicted_shards.fetch_add(1, Ordering::Relaxed);
+            self.evicted_bytes
+                .fetch_add(bytes as u64, Ordering::Relaxed);
+            freed += bytes;
+        }
+    }
+
+    fn touch(&self, shard: &Shard) {
+        shard.last_use.store(
+            self.clock.fetch_add(1, Ordering::Relaxed),
+            Ordering::Relaxed,
+        );
     }
 
     fn ensure_loaded(
@@ -1019,15 +1165,15 @@ impl OrderedStepCache {
         context: &CoefficientContext,
         build: impl FnOnce(RecordView<'_>) -> T,
     ) -> Result<Lookup<T>, ReductionError> {
+        self.touch(shard);
         self.ensure_loaded(shard, context)?;
         let inner = shard.inner.read().unwrap_or_else(PoisonError::into_inner);
         match &inner.state {
             ShardState::Resident { .. } => {}
             ShardState::Skipped => return Ok(Lookup::Unavailable),
             ShardState::Rejected { error, .. } => return Err(failure(error.clone())),
-            ShardState::OnDisk(_) => {
-                return Err(failure("ordered step cache shard was not loaded"));
-            }
+            // dropped at the resident ceiling between its load and this read
+            ShardState::OnDisk(_) => return Ok(Lookup::Miss),
         }
         let record = inner
             .data
@@ -1059,6 +1205,7 @@ impl OrderedStepCache {
             return Ok(false);
         }
         let shard = self.shard(id);
+        self.touch(&shard);
         let mut inner = shard.inner.write().unwrap_or_else(PoisonError::into_inner);
         let ShardInner { state, data } = &mut *inner;
         let ShardState::Resident { dirty, .. } = state else {
@@ -1126,6 +1273,8 @@ impl OrderedStepCache {
         let mut statistics = OrderedStepCacheStatistics {
             factor_basis: lock(&self.basis).len(),
             budget_exhausted: self.exhausted.load(Ordering::Relaxed),
+            evicted_shards: self.evicted_shards.load(Ordering::Relaxed),
+            evicted_bytes: self.evicted_bytes.load(Ordering::Relaxed),
             ..Default::default()
         };
         let shards = self.shards.read().unwrap_or_else(PoisonError::into_inner);
@@ -1190,6 +1339,21 @@ impl OrderedStepCache {
             statistics.shards.push(shard_statistics);
         }
         statistics
+    }
+
+    /// Diagnostic: (estimated, structural) heap bytes of the resident shards, see
+    /// [`ShardData::structural_bytes`]. Walks every shard; for measurement runs only.
+    pub fn measure_resident_bytes(&self) -> (usize, usize) {
+        let shards = self.shards.read().unwrap_or_else(PoisonError::into_inner);
+        let (mut estimated, mut measured) = (0, 0);
+        for shard in shards.values() {
+            let inner = shard.inner.read().unwrap_or_else(PoisonError::into_inner);
+            if matches!(inner.state, ShardState::Resident { .. }) {
+                estimated += inner.data.bytes;
+                measured += inner.data.structural_bytes();
+            }
+        }
+        (estimated, measured)
     }
 
     /// Write every changed resident shard and the manifest into the cache

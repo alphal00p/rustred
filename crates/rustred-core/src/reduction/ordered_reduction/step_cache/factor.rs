@@ -25,6 +25,17 @@ pub(crate) struct FactoredDenominator {
     pub factors: Box<[(u32, u32)]>,
 }
 
+impl FactoredDenominator {
+    /// Heap bytes it owns (diagnostic).
+    pub(crate) fn heap_bytes(&self) -> usize {
+        8 * self.factors.len()
+            + match &self.content {
+                Integer::Large(_) => self.content.significant_bits().div_ceil(64) as usize * 8 + 16,
+                _ => 0,
+            }
+    }
+}
+
 /// Interned irreducible denominator factors. Ids are stable for the lifetime
 /// of one cache; files store their own sorted local tables.
 #[derive(Debug, Default)]
