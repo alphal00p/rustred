@@ -201,7 +201,7 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
             }
             let code = line.split("//").next().unwrap_or("");
             for (pat, ok) in allowed {
-                if code.contains(pat) && !ok.contains(&rel.as_str()) {
+                if has_form(code, pat) && !ok.contains(&rel.as_str()) {
                     hits.push(format!("{rel}:{}: [{pat}] {}", i + 1, line.trim()));
                 }
             }
@@ -224,7 +224,47 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
     // Self-test: a planted snippet is caught.
     let planted =
         "fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-    assert!(allowed.iter().filter(|(p, _)| planted.contains(p)).count() >= 3);
+    assert!(
+        allowed
+            .iter()
+            .filter(|(p, _)| has_form(planted, p))
+            .count()
+            >= 3
+    );
+    // int8: `raise(` is the call of a function NAMED raise; an identifier that only ends in "raise" is not the form.
+    for caught in [
+        "unsafe { libc::raise(9) };",
+        "raise(libc::SIGTERM);",
+        "let _ = nix::sys::signal::raise(Signal::SIGTERM);",
+        "x.raise(sig)",
+    ] {
+        assert!(has_form(caught, "raise("), "{caught}");
+    }
+    for innocent in [
+        "input: super::frontier::input_fraise(&n, &safe(&req.id)),",
+        "pub fn input_fraise(n: &str, id: &str) -> String {",
+        "praise(x)",
+    ] {
+        assert!(!has_form(innocent, "raise("), "{innocent}");
+    }
+}
+
+/// Does `code` contain the form `pat`? Every form is a plain substring, EXCEPT `raise(`: the call of a function NAMED
+/// `raise` (`libc::raise(`, a bare `raise(`, `nix::sys::signal::raise(`, a method `.raise(`), i.e. the character before
+/// it is not an identifier character. int8 (round 3): lane wireflow's helper `input_fraise(` (facts-budget raise input)
+/// was flagged as the libc call and renamed only to satisfy the substring test; an identifier that merely ends in
+/// "raise" sends no signal, while every call form of `raise` stays caught (self-test above).
+fn has_form(code: &str, pat: &str) -> bool {
+    if pat != "raise(" {
+        return code.contains(pat);
+    }
+    code.match_indices(pat).any(|(k, _)| {
+        k == 0
+            || !code[..k]
+                .chars()
+                .last()
+                .is_some_and(|c| c.is_alphanumeric() || c == '_')
+    })
 }
 
 /// The freezing campaign sweep never touches a DECOY: unmarked processes, another campaign id, prefix / suffix / case

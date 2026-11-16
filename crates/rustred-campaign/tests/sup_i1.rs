@@ -78,22 +78,34 @@ fn i1_random_interrupts_give_the_reference_result() {
             }
             interrupts_total += 1;
             let code = wait(&mut c, Duration::from_secs(120));
+            // int8 (round 3): an unexpected code names the run, the session and the supervisor's log tail (lane
+            // wireflow saw one exit 143 after a SIGINT under 4 concurrent suite groups; its log was gone with the temp dir).
+            let why = || {
+                format!(
+                    "exit {code} (run {run}, kind {}, session {k}, delay {delay} ms, earlier codes {codes:?})\n{}",
+                    KINDS[kind],
+                    log_tail(&dir)
+                )
+            };
             // ATTENTION (8): the session ended by itself for an operator decision (an attempt of unknown execution
             // left by an earlier SIGKILL between spawn and `job.started`, procfix3 item 6); run_to_end resolves it.
             match KINDS[kind] {
                 "sigint" | "sigint2" => {
                     assert!(
                         code == 130 || finished(code) || code == ATTENTION,
-                        "exit {code}"
+                        "{}",
+                        why()
                     )
                 }
                 "sigterm" => assert!(
                     code == 143 || finished(code) || code == ATTENTION,
-                    "exit {code}"
+                    "{}",
+                    why()
                 ),
                 _ => assert!(
                     code == 128 + libc::SIGKILL || code == ATTENTION,
-                    "exit {code}"
+                    "{}",
+                    why()
                 ),
             }
             codes.push(code);
