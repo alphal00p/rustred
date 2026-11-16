@@ -125,10 +125,12 @@ fn claims_are_checked_against_the_record_text() {
     assert_eq!(st(3, [3, 1, 0]), ZeroStatus::Proved);
     assert_eq!(st(0, [3, 1, 0]), ZeroStatus::NotProved);
     assert_eq!(st(2, [4, 1, 0]), ZeroStatus::NotProved, "another den text");
+    // lane zerosfix4: a claim that names case equations is re-checked like any other (here the numerator vanishes
+    // on n2 = -1 by itself): a proof (was: unchecked)
     assert_eq!(
         st(3, [3, 1, -1]),
-        ZeroStatus::NotProved,
-        "equations: unchecked"
+        ZeroStatus::Proved,
+        "equations: re-checked"
     );
     assert_eq!(z.stats.claims_false, 1);
     assert_eq!(z.false_claims.len(), 1);
@@ -137,9 +139,10 @@ fn claims_are_checked_against_the_record_text() {
         ZeroProofRefusal::NumeratorDoesNotVanish { term: 0, .. }
     ));
     assert_eq!(z.stats.den_text_mismatch, 1);
-    assert_eq!(z.stats.claims_unchecked, 1);
-    assert_eq!(z.stats.claims_confirmed, 3);
-    assert_eq!(z.stats.den_independent, 2, "t1 (no den), t3 (d - 4)");
+    assert_eq!(z.stats.claims_unchecked, 0);
+    assert_eq!(z.stats.claims_with_equations, 1);
+    assert_eq!(z.stats.claims_confirmed, 4);
+    assert_eq!(z.stats.den_independent, 3, "t1 (no den), t3 (d - 4) twice");
     // a forged nowhere_zero on t2: the core evaluates the record's denominator at each key
     let z = load_lines(
         &set,
