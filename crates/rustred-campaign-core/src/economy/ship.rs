@@ -225,6 +225,10 @@ impl Default for Coverage {
 pub struct KeptAside {
     pub enabled: bool,
     pub min_bytes: u64,
+    /// A rule that is the first match only of UNCERTIFIED closure keys (open / blocked in the statement, e.g. an
+    /// elided-witness record the statement skips): `allow` (default: kept aside; the served-key-set check proves no
+    /// certified key is lost, an open key can only gain a service, a NEW open key is refused) | `keep` (never kept aside).
+    pub first_match_of_uncertified: String,
 }
 
 impl Default for KeptAside {
@@ -232,6 +236,7 @@ impl Default for KeptAside {
         KeptAside {
             enabled: true,
             min_bytes: 0,
+            first_match_of_uncertified: "allow".into(),
         }
     }
 }
@@ -351,6 +356,12 @@ impl ShipPolicy {
         }
         for s in &self.recipe.steps {
             crate::import::recipe_steps::parse_step(s).map_err(|e| format!("recipe.steps: {e}"))?;
+        }
+        if !matches!(
+            self.kept_aside.first_match_of_uncertified.as_str(),
+            "allow" | "keep"
+        ) {
+            return Err("kept_aside.first_match_of_uncertified: allow | keep".into());
         }
         if !matches!(
             self.recipe.relation_rule.as_str(),
@@ -601,7 +612,10 @@ pub fn candidacy(p: &ShipPolicy, census: &Census) -> Vec<Candidacy> {
                 Candidacy::NotExamined {
                     reason: "full-coverage node (coverage.target = full): no rule leaves the shipped table".into(),
                 }
-            } else if r.served() == 0 && r.matched_uncertified > 0 {
+            } else if r.served() == 0
+                && r.matched_uncertified > 0
+                && p.kept_aside.first_match_of_uncertified == "keep"
+            {
                 Candidacy::NotExamined {
                     reason: format!(
                         "first match of {} uncertified closure keys (open in the statement): never kept aside",

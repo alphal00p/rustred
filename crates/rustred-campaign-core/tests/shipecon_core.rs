@@ -760,7 +760,7 @@ fn dead_entries_are_never_shipped() {
 }
 
 #[test]
-fn a_rule_first_matching_uncertified_keys_is_never_kept_aside() {
+fn a_rule_first_matching_uncertified_keys_follows_the_parameter() {
     let p = policy();
     let mut b = CensusBuilder::new(vec![(rule(0, "a"), 5000), (rule(1, "b"), 6000)], 8).unwrap();
     // rule a: the first match of an OPEN (blocked) key only; rule b: serves nothing at all
@@ -768,11 +768,17 @@ fn a_rule_first_matching_uncertified_keys_is_never_kept_aside() {
     b.add_open("a");
     let c = b.finish();
     assert_eq!(c.rules[0].matched_uncertified, 1);
-    let k = candidacy(&p, &c);
+    // default `allow`: kept aside (the served-key-set check guards the certified keys)
+    assert_eq!(candidacy(&p, &c)[0], Candidacy::KeptAside);
+    let mut q = p.clone();
+    q.kept_aside.first_match_of_uncertified = "keep".into();
+    let k = candidacy(&q, &c);
     assert!(
         matches!(&k[0], Candidacy::NotExamined { reason } if reason.contains("uncertified")),
         "{:?}",
         k[0]
     );
     assert_eq!(k[1], Candidacy::KeptAside);
+    q.kept_aside.first_match_of_uncertified = "sometimes".into();
+    assert!(q.validate().is_err());
 }
