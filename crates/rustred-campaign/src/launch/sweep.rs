@@ -387,7 +387,8 @@ impl Sweep<'_> {
                 self.s.not_before_ticks,
                 self.s.only_attempt.as_deref(),
             ) {
-                Ok(scan) => {
+                Ok(mut scan) => {
+                    self.test_drop_known_suspects(&mut scan);
                     if scan.unreadable > 0 {
                         inconclusive = Some(format!(
                             "{} candidate(s) with an unreadable environ that may descend from the campaign: {}",
@@ -610,6 +611,31 @@ impl Sweep<'_> {
         }
     }
 
+    /// procfix7 round 5 (gate9 minor: the mutation "drop the re-check of earlier suspects" was not caught). TEST BUILDS
+    /// ONLY: with `sweep_scan_drops_suspects:1` in RR_CAMPAIGN_FAILPOINT a scan of this sweep OMITS every process that is
+    /// already a suspect of an earlier scan (a later scan that misses one: a listing, a misread). Only the direct re-check
+    /// of the suspects (`pass`) then still sees it (tests/procfix9.rs `g9_minor_a_suspect_missed_by_later_scans_...`).
+    #[allow(unused_variables)]
+    fn test_drop_known_suspects(&self, scan: &mut crate::resources::CampaignScan) {
+        #[cfg(debug_assertions)]
+        {
+            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let on = *ON.get_or_init(|| {
+                std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {
+                    v.split(',')
+                        .any(|p| p.trim() == "sweep_scan_drops_suspects:1")
+                })
+            });
+            if on {
+                let before = scan.hidden.len();
+                scan.processes
+                    .retain(|p| !self.suspects.contains_key(&p.pid));
+                scan.hidden.retain(|h| !self.suspects.contains_key(&h.pid));
+                scan.unreadable = scan.unreadable.saturating_sub(before - scan.hidden.len());
+            }
+        }
+    }
+
     /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive. procfix8 (item 4): the
     /// suspects of earlier scans that this scan did not report are checked directly; one that is still possibly ours
     /// keeps the pass inconclusive, one that is marked is a survivor.
@@ -620,6 +646,7 @@ impl Sweep<'_> {
             self.s.only_attempt.as_deref(),
         )
         .map_err(|e| format!("proc scan: {e}"))?;
+        self.test_drop_known_suspects(&mut scan);
         self.note_suspects(&scan.hidden);
         let reported: std::collections::BTreeSet<u32> = scan
             .processes

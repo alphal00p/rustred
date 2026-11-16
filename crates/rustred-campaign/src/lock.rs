@@ -338,7 +338,16 @@ pub fn acquire(
                     });
                 }
                 Liveness::Dead(reason) => {
-                    let orphans = scan_token_holders(&owner.token);
+                    // procfix7 round 5: a failed token scan stops the takeover typed (never "no orphan"); processes
+                    // that may hold the token (environ unreadable) are reported with the holders
+                    let scan = scan_token_holders(&owner.token).map_err(|e| LockError::Io {
+                        path: dir.to_path_buf(),
+                        source: e,
+                    })?;
+                    let mut orphans = scan.holders;
+                    orphans.extend(scan.possible.iter().map(|(p, _)| *p));
+                    orphans.sort_unstable();
+                    orphans.dedup();
                     LockOutcome::TookOver {
                         previous: owner,
                         reason,
@@ -465,33 +474,71 @@ pub fn hostname() -> io::Result<String> {
     Ok(String::from_utf8_lossy(&buf[..end]).into_owned())
 }
 
-/// Pids (of processes readable by us) whose environment contains `TOKEN_ENV=<token>`: the takeover's ORPHAN REPORT
-/// (recorded with the takeover, never signalled, nothing decided by it). procfix8: every read through
-/// `resources::procfs`; a process whose environ cannot be read (EACCES for every foreign process) is not listed; an
-/// unreadable listing reports nothing (both: a report, not a decision).
-pub fn scan_token_holders(token: &str) -> Vec<u32> {
+/// The takeover's ORPHAN REPORT (recorded with the takeover, never signalled): processes that hold, or may hold, the
+/// previous owner's token.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TokenScan {
+    /// Read completely: the environment carries `TOKEN_ENV=<token>`.
+    pub holders: Vec<u32>,
+    /// procfix7 round 5 (gate9 minor, lock.rs:457-461): processes of OUR REAL UID whose environment (or status) could not
+    /// be read (also after re-reads across an exec window, about 0.5 s): they MAY hold the token (never "not a holder").
+    pub possible: Vec<(u32, String)>,
+}
+
+/// The token scan, typed (procfix7 round 5): Err when the /proc listing fails (never "no holder"); a candidate whose
+/// environ read fails is re-read (bounded: the exec window of a fresh child), then reported in `possible` when it runs
+/// under our real uid; a process of another uid (EACCES) is not a candidate; a process that vanished is not listed.
+pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
+    let mut out = TokenScan::default();
     if token.is_empty() {
-        return Vec::new();
+        return Ok(out);
     }
     let needle = format!("{TOKEN_ENV}={token}");
     let me = std::process::id();
+    let uid = crate::resources::our_uid();
     let root = crate::resources::procfs::sys();
-    let pids = match root.pids() {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
-    };
-    let mut out: Vec<u32> = pids
-        .into_iter()
-        .filter(|&p| p != me)
-        .filter(
-            |&p| match root.environ(p, None, std::time::Duration::from_millis(250)) {
-                Ok(env) => env.split(|&b| b == 0).any(|kv| kv == needle.as_bytes()),
-                Err(_) => false,
-            },
-        )
-        .collect();
-    out.sort_unstable();
-    out
+    let pids = root
+        .pids()
+        .map_err(|e| io::Error::other(format!("the token scan's /proc listing failed: {e}")))?;
+    for p in pids.into_iter().filter(|&p| p != me) {
+        // only a process of our real uid can carry our token (status stays readable for non-dumpable ones)
+        match root.status(p).and_then(|s| s.real_uid()) {
+            Ok(u) if u != uid => continue,
+            Err(ProcError::Gone) => continue,
+            Ok(_) => {}
+            Err(ProcError::Unreadable(w)) => {
+                out.possible.push((p, format!("status: {w}")));
+                continue;
+            }
+        }
+        let mut last = String::new();
+        let mut read = None;
+        for k in 0..10u64 {
+            match root.environ(p, None, std::time::Duration::from_millis(250)) {
+                Ok(env) => {
+                    read = Some(env);
+                    break;
+                }
+                Err(ProcError::Gone) => break,
+                Err(ProcError::Unreadable(w)) => {
+                    last = w;
+                    std::thread::sleep(std::time::Duration::from_millis(10 * (k + 1)));
+                }
+            }
+        }
+        match read {
+            Some(env) => {
+                if env.split(|&b| b == 0).any(|kv| kv == needle.as_bytes()) {
+                    out.holders.push(p);
+                }
+            }
+            None if last.is_empty() => {} // gone
+            None => out.possible.push((p, last)),
+        }
+    }
+    out.holders.sort_unstable();
+    out.possible.sort();
+    Ok(out)
 }
 
 /// Pids having `path` open (scan of the descriptor tables, processes readable by us): DIAGNOSTICS of a refusal

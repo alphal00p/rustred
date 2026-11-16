@@ -274,38 +274,62 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         accept_truncation_to: f.accept_truncation_to,
         quiet_stderr: Some(Arc::clone(&quiet)),
     };
-    let r = supervisor::run_with(opts, &mut |started| {
-        if !with_dashboard {
-            return;
+    // procfix7 round 5 (gate9 m9-clock): a panic of the control thread (std's Instant / SystemTime panic when
+    // clock_gettime fails; any other bug) is a TYPED end, exit 70 with the reason in the log, never exit 101.
+    let panic_cdir = cdir.clone();
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(debug_assertions)]
+        if crate::supervisor::failpoint::Failpoints::from_env().armed("test_panic") {
+            panic!("TEST BUILD failpoint test_panic");
         }
-        // The dashboard runs on its OWN thread (its file reading on its reader thread): the control loop is never
-        // blocked by rendering. Ctrl-C in raw mode = `request_stop()` on the supervisor's stop handle.
-        quiet.store(true, Ordering::SeqCst);
-        let controls = crate::tui::SupervisorControls {
-            handle: started.handle.clone(),
-            grace_s: started.grace_s,
-            done: Arc::clone(&done),
-        };
-        let source: Arc<dyn crate::tui::ProgressSource> =
-            Arc::new(crate::tui::DirSource::new(cdir.clone()));
-        let o = dash_opts.clone();
-        let q = Arc::clone(&quiet);
-        let (tx, rx) = std::sync::mpsc::channel();
-        if std::thread::Builder::new()
-            .name("dashboard".into())
-            .spawn(move || {
-                let reason = crate::tui::run_dashboard(source, &controls, &o);
-                // Terminal restored: later supervisor log lines go to stderr again (unless it is gone: see below).
-                if reason != crate::tui::ExitReason::Hangup {
-                    q.store(false, Ordering::SeqCst);
-                }
-                let _ = tx.send(reason);
-            })
-            .is_ok()
-        {
-            dash = Some(rx);
+        supervisor::run_with(opts, &mut |started| {
+            if !with_dashboard {
+                return;
+            }
+            // The dashboard runs on its OWN thread (its file reading on its reader thread): the control loop is never
+            // blocked by rendering. Ctrl-C in raw mode = `request_stop()` on the supervisor's stop handle.
+            quiet.store(true, Ordering::SeqCst);
+            let controls = crate::tui::SupervisorControls {
+                handle: started.handle.clone(),
+                grace_s: started.grace_s,
+                done: Arc::clone(&done),
+            };
+            let source: Arc<dyn crate::tui::ProgressSource> =
+                Arc::new(crate::tui::DirSource::new(cdir.clone()));
+            let o = dash_opts.clone();
+            let q = Arc::clone(&quiet);
+            let (tx, rx) = std::sync::mpsc::channel();
+            if std::thread::Builder::new()
+                .name("dashboard".into())
+                .spawn(move || {
+                    let reason = crate::tui::run_dashboard(source, &controls, &o);
+                    // Terminal restored: later supervisor log lines go to stderr again (unless it is gone: see below).
+                    if reason != crate::tui::ExitReason::Hangup {
+                        q.store(false, Ordering::SeqCst);
+                    }
+                    let _ = tx.send(reason);
+                })
+                .is_ok()
+            {
+                dash = Some(rx);
+            }
+        })
+    }));
+    let r = match run {
+        Ok(r) => r,
+        Err(payload) => {
+            let what = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic without a message".into());
+            let msg = format!(
+                "internal error: the supervisor panicked ({what}); nothing more was decided; run the same command (its recovery checks what this session left)"
+            );
+            crate::supervisor::Log::open(&panic_cdir).line("ERROR", &msg);
+            supervisor::RunExit::Internal(msg)
         }
-    });
+    };
     done.store(true, Ordering::SeqCst);
     // procfix3 (gate-B M2): a dashboard whose terminal is gone or blocked (a write to a tty nobody reads waits for
     // ever) must not hold the process: wait for it at most 10 s; the terminal output is then skipped (log file only).

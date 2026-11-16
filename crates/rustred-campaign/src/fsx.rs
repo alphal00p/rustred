@@ -252,6 +252,26 @@ pub fn read_to_string(site: &'static str, p: &Path) -> Read<String> {
     }
 }
 
+/// The canonical path of `p` (symlinks resolved). A path that does not exist YET is resolved through its parent (the
+/// canonical parent joined with the last component); every other error is an error (never the raw path: a comparison
+/// of raw paths can miss an overlap through a symlink).
+#[allow(clippy::disallowed_methods)]
+pub fn canonical(site: &'static str, p: &Path) -> io::Result<PathBuf> {
+    if let Some(e) = fault(site) {
+        return Err(e);
+    }
+    match std::fs::canonicalize(p) {
+        Ok(c) => Ok(c),
+        Err(e) if is_absent(&e) => match (p.parent(), p.file_name()) {
+            (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+                Ok(canonical(site, parent)?.join(name))
+            }
+            _ => Err(e),
+        },
+        Err(e) => Err(e),
+    }
+}
+
 /// Rename `from` to `to` ONLY if `to` does not exist (renameat2 RENAME_NOREPLACE): a move aside never overwrites.
 pub fn rename_noreplace(from: &Path, to: &Path) -> io::Result<()> {
     use std::os::unix::ffi::OsStrExt;

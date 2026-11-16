@@ -702,3 +702,64 @@ fn g9_b1_gate9_preload_injector_never_destroys_the_ledger() {
         }
     }
 }
+
+/// gate9 minor (a mutation not caught: "drop the sweep's re-check of earlier suspects"). The crashed session's marked
+/// daemon is a SUSPECT (its environ unreadable: procfs fault EIO on every environ read of its pid), and every later scan
+/// of a sweep MISSES it (test-build hook `sweep_scan_drops_suspects:1`: a scan omits processes that are already
+/// suspects). Only the direct re-check of earlier suspects still sees it: the sweeps stay unproven and session 2 ends
+/// with exit 8 naming the daemon; without the re-check the second scan is "conclusive" and the run ends 0 with it alive.
+#[test]
+fn g9_minor_a_suspect_missed_by_later_scans_is_still_rechecked() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf9-suspect");
+    let (sp, d, dp) = crashed_with_daemon(&t);
+    let fp = format!("proc_environ_eio:1,proc_pid:{dp},sweep_scan_drops_suspects:1");
+    let code = run(
+        &sp,
+        &d,
+        &[("RR_CAMPAIGN_FAILPOINT", &fp)],
+        Duration::from_secs(900),
+    );
+    let alive_after = alive(dp);
+    eprintln!("PF9 suspect recheck: exit {code}, daemon alive {alive_after}");
+    assert!(alive_after, "an unreadable daemon is never signalled");
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+    assert!(
+        log.lines()
+            .any(|l| l.contains("not proven") && l.contains(&format!("{dp}"))),
+        "the exit-8 message names the daemon {dp}: {}",
+        log_tail(&d)
+    );
+    // clean-up through a clean session (its sweep kills the campaign's daemon)
+    let _ = run(&sp, &d, &[], Duration::from_secs(600));
+}
+
+/// gate9 minor m9-clock: a panic of the control thread (std's Instant / SystemTime panic when clock_gettime fails) ended
+/// with exit 101. Now a typed end: exit 70 with the reason on stderr and in the campaign log (test-build failpoint
+/// `test_panic:1` panics where the supervisor run starts).
+#[test]
+fn g9_minor_a_panic_of_the_supervisor_is_a_typed_end() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf9-panic");
+    let sp = spec_with(&t, "true");
+    let d = t.cdir("c");
+    let code = run(
+        &sp,
+        &d,
+        &[("RR_CAMPAIGN_FAILPOINT", "test_panic:1")],
+        Duration::from_secs(120),
+    );
+    assert_eq!(code, INTERNAL, "{}", log_tail(&d));
+    let err = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+    assert!(
+        err.contains("the supervisor panicked") && err.contains("test_panic"),
+        "the typed end names the panic: {err}"
+    );
+}

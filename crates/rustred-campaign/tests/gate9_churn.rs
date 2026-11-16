@@ -14,6 +14,7 @@
 //! 9876cba2.
 //! Run explicitly, ONLY inside a private pid namespace:
 //! `LIGHT_PIDNS=1 light_build.sh gate9 test -p rustred-campaign --test gate9_churn -- --ignored`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -42,7 +43,7 @@ fn kill_pid(pid: u32) {
 }
 
 #[test]
-#[ignore = "builds the gate9 thread churner with cc; FAILS on 9876cba2 (G9-B2); run explicitly"]
+// procfix7 round 5: un-ignored as FIXED (f8999046); FAILS on 9876cba2 (G9-B2); skips without a C compiler
 fn g9_b2_zombie_leader_thread_churn_never_survives_an_exit_0() {
     if !rustred_campaign::launch::in_private_namespace() {
         eprintln!(

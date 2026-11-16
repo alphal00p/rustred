@@ -9,6 +9,7 @@
 //! Ignored (needs a C compiler: the gate9 LD_PRELOAD injector `gate9_g9fault.c`, a copy of
 //! implementer-scratch/gate9/src/g9fault.c): FAILS on 9876cba2. Run explicitly, ONLY inside a private pid namespace:
 //! `LIGHT_PIDNS=1 light_build.sh gate9 test -p rustred-campaign --test gate9_ledger_create -- --ignored`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -104,7 +105,7 @@ fn crashed_session_with_daemon(t: &Tmp) -> (PathBuf, PathBuf, u32) {
 /// campaign with ENOMEM) must never give exit 0 with the crashed session's live marked daemon, and must never replace
 /// the campaign's history (session 1's `SupervisorStarted` stays recorded).
 #[test]
-#[ignore = "builds the gate9 LD_PRELOAD injector with cc; FAILS on 9876cba2 (G9-B1); run explicitly"]
+// procfix7 round 5: un-ignored as FIXED (f8999046); FAILS on 9876cba2 (G9-B1); skips without a C compiler
 fn g9_b1_unreadable_manifest_never_creates_a_new_ledger_over_a_campaign() {
     if !in_ns() {
         return;

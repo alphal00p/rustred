@@ -932,7 +932,11 @@ pub fn verify_against(cdir: &Path, target: Option<u64>) -> Result<VerifyReport, 
     // lane closeloop4 (audit-closeloop m8): every RECORD the campaign wrote into its directory and registered as a
     // ledger input (statements, results, answers, checks, pins ...) is re-hashed: a changed or truncated file is a
     // difference (resume re-checks them through the work source as well)
-    let croot = std::fs::canonicalize(cdir).unwrap_or_else(|_| cdir.to_path_buf());
+    let croot = crate::fsx::canonical("progress", cdir).map_err(|e| LedgerError::Io {
+        path: cdir.to_path_buf(),
+        op: "resolve the campaign directory",
+        source: e,
+    })?;
     for (id, inp) in &st.inputs {
         // records are registered with absolute paths; other inputs (e.g. the campaign marker id) are not files
         let p = std::path::PathBuf::from(&inp.path);

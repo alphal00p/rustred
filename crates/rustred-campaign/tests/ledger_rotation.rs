@@ -138,8 +138,15 @@ fn crash_during_rotation_leaves_removable_leftovers() {
     let m = l.manifest().clone();
     drop(l);
     let ld = ledger::ledger_dir(&d);
-    // a rotation that died after writing the snapshot and creating the new segment, before the manifest
-    fs::write(ld.join(format!("snapshot-{:012}.json", 999_999)), b"{}").unwrap();
+    // a rotation that died after writing the snapshot and creating the new segment, before the manifest. procfix7
+    // round 5: a leftover snapshot is removed only when its head PROVES it a snapshot of that seq; a file of the same
+    // name pattern that is not one is kept (never removed on its name alone)
+    fs::write(
+        ld.join(format!("snapshot-{:012}.json", 999_999)),
+        br#"{"schema":"rustred.campaign.snapshot.v1","seq":999999,"state":{}}"#,
+    )
+    .unwrap();
+    fs::write(ld.join(format!("snapshot-{:012}.json", 1_999_999)), b"{}").unwrap();
     fs::write(
         ld.join(format!("segment-{:06}.jsonl", m.active.index + 1)),
         b"",
@@ -155,6 +162,11 @@ fn crash_during_rotation_leaves_removable_leftovers() {
     );
     assert_eq!(l2.state().digest(), digest);
     assert!(!ld.join(".MANIFEST.json.rr-tmp-1-0").exists());
+    assert!(
+        ld.join(format!("snapshot-{:012}.json", 1_999_999)).exists(),
+        "a file that is not a snapshot is never removed on its name"
+    );
+    fs::remove_file(ld.join(format!("snapshot-{:012}.json", 1_999_999))).unwrap();
     drop(l2);
     // a NON-empty unreferenced segment is corruption
     fs::write(

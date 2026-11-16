@@ -1,6 +1,7 @@
 //! gate9 (h): the ORIGINAL (a19d5d0b) tests/ledger_lock.rs, before procfix7 round 4 amended it (the amended test waits until the
 //! child's environ is readable before judging the token scan). Only the API changes of round 4 are applied: lock::start_ticks
-//! returns a ProcResult (is_some -> is_ok, is_none -> is_err). Run under load: does the production token scan still miss a
+//! returns a ProcResult (is_some -> is_ok, is_none -> is_err); procfix7 round 5: scan_token_holders returns
+//! io::Result<TokenScan> (`.unwrap().holders`) and the tests run one at a time (serial(): m9-lockflake). Run under load: does the production token scan still miss a
 //! live child in its exec window (gate8 i)?
 //! Campaign lock: refusal while the owner lives, takeover (with a ledger record) once it is provably dead,
 //! including a crashed supervisor whose child is still alive (the lock fd is NOT inherited, so the child
@@ -8,6 +9,7 @@
 //!
 //! The "supervisor" is this test binary re-executed with `RR_LOCK_HELPER=<dir>`: it takes the lock, spawns
 //! `sleep` with the token in its environment, prints `ready <child pid>` and waits to be killed.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::io::{BufRead, BufReader};
@@ -21,6 +23,16 @@ use rustred_campaign::ledger::{Event, LedgerConfig};
 use rustred_campaign::lock::{self, DeadReason, LockError, LockOutcome};
 
 /// Helper entry point (runs only in the re-executed child).
+/// procfix7 round 5 (gate9 m9-lockflake: 7 / 40 failures with the binary's tests in parallel, 0 / 40 alone): a test that
+/// forks (the helper supervisor, its `sleep`) duplicates EVERY descriptor of this process into the child until the
+/// child's exec closes it, the lock file of a concurrent in-process test included, and a duplicated descriptor keeps that
+/// test's flock alive after its `release()` (`Busy { owner: None }`). The tests of this binary therefore run one at a
+/// time; each then guarantees exactly what it states, with no descriptor of another test in flight.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static M: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    M.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 #[test]
 #[allow(clippy::zombie_processes)] // the orphan is the point of the test
 fn zz_lock_helper_process() {
@@ -98,6 +110,7 @@ fn kill(pid: u32, sig: i32) {
 
 #[test]
 fn second_lock_in_process_is_refused_and_release_allows_fresh() {
+    let _serial = serial();
     let d = scratch("lock1");
     let _c = Cleanup(d.clone());
     let clk = SystemClock::new();
@@ -118,6 +131,7 @@ fn second_lock_in_process_is_refused_and_release_allows_fresh() {
 
 #[test]
 fn stale_owner_records_are_taken_over() {
+    let _serial = serial();
     let d = scratch("lock2");
     let _c = Cleanup(d.clone());
     let clk = SystemClock::new();
@@ -196,6 +210,7 @@ fn stale_owner_records_are_taken_over() {
 
 #[test]
 fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
+    let _serial = serial();
     let d = scratch("lock3");
     let _c = Cleanup(d.clone());
     let (mut helper, child_pid) = spawn_helper(&d);
@@ -207,7 +222,7 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
     }
     let token = lock::read_owner(&d).unwrap().unwrap().token;
     assert_eq!(
-        lock::scan_token_holders(&token),
+        lock::scan_token_holders(&token).unwrap().holders,
         vec![child_pid],
         "the child carries the token"
     );

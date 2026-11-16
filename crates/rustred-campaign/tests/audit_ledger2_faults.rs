@@ -329,15 +329,39 @@ fn fault_case(
     }
     // resume after freeing space
     if !ledger::ledger_dir(&d).join(ledger::MANIFEST_FILE).exists() {
+        // procfix7 round 5 (gate9 G9-B1): create works again only into an absent or EMPTY ledger directory; the
+        // residue of a failed create is REFUSED (ManifestMissing, nothing deleted) and recovered by rebuild-manifest,
+        // or, without a complete record 1 (rebuild refuses), removed by the operator (here: the test) first
+        let ldir = ledger::ledger_dir(&d);
+        let names = || -> Vec<String> {
+            let mut v: Vec<String> = fs::read_dir(&ldir)
+                .map(|r| {
+                    r.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            v.sort();
+            v
+        };
+        let before = names();
         let lk = take_lock(&d);
-        Ledger::create(
-            &d,
-            &lk,
-            clk(),
-            cfg_small(),
-            Genesis::new("fault-campaign", &digest("spec"), 100),
-        )
-        .map_err(|e| format!("op {n}: create after a failed create: {e}"))?;
+        let g = || Genesis::new("fault-campaign", &digest("spec"), 100);
+        match Ledger::create(&d, &lk, clk(), cfg_small(), g()) {
+            Ok(_) if before.is_empty() => {}
+            Ok(_) => return Err(format!("op {n}: create over the residue {before:?}")),
+            Err(rustred_campaign::ledger::LedgerError::ManifestMissing { .. }) => {
+                if names() != before {
+                    return Err(format!("op {n}: a refused create changed the residue"));
+                }
+                if ledger::rebuild_manifest(&d, &lk).is_err() {
+                    let _ = fs::remove_dir_all(&ldir); // the operator's removal by hand
+                    Ledger::create(&d, &lk, clk(), cfg_small(), g())
+                        .map_err(|e| format!("op {n}: create after the removal: {e}"))?;
+                }
+            }
+            Err(e) => return Err(format!("op {n}: create after a failed create: {e}")),
+        }
+        drop(lk);
         let _ = fs::remove_dir_all(&d);
         return Ok(true);
     }

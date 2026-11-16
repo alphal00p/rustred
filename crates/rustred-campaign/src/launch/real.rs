@@ -265,18 +265,26 @@ fn systemd_args(cap: u64, unit: Option<&str>) -> Vec<String> {
 
 /// Are we inside a non-initial user or pid namespace? Then the host's user manager would interpret the pids that
 /// systemd-run passes in ITS namespace, i.e. as other processes: the scope mechanism must not be used.
+/// procfix8: an unreadable uid map counts as a namespace here (the conservative answer for a LAUNCH: no systemd scope).
+/// A decision for which "unknown" is not conservative (gate9 M9-1: the recovery's scope backstop) uses
+/// [`namespace_state`].
 pub fn in_private_namespace() -> bool {
+    namespace_state().unwrap_or(true)
+}
+
+/// procfix7 round 5 (gate9 M9-1): the namespace question, typed: Ok(true) inside a non-initial user or pid namespace,
+/// Ok(false) in the initial ones, Err when `/proc/self/uid_map` cannot be read (never "not a namespace").
+pub fn namespace_state() -> Result<bool, String> {
     // SAFETY: getpid cannot fail.
     if unsafe { libc::getpid() } == 1 {
-        return true;
+        return Ok(true);
     }
-    // procfix8: an unreadable uid map counts as a namespace (the conservative answer: no systemd scope)
     match crate::resources::procfs::sys().self_uid_map() {
         Ok(m) => {
             let f: Vec<&str> = m.split_whitespace().collect();
-            f != ["0", "0", "4294967295"]
+            Ok(f != ["0", "0", "4294967295"])
         }
-        Err(_) => true,
+        Err(e) => Err(format!("the uid map: {e}")),
     }
 }
 

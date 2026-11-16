@@ -23,11 +23,16 @@ use std::path::{Path, PathBuf};
 pub const WORK_OWNER_FILE: &str = "RR_CAMPAIGN_WORK_OWNER";
 
 /// Is `work_root` outside `cdir` (both canonicalised)? Only such a work directory can be shared by two campaign
-/// directories.
+/// directories. procfix7 round 5: a path that cannot be resolved counts as EXTERNAL (the claim rules then apply: the
+/// conservative answer), never "inside" by a raw-path comparison.
 pub fn is_external(work_root: &Path, cdir: &Path) -> bool {
-    let w = std::fs::canonicalize(work_root).unwrap_or_else(|_| work_root.to_path_buf());
-    let c = std::fs::canonicalize(cdir).unwrap_or_else(|_| cdir.to_path_buf());
-    !w.starts_with(&c)
+    match (
+        crate::fsx::canonical("workdir", work_root),
+        crate::fsx::canonical("workdir", cdir),
+    ) {
+        (Ok(w), Ok(c)) => !w.starts_with(&c),
+        _ => true,
+    }
 }
 
 /// Rule 1: claim an external work directory for the marker id `key` (or confirm the claim). `Err(refusal text)` when it

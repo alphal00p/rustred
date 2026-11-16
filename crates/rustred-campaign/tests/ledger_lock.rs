@@ -18,6 +18,16 @@ use rustred_campaign::ledger::{Event, LedgerConfig};
 use rustred_campaign::lock::{self, DeadReason, LockError, LockOutcome};
 
 /// Helper entry point (runs only in the re-executed child).
+/// procfix7 round 5 (gate9 m9-lockflake: 7 / 40 failures with the binary's tests in parallel, 0 / 40 alone): a test that
+/// forks (the helper supervisor, its `sleep`) duplicates EVERY descriptor of this process into the child until the
+/// child's exec closes it, the lock file of a concurrent in-process test included, and a duplicated descriptor keeps that
+/// test's flock alive after its `release()` (`Busy { owner: None }`). The tests of this binary therefore run one at a
+/// time; each then guarantees exactly what it states, with no descriptor of another test in flight.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static M: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    M.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 #[test]
 #[allow(clippy::zombie_processes)] // the orphan is the point of the test
 fn zz_lock_helper_process() {
@@ -95,6 +105,7 @@ fn kill(pid: u32, sig: i32) {
 
 #[test]
 fn second_lock_in_process_is_refused_and_release_allows_fresh() {
+    let _serial = serial();
     let d = scratch("lock1");
     let _c = Cleanup(d.clone());
     let clk = SystemClock::new();
@@ -115,6 +126,7 @@ fn second_lock_in_process_is_refused_and_release_allows_fresh() {
 
 #[test]
 fn stale_owner_records_are_taken_over() {
+    let _serial = serial();
     let d = scratch("lock2");
     let _c = Cleanup(d.clone());
     let clk = SystemClock::new();
@@ -193,6 +205,7 @@ fn stale_owner_records_are_taken_over() {
 
 #[test]
 fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
+    let _serial = serial();
     let d = scratch("lock3");
     let _c = Cleanup(d.clone());
     let (mut helper, child_pid) = spawn_helper(&d);
@@ -215,7 +228,7 @@ fn crashed_supervisor_with_live_child_is_taken_over_and_recorded() {
         std::thread::sleep(Duration::from_millis(5));
     }
     assert_eq!(
-        lock::scan_token_holders(&token),
+        lock::scan_token_holders(&token).unwrap().holders,
         vec![child_pid],
         "the child carries the token"
     );

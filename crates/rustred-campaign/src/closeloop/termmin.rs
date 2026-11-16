@@ -380,9 +380,11 @@ pub fn build_machine(
 #[allow(clippy::too_many_arguments)]
 /// lane closeloop4: the family of an import spec's tables: the header of its `frame_from` source (else the first source
 /// with a readable table header).
-fn spec_family(v: &Value, base: &Path) -> Option<String> {
+fn spec_family(v: &Value, base: &Path) -> Result<Option<String>, String> {
     use std::io::BufRead;
-    let srcs = v["sources"].as_array()?;
+    let Some(srcs) = v["sources"].as_array() else {
+        return Ok(None);
+    };
     let frame = v["frame_from"].as_str();
     let pick = srcs
         .iter()
@@ -394,18 +396,24 @@ fn spec_family(v: &Value, base: &Path) -> Option<String> {
         };
         let pb = PathBuf::from(p);
         let pb = if pb.is_absolute() { pb } else { base.join(pb) };
-        let Ok(f) = std::fs::File::open(&pb) else {
-            continue;
+        // procfix7 round 5: only a PROVEN absent table is skipped; a table that cannot be opened or whose header line
+        // cannot be read fails (never another source's family)
+        let f = match crate::fsx::open("closeloop.input", &pb) {
+            crate::fsx::Read::Content(f) => f,
+            crate::fsx::Read::Absent => continue,
+            crate::fsx::Read::Failed(e) => return Err(format!("table {}: {e}", pb.display())),
         };
         let mut l = String::new();
-        if std::io::BufReader::new(f).read_line(&mut l).is_ok()
-            && let Ok(h) = serde_json::from_str::<Value>(l.trim())
+        std::io::BufReader::new(f)
+            .read_line(&mut l)
+            .map_err(|e| format!("table {}: {e}", pb.display()))?;
+        if let Ok(h) = serde_json::from_str::<Value>(l.trim())
             && let Some(fam) = h["family"].as_str()
         {
-            return Some(fam.to_string());
+            return Ok(Some(fam.to_string()));
         }
     }
-    None
+    Ok(None)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -587,7 +595,7 @@ pub fn extended_spec(
     }
     v["sources"] = Value::Array(new_sources);
     // lane closeloop4 (audit-closeloop m4): evidence names the family of the set's tables (the frame source's header)
-    let fam = spec_family(&v, base);
+    let fam = spec_family(&v, base)?;
     // the closing loop's own recipe answers (ledger inputs of the first statement's passes)
     if !inner_solved.is_empty() {
         if !v["evidence"].is_object() {

@@ -901,7 +901,7 @@ impl Supervisor {
             log.line(
                 "WARN",
                 &format!(
-                    "stale lock of pid {} taken over ({reason:?}); {} process(es) still hold its token",
+                    "stale lock of pid {} taken over ({reason:?}); {} process(es) still hold (or, environ unreadable, may hold) its token",
                     previous.identity.pid,
                     orphans.len()
                 ),
@@ -1850,7 +1850,39 @@ impl Supervisor {
         // names a scope unit AND whose leader is recorded (`started`, this boot) in THIS campaign's ledger, whatever is
         // still in that exact scope (e.g. a descendant that cleared the marker and left the session) is killed, after
         // the guarded sweep. Never by pattern; never inside a private namespace (no systemd scopes are used there).
-        if scan_allowed && !crate::launch::in_private_namespace() {
+        // procfix7 round 5 (gate9 M9-1): when the namespace cannot be determined (uid_map unreadable) the backstop is
+        // NOT skipped silently: with recorded scopes to stop, the end is unproven (exit 8, naming them).
+        let ns = if self.fp.armed("uid_map_unreadable") {
+            Err("TEST BUILD failpoint uid_map_unreadable".to_string())
+        } else {
+            crate::launch::namespace_state()
+        };
+        if scan_allowed && let Err(e) = &ns {
+            let units: Vec<String> = unsettled
+                .iter()
+                .filter_map(|(job, attempt, _)| {
+                    let key = (job.clone(), *attempt);
+                    started_this_boot
+                        .contains(&key)
+                        .then(|| {
+                            scope_of
+                                .get(&key)
+                                .map(|u| format!("{u} ({job} a{attempt})"))
+                        })
+                        .flatten()
+                })
+                .collect();
+            if !units.is_empty() {
+                self.note(format!(
+                    "scope_backstop_unchecked {{\"units\":{units:?},\"error\":{e:?}}}"
+                ));
+                self.end_unproven.push(format!(
+                    "the recorded job scope(s) {} could not be stopped: whether this process runs in a private namespace is unknown ({e})",
+                    units.join(", ")
+                ));
+            }
+        }
+        if scan_allowed && ns == Ok(false) {
             for (job, attempt, _) in &unsettled {
                 let key = (job.clone(), *attempt);
                 let (Some(unit), true) = (scope_of.get(&key), started_this_boot.contains(&key))
@@ -4567,7 +4599,7 @@ impl Supervisor {
                         "final marker sweep: {}; {}",
                         crate::launch::sweep::proof_words(crate::launch::sweep::PROOF_SCANS),
                         if atomic {
-                            "no descendant of this supervisor remains (kernel waitid: ECHILD, atomic)"
+                            "no descendant of this supervisor remains (the kernel's wait answer ECHILD: atomic)"
                         } else {
                             "the supervisor is not a child subreaper: its own tree has no atomic proof either"
                         }
@@ -4642,7 +4674,7 @@ impl Supervisor {
                         ),
                     }]);
                     return Err(format!(
-                        "the end is not proven: the kernel reports child process(es) of this supervisor still present after the final sweep (waitid; listed children: {listed}{}); as a child subreaper every descendant of the campaign's jobs ends up here: nothing was signalled (not proven ours); check each (ps -o pid,ppid,lstart,cmd --ppid {}), then run the same command",
+                        "the end is not proven: the kernel reports child process(es) of this supervisor still present after the final sweep (the kernel's wait answer; listed children: {listed}{}); as a child subreaper every descendant of the campaign's jobs ends up here: nothing was signalled (not proven ours); check each (ps -o pid,ppid,lstart,cmd --ppid {}), then run the same command",
                         zombie
                             .map(|z| format!("; an exited child {z} is not reaped"))
                             .unwrap_or_default(),
@@ -4654,7 +4686,7 @@ impl Supervisor {
                         text: format!("descendants_unchecked {{\"error\":{:?}}}", e.to_string()),
                     }]);
                     return Err(format!(
-                        "the end is not proven: this supervisor's children cannot be checked (waitid: {e}); nothing was signalled; run the same command"
+                        "the end is not proven: this supervisor's children cannot be checked (the kernel's wait answer: {e}); nothing was signalled; run the same command"
                     ));
                 }
             }

@@ -35,10 +35,18 @@ fn g8_token_scan_right_after_spawn_can_miss_a_live_child() {
         if std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|b| b.is_empty()) {
             empty_at_once += 1;
         }
-        if !lock::scan_token_holders(&tok).contains(&pid) {
+        if !lock::scan_token_holders(&tok)
+            .unwrap()
+            .holders
+            .contains(&pid)
+        {
             missed += 1;
             std::thread::sleep(Duration::from_millis(50));
-            if lock::scan_token_holders(&tok).contains(&pid) {
+            if lock::scan_token_holders(&tok)
+                .unwrap()
+                .holders
+                .contains(&pid)
+            {
                 found_later += 1;
             }
         }

@@ -512,8 +512,16 @@ impl CampaignSpec {
     /// Refuses a campaign directory that is (inside) the source campaign of an optimise run (U-13).
     pub fn check_dirs(&self, cdir: &Path) -> Result<(), String> {
         if let Some(src) = &self.source_campaign_dir {
-            let c = std::fs::canonicalize(cdir).unwrap_or_else(|_| cdir.to_path_buf());
-            let s = std::fs::canonicalize(src).unwrap_or_else(|_| src.clone());
+            // procfix7 round 5: a path that cannot be resolved refuses (raw paths can miss an overlap via a symlink)
+            let c = crate::fsx::canonical("supervisor.dirs", cdir).map_err(|e| {
+                format!(
+                    "campaign directory {} cannot be resolved: {e}",
+                    cdir.display()
+                )
+            })?;
+            let s = crate::fsx::canonical("supervisor.dirs", src).map_err(|e| {
+                format!("source campaign {} cannot be resolved: {e}", src.display())
+            })?;
             if c.starts_with(&s) || s.starts_with(&c) {
                 return Err(format!(
                     "campaign directory {} overlaps the source campaign {} of this optimise run: the source is never written",

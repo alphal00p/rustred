@@ -8,6 +8,7 @@
 //! the marker-less parent and reported `Verified` while the marked process lived. Now the walk descends through
 //! marker-less processes (never signalling them) and the proof passes carry a full-scan marker belt: the marked process
 //! is killed through the guard, the marker-less parent is reported (unattributed) and survives, then `Verified`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

@@ -341,11 +341,6 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
         r.left
     );
     assert!(r.proven, "{r:?}");
-    assert!(
-        r.killed.len() >= 5,
-        "members, the setsid'd sleeper, chain hops: {}",
-        r.killed.len()
-    );
     assert_eq!(r.left.len(), 1, "{:?}", r.left);
     assert_eq!(r.left[0].process.pid, refused.id());
     // No live process of ours carries a marker of the campaign any more, except the refused one and the old one.
@@ -377,6 +372,17 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     assert!(
         refused.try_wait().unwrap().is_none(),
         "the refused process was signalled"
+    );
+    // procfix7 round 5 (gate9 m9-pf3: "killed 4 < 5" once in a 4-thread suite, 0 / 78 alone, unexplained because this
+    // count fired BEFORE the guaranteed checks above). What the test guarantees, in this order: the sweep is proven, the
+    // refused member is the only one left, no other marked process of the campaign is alive (the chain included), no
+    // decoy / older / refused process was signalled. The kill count is a consequence only for the 4 STEADY members (the
+    // sleeper, the setsid'd sleeper and its shell's sleep, the chain member's sleep: they never exit by themselves); the
+    // relay chain's hops may exit on their own between hops (killed or not), so they are not counted.
+    assert!(
+        r.killed.len() >= 4,
+        "the 4 steady members are killed (chain hops are not counted): {}",
+        r.killed.len()
     );
     for c in decoys.iter_mut().chain(members.iter_mut()) {
         kill_own(c.id());
