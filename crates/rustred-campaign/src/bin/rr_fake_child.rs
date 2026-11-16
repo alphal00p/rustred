@@ -146,6 +146,15 @@ mod solve_recipe;
 // lane closeloop2: the legacy rr_proof kinds emulated (src/bin/rr_fake_child/proof.rs)
 #[path = "rr_fake_child/proof.rs"]
 mod proof;
+// lane symjob: kind symmetry-composite emulated (src/bin/rr_fake_child/symcomp.rs)
+#[path = "rr_fake_child/symcomp.rs"]
+mod symcomp;
+// lane coreseed: kind pole-regular-at emulated (src/bin/rr_fake_child/poleat.rs)
+#[path = "rr_fake_child/poleat.rs"]
+mod poleat;
+// lane symcert: kind proof-symrows emulated (src/bin/rr_fake_child/symrows.rs)
+#[path = "rr_fake_child/symrows.rs"]
+mod symrows;
 
 mod own {
     use serde_json::Value;
@@ -1405,9 +1414,18 @@ impl Main {
 }
 
 fn sigkill_self() -> ! {
-    // SAFETY: signalling ourselves.
+    die_by_signal(libc::SIGKILL)
+}
+
+/// End killed by `sig` (default disposition restored first; SIGKILL cannot be caught anyway): the one self-signal form
+/// of the fake child (`kill(getpid(), ..)`; lane closeloop3: also the legacy rr_proof emulation's end on a signal).
+pub(crate) fn die_by_signal(sig: libc::c_int) -> ! {
+    // SAFETY: restoring the default disposition and signalling ourselves.
     unsafe {
-        libc::kill(libc::getpid(), libc::SIGKILL);
+        if sig != libc::SIGKILL {
+            libc::signal(sig, libc::SIG_DFL);
+        }
+        libc::kill(libc::getpid(), sig);
     }
     park_forever()
 }
@@ -1613,11 +1631,37 @@ fn run_job(spec_path: &Path) -> ! {
     {
         solve_recipe::run(spec_path)
     }
+    // lane symjob: kind symmetry-composite (rr_rf_symflow emulated over Q with the campaign core)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "symmetry-composite")
+    {
+        symcomp::run(spec_path)
+    }
+    // lane coreseed: kind pole-regular-at (rr_poles regular-at emulated with a test rule)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "pole-regular-at")
+    {
+        poleat::run(spec_path)
+    }
+    // lane symcert: kind proof-symrows (rr_proof --symrows emulated; script-driven statuses and forgeries)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "proof-symrows")
+    {
+        symrows::run(spec_path)
+    }
     if let Some(k) = std::fs::read(spec_path)
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
         .and_then(|v| v["kind"].as_str().map(str::to_string))
-        .filter(|k| k == "proof-instance-span" || k == "proof-instantiate")
+        .filter(|k| {
+            k == "proof-instance-span" || k == "proof-instantiate" || k == "coefficient-facts"
+        })
     {
         proof::run(spec_path, &k)
     }

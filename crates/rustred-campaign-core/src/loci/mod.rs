@@ -483,7 +483,8 @@ impl<'a> Resolver<'a> {
             self.pending = self.pending.saturating_add(1);
             return;
         }
-        if !self.meter.tick(1) {
+        // one unit per node plus the Fourier-Motzkin / point-search work done since the last node (audit-part3 m4)
+        if !self.meter.tick(1u64.saturating_add(region::take_work())) {
             let why = self
                 .meter
                 .reason()
@@ -822,6 +823,19 @@ impl<'a> Resolver<'a> {
         let mut pts = vec![];
         let mut n = 0u64;
         let mut t = vec![0i128; k];
+        // BUDGETED (audit-part3 M2 / M3 shape, found by the fuzz at arity 20): the L1 ball has ~D(k, radius) points (k
+        // parameters); every visited node costs one unit of the call's meter and at most `max_enumeration` nodes are
+        // visited; a stopped window is reported as such (never "tested to the bound")
+        struct Walk<'w> {
+            meter: &'w WorkMeter,
+            left: u64,
+            stopped: bool,
+        }
+        let mut walk = Walk {
+            meter: self.meter,
+            left: self.opts.max_enumeration,
+            stopped: false,
+        };
         #[allow(clippy::too_many_arguments)]
         fn rec(
             j: usize,
@@ -833,7 +847,16 @@ impl<'a> Resolver<'a> {
             nf: &NfRules,
             n: &mut u64,
             pts: &mut Vec<Key>,
+            w: &mut Walk<'_>,
         ) {
+            if w.stopped {
+                return;
+            }
+            if w.left == 0 || !w.meter.tick(1) {
+                w.stopped = true;
+                return;
+            }
+            w.left = w.left.saturating_sub(1);
             if j == t.len() {
                 *n = n.saturating_add(1);
                 if !region.contains_t(t).unwrap_or(false)
@@ -861,20 +884,42 @@ impl<'a> Resolver<'a> {
                 };
                 t[j] = tj;
                 let left = budget.saturating_sub(d.saturating_abs());
-                rec(j.saturating_add(1), left, t, anchor, f, region, nf, n, pts);
+                rec(
+                    j.saturating_add(1),
+                    left,
+                    t,
+                    anchor,
+                    f,
+                    region,
+                    nf,
+                    n,
+                    pts,
+                    w,
+                );
+                if w.stopped {
+                    return;
+                }
             }
         }
         rec(
-            0, radius, &mut t, &anchor, &f, &region, self.nf, &mut n, &mut pts,
+            0, radius, &mut t, &anchor, &f, &region, self.nf, &mut n, &mut pts, &mut walk,
         );
+        let stopped = walk.stopped;
         self.unresolved.push(Unresolved {
-            bound: format!("L1 <= {radius} around parameters {anchor:?}"),
+            bound: if stopped {
+                format!(
+                    "window L1 <= {radius} around parameters {anchor:?} STOPPED after {n} points (work budget / max_enumeration)"
+                )
+            } else {
+                format!("L1 <= {radius} around parameters {anchor:?}")
+            },
             region,
             reason,
             equation: label,
             trail,
             points: pts,
-            n_window: n,
+            // a stopped window is not a window enumerated to its bound: reported as an open (Unresolved) region
+            n_window: if stopped { 0 } else { n },
         });
     }
 
@@ -1041,7 +1086,7 @@ impl<'a> Resolver<'a> {
         }
         fn split(r: &Region, hs: &[Hyper], sp: &mut Split<'_>) -> Minus {
             sp.nodes = sp.nodes.saturating_add(1);
-            if sp.nodes > sp.cap || !sp.meter.tick(1) {
+            if sp.nodes > sp.cap || !sp.meter.tick(1u64.saturating_add(region::take_work())) {
                 return Minus::Unknown;
             }
             match r.feasible() {
@@ -1194,9 +1239,18 @@ pub fn resolve_fragile_classes_with(
     let mut groups: BTreeMap<Gk, Locus> = BTreeMap::new();
     let all: Vec<usize> = (0..rep.nf().rules.len()).collect();
     let mut budget_cells: Vec<(FaceKey, Unresolved)> = vec![];
+    let _ = region::take_work(); // leftovers of earlier calls on this thread are not this call's work
     for c in rep.classes().iter().filter(|c| c.label == Label::Fragile) {
-        // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded
-        let Some(cells) = rep.expand(c) else { continue };
+        if meter.exhausted() {
+            // count the class's cells as unresolved without expanding them (the run is aborted anyway)
+            out.cells_unresolved_budget = out.cells_unresolved_budget.saturating_add(1);
+            continue;
+        }
+        // a class above `max_any_slots` is listed as a face family (outcome Incomplete), not expanded; the
+        // expansion is charged to the meter (audit-part3 M2)
+        let Some(cells) = rep.expand_with(c, meter) else {
+            continue;
+        };
         for (face, cell) in cells {
             let region = cell_region(rep, &cell);
             if meter.exhausted() {

@@ -149,6 +149,18 @@ pub trait WorkSource {
     }
     /// All work final.
     fn finished(&self, st: &CampaignState) -> bool;
+    /// lane t266run / closeloop4 (closeloop.md 19): Some(text) while an OPERATOR must decide before the work can go on
+    /// (e.g. terminal proposals of a closing loop): the supervisor stops with the attention exit (8) instead of
+    /// finishing, both when the source is finished and when it waits with nothing to run. Default: none.
+    fn operator_decision(&self, _st: &CampaignState) -> Option<String> {
+        None
+    }
+    /// lane t266run (L17): the source is NOT finished but cannot progress until an operator acts (e.g. items that
+    /// ended at their memory cap wait for a session with a higher `--mem-cap`): the message; the supervisor ends with
+    /// the attention exit (8) when nothing runs and nothing is ready. Default: none.
+    fn blocked_on_operator(&self, _st: &CampaignState) -> Option<String> {
+        None
+    }
     /// Number of work units (for logs).
     fn describe(&self) -> String;
     /// procfix5 (gate4 m3): how the work ENDED once `finished` holds: every node closed, some open, or an error. The
@@ -156,6 +168,18 @@ pub trait WorkSource {
     /// the ledger ([`default_outcome`]); a source with its own verdicts (closeloop: final result.json) overrides it.
     fn outcome(&self, st: &CampaignState) -> CampaignOutcome {
         default_outcome(st)
+    }
+    /// lane closeloop4 (closeloop.md 19): an operator decision request (`resolve-terminals`): the events (and records)
+    /// that record it. Default: refused.
+    fn resolve_operator_decision(
+        &mut self,
+        _st: &CampaignState,
+        req: &super::ControlRequest,
+    ) -> Result<Routing, String> {
+        Err(format!(
+            "verb {} not supported by this work source",
+            req.verb
+        ))
     }
 }
 

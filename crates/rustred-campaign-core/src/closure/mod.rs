@@ -23,6 +23,7 @@ pub mod exits;
 pub mod facts;
 pub mod fast;
 pub mod keyset;
+pub mod leaves;
 pub mod relations;
 pub mod sha256;
 pub mod store;
@@ -50,6 +51,10 @@ pub use facts::{
 };
 pub use fast::FastDispatch;
 pub use keyset::{KeyCodec, KeySet, KeySetBuilder, KeySetError, KeyTable};
+pub use leaves::{
+    LEAFSET_FORMAT_VERSION, LEAFSET_SCHEMA, LeafBinding, LeafEntry, LeafError, LeafHit,
+    LeafProducer, LeafRequirement, LeafSet, LeafSetBuilder, LeafShortfall, LeafSummary,
+};
 pub use relations::{
     DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, SolveResultsStats,
     VERDICT_CERTIFIED, VERDICT_DESCENDS, VERDICT_EXACT, VERDICT_REGULAR, read_solve_results,
@@ -147,6 +152,16 @@ pub struct ClosureConfig {
     /// (`blocked`); Tier K follows the record's body all the same (superset of every Tier C run, re-audit F1b).
     /// `Off` (default): unchanged behaviour (identity unchanged).
     pub per_key_lift: PerKeyLift,
+    /// lane layers (closure.md section 18): LEAF SETS of earlier, decided clauses / layers / runs. A reached key in a
+    /// leaf set is neither dispatched nor expanded (the walk stops there); every part's walk binding is verified
+    /// against this run before the walk (`ClosureError::Leaves` on a mismatch). Empty (default): unchanged behaviour.
+    pub leaves: Vec<Arc<leaves::LeafSet>>,
+    /// audit r2-planners L1: what THIS run requires of the leaves it stops at (its required evidence level, tier,
+    /// strictness). A reached CERTIFIED leaf below it blocks (`leaf_below_required_evidence:N`,
+    /// `leaf_below_required_tier:N`, `leaf_basis_not_strict:N`; verdict never `closed`). `None` (default): the run
+    /// states no requirement, the walk demands the LOWEST level of the tier it runs at (a version-1 leaf set counts at
+    /// that level; tier K demands nothing more of a leaf than its certification).
+    pub leaf_requirement: Option<leaves::LeafRequirement>,
 }
 
 /// The per-key lift of records with elided / absent witness loci (closure.md section 16).
@@ -329,6 +344,8 @@ impl Default for ClosureConfig {
             spill: None,
             table_presentation: None,
             per_key_lift: PerKeyLift::Off,
+            leaves: vec![],
+            leaf_requirement: None,
         }
     }
 }
@@ -360,6 +377,9 @@ pub enum ClosureError {
     },
     /// A spill file could not be written or read.
     Io(String),
+    /// lane layers (closure.md 18): a leaf set does not fit this run (codec, or its walk binding differs: the message
+    /// names the differing components). Refused: never a silent re-walk or a silent trust.
+    Leaves(String),
 }
 impl std::fmt::Display for ClosureError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -624,6 +644,9 @@ pub struct ClosureSummary {
     pub fact_requests_spilled: bool,
     #[serde(default)]
     pub exits_spilled: bool,
+    /// lane layers (closure.md 18): the leaves the walk met (absent without leaf sets).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaves: Option<LeafSummary>,
 }
 
 /// Use of one relation set (R48): keys it serves, and credited keys whose image it serves (R44).
@@ -684,6 +707,8 @@ const CREDITED: u32 = u32::MAX - 1;
 const OPEN: u32 = u32::MAX;
 const TERMINAL: u32 = u32::MAX - 3;
 const RECIPE: u32 = u32::MAX - 4;
+/// lane layers: a reached key of a leaf set (closure.md 18): neither dispatched nor expanded.
+const LEAF: u32 = u32::MAX - 5;
 /// Stop sentinels (per-key dispatch memo): not evaluated (truncated, outside the chart) / evaluated, no record stops.
 const STOP_NONE: u32 = u32::MAX - 1;
 const STOP_UNCOVERED: u32 = u32::MAX;
@@ -872,6 +897,25 @@ pub struct Closure {
     witness_policy: WitnessAbsent,
     pub seconds: f64,
     pub memory_estimate_bytes: usize,
+    /// lane layers: reached leaf keys -> (part, position), the parts (run codec), this run's own walk components
+    leaf_of: BTreeMap<u32, (u32, u32)>,
+    leaf_parts: Vec<Arc<leaves::LeafSet>>,
+    leaf_walk: BTreeMap<String, String>,
+    /// audit r2-planners L1: the requirement the reached certified leaves are judged against
+    leaf_req: leaves::LeafRequirement,
+    /// lane layers: what the restricted walk components of any key set need (relation sets with ranks, terminals,
+    /// exclusions of this run)
+    walk_inputs: Arc<WalkInputs>,
+}
+
+/// lane layers: the run's relation sets (with ranks), declared terminals and exclusions (closure.md 18).
+#[derive(Clone, Debug, Default)]
+struct WalkInputs {
+    rsets: Vec<(u32, Arc<RelationSet>)>,
+    term_pref: Option<KeySet>,
+    term_other: Option<KeySet>,
+    exclusions: Vec<KeyExclusion>,
+    witness_absent: String,
 }
 
 /// sha256 over the dispatch order: per table in priority order its name, record count and labels.
@@ -937,6 +981,8 @@ struct Ctx<'a> {
     table_rank: Vec<u32>,
     /// key -> excluded relation sets (indices into `rsets`)
     excl_sets: HashMap<Vec<i32>, Vec<usize>>,
+    /// lane layers: the leaf sets (in the run's codec), in the configured order
+    leaves: Vec<Arc<leaves::LeafSet>>,
 }
 
 impl Ctx<'_> {
@@ -994,6 +1040,13 @@ impl Ctx<'_> {
             .filter(|(_, (_, s))| s.in_domain(key))
             .map(|(i, _)| i as u32)
             .collect()
+    }
+    /// lane layers: (part, position) of `key` in the first leaf set holding it.
+    fn leaf(&self, key: &[i32]) -> Option<(u32, u32)> {
+        self.leaves
+            .iter()
+            .enumerate()
+            .find_map(|(p, s)| s.lookup(key).map(|i| (p as u32, i as u32)))
     }
     fn terminal_kind(&self, key: &[i32]) -> Option<TerminalKind> {
         if self.term_pref.as_ref().is_some_and(|t| t.contains(key)) {
@@ -1229,7 +1282,7 @@ struct ResView<'a> {
 impl<'a> ResView<'a> {
     fn served(&self, i: u32) -> Option<Served<'a>> {
         match self.res[i as usize] {
-            PENDING | TERMINAL => None,
+            PENDING | TERMINAL | LEAF => None,
             OPEN => self.open.get(&i).and_then(|o| o.followed()),
             RECIPE => {
                 let (si, ri) = self.recipe_of[&i];
@@ -1594,12 +1647,14 @@ enum KeyRes {
     Pos(u32, Option<RegFact>),
     Credit(Box<CreditC>),
     Open(OpenInfo),
+    /// lane layers: a key of a leaf set (part, position): not dispatched, not expanded.
+    Leaf(u32, u32),
 }
 
 impl KeyRes {
     fn served(&self) -> Option<Served<'_>> {
         match self {
-            KeyRes::Terminal(_) => None,
+            KeyRes::Terminal(_) | KeyRes::Leaf(..) => None,
             KeyRes::Lifted(p) | KeyRes::PerKey(p) | KeyRes::Pos(p, _) => Some(Served::Rule(*p)),
             KeyRes::WitnessAbsent(o) | KeyRes::Open(o) => o.followed(),
             KeyRes::Recipe(si, ri) => Some(Served::Recipe(*si, *ri)),
@@ -2130,6 +2185,67 @@ fn run(
             format!("{}|exact={}", facts.label(), facts.exact()),
         );
     }
+    // lane layers (closure.md 18): the leaf sets in the run's codec, each BOUND to this run (walk components for its
+    // keys + aux keys equal), before the walk; the parts' digests are an identity component
+    let mut leaf_parts: Vec<Arc<leaves::LeafSet>> = vec![];
+    for (pi, ls) in cfg.leaves.iter().enumerate() {
+        if ls.codec().arity() != arity {
+            return Err(ClosureError::Leaves(format!(
+                "leaf set {} (part {pi}): arity {} != {arity}",
+                ls.digest(),
+                ls.codec().arity()
+            )));
+        }
+        let ls = if *ls.codec() == codec {
+            ls.clone()
+        } else {
+            Arc::new(ls.recode(codec).map_err(|e| {
+                ClosureError::Leaves(format!("leaf set {} (part {pi}): {e}", ls.digest()))
+            })?)
+        };
+        let member = |k: &[i32]| ls.contains(k) || ls.aux_contains(k);
+        let cur = leaves::walk_components(
+            &identity,
+            &format!("{:?}", cfg.witness_absent),
+            &rsets,
+            (&term_pref, &term_other),
+            &cfg.exclusions,
+            &member,
+        );
+        let diff = leaves::differing(&ls.binding().walk, &cur);
+        if !diff.is_empty() {
+            return Err(ClosureError::Leaves(format!(
+                "leaf set {} (part {pi}, clause {}): walk components differ from this run: {}",
+                ls.digest(),
+                ls.binding().clause,
+                diff.join(", ")
+            )));
+        }
+        leaf_parts.push(ls);
+    }
+    if !leaf_parts.is_empty() {
+        identity.components.insert(
+            "leaves".into(),
+            leaf_parts
+                .iter()
+                .map(|l| l.digest().to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        // audit r2-planners L1: the requirement the leaves are judged against decides the verdict
+        if let Some(r) = &cfg.leaf_requirement {
+            identity.components.insert(
+                "leaf_requirement".into(),
+                format!(
+                    "{}|{}|strict={}|zero_route={}",
+                    r.required_level,
+                    leaves::tier_word(r.tier),
+                    r.strict,
+                    r.zero_route.join("+")
+                ),
+            );
+        }
+    }
     if let Some(p) = resume {
         let diff = identity.differing(&p.identity, RECHECK_MAY_DIFFER);
         if !diff.is_empty() {
@@ -2148,6 +2264,8 @@ fn run(
         facts,
         sectors: Sectors {
             lines: lines.clone(),
+            // eps families: the dispatcher's two-sided axes are forced (in every sector)
+            forced: disp.chart_free().iter().fold(0u64, |m, &a| m | 1 << a),
             zero_sectors: cfg.zero_sectors.clone(),
         },
         codec,
@@ -2174,6 +2292,7 @@ fn run(
         rsets,
         table_rank,
         excl_sets,
+        leaves: leaf_parts.clone(),
     };
     // start keys (canonical order)
     let start = if *start.codec() == codec {
@@ -2200,6 +2319,7 @@ fn run(
     let mut lifted: BTreeSet<u32>;
     let mut per_key_lifted: BTreeSet<u32>;
     let mut witness_absent_keys: BTreeSet<u32>;
+    let mut leaf_of: BTreeMap<u32, (u32, u32)>;
     let mut acc = ExpandOut::new(codec);
     let mut start_mask: Vec<bool>;
     let mut prev_rounds = 0u32;
@@ -2223,6 +2343,7 @@ fn run(
             lifted = BTreeSet::new();
             per_key_lifted = BTreeSet::new();
             witness_absent_keys = BTreeSet::new();
+            leaf_of = BTreeMap::new();
             start_mask = vec![];
         }
         Some(p) => {
@@ -2236,6 +2357,7 @@ fn run(
             lifted = p.lifted.clone();
             per_key_lifted = p.per_key_lifted.clone();
             witness_absent_keys = p.witness_absent_keys.clone();
+            leaf_of = p.leaf_of.clone();
             exits
                 .seed(&p.hand_down_keys, &p.exit_files)
                 .map_err(io_err)?;
@@ -2330,6 +2452,11 @@ fn run(
                             let mut v = Vec::with_capacity(b - a);
                             for i in a..b {
                                 codec.decode(table.code(i), &mut key);
+                                // lane layers: the walk stops at a leaf (no dispatch, no expansion)
+                                if let Some((lp, li)) = ctx.leaf(&key) {
+                                    v.push((KeyRes::Leaf(lp, li), STOP_NONE, false));
+                                    continue;
+                                }
                                 let excl = ctx.excluded(&key);
                                 let mut used_cache = false;
                                 let (old_stop, use_reuse) = match view {
@@ -2481,6 +2608,10 @@ fn run(
                         KeyRes::Recipe(si, ri) => {
                             res[i] = RECIPE;
                             recipe_of.insert(i as u32, (si, ri));
+                        }
+                        KeyRes::Leaf(lp, li) => {
+                            res[i] = LEAF;
+                            leaf_of.insert(i as u32, (lp, li));
                         }
                     }
                     i += 1;
@@ -2638,7 +2769,47 @@ fn run(
         table,
         res,
         stop,
+        leaf_of,
+        leaf_parts,
+        leaf_walk: BTreeMap::new(),
+        leaf_req: cfg
+            .leaf_requirement
+            .clone()
+            .unwrap_or_else(|| leaves::LeafRequirement {
+                required_level: leaves::LEAF_LEVEL_ORDER[0].to_string(),
+                tier: cfg.tier,
+                strict: false,
+                zero_route: vec![],
+            }),
+        walk_inputs: Arc::new(WalkInputs {
+            rsets: ctx.rsets.clone(),
+            term_pref: ctx.term_pref.clone(),
+            term_other: ctx.term_other.clone(),
+            exclusions: cfg.exclusions.clone(),
+            witness_absent: format!("{:?}", cfg.witness_absent),
+        }),
     };
+    // lane layers (closure.md 18): the walk components of THIS run's own keys (and credit images), for a leaf set built
+    // from this result
+    let leaf_walk = {
+        let images = cl.credit_images();
+        let member = |k: &[i32]| {
+            images.contains(k)
+                || cl
+                    .table
+                    .get_key(k)
+                    .is_some_and(|i| cl.res[i as usize] != LEAF)
+        };
+        leaves::walk_components(
+            &cl.identity,
+            &format!("{:?}", cfg.witness_absent),
+            &ctx.rsets,
+            (&ctx.term_pref, &ctx.term_other),
+            &cfg.exclusions,
+            &member,
+        )
+    };
+    cl.leaf_walk = leaf_walk;
     cl.n_requests = cl.count_requests().map_err(io_err)?;
     if cfg.longest_chain && !cl.truncated {
         chain_pass(&ctx, &mut cl)?;
@@ -3046,6 +3217,153 @@ impl Closure {
     pub fn tier(&self) -> Tier {
         self.tier
     }
+    /// lane layers (closure.md 18): whether reached key `i` is a leaf (of an earlier leaf set: neither dispatched nor
+    /// expanded).
+    pub fn is_leaf(&self, i: usize) -> bool {
+        self.res[i] == LEAF
+    }
+    /// The leaf data of reached key `i`, if a leaf.
+    pub fn leaf_hit(&self, i: usize) -> Option<leaves::LeafHit> {
+        let &(p, li) = self.leaf_of.get(&(i as u32))?;
+        let s = &self.leaf_parts[p as usize];
+        let li = li as usize;
+        Some(leaves::LeafHit {
+            part: p as usize,
+            key: self.table.key(i),
+            class: s.class_of(li).to_string(),
+            level: s.level_of(li).to_string(),
+            certified: s.is_certified(li),
+            in_start: self.start_mask[i],
+        })
+    }
+    /// Number of reached leaves.
+    pub fn n_leaves_reached(&self) -> usize {
+        self.leaf_of.len()
+    }
+    /// The leaf sets of the run (in its codec), in the configured order.
+    pub fn leaf_parts(&self) -> &[Arc<leaves::LeafSet>] {
+        &self.leaf_parts
+    }
+    /// Reached keys that are NOT leaves (this walk's own keys).
+    pub fn own_keys(&self) -> KeySet {
+        let mut d = vec![];
+        for i in 0..self.table.len() {
+            if self.res[i] != LEAF {
+                d.extend_from_slice(self.table.code(i));
+            }
+        }
+        KeySet::from_codes(self.codec, d)
+    }
+    /// audit r2-planners L1: reached CERTIFIED leaves that do not meet this run's leaf requirement, per shortfall.
+    pub fn leaf_shortfalls(&self) -> BTreeMap<leaves::LeafShortfall, u64> {
+        let mut m = BTreeMap::new();
+        for &(p, li) in self.leaf_of.values() {
+            if let Some(s) = self.leaf_parts[p as usize].shortfall(li as usize, &self.leaf_req) {
+                *m.entry(s).or_default() += 1;
+            }
+        }
+        m
+    }
+    /// Reached leaves that are not certified (they block: `leaf_open:N`), in reach order.
+    pub fn leaf_open_keys(&self) -> Vec<Vec<i32>> {
+        self.leaf_of
+            .iter()
+            .filter(|(_, (p, li))| !self.leaf_parts[*p as usize].is_certified(*li as usize))
+            .map(|(&i, _)| self.table.key(i as usize))
+            .collect()
+    }
+    /// The images of the credited keys (primary element and every followed alternative), as a key set.
+    pub fn credit_images(&self) -> KeySet {
+        let mut b = KeySetBuilder::new(self.codec);
+        for c in self.credits.values() {
+            for (_, im, _) in c.followed() {
+                let _ = b.push(im);
+            }
+        }
+        b.finish()
+    }
+    /// The walk components of this run's OWN keys and credit images (the `walk` of a leaf-set binding built from this
+    /// result; closure.md 18).
+    pub fn leaf_walk(&self) -> &BTreeMap<String, String> {
+        &self.leaf_walk
+    }
+    /// The walk components of THIS run's configuration for ANY key set given by `member` (e.g. the union of several
+    /// layers' keys and credit images; closure.md 18).
+    pub fn walk_for(&self, member: &dyn Fn(&[i32]) -> bool) -> BTreeMap<String, String> {
+        let w = &self.walk_inputs;
+        leaves::walk_components(
+            &self.identity,
+            &w.witness_absent,
+            &w.rsets,
+            (&w.term_pref, &w.term_other),
+            &w.exclusions,
+            member,
+        )
+    }
+    fn leaf_blocking(&self) -> Vec<String> {
+        let mut b = vec![];
+        let open = self.leaf_open_keys().len();
+        if open > 0 {
+            b.push(format!("leaf_open:{open}"));
+        }
+        for (s, n) in self.leaf_shortfalls() {
+            b.push(format!("{}:{n}", s.word()));
+        }
+        let mut reached = vec![0u64; self.leaf_parts.len()];
+        for (p, _) in self.leaf_of.values() {
+            reached[*p as usize] += 1;
+        }
+        for (p, s) in self.leaf_parts.iter().enumerate() {
+            if reached[p] > 0 && s.binding().source_verdict != "closed" {
+                b.push(format!(
+                    "leaf_set_not_closed:{}:reached:{}",
+                    s.digest(),
+                    reached[p]
+                ));
+            }
+        }
+        b
+    }
+    fn leaf_summary(&self) -> Option<leaves::LeafSummary> {
+        if self.leaf_parts.is_empty() {
+            return None;
+        }
+        let mut parts: Vec<leaves::LeafPartSummary> = self
+            .leaf_parts
+            .iter()
+            .map(|s| leaves::LeafPartSummary {
+                digest: s.digest().to_string(),
+                node: s.binding().node.clone(),
+                clause: s.binding().clause.clone(),
+                source_verdict: s.binding().source_verdict.clone(),
+                keys: s.len() as u64,
+                reached: 0,
+                in_start: 0,
+                open_reached: 0,
+            })
+            .collect();
+        for (&i, &(p, li)) in &self.leaf_of {
+            let e = &mut parts[p as usize];
+            e.reached += 1;
+            if self.start_mask[i as usize] {
+                e.in_start += 1;
+            }
+            if !self.leaf_parts[p as usize].is_certified(li as usize) {
+                e.open_reached += 1;
+            }
+        }
+        Some(leaves::LeafSummary {
+            reached: parts.iter().map(|p| p.reached).sum(),
+            in_start: parts.iter().map(|p| p.in_start).sum(),
+            open_reached: parts.iter().map(|p| p.open_reached).sum(),
+            relative_to: parts
+                .iter()
+                .filter(|p| p.reached > 0)
+                .map(|p| p.digest.clone())
+                .collect(),
+            parts,
+        })
+    }
     pub fn codec(&self) -> &KeyCodec {
         &self.codec
     }
@@ -3082,7 +3400,7 @@ impl Closure {
     /// The winning rule of key `i` (covered keys), or the credit's rule.
     pub fn winner(&self, i: usize) -> Option<RuleName> {
         match self.res[i] {
-            OPEN | PENDING | TERMINAL => None,
+            OPEN | PENDING | TERMINAL | LEAF => None,
             RECIPE => {
                 let (si, ri) = self.recipe_of[&(i as u32)];
                 Some(RuleName {
@@ -3465,7 +3783,7 @@ impl Closure {
         for (i, &r) in self.res.iter().enumerate() {
             ps.clear();
             match r {
-                PENDING | TERMINAL | RECIPE => {}
+                PENDING | TERMINAL | RECIPE | LEAF => {}
                 OPEN => match self.open.get(&(i as u32)).and_then(|o| o.followed()) {
                     Some(Served::Follow(p)) => ps.push(p),
                     Some(Served::Credit(c)) => {
@@ -3591,6 +3909,10 @@ impl Closure {
         if !self.open.is_empty() {
             blocking.push(format!("open_keys:{}", self.open.len()));
         }
+        // lane layers (closure.md 18): never closed relative to an uncertified leaf or a leaf set that is not closed
+        let leaf_block = self.leaf_blocking();
+        let leaf_open = !leaf_block.is_empty();
+        blocking.extend(leaf_block);
         let tv = self.terminal_violations();
         if tv > 0 {
             blocking.push(format!("terminal_in_rule_domain:{tv}"));
@@ -3621,7 +3943,7 @@ impl Closure {
         }
         let v = if failed {
             Verdict::Failed
-        } else if !self.open.is_empty() {
+        } else if !self.open.is_empty() || leaf_open {
             Verdict::Open
         } else if tv > 0 {
             Verdict::TerminalInRuleDomain
@@ -3812,6 +4134,7 @@ impl Closure {
             dispatch_not_strict: self.not_strict.clone(),
             fact_requests_spilled: self.requests.is_spilled(),
             exits_spilled: !self.exit_files.is_empty(),
+            leaves: self.leaf_summary(),
         }
     }
 

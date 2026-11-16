@@ -11,7 +11,13 @@ pub mod job;
 // lane closeloop2: the rr_proof kinds as legacy children under the supervisor (argv from the spec, sealing wrapper)
 pub mod legacy;
 pub mod proof;
+// lane coreseed: kind pole-regular-at (rr_poles regular-at as a diagnostic legacy child)
+pub mod poleat;
 pub mod solve_recipe;
+// lane symjob: kind symmetry-composite (rr_rf_symflow as a legacy child; import verification of its relations)
+pub mod symcomp;
+// lane symcert: kind proof-symrows (rr_proof --symrows: kernel certificates of multi-term symmetry relations)
+pub mod symrows;
 
 use crate::launch::LaunchSpec;
 use crate::supervisor::worksource::JobRequest;

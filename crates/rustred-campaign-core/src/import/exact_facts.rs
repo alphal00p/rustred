@@ -13,23 +13,57 @@
 //! In a campaign run these facts come from the `proof-instantiate` child job (rr_proof instantiate answering the
 //! import's fact requests, adapter (b)); this function is the same exact evaluation inside the library, for small
 //! numbers of (record, key) pairs (each call reads and parses one record line).
+//!
+//! A RECORD LONGER THAN THE WHOLE-LINE LIMIT (spec `reader.stream_lines_above`; lane bigline) is never read whole:
+//! it is streamed twice from its offset, each pass checked against `record_sha256` (pass 1: the record without its rhs
+//! value, for the domain and the fields; pass 2: the rhs terms one at a time, each decoded strictly and evaluated
+//! with the same exact code, then dropped). The answer is identical to the in-memory evaluation. A single term larger
+//! than the per-record budget (`reader.record_budget_bytes`) cannot be evaluated in memory: a typed refusal (`record_too_large`, naming the record and the term
+//! size); the key is then left to the child job, never skipped, never counted as served.
 
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 use serde_json::{Value, json};
 
-use super::error::{ImportError, io_err};
+use super::error::{ImportError, TableRefusal, io_err};
 use super::evidence::FACT_VERDICT_SCHEMA;
 use super::lines::term_key_digest;
-use super::load::ImportedSet;
+use super::load::{ImportedSet, RuleInfo};
 use crate::accept::facts::{CoefficientFacts, ExactRecordFacts, RegVerdict, Regularity};
-use crate::accept::rule::RuleText;
+use crate::accept::rule::{RuleText, RuleTextError};
 use crate::closure::CoefFact;
 use crate::closure::sha256::Sha256;
+use crate::domain::PoleKind;
+use crate::record::stream::{StreamOptions, StreamedLine, TermVisitor, stream_line};
+use crate::record::{RecordError, RhsMode};
 
-/// The record line of (table, record), read at its offset and checked against its `record_sha256`.
+fn too_large(info: &RuleInfo, what: String, bytes: u64, budget: u64) -> ImportError {
+    ImportError::Refused {
+        source: info.source.clone(),
+        path: info.path.clone(),
+        line: 0,
+        reason: Box::new(TableRefusal::RecordTooLarge {
+            record: Some(info.label),
+            what: format!("{what} (record at byte offset {})", info.offset),
+            bytes,
+            budget,
+        }),
+    }
+}
+
+/// The record line of (table, record), read at its offset and checked against its `record_sha256`. A record longer
+/// than the spec's per-record budget is refused, typed (never read whole).
 pub fn record_line(set: &ImportedSet, table: usize, record: usize) -> Result<Vec<u8>, ImportError> {
     let info = set.rule(table, record);
+    let budget = set.spec.read_limits().record_budget;
+    if info.bytes > budget {
+        return Err(too_large(
+            info,
+            "the record line".into(),
+            info.bytes,
+            budget,
+        ));
+    }
     let p = std::path::Path::new(&info.path);
     let mut f = std::fs::File::open(p).map_err(|e| io_err(p, e))?;
     f.seek(SeekFrom::Start(info.offset))
@@ -49,6 +83,148 @@ pub fn record_line(set: &ImportedSet, table: usize, record: usize) -> Result<Vec
     Ok(buf)
 }
 
+/// One streaming pass over the record of `info` (module documentation), checked against its length and
+/// `record_sha256`.
+pub(crate) fn stream_record(
+    info: &RuleInfo,
+    budget: u64,
+    visit: Option<&mut TermVisitor>,
+) -> Result<StreamedLine, ImportError> {
+    let p = std::path::Path::new(&info.path);
+    let mut f = std::fs::File::open(p).map_err(|e| io_err(p, e))?;
+    f.seek(SeekFrom::Start(info.offset))
+        .map_err(|e| io_err(p, e))?;
+    let mut rd = BufReader::with_capacity(1 << 20, f);
+    let mut h = Sha256::new();
+    let opts = StreamOptions {
+        rhs: RhsMode::Skip,
+        rhs_digest: false,
+        budget,
+        line: 1,
+    };
+    let sl = stream_line(&mut rd, &opts, &mut |seg| h.update(seg), visit).map_err(|e| match e {
+        RecordError::TooLarge {
+            what,
+            bytes,
+            budget,
+            ..
+        } => too_large(info, what, bytes, budget),
+        RecordError::Io(err) => io_err(p, err),
+        e => ImportError::Source {
+            source: info.source.clone(),
+            msg: format!("record {}: {e}", info.label),
+        },
+    })?;
+    let got = h.finish_hex();
+    if sl.bytes != info.bytes || got != info.record_sha256 {
+        return Err(ImportError::Digest {
+            path: format!("{}@{}", info.path, info.offset),
+            expected: info.record_sha256.clone(),
+            got,
+        });
+    }
+    Ok(sl)
+}
+
+/// "term 0: .." of a one-term evaluation, renumbered to the term's place in the record.
+fn renumber(m: String, term: usize) -> String {
+    match m.strip_prefix("term 0: ") {
+        Some(rest) => format!("term {term}: {rest}"),
+        None => m,
+    }
+}
+
+/// What the verdict line needs of a record: its parsed text (rhs empty when streamed), the regularity verdict, the
+/// fact of every coefficient at the key.
+struct Evaluated {
+    rt: RuleText,
+    reg: RegVerdict,
+    coefs: Vec<CoefFact>,
+}
+
+/// The record evaluated in memory (a record within the budget).
+fn evaluate_whole(rt: RuleText, key: &[i32]) -> Evaluated {
+    let mut ex = ExactRecordFacts::new();
+    let reg = ex.regular(&rt, key);
+    let coefs = (0..rt.rhs.len())
+        .map(|j| ex.coefficient(&rt, key, j))
+        .collect();
+    Evaluated { rt, reg, coefs }
+}
+
+/// The record streamed (a record above the budget): one term at a time, the same exact code on a one-term copy of the
+/// record (witness loci checked once, after the terms, as [`ExactRecordFacts::regular`] does).
+fn evaluate_streamed(
+    set: &ImportedSet,
+    info: &RuleInfo,
+    key: &[i32],
+    budget: u64,
+) -> Result<Evaluated, ImportError> {
+    let src_err = |e: RuleTextError| ImportError::Source {
+        source: info.source.clone(),
+        msg: format!("record {}: {e:?}", info.label),
+    };
+    let sl = stream_record(info, budget, None)?;
+    let rt = RuleText::parse(&sl.compact, &set.frame).map_err(src_err)?;
+    match &sl.rhs {
+        // no rhs was left out: the compact line is the record
+        None => return Ok(evaluate_whole(rt, key)),
+        Some(r) if !r.array => {
+            return Err(src_err(RuleTextError::NotARule(
+                "rhs is not an array (a record above the budget is evaluated term by term)".into(),
+            )));
+        }
+        Some(_) => {}
+    }
+    let mut one = rt.clone();
+    if let Some(d) = &mut one.domain {
+        d.poles.retain(|p| p.kind != PoleKind::Witness);
+    }
+    let mut first: Option<RegVerdict> = None;
+    let mut coefs = vec![];
+    let mut bad: Option<RuleTextError> = None;
+    let mut visit = |j: usize, raw: &[u8]| -> Result<(), RecordError> {
+        if bad.is_some() {
+            return Ok(());
+        }
+        let t: Value = match serde_json::from_slice(raw) {
+            Ok(t) => t,
+            Err(e) => {
+                bad = Some(RuleTextError::NotJson(format!("rhs term {j}: {e}")));
+                return Ok(());
+            }
+        };
+        let (Some(k), Some(c)) = (
+            t.get(0).and_then(Value::as_str),
+            t.get(1).and_then(Value::as_str),
+        ) else {
+            bad = Some(RuleTextError::NotARule(
+                "rhs term is not [pattern, coefficient]".into(),
+            ));
+            return Ok(());
+        };
+        one.rhs = vec![(k.to_string(), c.to_string())];
+        one.line_sha256 = format!("sha256:{}#term{j}", info.record_sha256);
+        let mut ex = ExactRecordFacts::new();
+        if first.is_none() {
+            match ex.regular(&one, key) {
+                RegVerdict::Regular => {}
+                RegVerdict::Pole { .. } => first = Some(RegVerdict::Pole { term: j }),
+                RegVerdict::Unknown(m) => first = Some(RegVerdict::Unknown(renumber(m, j))),
+                h @ RegVerdict::Hidden { .. } => first = Some(h),
+            }
+        }
+        coefs.push(ex.coefficient(&one, key, 0));
+        Ok(())
+    };
+    stream_record(info, budget, Some(&mut visit))?;
+    if let Some(e) = bad {
+        return Err(src_err(e));
+    }
+    let reg = first.unwrap_or_else(|| ExactRecordFacts::new().regular(&rt, key));
+    Ok(Evaluated { rt, reg, coefs })
+}
+
 /// The exact fact verdict line of (table, record) at `key` (module documentation).
 pub fn fact_verdict_line(
     set: &ImportedSet,
@@ -57,17 +233,23 @@ pub fn fact_verdict_line(
     key: &[i32],
 ) -> Result<Value, ImportError> {
     let info = set.rule(table, record);
-    let line = record_line(set, table, record)?;
-    let rt = RuleText::parse(&line, &set.frame).map_err(|e| ImportError::Source {
-        source: info.source.clone(),
-        msg: format!("record {}: {e:?}", info.label),
-    })?;
+    let limits = set.spec.read_limits();
+    let ev = if info.bytes > limits.whole_line_max {
+        evaluate_streamed(set, info, key, limits.record_budget)?
+    } else {
+        let line = record_line(set, table, record)?;
+        let rt = RuleText::parse(&line, &set.frame).map_err(|e| ImportError::Source {
+            source: info.source.clone(),
+            msg: format!("record {}: {e:?}", info.label),
+        })?;
+        evaluate_whole(rt, key)
+    };
+    let rt = &ev.rt;
     let dom = rt.domain.as_ref().ok_or_else(|| ImportError::Source {
         source: info.source.clone(),
         msg: format!("record {}: no domain ({:?})", info.label, rt.domain_error),
     })?;
-    let mut ex = ExactRecordFacts::new();
-    let verdict = match ex.regular(&rt, key) {
+    let verdict = match ev.reg.clone() {
         RegVerdict::Regular if dom.witness_elided => "hidden".to_string(),
         RegVerdict::Regular => "regular".into(),
         RegVerdict::Pole { .. } => "irregular".into(),
@@ -89,17 +271,17 @@ pub fn fact_verdict_line(
         .ok_or_else(|| {
             ImportError::Core(format!("record {}: no rule point at the key", info.label))
         })?;
-    if nt != rt.rhs.len() {
+    if nt != ev.coefs.len() {
         return Err(ImportError::Core(format!(
             "record {}: {nt} instantiated terms, {} in the record text",
             info.label,
-            rt.rhs.len()
+            ev.coefs.len()
         )));
     }
     let (mut nonzero, mut unknown, mut zero) = (vec![], vec![], 0usize);
     for j in 0..nt {
         let d = format!("{:016x}", term_key_digest(&ib[j * n..(j + 1) * n]));
-        match ex.coefficient(&rt, key, j) {
+        match ev.coefs[j] {
             CoefFact::Zero => zero += 1,
             CoefFact::NonZero => nonzero.push(d),
             CoefFact::Unknown => unknown.push(d),

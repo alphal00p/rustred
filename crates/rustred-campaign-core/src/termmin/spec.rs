@@ -23,6 +23,8 @@ pub fn default_sequence() -> Vec<String> {
         "d0_cnone_foff_ssym_mM1C",
         "d2_clast_fon_mM1C",
         "d2_cunion_fon_mM1C",
+        // the MIXED SHELL (hundreds of seeds; before depth 3): helper K15 finding 2026-11-14T22:00Z
+        "mixed_shell",
         "d3_cfirst_foff_mM1C",
         "d3_cunion_fon_mM1C",
         "d4_cfirst_foff_mM1C",
@@ -34,6 +36,34 @@ pub fn default_sequence() -> Vec<String> {
 
 fn yes() -> bool {
     true
+}
+
+/// The MIXED-SHELL step (`mixed_shell` in the sequence): explicit seeds around centres {the key} and, for each dotted
+/// line of the key, that line one step down, in shell families of the engine's `harder` unit u[j] (+1 on a line, -1
+/// on a numerator; the helper's `face.py unit()`, although its seeds_Kstar.json text says "+1 on every slot"):
+/// `S<p>m<q>` = the centre + p raised slots (multiset) - q lowered slots (multiset), raised and lowered slots
+/// disjoint; `S0` the centre (helper K15 `face.py shells`). Seeds outside the chart's top sector (a line
+/// <= 0 or a numerator > 0) are dropped; no floor. Written as an explicit offset list (one centre per seed, shell S0).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct MixedShell {
+    pub enabled: bool,
+    pub shells: Vec<String>,
+    /// The relation rule asked (`m1_first`: the engine's default; its fallback is the comparator relation).
+    pub relation_rule: String,
+}
+
+impl Default for MixedShell {
+    fn default() -> Self {
+        MixedShell {
+            enabled: true,
+            shells: ["S0", "S1", "Sm1", "S1m1", "S1m2", "Sm2"]
+                .iter()
+                .map(|x| x.to_string())
+                .collect(),
+            relation_rule: "m1_first".into(),
+        }
+    }
 }
 fn objective() -> String {
     OBJECTIVE.to_string()
@@ -62,7 +92,8 @@ impl Default for Caps {
         Caps {
             max_seeds: 12_000,
             max_trace_rows: None,
-            key_budget_s: None,
+            // directing session 2026-11-14 (lane closeloop3): depth 3 decides in 13-19 min per key; 540 s was too short
+            key_budget_s: Some(1800),
             threads: 1,
             cap_bytes: 2 << 30,
             expected_peak_bytes: 1 << 30,
@@ -124,10 +155,18 @@ pub struct TermminSpec {
     /// Per-node overrides (any field above, objects `caps` / `budget` merged field by field).
     #[serde(default)]
     pub nodes: BTreeMap<String, Value>,
+    /// The mixed-shell step's data (on by default).
+    #[serde(default)]
+    pub mixed_shell: MixedShell,
     /// TESTS ONLY: contract `RecipeQuirk` names applied to the FAKE child of phase E's solves (used only when the node's
     /// solve configuration runs the fake child; a real engine never sees them).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fake_quirks: Vec<String>,
+    /// The objective of the `choice` annotation of an elimination ([`crate::poles::PoleObjective::setting`]: absent =
+    /// default, `"none"` = no annotation, an object = its measures / guard; audit r2-poles F4). Omitted from the
+    /// canonical spec when absent (digests unchanged).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pole_objective: Option<Value>,
 }
 
 impl Default for TermminSpec {
@@ -144,7 +183,9 @@ impl Default for TermminSpec {
             numerator_priority: None,
             group: None,
             nodes: BTreeMap::new(),
+            mixed_shell: MixedShell::default(),
             fake_quirks: vec![],
+            pole_objective: None,
         }
     }
 }
@@ -158,6 +199,8 @@ pub enum StepKind {
     SymmetryRelation,
     /// A point recipe (import.md 14 step grammar) solved at the terminal.
     Recipe(Step),
+    /// The mixed-shell point recipe ([`MixedShell`]).
+    MixedShell,
 }
 
 impl StepKind {
@@ -166,6 +209,7 @@ impl StepKind {
             StepKind::Dispatch => "dispatch",
             StepKind::SymmetryRelation => "symmetry_relation",
             StepKind::Recipe(_) => "recipe",
+            StepKind::MixedShell => "mixed_shell",
         }
     }
 }
@@ -195,10 +239,17 @@ impl TermminSpec {
             ));
         }
         self.steps()?;
+        self.objective_setting()?;
         for n in self.nodes.keys() {
             self.for_node(n)?;
         }
         Ok(())
+    }
+
+    /// The pole objective of the elimination's `choice` annotation (`None` = off: no annotation).
+    pub fn objective_setting(&self) -> Result<Option<crate::poles::PoleObjective>, String> {
+        crate::poles::PoleObjective::setting(self.pole_objective.as_ref())
+            .map_err(|e| format!("termmin spec: {e}"))
     }
 
     /// The parsed escalation sequence.
@@ -215,6 +266,12 @@ impl TermminSpec {
             out.push(match s.as_str() {
                 "dispatch" => StepKind::Dispatch,
                 "symmetry_relation" => StepKind::SymmetryRelation,
+                "mixed_shell" => {
+                    for sh in &self.mixed_shell.shells {
+                        super::steps::parse_shell(sh).map_err(|e| format!("termmin spec: {e}"))?;
+                    }
+                    StepKind::MixedShell
+                }
                 x => StepKind::Recipe(parse_step(x).map_err(|e| format!("termmin spec: {e}"))?),
             });
         }
@@ -258,6 +315,7 @@ impl TermminSpec {
             ));
         }
         s.steps()?;
+        s.objective_setting()?;
         Ok(s)
     }
 
@@ -279,7 +337,7 @@ mod tests {
     fn default_spec_parses_and_overrides_merge() {
         let s = TermminSpec::parse("{}").unwrap();
         assert!(s.enabled);
-        assert_eq!(s.steps().unwrap().len(), 8);
+        assert_eq!(s.steps().unwrap().len(), 9);
         let t = TermminSpec::parse(
             r#"{"nodes":{"N":{"enabled":false,"caps":{"max_seeds":5}}},"caps":{"threads":2}}"#,
         )

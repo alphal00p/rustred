@@ -114,6 +114,11 @@ pub struct Recipe {
     pub domain: RecipeDomain,
     pub seeds: RecipeSeeds,
     pub symmetry_rows: bool,
+    /// v1.2 (coord-recipe-solve.md 13): `m1_first` | `first_admissible` (the node comparator's first hit); omitted =
+    /// the engine's default (`m1_first`). Omitted when unset, so the digests of existing recipes are unchanged (lane
+    /// coreseed: the core recipe rule's comparator measure).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relation_rule: Option<String>,
     pub elimination: RecipeElimination,
     /// Free JSON echoed by the engine and part of its digest: the campaign writes the node, the node order and the
     /// setting label here (identity, re-audit A m4).
@@ -198,6 +203,7 @@ impl Recipe {
                 sector_slots: Some(sector_slots),
             },
             symmetry_rows: setting.symmetry_rows,
+            relation_rule: None,
             elimination: RecipeElimination {
                 convention: RECIPE_ELIMINATION.into(),
             },
@@ -220,6 +226,12 @@ impl Recipe {
     pub fn validate(&self) -> Result<(), String> {
         if self.schema != RECIPE_SCHEMA {
             return Err(format!("schema {} (want {RECIPE_SCHEMA})", self.schema));
+        }
+        if let Some(r) = &self.relation_rule
+            && r != "m1_first"
+            && r != "first_admissible"
+        {
+            return Err(format!("relation_rule {r} (m1_first | first_admissible)"));
         }
         if self.elimination.convention != RECIPE_ELIMINATION {
             return Err(format!("elimination {}", self.elimination.convention));
@@ -800,6 +812,24 @@ pub fn default_recipes(key: &[i32], params: &NodeParams, node_order: &str) -> Ve
             ..SeedSetting::target(2)
         };
         out.push(Recipe::from_setting(&tag(3), &s, &case, params, node_order));
+    }
+    // lane termmin2: the MIXED SHELL (before any depth-3 setting; hundreds of seeds), explicit offsets as centres with
+    // the single shell S0 (the format's named shells are `harder`-unit and have no S1m2), no floor, sector filter on
+    if params.policy.mixed_shell
+        && let Ok(offs) = crate::termmin::steps::mixed_shell_offsets(
+            key,
+            &params.lines,
+            &crate::termmin::spec::MixedShell::default().shells,
+        )
+    {
+        let mut r =
+            Recipe::from_setting(&tag(4), &SeedSetting::target(1), &case, params, node_order);
+        r.seeds.centres = offs;
+        r.seeds.generator = RecipeGenerator::Shells(vec!["S0".into()]);
+        r.seeds.min_offset = BTreeMap::new();
+        r.seeds.sector_filter = true;
+        r.seeds.sector_slots = None;
+        out.push(r);
     }
     out
 }

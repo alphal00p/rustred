@@ -39,3 +39,25 @@ pub mod worklist;
 pub mod import;
 // lane termmin (interfaces/termmin.md): REQUEST TO I-INT, one line
 pub mod termmin;
+// lane tadic (interfaces/tadic.md; TRICKS 15/16 system pole order): REQUEST TO I-INT, one line
+pub mod tadic;
+// lane poles (interfaces/pole-diagnostics.md): REQUEST TO I-INT, one line
+pub mod poles;
+// lane epsdepth (interfaces/epsdepth.md): REQUEST TO I-INT, one line
+pub mod epsdepth;
+// lane regbasis (interfaces/regbasis.md): REQUEST TO I-INT, one line
+pub mod regbasis;
+// lane repairflow (interfaces/repairflow.md): REQUEST TO I-INT, one line
+pub mod repairflow;
+// lane regions (interfaces/regionfit.md): REQUEST TO I-INT, one line
+pub mod regionfit;
+// lane pieces (interfaces/pieces.md): REQUEST TO I-INT, one line
+pub mod pieces;
+// lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
+pub mod tworow;
+// lane coreseed (interfaces/coreseed.md): the IBP core of a face (recipe rule, escalation, joint seed minimisation)
+pub mod coreseed;
+// lane seedmin (interfaces/seedmin.md): per-key and joint seed minimisation (REQUEST TO I-INT, one line)
+pub mod seedmin;
+// lane symcert (interfaces/proof-symrows-job.md 7): REQUEST TO I-INT, one line
+pub mod symcert;

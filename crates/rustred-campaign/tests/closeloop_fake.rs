@@ -71,6 +71,27 @@ fn decisions(cdir: &Path) -> Decisions {
     (items, cert)
 }
 
+/// lane closeloop4 (closeloop.md 19): run to the end; an exit 8 for terminal proposals (keys nothing could serve, e.g.
+/// after refused answers) is answered by the operator REJECTING them, so the node ends open as before.
+fn run_rejecting_proposals(sp: &Path, cdir: &Path) -> Vec<i32> {
+    let mut codes = vec![];
+    for _ in 0..4 {
+        let mut c = start(sp, cdir, &["--plain"], &[]);
+        let code = wait(&mut c, Duration::from_secs(900));
+        codes.push(code);
+        if code != ATTENTION {
+            return codes;
+        }
+        assert!(
+            latest_proposals(cdir, "toy").is_some(),
+            "exit 8 without proposals: {}",
+            log_tail(cdir)
+        );
+        assert_eq!(resolve_terminals(cdir, Some("toy"), None), 0);
+    }
+    codes
+}
+
 fn node_events(cdir: &Path) -> Vec<String> {
     records(cdir)
         .iter()
@@ -270,13 +291,16 @@ fn fake_children_close_the_toy_end_to_end_with_the_default_recipe() {
         "{ans:#?}"
     );
     assert!(ans.iter().all(|v| v["relation_rule"].as_str().is_some()));
-    // node machine: boxed from the start (closeloop.md 13.3: the ledger's transition into the spec box), then closed
+    // node machine: boxed from the start (lane closeloop3, closeloop.md 16.5: registered `start_target: boxed`, no
+    // AttemptEnded + FallBackToBox pair any more), then closed BOXED
     let ev = node_events(&cdir);
     assert!(
-        ev.contains(&"fall_back_to_box".to_string())
+        !ev.contains(&"fall_back_to_box".to_string())
+            && !ev.contains(&"attempt_ended".to_string())
             && ev.last().map(String::as_str) == Some("declare_closed"),
         "{ev:?}"
     );
+    assert_eq!(state(&cdir).nodes["toy"].state.closure_kind(), "boxed");
     // statement + comparison files, progress file
     assert!(
         cdir.join("closeloop/toy/final/statement/statement.jsonl")
@@ -356,7 +380,21 @@ fn a_recipe_failure_is_a_structured_error_and_the_node_ends_open() {
     };
     let (_t, files, sp, cdir) = setup("clfail", &cfg);
     std::fs::write(&files.hand, "").unwrap();
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0));
+    // lane closeloop4 (closeloop.md 19): the uncovered key is a terminal PROPOSAL: the run stops for the operator
+    // (exit 8); the operator rejects it and the node ends open (exit 10), as before
+    let mut c = start(&sp, &cdir, &["--plain"], &[]);
+    assert_eq!(
+        wait(&mut c, Duration::from_secs(600)),
+        ATTENTION,
+        "{}",
+        log_tail(&cdir)
+    );
+    assert_eq!(
+        latest_proposals(&cdir, "toy").unwrap()["proposals"][0]["key"],
+        serde_json::json!([4, 1, 0])
+    );
+    assert_eq!(resolve_terminals(&cdir, Some("toy"), None), 0);
+    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&10));
     let st = state(&cdir);
     assert_eq!(
         st.nodes["toy"].state.phase,
@@ -463,8 +501,14 @@ fn lying_children_are_refused_and_never_close_the_node() {
     );
     std::fs::write(&files2.hand, "").unwrap();
     // procfix5 (gate4 m3): the exit code follows the items at the end (default outcome: 0 closed, 10 not)
-    let c2 = run_to_end(&sp2, &cdir2, &["--plain"]);
-    assert_eq!(c2.last(), Some(&finish_code_by_items(&cdir2)), "{c2:?}");
+    let c2 = run_rejecting_proposals(&sp2, &cdir2);
+    // lane closeloop3: the exit code follows the closing loop's verdict (outcome(): open -> 10, closed -> 0)
+    let want = if result_json(&cdir2)["verdict"] == "closed" {
+        0
+    } else {
+        10
+    };
+    assert_eq!(c2.last(), Some(&want), "{c2:?}");
     assert_eq!(accepts(&cdir2), 0);
     let ans = answers_lines(&cdir2);
     assert!(
@@ -483,8 +527,14 @@ fn lying_children_are_refused_and_never_close_the_node() {
         },
     );
     std::fs::write(&files3.hand, "").unwrap();
-    let c3 = run_to_end(&sp3, &cdir3, &["--plain"]);
-    assert_eq!(c3.last(), Some(&finish_code_by_items(&cdir3)), "{c3:?}");
+    let c3 = run_rejecting_proposals(&sp3, &cdir3);
+    // lane closeloop3: the exit code follows the closing loop's verdict (outcome(): open -> 10, closed -> 0)
+    let want = if result_json(&cdir3)["verdict"] == "closed" {
+        0
+    } else {
+        10
+    };
+    assert_eq!(c3.last(), Some(&want), "{c3:?}");
     let ans = answers_lines(&cdir3);
     let x = ans
         .iter()

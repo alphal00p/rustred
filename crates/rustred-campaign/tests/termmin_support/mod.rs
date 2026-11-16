@@ -134,7 +134,9 @@ pub fn toy(dir: &Path, t: &TmToy) -> TmFiles {
         "sources":[{"id":"A","kind":"engine_table","class":"base","path": a.display().to_string(),
                     "sha256": sha256_file(&a), "hand_name":{"template":"{source}#{label}"}},
                    {"id":"terminals","kind":"terminals","keys":[M, E, N]}],
-        "evidence": {"facts":[{"path": facts.display().to_string()}],"proofs":[{"path": proofs.display().to_string()}]}});
+        // lane closeloop4 (audit-closeloop M1 / m4): pinned spec evidence of the toy family
+        "evidence": {"facts":[{"path": facts.display().to_string(), "sha256": sha256_file(&facts), "family": "TOY"}],
+                     "proofs":[{"path": proofs.display().to_string(), "sha256": sha256_file(&proofs), "family": "TOY"}]}});
     let import_spec = dir.join("import-spec.json");
     std::fs::write(&import_spec, serde_json::to_vec_pretty(&spec).unwrap()).unwrap();
     // the oracle
@@ -192,10 +194,22 @@ pub fn toy(dir: &Path, t: &TmToy) -> TmFiles {
         "check_threads": 2, "default_recipe": dflt.display().to_string(),
         "budgets": {"max_rounds": 20, "max_job_attempts": 2},
         "solve": {"program": "rr_fake_child", "family": family.display().to_string(), "order": "toy-order",
+                  // lane closeloop3: the fake child emulates solve-recipe v1.1 (no relation_rule field): the closing
+                  // loop's m1_first default (closeloop2) would refuse every answer
+                  "relation_rule": "first_admissible",
                   "max_keys_per_job": 2, "threads": 1, "cap_bytes": 268435456,
                   "expected_peak_bytes": 67108864, "heartbeat_s": 1, "stop_grace_s": 3,
                   "fake": {"oracle": op.display().to_string(), "ms": t.ms, "quirks": t.quirks, "program": "rr_fake_child"}}
     }]});
+    // lane closeloop3 (closeloop.md 16.7): recipe relations (the closing loop's and phase E's) are per-key only with
+    // their bound span proof: fake rr_proof jobs answer EXACT_IN_SPAN_AT_KEY (an empty oracle)
+    let po = dir.join("proof-oracle.jsonl");
+    std::fs::write(&po, "").unwrap();
+    let mut cfg = cfg;
+    cfg["nodes"][0]["proof"] = json!({"program": "rr_proof", "rows": "engine",
+        "family": family.display().to_string(), "max_keys_per_job": 4, "wall_s": 60,
+        "cap_bytes": 268435456, "expected_peak_bytes": 67108864,
+        "fake": {"oracle": po.display().to_string(), "ms": t.ms, "program": "rr_fake_child"}});
     std::fs::write(&config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
     let termmin = t.termmin.as_ref().map(|v| {
         let p = dir.join("termmin.json");

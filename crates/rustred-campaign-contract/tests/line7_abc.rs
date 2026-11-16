@@ -242,6 +242,10 @@ fn minimise_and_centre_scan_members() {
     a["minimise"] = minimise();
     a["centre_scan"] = centre_scan();
     assert!(accepts(a.clone()));
+    // int7: the seed minimiser's order `distance` (lanes coreseed / seedmin) is a known order word
+    let mut dist = a.clone();
+    dist["minimise"]["order"] = json!("distance");
+    assert!(accepts(dist));
     // non-volatile: part of the canonical record
     let c = String::from_utf8(canonical_line(a.to_string().as_bytes()).unwrap()).unwrap();
     assert!(

@@ -62,11 +62,30 @@ pub const HEADER_PROVENANCE_FIELDS: &[&str] = &[
     "harness",
     "host",
     "created",
+    // lane import5 (coord-pole-engine.md 9c): the per-face summary of `rr_node symface` slice tables
+    "symface_tables",
 ];
 
-/// Line kinds of a `table_dump.v1` file and what assembly does with them. Any other kind is an error.
-const COPIED_ONCE: &[&str] = &["zero_sectors", "chart", "symmetry_group"];
-const NOT_COPIED: &[&str] = &["residual", "chart_end", "end", "composite_terminal_ledger"];
+/// Line kinds of a `table_dump.v1` file and what assembly does with them (the closed list is
+/// `record::TABLE_LINE_KINDS`; any other kind is an error). `rule` records are copied in dispatch order; the kinds below
+/// are copied once or dropped. `residual` and `composite_terminal_ledger` are INPUT TERMINALS (their keys must be
+/// declared terminals; the assembly regenerates every declared terminal as one `residual` record; interfaces/import.md
+/// 18.2). `chart_error` (an incomplete table) and `sym` records are REFUSED by the assembly (not assembled yet: their rule form would need the import's
+/// verification); `sym_zero` is never valid.
+pub const COPIED_ONCE: &[&str] = &["zero_sectors", "chart", "symmetry_group"];
+pub const NOT_COPIED: &[&str] = &[
+    "residual",
+    "chart_end",
+    "end",
+    "composite_terminal_ledger",
+    "assembly_provenance",
+    "composite_assembly_complete",
+    "assembly_end",
+];
+/// Closing records of an input table: `end` (engine), or the completeness markers of an external composite assembly
+/// (they play the role of `end` for these tables, which carry none). At least one must close the file; only closing
+/// records may follow the first one.
+pub const END_LIKE: &[&str] = &["end", "composite_assembly_complete", "assembly_end"];
 
 /// An input table of the node with its spec priority (D1: fixed in the spec at campaign start).
 #[derive(Clone, Debug)]
@@ -398,7 +417,7 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
         let kind = line_kind(line)
             .map_err(|e| bad(line_no, format!("not a JSON object: {e}")))?
             .ok_or_else(|| bad(line_no, "a line without a \"type\"".into()))?;
-        if ends > 0 {
+        if ends > 0 && !END_LIKE.contains(&kind.as_str()) {
             return Err(bad(line_no, format!("a {kind} line after the end record")));
         }
         let parse = |line: &[u8]| -> Result<Value, AssembleError> {
@@ -473,7 +492,38 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
                     .ok_or_else(|| bad(line_no, "residual without a readable key".into()))?;
                 out.residual_keys.push(k);
             }
-            "end" => ends += 1,
+            "composite_terminal_ledger" => {
+                // its keys are input terminals exactly like residual records (interfaces/import.md 18.2)
+                let v = parse(line)?;
+                let keys = v
+                    .get("keys")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| bad(line_no, "composite_terminal_ledger without keys".into()))?;
+                for k in keys {
+                    let k = k.as_str().and_then(parse_key_text).ok_or_else(|| {
+                        bad(
+                            line_no,
+                            format!("composite_terminal_ledger key {k} unreadable"),
+                        )
+                    })?;
+                    out.residual_keys.push(k);
+                }
+            }
+            "chart_error" => {
+                return Err(bad(
+                    line_no,
+                    "a chart_error record (the table is not complete)".into(),
+                ));
+            }
+            "sym" | "sym_zero" => {
+                return Err(bad(
+                    line_no,
+                    format!(
+                        "a {kind} record (symmetry records are not assembled; sym_zero is never valid)"
+                    ),
+                ));
+            }
+            k if END_LIKE.contains(&k) => ends += 1,
             k if NOT_COPIED.contains(&k) || COPIED_ONCE.contains(&k) => {}
             other => {
                 return Err(bad(
@@ -493,7 +543,7 @@ fn scan_input(t: &InputTable, keep_skipped: bool) -> Result<Scanned, AssembleErr
                 .into(),
         });
     }
-    if ends != 1 || last_kind != "end" {
+    if ends == 0 || !END_LIKE.contains(&last_kind.as_str()) {
         return Err(AssembleError::Record {
             source: t.id.clone(),
             detail: "no end record as the last line (truncated table?)".into(),
@@ -750,8 +800,18 @@ pub fn parse_key_text(s: &str) -> Option<Key> {
 // caller-supplied partition report, i.e. from a verdict; removed. The only constructor is now
 // `crate::economy::prove_coverage_preserved`, which runs the dispatch-mode partition itself.)
 
-fn domain_of(rec: &RuleRecord, frame: &NodeFrame) -> Option<CaseDomain> {
-    CaseDomain::from_rule_record(rec, frame, DomainOptions::default()).ok()
+/// The record's domain; `None` only for a record the engine never dispatches. Any other refusal (incl. its
+/// `domain_bounds` or an unknown member, lane partfix4) is an error: a record whose domain cannot be read must not be
+/// taken as "never selecting" by the exclusion analysis.
+fn domain_of(rec: &RuleRecord, frame: &NodeFrame) -> Result<Option<CaseDomain>, AssembleError> {
+    match CaseDomain::from_rule_record(rec, frame, DomainOptions::default()) {
+        Ok(d) => Ok(Some(d)),
+        Err(crate::domain::DomainError::NotDispatched { .. }) => Ok(None),
+        Err(e) => Err(AssembleError::Record {
+            source: format!("line {}", rec.line_no),
+            detail: format!("the record's domain cannot be read: {e}"),
+        }),
+    }
 }
 
 fn is_point(rec: &RuleRecord) -> bool {
@@ -1020,6 +1080,55 @@ pub fn tables_in_force(
     )
 }
 
+/// The table file the ENGINE reads for the cross-check of a FULL retirement (lane partfix4; economy::
+/// `engine_probe_table`): the first input's header line verbatim, its chart lines, and the DISPATCHED records of
+/// `tables_in_force(input, minus)` as raw lines in dispatch order (each re-read from its file and checked against its
+/// line digest). `rr_node first-match` positions on this file are the positions of
+/// `DispatcherSource::new(&tables_in_force(input, minus))`.
+pub fn engine_probe_table_for(
+    input: &AssemblyInput,
+    minus: &[String],
+) -> Result<Vec<u8>, AssembleError> {
+    let c = collect(input)?;
+    let mut entries = c.entries;
+    for r in &input.retirements {
+        entries.retain(|e| !r.retired().contains(&e.line_sha256));
+    }
+    entries.retain(|e| !minus.contains(&e.line_sha256));
+    probe_table_bytes(&c.scans[0], entries.iter())
+}
+
+fn probe_table_bytes<'a>(
+    scan: &Scanned,
+    entries: impl Iterator<Item = &'a Entry>,
+) -> Result<Vec<u8>, AssembleError> {
+    let header = scan
+        .header_line
+        .clone()
+        .ok_or_else(|| AssembleError::Other("input without a header line".into()))?;
+    let charts: Vec<Vec<u8>> = scan
+        .charts
+        .iter()
+        .map(|c| serde_json::to_vec(c).map_err(|e| AssembleError::Other(e.to_string())))
+        .collect::<Result<_, _>>()?;
+    let mut records = Vec::new();
+    for e in entries.filter(|e| e.dispatched) {
+        let line = read_line_at(&e.path, e.offset)?;
+        let mut h = Sha256::new();
+        h.update(&line);
+        if sha_tag(h) != e.line_sha256 {
+            return Err(AssembleError::Record {
+                source: e.source_id.clone(),
+                detail: "record changed since it was read (engine probe table)".into(),
+            });
+        }
+        records.push(line);
+    }
+    Ok(crate::economy::engine_probe_table(
+        &header, &charts, &records,
+    ))
+}
+
 /// Assemble into `out_dir` (files `<node>.assembled.table.jsonl`, `<node>.assembly.manifest.jsonl`,
 /// `<node>.assembly.extras.jsonl`, `<node>.dispatch-order.json`).
 pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput, AssembleError> {
@@ -1102,13 +1211,46 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
                 &header,
                 &scans[0].charts,
             )?;
-            r.check_tables(&DispatcherSource::new(&before), &DispatcherSource::new(&after))
+            r.check_tables(
+                &DispatcherSource::new(&before),
+                &DispatcherSource::new(&after),
+                &frame,
+            )
                 .map_err(|e| {
                     AssembleError::Retire(format!(
                         "{e:?}: the containment proof is not about this assembly's table sets in force before / \
                          after the retirement (economy::table_set_digest)"
                     ))
                 })?;
+        }
+        // lane partfix4 (audit-part4 recommendation 3): a FULL retirement needs the ENGINE's first match on the
+        // proof's probe keys + box, read from exactly the table assembly would have in force after it
+        // (`engine_probe_table_for`): the check bound into the proof must name that table's sha256
+        if full {
+            let proof = r.proof().ok_or_else(|| {
+                AssembleError::Retire("a FULL retirement without a containment proof".into())
+            })?;
+            let check = proof.engine_check().ok_or_else(|| {
+                AssembleError::Retire(
+                    "EngineCheckMissing: the containment proof carries no engine cross-check \
+                     (with_engine_check of the proof)"
+                        .into(),
+                )
+            })?;
+            let after = probe_table_bytes(
+                &scans[0],
+                entries
+                    .iter()
+                    .filter(|e| !r.retired().contains(&e.line_sha256)),
+            )?;
+            let want = crate::replay_base::sha256::sha256_hex(&after);
+            if check.table_sha256 != want || check.new_tables_digest != proof.new_tables_digest() {
+                return Err(AssembleError::Retire(format!(
+                    "EngineCheckMissing: the engine cross-check read table {} but the table in force after this \
+                     retirement is {want}",
+                    check.table_sha256
+                )));
+            }
         }
         entries.retain(|e| !r.retired().contains(&e.line_sha256));
     }
@@ -1164,7 +1306,7 @@ pub fn assemble(input: &AssemblyInput, out_dir: &Path) -> Result<AssemblyOutput,
     let domains: Vec<Option<CaseDomain>> = entries
         .iter()
         .map(|e| domain_of(&e.record, &frame))
-        .collect();
+        .collect::<Result<_, _>>()?;
     let excl_of = |ei: usize| -> &[Exclusion] {
         entries[ei]
             .campaign

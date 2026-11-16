@@ -393,9 +393,20 @@ impl Termmin {
                         s.name.clone(),
                         Some(point_recipe(s, key, lines, line_priority, num_priority)?),
                     ),
+                    StepKind::MixedShell => (
+                        "mixed_shell".to_string(),
+                        Some(super::steps::point_recipe_mixed(
+                            key,
+                            lines,
+                            &spec.mixed_shell,
+                        )?),
+                    ),
                 };
                 let mut skip = None;
-                if let Some(r) = &recipe {
+                if matches!(k, StepKind::MixedShell) && !spec.mixed_shell.enabled {
+                    skip = Some("disabled by the spec (mixed_shell.enabled = false)".into());
+                }
+                if let (None, Some(r)) = (&skip, &recipe) {
                     if r.seeds > spec.caps.max_seeds {
                         skip = Some(format!(
                             "over_seed_cap ({} > {})",
@@ -659,36 +670,38 @@ impl Termmin {
                         continue;
                     }
                 },
-                StepKind::Recipe(_) => match self.answers.get(&Self::step_id(i, s)).cloned() {
-                    None => return Ok(false),
-                    Some(SolveAnswer::Failed {
-                        class,
-                        verdict,
-                        failure,
-                        cost,
-                        ..
-                    }) => {
-                        let refused = class != "no_relation_in_seeds";
-                        if refused {
-                            self.ts[i].refused = true;
+                StepKind::Recipe(_) | StepKind::MixedShell => {
+                    match self.answers.get(&Self::step_id(i, s)).cloned() {
+                        None => return Ok(false),
+                        Some(SolveAnswer::Failed {
+                            class,
+                            verdict,
+                            failure,
+                            cost,
+                            ..
+                        }) => {
+                            let refused = class != "no_relation_in_seeds";
+                            if refused {
+                                self.ts[i].refused = true;
+                            }
+                            self.set_record(i, s, |r| {
+                                r.outcome = if refused { "refused" } else { "no_relation" }.into();
+                                r.verdict = verdict.or(Some(class.to_uppercase()));
+                                r.failure = failure;
+                                r.cost = Some(cost);
+                            });
+                            self.ts[i].next += 1;
+                            continue;
                         }
-                        self.set_record(i, s, |r| {
-                            r.outcome = if refused { "refused" } else { "no_relation" }.into();
-                            r.verdict = verdict.or(Some(class.to_uppercase()));
-                            r.failure = failure;
-                            r.cost = Some(cost);
-                        });
-                        self.ts[i].next += 1;
-                        continue;
+                        Some(SolveAnswer::Relation { candidate, cost }) => {
+                            self.set_record(i, s, |r| {
+                                r.cost = Some(cost);
+                                r.verdict = Some("SOLVED".into());
+                            });
+                            candidate
+                        }
                     }
-                    Some(SolveAnswer::Relation { candidate, cost }) => {
-                        self.set_record(i, s, |r| {
-                            r.cost = Some(cost);
-                            r.verdict = Some("SOLVED".into());
-                        });
-                        candidate
-                    }
-                },
+                }
             };
             match self.evaluate(i, s, &cand, oracle)? {
                 Eval::Waiting => return Ok(false),
@@ -892,11 +905,44 @@ impl Termmin {
                 closing_try: false,
             });
         });
-        self.ts[i].eliminated_by = Some(json!({"step": cand.step, "kind": cand.kind,
+        // int7 (B1): the choice goes through the ONE selection function (poles::pole_objective, the spec's objective);
+        // the machine tries its steps in order and the first certifying one is the only candidate; no pole profile
+        // here yet: the choice records "no profile" (ranked by size). Lane polefix (audit r2-poles F4): with
+        // `pole_objective: "none"` no `choice` member at all (the record of a run without the pole code)
+        let choice = match self.spec.objective_setting() {
+            Ok(Some(obj)) => Some(
+                crate::poles::pole_objective(
+                    &[crate::poles::Candidate {
+                        id: cand
+                            .relation_digest
+                            .clone()
+                            .unwrap_or_else(|| cand.step.clone()),
+                        admissible: true,
+                        excluded_by: None,
+                        evidence_level: 0,
+                        size: cand.rhs.len() as u64,
+                        pole_order: None,
+                    }],
+                    &[],
+                    &obj,
+                    None,
+                )
+                .ok()
+                .flatten()
+                .map(|c| c.to_json()),
+            ),
+            // off, or (never after validation) unreadable: no annotation
+            Ok(None) | Err(_) => None,
+        };
+        let mut eb = json!({"step": cand.step, "kind": cand.kind,
             "recipe_id": cand.recipe_id, "recipe_sha256": cand.recipe_sha256,
             "relation_digest": cand.relation_digest, "rhs_keys": cand.rhs.len(),
             "rhs": cand.rhs.iter().map(|k| key_text(k)).collect::<Vec<_>>(),
-            "on_reevaluation": reevaluated}));
+            "on_reevaluation": reevaluated});
+        if let Some(c) = choice {
+            eb["choice"] = c.unwrap_or(Value::Null);
+        }
+        self.ts[i].eliminated_by = Some(eb);
         self.ts[i].retry.clear();
         self.ts[i].closing = None;
         self.decide(

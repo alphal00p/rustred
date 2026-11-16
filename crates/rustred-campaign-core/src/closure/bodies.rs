@@ -182,6 +182,10 @@ pub enum TermClass {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Sectors {
     pub lines: Vec<bool>,
+    /// Forced (eps, two-sided) axes, bit per slot: a line slot that is in every sector, whatever the sign of its
+    /// integer index (never dropped; [`crate::key::NodeFrame::eps_axes`], [`crate::cover::Dispatcher::chart_free`]).
+    /// 0 for an integer family.
+    pub forced: u64,
     /// Dropped-line masks whose sector is zero (scaleless): such terms vanish.
     pub zero_sectors: Option<BTreeSet<u64>>,
 }
@@ -190,6 +194,7 @@ impl Sectors {
     pub fn new(lines: Vec<bool>) -> Sectors {
         Sectors {
             lines,
+            forced: 0,
             zero_sectors: None,
         }
     }
@@ -200,7 +205,7 @@ impl Sectors {
         let mut dropped = 0u64;
         for (s, (&v, &line)) in term.iter().zip(&self.lines).enumerate() {
             if line {
-                if v <= 0 {
+                if v <= 0 && self.forced >> s & 1 == 0 {
                     dropped |= 1 << s;
                 }
             } else if v > 0 {
@@ -237,7 +242,7 @@ fn skip_fixed(dom: &CaseDomain) -> Vec<Option<i32>> {
 }
 
 /// Rule point of `domain` at `key` (canonical target: the key itself).
-pub(crate) fn rule_point(domain: &CaseDomain, key: &[i32], pt: &mut Vec<i32>) -> bool {
+pub fn rule_point(domain: &CaseDomain, key: &[i32], pt: &mut Vec<i32>) -> bool {
     pt.clear();
     match &domain.target {
         TargetMap::Canonical => {
@@ -458,6 +463,13 @@ impl RuleBodies {
                 table,
                 detail: "no such table".into(),
             })?;
+        if tab.eps_chart().is_some() {
+            // a keys file names a record by `i` alone; an eps table numbers its records per chart
+            return Err(BodyError::NoRecord {
+                table,
+                detail: "keys-jsonl bodies name records by index alone: refused for an eps-shifted family".into(),
+            });
+        }
         let mut st = BodyLoadStats::default();
         let e0 = self.ent.len();
         for (ln, line) in r.lines().enumerate() {
@@ -513,7 +525,8 @@ impl RuleBodies {
         for rec in &tf.rules {
             st.lines += 1;
             let Some(rhs) = &rec.rhs_keys else { continue };
-            let Some(label) = rec.i.or(rec.index) else {
+            // eps tables: the label is (chart, index) packed (Table::record_label), never the raw index alone
+            let Some(label) = disp.tables()[table].record_label(rec) else {
                 continue;
             };
             let Some(&record) = self.labels.get(table).and_then(|m| m.get(&label)) else {
@@ -758,6 +771,7 @@ mod tests {
     fn classify_order() {
         let s = Sectors {
             lines: vec![true, true, false, false],
+            forced: 0,
             zero_sectors: Some([2u64].into()),
         };
         assert_eq!(s.classify_masked(&[1, 2, 0, -1], 0), TermClass::Top);

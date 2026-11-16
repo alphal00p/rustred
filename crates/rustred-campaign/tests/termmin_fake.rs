@@ -134,6 +134,29 @@ fn phase_e_eliminates_two_of_three_terminals_and_writes_a_second_statement() {
         cdir.join("closeloop/toy/termmin/statement/statement.jsonl")
             .is_file()
     );
+    // lane closeloop3 (closeloop.md 16.7): phase E's relations got span proofs of the closing loop's proof pass (items
+    // <n>.p0.<j>, accepted) and the second statement's served keys are per-key (recipe relations with bound proofs)
+    let st = state(&cdir);
+    let p0: Vec<_> = st
+        .items
+        .iter()
+        .filter(|(k, it)| k.starts_with("toy.p0.") && it.kind == "proof-span")
+        .collect();
+    assert!(!p0.is_empty(), "no phase-E relation proof item");
+    assert!(
+        p0.iter()
+            .all(|(_, it)| it.phase.tag() == "accepted" && it.label == "span:relation"),
+        "{p0:?}"
+    );
+    let second =
+        std::fs::read_to_string(cdir.join("closeloop/toy/termmin/statement/statement.jsonl"))
+            .unwrap();
+    for l in second.lines() {
+        let v: Value = serde_json::from_str(l).unwrap();
+        if v["status"] == "served" {
+            assert_eq!(v["evidence"], "per-key", "{v}");
+        }
+    }
     assert!(
         cdir.join("closeloop/toy/final/statement/statement.jsonl")
             .is_file()
@@ -373,4 +396,74 @@ fn interrupt_and_resume_gives_the_same_final_set() {
         assert_eq!(outcomes(&rep), outcomes(&ref_rep), "seed {seed}");
         assert_eq!(verify(&cb), 0);
     }
+}
+
+#[test]
+fn the_mixed_shell_step_runs_before_depth_3_and_eliminates() {
+    let _g = serial();
+    // E has no relation at depth 2; the mixed shell (placed before depth 3) has one
+    let t = TmToy {
+        termmin: Some(json!({"schema": "rustred.campaign.termmin.v1",
+            "sequence": ["dispatch", "symmetry_relation", "d1_cnone_foff", "d2_clast_fon", "mixed_shell", "d3_cfirst_foff"],
+            // the fake child emulates solve-recipe v1.1 (no relation_rule field): ask the comparator rule (data)
+            "mixed_shell": {"relation_rule": "first_admissible"}})),
+        overrides: vec![
+            (
+                "termmin/d2_clast_fon".into(),
+                E,
+                "NO_RELATION_IN_SEEDS".into(),
+                vec![],
+            ),
+            (
+                "termmin/mixed_shell".into(),
+                E,
+                "SOLVED".into(),
+                vec![M, [2, 0, 0]],
+            ),
+        ],
+        ..TmToy::default()
+    };
+    let (_t, _f, sp, cdir) = setup("tmmixed", &t);
+    assert_eq!(
+        run_to_end(&sp, &cdir, &["--plain"]).last(),
+        Some(&0),
+        "{}",
+        log_tail(&cdir)
+    );
+    closed(&cdir);
+    let rep = report(&cdir);
+    let e = rep["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|x| x["key"] == json!(E))
+        .unwrap()
+        .clone();
+    assert_eq!(e["outcome"], "eliminated", "{e:#}");
+    assert_eq!(e["steps"][4]["step"], "mixed_shell", "{e:#}");
+    assert_eq!(e["steps"][4]["outcome"], "eliminated", "{e:#}");
+    assert_eq!(
+        e["steps"][5]["outcome"], "pending",
+        "depth 3 never asked: {e:#}"
+    );
+    // the data path: the mixed-shell recipe is an explicit offset list (one centre per seed, shell S0, no floor)
+    let order: Vec<Value> = rep["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["key"].clone())
+        .collect();
+    let ti = order.iter().position(|k| *k == json!(E)).unwrap();
+    let r = read_json(&cdir.join(format!("closeloop/toy/termmin/recipes/t{ti}.s4.json")));
+    assert_eq!(r["seeds"]["generator"], json!({"shells": ["S0"]}), "{r:#}");
+    assert_eq!(r["domain"]["fixed"], json!(E));
+    assert!(
+        r["seeds"]
+            .get("min_offset")
+            .is_none_or(|m| m.as_object().is_none_or(|o| o.is_empty()))
+    );
+    let n = r["seeds"]["centres"].as_array().unwrap().len() as u64;
+    assert_eq!(e["steps"][4]["seeds"].as_u64(), Some(n));
+    // N goes as in the main toy (its depth-2 relation through the closing try): only the true master stays
+    assert_eq!(rep["final_terminals"], json!([M]), "{rep:#}");
 }

@@ -63,6 +63,53 @@ pub struct AcceptCtx<'a> {
     pub results_path: String,
     pub results_blake3: String,
     pub run_dir: String,
+    /// lane closeloop3: the per-key caps of the solve jobs (`--max-trace-rows`, `--key-budget-s`), recorded on the
+    /// answer line of a key that hit one (closeloop.md 16.4).
+    pub max_trace_rows: Option<u64>,
+    pub key_budget_s: Option<u64>,
+    /// Lane polefix (audit r2-poles F4): the objective of the SOLVED line's `choice` annotation; `None` = off (no
+    /// `choice` member: the line of a run without the pole code). Never read by the acceptance.
+    pub pole_objective: Option<rustred_campaign_core::poles::PoleObjective>,
+}
+
+/// lane closeloop3 (closeloop.md 16.4): the cap a key hit, recorded on its answer line: `wall` (TIME-decided: the
+/// per-key wall cap, a safety net) or `work` (the deterministic work cap); either way the key goes to the NEXT recipe
+/// step of its escalation (the import asks the next candidate recipe; never another relation rule of the same recipe).
+pub fn cap_record(verdict: &str, max_trace_rows: Option<u64>, key_budget_s: Option<u64>) -> Value {
+    match verdict {
+        "BUDGET_WALL" => json!({"kind": "wall", "time_decided": true, "key_budget_s": key_budget_s,
+                                "next": "next_recipe_step"}),
+        "BUDGET_WORK" => {
+            json!({"kind": "work", "time_decided": false, "max_trace_rows": max_trace_rows,
+                                "next": "next_recipe_step"})
+        }
+        _ => Value::Null,
+    }
+}
+
+/// The `choice` annotation of a SOLVED line: the one engine answer of the key through `poles::pole_objective` (no
+/// pole profile in the supervisor yet: "no profile", ranked by size). Annotation only (audit r2-poles F4).
+pub fn solved_choice(
+    obj: &rustred_campaign_core::poles::PoleObjective,
+    relation_digest: &str,
+    rhs_terms: usize,
+) -> Value {
+    rustred_campaign_core::poles::pole_objective(
+        &[rustred_campaign_core::poles::Candidate {
+            id: relation_digest.to_string(),
+            admissible: true,
+            excluded_by: None,
+            evidence_level: 0,
+            size: rhs_terms as u64,
+            pole_order: None,
+        }],
+        &[],
+        obj,
+        None,
+    )
+    .ok()
+    .flatten()
+    .map_or(Value::Null, |ch| ch.to_json())
 }
 
 /// The per-key decisions of one attempt.
@@ -79,6 +126,15 @@ pub struct Decided {
     pub determinism_id: Option<String>,
     /// Why the whole attempt was refused (every SOLVED record became a failure), if so.
     pub refused: Option<String>,
+    /// lane closeloop3 (closeloop.md 16.6): keys the engine typed ERROR / IRREGULAR (a failed sub-solve: resource
+    /// limit, irregular lift, internal error): per-key failures with their R48-3b record, NOT answers (an answer would
+    /// move the key to the next recipe as if no relation existed): retried in a later round, then attention.
+    pub retry: Vec<(Vec<i32>, String)>,
+}
+
+/// lane closeloop3: verdicts of a FAILED sub-solve (retried, then attention; never "no relation").
+pub fn is_retry_verdict(verdict: &str) -> bool {
+    matches!(verdict, "ERROR" | "IRREGULAR")
 }
 
 fn sha256_hex(b: &[u8]) -> String {
@@ -307,6 +363,7 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                 };
                 match decision {
                     Ok(()) => {
+                        let rhs_len = rec["rhs"].as_array().map_or(0, Vec::len);
                         let rhs: Vec<Value> = rec["rhs"]
                             .as_array()
                             .into_iter()
@@ -321,13 +378,19 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                                        "mark": t[2].clone()})
                             })
                             .collect();
-                        let v = json!({"schema": SOLVED_SCHEMA, "source": c.batch.source,
+                        let mut v = json!({"schema": SOLVED_SCHEMA, "source": c.batch.source,
                             "recipe_sha256": c.batch.recipe_sha256, "recipe_digest": a.recipe_digest,
                             "determinism_id": a.determinism_id, "binary_sha256": c.binary_sha256,
                             "key": k32, "verdict": "SOLVED", "relation_digest": a.relation_digest, "rhs": rhs,
                             "proof": rec["proof"].clone(), "regular": true,
                             "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": a.ordinal},
                             "relation_rule": rule_label, "failure": null});
+                        // int7 (B1): the relation of the key through the ONE selection function (poles::pole_objective,
+                        // the node's objective); one engine answer per key and no pole profile in the supervisor yet:
+                        // "no profile", ranked by size. Lane polefix (F4): objective "none" = no `choice` member at all
+                        if let Some(obj) = &c.pole_objective {
+                            v["choice"] = solved_choice(obj, &a.relation_digest, rhs_len);
+                        }
                         out.lines.push(line(&v));
                         out.records.push((k32.clone(), rec.clone()));
                         out.certified.push(k32);
@@ -382,9 +445,16 @@ pub fn decide(c: &AcceptCtx<'_>, canonical_lines: &[String]) -> Result<Decided, 
                     "results": {"path": c.results_path, "blake3": c.results_blake3, "ordinal": u.ordinal},
                     "relation_rule": c.batch.relation_rule,
                     "failure": {"class": u.class.name(), "route": u.route, "message": u.failure["message"].clone()},
+                    "cap": cap_record(&u.verdict.name(), c.max_trace_rows, c.key_budget_s),
                     "failure_record": f});
-                out.lines.push(line(&v));
-                out.failed.push((k32, u.class.name().to_string()));
+                out.failed.push((k32.clone(), u.class.name().to_string()));
+                if is_retry_verdict(&u.verdict.name()) {
+                    let mut v = v;
+                    v["retry"] = json!({"route": "retry_then_attention", "contract_row": "15b"});
+                    out.retry.push((k32, line(&v)));
+                } else {
+                    out.lines.push(line(&v));
+                }
             }
         }
     }

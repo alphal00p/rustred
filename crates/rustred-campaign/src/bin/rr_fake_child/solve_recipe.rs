@@ -55,6 +55,8 @@ struct Run {
     quirks: BTreeSet<RecipeQuirk>,
     started: Instant,
     jitter: bool,
+    /// lane t266run: resident bytes allocated so far for the script's RSS plan (tests of the memory cap).
+    grown: std::cell::Cell<u64>,
 }
 
 impl Run {
@@ -82,6 +84,19 @@ impl Run {
     fn work(&self, ms: u64, scale: f64, first_stop: &mut Option<Instant>) -> u32 {
         let end = Instant::now() + Duration::from_secs_f64(ms as f64 * scale / 1000.0);
         loop {
+            // lane t266run: the script's RSS growth plan (as the synthetic mode), for memory-cap tests
+            if let Some(rp) = self.spec.fake.as_ref().map(|f| f.rss)
+                && rp.grow_bytes_per_s > 0
+            {
+                let target = ((self.started.elapsed().as_secs_f64() * rp.grow_bytes_per_s as f64)
+                    as u64)
+                    .min(rp.max_bytes);
+                let g = self.grown.get();
+                if target > g + (1 << 20) {
+                    super::alloc_touch(target - g);
+                    self.grown.set(target);
+                }
+            }
             let lvl = self.stop_level();
             if lvl >= 1 && first_stop.is_none() {
                 *first_stop = Some(Instant::now());
@@ -290,6 +305,7 @@ pub fn run(spec_path: &Path) -> ! {
         quirks,
         started: Instant::now(),
         jitter: script.volatile_jitter,
+        grown: std::cell::Cell::new(0),
     };
     let _ = r.sink.emit(Event::JobStarted {
         job_id: r.spec.job_id.clone(),

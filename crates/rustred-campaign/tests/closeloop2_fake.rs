@@ -164,7 +164,7 @@ fn a_relation_without_a_bound_proof_stays_below_per_key() {
         ..Toy::default()
     };
     let (_t, _f, sp, cdir) = setup("cl2noproof", &cfg);
-    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0));
+    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&10));
     let r = result_json(&cdir);
     assert_eq!(r["verdict"], "open", "{r:#}");
     let lvl = &r["by_rule_class_level"]["recipe"];
@@ -184,7 +184,7 @@ fn a_relation_without_a_bound_proof_stays_below_per_key() {
         ..Toy::default()
     };
     let (_t2, _f2, sp2, cdir2) = setup("cl2notspan", &cfg);
-    assert_eq!(run_to_end(&sp2, &cdir2, &["--plain"]).last(), Some(&0));
+    assert_eq!(run_to_end(&sp2, &cdir2, &["--plain"]).last(), Some(&10));
     let r = result_json(&cdir2);
     assert_eq!(r["verdict"], "open", "{r:#}");
     let open = open_keys(&cdir2);
