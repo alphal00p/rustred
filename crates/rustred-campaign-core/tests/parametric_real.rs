@@ -1062,8 +1062,44 @@ fn load_sources(path: &Path) -> Loaded {
             witness,
             ..DomainOptions::default()
         };
-        let full = Table::from_table_file(id.clone(), p.display().to_string(), &tf, opts)
+        let mut full = Table::from_table_file(id.clone(), p.display().to_string(), &tf, opts)
             .unwrap_or_else(|e| panic!("{id} ({}): {e}", p.display()));
+        // BOUNDED RECIPE WITH SEAL (source class "sealed_recipe"): every record's domain is its face INTERSECTED with
+        // D + r <= bound_dr (a linear bound added to the domain); the seal (every key of that region solved, descent ok) is
+        // an input bound by sha256 (refused on mismatch); recorded in the loader notes
+        if let Some(bdr) = src["bound_dr"].as_i64() {
+            let seal = &src["seal"];
+            let sp = seal["path"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{id}: sealed_recipe without seal.path"));
+            let want = seal["sha256"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{id}: sealed_recipe without seal.sha256"));
+            let got = sha256_file(Path::new(sp));
+            assert_eq!(
+                got, want,
+                "{id}: seal {sp} hashes to {got}, the source names {want}"
+            );
+            let fr = NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap();
+            let n = fr.arity();
+            // bound_dr + #lines - sum_lines n_i + sum_numerators n_j >= 0
+            let nl = (0..n).filter(|&i| fr.is_line(i)).count() as i128;
+            let mut b = rustred_campaign_core::poly::Poly::constant(i128::from(bdr) + nl);
+            for i in 0..n {
+                let v = rustred_campaign_core::poly::Poly::var(i);
+                b = if fr.is_line(i) {
+                    b.sub(&v).unwrap()
+                } else {
+                    b.add(&v).unwrap()
+                };
+            }
+            for d in &mut full.domains {
+                d.bounds.push(b.clone());
+            }
+            notes.push(format!(
+                "{id}: sealed bounded recipe: D + r <= {bdr}, seal {sp} sha256 {got}"
+            ));
+        }
         let offs = line_offsets(&p);
         digests.insert(id.clone(), format!("sha256:{}", sha256_file(&p)));
         let ti = tables.len();
