@@ -132,6 +132,11 @@ pub struct ConeOptions {
     pub factor_exceptions: bool,
     /// Run the partition in Describe mode (with the face list) instead of Cells mode (diagnostics).
     pub describe: bool,
+    /// A blocked sub-report with more classes than this is NOT listed cell by cell: it becomes ONE `unexplored`
+    /// element (the whole chart orthant, blocked by its source), so every cone meeting it is undecided there (never
+    /// covered); flagged. `None` = list everything. (T162: a superset stop piece of its generic first record gives a
+    /// 66.6 M-class sub-report.)
+    pub max_blocked_classes: Option<usize>,
 }
 
 impl Default for ConeOptions {
@@ -147,6 +152,7 @@ impl Default for ConeOptions {
             enumeration: 200_000,
             factor_exceptions: false,
             describe: false,
+            max_blocked_classes: None,
         }
     }
 }
@@ -504,8 +510,69 @@ fn class_box(
     out
 }
 
+/// [`gap_elements`] with a bound on the classes of a blocked sub-report (`ConeOptions::max_blocked_classes`): a larger
+/// one becomes one `unexplored` element covering the chart orthant (sound: its cones are undecided there), with a flag.
+pub fn gap_elements_bounded(
+    rep: &PartitionReport,
+    frame: &NodeFrame,
+    blocked_by: Option<usize>,
+    max_blocked_classes: Option<usize>,
+    out: &mut Vec<GapElement>,
+    flags: &mut Vec<String>,
+) {
+    let Some(max) = max_blocked_classes else {
+        gap_elements(rep, frame, blocked_by, out);
+        return;
+    };
+    gap_elements_own(rep, frame, blocked_by, out);
+    for (src, sub) in rep.blocked() {
+        if sub.classes().len() > max {
+            let n = frame.arity();
+            let cell: Vec<(Option<i64>, Option<i64>)> = (0..n)
+                .map(|s| {
+                    if frame.is_line(s) {
+                        (Some(1), None)
+                    } else {
+                        (None, Some(0))
+                    }
+                })
+                .collect();
+            flags.push(format!(
+                "blocked sub-report of source {src} ({} classes > max_blocked_classes {max}) not listed: one unexplored element (the chart orthant); every cone meeting it is undecided there",
+                sub.classes().len()
+            ));
+            out.push(GapElement {
+                kind: "unexplored",
+                blocked_by: Some(*src),
+                cell: Some(cell),
+                lattice: None,
+                seeds: vec![],
+                note: format!(
+                    "blocked sub-report of source {src}: {} classes not listed",
+                    sub.classes().len()
+                ),
+            });
+        } else {
+            gap_elements_bounded(sub, frame, Some(*src), Some(max), out, flags);
+        }
+    }
+}
+
 /// Every gap element of `rep` and of its blocked sub-partitions.
 pub fn gap_elements(
+    rep: &PartitionReport,
+    frame: &NodeFrame,
+    blocked_by: Option<usize>,
+    out: &mut Vec<GapElement>,
+) {
+    gap_elements_own(rep, frame, blocked_by, out);
+    for (src, sub) in rep.blocked() {
+        gap_elements(sub, frame, Some(*src), out);
+    }
+}
+
+/// The gap elements of `rep` itself (classes, locus pieces, unresolved parts), not of its blocked sub-reports.
+fn gap_elements_own(
     rep: &PartitionReport,
     frame: &NodeFrame,
     blocked_by: Option<usize>,
@@ -560,9 +627,6 @@ pub fn gap_elements(
                 });
             }
         }
-    }
-    for (src, sub) in rep.blocked() {
-        gap_elements(sub, frame, Some(*src), out);
     }
 }
 
@@ -909,11 +973,26 @@ pub fn partition_for_cones_traced(
         gap_partition_cells(&src, frame, &po, progress)
     }
     .map_err(|e| format!("partition: {e:?}"))?;
+    // sizes: (classes, locus pieces, unresolved parts) of the report and of every blocked sub-report
+    fn sizes(r: &PartitionReport) -> (usize, usize, usize) {
+        let (p, u) = r.resolution().map_or((0, 0), |res| {
+            (
+                res.loci.iter().map(|l| l.pieces.len()).sum(),
+                res.loci.iter().map(|l| l.unresolved_parts.len()).sum(),
+            )
+        });
+        (r.classes().len(), p, u)
+    }
+    let blocked: Vec<(usize, (usize, usize, usize))> = report
+        .blocked()
+        .iter()
+        .map(|(e, b)| (*e, sizes(b)))
+        .collect();
     trace(&format!(
-        "partition report in {:.1} s: {} classes, {} blocked sub-reports",
+        "partition report in {:.1} s: (classes, locus pieces, unresolved) main {:?}, blocked [source, sizes] {:?}",
         t0.elapsed().as_secs_f64(),
-        report.classes().len(),
-        report.blocked().len()
+        sizes(&report),
+        blocked
     ));
     let mut flags = Vec::new();
     if let Err(e) = report.complete_run() {
@@ -923,7 +1002,14 @@ pub fn partition_for_cones_traced(
         flags.push(format!("caveats: {}", report.caveats().join("; ")));
     }
     let mut elements = Vec::new();
-    gap_elements(&report, frame, None, &mut elements);
+    gap_elements_bounded(
+        &report,
+        frame,
+        None,
+        opts.max_blocked_classes,
+        &mut elements,
+        &mut flags,
+    );
     trace(&format!(
         "gap elements in {:.1} s: {}",
         t0.elapsed().as_secs_f64(),

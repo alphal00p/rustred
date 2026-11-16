@@ -1462,6 +1462,9 @@ fn b2_face_by_face() {
     }
     opts.factor_exceptions = std::env::var("PARAMETRIC_FACTOR_EXCEPTIONS").as_deref() == Ok("1");
     opts.describe = std::env::var("PARAMETRIC_DESCRIBE").as_deref() == Ok("1");
+    opts.max_blocked_classes = std::env::var("PARAMETRIC_MAX_BLOCKED_CLASSES")
+        .ok()
+        .and_then(|s| s.parse().ok());
     let dir = PathBuf::from(format!("{out}.pieces"));
     std::fs::create_dir_all(&dir).unwrap();
     let lines_path = format!("{out}.pieces.jsonl");
