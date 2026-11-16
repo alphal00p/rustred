@@ -406,55 +406,86 @@ fn copy_records_reversed(source: &OrderedStepCache, target: &OrderedStepCache) {
 }
 
 /// batch 11 (vk5l-physrun memory finding): at the resident ceiling a directory-less cache drops its least recently
-/// used shards instead of freezing; results are unchanged, the census stays within the ceiling, and a dropped shard
-/// is repopulated by later runs.
+/// used shards instead of freezing (eight shards of one record each, room for three); without eviction the same
+/// ceiling skips the inserts; a closed run with a tiny evicting cache equals the uncached run.
 #[test]
 fn a_full_in_memory_cache_evicts_least_recently_used_shards() {
     let artifact = derive_two_loop_unit_mass_sunset().unwrap();
-    let inputs = sunset_inputs(&artifact);
-    let exact = OrderedWeightArithmetic::Exact;
-    let uncached = closed_run(&artifact, &inputs, None, exact);
-    let full = OrderedStepCache::in_memory(closed_binding(&artifact), Default::default());
-    assert_same_run(
-        &uncached,
-        &closed_run(&artifact, &inputs, Some(&full), exact),
-    );
-    let statistics = full.statistics();
-    let largest = statistics
-        .shards
-        .iter()
-        .map(|shard| shard.resident_bytes)
-        .max()
-        .unwrap();
-    assert!(statistics.shards.len() >= 2 && statistics.resident_bytes > largest + largest / 2);
-    let limit = largest + largest / 2;
+    let context = CoefficientContext::try_new(["d"]).unwrap();
+    let one = context.one();
+    let shard = |class: u64| OrderedStepShard {
+        stage: OrderedStepStage::Integral,
+        support: 1,
+        class,
+    };
+    let fill = |cache: &OrderedStepCache| {
+        for class in 0..8u64 {
+            let key = [7u8, class as u8];
+            let child = [9u8, class as u8];
+            cache
+                .insert(
+                    shard(class),
+                    StepRecordInput {
+                        key: &key,
+                        terms: vec![(&child[..], &one)],
+                        terminals: Vec::new(),
+                        guards: &[],
+                        opaque: false,
+                    },
+                )
+                .unwrap();
+        }
+    };
+    let unbounded = OrderedStepCache::in_memory(closed_binding(&artifact), Default::default());
+    fill(&unbounded);
+    let per_shard = unbounded.statistics().shards[0].resident_bytes;
+    assert_eq!(unbounded.statistics().resident_bytes, 8 * per_shard);
     let options = |evict_when_full| OrderedStepCacheOptions {
-        max_resident_bytes: Some(limit),
+        max_resident_bytes: Some(3 * per_shard),
         evict_when_full,
         ..Default::default()
     };
     let evicting = OrderedStepCache::in_memory(closed_binding(&artifact), options(true));
-    copy_records_reversed(&full, &evicting);
-    let after_copy = evicting.statistics();
-    assert!(after_copy.evicted_shards > 0, "{after_copy:?}");
-    assert!(after_copy.resident_bytes <= limit);
+    fill(&evicting);
+    let statistics = evicting.statistics();
+    assert!(statistics.evicted_shards >= 5, "{statistics:?}");
+    assert!(statistics.resident_bytes <= 3 * per_shard);
+    assert_eq!(statistics.records, 8 - statistics.evicted_shards as usize);
+    let records_of = |class: u64| {
+        statistics
+            .shards
+            .iter()
+            .find(|entry| entry.shard == shard(class))
+            .map_or(0, |entry| entry.records)
+    };
+    // least recently used first: the newest shard stays, the oldest went
+    assert_eq!((records_of(7), records_of(0)), (1, 0));
+    let frozen = OrderedStepCache::in_memory(closed_binding(&artifact), options(false));
+    fill(&frozen);
+    let frozen_statistics = frozen.statistics();
+    assert_eq!(frozen_statistics.evicted_shards, 0);
+    // (an insert reserves an upper bound of its bytes first, so the third may already not fit)
+    assert!(
+        frozen_statistics.skipped_inserts >= 5,
+        "{frozen_statistics:?}"
+    );
+    // value-neutral on a real run
+    let inputs = sunset_inputs(&artifact);
+    let exact = OrderedWeightArithmetic::Exact;
+    let uncached = closed_run(&artifact, &inputs, None, exact);
+    let tiny = OrderedStepCache::in_memory(
+        closed_binding(&artifact),
+        OrderedStepCacheOptions {
+            max_resident_bytes: Some(2_000),
+            ..Default::default()
+        },
+    );
     for _ in 0..2 {
         assert_same_run(
             &uncached,
-            &closed_run(&artifact, &inputs, Some(&evicting), exact),
+            &closed_run(&artifact, &inputs, Some(&tiny), exact),
         );
-        assert!(evicting.statistics().resident_bytes <= limit);
     }
-    // without eviction the same ceiling freezes the cache: inserts are skipped instead
-    let frozen = OrderedStepCache::in_memory(closed_binding(&artifact), options(false));
-    copy_records_reversed(&full, &frozen);
-    let frozen_statistics = frozen.statistics();
-    assert_eq!(frozen_statistics.evicted_shards, 0);
-    assert!(frozen_statistics.skipped_inserts > 0);
-    assert_same_run(
-        &uncached,
-        &closed_run(&artifact, &inputs, Some(&frozen), exact),
-    );
 }
 
 #[test]

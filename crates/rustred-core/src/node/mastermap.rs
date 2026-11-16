@@ -1978,7 +1978,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rr-mastermap-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join(name);
-        std::fs::write(&p, lines.join("\n") + "\n").unwrap();
+        // atomic: tests running in parallel rewrite the same tables (same content) while others read them
+        let staged = dir.join(format!("{name}.{:?}.tmp", std::thread::current().id()));
+        std::fs::write(&staged, lines.join("\n") + "\n").unwrap();
+        std::fs::rename(&staged, &p).unwrap();
         p.to_string_lossy().into_owned()
     }
 
