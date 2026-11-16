@@ -4214,7 +4214,14 @@ impl Supervisor {
                 // The digest of job.json as written: the ONE record of it (no side file); OUTCOME / RESUME and the
                 // `job.finished` binding are checked against it.
                 spec_blake3: spec_digest.clone(),
-                scope_unit: ls.scope_unit.clone(),
+                // procfix7 round 6 (gate10 mutation M6): test builds: `record_scope_unit:1` RECORDS a scope unit name for
+                // a launch that requested none (the launch itself is unchanged: no systemd, no scope), so that a test in
+                // a namespace can pin the recovery's scope backstop under an unknown namespace (M9-1). Release: never.
+                scope_unit: ls.scope_unit.clone().or_else(|| {
+                    self.fp
+                        .armed("record_scope_unit")
+                        .then(|| crate::launch::scope_unit_name(&self.ctx.campaign_key, &ls.label))
+                }),
             },
         });
         if !self.commit(events) {

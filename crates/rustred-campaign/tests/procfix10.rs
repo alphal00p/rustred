@@ -507,3 +507,68 @@ fn g10_m5_an_unmarked_descendant_left_behind_is_never_a_clean_end() {
         log_tail(&d)
     );
 }
+
+/// gate10 mutation M6 (gate9 M9-1 pinned by no test): when the recovery cannot tell whether it runs in a private
+/// namespace (test-build failpoint `uid_map_unreadable:1`), a recorded job scope of the crashed session that it would
+/// have to stop is NOT skipped silently: note `scope_backstop_unchecked` naming the unit, and the end is unproven (exit
+/// 8), never 0. Session 1 runs with `record_scope_unit:1` (test builds: the launch record names a scope unit; the launch
+/// itself is unchanged, no systemd); nothing is ever sent to systemd here (the backstop only acts on a known host).
+#[test]
+fn g10_m6_an_unknown_namespace_never_skips_the_scope_backstop_silently() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf10-m6");
+    let dpf = t.path.join("daemon.pid");
+    let sp = spec_with(
+        &t,
+        &format!(
+            "( setsid sleep 600 </dev/null >/dev/null 2>&1 & echo $! > {p}.tmp; mv {p}.tmp {p} ); sleep 5",
+            p = dpf.display()
+        ),
+        [800, 1200],
+    );
+    let d = t.cdir("c");
+    let mut s1 = start(
+        &sp,
+        &d,
+        &[],
+        &[("RR_CAMPAIGN_FAILPOINT", "record_scope_unit:1")],
+    );
+    wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
+    std::thread::sleep(Duration::from_millis(500));
+    signal(&s1, libc::SIGKILL);
+    let _ = s1.wait();
+    let dp: u32 = std::fs::read_to_string(&dpf)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let code = run(
+        &sp,
+        &d,
+        &[("RR_CAMPAIGN_FAILPOINT", "uid_map_unreadable:1")],
+        Duration::from_secs(900),
+    );
+    let a = alive(dp);
+    if a {
+        kill_pid(dp);
+    }
+    let unchecked = notes(&d, "scope_backstop_unchecked");
+    eprintln!(
+        "PF10 m6: exit {code}, daemon alive {a}, scope_backstop_unchecked notes {}",
+        unchecked.len()
+    );
+    assert!(
+        unchecked.iter().any(|n| n.contains("rr-")),
+        "the recorded scope that could not be stopped is named: {unchecked:?} {}",
+        log_tail(&d)
+    );
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    assert!(
+        notes(&d, "scope_killed").is_empty(),
+        "nothing was sent to systemd for the recorded scope (namespace unknown): {}",
+        log_tail(&d)
+    );
+}

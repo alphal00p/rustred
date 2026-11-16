@@ -610,54 +610,54 @@ X	src/supervisor/mod.rs	3750	prod		the directory of the write below, which repor
 D	src/supervisor/mod.rs	3752	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
 D	src/supervisor/mod.rs	3898	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
 D	src/supervisor/mod.rs	3934	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
-F	src/supervisor/mod.rs	5160	prod	supervisor.control	auto: explicit Unknown / Failed arm	let entries = match crate::fsx::list("supervisor.control", &dir) {
-E	src/supervisor/mod.rs	5176	prod		auto: on a Metadata / FileType / Presence (not a path probe)	.filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
-X	src/supervisor/mod.rs	5192	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(&done);
-F	src/supervisor/mod.rs	5195	prod	supervisor.control	auto: explicit Unknown / Failed arm	let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
-X	src/supervisor/mod.rs	5196	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
-D	src/supervisor/mod.rs	5217	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-D	src/supervisor/mod.rs	5227	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-D	src/supervisor/mod.rs	5245	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-X	src/supervisor/mod.rs	5274	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	5276	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-F	src/supervisor/mod.rs	5558	prod	workdir	auto: explicit Unknown / Failed arm	let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
-X	src/supervisor/mod.rs	5766	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	5768	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-D	src/supervisor/mod.rs	6529	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::fsx::rename_noreplace(p, &target) {
-F	src/supervisor/mod.rs	6557	prod	supervisor.control	auto: Unknown / Absent / Failed -> Err (propagated)	let mut n = crate::fsx::list_required("supervisor.control", &dir)
-O	src/supervisor/mod.rs	6565	prod		auto: no-clobber create (O_EXCL)	match std::fs::OpenOptions::new()
-O	src/supervisor/mod.rs	6567	prod		auto: no-clobber create (O_EXCL)	.create_new(true)
-R	src/supervisor/mod.rs	6610	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
-X	src/supervisor/mod.rs	6610	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
-R	src/supervisor/mod.rs	6784	prod		auto: error propagated (? / map_err)	f.read_to_end(&mut b)
-O	src/supervisor/mod.rs	6797	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
-O	src/supervisor/mod.rs	6799	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
-D	src/supervisor/mod.rs	6800	prod		auto: error propagated (? / map_err)	.truncate(true)
-R	src/supervisor/mod.rs	6808	prod		auto: error propagated (? / map_err)	std::fs::File::open(&dir)?.sync_all()
-O	src/supervisor/mod.rs	7144	test			let mut f = std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7152	test			let _ = std::fs::remove_dir_all(&l.root);
-X	src/supervisor/mod.rs	7152	test			let _ = std::fs::remove_dir_all(&l.root);
-D	src/supervisor/mod.rs	7194	test			std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
-D	src/supervisor/mod.rs	7199	test			std::fs::copy(l2.root.join(&rel), &copy).unwrap();
-D	src/supervisor/mod.rs	7200	test			std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
-D	src/supervisor/mod.rs	7207	test			std::fs::remove_file(l3.root.join(&rel)).unwrap();
-O	src/supervisor/mod.rs	7211	test			std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7215	test			.set_len(10)
-D	src/supervisor/mod.rs	7228	test			let _ = std::fs::remove_dir_all(&d.root);
-X	src/supervisor/mod.rs	7228	test			let _ = std::fs::remove_dir_all(&d.root);
-O	src/supervisor/mod.rs	7250	test			let mut f = std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7261	test			std::fs::rename(other.table(), l.table()).unwrap();
-D	src/supervisor/mod.rs	7266	test			let _ = std::fs::remove_dir_all(&l.root);
-X	src/supervisor/mod.rs	7266	test			let _ = std::fs::remove_dir_all(&l.root);
-D	src/supervisor/mod.rs	7267	test			let _ = std::fs::remove_dir_all(&other.root);
-X	src/supervisor/mod.rs	7267	test			let _ = std::fs::remove_dir_all(&other.root);
-D	src/supervisor/mod.rs	7430	test			let _ = std::fs::remove_dir_all(&d);
-X	src/supervisor/mod.rs	7430	test			let _ = std::fs::remove_dir_all(&d);
-X	src/supervisor/mod.rs	7470	test			}
-D	src/supervisor/mod.rs	7471	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
-X	src/supervisor/mod.rs	7471	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
-D	src/supervisor/mod.rs	7577	test			let _ = std::fs::remove_dir_all(&full);
-X	src/supervisor/mod.rs	7577	test			let _ = std::fs::remove_dir_all(&full);
+F	src/supervisor/mod.rs	5172	prod	supervisor.control	auto: explicit Unknown / Failed arm	let entries = match crate::fsx::list("supervisor.control", &dir) {
+E	src/supervisor/mod.rs	5188	prod		auto: on a Metadata / FileType / Presence (not a path probe)	.filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
+X	src/supervisor/mod.rs	5204	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(&done);
+F	src/supervisor/mod.rs	5207	prod	supervisor.control	auto: explicit Unknown / Failed arm	let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
+X	src/supervisor/mod.rs	5208	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
+D	src/supervisor/mod.rs	5229	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+D	src/supervisor/mod.rs	5239	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+D	src/supervisor/mod.rs	5257	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+X	src/supervisor/mod.rs	5286	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	5288	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+F	src/supervisor/mod.rs	5570	prod	workdir	auto: explicit Unknown / Failed arm	let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
+X	src/supervisor/mod.rs	5778	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	5780	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+D	src/supervisor/mod.rs	6541	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::fsx::rename_noreplace(p, &target) {
+F	src/supervisor/mod.rs	6569	prod	supervisor.control	auto: Unknown / Absent / Failed -> Err (propagated)	let mut n = crate::fsx::list_required("supervisor.control", &dir)
+O	src/supervisor/mod.rs	6577	prod		auto: no-clobber create (O_EXCL)	match std::fs::OpenOptions::new()
+O	src/supervisor/mod.rs	6579	prod		auto: no-clobber create (O_EXCL)	.create_new(true)
+R	src/supervisor/mod.rs	6622	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
+X	src/supervisor/mod.rs	6622	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
+R	src/supervisor/mod.rs	6796	prod		auto: error propagated (? / map_err)	f.read_to_end(&mut b)
+O	src/supervisor/mod.rs	6809	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
+O	src/supervisor/mod.rs	6811	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
+D	src/supervisor/mod.rs	6812	prod		auto: error propagated (? / map_err)	.truncate(true)
+R	src/supervisor/mod.rs	6820	prod		auto: error propagated (? / map_err)	std::fs::File::open(&dir)?.sync_all()
+O	src/supervisor/mod.rs	7156	test			let mut f = std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7164	test			let _ = std::fs::remove_dir_all(&l.root);
+X	src/supervisor/mod.rs	7164	test			let _ = std::fs::remove_dir_all(&l.root);
+D	src/supervisor/mod.rs	7206	test			std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
+D	src/supervisor/mod.rs	7211	test			std::fs::copy(l2.root.join(&rel), &copy).unwrap();
+D	src/supervisor/mod.rs	7212	test			std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
+D	src/supervisor/mod.rs	7219	test			std::fs::remove_file(l3.root.join(&rel)).unwrap();
+O	src/supervisor/mod.rs	7223	test			std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7227	test			.set_len(10)
+D	src/supervisor/mod.rs	7240	test			let _ = std::fs::remove_dir_all(&d.root);
+X	src/supervisor/mod.rs	7240	test			let _ = std::fs::remove_dir_all(&d.root);
+O	src/supervisor/mod.rs	7262	test			let mut f = std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7273	test			std::fs::rename(other.table(), l.table()).unwrap();
+D	src/supervisor/mod.rs	7278	test			let _ = std::fs::remove_dir_all(&l.root);
+X	src/supervisor/mod.rs	7278	test			let _ = std::fs::remove_dir_all(&l.root);
+D	src/supervisor/mod.rs	7279	test			let _ = std::fs::remove_dir_all(&other.root);
+X	src/supervisor/mod.rs	7279	test			let _ = std::fs::remove_dir_all(&other.root);
+D	src/supervisor/mod.rs	7442	test			let _ = std::fs::remove_dir_all(&d);
+X	src/supervisor/mod.rs	7442	test			let _ = std::fs::remove_dir_all(&d);
+X	src/supervisor/mod.rs	7482	test			}
+D	src/supervisor/mod.rs	7483	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
+X	src/supervisor/mod.rs	7483	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
+D	src/supervisor/mod.rs	7589	test			let _ = std::fs::remove_dir_all(&full);
+X	src/supervisor/mod.rs	7589	test			let _ = std::fs::remove_dir_all(&full);
 X	src/supervisor/orphans.rs	110	prod		the cwd rule only NARROWS (refuses more) with an unresolved root: conservative	fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 R	src/supervisor/spec.rs	398	prod		auto: error propagated (? / map_err)	let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
 R	src/supervisor/workdir.rs	43	prod		typed match (claim / identity: NotFound, mismatch, other errors refuse)	match std::fs::read_to_string(&p) {
@@ -1977,7 +1977,10 @@ E	tests/procfix10.rs	359	test			assert!(!t.path.join("started.rec").exists(), "n
 E	tests/procfix10.rs	402	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
 W	tests/procfix10.rs	405	test			let _ = s1.wait();
 R	tests/procfix10.rs	406	test			let dp: u32 = std::fs::read_to_string(&dpf)
-R	tests/procfix10.rs	479	test			let up: u32 = std::fs::read_to_string(&upf)
+R	tests/procfix10.rs	492	test			let up: u32 = std::fs::read_to_string(&upf)
+E	tests/procfix10.rs	539	test			wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
+W	tests/procfix10.rs	542	test			let _ = s1.wait();
+R	tests/procfix10.rs	543	test			let dp: u32 = std::fs::read_to_string(&dpf)
 R	tests/procfix3_item0.rs	48	test			let log_bytes = std::fs::read(cdir.with_extension("log"))
 W	tests/procfix3_item0.rs	68	test			if c.try_wait().unwrap().is_none() {
 D	tests/procfix3_item0.rs	75	test			let _ = std::fs::remove_dir_all(&dir);
