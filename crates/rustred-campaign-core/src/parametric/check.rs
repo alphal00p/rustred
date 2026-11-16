@@ -286,6 +286,87 @@ pub fn check_cone_certificate(
             reg_of(&e["region"])
         };
         regions.push((idx, reg));
+        if e["v"]["verdict"] == "enumerated_covered" {
+            // re-enumerate the parameter box: every key of the element in the orthant and the cone must be served
+            let reg = if e.get("box").is_some() {
+                reg_of_box(&e["box"])
+            } else {
+                reg_of(&e["region"])
+            };
+            let tb: Option<Vec<(i64, i64)>> = e["v"]["t_box"].as_array().map(|a| {
+                a.iter()
+                    .filter_map(|p| Some((p.get(0)?.as_i64()?, p.get(1)?.as_i64()?)))
+                    .collect()
+            });
+            match (reg, tb) {
+                (Some(r), Some(tb)) if tb.len() == r.k => {
+                    let mut t: Vec<i64> = tb.iter().map(|p| p.0).collect();
+                    let mut count = 0u64;
+                    'en: loop {
+                        let ok = r.cons.iter().all(|(coef, c)| {
+                            coef.iter()
+                                .zip(&t)
+                                .try_fold(*c, |acc, (a, b)| {
+                                    acc.checked_add(a.checked_mul(i128::from(*b))?)
+                                })
+                                .is_some_and(|v| v >= 0)
+                        });
+                        if ok {
+                            let key: Option<Vec<i32>> =
+                                r.x.iter()
+                                    .map(|(coef, c)| {
+                                        coef.iter()
+                                            .zip(&t)
+                                            .try_fold(*c, |acc, (a, b)| {
+                                                acc.checked_add(a.checked_mul(i128::from(*b))?)
+                                            })
+                                            .and_then(|v| i32::try_from(v).ok())
+                                    })
+                                    .collect();
+                            if let Some(k) = key
+                                && orth(&k)
+                                && in_cone(&cone, &k)
+                            {
+                                count += 1;
+                                if is_open(disp, &k) {
+                                    bad(
+                                        format!("element {idx}: enumerated key {k:?} is open"),
+                                        &mut rep,
+                                    );
+                                    break 'en;
+                                }
+                            }
+                        }
+                        let mut j = 0;
+                        loop {
+                            if j == t.len() {
+                                break 'en;
+                            }
+                            if t[j] < tb[j].1 {
+                                t[j] += 1;
+                                break;
+                            }
+                            t[j] = tb[j].0;
+                            j += 1;
+                        }
+                    }
+                    if Some(count) != e["v"]["points"].as_u64() {
+                        bad(
+                            format!(
+                                "element {idx}: {count} points enumerated, certificate {}",
+                                e["v"]["points"]
+                            ),
+                            &mut rep,
+                        );
+                    }
+                }
+                _ => bad(
+                    format!("element {idx}: enumerated element without a readable region / box"),
+                    &mut rep,
+                ),
+            }
+            continue;
+        }
         if e["v"]["verdict"] == "uncovered" {
             n_uncovered += 1;
             match key_of(&e["v"]["witness"]) {
@@ -373,7 +454,11 @@ pub fn check_cone_certificate(
     }
     match cert["verdict"].as_str() {
         Some("covered") => {
-            if !listed.is_empty() || open_probes > 0 {
+            let open_elements = listed
+                .iter()
+                .filter(|e| e["v"]["verdict"] != "enumerated_covered")
+                .count();
+            if open_elements > 0 || open_probes > 0 {
                 bad(
                     format!(
                         "verdict covered with {} listed element(s) and {open_probes} open probe(s)",

@@ -207,6 +207,13 @@ fn line_offsets(p: &Path) -> Vec<(u64, u64)> {
 }
 
 pub fn load_any(spec_path: &Path, index_dir: Option<PathBuf>) -> Loaded {
+    if spec_path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .is_some_and(|f| f.ends_with("sources.json"))
+    {
+        return load_sources(spec_path);
+    }
     let spec_text = std::fs::read_to_string(spec_path).unwrap();
     let spec = TableSetSpec::from_json(&spec_text).unwrap();
     let base = spec_path.parent().unwrap_or(Path::new("."));
@@ -361,17 +368,26 @@ fn b2_cone_coverage_on_a_real_set() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(400_000_000);
     let t0 = std::time::Instant::now();
-    let ld = load_any(
+    let mut ld = load_any(
         &spec_path,
         std::env::var("PARAMETRIC_INDEX_DIR")
             .ok()
             .map(PathBuf::from),
     );
+    if let Ok(x) = std::env::var("PARAMETRIC_EXTRA_SOURCES") {
+        ld = append_sources(ld, Path::new(&x));
+    }
+    let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
+        .ok()
+        .map(|f| restore_loci(&mut ld, &f));
     eprintln!(
-        "loaded in {:.1} s: {} records ({})",
+        "loaded in {:.1} s: {} records ({}); restored loci {}",
         t0.elapsed().as_secs_f64(),
         ld.jobs.len(),
-        ld.loader
+        ld.loader,
+        restored
+            .as_ref()
+            .map_or("none".to_string(), |r| r.to_string())
     );
     let mut opts = ConeOptions::default();
     opts.budget.max_nodes = Some(units);
@@ -392,13 +408,21 @@ fn b2_cone_coverage_on_a_real_set() {
             assert_eq!(v[0], "box", "caps: box:<line max>:<numerator min>");
             Cone::box_caps(&ld.frame, v[1].parse().unwrap(), v[2].parse().unwrap())
         });
+    // decision G5 (BLOCK = no match on a witness locus, the key falls through): PARAMETRIC_FALLTHROUGH=1
+    let fell;
+    let base: &Dispatcher = if std::env::var("PARAMETRIC_FALLTHROUGH").as_deref() == Ok("1") {
+        fell = rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap();
+        &fell
+    } else {
+        &ld.disp
+    };
     let capped;
     let disp = match &caps {
         Some(c) => {
-            capped = capped_dispatcher(&ld.disp, &ld.frame, c).unwrap();
+            capped = capped_dispatcher(base, &ld.frame, c).unwrap();
             &capped
         }
-        None => &ld.disp,
+        None => base,
     };
     let cp = partition_for_cones(disp, &ld.frame, &opts).unwrap();
     let mut kinds: BTreeMap<String, usize> = BTreeMap::new();
@@ -547,6 +571,7 @@ fn b2_cone_coverage_on_a_real_set() {
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "partition_seconds": cp.millis as f64 / 1e3, "elements_by_kind": kinds, "partition_flags": cp.flags,
         "budget": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo}, "caps": caps,
+        "restored_loci": restored, "fall_through": std::env::var("PARAMETRIC_FALLTHROUGH").as_deref() == Ok("1"),
     });
     std::fs::write(
         format!("{out}.summary.json"),
@@ -975,4 +1000,256 @@ fn b1_descent_on_tables() {
     )
     .unwrap();
     eprintln!("{} records; {}", ld.jobs.len(), summary["records_by_worst"]);
+}
+
+/// A SOURCES list (lane parametric's dispatch builder: `{"node", "sources": [{"id", "class", "path", "records": [labels] |
+/// null, "witness": true | false | "APPENDED"}]}`), read with the core reader in list order. `witness: false` loads the
+/// table with the witness check off (the statement's semantics for its elided lane records); "APPENDED" follows
+/// `PARAMETRIC_APPENDED` = `apply` (witness off: the helper's APPEND realisation) or `block` (default: the core blocks).
+/// A table the core reader refuses stops the load (named); records the reader skips (not dispatched) are counted.
+fn load_sources(path: &Path) -> Loaded {
+    let v: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let appended_apply = std::env::var("PARAMETRIC_APPENDED").as_deref() == Ok("apply");
+    let mut tables = Vec::new();
+    let mut jobs = Vec::new();
+    let mut digests = BTreeMap::new();
+    let (mut frame, mut cmp): (Option<NodeFrame>, Option<NodeComparator>) = (None, None);
+    let mut notes = Vec::new();
+    for src in v["sources"].as_array().unwrap() {
+        let id = src["id"].as_str().unwrap().to_string();
+        let p = PathBuf::from(src["path"].as_str().unwrap());
+        let witness = match &src["witness"] {
+            serde_json::Value::Bool(b) => *b,
+            serde_json::Value::String(s) if s == "APPENDED" => !appended_apply,
+            _ => true,
+        };
+        let subset: Option<Vec<i64>> = src["records"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|x| x.as_i64()).collect());
+        let tf = read_table_file(&p, ReadOptions { rhs: RhsMode::Skip })
+            .unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+        if frame.is_none() {
+            let hline =
+                std::io::BufRead::lines(std::io::BufReader::new(std::fs::File::open(&p).unwrap()))
+                    .next()
+                    .unwrap()
+                    .unwrap();
+            let hv: serde_json::Value = serde_json::from_str(&hline).unwrap();
+            frame = Some(NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap());
+            cmp = Some(NodeComparator::from_header(&hv).unwrap());
+        }
+        let opts = DomainOptions {
+            witness,
+            ..DomainOptions::default()
+        };
+        let full = Table::from_table_file(id.clone(), p.display().to_string(), &tf, opts)
+            .unwrap_or_else(|e| panic!("{id} ({}): {e}", p.display()));
+        let offs = line_offsets(&p);
+        digests.insert(id.clone(), format!("sha256:{}", sha256_file(&p)));
+        let ti = tables.len();
+        let mut t = Table::new(id.clone(), full.arity());
+        let order: Vec<usize> = match &subset {
+            None => (0..full.domains.len()).collect(),
+            Some(s) => s
+                .iter()
+                .map(|l| {
+                    full.labels
+                        .iter()
+                        .position(|x| x == l)
+                        .unwrap_or_else(|| panic!("{id}: no dispatched record {l}"))
+                })
+                .collect(),
+        };
+        for r in order {
+            let (off, len) = offs[full.meta[r].line_no - 1];
+            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+            {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = std::fs::File::open(&p).unwrap();
+                f.seek(SeekFrom::Start(off)).unwrap();
+                let mut b = vec![0u8; len as usize];
+                f.read_exact(&mut b).unwrap();
+                h.update(&b);
+            }
+            let sha = h.finish_hex();
+            jobs.push(RecordJob {
+                table: ti,
+                record: t.domains.len(),
+                domain: full.domains[r].clone(),
+                path: p.display().to_string(),
+                offset: off,
+                bytes: len,
+                record_sha256: sha.clone(),
+                meta: json!({"table": ti, "record": t.domains.len(), "source": id, "class": src["class"], "label": full.labels[r],
+                    "path": p.display().to_string(), "offset": off, "record_sha256": sha, "witness_check": witness}),
+            });
+            t.push_with_meta(full.labels[r], full.domains[r].clone(), full.meta[r])
+                .unwrap();
+        }
+        if full.skipped_count() > 0 {
+            notes.push(format!(
+                "{id}: {} record(s) not dispatched (skipped by the reader)",
+                full.skipped_count()
+            ));
+        }
+        tables.push(t);
+    }
+    let frame = frame.unwrap();
+    let n = tables.len();
+    let disp = Dispatcher::new(tables, (0..n).collect())
+        .unwrap()
+        .with_chart(frame.mask().to_vec())
+        .unwrap();
+    Loaded {
+        jobs,
+        disp,
+        frame,
+        cmp: cmp.unwrap(),
+        tables: digests,
+        loader: format!(
+            "sources list {} (core reader; appended records: {}); {}",
+            path.display(),
+            if appended_apply { "apply" } else { "block" },
+            notes.join("; ")
+        ),
+        node: v["node"].as_str().map(str::to_string),
+    }
+}
+
+/// `PARAMETRIC_EXTRA_SOURCES`: a sources list appended AFTER the loaded dispatch (same frame and comparator, checked).
+fn append_sources(ld: Loaded, extra: &Path) -> Loaded {
+    let ex = load_sources(extra);
+    assert_eq!(
+        ex.frame.mask_string(),
+        ld.frame.mask_string(),
+        "extra sources: another frame"
+    );
+    assert_eq!(
+        ex.cmp.name(),
+        ld.cmp.name(),
+        "extra sources: another comparator"
+    );
+    let mut tables: Vec<Table> = ld
+        .disp
+        .priority()
+        .iter()
+        .map(|&t| ld.disp.tables()[t].clone())
+        .collect();
+    // job table indices follow the priority order of the rebuilt dispatcher
+    let remap: BTreeMap<usize, usize> = ld
+        .disp
+        .priority()
+        .iter()
+        .enumerate()
+        .map(|(i, &t)| (t, i))
+        .collect();
+    let mut jobs: Vec<RecordJob> = ld
+        .jobs
+        .into_iter()
+        .map(|mut j| {
+            j.table = remap[&j.table];
+            j.meta["table"] = json!(j.table);
+            j
+        })
+        .collect();
+    let base = tables.len();
+    for &t in ex.disp.priority() {
+        tables.push(ex.disp.tables()[t].clone());
+    }
+    for mut j in ex.jobs {
+        j.table += base;
+        j.meta["table"] = json!(j.table);
+        jobs.push(j);
+    }
+    let n = tables.len();
+    let disp = Dispatcher::new(tables, (0..n).collect())
+        .unwrap()
+        .with_chart(ld.frame.mask().to_vec())
+        .unwrap();
+    let mut digests = ld.tables;
+    digests.extend(ex.tables);
+    Loaded {
+        jobs,
+        disp,
+        frame: ld.frame,
+        cmp: ld.cmp,
+        tables: digests,
+        loader: format!("{} + {}", ld.loader, ex.loader),
+        node: ld.node,
+    }
+}
+
+/// `PARAMETRIC_SUPPLIED_LOCI` (`a.jsonl:b.jsonl`, lines `{"name", "witness_loci": [..]}`): RESTORED witness loci (coordinator
+/// decision A for T162): the record whose name (import hand name, or `origin.source` of a derived record) is listed gets
+/// exactly these loci as its witness pole loci and is no longer elided. Returns the evidence (file sha256s, matched names).
+fn restore_loci(ld: &mut Loaded, files: &str) -> serde_json::Value {
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    let mut loci: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut fev = Vec::new();
+    for f in files.split(':').filter(|x| !x.is_empty()) {
+        for l in std::fs::read_to_string(f)
+            .unwrap()
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+        {
+            let v: serde_json::Value = serde_json::from_str(l).unwrap();
+            let w: Vec<String> = v["witness_loci"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_str().unwrap().to_string())
+                .collect();
+            loci.insert(v["name"].as_str().unwrap().to_string(), w);
+        }
+        fev.push(json!({"path": f, "sha256": sha256_file(Path::new(f))}));
+    }
+    let n = ld.frame.arity();
+    let mut tables: Vec<Table> = ld.disp.tables().to_vec();
+    let mut matched = Vec::new();
+    for j in &mut ld.jobs {
+        let mut name = j.meta["hand_name"].as_str().map(str::to_string);
+        if name.is_none() || !loci.contains_key(name.as_deref().unwrap_or("")) {
+            if let Ok((_, _, _)) = rustred_campaign_core::parametric::descent::read_record(
+                Path::new(&j.path),
+                j.offset,
+                j.bytes,
+            ) {
+                use std::io::{Read, Seek, SeekFrom};
+                let mut f = std::fs::File::open(&j.path).unwrap();
+                f.seek(SeekFrom::Start(j.offset)).unwrap();
+                let mut b = vec![0u8; j.bytes as usize];
+                f.read_exact(&mut b).unwrap();
+                let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+                if let Some(s) = v["origin"]["source"].as_str() {
+                    name = Some(s.to_string());
+                }
+            }
+        }
+        let Some(name) = name else { continue };
+        let Some(w) = loci.get(&name) else { continue };
+        let t = &mut tables[j.table];
+        let d = &mut t.domains[j.record];
+        d.poles.retain(|p| p.kind != PoleKind::Witness);
+        for s in w {
+            let p = rustred_campaign_core::poly::Poly::parse_exact(s, n, true).unwrap();
+            d.poles.push(PoleLocus::new(PoleKind::Witness, &p));
+        }
+        d.witness_elided = false;
+        t.meta[j.record].witness = rustred_campaign_core::cover::WitnessStatus::Complete;
+        j.domain = d.clone();
+        matched.push(name);
+    }
+    let all: Vec<&String> = loci.keys().collect();
+    let missing: Vec<&String> = all
+        .iter()
+        .copied()
+        .filter(|k| !matched.contains(k))
+        .collect();
+    let pr = ld.disp.priority().to_vec();
+    ld.disp = Dispatcher::new(tables, pr)
+        .unwrap()
+        .with_chart(ld.frame.mask().to_vec())
+        .unwrap();
+    json!({"files": fev, "listed": loci.len(), "matched": matched.len(), "not_in_dispatch": missing})
 }

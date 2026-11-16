@@ -24,7 +24,7 @@ use crate::partition::classes::Label;
 use crate::partition::exact::Affine;
 use crate::partition::{
     Budget, CoverageNotion, DispatcherSource, DomainSource, ElidedPolicy, LiteralTests,
-    PartitionOptions, PartitionReport, WorkMeter, gap_partition,
+    PartitionOptions, PartitionReport, WorkMeter, gap_partition_cells,
 };
 
 /// The cone: the frame's top-sector chart orthant intersected with `sum_i a_i k_i <= b` for every constraint.
@@ -321,6 +321,12 @@ pub enum ElementVerdict {
     },
     Undecided {
         reason: String,
+    },
+    /// The element meets the cone in a BOUNDED set of `points` integer keys (parameter box `t_box`), every one of which
+    /// the dispatcher's first match serves: no uncovered key of the element lies in the cone (exhaustive, exact).
+    EnumeratedCovered {
+        points: u64,
+        t_box: Vec<(i64, i64)>,
     },
 }
 
@@ -640,10 +646,77 @@ pub fn decide_element(
             return ElementVerdict::Uncovered { witness: k };
         }
     }
+    // a BOUNDED intersection with at most `opts.enumeration` parameter points: decided by enumerating every point with the
+    // dispatcher (exact on a finite set)
+    if let Some(v) = enumerate_element(disp, frame, &reg, cone, opts.enumeration) {
+        return v;
+    }
     ElementVerdict::Undecided {
         reason: format!(
             "the element meets the cone but the {tried} point(s) tried there are covered (the element is a superset of its uncovered keys)"
         ),
+    }
+}
+
+/// Enumerate a bounded region (its parameters' integer ranges from Fourier-Motzkin projection, a superset box) with at most
+/// `cap` box points: the first OPEN key in the chart orthant and the cone is a witness; none = `EnumeratedCovered`.
+/// `None` when a range is unbounded, the box is larger than `cap`, or arithmetic overflows.
+pub fn enumerate_element(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    reg: &Region,
+    cone: &Cone,
+    cap: u64,
+) -> Option<ElementVerdict> {
+    let mut lo = Vec::with_capacity(reg.k);
+    let mut hi = Vec::with_capacity(reg.k);
+    let mut size: u64 = 1;
+    for j in 0..reg.k {
+        let (l, h) = reg.range_of(j).ok()?;
+        let (l, h) = (i64::try_from(l?).ok()?, i64::try_from(h?).ok()?);
+        if l > h {
+            return Some(ElementVerdict::OutsideCone);
+        }
+        size = size.checked_mul(u64::try_from(h.checked_sub(l)?.checked_add(1)?).ok()?)?;
+        if size > cap {
+            return None;
+        }
+        lo.push(l);
+        hi.push(h);
+    }
+    let in_orthant = |k: &[i32]| {
+        k.iter()
+            .enumerate()
+            .all(|(i, &v)| if frame.is_line(i) { v >= 1 } else { v <= 0 })
+    };
+    let mut t: Vec<i64> = lo.clone();
+    let mut points = 0u64;
+    loop {
+        let tt: Vec<i128> = t.iter().map(|v| i128::from(*v)).collect();
+        if reg.contains_t(&tt).ok()? {
+            let k = key_of(reg, &tt)?;
+            if in_orthant(&k) && cone.contains(&k) {
+                points += 1;
+                if is_open(disp, &k) {
+                    return Some(ElementVerdict::Uncovered { witness: k });
+                }
+            }
+        }
+        let mut j = 0;
+        loop {
+            if j == reg.k {
+                return Some(ElementVerdict::EnumeratedCovered {
+                    points,
+                    t_box: lo.iter().copied().zip(hi.iter().copied()).collect(),
+                });
+            }
+            if t[j] < hi[j] {
+                t[j] += 1;
+                break;
+            }
+            t[j] = lo[j];
+            j += 1;
+        }
     }
 }
 
@@ -724,7 +797,7 @@ pub fn partition_for_cones(
         return Err("eps frames are not modelled by the partition".into());
     }
     let t0 = std::time::Instant::now();
-    let report = gap_partition(&src, frame, &partition_options(&opts.budget), None)
+    let report = gap_partition_cells(&src, frame, &partition_options(&opts.budget), None)
         .map_err(|e| format!("partition: {e:?}"))?;
     let mut flags = Vec::new();
     if let Err(e) = report.complete_run() {
@@ -786,7 +859,7 @@ pub fn coverage_from_partition(
     for (i, el) in els.iter().enumerate() {
         let v = decide_element(disp, frame, el, cone, opts);
         match &v {
-            ElementVerdict::OutsideCone => outside += 1,
+            ElementVerdict::OutsideCone | ElementVerdict::EnumeratedCovered { .. } => outside += 1,
             ElementVerdict::Uncovered { .. } => unc += 1,
             ElementVerdict::Undecided { .. } => und += 1,
         }
@@ -805,11 +878,13 @@ pub fn coverage_from_partition(
         }
         verdicts.push(v);
     }
-    if els
-        .iter()
-        .zip(&verdicts)
-        .any(|(e, v)| e.kind == "unexplored" && *v != ElementVerdict::OutsideCone)
-    {
+    if els.iter().zip(&verdicts).any(|(e, v)| {
+        e.kind == "unexplored"
+            && matches!(
+                v,
+                ElementVerdict::Uncovered { .. } | ElementVerdict::Undecided { .. }
+            )
+    }) {
         flags.push("unexplored classes meet the cone".into());
     }
     // probes: the partition's own probe keys and the witnesses
@@ -844,7 +919,10 @@ pub fn coverage_from_partition(
                 }
                 let mut by = Value::Null;
                 for (i, (el, v)) in els.iter().zip(&verdicts).enumerate() {
-                    if *v == ElementVerdict::OutsideCone {
+                    if matches!(
+                        v,
+                        ElementVerdict::OutsideCone | ElementVerdict::EnumeratedCovered { .. }
+                    ) {
                         continue;
                     }
                     if element_contains(el, &k) == Some(true) {
@@ -924,4 +1002,37 @@ pub fn certificate(cov: &ConeCoverage, disp: &Dispatcher, frame: &NodeFrame) -> 
         "partition": cov.partition,
         "partition_flags": cov.partition_flags,
     })
+}
+
+/// The dispatcher under the coordinator's BLOCK semantics for witness loci (decision G5, COORDINATOR-ANSWERS-20261116-1.md:
+/// "the record does not match on its witness locus; the key falls through"), as the engine lane will implement it (a locus
+/// becomes an exclusion branch, like `domain_bounds`): every POLE LOCUS of every domain (witness loci, written
+/// denominators, source conditions; each the AND of its d-coefficients vanishing) is moved into the exception branches,
+/// so a key on it is NOT SELECTED by that record and reaches the next one; the core's own dispatcher would stop there
+/// (Blocked, the key open). Records whose witness loci are ELIDED (unknown locus) keep blocking (`witness_elided`, record
+/// metadata). A locus whose polynomial is identically zero becomes a branch that always holds (the record never matches).
+pub fn fall_through_poles(disp: &Dispatcher) -> Result<Dispatcher, String> {
+    use crate::poly::Poly;
+    let mut tables = Vec::with_capacity(disp.tables().len());
+    let mut moved = 0usize;
+    for t in disp.tables() {
+        let mut t2 = t.clone();
+        for d in &mut t2.domains {
+            for p in std::mem::take(&mut d.poles) {
+                moved += 1;
+                d.exceptions.push(if p.coeffs.is_empty() {
+                    vec![Poly::constant(0)]
+                } else {
+                    p.coeffs
+                });
+            }
+        }
+        tables.push(t2);
+    }
+    let _ = moved;
+    let d = Dispatcher::new(tables, disp.priority().to_vec()).map_err(|e| e.to_string())?;
+    match disp.chart() {
+        Some(c) => d.with_chart(c.to_vec()).map_err(|e| e.to_string()),
+        None => Ok(d),
+    }
 }

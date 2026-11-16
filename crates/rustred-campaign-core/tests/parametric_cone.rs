@@ -268,3 +268,75 @@ fn capped_dispatch_gives_the_same_cone_verdicts() {
     }
     assert!(agree > 60, "{agree}");
 }
+
+#[test]
+fn fall_through_poles_lets_a_witness_locus_reach_the_next_record() {
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    use rustred_campaign_core::parametric::cone::fall_through_poles;
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut a = CaseDomain::free(3, Some(f.mask().to_vec()));
+    // witness locus (n0 - 2) * d: vanishes identically in d at n0 = 2
+    a.poles.push(PoleLocus::new(
+        PoleKind::Witness,
+        &Poly::parse_exact("(n0-2)*d", 3, true).unwrap(),
+    ));
+    let mut t = Table::new("t", 3);
+    t.push(0, a).unwrap();
+    t.push(1, CaseDomain::free(3, Some(f.mask().to_vec())))
+        .unwrap();
+    let d = Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(f.mask().to_vec())
+        .unwrap();
+    // the core stops at the blocked record: n0 = 2 is open
+    assert!(!matches!(
+        d.first_match(&[2, 1, 0]),
+        Ok(Dispatch::Covered(_))
+    ));
+    assert_eq!(run(&f, &d, &Cone::orthant(), (5, -4)), "uncovered");
+    // under BLOCK = fall through, record 1 serves it
+    let ft = fall_through_poles(&d).unwrap();
+    match ft.first_match(&[2, 1, 0]) {
+        Ok(Dispatch::Covered(r)) => assert_eq!(r.record, 1),
+        o => panic!("{o:?}"),
+    }
+    match ft.first_match(&[3, 1, 0]) {
+        Ok(Dispatch::Covered(r)) => assert_eq!(r.record, 0),
+        o => panic!("{o:?}"),
+    }
+    assert_eq!(run(&f, &ft, &Cone::orthant(), (5, -4)), "covered");
+}
+
+#[test]
+fn a_nonlinear_locus_inside_a_bounded_cone_is_decided_by_enumeration() {
+    // record A excludes the integer points of n0 * n1 = 6 (a nonlinear cut the partition leaves unresolved); in the cone
+    // D + r <= 3 only (2, 3) and (3, 2) lie on it
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut a = rec(3);
+    a.exceptions = vec![vec!["n0*n1-6"]];
+    let d = disp(&f, &[a]);
+    let cone = Cone::excess_simplex(&f, 3);
+    let cov = cone_coverage(&d, &f, &cone, &ConeOptions::default()).unwrap();
+    assert_eq!(cov.verdict, "uncovered", "{:?}", cov.listed);
+    let cert = certificate(&cov, &d, &f);
+    assert!(check_cone_certificate(&cert, &d, &f, Some((4, -3))).ok());
+    // point records serve those two keys: the locus is covered in the cone
+    let mut a2 = rec(3);
+    a2.exceptions = vec![vec!["n0*n1-6"]];
+    let mut p1 = rec(3);
+    p1.fixed = vec![Some(2), Some(3), Some(0)];
+    let mut p2 = rec(3);
+    p2.fixed = vec![Some(3), Some(2), Some(0)];
+    let d2 = disp(&f, &[a2, p1, p2]);
+    let cov2 = cone_coverage(&d2, &f, &cone, &ConeOptions::default()).unwrap();
+    assert_eq!(
+        cov2.verdict, "covered",
+        "{:?} {:?}",
+        cov2.listed, cov2.partition_flags
+    );
+    let cert2 = certificate(&cov2, &d2, &f);
+    let chk = check_cone_certificate(&cert2, &d2, &f, Some((4, -3)));
+    assert!(chk.ok(), "{:?}", chk.problems);
+    // on the unbounded orthant the far points (1, 6), (6, 1) stay open
+    assert_eq!(run(&f, &d2, &Cone::orthant(), (7, -6)), "uncovered");
+}
