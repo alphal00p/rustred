@@ -218,7 +218,7 @@ fn legacy_header_is_the_identity_order_and_subtrees_replace_whole_domains() {
             .starts_with("exceptions_not_subset")
     );
     assert_eq!(subtree_verdict(&rules[1], &subr, 1.0), Ok(()));
-    let big = vec![
+    let big = [
         line(0, "[1,null,null]", "I(1,n1,n2)", "[]", 2900),
         line(1, "[1,null,0]", "I(1,n1,0)", "[]", 200),
     ];
