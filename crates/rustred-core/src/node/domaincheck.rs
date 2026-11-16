@@ -261,19 +261,18 @@ fn walk(table: &Table, k: &[i64]) -> Trace {
         }
         for (bi, br) in r.exceptions.iter().enumerate() {
             let mut hit = true;
-            'lit: for e in br {
-                for d in EXCEPTION_D {
-                    match e.is_zero_at(&pt, d) {
-                        Ok(true) => {}
-                        Ok(false) => {
-                            hit = false;
-                            break 'lit;
-                        }
-                        Err(_) => {
-                            t.exception_eval_error += 1;
-                            hit = false;
-                            break 'lit;
-                        }
+            for e in br {
+                // exact in d, as the engine's find_rule
+                match e.vanishes_in_d(&pt) {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        hit = false;
+                        break;
+                    }
+                    Err(_) => {
+                        t.exception_eval_error += 1;
+                        hit = false;
+                        break;
                     }
                 }
             }

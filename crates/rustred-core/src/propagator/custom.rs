@@ -965,8 +965,8 @@ enum KeyVia {
     Rule(u64, usize),
     /// A recipe record.
     Recipe,
-    /// A slot-permuted alias rule (its index in the table).
-    Alias(usize),
+    /// A slot-permuted alias rule.
+    Alias,
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -1251,7 +1251,7 @@ impl<const N: usize> CustomStep<N> {
                 .integer(alias.coefficient);
             return Ok(Some(KeyApplied::Children(
                 std::collections::BTreeMap::from([(child, coefficient)]),
-                KeyVia::Alias(alias.index),
+                KeyVia::Alias,
             )));
         }
         Ok(None)

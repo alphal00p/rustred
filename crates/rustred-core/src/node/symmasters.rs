@@ -1268,6 +1268,8 @@ pub fn table_tail(
     loop {
         let dims: Vec<Q> = (0..npts).map(|k| Q::int(1001 + k as i128)).collect();
         let red = tab.reduce_mod(&seeds, primes, &dims, true)?;
+        // the sample d actually used (a value at a coefficient pole is replaced by a larger integer)
+        let dims = red.dims.clone();
         let nd = dims.len();
         let nm = masters.len();
         // lower keys
@@ -1364,7 +1366,7 @@ pub fn table_tail(
                 "pairs": pairs.len()}),
             );
         }
-        let xs: Vec<i64> = (0..nd).map(|k| 1001 + k as i64).collect();
+        let xs: Vec<i64> = dims.iter().map(|d| d.n as i64).collect();
         let mut per_master = serde_json::Map::new();
         let mut failed = 0usize;
         let mut top_ok = true;

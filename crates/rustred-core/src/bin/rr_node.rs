@@ -1895,7 +1895,8 @@ fn cmd_reduce(mut a: Args) -> i32 {
         doc["points"] = serde_json::json!(points);
     } else {
         doc["dims"] = serde_json::json!(
-            dims.iter()
+            r.dims
+                .iter()
                 .map(|d| format!("{}/{}", d.n, d.d))
                 .collect::<Vec<_>>()
         );

@@ -703,7 +703,7 @@ fn slot_alias_record(
             "a slot-permuted rule must have exactly one right-hand-side term",
         ));
     }
-    if !str_field(record, "case")?.starts_with("Coordinate(")
+    if !case_text(record)?.starts_with("Coordinate(")
         || !record["equations"].as_array().is_some_and(Vec::is_empty)
         || !record["exceptions"].as_array().is_some_and(Vec::is_empty)
         || !matches!(record["dispatch"].as_str(), None | Some("Partition"))
@@ -898,6 +898,20 @@ fn str_field<'a>(record: &'a Value, field: &str) -> Result<&'a str, PError> {
     record[field]
         .as_str()
         .ok_or_else(|| malformed(format!("{} record without {field}", record["type"])))
+}
+
+/// A rule record's case text. Records written without `case` (hand-made or appended rules, e.g. T178-unboxed
+/// 5232-5241) are read by their equations: none -> a coordinate case, some -> an affine case (the importer uses only
+/// this kind; the fixed values come from `fixed`).
+fn case_text(record: &Value) -> Result<&str, PError> {
+    match record["case"].as_str() {
+        Some(text) => Ok(text),
+        None => match record["equations"].as_array() {
+            Some(equations) if equations.is_empty() => Ok("Coordinate(inferred)"),
+            Some(_) => Ok("Affine(inferred)"),
+            None => Err(malformed("rule record without case or equations")),
+        },
+    }
 }
 
 fn mask_bits(text: &str) -> Result<Vec<bool>, PError> {
@@ -2017,7 +2031,7 @@ impl BoxChecker {
         match record["type"].as_str() {
             Some("rule") => {
                 let target_text = str_field(record, "target")?;
-                let point = str_field(record, "case")?.starts_with("Coordinate(")
+                let point = case_text(record)?.starts_with("Coordinate(")
                     && record["equations"].as_array().is_some_and(Vec::is_empty)
                     && record["exceptions"].as_array().is_some_and(Vec::is_empty)
                     && matches!(record["dispatch"].as_str(), None | Some("Partition"));
@@ -2702,7 +2716,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                         ),
                     ));
                 }
-                let case_text = str_field(record, "case")?;
+                let case_text = case_text(record)?;
                 let equations = record["equations"]
                     .as_array()
                     .ok_or_else(|| malformed("rule equations"))?;
@@ -3152,6 +3166,17 @@ mod tests {
 
     /// T178 unboxed F3 (table index 5240): a slot-permuted alias rule becomes a SlotAliasRecord; its image, sign and
     /// domain; a later rule overlapping its domain is detected, a disjoint one is not.
+    #[test]
+    fn a_rule_without_case_is_read_by_its_equations() {
+        let coordinate = serde_json::json!({"type": "rule", "equations": []});
+        let affine = serde_json::json!({"type": "rule", "equations": ["n0-n1"]});
+        assert!(case_text(&coordinate).unwrap().starts_with("Coordinate("));
+        assert!(case_text(&affine).unwrap().starts_with("Affine("));
+        assert!(case_text(&serde_json::json!({"type": "rule"})).is_err());
+        let given = serde_json::json!({"type": "rule", "case": "Affine(x)", "equations": []});
+        assert_eq!(case_text(&given).unwrap(), "Affine(x)");
+    }
+
     #[test]
     fn slot_permuted_alias_rule_f3_of_t178() {
         let record: Value = serde_json::from_str(r#"{"type":"rule","chart":"11111111110000000000","index":5240,
