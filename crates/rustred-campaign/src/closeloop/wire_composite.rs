@@ -496,7 +496,10 @@ impl Stage {
                     rt,
                     input_done(n),
                     ROLE_DONE,
-                    rec(format!("{dir}/done.json"), json_bytes(&d)),
+                    rec(
+                        format!("{}/repairflow/composite/done.json", super::ids::node_dir(n)),
+                        json_bytes(&d),
+                    ),
                 );
                 return Ok(false);
             }
