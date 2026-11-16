@@ -209,8 +209,24 @@ pub fn cmd(mut a: Args) {
     let only: Option<Vec<usize>> = a
         .take("--rules")
         .map(|s| s.split(',').map(|x| x.parse().unwrap()).collect());
+    let extra = a.take("--extra-loci");
     a.done();
-    let res = run(&tp, r, only).unwrap_or_else(|e| die(&e));
+    let mut extra_loci: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    if let Some(p) = extra {
+        crate::table::for_each_line(&p, |_, _, v| {
+            let i = v["index"].as_u64().ok_or("extra loci: index")? as usize;
+            let l: Vec<String> = v["loci"]
+                .as_array()
+                .ok_or("extra loci: loci")?
+                .iter()
+                .map(|x| x.as_str().unwrap_or("").to_string())
+                .collect();
+            extra_loci.insert(i, l);
+            Ok(())
+        })
+        .unwrap_or_else(|e| die(&e));
+    }
+    let res = run_with(&tp, r, only, &extra_loci).unwrap_or_else(|e| die(&e));
     let s = serde_json::to_string_pretty(&res).unwrap();
     if let Some(p) = out {
         std::fs::write(&p, &s).unwrap();
@@ -219,7 +235,18 @@ pub fn cmd(mut a: Args) {
 }
 
 /// The validity check of a table file on D + r <= r (see the module doc).
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value, String> {
+    run_with(tp, r, only, &BTreeMap::new())
+}
+
+/// As [`run`], with explicit witness loci replacing a record's listed ones (e.g. from an engine re-lift).
+pub fn run_with(
+    tp: &str,
+    r: Option<i128>,
+    only: Option<Vec<usize>>,
+    extra_loci: &BTreeMap<usize, Vec<String>>,
+) -> Result<Value, String> {
     let t = Table::load(tp)?;
     let n = t.n;
     let ctx = Ctx {
@@ -238,6 +265,7 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
     let mut undecided: Vec<Value> = vec![];
     let mut claim_cmp: BTreeMap<String, u64> = BTreeMap::new();
     let mut claim_unmatched: Vec<Value> = vec![];
+    let mut witness_tally: BTreeMap<String, u64> = BTreeMap::new();
     let mut elided_report: Vec<Value> = vec![];
     let mut pos = 0usize;
     let t0 = std::time::Instant::now();
@@ -245,7 +273,10 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
         if v["type"].as_str() != Some("rule") {
             return Ok(());
         }
-        let rule = parse_rule(&v, n, pos).map_err(|e| e.to_string())?;
+        let mut rule = parse_rule(&v, n, pos).map_err(|e| e.to_string())?;
+        if let Some(l) = extra_loci.get(&rule.pos) {
+            rule.witness_loci = Some(l.clone());
+        }
         pos += 1;
         if only.as_ref().is_some_and(|o| !o.contains(&rule.pos)) {
             return Ok(());
@@ -293,16 +324,50 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
         let mut my_loci = 0usize;
         let mut rule_viol = 0usize;
         let mut rule_und = 0usize;
-        for (dtext, d) in &dens {
-            tally.divisors += 1;
+        // items: every written divisor, then every LISTED witness locus polynomial of the record (the spec's validity:
+        // its d-coefficient locus inside the exceptions on the selected domain)
+        let mut items: Vec<(&'static str, String, ZPoly)> = dens
+            .iter()
+            .map(|(t, z)| ("divisor", t.clone(), z.clone()))
+            .collect();
+        if let Some(wl) = &rule.witness_loci {
+            for w in wl {
+                match Expr::parse(w, n)
+                    .ok()
+                    .and_then(|e| to_zpoly(&e.root, n, &ctx.vars).ok())
+                {
+                    Some(z) => items.push(("listed witness locus", w.clone(), z)),
+                    None => {
+                        *witness_tally
+                            .entry("listed loci not parseable (elided)".into())
+                            .or_default() += 1
+                    }
+                }
+            }
+        }
+        for (kind, dtext, d) in &items {
+            let kind: &str = kind;
+            if kind == "divisor" {
+                tally.divisors += 1;
+            } else {
+                *witness_tally
+                    .entry("listed loci checked".into())
+                    .or_default() += 1;
+            }
             let dq = restrict(&zpoly_to_q(d), &f, n);
             if dq.is_zero() {
-                violations.push(json!({"rule": rule.pos, "divisor": crate::coef::short(dtext), "why": "divisor identically zero on the case"}));
+                violations.push(json!({"rule": rule.pos, "kind": kind, "divisor": crate::coef::short(dtext), "why": "identically zero on the case"}));
                 rule_viol += 1;
                 continue;
             }
             if dq.is_constant() {
-                tally.constant_divisor += 1;
+                if kind == "divisor" {
+                    tally.constant_divisor += 1;
+                } else {
+                    *witness_tally
+                        .entry("listed loci: constant on the case (empty)".into())
+                        .or_default() += 1;
+                }
                 continue;
             }
             let coeffs: Vec<QPoly> = dq
@@ -311,29 +376,49 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
                 .map(|(c, _)| c)
                 .collect();
             if coeffs.iter().any(|c| c.is_constant() && !c.is_zero()) {
-                tally.constant_d_coefficient += 1;
+                if kind == "divisor" {
+                    tally.constant_d_coefficient += 1;
+                } else {
+                    *witness_tally
+                        .entry("listed loci: constant d-coefficient (empty)".into())
+                        .or_default() += 1;
+                }
                 continue;
             }
-            my_loci += 1;
+            if kind == "divisor" {
+                my_loci += 1;
+            }
             let faces = match ctx.locus_faces(&f, &coeffs, 0) {
                 Ok(x) => x,
                 Err(e) => {
                     undecided.push(
-                        json!({"rule": rule.pos, "divisor": crate::coef::short(dtext), "why": e}),
+                        json!({"rule": rule.pos, "kind": kind, "divisor": crate::coef::short(dtext), "why": e}),
                     );
                     rule_und += 1;
                     continue;
                 }
             };
             for g in faces {
-                tally.locus_faces += 1;
-                if ctx.branch_contains(&rule, &g).is_some() {
-                    tally.faces_in_branch += 1;
-                    continue;
+                if kind != "divisor" {
+                    *witness_tally
+                        .entry("listed loci: faces".into())
+                        .or_default() += 1;
+                    if ctx.branch_contains(&rule, &g).is_some() {
+                        *witness_tally
+                            .entry("listed loci: faces inside an exception branch".into())
+                            .or_default() += 1;
+                        continue;
+                    }
+                } else {
+                    tally.locus_faces += 1;
+                    if ctx.branch_contains(&rule, &g).is_some() {
+                        tally.faces_in_branch += 1;
+                        continue;
+                    }
                 }
                 tally.faces_enumerated += 1;
                 if ctx.region.r.is_none() {
-                    undecided.push(json!({"rule": rule.pos, "divisor": crate::coef::short(dtext),
+                    undecided.push(json!({"rule": rule.pos, "kind": kind, "divisor": crate::coef::short(dtext),
                         "why": "locus face not inside an exception branch (unbounded region: not enumerated)", "face": g.describe()}));
                     rule_und += 1;
                     continue;
@@ -352,8 +437,8 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
                                 continue;
                             }
                             if dispatch::first_match(&t, &k) == Some(rule.pos) {
-                                violations.push(json!({"rule": rule.pos, "key": k, "divisor": crate::coef::short(dtext),
-                                    "why": "coefficient pole at a key the rule is selected at"}));
+                                violations.push(json!({"rule": rule.pos, "kind": kind, "key": k, "divisor": crate::coef::short(dtext),
+                                    "why": "pole locus point at a key the rule is selected at"}));
                                 rule_viol += 1;
                             } else {
                                 tally.poles_on_domain_not_selected += 1;
@@ -361,7 +446,7 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
                         }
                     }
                     Err(c) => {
-                        undecided.push(json!({"rule": rule.pos, "divisor": crate::coef::short(dtext),
+                        undecided.push(json!({"rule": rule.pos, "kind": kind, "divisor": crate::coef::short(dtext),
                             "why": format!("locus face with more than {c} lattice points and no containing branch")}));
                         rule_und += 1;
                     }
@@ -419,7 +504,7 @@ pub fn run(tp: &str, r: Option<i128>, only: Option<Vec<usize>>) -> Result<Value,
         "constant_d_coefficient": tally.constant_d_coefficient, "locus_faces": tally.locus_faces,
         "faces_inside_an_exception_branch": tally.faces_in_branch, "faces_enumerated": tally.faces_enumerated,
         "points_checked": tally.points_checked, "poles_on_domain_where_an_earlier_rule_is_selected": tally.poles_on_domain_not_selected,
-        "violations": violations, "undecided": undecided, "claims": claim_cmp, "claims_unmatched": claim_unmatched, "records_without_listed_loci": elided_report,
+        "violations": violations, "undecided": undecided, "claims": claim_cmp, "claims_unmatched": claim_unmatched, "listed_witness_loci": witness_tally, "records_without_listed_loci": elided_report,
         "seconds": t0.elapsed().as_secs_f64(),
         "verdict": if violations.is_empty() && undecided.is_empty() { "YES" } else { "NO" },
     });
