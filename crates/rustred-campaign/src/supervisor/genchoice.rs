@@ -1695,7 +1695,7 @@ mod tests {
             "3".into(),
         ])
         .unwrap();
-        assert!(check_flags(&["--seed-pose-trigger".into(), "5".into()]).is_err());
+        assert!(check_flags(&["--pose-probe".into(), "x".into()]).is_err());
         assert!(check_flags(&["--numeric-depth-max".into(), "x".into()]).is_err());
         assert!(check_flags(&["--order".into(), "id".into()]).is_err());
     }
