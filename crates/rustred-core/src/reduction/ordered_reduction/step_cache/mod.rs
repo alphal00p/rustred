@@ -536,6 +536,20 @@ impl<'a> RecordView<'a> {
         })
     }
 
+    /// [`Self::terms`] with the shard's shared coefficient handles (light
+    /// replay: the caller keeps the `Arc` and names it by a handle).
+    pub(crate) fn shared_terms(
+        &self,
+    ) -> impl ExactSizeIterator<Item = (&'a [u8], &'a Arc<Coefficient>)> + 'a {
+        let data = self.data;
+        self.record.terms.iter().map(move |&(node, coefficient)| {
+            (
+                &*data.nodes[node as usize],
+                &data.coefficients[coefficient as usize],
+            )
+        })
+    }
+
     pub(crate) fn terminals(
         &self,
     ) -> impl ExactSizeIterator<Item = (&'a [u8], &'a Coefficient)> + 'a {

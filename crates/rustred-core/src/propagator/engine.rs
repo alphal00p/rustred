@@ -3250,6 +3250,14 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
     fn step_cache_refresh(&self, step: OrderedStep<PKey>) -> Result<OrderedStep<PKey>, PError> {
         self.stepper.refresh_canonical(step)
     }
+
+    fn step_cache_refresh_is_identity(&self) -> bool {
+        !self.stepper.canonical
+            || REFRESH_CLASSES
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+    }
 }
 
 /// Owner classes whose Apply children are canonicalised again when a step is
