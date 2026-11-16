@@ -325,6 +325,10 @@ pub struct NfOptions {
     pub subset: Option<Vec<usize>>,
     /// Split product members of exception branches by their exact linear factors (default false = the checker's form).
     pub factor_exceptions: bool,
+    /// ENGINE MODEL: the engine's zero test is EXACT (rustred slot-alias 4895ee68 / da5d13da: two primes, then big rationals
+    /// when both residues vanish), so no modular-zero-risk stop piece exists. Default false: the two-prime engine
+    /// (frozen line7d), whose misreads are modelled as stop pieces.
+    pub engine_exact_zero: bool,
 }
 
 struct Builder {
@@ -1126,7 +1130,11 @@ pub fn build(
         // literals evaluated before it hold (earlier equations zero; for a member: every equation zero, every bound
         // >= 0, the earlier members of its branch zero) AND the literal's risk region (exact residue points, far
         // radius, or everything); a condition that cannot be represented is left out (a larger piece: sound)
-        let reached = reached_literals(d);
+        let reached = if opts.engine_exact_zero {
+            vec![] // exact engine zero test: no modular misread, no stop piece
+        } else {
+            reached_literals(d)
+        };
         let risks: Vec<(LitPos, Result<LitRisk, String>)> = match rule_point_bounds(d) {
             Ok(mb) => reached
                 .iter()

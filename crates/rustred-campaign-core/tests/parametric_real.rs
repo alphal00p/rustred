@@ -1385,6 +1385,12 @@ fn b2_face_by_face() {
     if let Some(b) = &bank_loci {
         eprintln!("bank witness loci: {b}");
     }
+    // PARAMETRIC_ENGINE_ORDER=1: certify the ENGINE's two-phase order (ordinary records, then slot aliases; TRICKS 43)
+    let engine_order_info = (std::env::var("PARAMETRIC_ENGINE_ORDER").as_deref() == Ok("1"))
+        .then(|| engine_order(&mut ld));
+    if let Some(e) = &engine_order_info {
+        eprintln!("engine order: {e}");
+    }
     // PARAMETRIC_NOTCARRIED=engine: records whose source carries NO witness loci (status NotCarried: T162's converted
     // bank tables) are treated as the ENGINE treats them (its matcher never tests witness loci; it writes their
     // vanishing sets into the exceptions): their witness check is disabled (Assurance::CheckDisabled, labelled in the
@@ -1548,6 +1554,20 @@ fn b2_face_by_face() {
     opts.max_blocked_classes = std::env::var("PARAMETRIC_MAX_BLOCKED_CLASSES")
         .ok()
         .and_then(|s| s.parse().ok());
+    // ENGINE MODEL keyed by engine id (recorded in every certificate): "line7d" (default: frozen engine-line7d, two-prime zero
+    // test, its misreads modelled as modular-zero-risk stop pieces) or "4895ee68" (rustred slot-alias 4895ee68: exact zero
+    // test via da5d13da, slot aliases in table order: no modular stop pieces)
+    let engine_id = std::env::var("PARAMETRIC_ENGINE").unwrap_or_else(|_| "line7d".into());
+    let engine_model = match engine_id.as_str() {
+        "line7d" => {
+            json!({"id": "frozen engine-line7d (bin/frozen/20261115T0652Z-engine-line7d)", "zero_test": "two primes 2^61-1, 2^61-31 (misreads modelled as modular-zero-risk stop pieces)", "alias_order": "table order (no alias records)"})
+        }
+        "4895ee68" => {
+            opts.engine_exact_zero = true;
+            json!({"id": "rustred slot-alias 4895ee68 (2746b4c5 alias order, da5d13da exact zero test)", "zero_test": "exact: two primes, then big rationals when both residues vanish (no modular stop piece)", "alias_order": "slot-permuted alias records in table order"})
+        }
+        other => panic!("PARAMETRIC_ENGINE {other}: unknown engine id (line7d | 4895ee68)"),
+    };
     let dir = PathBuf::from(format!("{out}.pieces"));
     std::fs::create_dir_all(&dir).unwrap();
     let lines_path = format!("{out}.pieces.jsonl");
@@ -1771,6 +1791,15 @@ fn b2_face_by_face() {
             if let Some((_, meta)) = &terminals {
                 cert_v["terminals"] = meta.clone();
             }
+            // the engine model and the completeness rule: a certificate over an incomplete partition (work-budget
+            // exhaustion, a skipped blocked sub-partition, any flag) is REFUSED
+            cert_v["engine"] = engine_model.clone();
+            let status = if cp.flags.is_empty() {
+                "complete".to_string()
+            } else {
+                format!("REFUSED: incomplete partition: {}", cp.flags.join("; "))
+            };
+            cert_v["certificate_status"] = json!(status);
             std::fs::write(
                 dir.join(format!("{fid}.{tag}.certificate.json")),
                 serde_json::to_string(&cert_v).unwrap(),
@@ -1861,7 +1890,7 @@ fn b2_face_by_face() {
                 .unwrap();
             }
             cone_lines.push(json!({
-                "cone": tag, "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
+                "cone": tag, "certificate_status": status, "engine": engine_model["id"], "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
                 "uncovered": cov.uncovered, "undecided": cov.undecided,
                 "residual": {"cell_keys_in_cone": res_keys, "duplicate_rows_skipped": duplicate_rows, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
                 "terminals": terminals.as_ref().map(|(t, m)| json!({"terminal_set_sha256": m["sha256"], "terminal_keys": t.len(),
@@ -1973,7 +2002,7 @@ fn b2_face_by_face() {
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "restored_loci": restored, "fall_through": ft_mode, "fall_through_stats": ft_stats, "factor_exceptions": opts.factor_exceptions,
         "notcarried_witness_check_disabled": notcarried_disabled, "elided_engine": elided_engine, "residual_redispatch_spec": redispatch_spec,
-        "bank_witness_loci": bank_loci,
+        "bank_witness_loci": bank_loci, "engine_order": engine_order_info,
         "budget_per_piece": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo, "rss_gb": rss_max >> 30},
         "pieces": {"done": done.len(), "refined": refined, "failed": failed.iter().map(|v| v["piece"].clone()).collect::<Vec<_>>(), "run_now": n_run},
     });
@@ -2137,6 +2166,9 @@ fn redispatch_keys() {
     if let Some(b) = &bank_loci {
         eprintln!("bank witness loci: {b}");
     }
+    if std::env::var("PARAMETRIC_ENGINE_ORDER").as_deref() == Ok("1") {
+        eprintln!("engine order: {}", engine_order(&mut ld));
+    }
     let mut notcarried = 0usize;
     if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
         use rustred_campaign_core::cover::{Assurance, WitnessStatus};
@@ -2162,6 +2194,151 @@ fn redispatch_keys() {
     )
     .unwrap();
     let lines: Vec<bool> = (0..ld.frame.arity()).map(|i| ld.frame.is_line(i)).collect();
+    // BINARY key lists (lane arrivals' RRKEYS01: magic, u32 LE header length, header JSON, then per key arity x i8 + u8 depth
+    // + u8 senders): streamed in blocks over PARAMETRIC_THREADS threads; counts only (no per-key file)
+    if keys_p.extension().is_some_and(|e| e == "bin") {
+        use std::io::Read;
+        let mut f =
+            std::io::BufReader::with_capacity(1 << 24, std::fs::File::open(&keys_p).unwrap());
+        let mut magic = [0u8; 8];
+        f.read_exact(&mut magic).unwrap();
+        assert_eq!(&magic, b"RRKEYS01", "not an RRKEYS01 file");
+        let mut hl = [0u8; 4];
+        f.read_exact(&mut hl).unwrap();
+        let mut hdr = vec![0u8; u32::from_le_bytes(hl) as usize];
+        f.read_exact(&mut hdr).unwrap();
+        let header: serde_json::Value = serde_json::from_slice(&hdr).unwrap();
+        let n = ld.frame.arity();
+        let rec = n + 2;
+        let threads: usize = std::env::var("PARAMETRIC_THREADS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(16);
+        let block = 1usize << 20;
+        let mut served: BTreeMap<String, u64> = BTreeMap::new();
+        let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+        let mut open_faces: BTreeMap<String, u64> = BTreeMap::new();
+        let mut open_first: Vec<serde_json::Value> = Vec::new();
+        let (mut total, mut open) = (0u64, 0u64);
+        let t0 = std::time::Instant::now();
+        let mut buf = vec![0u8; block * rec];
+        loop {
+            let mut got = 0usize;
+            while got < buf.len() {
+                let k = f.read(&mut buf[got..]).unwrap();
+                if k == 0 {
+                    break;
+                }
+                got += k;
+            }
+            if got == 0 {
+                break;
+            }
+            assert_eq!(got % rec, 0, "truncated record");
+            let nk = got / rec;
+            let chunk = nk.div_ceil(threads);
+            type Part = (
+                BTreeMap<String, u64>,
+                BTreeMap<String, u64>,
+                BTreeMap<String, u64>,
+                Vec<serde_json::Value>,
+                u64,
+            );
+            let parts: Vec<Part> = std::thread::scope(|sc| {
+                let hs: Vec<_> = (0..threads)
+                    .map(|t| {
+                        let lo = (t * chunk).min(nk);
+                        let hi = ((t + 1) * chunk).min(nk);
+                        let data = &buf[lo * rec..hi * rec];
+                        let g5 = &g5;
+                        let lines = &lines;
+                        sc.spawn(move || {
+                            let (mut sv, mut rs, mut of, mut ofirst, mut op) = (
+                                BTreeMap::new(),
+                                BTreeMap::new(),
+                                BTreeMap::new(),
+                                Vec::new(),
+                                0u64,
+                            );
+                            for r in data.chunks_exact(rec) {
+                                let k: Vec<i32> =
+                                    r[..n].iter().map(|&b| i32::from(b as i8)).collect();
+                                match g5.first_match(&k) {
+                                    Ok(Dispatch::Covered(rr)) => {
+                                        *sv.entry(format!(
+                                            "{}#{}",
+                                            g5.tables()[rr.table].name,
+                                            g5.tables()[rr.table].labels[rr.record]
+                                        ))
+                                        .or_insert(0u64) += 1;
+                                    }
+                                    other => {
+                                        op += 1;
+                                        let s = format!("{other:?}");
+                                        let why = match s.find("reason: ") {
+                                            Some(p) => format!(
+                                                    "blocked:{}",
+                                                    s[p + 8..]
+                                                        .chars()
+                                                        .take_while(
+                                                            |c| c.is_alphanumeric() || *c == '_'
+                                                        )
+                                                        .collect::<String>()
+                                                ),
+                                            None => s.chars().take(40).collect(),
+                                        };
+                                        *rs.entry(why.clone()).or_insert(0u64) += 1;
+                                        *of.entry(format!("{:?}", face_of(lines, &k)))
+                                            .or_insert(0u64) += 1;
+                                        if ofirst.len() < 200 {
+                                            ofirst.push(json!({"key": k, "why": why}));
+                                        }
+                                    }
+                                }
+                            }
+                            (sv, rs, of, ofirst, op)
+                        })
+                    })
+                    .collect();
+                hs.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            for (sv, rs, of, ofirst, op) in parts {
+                for (k, v) in sv {
+                    *served.entry(k).or_default() += v;
+                }
+                for (k, v) in rs {
+                    *reasons.entry(k).or_default() += v;
+                }
+                for (k, v) in of {
+                    *open_faces.entry(k).or_default() += v;
+                }
+                for x in ofirst {
+                    if open_first.len() < 2000 {
+                        open_first.push(x);
+                    }
+                }
+                open += op;
+            }
+            total += nk as u64;
+            if total % (16 * block as u64) < block as u64 {
+                eprintln!(
+                    "  {total} keys, {open} open, {:.0} s",
+                    t0.elapsed().as_secs_f64()
+                );
+            }
+        }
+        let res = json!({
+            "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "loader": ld.loader,
+            "keys": {"path": keys_p.display().to_string(), "format": "RRKEYS01", "header": header},
+            "restored_loci": restored, "bank_witness_loci": bank_loci, "fall_through": "reduced (decision G5)",
+            "keys_checked": total, "open": open, "open_by_dispatch": reasons, "open_by_face": open_faces,
+            "open_keys_first_2000": open_first, "covered_by_record": served, "seconds": t0.elapsed().as_secs_f64(),
+            "threads": threads,
+        });
+        std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+        eprintln!("redispatch (binary): {total} keys, {open} open");
+        return;
+    }
     let f = std::io::BufReader::new(std::fs::File::open(&keys_p).unwrap());
     let (mut n, mut open) = (0u64, 0u64);
     let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
@@ -2864,4 +3041,185 @@ fn restore_bank_loci(ld: &mut Loaded, file: &str) -> serde_json::Value {
            "not_established": not_est, "elided_loci": elided_kept, "unproven": unproven,
            "unproven_applied_as_engine": unproven_engine,
            "records_still_notcarried": still_notcarried, "records_still_elided": still_elided})
+}
+
+/// A record whose rhs carries a symbol at another slot (`n<i>` at slot j != i): the engine treats it as a SLOT ALIAS and
+/// applies it AFTER every ordinary rule (TRICKS 43).
+fn is_slot_alias_raw(v: &serde_json::Value) -> bool {
+    let Some(rhs) = v["rhs"].as_array() else {
+        return false;
+    };
+    rhs.iter().any(|t| {
+        let Some(term) = t.get(0).and_then(|x| x.as_str()) else {
+            return false;
+        };
+        let (Some(a), Some(b)) = (term.find('('), term.rfind(')')) else {
+            return false;
+        };
+        term[a + 1..b].split(',').enumerate().any(|(j, e)| {
+            let e = e.trim();
+            e.strip_prefix('n')
+                .map(|r| {
+                    r.chars()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                })
+                .and_then(|d| d.parse::<usize>().ok())
+                .is_some_and(|i| i != j)
+        })
+    })
+}
+
+/// Per (table, record) of the dispatcher: is it a slot alias (read from the record's raw line).
+fn alias_flags(ld: &Loaded) -> std::collections::BTreeSet<(usize, usize)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut out = std::collections::BTreeSet::new();
+    for j in &ld.jobs {
+        let mut f = std::fs::File::open(&j.path).unwrap();
+        f.seek(SeekFrom::Start(j.offset)).unwrap();
+        let mut b = vec![0u8; j.bytes as usize];
+        f.read_exact(&mut b).unwrap();
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b)
+            && is_slot_alias_raw(&v)
+        {
+            out.insert((j.table, j.record));
+        }
+    }
+    out
+}
+
+/// The ENGINE's effective first-match order (TRICKS 43): every ordinary record in table order, THEN the slot aliases.
+/// The dispatcher is rebuilt so: one ordinary copy per table (same priority), then one alias copy per table holding
+/// aliases. Labels are kept; jobs are re-pointed.
+fn engine_order(ld: &mut Loaded) -> serde_json::Value {
+    let aliases = alias_flags(ld);
+    if aliases.is_empty() {
+        return json!({"slot_aliases": 0});
+    }
+    let tables = ld.disp.tables().to_vec();
+    let prio = ld.disp.priority().to_vec();
+    let mut new_tables: Vec<Table> = Vec::new();
+    let mut remap: BTreeMap<(usize, usize), (usize, usize)> = BTreeMap::new();
+    let mut alias_parts: Vec<Table> = Vec::new();
+    let mut alias_src: Vec<Vec<(usize, usize)>> = Vec::new();
+    for &ti in &prio {
+        let t = &tables[ti];
+        let mut ord = t.clone();
+        let mut ali = t.clone();
+        let (mut od, mut ol, mut om) = (vec![], vec![], vec![]);
+        let (mut ad, mut al, mut am) = (vec![], vec![], vec![]);
+        let mut asrc = vec![];
+        for r in 0..t.domains.len() {
+            if aliases.contains(&(ti, r)) {
+                ad.push(t.domains[r].clone());
+                al.push(t.labels[r]);
+                am.push(t.meta[r].clone());
+                asrc.push((ti, r));
+            } else {
+                remap.insert((ti, r), (new_tables.len(), od.len()));
+                od.push(t.domains[r].clone());
+                ol.push(t.labels[r]);
+                om.push(t.meta[r].clone());
+            }
+        }
+        ord.domains = od;
+        ord.labels = ol;
+        ord.meta = om;
+        new_tables.push(ord);
+        if !ad.is_empty() {
+            ali.name = format!("{} [slot aliases, engine phase 2]", t.name);
+            ali.domains = ad;
+            ali.labels = al;
+            ali.meta = am;
+            alias_parts.push(ali);
+            alias_src.push(asrc);
+        }
+    }
+    for (k, t) in alias_parts.into_iter().enumerate() {
+        let ni = new_tables.len();
+        for (r, &src) in alias_src[k].iter().enumerate() {
+            remap.insert(src, (ni, r));
+        }
+        new_tables.push(t);
+    }
+    for j in &mut ld.jobs {
+        let (t, r) = remap[&(j.table, j.record)];
+        j.table = t;
+        j.record = r;
+    }
+    let m = new_tables.len();
+    ld.disp = Dispatcher::new(new_tables, (0..m).collect())
+        .unwrap()
+        .with_chart(ld.frame.mask().to_vec())
+        .unwrap();
+    json!({"slot_aliases": aliases.len(), "order": "ordinary records in table order, then slot aliases (engine two-phase dispatch)"})
+}
+
+/// DISPATCH-ORDER CHECK (TRICKS 43, builder check): for every slot alias A of PARAMETRIC_SPEC (sources list / import spec,
+/// certified order) and every ORDINARY record R placed after it, is A's selected set disjoint from R's (fixed slots,
+/// equations, bounds; R's exception branches are ignored: a superset)? A non-empty intersection means the engine (aliases
+/// applied after every ordinary rule) may serve those keys with R instead of A. Output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn dispatch_order_check() {
+    use rustred_campaign_core::parametric::descent::{EmptyState, emptiness};
+    use rustred_campaign_core::poly::Poly;
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let ld = load_any(&spec, None);
+    let aliases = alias_flags(&ld);
+    let budget = ProofBudget::default();
+    let order: Vec<(usize, usize)> = ld
+        .disp
+        .priority()
+        .iter()
+        .flat_map(|&ti| (0..ld.disp.tables()[ti].domains.len()).map(move |r| (ti, r)))
+        .collect();
+    let mut found = Vec::new();
+    let (mut checked, mut overlaps) = (0usize, 0usize);
+    for (p, &(ta, ra)) in order.iter().enumerate() {
+        if !aliases.contains(&(ta, ra)) {
+            continue;
+        }
+        let a = &ld.disp.tables()[ta].domains[ra];
+        for &(tr, rr) in &order[p + 1..] {
+            if aliases.contains(&(tr, rr)) {
+                continue;
+            }
+            let r = &ld.disp.tables()[tr].domains[rr];
+            let mut eqs: Vec<Poly> = r.equations.clone();
+            let mut conflict = false;
+            for (s, fx) in r.fixed.iter().enumerate() {
+                if let Some(v) = fx {
+                    if let Some(av) = a.fixed[s] {
+                        if av != *v {
+                            conflict = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    eqs.push(Poly::var(s).sub(&Poly::constant(i128::from(*v))).unwrap());
+                }
+            }
+            checked += 1;
+            if conflict {
+                continue;
+            }
+            let (st, w, why) = emptiness(a, &ld.frame, &budget, &eqs, &r.bounds);
+            if st != EmptyState::Empty {
+                overlaps += 1;
+                found.push(json!({"alias": {"table": ld.disp.tables()[ta].name, "label": ld.disp.tables()[ta].labels[ra], "position": p},
+                    "ordinary_after": {"table": ld.disp.tables()[tr].name, "label": ld.disp.tables()[tr].labels[rr]},
+                    "intersection": format!("{st:?}"), "witness": w, "why": why}));
+            }
+        }
+    }
+    let res = json!({"spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "slot_aliases": aliases.len(),
+        "pairs_checked": checked, "overlaps": overlaps, "found": found,
+        "rule": "no ordinary record after a slot alias may overlap it (the engine applies aliases after every ordinary rule)"});
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "dispatch order check: {} aliases, {checked} pairs, {overlaps} overlaps",
+        aliases.len()
+    );
 }

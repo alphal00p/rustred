@@ -300,6 +300,7 @@ fn t162_stage_timing() {
             dedup: true,
             subset: None,
             factor_exceptions: false,
+            engine_exact_zero: false,
         },
     )
     .unwrap();

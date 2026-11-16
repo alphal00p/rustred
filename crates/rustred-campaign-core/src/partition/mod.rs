@@ -388,6 +388,8 @@ pub struct PartitionOptions {
     pub rule_subset: Option<Vec<usize>>,
     pub dedup: bool,
     pub factor_exceptions: bool,
+    /// Engine model: exact zero test (no modular-zero-risk stop pieces; [`nf::NfOptions::engine_exact_zero`]).
+    pub engine_exact_zero: bool,
     /// Resolve every F class into loci ([`crate::loci`]).
     pub resolve_loci: bool,
     pub loci: crate::loci::LociOptions,
@@ -413,6 +415,7 @@ impl Default for PartitionOptions {
             rule_subset: None,
             dedup: true,
             factor_exceptions: false,
+            engine_exact_zero: false,
             resolve_loci: true,
             loci: crate::loci::LociOptions::default(),
             budget: Budget::default(),
@@ -787,6 +790,7 @@ pub(crate) fn gap_partition_with(
             dedup: opts.dedup,
             subset: opts.rule_subset.clone(),
             factor_exceptions: opts.factor_exceptions,
+            engine_exact_zero: opts.engine_exact_zero,
         },
     )?;
     // FailClosed: each elided record blocks; dispatch mode: every record with a stop set blocks.
@@ -964,6 +968,7 @@ pub(crate) fn prove_dispatch_no_gap(
         rule_subset: None,
         dedup: true,
         factor_exceptions: false,
+        engine_exact_zero: false,
         resolve_loci: true,
         loci: crate::loci::LociOptions {
             deadline: meter.deadline(),

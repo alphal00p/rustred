@@ -137,6 +137,8 @@ pub struct ConeOptions {
     /// covered); flagged. `None` = list everything. (T162: a superset stop piece of its generic first record gives a
     /// 66.6 M-class sub-report.)
     pub max_blocked_classes: Option<usize>,
+    /// Engine model: the engine's zero test is exact (rustred slot-alias 4895ee68): no modular-zero-risk stop pieces.
+    pub engine_exact_zero: bool,
 }
 
 impl Default for ConeOptions {
@@ -153,6 +155,7 @@ impl Default for ConeOptions {
             factor_exceptions: false,
             describe: false,
             max_blocked_classes: None,
+            engine_exact_zero: false,
         }
     }
 }
@@ -953,6 +956,7 @@ pub fn partition_options(budget: &Budget) -> PartitionOptions {
         rule_subset: None,
         dedup: true,
         factor_exceptions: false,
+        engine_exact_zero: false,
         resolve_loci: true,
         loci: crate::loci::LociOptions {
             deadline: budget
@@ -1017,6 +1021,7 @@ pub fn partition_for_cones_traced(
     let t0 = std::time::Instant::now();
     let mut po = partition_options(&opts.budget);
     po.factor_exceptions = opts.factor_exceptions;
+    po.engine_exact_zero = opts.engine_exact_zero;
     let report = if opts.describe {
         crate::partition::gap_partition(&src, frame, &po, progress)
     } else {

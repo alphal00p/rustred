@@ -447,6 +447,7 @@ fn nf_of(ds: &[CaseDomain], frame: &NodeFrame, elided: ElidedPolicy) -> Result<N
             dedup: false,
             subset: None,
             factor_exceptions: true,
+            engine_exact_zero: false,
         },
     )
     .map_err(|e| format!("{e}"))
