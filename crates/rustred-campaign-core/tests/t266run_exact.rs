@@ -222,7 +222,8 @@ fn t266_exact_tier_with_exported_evidence() {
         "T266RUN store: {} ({store_s:.1} s, VmHWM {hwm_store} kB)",
         serde_json::to_string(&ev.counts.stores).unwrap()
     );
-    let out = s.join("exact");
+    // `T266RUN_OUT`: the output directory (default <scratch>/exact)
+    let out = std::env::var_os("T266RUN_OUT").map(PathBuf::from).unwrap_or_else(|| s.join("exact"));
     std::fs::create_dir_all(&out).unwrap();
     let t2 = std::time::Instant::now();
     let res = import::check::check_streamed(
@@ -261,6 +262,9 @@ fn t266_exact_tier_with_exported_evidence() {
             "proof_records": res.proof_requests.len(), "proof_keys": proof_keys,
             "solve": res.solve_requests.len()},
         "evidence_counts": serde_json::to_value(&ev.counts).unwrap(),
+        // lane t266run (read path): the stores' lookup counters over the load + check, and the block cache in force
+        "store_reads": ev.store_read_stats().iter().map(|(d, st)| json!({"dir": d, "stats": st})).collect::<Vec<_>>(),
+        "block_cache": import::store::block_cache_capacity(), "threads": threads,
     });
     std::fs::write(
         out.join("report.json"),

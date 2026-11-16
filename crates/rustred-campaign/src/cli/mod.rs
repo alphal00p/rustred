@@ -11,9 +11,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 pub const USAGE: &str = "usage:
-  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G] [--cpus LIST] [--max-jobs N] [--mem-cap SIZE] [--accept-truncation-to SEQ]
+  rr_campaign run --spec SPEC.json [--dir CDIR] [--plain] [--fake-child] [--accept-binary-change] [--adopt-moved-campaign] [--cores N] [--mem-total 30G] [--cpus LIST] [--max-jobs N] [--mem-cap SIZE] [--check-threads N] [--store-threads N] [--accept-truncation-to SEQ]
       (the live dashboard when stdout is a terminal and --plain is not given; Ctrl-C = drain, twice = force;
-       --cpus / --max-jobs / --mem-cap: this SESSION's resources (launch-time; not part of the campaign's identity: a resume may use other CPUs))
+       --cpus / --max-jobs / --mem-cap / --check-threads / --store-threads: this SESSION's resources (launch-time; not part of the campaign's identity: a resume may use other CPUs))
   rr_campaign preflight --spec SPEC.json [--dir CDIR]
   rr_campaign watch CDIR [--plain]          (alias: dashboard; read-only viewer: q / Ctrl-C close it, the campaign is unaffected)
   rr_campaign status CDIR [--once] [--width N] [--height M] [--json]
@@ -125,6 +125,8 @@ struct Flags {
     cpus: Option<String>,
     max_jobs: Option<usize>,
     mem_cap: Option<String>,
+    check_threads: Option<usize>,
+    store_threads: Option<usize>,
     positional: Vec<String>,
     // lane closeloop4
     node: Option<String>,
@@ -177,6 +179,12 @@ fn parse(rest: &[String]) -> Result<Flags, String> {
             "--cores" => f.cores = Some(val("--cores")?.parse().map_err(|_| "--cores: a number")?),
             "--cpus" => f.cpus = Some(val("--cpus")?),
             "--mem-cap" => f.mem_cap = Some(val("--mem-cap")?),
+            "--check-threads" => {
+                f.check_threads = Some(val("--check-threads")?.parse().map_err(|_| "--check-threads: a number")?)
+            }
+            "--store-threads" => {
+                f.store_threads = Some(val("--store-threads")?.parse().map_err(|_| "--store-threads: a number")?)
+            }
             "--max-jobs" => {
                 f.max_jobs = Some(
                     val("--max-jobs")?
@@ -251,6 +259,13 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         spec.resources.max_jobs = m.max(1);
     }
     // lane t266run (L17): the per-job memory cap is a launch-time resource too (never part of the campaign identity)
+    // lane t266run: thread counts are launch-time resources too (never part of the identity; results do not depend on them)
+    if let Some(t) = f.check_threads {
+        spec.resources.check_threads = Some(t.max(1));
+    }
+    if let Some(t) = f.store_threads {
+        spec.resources.store_threads = Some(t.max(1));
+    }
     if let Some(m) = &f.mem_cap {
         match crate::supervisor::spec::ByteSize::parse(m) {
             Ok(b) if b.0 > 0 => spec.resources.job_mem_cap = Some(b),

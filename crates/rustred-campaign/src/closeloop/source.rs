@@ -94,6 +94,58 @@ struct NodeRt {
     /// lane t266run: BLAKE3 of the effective import spec text the cached set was loaded from, and the chart text.
     set_digest: Option<String>,
     chart: Option<String>,
+    /// lane t266run (closeloop.md 25): the carried work of an earlier campaign (verified at node start).
+    prior: Prior,
+}
+
+/// lane t266run (closeloop.md 25): an earlier campaign's work, every file re-hashed (sha256) against the pinned manifest.
+#[derive(Default)]
+struct Prior {
+    recipes: Vec<PathBuf>,
+    answers: Vec<(PathBuf, String)>,
+    relations: Vec<(PathBuf, String, String)>,
+    proofs: Vec<(PathBuf, String)>,
+}
+
+impl Prior {
+    /// Reads and verifies the manifest of `cfg` (None = nothing carried). Files are named with their BLAKE3 for the
+    /// pass's own re-check (`verify_b3`).
+    fn load(cfg: Option<&super::config::PriorCfg>) -> Result<Prior, String> {
+        let Some(c) = cfg else {
+            return Ok(Prior::default());
+        };
+        let got = file_sha256(&c.manifest)?;
+        if got != c.sha256 {
+            return Err(format!("prior manifest {}: sha256 {got} differs from the pinned {}", c.manifest.display(), c.sha256));
+        }
+        let m: Value = serde_json::from_slice(&std::fs::read(&c.manifest).map_err(|e| e.to_string())?)
+            .map_err(|e| format!("prior manifest {}: {e}", c.manifest.display()))?;
+        if m["schema"] != "rustred.campaign.closeloop-prior.v1" {
+            return Err(format!("prior manifest {}: schema {}", c.manifest.display(), m["schema"]));
+        }
+        let files = |k: &str| -> Result<Vec<(PathBuf, String, Value)>, String> {
+            let mut v = vec![];
+            for f in m[k].as_array().into_iter().flatten() {
+                let p = PathBuf::from(f["path"].as_str().ok_or_else(|| format!("prior {k}: path"))?);
+                let want = f["sha256"].as_str().ok_or_else(|| format!("prior {k}: sha256"))?;
+                let got = file_sha256(&p)?;
+                if got != want {
+                    return Err(format!("prior {k} {}: sha256 {got} differs from the manifest's {want}", p.display()));
+                }
+                v.push((p.clone(), file_blake3(&p)?, f.clone()));
+            }
+            Ok(v)
+        };
+        Ok(Prior {
+            recipes: files("recipes")?.into_iter().map(|(p, _, _)| p).collect(),
+            answers: files("answers")?.into_iter().map(|(p, b, _)| (p, b)).collect(),
+            relations: files("relations")?
+                .into_iter()
+                .map(|(p, b, f)| (p, b, f["source"].as_str().unwrap_or("").to_string()))
+                .collect(),
+            proofs: files("proofs")?.into_iter().map(|(p, b, _)| (p, b)).collect(),
+        })
+    }
 }
 
 /// The close-from-material work source.
@@ -334,7 +386,7 @@ impl CloseFromMaterialSource {
                 ins.len()
             ));
         };
-        let cfg = CloseLoopConfig::read(&inp.path)?;
+        let cfg = CloseLoopConfig::read_with_resources(&inp.path, &spec.resources)?;
         let programs: BTreeMap<String, PathBuf> = spec
             .programs
             .iter()
@@ -472,6 +524,7 @@ impl CloseFromMaterialSource {
                 proof_inputs,
                 set_digest: None,
                 chart: None,
+                prior: Prior::load(nc.prior.as_ref())?,
             });
         }
         Ok(s)
@@ -651,9 +704,13 @@ impl CloseFromMaterialSource {
                 }
             }
         }
+        // lane t266run (closeloop.md 25): an earlier campaign's recipe manifests first (their faces are not escalated
+        // again; their sources are part of every round's effective spec, so the recovery re-derivation sees them too)
+        let mut recipes = self.nodes[i].prior.recipes.clone();
+        recipes.extend(self.node_inputs_of_role(st, i, ROLE_RECIPES, before));
         super::derived::DerivedState::read(
             &self.node_inputs_of_role(st, i, ROLE_SYMREL, before),
-            &self.node_inputs_of_role(st, i, ROLE_RECIPES, before),
+            &recipes,
             &self.node_inputs_of_role(st, i, ROLE_TERMINALS, before),
         )
     }
@@ -951,20 +1008,16 @@ impl CloseFromMaterialSource {
         }
         let (issued, keys_issued, jobs_issued, att, engine_retried, engine_attention) =
             self.issued(st, i)?;
-        let answers = self
-            .answers(st, i)
-            .into_iter()
-            .map(|(_, p, b)| (p, b))
-            .collect();
+        // lane t266run (closeloop.md 25): an earlier campaign's answers / proofs / relation tables first
+        let mut answers: Vec<(PathBuf, String)> = self.nodes[i].prior.answers.clone();
+        answers.extend(self.answers(st, i).into_iter().map(|(_, p, b)| (p, b)));
         let pi = self.proof_issued(st, i)?;
         // lane wireflow (b): the operator's facts-budget raises (ledger order; the last one is in force)
         let raises = self.facts_budget_raises(st, i)?;
         let in_flight = self.in_flight(st, i);
-        let proof_files = self
-            .inputs_of_role(st, i, ROLE_PROOFS)
-            .into_iter()
-            .map(|(_, p, b)| (p, b))
-            .collect();
+        // lane t266run: an earlier campaign's proof files first (prior inputs), then this campaign's
+        let mut proof_files: Vec<(PathBuf, String)> = self.nodes[i].prior.proofs.clone();
+        proof_files.extend(self.inputs_of_role(st, i, ROLE_PROOFS).into_iter().map(|(_, p, b)| (p, b)));
         let fact_files = self
             .inputs_of_role(st, i, ROLE_FACTS)
             .into_iter()
@@ -980,7 +1033,8 @@ impl CloseFromMaterialSource {
             .into_iter()
             .map(|(_, p, b)| (p, b))
             .collect();
-        let relation_tables = self.relation_tables(st, i);
+        let mut relation_tables = self.nodes[i].prior.relations.clone();
+        relation_tables.extend(self.relation_tables(st, i));
         // lane t266run (closeloop.md 17): the escalation recorded so far and the effective spec it implies; a set
         // loaded from another effective spec is dropped (the pass reloads it; the table index makes that cheap)
         let derived = self.derived_state(st, i, None)?;
@@ -1186,6 +1240,21 @@ impl CloseFromMaterialSource {
         })
     }
 
+    /// lane t266run: the per-key budget of a solve job for recipe `source`: an escalation recipe of step depth k gets
+    /// `escalation.key_budget_s_by_depth[k]` when listed, every other recipe `solve.key_budget_s` (the job's argument
+    /// and the acceptance's cap record use this one value).
+    fn key_budget_for(cfg: &NodeCfg, source: &str) -> Option<u64> {
+        let by_depth = cfg
+            .escalation
+            .as_ref()
+            .zip(super::derived::step_of_source(source))
+            .and_then(|(e, st)| {
+                let depth = rustred_campaign_core::import::recipe_steps::parse_step(st).ok()?.depth;
+                e.key_budget_s_by_depth.get(&depth).copied()
+            });
+        by_depth.or(cfg.solve.key_budget_s)
+    }
+
     fn request(
         &mut self,
         st: &CampaignState,
@@ -1209,7 +1278,7 @@ impl CloseFromMaterialSource {
         if let Some(x) = sc.max_trace_rows {
             args.extend(["--max-trace-rows".into(), x.to_string()]);
         }
-        if let Some(x) = sc.key_budget_s {
+        if let Some(x) = Self::key_budget_for(&r.cfg, &b.source) {
             args.extend(["--key-budget-s".into(), x.to_string()]);
         }
         Ok(JobRequest {
@@ -2131,7 +2200,7 @@ impl CloseFromMaterialSource {
                 .and_then(|j| j.run_dir.clone())
                 .unwrap_or_default(),
             max_trace_rows: r.cfg.solve.max_trace_rows,
-            key_budget_s: r.cfg.solve.key_budget_s,
+            key_budget_s: Self::key_budget_for(&r.cfg, &b.source),
             // lane polefix (F4): the node's setting (validated with the config)
             pole_objective: r.cfg.pole_objective_setting().unwrap_or_default(),
             pole_profiles: r.cfg.pole_profiles,

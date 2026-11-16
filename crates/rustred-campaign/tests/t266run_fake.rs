@@ -763,3 +763,255 @@ fn a_child_killed_at_its_memory_cap_is_retried_at_a_raised_cap_in_the_same_campa
     assert_eq!(result_json(&cb)["verdict"], "closed");
     assert_eq!(verify(&cb), 0);
 }
+
+// ------------------------------------------------------------------------------------------- thread counts
+// Thread counts are LAUNCH-TIME resources (`--check-threads N --store-threads N`): results never depend on them.
+
+/// A check record without what legitimately differs between campaigns (paths under the campaign directory, timings,
+/// echoed thread counts, `spec_digest` (the import spec names each test's own material directory) and store `dir` names
+/// (a hash over absolute input paths); the store CONTENT digest `data_sha256` stays compared).
+fn normalized(v: Value, cdir: &Path) -> Value {
+    match v {
+        Value::Object(m) => Value::Object(
+            m.into_iter()
+                .filter(|(k, _)| {
+                    !(k.ends_with("_s") || k.contains("seconds") || k.contains("elapsed") || k.contains("utc")
+                        || k.contains("threads") || k.ends_with("_ms") || k == "spec_digest" || k == "dir"
+                        || k == "store_reads")
+                })
+                .map(|(k, x)| (k, normalized(x, cdir)))
+                .collect(),
+        ),
+        Value::Array(a) => Value::Array(a.into_iter().map(|x| normalized(x, cdir)).collect()),
+        Value::String(s) => Value::String(s.replace(&cdir.display().to_string(), "CDIR")),
+        x => x,
+    }
+}
+
+/// Removes per-run provenance from an answer line: `results` (digest of the child's raw output stream, which carries
+/// wall times) and `reproduce` (a command naming run directories), at any depth.
+fn strip_provenance(v: &mut Value) {
+    match v {
+        Value::Object(m) => {
+            m.remove("results");
+            m.remove("reproduce");
+            for x in m.values_mut() {
+                strip_provenance(x);
+            }
+        }
+        Value::Array(a) => a.iter_mut().for_each(strip_provenance),
+        _ => {}
+    }
+}
+
+/// The first JSON path where two values differ, with both values there.
+fn first_diff(a: &Value, b: &Value, path: &str) -> Option<String> {
+    match (a, b) {
+        (Value::Object(x), Value::Object(y)) => {
+            for k in x.keys().chain(y.keys()) {
+                let p = format!("{path}/{k}");
+                match (x.get(k), y.get(k)) {
+                    (Some(u), Some(v)) => {
+                        if let Some(d) = first_diff(u, v, &p) {
+                            return Some(d);
+                        }
+                    }
+                    (u, v) => return Some(format!("{p}: {u:?} vs {v:?}")),
+                }
+            }
+            None
+        }
+        (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+            x.iter().zip(y).enumerate().find_map(|(i, (u, v))| first_diff(u, v, &format!("{path}[{i}]")))
+        }
+        _ if a == b => None,
+        _ => Some(format!("{path}: {a} vs {b}")),
+    }
+}
+
+#[test]
+fn thread_counts_are_launch_time_resources_and_never_change_the_check_record() {
+    let _g = serial();
+    let mut reference: Option<(BTreeSet<(String, String, String)>, Vec<(String, String)>, Vec<Value>, Vec<u8>)> = None;
+    // (threads, store block cache): the read-path cache (lane t266run) must not change a result either
+    for (t, cache) in [("1", "64"), ("4", "64"), ("16", "64"), ("4", "0"), ("16", "1")] {
+        let (_t, sp, cdir) = setup(&format!("t2th{t}c{cache}"), 3, Some(2), true, 20);
+        let mut codes = vec![];
+        for _ in 0..6 {
+            let mut c = start(
+                &sp,
+                &cdir,
+                &["--plain", "--check-threads", t, "--store-threads", t],
+                &[("RUSTRED_STORE_BLOCK_CACHE", cache)],
+            );
+            let code = wait(&mut c, Duration::from_secs(900));
+            codes.push(code);
+            if code == 0 {
+                break;
+            }
+        }
+        let t = format!("{t} (block cache {cache})");
+        assert_eq!(codes.last(), Some(&0), "threads {t}: {}", log_tail(&cdir));
+        assert_eq!(result_json(&cdir)["verdict"], "closed", "threads {t}");
+        let recs = format!("{:?}", records(&cdir));
+        assert!(recs.contains("session_resources") && recs.contains("check_threads"), "threads {t}: no session record");
+        // evidence files named by a check record: their content without per-run provenance, re-hashed
+        let rehash = |mut v: Value| -> Value {
+            if let Some(fs) = v["evidence_import"]["files"].as_array_mut() {
+                for f in fs.iter_mut() {
+                    if let Some(p) = f[0].as_str().map(str::to_string) {
+                        let body = std::fs::read_to_string(&p).unwrap_or_default();
+                        // the answer lines as JSON without their per-run provenance (the raw output stream's digest
+                        // `results`, which covers wall times, and the `reproduce` command) and with the test's temp
+                        // root (campaign directory + material paths) replaced, re-hashed
+                        let root = cdir.parent().unwrap_or(&cdir).display().to_string();
+                        let lines: Vec<String> = body
+                            .lines()
+                            .filter(|l| !l.trim().is_empty())
+                            .map(|l| match serde_json::from_str::<Value>(l) {
+                                Ok(mut x) => {
+                                    strip_provenance(&mut x);
+                                    x.to_string().replace(&root, "TMP")
+                                }
+                                Err(_) => l.replace(&root, "TMP"),
+                            })
+                            .collect();
+                        f[1] = json!(rustred_campaign_core::closure::sha256::sha256_tag(lines.join("\n").as_bytes()));
+                    }
+                }
+            }
+            v
+        };
+        let checks: Vec<Value> = role_inputs(&cdir, "closeloop_check")
+            .iter()
+            .map(|(_, b)| normalized(rehash(serde_json::from_slice(b).unwrap()), &cdir))
+            .collect();
+        assert!(!checks.is_empty());
+        let stmt = std::fs::read(cdir.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+        let (items, esc) = decisions(&cdir);
+        let esc: Vec<(String, String)> = esc
+            .into_iter()
+            .map(|(id, b)| (id, String::from_utf8_lossy(&b).replace(&cdir.display().to_string(), "CDIR")))
+            .collect();
+        match &reference {
+            None => reference = Some((items, esc, checks, stmt)),
+            Some((ri, re, rc, rs)) => {
+                assert_eq!(&items, ri, "threads {t}: items differ");
+                assert_eq!(&esc, re, "threads {t}: escalation records differ");
+                assert_eq!(checks.len(), rc.len(), "threads {t}: number of check records");
+                for (k, (a, b)) in checks.iter().zip(rc).enumerate() {
+                    assert_eq!(first_diff(a, b, ""), None, "threads {t}: check record {k} differs; files {} vs {}",
+                        a["evidence_import"]["files"], b["evidence_import"]["files"]);
+                }
+                assert!(&stmt == rs, "threads {t}: statements differ");
+            }
+        }
+        assert_eq!(verify(&cdir), 0);
+    }
+}
+
+/// lane t266run: the per-key budget of an escalation recipe follows `escalation.key_budget_s_by_depth` (depth of its
+/// step), other jobs keep `solve.key_budget_s`.
+#[test]
+fn escalation_key_budget_follows_the_step_depth() {
+    let _g = serial();
+    let (_t, sp, cdir) = setup_tweak("t2kb", 3, Some(2), false, 20, false, |node| {
+        node["escalation"]["key_budget_s_by_depth"] = json!({"0": 123});
+        node["solve"]["key_budget_s"] = json!(77);
+    });
+    assert_eq!(run_to_end(&sp, &cdir, &["--plain"]).last(), Some(&0), "{}", log_tail(&cdir));
+    let mut seen = std::collections::BTreeMap::new();
+    for e in std::fs::read_dir(cdir.join("jobs")).unwrap().flatten() {
+        let j = e.path().join("job.json");
+        let Ok(t) = std::fs::read_to_string(&j) else { continue };
+        let v: Value = serde_json::from_str(&t).unwrap();
+        if v["kind"] != "solve-recipe" {
+            continue;
+        }
+        let args: Vec<String> = serde_json::from_value(v["args"].clone()).unwrap_or_default();
+        let budget = args.iter().position(|a| a == "--key-budget-s").map(|i| args[i + 1].clone());
+        let recipe = v["inputs"].as_array().unwrap().iter().find(|i| i["role"] == "recipe").unwrap()["path"].as_str().unwrap().to_string();
+        let step = if recipe.contains(".d0_") { "d0" } else if recipe.contains(".d1_") { "d1" } else { "other" };
+        seen.entry(step).or_insert_with(BTreeSet::new).insert(budget);
+    }
+    assert_eq!(seen.get("d0"), Some(&BTreeSet::from([Some("123".to_string())])), "{seen:?}");
+    assert_eq!(seen.get("d1"), Some(&BTreeSet::from([Some("77".to_string())])), "{seen:?}");
+}
+
+// ------------------------------------------------------------------------------------------- prior campaign's work
+// lane t266run (closeloop.md 25): an earlier campaign's recipes / answers / relation tables / proofs carried as PINNED
+// inputs: the later campaign serves those relations per-key (their bound span proofs) without a new solve or proof job.
+
+/// The prior manifest of campaign directory `cdir` (its own recipe manifests, answers, relation tables, proofs).
+fn prior_manifest(cdir: &Path, out: &Path) -> String {
+    let st = state(cdir);
+    let mut files: std::collections::BTreeMap<&str, Vec<Value>> = Default::default();
+    let mut rows: Vec<(u64, String, String)> =
+        st.inputs.iter().map(|(_, r)| (r.registered_seq, r.role.clone(), r.path.clone())).collect();
+    rows.sort();
+    for (_, role, path) in rows {
+        let key = match role.as_str() {
+            "closeloop_recipes" => "recipes",
+            "closeloop_answers" => "answers",
+            "closeloop_relations" => "relations",
+            "closeloop_proofs" => "proofs",
+            _ => continue,
+        };
+        let p = Path::new(&path);
+        let mut f = json!({"path": path, "sha256": rustred_campaign_core::import::lines::file_sha256(p).unwrap()});
+        if key == "relations" {
+            let head: Value = serde_json::from_str(std::fs::read_to_string(p).unwrap().lines().next().unwrap()).unwrap();
+            f["source"] = head["recipe_source"].clone();
+        }
+        files.entry(key).or_default().push(f);
+    }
+    let mut m = json!({"schema": "rustred.campaign.closeloop-prior.v1"});
+    for k in ["recipes", "answers", "relations", "proofs"] {
+        m[k] = json!(files.get(k).cloned().unwrap_or_default());
+    }
+    std::fs::write(out, serde_json::to_vec_pretty(&m).unwrap()).unwrap();
+    rustred_campaign_core::import::lines::file_sha256(out).unwrap()
+}
+
+/// Job attempts launched of each kind in a campaign.
+fn jobs_by_kind(cdir: &Path) -> std::collections::BTreeMap<String, usize> {
+    let st = state(cdir);
+    let mut c = std::collections::BTreeMap::new();
+    for j in st.jobs.values() {
+        *c.entry(j.kind.clone()).or_insert(0) += 1;
+    }
+    c
+}
+
+#[test]
+fn an_earlier_campaigns_relations_and_proofs_serve_without_new_jobs() {
+    let _g = serial();
+    let (_ta, spa, ca) = setup("t2pra", 4, Some(3), false, 20);
+    assert_eq!(run_to_end(&spa, &ca, &["--plain"]).last(), Some(&0), "{}", log_tail(&ca));
+    assert_eq!(result_json(&ca)["verdict"], "closed");
+    let a_jobs = jobs_by_kind(&ca);
+    assert!(a_jobs.get("solverecipe").copied().unwrap_or(0) > 0, "{a_jobs:?}");
+    let man = ca.parent().unwrap().join("prior.json");
+    let sha = prior_manifest(&ca, &man);
+    let (_tb, spb, cb) = setup_tweak("t2prb", 4, Some(3), false, 20, false, |node| {
+        node["prior"] = json!({"manifest": man.display().to_string(), "sha256": sha});
+    });
+    assert_eq!(run_to_end(&spb, &cb, &["--plain"]).last(), Some(&0), "{}", log_tail(&cb));
+    let r = result_json(&cb);
+    assert_eq!(r["verdict"], "closed", "{r:#}");
+    assert_eq!(r["label"], result_json(&ca)["label"]);
+    let b_jobs = jobs_by_kind(&cb);
+    assert_eq!(b_jobs.get("solverecipe"), None, "B solved again: {b_jobs:?}");
+    assert!(b_jobs.get("proofinstancespan").copied().unwrap_or(0) < a_jobs.get("proofinstancespan").copied().unwrap_or(0), "relation proofs re-run: {b_jobs:?} vs {a_jobs:?}");
+    // the statements are equal: the same keys, servers, levels, bases
+    let a = std::fs::read(ca.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+    let b = std::fs::read(cb.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
+    assert!(a == b, "statements differ");
+    assert_eq!(verify(&cb), 0);
+    // a changed carried file refuses the node (pinned)
+    let (_tc, spc, cc) = setup_tweak("t2prc", 4, Some(3), false, 20, false, |node| {
+        node["prior"] = json!({"manifest": man.display().to_string(), "sha256": "00".repeat(32)});
+    });
+    let code = run_once(&spc, &cc, &["--plain"]);
+    assert_ne!(code, 0, "a wrong manifest sha256 was accepted");
+}

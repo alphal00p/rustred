@@ -205,6 +205,34 @@ pub struct EvidenceStore {
     rec_of_sha: HashMap<String, u32>,
     /// `built` | `reused`.
     pub origin: String,
+    /// lane t266run (read path): lookup counters of this store object (all threads).
+    reads: ReadCounters,
+}
+
+/// lane t266run (read path): lookup counters of one store object, summed over threads.
+#[derive(Debug, Default)]
+struct ReadCounters {
+    lookups: AtomicU64,
+    entry_hits: AtomicU64,
+    block_hits: AtomicU64,
+    block_reads: AtomicU64,
+    bytes_read: AtomicU64,
+}
+
+/// lane t266run (read path): a snapshot of a store's lookup counters (diagnosis; never part of a result).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StoreReadStats {
+    /// `get_rec` calls.
+    pub lookups: u64,
+    /// Answered by the per-thread one-entry cache (the same (record, key) as the thread's last lookup in this store).
+    pub entry_hits: u64,
+    /// Answered from a block in the per-thread block cache (no read).
+    pub block_hits: u64,
+    /// Blocks read from `data.bin` (`pread`; page cache or disk).
+    pub block_reads: u64,
+    pub bytes_read: u64,
+    /// The block-cache capacity in force (blocks per thread; 0 = off).
+    pub block_cache: usize,
 }
 
 /// One cached lookup per store and thread: (store id, record id, key, entry).
@@ -215,9 +243,35 @@ type CacheSlot = (u64, u32, Vec<i32>, Option<Arc<StoreEntry>>);
 const CACHE_SLOTS: usize = 256;
 /// lane wireflow: `data.bin` files up to this size are read into memory at open (see [`EvidenceStore`]).
 pub const MEM_RESIDENT_MAX: u64 = 64 << 20;
+/// lane t266run (read path): one cached BLOCK per thread: (store id, block position, raw block bytes).
+type BlockSlot = (u64, usize, Arc<Vec<u8>>);
 thread_local! {
     static CACHE: RefCell<Vec<CacheSlot>> = const { RefCell::new(Vec::new()) };
+    static BLOCKS: RefCell<Vec<BlockSlot>> = const { RefCell::new(Vec::new()) };
 }
+
+/// lane t266run (read path): blocks kept per thread (most recently used first; all stores together):
+/// `RUSTRED_STORE_BLOCK_CACHE` (0 = off), default 64. A lookup in a cached block reads nothing; results never depend
+/// on it (tests compare 0 / default / threads).
+pub fn block_cache_capacity() -> usize {
+    let c = BLOCK_CACHE_CAP.load(AtOrd::Relaxed);
+    if c != usize::MAX {
+        return c;
+    }
+    let v = std::env::var("RUSTRED_STORE_BLOCK_CACHE")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(64);
+    BLOCK_CACHE_CAP.store(v, AtOrd::Relaxed);
+    v
+}
+
+/// Overrides the block-cache capacity of this process (tests: results must not depend on it).
+pub fn set_block_cache_capacity(n: usize) {
+    BLOCK_CACHE_CAP.store(n, AtOrd::Relaxed);
+}
+
+static BLOCK_CACHE_CAP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(usize::MAX);
 
 // ---------------------------------------------------------------- encoding
 
@@ -1129,7 +1183,21 @@ impl EvidenceStore {
             index,
             rec_of_sha,
             origin: "opened".into(),
+            reads: ReadCounters::default(),
         })
+    }
+
+    /// lane t266run (read path): this store object's lookup counters so far.
+    pub fn read_stats(&self) -> StoreReadStats {
+        let g = |a: &AtomicU64| a.load(AtOrd::Relaxed);
+        StoreReadStats {
+            lookups: g(&self.reads.lookups),
+            entry_hits: g(&self.reads.entry_hits),
+            block_hits: g(&self.reads.block_hits),
+            block_reads: g(&self.reads.block_reads),
+            bytes_read: g(&self.reads.bytes_read),
+            block_cache: block_cache_capacity(),
+        }
     }
 
     pub fn meta(&self) -> &StoreMeta {
@@ -1151,6 +1219,7 @@ impl EvidenceStore {
 
     /// The entry of (record id, key) (per-thread one-entry cache).
     pub fn get_rec(&self, rec: u32, key: &[i32]) -> Option<Arc<StoreEntry>> {
+        self.reads.lookups.fetch_add(1, AtOrd::Relaxed);
         let hit = CACHE.with(|c| {
             c.borrow()
                 .iter()
@@ -1158,6 +1227,7 @@ impl EvidenceStore {
                 .map(|(_, _, _, e)| e.clone())
         });
         if let Some(e) = hit {
+            self.reads.entry_hits.fetch_add(1, AtOrd::Relaxed);
             return e;
         }
         let e = self.lookup(rec, key).map(Arc::new);
@@ -1184,14 +1254,17 @@ impl EvidenceStore {
         if pos == 0 {
             return None;
         }
-        let b = &self.index[pos - 1];
+        // int8 (wireflow x t266run): a MEMORY-RESIDENT data.bin (lane wireflow) is sliced in place (no read, no copy, no
+        // block-cache entry; the read counters see such a lookup only in `lookups`); otherwise lane t266run's per-thread
+        // block cache, then `pread`.
         let owned;
         let buf: &[u8] = match &self.mem {
-            Some(m) => m.get(b.off as usize..(b.off + b.len as u64) as usize)?,
+            Some(m) => {
+                let b = &self.index[pos - 1];
+                m.get(b.off as usize..(b.off + b.len as u64) as usize)?
+            }
             None => {
-                let mut v = vec![0u8; b.len as usize];
-                self.data.read_exact_at(&mut v, b.off).ok()?;
-                owned = v;
+                owned = self.block(pos - 1)?;
                 &owned
             }
         };
@@ -1206,6 +1279,40 @@ impl EvidenceStore {
             }
         }
         None
+    }
+
+    /// lane t266run (read path): the raw bytes of block `bi`, from the per-thread block cache when it holds it (most
+    /// recently used first, capacity [`block_cache_capacity`]), else read with `pread` (and cached).
+    fn block(&self, bi: usize) -> Option<Arc<Vec<u8>>> {
+        let cap = block_cache_capacity();
+        if cap > 0 {
+            let hit = BLOCKS.with(|c| {
+                let mut c = c.borrow_mut();
+                let i = c.iter().position(|(id, pos, _)| *id == self.id && *pos == bi)?;
+                let slot = c.remove(i);
+                let b = slot.2.clone();
+                c.insert(0, slot);
+                Some(b)
+            });
+            if let Some(b) = hit {
+                self.reads.block_hits.fetch_add(1, AtOrd::Relaxed);
+                return Some(b);
+            }
+        }
+        let b = &self.index[bi];
+        let mut buf = vec![0u8; b.len as usize];
+        self.data.read_exact_at(&mut buf, b.off).ok()?;
+        self.reads.block_reads.fetch_add(1, AtOrd::Relaxed);
+        self.reads.bytes_read.fetch_add(b.len as u64, AtOrd::Relaxed);
+        let buf = Arc::new(buf);
+        if cap > 0 {
+            BLOCKS.with(|c| {
+                let mut c = c.borrow_mut();
+                c.insert(0, (self.id, bi, buf.clone()));
+                c.truncate(cap);
+            });
+        }
+        Some(buf)
     }
 
     /// Every entry in store order (tests, audits): (record_sha256, key, entry).
