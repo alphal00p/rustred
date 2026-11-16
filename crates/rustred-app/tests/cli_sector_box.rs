@@ -465,7 +465,11 @@ fn two_loop_one_mass_kite_propagator_family_closes() {
     });
     let (code, report) = run(&dir, &spec);
     assert_eq!(code, 0, "{report}");
-    assert_eq!(report["modular"]["masters"].as_array().unwrap().len(), 6, "{report}");
+    assert_eq!(
+        report["modular"]["masters"].as_array().unwrap().len(),
+        6,
+        "{report}"
+    );
     let closure = report["modular"]["closure"].as_array().unwrap();
     assert_eq!(closure.last().unwrap()["added"], 0);
 }
