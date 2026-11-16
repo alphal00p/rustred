@@ -438,6 +438,113 @@ pub struct RelationStore {
     allow_field: bool,
 }
 
+/// How a shipped root relates to the node being served.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RootLayout {
+    /// `ROOT/<node>-<id16>/` exists (the documented layout).
+    Parent,
+    /// ROOT is itself this node's directory (its NODE.json names this node
+    /// identity, or its name is `<node>-<id16>`): accepted as such.
+    NodeDirectory,
+    /// ROOT holds node directories, none of this node (normal for a root
+    /// shared by several nodes).
+    OtherNodes,
+    /// ROOT looks like the directory of ANOTHER node identity (NODE.json or
+    /// the name `<node>-<other id16>`): a wrong root, warned.
+    ForeignNodeDirectory(String),
+    /// ROOT is missing, unreadable or holds no node directory at all: warned.
+    Empty,
+}
+
+/// The layout of `root` for `node` / `node_identity` (no entry is read).
+pub fn root_layout(root: &Path, node: &str, node_identity: &str) -> RootLayout {
+    let own = node_directory(root, node, node_identity);
+    if own.is_dir() {
+        return RootLayout::Parent;
+    }
+    let own_name = own
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let marker = std::fs::read_to_string(root.join("NODE.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    if let Some(marker) = &marker {
+        return if marker["node_identity"] == node_identity {
+            RootLayout::NodeDirectory
+        } else {
+            RootLayout::ForeignNodeDirectory(format!(
+                "its NODE.json names node {} identity {}",
+                marker["node"], marker["node_identity"]
+            ))
+        };
+    }
+    if name == own_name {
+        return RootLayout::NodeDirectory;
+    }
+    let looks_like_node_dir = |n: &str| {
+        n.rsplit_once('-')
+            .is_some_and(|(_, id)| id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+    };
+    if looks_like_node_dir(&name) {
+        return RootLayout::ForeignNodeDirectory(format!("its name {name} is a node directory"));
+    }
+    let has_node_dirs = std::fs::read_dir(root).is_ok_and(|listing| {
+        listing.filter_map(Result::ok).any(|entry| {
+            entry.path().is_dir() && looks_like_node_dir(&entry.file_name().to_string_lossy())
+        })
+    });
+    if has_node_dirs {
+        RootLayout::OtherNodes
+    } else {
+        RootLayout::Empty
+    }
+}
+
+/// The node directory to read under a SHIPPED root, accepting both layouts
+/// (the parent of `<node>-<id16>/`, or that directory itself); a root that
+/// looks wrong is reported once per (root, node) on stderr with the expected
+/// layout.
+pub fn shipped_node_directory(root: &Path, node: &str, node_identity: &str) -> PathBuf {
+    static WARNED: Mutex<Vec<(PathBuf, String)>> = Mutex::new(Vec::new());
+    let layout = root_layout(root, node, node_identity);
+    let expected = node_directory(root, node, node_identity);
+    let warn = |why: &str| {
+        let mut warned = WARNED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let tag = (root.to_path_buf(), node.to_owned());
+        if !warned.contains(&tag) {
+            warned.push(tag);
+            eprintln!(
+                "rustred: shipped relation root {} serves nothing for node {node}: {why}; expected layout ROOT/{}/*.jsonl \
+                 (pass the PARENT of the node directories)",
+                root.display(),
+                expected
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default()
+            );
+        }
+    };
+    match layout {
+        RootLayout::NodeDirectory => root.to_path_buf(),
+        RootLayout::ForeignNodeDirectory(why) => {
+            warn(&why);
+            expected
+        }
+        RootLayout::Empty => {
+            warn("it holds no node directory");
+            expected
+        }
+        RootLayout::Parent | RootLayout::OtherNodes => expected,
+    }
+}
+
 /// The directory of a node under a cache root.
 pub fn node_directory(root: &Path, node: &str, node_identity: &str) -> PathBuf {
     let safe: String = node
@@ -474,7 +581,7 @@ impl RelationStore {
         let mut layers: Vec<Layer> = shipped
             .iter()
             .map(|root| Layer {
-                directory: node_directory(root, node, node_identity),
+                directory: shipped_node_directory(root, node, node_identity),
                 writable: false,
             })
             .collect();
@@ -867,6 +974,19 @@ mod tests {
             Err(EntryRefusal::Field)
         );
         assert!(check_entry_with(&field, &id, true).is_ok());
+        // a shipped root given as the NODE directory itself is accepted
+        let as_node_dir = RelationStore::new("N", &id, std::slice::from_ref(&directory), None);
+        assert_eq!(as_node_dir.get(&[2, 1]).unwrap().1, StoreSource::Shipped);
+        assert_eq!(root_layout(&directory, "N", &id), RootLayout::NodeDirectory);
+        assert_eq!(root_layout(&root, "N", &id), RootLayout::Parent);
+        assert!(matches!(
+            root_layout(&directory, "N", &other),
+            RootLayout::ForeignNodeDirectory(_)
+        ));
+        assert_eq!(
+            root_layout(&root.join("missing"), "N", &id),
+            RootLayout::Empty
+        );
         // shipped (read-only) first; the cache does not replace it at equal evidence
         let shipped = RelationStore::new("N", &id, std::slice::from_ref(&root), None);
         assert_eq!(shipped.get(&[2, 1]).unwrap().1, StoreSource::Shipped);
