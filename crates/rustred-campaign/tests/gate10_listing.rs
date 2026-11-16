@@ -98,7 +98,7 @@ fn crashed_session_with_daemon(t: &Tmp) -> (PathBuf, PathBuf, u32) {
 /// G10-B1: session 2 of a crashed campaign whose /proc listings (both enumerations) end early from the n-th listing call
 /// on: never exit 0 with the crashed session's live marked daemon.
 #[test]
-#[ignore = "builds the gate9 LD_PRELOAD injector with cc; FAILS on 3550b2ac (G10-B1); run explicitly"]
+// procfix7 round 6: un-ignored as FIXED (passes on the round-6 code, 770 s; FAILS on 3550b2ac (G10-B1)); skips without a C compiler
 fn g10_b1_truncated_proc_listing_never_gives_exit_0_with_a_marked_survivor() {
     if !in_ns() {
         return;

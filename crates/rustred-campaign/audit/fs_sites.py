@@ -16,9 +16,11 @@ Kinds (one line per match; a line can match several kinds):
   D  destructive: remove_file( remove_dir( remove_dir_all( fs::rename( rename_noreplace( .set_len( File::create(
      .truncate(true) write_atomic( write_json_atomic( create_new_atomic( fs::write( fs::copy( archive_control(
   X  an error-dropping form (.ok() .unwrap_or( .unwrap_or_default() .unwrap_or_else( `let _ =` `if let Ok(` .is_ok()
-     .is_err() `Err(_) =>`) in the same statement as an fs / io / proc / clock / env call
+     .is_err() `Err(_) =>` `let Ok(`; round 6: .is_ok_and( .is_err_and( `Err(..) =>` .map_or( .map_or_else() in the same statement as an fs / io / proc / clock / env call
   F  the typed helpers: crate::fsx::{presence, presence_lstat, list, list_required, read, read_to_string, open} with
      their site label (the arms are matched explicitly: Unknown / Failed never collapse)
+  O  opens (OpenOptions, create(true), create_new(true), libc::open); V environment reads; C external commands;
+     W waits (waitid / waitpid / wait / try_wait); K signals (kill / killpg / pidfd_send_signal / cgroup.kill)
 Scope: prod (production code of src/), wrapper (src/fsx.rs, src/resources/procfs.rs: the two modules that own the rule),
        testdouble (src/bin/rr_fake_child*), test (tests/, examples/, #[cfg(test)] modules).
 Review (production only): an automatic verdict where the code itself shows it (F arms, `?` / map_err propagation, a
@@ -41,9 +43,17 @@ PAT = {
                     r'File::create\(|\.truncate\(true\)|write_atomic\(|write_json_atomic\(|create_new_atomic\(|'
                     r'fs::write\(|fs::copy\(|archive_control\('),
     'F': re.compile(r'fsx::(presence|presence_lstat|list|list_required|read|read_to_string|open)\('),
+    # procfix7 round 6 (gate10's site list: kinds the round-5 table did not count)
+    'O': re.compile(r'OpenOptions::new\(\)|\.create\(true\)|\.create_new\(true\)|libc::open\('),
+    'V': re.compile(r'env::var\(|env::var_os\('),
+    'C': re.compile(r'Command::new\('),
+    'W': re.compile(r'libc::waitid\(|libc::waitpid\(|\.try_wait\(\)|\.wait\(\)'),
+    'K': re.compile(r'libc::kill\(|libc::killpg\(|SYS_pidfd_send_signal|pidfd_send_signal\(|signal_with_pidfd\(|'
+                    r'signal_pinned_group|cgroup\.kill|kill_path\('),
 }
 DROP = re.compile(r'\.ok\(\)|\.unwrap_or\(|\.unwrap_or_default\(\)|\.unwrap_or_else\(|let _ =|if let Ok\(|\.is_ok\(\)|'
-                  r'\.is_err\(\)|Err\(_\) =>|let Ok\(')
+                  r'\.is_err\(\)|Err\(_\) =>|let Ok\(|\.is_ok_and\(|\.is_err_and\(|Err\(\.\.\) =>|\.map_or\(|'
+                  r'\.map_or_else\(')
 IOCALL = re.compile(r'fs::|File::|fsx::|read_dir|metadata\(|OpenOptions|procfs::|read_stat\(|environ|waitid|'
                     r'clock_gettime|env::var|Command::new|\.read\(|\.write\(|libc::read|libc::write|'
                     r'canonicalize\(|read_link\(|file_type\(\)|\.open\(')
@@ -118,8 +128,12 @@ def auto_verdict(kind, rel, lines, k, stmt, code):
         m = re.search(r'(.{0,40})\.(is_file|is_dir|is_symlink|metadata|exists)\(\)', code)
         if m and META_RECV.search(m.group(1)):
             return 'auto: on a Metadata / FileType / Presence (not a path probe)'
-    if kind in ('R', 'D', 'E', 'L') and ('?' in stmt or 'map_err' in stmt) and not DROP.search(stmt):
+    if kind in ('R', 'D', 'E', 'L', 'O', 'C', 'W') and ('?' in stmt or 'map_err' in stmt) and not DROP.search(stmt):
         return 'auto: error propagated (? / map_err)'
+    if kind == 'O' and 'create_new(true)' in stmt:
+        return 'auto: no-clobber create (O_EXCL)'
+    if kind == 'K' and rel in ('src/launch/guard.rs',):
+        return 'auto: the guard (identity checklist on a pidfd opened first; intents; gate F review)'
     return None
 
 
@@ -168,7 +182,7 @@ def main():
     from collections import Counter
     c = Counter((r[0], r[3]) for r in rows)
     print('candidates:', len(rows), 'in', len(files()), '.rs files')
-    for kind in 'EFLRDX':
+    for kind in 'EFLRDXOVCWK':
         print(' ', kind, ' '.join(f'{s}={c[(kind, s)]}' for s in ('prod', 'wrapper', 'testdouble', 'test')))
     unrev = [r for r in rows if r[3] == 'prod' and r[5] == 'UNREVIEWED']
     print('production candidates UNREVIEWED:', len(unrev))

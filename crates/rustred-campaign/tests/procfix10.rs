@@ -87,16 +87,6 @@ fn run(sp: &Path, d: &Path, env: &[(&str, &str)], limit: Duration) -> i32 {
     wait(&mut c, limit)
 }
 
-/// Numeric entries of /proc now (test code).
-fn proc_pids() -> Vec<u32> {
-    let mut v: Vec<u32> = std::fs::read_dir("/proc")
-        .unwrap()
-        .filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
-        .collect();
-    v.sort_unstable();
-    v
-}
-
 /// One crashed-session case: session 1's first job leaves a marked daemon, session 1 is SIGKILLed, session 2 runs with
 /// both enumerations of every proc root listing ending after k entries. (exit code, daemon alive after)
 fn trunc_crashed(k: usize) -> (i32, bool) {
@@ -187,10 +177,10 @@ fn every_k(what: &str, ks: &[usize], case: fn(usize) -> (i32, bool)) {
     assert!(fails.is_empty(), "{what}: {fails:?}");
 }
 
-/// The k of a mutation run: every k up to the namespace's listing size + 4 (`all`), else every third.
+/// The k of a mutation run: every k of 0..=16 (`all`; the namespace's tree during a session is smaller: pid 1, the
+/// supervisors, the jobs and their wrappers, the daemon or chain), else every third.
 fn ks(all: bool) -> Vec<usize> {
-    let n = proc_pids().len() + 4;
-    (0..=n).filter(|k| all || k % 3 == 0).collect()
+    (0..=16).filter(|k| all || k % 3 == 0).collect()
 }
 
 /// G10-B1 mutation, crashed session (suite: every third k; every k: the ignored variant): never exit 0 with the crashed
@@ -392,6 +382,128 @@ fn g10_m10_5_a_child_that_cannot_be_polled_is_a_typed_end() {
     assert!(
         log_tail(&d).contains("consecutive failed polls"),
         "{}",
+        log_tail(&d)
+    );
+}
+
+/// A crashed session whose first job left a marked daemon (setsid sleep): (spec, cdir, daemon pid).
+fn crashed_with_daemon(t: &Tmp) -> (PathBuf, PathBuf, u32) {
+    let dpf = t.path.join("daemon.pid");
+    let sp = spec_with(
+        t,
+        &format!(
+            "( setsid sleep 600 </dev/null >/dev/null 2>&1 & echo $! > {p}.tmp; mv {p}.tmp {p} )",
+            p = dpf.display()
+        ),
+        [800, 1200],
+    );
+    let d = t.cdir("c");
+    let mut s1 = start(&sp, &d, &[], &[]);
+    wait_until("the daemon", Duration::from_secs(90), || dpf.exists());
+    std::thread::sleep(Duration::from_millis(300));
+    signal(&s1, libc::SIGKILL);
+    let _ = s1.wait();
+    let dp: u32 = std::fs::read_to_string(&dpf)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    assert!(alive(dp), "the daemon runs after the crash");
+    (sp, d, dp)
+}
+
+/// gate10 mutation M4 (the vanished rule pinned by no test): the crashed session's marked daemon is reported by EVERY
+/// sweep as seen alive and gone before its stop (test-build hook `sweep_vanish_pid:<pid>`; it stays alive): the
+/// recovery sweep is not proven, the vanish keeps the end unproven, the final sweep cannot resolve it (it vanishes
+/// again): exit 8 naming it (note `final_sweep_vanished`), never exit 0. A build that ignores vanishes ends 0 with the
+/// daemon alive here; a build whose vanished_check is off ends 8 without the note (caught).
+#[test]
+fn g10_m4_a_vanished_marked_process_is_never_a_clean_end() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf10-m4");
+    let (sp, d, dp) = crashed_with_daemon(&t);
+    let fp = format!("sweep_vanish_pid:{dp}");
+    let code = run(
+        &sp,
+        &d,
+        &[("RR_CAMPAIGN_FAILPOINT", &fp)],
+        Duration::from_secs(900),
+    );
+    let a = alive(dp);
+    eprintln!("PF10 m4: exit {code}, daemon alive {a}");
+    assert!(
+        a,
+        "a vanished process is never signalled (the hook leaves it alive)"
+    );
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    assert!(
+        !notes(&d, "sweep_vanished {").is_empty(),
+        "the vanish is recorded: {}",
+        log_tail(&d)
+    );
+    // the vanished rule's own end (not only the generic unproven sweep): pins vanished_check (gate10 mutation M4)
+    let fv = notes(&d, "final_sweep_vanished");
+    assert!(
+        fv.iter().any(|n| n.contains(&format!("{dp}"))),
+        "the end names the unresolved vanished pid (note final_sweep_vanished): {fv:?} {}",
+        log_tail(&d)
+    );
+    assert!(
+        notes(&d, "sweep_vanished_resolved").is_empty(),
+        "a pid that vanishes in every sweep is never resolved: {}",
+        log_tail(&d)
+    );
+    assert!(
+        log_tail(&d).contains(&format!("{dp}")),
+        "the exit-8 message names it: {}",
+        log_tail(&d)
+    );
+    let _ = run(&sp, &d, &[], Duration::from_secs(600));
+    if alive(dp) {
+        kill_pid(dp);
+    }
+}
+
+/// gate10 mutation M5 (the own-tree proof pinned by no test): a live session's job leaves an UNMARKED descendant
+/// (env -i, setsid: no marker, its own session) that the subreaper supervisor inherits. No marker sweep and no hidden-
+/// descendants check sees it; only the kernel's wait answer (a child still present) does: exit 8 naming it (note
+/// descendants_alive), never exit 0.
+#[test]
+fn g10_m5_an_unmarked_descendant_left_behind_is_never_a_clean_end() {
+    if !in_ns() {
+        return;
+    }
+    let _g = serial();
+    let t = Tmp::new("pf10-m5");
+    let upf = t.path.join("unmarked.pid");
+    let sp = spec_with(
+        &t,
+        &format!(
+            "( env -i PATH=\"$PATH\" setsid sleep 600 </dev/null >/dev/null 2>&1 & echo $! > {p}.tmp; mv {p}.tmp {p} )",
+            p = upf.display()
+        ),
+        [500, 800],
+    );
+    let d = t.cdir("c");
+    let code = run(&sp, &d, &[], Duration::from_secs(900));
+    let up: u32 = std::fs::read_to_string(&upf)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let a = alive(up);
+    eprintln!("PF10 m5: exit {code}, unmarked descendant {up} alive {a}");
+    if a {
+        kill_pid(up);
+    }
+    assert!(a, "an unmarked process is never signalled");
+    assert_eq!(code, ATTENTION, "{}", log_tail(&d));
+    assert!(
+        !notes(&d, "descendants_alive").is_empty(),
+        "the own-tree proof names it: {}",
         log_tail(&d)
     );
 }

@@ -171,18 +171,29 @@ pub fn presence_lstat(site: &'static str, p: &Path) -> Presence {
 }
 
 /// A COMPLETE listing of `dir` (any entry error fails the listing).
-#[allow(clippy::disallowed_methods)]
 pub fn list(site: &'static str, dir: &Path) -> Listing {
     if let Some(e) = fault(site) {
         return Listing::Failed(e);
     }
+    list_entries(dir, None)
+}
+
+/// The listing itself; `entry_fault` (tests): the entry at that index arrives as an EIO entry error, through the same
+/// handling as a real one (gate10 mutation M2: "entry errors skipped" must be caught by a test).
+#[allow(clippy::disallowed_methods)]
+fn list_entries(dir: &Path, entry_fault: Option<usize>) -> Listing {
     let rd = match std::fs::read_dir(dir) {
         Ok(r) => r,
         Err(e) if is_absent(&e) => return Listing::Absent,
         Err(e) => return Listing::Failed(e),
     };
     let mut out = Vec::new();
-    for e in rd {
+    for (i, e) in rd.enumerate() {
+        let e = if entry_fault == Some(i) {
+            Err(io::Error::from_raw_os_error(libc::EIO))
+        } else {
+            e
+        };
         let e = match e {
             Ok(e) => e,
             Err(e) => return Listing::Failed(e),
@@ -420,6 +431,26 @@ pub fn calls_counted() -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// procfix7 round 6 (gate10 mutation M2): an ENTRY error of a listing fails the whole listing (never skipped: a
+    /// listing missing an entry is not "complete"); the same handling for an error on any entry.
+    #[test]
+    fn an_entry_error_fails_the_listing() {
+        let d = std::env::temp_dir().join(format!("fsx-entry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        for n in ["a", "b", "c"] {
+            std::fs::write(d.join(n), b"x").unwrap();
+        }
+        assert!(matches!(list_entries(&d, None), Listing::Complete(v) if v.len() == 3));
+        for k in 0..3 {
+            assert!(
+                matches!(list_entries(&d, Some(k)), Listing::Failed(_)),
+                "an error on entry {k} fails the listing"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&d);
+    }
 
     #[test]
     fn absent_only_for_not_found() {

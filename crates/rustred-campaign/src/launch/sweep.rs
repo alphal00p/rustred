@@ -122,6 +122,26 @@ pub fn proof_words(scans: u32) -> String {
     )
 }
 
+/// procfix7 round 6 (gate10 mutation M4: the vanished rule must be pinned by a test). TEST BUILDS ONLY:
+/// `sweep_vanish_pid:<pid>` in RR_CAMPAIGN_FAILPOINT makes every sweep report that marked process as seen alive and
+/// gone before its stop (it is left alive): the end must stay unproven.
+fn test_vanish_pid() -> Option<u32> {
+    #[cfg(debug_assertions)]
+    {
+        static P: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+        *P.get_or_init(|| {
+            std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+                .ok()?
+                .split(',')
+                .find_map(|p| p.trim().strip_prefix("sweep_vanish_pid:")?.parse().ok())
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
 /// The number of consecutive conclusive scans a proven sweep rests on (step 3 of the module doc).
 pub const PROOF_SCANS: u32 = 2;
 
@@ -313,6 +333,12 @@ impl Sweep<'_> {
                 && let Err(why) = n(&p)
             {
                 self.left.insert(k, LeftMarked { process: p, why });
+                out.push(Ok(false));
+                continue;
+            }
+            if test_vanish_pid() == Some(p.pid) {
+                // test builds: this candidate "exited before its stop" every time it is seen (it stays alive)
+                self.vanished.insert(k, p);
                 out.push(Ok(false));
                 continue;
             }

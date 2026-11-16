@@ -4741,8 +4741,6 @@ impl Supervisor {
                 self.resolve_vanished("final sweep");
                 self.hidden_descendants_check()?;
                 let atomic = self.own_tree_check()?;
-                let open = self.vanished_open.clone();
-                self.vanished_check(&open)?;
                 self.end_unproven_check()?;
                 self.log.line(
                     "INFO",
@@ -4777,7 +4775,7 @@ impl Supervisor {
                 crate::resources::describe_hidden(&r.hidden)
             )
         };
-        let msg = format!(
+        let mut msg = format!(
             "final marker sweep not proven ({why}); live marked process(es) not killed: {pids:?}{hidden_text}; check each pid (its /proc/PID/environ carries this campaign's id) and kill exactly those, then run the same command"
         );
         self.commit(vec![Event::Note {
@@ -4785,6 +4783,12 @@ impl Supervisor {
                 "final_sweep_unproven {{\"pids\":{pids:?},\"hidden\":{hidden:?},\"reason\":{why:?}}}"
             ),
         }]);
+        // procfix7 round 6 (gate10 M10-1 / M4): vanished pids no proven sweep resolved are named with the sweep that saw
+        // each (note `final_sweep_vanished`); a proven final sweep resolves them above, so only this path reaches here
+        let open = self.vanished_open.clone();
+        if let Err(v) = self.vanished_check(&open) {
+            msg = format!("{msg}; {v}");
+        }
         Err(msg)
     }
 
@@ -4890,7 +4894,8 @@ impl Supervisor {
     }
 
     /// procfix7 round 5 (gate9 G9-B2) / round 6 (M10-1): marked processes seen alive and gone before their stop that no
-    /// later proven sweep resolved: never a clean end (exit 8, naming them).
+    /// later proven sweep resolved: never a clean end (exit 8, naming them). Called when the final sweep is NOT proven
+    /// (a proven final sweep is seeded with every open pid and resolves them: `resolve_vanished`).
     fn vanished_check(
         &mut self,
         vanished: &BTreeMap<u32, (Option<u64>, String)>,
@@ -4899,11 +4904,16 @@ impl Supervisor {
             return Ok(());
         }
         let pids: Vec<u32> = vanished.keys().copied().collect();
+        let seen: Vec<String> = vanished
+            .iter()
+            .map(|(p, (_, by))| format!("{p} by the {by}"))
+            .collect();
         self.commit(vec![Event::Note {
             text: format!("final_sweep_vanished {{\"pids\":{pids:?}}}"),
         }]);
+        let seen = seen.join(", ");
         Err(format!(
-            "the end is not proven: marked process(es) {pids:?} of this campaign were seen alive by the final sweep and exited before they could be stopped; a successor one of them started may be running unseen (a /proc scan cannot see a process chain that forks and exits faster than it reads; a job scope can): look for processes carrying this campaign's marker (ps -eo pid,ppid,lstart,cmd; /proc/PID/environ), then run the same command"
+            "the end is not proven: marked process(es) {pids:?} of this campaign were seen alive ({seen}) and exited before they could be stopped, and no later sweep seeded with them was proven; a successor one of them started may be running unseen (a /proc scan cannot see a process chain that forks and exits faster than it reads; a job scope can): look for processes carrying this campaign's marker (ps -eo pid,ppid,lstart,cmd; /proc/PID/environ), then run the same command"
         ))
     }
 

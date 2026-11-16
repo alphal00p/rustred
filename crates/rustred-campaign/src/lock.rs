@@ -272,15 +272,27 @@ pub fn acquire(
         }
     }
     // std opens with O_CLOEXEC: the descriptor is not inherited across exec.
+    // procfix7 round 6 (gate10 site list: the symlink check above and this open are two steps): O_NOFOLLOW, so a
+    // symlink swapped in between is refused by the kernel (ELOOP), never followed
+    use std::os::unix::fs::OpenOptionsExt;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
+        .custom_flags(libc::O_NOFOLLOW)
         .open(&lock_path)
-        .map_err(|e| LockError::Io {
-            path: lock_path.clone(),
-            source: e,
+        .map_err(|e| {
+            if e.raw_os_error() == Some(libc::ELOOP) {
+                LockError::Symlink {
+                    path: lock_path.clone(),
+                }
+            } else {
+                LockError::Io {
+                    path: lock_path.clone(),
+                    source: e,
+                }
+            }
         })?;
     let previous = read_owner(dir)?;
     let me = current_identity().map_err(|e| LockError::Io {

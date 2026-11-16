@@ -99,3 +99,60 @@ src/launch/guard.rs	X	let Ok(m) = file.metadata() else { return };	prealloc_tail
 src/launch/guard.rs	X	}	prealloc_tail: best effort (fstat of the held intent log descriptor); not a decision
 src/lock.rs	X	let Ok(target) = fs::canonicalize(path) else {	diagnostics only: holders_of (reported with the refusal; nothing decided)
 src/supervisor/mod.rs	X	.open(dir.join("supervisor.log"))	the log file (diagnostics); a failure shows as a missing log, the ledger records the run
+src/cli/mod.rs	V	&& std::env::var("TERM").ok().as_deref() != Some("dumb");	terminal / colour settings of the viewer (display only)
+src/cli/mod.rs	V	Some(name) if std::env::var_os(name).is_some() => pf(	pre-flight report of a gated variable (display)
+src/cli/mod.rs	V	by: format!("{} (cli)", std::env::var("USER").unwrap_or_default()),	operator name in a control record (attribution text)
+src/cli/mod.rs	V	marked_environment_refusal(std::env::var_os(crate::resources::MARKER_VAR).as_deref())	a marked environment refuses the start (cli rule); an unset variable = not marked
+src/cli/mod.rs	W	match child.try_wait() {	the version probe (bounded, own child; a failure is an error of the probe)
+src/closeloop/pass.rs	V	if let Some(ms) = std::env::var("RR_CLOSELOOP_TEST_PASS_DELAY_MS")	test builds only (a test delay)
+src/cpu_policy.rs	O	OpenOptions::new().read(true).write(true).truncate(false),	lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded
+src/cpu_policy.rs	O	let mut f = match open_existing_regular(path, OpenOptions::new().read(true)) {	tail_lines: NotFound = an empty tail (no ledger yet), any other error returned (the caller fails closed)
+src/launch/cgroup.rs	K	"cgroup.kill",	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	kill_path(&self.dir)	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	kill_path(dir)	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	let _ = kill_path(&self.dir);	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	pub(super) fn freeze_and_kill_path(dir: &Path, wait: std::time::Duration) -> io::Result<()> {	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	pub(super) fn kill_path(dir: &Path) -> io::Result<()> {	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	write_file(&dir.join("cgroup.kill"), "1")	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	O	&& OpenOptions::new()	cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup
+src/launch/cgroup.rs	O	OpenOptions::new()	cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup
+src/launch/cgroup.rs	O	match OpenOptions::new()	cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup
+src/launch/guard.rs	O	.create(true)	the intent log: create(true) + append, never truncated (O_APPEND)
+src/launch/guard.rs	O	let file = std::fs::OpenOptions::new()	the intent log: create(true) + append, never truncated (O_APPEND)
+src/launch/guard.rs	W	libc::waitid(	waitid typed (P_PIDFD reap of an exact zombie / WNOWAIT children check): errors returned to the caller
+src/launch/hunt.rs	K	&& guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL).delivered()	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	&& super::cgroup::freeze_and_kill_path(cg, Duration::from_secs(1)).is_err()	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	let _ = super::cgroup::kill_path(cg);	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	let v = guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, Some(&self.s.leaders));	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	V	if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {	a trace switch (diagnostics)
+src/launch/idlock.rs	O	let mut file = OpenOptions::new()	the id lock file: create(true), truncate(false), O_NOFOLLOW, mode 0600, in a private 0700 directory
+src/launch/mod.rs	V	if let Some(v) = std::env::var_os(k) {	the launch environment passed to a child (copied variables; an unset one is not passed)
+src/launch/real.rs	C	None => Command::new(&prog),	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	C	let e = std::process::Command::new(prog)	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	C	let mut c = Command::new(&exe2);	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	C	let mut c = Command::new(crate::resources::procfs::SELF_EXE);	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	K	&& signal_pinned_group(&self.leaders, self.sid, sig).delivered()	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	K	let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	K	self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	K	signal_pinned_group(&leaders, pid, libc::SIGKILL)	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	V	if let Some(d) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS") {	the user manager address for systemd-run (unset = derived from the uid, typed probe)
+src/launch/real.rs	V	let path = std::env::var_os("PATH")?;	PATH search for systemd-run / true (execvp semantics)
+src/launch/real.rs	V	match std::env::var_os("XDG_RUNTIME_DIR") {	the user manager address for systemd-run (unset = derived from the uid, typed probe)
+src/launch/real.rs	V	match std::env::var_os(name) {	the job environment (contract variables; an unset one is not passed)
+src/launch/real.rs	W	let _ = c.try_wait(); // a zombie: immediate	waitid / try_wait of an own child (peek_exit typed; a zombie probe child)
+src/launch/real.rs	W	libc::waitid(	waitid / try_wait of an own child (peek_exit typed; a zombie probe child)
+src/launch/sweep.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)	test builds only (failpoint hooks)
+src/launch/sweep.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {	test builds only (failpoint hooks)
+src/launch/sweep.rs	K	match guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None) {	signals through the guard (pidfd + identity checklist)
+src/supervisor/failpoint.rs	V	match std::env::var(FAILPOINT_ENV) {	test builds only (failpoints; release builds refuse the variable)
+src/supervisor/mod.rs	O	.create(true)	the supervisor log: create(true) + append (diagnostics)
+src/supervisor/mod.rs	O	let file = std::fs::OpenOptions::new()	the supervisor log: create(true) + append (diagnostics)
+src/tui/mod.rs	V	let v = |k: &str| std::env::var(k).ok();	terminal / colour settings of the viewer (display only)
+src/tui/mod.rs	V	std::env::var("NO_COLOR").ok().as_deref(),	terminal / colour settings of the viewer (display only)
+src/tui/mod.rs	V	std::env::var("TERM").ok().as_deref(),	terminal / colour settings of the viewer (display only)
+src/tui/source.rs	O	let f = match std::fs::OpenOptions::new()	viewer reads (O_NONBLOCK, regular file checked; typed FileRead)
+src/tui/terminal.rs	O	libc::open(	the controlling terminal (/dev/tty) of the viewer
+src/tui/terminal.rs	V	&& std::env::var("TERM").ok().as_deref() != Some("dumb")	terminal / colour settings of the viewer (display only)
+src/cpu_policy.rs	X	)	release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed
+src/cpu_policy.rs	X	.is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));	release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed
