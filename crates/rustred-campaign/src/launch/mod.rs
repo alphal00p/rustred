@@ -60,7 +60,7 @@ pub use real::{
     RealConfig, RealLauncher, RetireEvent, ScopeCheck, ScopeUnitState, TrackingPreference,
     adhoc_campaign_id, audit_inheritable_fds, barrier_shim, in_private_namespace, namespace_state,
     peek_exit, scope_acknowledgment, scope_evidence_check, scope_reset_failed, scope_unit_state,
-    set_not_dumpable,
+    set_not_dumpable, systemd_units_unavailable, test_fake_systemd,
 };
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 

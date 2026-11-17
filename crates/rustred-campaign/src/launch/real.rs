@@ -318,7 +318,7 @@ impl ScopeUnitState {
 /// procfix7 round 8b / 9: the `LoadState`, `ActiveState` and `Result` of a scope unit (`systemctl --user show`, bounded
 /// 10 s), by its exact name. Err when it cannot be read (never a guessed state). Never inside a private namespace.
 pub fn scope_unit_state(unit: &str) -> Result<ScopeUnitState, String> {
-    if in_private_namespace() {
+    if systemd_units_unavailable() {
         return Err("inside a private namespace: no systemd unit".into());
     }
     exact_unit_name(unit)?;
@@ -406,7 +406,7 @@ fn exact_unit_name(unit: &str) -> Result<(), String> {
 /// <unit>.scope`: one literal unit name, never a pattern), after its state was read and recorded. A unit left loaded is
 /// listed by P8 / the operator; never inside a namespace. Sends no signal (it only clears systemd's failed state).
 pub fn scope_reset_failed(unit: &str) -> Result<(), String> {
-    if in_private_namespace() {
+    if systemd_units_unavailable() {
         return Err("inside a private namespace: no systemd unit".into());
     }
     exact_unit_name(unit)?;
@@ -699,6 +699,30 @@ fn test_exit_override() -> Option<u8> {
     {
         None
     }
+}
+
+/// TEST BUILDS ONLY (procfix7 round 9): `fake_systemd:1` in RR_CAMPAIGN_FAILPOINT lets the unit queries and resets
+/// ([`scope_unit_state`], [`scope_reset_failed`]) run inside a private namespace, where the `systemctl` found on PATH is
+/// a test's fake (a namespaced test of the record-then-reset order). Release builds: false.
+pub fn test_fake_systemd() -> bool {
+    #[cfg(debug_assertions)]
+    {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| {
+            std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+                .is_ok_and(|v| v.split(',').any(|p| p.trim() == "fake_systemd:1"))
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        false
+    }
+}
+
+/// procfix7 round 9: no systemd unit can be asked about or reset here (inside a private namespace, unless a test build
+/// armed `fake_systemd:1`).
+pub fn systemd_units_unavailable() -> bool {
+    in_private_namespace() && !test_fake_systemd()
 }
 
 /// The requested unit name under the test failpoint `scope_pending:1`.

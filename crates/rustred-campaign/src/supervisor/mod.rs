@@ -554,6 +554,9 @@ pub struct Supervisor {
     cpu_refresh_warned: Option<Instant>,
     /// procfix7 round 8b (host step 1): per job, the attempts ended because their scope could not be verified.
     scope_unverified: BTreeMap<String, u32>,
+    /// procfix7 round 9 (gate13 G13-M2): (job, attempt, unit) of ended attempts whose scope was not yet in a final state
+    /// when it was read: looked at again at the exit (`finish_run`), recorded, and reset by its exact name if failed.
+    scope_unsettled: Vec<(String, u32, String)>,
     /// procfix7 round 6 (M10-1): the attempt labels (`job:a<k>`) launched by THIS session: their processes and every
     /// successor stay in this child subreaper's tree, so the kernel's wait answer (ECHILD) covers them.
     launched_here: BTreeSet<String>,
@@ -666,6 +669,23 @@ pub fn file_digest(p: &Path) -> std::io::Result<(u64, String)> {
 const SCOPE_VERIFY_BOUND: Duration = Duration::from_secs(10);
 /// procfix7 round 8b: attempts of one job ended for an unverified scope before the run stops (exit 71).
 const SCOPE_UNVERIFIED_LIMIT: u32 = 3;
+/// procfix7 round 9 (gate13 G13-M2): how long an ended attempt's scope may take to reach a final state (systemd reacts
+/// to the empty cgroup within milliseconds; the end-of-job proof took seconds before) before it is left for the exit.
+const SCOPE_SETTLE_WAIT: Duration = Duration::from_secs(1);
+/// procfix7 round 9: the bound of the exit's last look at the scopes of this session that were not settled.
+const SCOPE_EXIT_WAIT: Duration = Duration::from_secs(10);
+
+/// procfix7 round 9: the state of `unit`, read again (every 50 ms) while it is loaded and not final, up to `wait`.
+fn read_scope_settled(unit: &str, wait: Duration) -> Result<crate::launch::ScopeUnitState, String> {
+    let until = Instant::now() + wait;
+    loop {
+        let st = crate::launch::scope_unit_state(unit)?;
+        if st.settled() || Instant::now() >= until {
+            return Ok(st);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
 
 /// The containment note of a job whose requested scope was not verified (procfix7 round 8b).
 struct ScopeEnd {
@@ -1491,6 +1511,7 @@ impl Supervisor {
             launched_here: BTreeSet::new(),
             cpu_refresh_warned: None,
             scope_unverified: BTreeMap::new(),
+            scope_unsettled: Vec::new(),
             scope_proven_empty: BTreeSet::new(),
             opts,
         })
@@ -3359,9 +3380,14 @@ impl Supervisor {
         }
     }
 
-    /// procfix7 round 8b (host step 1): a job SIGKILLed with no kill reason of ours whose scope unit FAILED with result
-    /// `oom-kill` (systemd's own record, read by the exact unit name) was killed by the kernel's memory-cgroup OOM killer
-    /// inside its scope (MemoryMax): it is a memory kill (killed_memory), never "lost". The failed unit is then reset.
+    /// procfix7 round 8b / 9 (gate13 G13-M2): the systemd state of an ENDED attempt's scope, read by its exact unit name
+    /// WHATEVER ended the job (also a kill reason of ours: host step 1's nine killed_memory ends, killed by our sampler
+    /// after the kernel's OOM kill, had FAILED oom-kill scopes that stayed loaded). Read once the attempt is finished
+    /// (its processes proven gone); a unit not yet in a final state is read again for up to [`SCOPE_SETTLE_WAIT`], then
+    /// kept for the exit's last look. A LOADED unit's state is recorded in the ledger (note `scope_result`) BEFORE a
+    /// failed one is reset ([`Self::record_scope_state`]). Classification: a SIGKILL end with NO kill reason of ours whose
+    /// scope failed with result `oom-kill` was killed by the kernel's memory-cgroup OOM killer inside its scope:
+    /// killed_memory, never "lost". Never inside a private namespace. Sends no signal.
     fn scope_result_class(
         &mut self,
         ch: &Child,
@@ -3370,35 +3396,122 @@ impl Supervisor {
         let Some(unit) = ch.handle.requested_scope_unit().map(str::to_string) else {
             return report;
         };
-        let sigkill = matches!(report.exit, Some(crate::launch::ExitState::Signaled { signal, .. }) if signal == libc::SIGKILL);
-        if !sigkill || report.kill_reason.is_some() || crate::launch::in_private_namespace() {
+        if crate::launch::systemd_units_unavailable() {
             return report;
         }
-        match crate::launch::scope_unit_state(&unit) {
-            Ok(st) if st.loaded() => {
-                if st.result == "oom-kill" {
-                    report.kill_reason = Some(KillReason::MemoryCap {
-                        rss_bytes: report.peak_rss_bytes.max(ch.peak),
-                        cap_bytes: ch.cap,
-                    });
-                    self.note(format!(
-                        "scope_oom_kill {{\"job\":{:?},\"attempt\":{},\"unit\":{unit:?}}}",
-                        ch.job, ch.attempt
-                    ));
-                }
-                if st.result != "success" {
-                    #[allow(clippy::let_underscore_must_use)]
-                    // ignored-ok (procfix7 round 8b): a unit left loaded is listed by the operator's checks (P8)
-                    let _ = crate::launch::scope_reset_failed(&unit);
-                }
+        let st = match read_scope_settled(&unit, SCOPE_SETTLE_WAIT) {
+            Ok(st) => st,
+            Err(e) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{} a{}: the state of scope {unit} could not be read ({e}): classified without it; looked at again at the exit", ch.job, ch.attempt),
+                );
+                self.scope_unsettled
+                    .push((ch.job.clone(), ch.attempt, unit));
+                return report;
             }
-            Ok(_) => {}
-            Err(e) => self.log.line(
-                "WARN",
-                &format!("{} a{}: the result of scope {unit} could not be read ({e}): classified without it", ch.job, ch.attempt),
-            ),
+        };
+        let sigkill = matches!(report.exit, Some(crate::launch::ExitState::Signaled { signal, .. }) if signal == libc::SIGKILL);
+        let oom_ours =
+            sigkill && report.kill_reason.is_none() && st.loaded() && st.result == "oom-kill";
+        if !self.record_scope_state(&ch.job, ch.attempt, &unit, &st, "ended") {
+            self.scope_unsettled
+                .push((ch.job.clone(), ch.attempt, unit.clone()));
+        }
+        if oom_ours {
+            report.kill_reason = Some(KillReason::MemoryCap {
+                rss_bytes: report.peak_rss_bytes.max(ch.peak),
+                cap_bytes: ch.cap,
+            });
+            self.note(format!(
+                "scope_oom_kill {{\"job\":{:?},\"attempt\":{},\"unit\":{unit:?}}}",
+                ch.job, ch.attempt
+            ));
         }
         report
+    }
+
+    /// procfix7 round 9 (gate13 G13-M2): a scope state read by its exact name. Not loaded: nothing to do (true). Loaded:
+    /// the state is RECORDED FIRST (note `scope_result`, committed to the ledger), then a FAILED unit is reset by its exact
+    /// name (`systemctl --user reset-failed -- <unit>.scope`); a reset is never attempted when the record could not be
+    /// committed (the evidence would be lost). A loaded unit that is not final yet (active / deactivating) is not
+    /// touched (false: look again later). `when`: "ended" / "at exit".
+    fn record_scope_state(
+        &mut self,
+        job: &str,
+        attempt: u32,
+        unit: &str,
+        st: &crate::launch::ScopeUnitState,
+        when: &str,
+    ) -> bool {
+        if !st.loaded() {
+            return true;
+        }
+        if !st.settled() {
+            self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: scope {unit} is still {} ({when}): not reset; looked at again at the exit", st.active),
+            );
+            return false;
+        }
+        let text = format!(
+            "scope_result {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":\"{unit}.scope\",\"active\":{:?},\"result\":{:?},\"when\":{when:?}}}",
+            st.active, st.result
+        );
+        self.log.line("INFO", &text);
+        if !self.commit(vec![Event::Note { text }]) {
+            self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: the state of scope {unit} could not be recorded: the unit is NOT reset (left loaded, listed by the operator's checks)"),
+            );
+            return true;
+        }
+        if st.active == "failed" {
+            match crate::launch::scope_reset_failed(unit) {
+                Ok(()) => self.log.line(
+                    "INFO",
+                    &format!("{job} a{attempt}: failed scope {unit}.scope (result {}) reset after its state was recorded", st.result),
+                ),
+                Err(e) => self.note(format!(
+                    "scope_reset_error {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":\"{unit}.scope\",\"error\":{e:?}}}"
+                )),
+            }
+        }
+        true
+    }
+
+    /// procfix7 round 9 (gate13 G13-M2): at the exit, the scopes of this session whose final state was not seen yet (ended
+    /// attempts kept by [`Self::scope_result_class`], and the attempts still listed as children) are read once more by
+    /// their exact names (bounded in all by [`SCOPE_EXIT_WAIT`]), recorded, and reset if failed. A scope still active is
+    /// left alone (its job may run on: the restart adopts it).
+    fn settle_scopes_at_exit(&mut self) {
+        if crate::launch::systemd_units_unavailable() {
+            return;
+        }
+        let mut todo = std::mem::take(&mut self.scope_unsettled);
+        for ch in &self.children {
+            if let Some(u) = ch.handle.requested_scope_unit() {
+                todo.push((ch.job.clone(), ch.attempt, u.to_string()));
+            }
+        }
+        let deadline = Instant::now() + SCOPE_EXIT_WAIT;
+        for (job, attempt, unit) in todo {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match read_scope_settled(&unit, left) {
+                Ok(st) => {
+                    if !self.record_scope_state(&job, attempt, &unit, &st, "at exit") {
+                        self.log.line(
+                            "WARN",
+                            &format!("{job} a{attempt}: scope {unit}.scope still {} at the exit: left alone", st.active),
+                        );
+                    }
+                }
+                Err(e) => self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: the state of scope {unit}.scope could not be read at the exit ({e}): left as it is"),
+                ),
+            }
+        }
     }
 
     fn note_containment(
@@ -6786,6 +6899,8 @@ impl Supervisor {
     fn finish_run(&mut self, r: &RunExit) {
         // procfix7 (gate6 m3-a): an unused tmpfs fallback intent log of this session is removed (a used one stays).
         crate::launch::retire_own_intent_fallback();
+        // procfix7 round 9 (gate13 G13-M2): no failed scope of this session is left loaded when it can be helped
+        self.settle_scopes_at_exit();
         for ev in self.launcher.shutdown(Duration::from_secs(10)) {
             if let crate::launch::RetireEvent::Cleared { label, .. } = ev {
                 self.log
