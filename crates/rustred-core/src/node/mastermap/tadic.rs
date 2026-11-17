@@ -38,6 +38,8 @@ use crate::reduction::ordered_reduction::coefficient_valuation;
 use crate::reduction::{TadicSeries, expand_coefficient};
 /// (lowest valuation, edges, precision losses) of one rule over the live edges.
 type RuleStat = (i32, usize, usize);
+/// (prime, per seed: (terminal, series)) of one replayed prime.
+type PrimeImage = (u64, Vec<Vec<(u32, TadicSeries)>>);
 
 /// Schema of the JSON document written by `rr_node tadic`.
 pub const NODE_TADIC_SCHEMA: &str = "rustred.node-tadic.v1";
@@ -670,7 +672,7 @@ impl Table {
         let t2 = std::time::Instant::now();
         let mut rng = StdRng::seed_from_u64(opt.seed ^ NODE_TADIC_SALT);
         let mut stream = PrimeIteratorU64::new(NODE_TADIC_BASE + (rng.random::<u64>() >> 6));
-        let mut images: Vec<(u64, Vec<Vec<(u32, TadicSeries)>>)> = vec![];
+        let mut images: Vec<PrimeImage> = vec![];
         let mut unusable: Vec<u64> = vec![];
         let mut consumed = 0usize;
         let mut max_length = 0usize;
