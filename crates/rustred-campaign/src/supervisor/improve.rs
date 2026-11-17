@@ -18,6 +18,7 @@ use crate::supervisor::worksource::{
 };
 use rustred_campaign_contract::classify::OutcomeKind;
 use rustred_campaign_contract::spec::{Budgets, InputRef, JobKind, WallBudgets, WorkBudgets};
+use rustred_campaign_core::economy::derivation as dv;
 use rustred_campaign_core::economy::genchoice as gc;
 use rustred_campaign_core::economy::improve as im;
 use rustred_campaign_core::economy::polescore as ps;
@@ -79,6 +80,9 @@ pub struct ImproveAnswer {
     /// The job's sealed table (absolute), when it sealed one: what a pole scorer evaluates.
     #[serde(default)]
     pub table_path: Option<String>,
+    /// The EFFECTIVE DERIVATION of every rule of the job's table (`rustred.campaign.rule-derivation.v1`).
+    #[serde(default)]
+    pub derivations: Vec<Value>,
 }
 
 struct NodeRt {
@@ -98,11 +102,17 @@ struct NodeRt {
     pole_scores: Vec<ps::ScoreLine>,
     /// IMPROVE POLES: rule indices without a decided own score (not targeted).
     unscored: Vec<i64>,
+    /// Rules inside the filter window the record already holds completely (skipped by this run).
+    skipped: Vec<i64>,
+    /// Reference yield of the tranche stop (bytes per CPU-h).
+    ref_yield: Option<f64>,
 }
 
 pub struct ImproveSource {
     cfg_input: String,
     cfg: im::ImproveConfig,
+    /// The engine binary (path, sha256) recorded in every derivation.
+    engine: (String, String),
     /// TESTS ONLY (config key `fake`): runs keyed by rule index, then candidate name.
     fake: Option<FakeGen>,
     cdir: PathBuf,
@@ -209,6 +219,15 @@ impl ImproveSource {
                 None => im::ImproveRecord::empty(&e.node, &ts2, &rules),
             };
             record.align(&rules);
+            if let Some(f) = &e.dependences {
+                let (_, _, h) = file_digests(Path::new(&f.path))?;
+                if h != f.sha256 {
+                    return Err(format!(
+                        "improve: {}: dependence table {} sha256 {h} differs from the config's",
+                        e.node, f.path
+                    ));
+                }
+            }
             let pole_scores = match &e.pole_scores {
                 Some(f) => {
                     let (_, _, h) = file_digests(Path::new(&f.path))?;
@@ -256,6 +275,15 @@ impl ImproveSource {
             } else {
                 (im::targets(&rules, &record, &cfg.improve), vec![], vec![])
             };
+            let skipped = if cfg.improve.poles_on() {
+                vec![]
+            } else {
+                im::skipped_by_record(&rules, &record, &cfg.improve)
+            };
+            let ref_yield = cfg.improve.yield_stop.as_ref().and_then(|y| {
+                y.reference_bytes_per_cpu_h
+                    .or_else(|| im::reference_yield(&record))
+            });
             nodes.push(NodeRt {
                 e: e.clone(),
                 family_blake3: fb3,
@@ -269,10 +297,22 @@ impl ImproveSource {
                 decisions,
                 pole_scores,
                 unscored,
+                skipped,
+                ref_yield,
             });
         }
+        let engine_path = fake
+            .as_ref()
+            .and_then(|f| spec.programs.get(&f.program))
+            .or_else(|| spec.programs.get(&cfg.program))
+            .map(|p| p.path.display().to_string())
+            .unwrap_or_default();
+        let engine_sha = file_digests(Path::new(&engine_path))
+            .map(|d| d.2)
+            .unwrap_or_default();
         Ok(ImproveSource {
             cfg_input: cfg_input.to_string(),
+            engine: (engine_path, engine_sha),
             cfg,
             fake,
             cdir: cdir.to_path_buf(),
@@ -353,6 +393,36 @@ impl ImproveSource {
             .is_some_and(|b| Self::spent_ms(st, node) >= b.saturating_mul(1000))
     }
 
+    /// Bytes saved so far by the qualifying candidates of this run (best per rule).
+    fn saved_so_far(&mut self, st: &CampaignState, i: usize) -> u64 {
+        let node = self.nodes[i].e.node.clone();
+        let targets = self.nodes[i].targets.clone();
+        let mut saved = 0u64;
+        for (pos, cands) in &targets {
+            let old = self.nodes[i].rules[*pos].clone();
+            let best = cands
+                .iter()
+                .filter_map(|c| self.answer(st, &item_id(&node, old.index, c)))
+                .filter(|a| a.verdict == "ok")
+                .filter_map(|a| a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes)))
+                .min();
+            if let Some(b) = best {
+                saved += old.bytes.saturating_sub(b);
+            }
+        }
+        saved
+    }
+
+    /// (yield so far in bytes per CPU-h, the run is below the tranche stop line).
+    fn yield_state(&mut self, st: &CampaignState, i: usize) -> (Option<f64>, bool) {
+        let Some(y) = self.cfg.improve.yield_stop.clone() else {
+            return (None, false);
+        };
+        let spent = Self::spent_ms(st, &self.nodes[i].e.node);
+        let saved = self.saved_so_far(st, i);
+        im::yield_check(saved, spent, self.nodes[i].ref_yield, &y)
+    }
+
     /// The result of a node: improved table (when a rule was replaced), replaced rules, the appended record, the import
     /// spec; registered as `improve:<node>:result`.
     fn finish_node(
@@ -378,7 +448,7 @@ impl ImproveSource {
                     .is_some_and(|it| Self::final_phase(&it.phase));
                 match (fin, self.answer(st, &item)) {
                     (true, Some(a)) => per_rule.entry(idx).or_default().push(a),
-                    _ => untried.entry(idx).or_default().push(format!("{c}: not run (total budget improve.budget_cpu_s spent or no settled attempt)")),
+                    _ => untried.entry(idx).or_default().push(format!("{c}: not run (improve.budget_cpu_s spent, tranche yield stop, or no settled attempt)")),
                 }
             }
         }
@@ -391,11 +461,20 @@ impl ImproveSource {
                 .filter(|a| a.verdict == "ok" && (a.new_line.is_some() || !a.new_lines.is_empty()))
                 .min_by_key(|a| {
                     let r = a.new_rule.as_ref().expect("ok verdict has a rule");
-                    (
+                    let (m, b) = (
                         a.sub_monomials.unwrap_or(r.monomials),
                         a.sub_bytes.unwrap_or(r.bytes),
-                        a.cand.clone(),
-                    )
+                    );
+                    let c = &p.cost;
+                    let primary = match p.filter.by {
+                        im::RankBy::Monomials => m,
+                        im::RankBy::Bytes => b,
+                        im::RankBy::UseCost => (c.load_ns_per_byte * b as f64
+                            + c.apply_ns_base * a.sub_rules.unwrap_or(1) as f64
+                            + c.apply_ns_per_monomial * m as f64)
+                            .round() as u64,
+                    };
+                    (primary, m, b, a.cand.clone())
                 });
             if let Some(b) = best {
                 let lines = match &b.new_line {
@@ -474,6 +553,7 @@ impl ImproveSource {
                     verdict: verdict.clone(),
                     table: Some(t.path.clone()),
                     pole: Some(line.score.clone()),
+                    derivation: None,
                 });
                 if let Some((n, l)) = new {
                     let key = (ps::pole_values(&line.score, pol), n.monomials, cand.clone());
@@ -490,6 +570,30 @@ impl ImproveSource {
                 chosen.insert(idx, cand.clone());
                 pole_new.insert(idx, (sc, cand));
             }
+        }
+        // the derivations of this run's candidates (every rule each job sealed), one file per run
+        let der_rel = format!("{}/derivations.r{run}.jsonl", dir(&node));
+        let mut der_bytes = Vec::new();
+        let mut der_lines = 0usize;
+        for v in per_rule.values() {
+            for a in v {
+                for d in &a.derivations {
+                    der_bytes.extend_from_slice(d.to_string().as_bytes());
+                    der_bytes.push(b'\n');
+                    der_lines += 1;
+                }
+            }
+        }
+        let der_sha = {
+            let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+            h.update(&der_bytes);
+            h.finish_hex()
+        };
+        if der_lines > 0 {
+            rt.accepts.push(AcceptedRecord {
+                path: der_rel.clone(),
+                bytes: der_bytes,
+            });
         }
         let tin = self.nodes[i].e.table.sha256.clone();
         let (out_sha, out_path) = if repl.is_empty() {
@@ -594,6 +698,8 @@ impl ImproveSource {
                         },
                         table: a.table_path.clone(),
                         pole: None,
+                        derivation: (!a.derivations.is_empty())
+                            .then(|| format!("{der_rel}#{}.a{}", a.job, a.attempt)),
                     });
                 }
             }
@@ -680,6 +786,15 @@ impl ImproveSource {
             })
             .collect();
         let (out_bytes, _, _) = file_digests(Path::new(&out_path))?;
+        let (yield_now, yield_stopped) = self.yield_state(st, i);
+        let saved_now = self.saved_so_far(st, i);
+        let yield_json = json!({"bytes_saved": saved_now, "cpu_h": Self::spent_ms(st, &node) as f64 / 3.6e6,
+        "bytes_per_cpu_h": yield_now, "reference_bytes_per_cpu_h": self.nodes[i].ref_yield,
+        "min_fraction": p.yield_stop.as_ref().map(|y| y.min_fraction), "stopped_by_yield": yield_stopped,
+        "next_tranche_advised": match (yield_now, self.nodes[i].ref_yield, &p.yield_stop) {
+            (Some(v), Some(r), Some(y)) => Some(v >= y.min_fraction * r),
+            _ => None,
+        }});
         rec.table_sha256 = out_sha.clone();
         rec.runs.push(im::RunEntry {
             run,
@@ -691,6 +806,16 @@ impl ImproveSource {
             spent_cpu_ms: Self::spent_ms(st, &node),
             totals: json!({"targets": targets.len(), "candidates": targets.iter().map(|(_, c)| c.len()).sum::<usize>(),
                 "objective": if p.poles_on() { "poles" } else { "size" },
+                "derivations": (der_lines > 0).then(|| json!({"path": self.cdir.join(&der_rel).display().to_string(),
+                    "sha256": der_sha, "lines": der_lines})),
+                "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
+                "score_form": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.score.word()),
+                "score_level": p.poles.as_ref().filter(|_| p.poles_on()).map(|q| q.level.word()),
+                "dependences": if p.poles_on() {
+                    self.nodes[i].e.dependences.as_ref().map_or(json!("upper_bound"), |f| json!(f))
+                } else {
+                    Value::Null
+                },
                 "decided_from_scores": self.nodes[i].decisions.len(), "unscored_rules": self.nodes[i].unscored.len(),
                 "replaced": repl.len(), "table_bytes_before": self.nodes[i].table_bytes, "table_bytes_after": out_bytes,
                 "targets_bytes_before": tb, "targets_bytes_after": after.iter().map(|e| e.bytes).sum::<u64>(),
@@ -724,6 +849,7 @@ impl ImproveSource {
             "table_out": {"path": out_path, "sha256": out_sha, "bytes": out_bytes},
             "replaced": repl.len(), "record": {"path": self.cdir.join(&rec_rel).display().to_string(), "sha256": rec_sha},
             "import_spec": import.as_ref().map(|_| self.cdir.join(format!("{}/import.r{run}.json", dir(&node))).display().to_string()),
+            "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
             "nothing_to_try": targets.is_empty() && self.nodes[i].decisions.is_empty()});
         let r = AcceptedRecord {
             path: format!("{}/result.r{run}.json", dir(&node)),
@@ -826,7 +952,10 @@ impl WorkSource for ImproveSource {
         let mut out = Vec::new();
         for i in 0..self.nodes.len() {
             let node = self.nodes[i].e.node.clone();
-            if st.inputs.contains_key(&input_result(&node)) || self.budget_spent(st, &node) {
+            if st.inputs.contains_key(&input_result(&node))
+                || self.budget_spent(st, &node)
+                || self.yield_state(st, i).1
+            {
                 continue;
             }
             let n = &self.nodes[i];
@@ -989,12 +1118,24 @@ impl WorkSource for ImproveSource {
                 "subtree_incomplete ({status}: not closed within improve.subtree_max_cases)"
             ),
             Some(_) if subtree => {
-                match im::subtree_verdict(&old, &sub_rules, self.cfg.improve.min_gain) {
+                match im::subtree_verdict_by(
+                    &old,
+                    &sub_rules,
+                    self.cfg.improve.min_gain,
+                    self.cfg.improve.filter.by,
+                    &self.cfg.improve.cost,
+                ) {
                     Ok(()) => "ok".to_string(),
                     Err(w) => w,
                 }
             }
-            Some(n) => match im::replacement_verdict(&old, n, self.cfg.improve.min_gain) {
+            Some(n) => match im::replacement_verdict_by(
+                &old,
+                n,
+                self.cfg.improve.min_gain,
+                self.cfg.improve.filter.by,
+                &self.cfg.improve.cost,
+            ) {
                 Ok(()) => "ok".to_string(),
                 Err(w) => w,
             },
@@ -1027,6 +1168,31 @@ impl WorkSource for ImproveSource {
                 .display()
                 .to_string()
         });
+        // the effective derivation of every rule the job sealed (TRICKS 31 / 35): from the job's own files
+        let derivations = if run_dir.is_empty() || done.canonical_lines.is_empty() {
+            vec![]
+        } else {
+            let rd = Path::new(&run_dir);
+            let rd_text = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
+            let (spec_t, events_t, stderr_t) = (
+                rd_text("job.json"),
+                rd_text("EVENTS.jsonl"),
+                rd_text("stderr.log"),
+            );
+            dv::rule_derivations(&dv::JobFiles {
+                node: &it.node,
+                item: &done.item,
+                job: &done.job,
+                attempt: done.attempt,
+                job_spec: &spec_t,
+                events: &events_t,
+                stderr: &stderr_t,
+                table_lines: &done.canonical_lines,
+                engine_path: &self.engine.0,
+                engine_sha256: &self.engine.1,
+            })
+            .unwrap_or_default()
+        };
         let mut new_lines = Vec::new();
         if verdict != "ok" {
             new_line = None;
@@ -1051,6 +1217,7 @@ impl WorkSource for ImproveSource {
             sub_rules: sub_n,
             verdict,
             table_path,
+            derivations,
         };
         let mut rt = Routing::default();
         let rec = AcceptedRecord {
@@ -1131,7 +1298,9 @@ impl WorkSource for ImproveSource {
                         .is_some_and(|j| !matches!(j.state, AttemptState::Failed(_)))
             });
             let all_final = items.iter().all(|it| Self::final_phase(&it.phase));
-            if all_final || (!running && self.budget_spent(st, &node)) {
+            if all_final
+                || (!running && (self.budget_spent(st, &node) || self.yield_state(st, i).1))
+            {
                 self.finish_node(st, i, &mut rt)?;
             }
         }

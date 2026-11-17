@@ -112,6 +112,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
             verdict: "not_smaller".into(),
             table: None,
             pole: None,
+            derivation: None,
         });
     }
     assert_eq!(
@@ -266,4 +267,75 @@ fn filter_ranks_by_bytes_when_asked() {
     assert_eq!(targets(&rules, &rec, &p)[0].0, 0, "default: by monomials");
     p.filter.by = RankBy::Bytes;
     assert_eq!(targets(&rules, &rec, &p)[0].0, 1, "by bytes");
+}
+
+#[test]
+fn replacement_follows_the_size_measure() {
+    use rustred_campaign_core::economy::genchoice::CostModel;
+    // the legacy record: few monomials, huge bytes; the regenerated sub-table: many monomials, far fewer bytes
+    let mut old = rule(&line(7, "[null,1,0]", "I(n0,1,0)", "[]", 3195));
+    old.bytes = 210_000_000;
+    let mut a = rule(&line(7, "[null,1,0]", "I(n0,1,0)", "[]", 900_000));
+    a.bytes = 16_000_000;
+    let mut b = rule(&line(8, "[1,1,0]", "I(1,1,0)", "[]", 100_000));
+    b.bytes = 1_800_000;
+    let sub = vec![a.clone(), b];
+    let c = CostModel::default();
+    assert!(
+        subtree_verdict(&old, &sub, 1.0)
+            .unwrap_err()
+            .starts_with("not_smaller"),
+        "by monomials: refused"
+    );
+    assert_eq!(
+        subtree_verdict_by(&old, &sub, 1.0, RankBy::Bytes, &c),
+        Ok(())
+    );
+    assert_eq!(
+        subtree_verdict_by(&old, &sub, 1.0, RankBy::UseCost, &c),
+        Ok(())
+    );
+    assert_eq!(
+        replacement_verdict_by(&old, &a, 1.0, RankBy::Bytes, &c),
+        Ok(())
+    );
+    assert!(replacement_verdict_by(&a, &old, 1.0, RankBy::Bytes, &c).is_err());
+    // size_of under use_cost: 30 ns/B + 20 us + 100 ns/monomial
+    assert_eq!(
+        size_of(&[&old], RankBy::UseCost, &c),
+        6_300_000_000 + 20_000 + 319_500
+    );
+}
+
+#[test]
+fn tranche_yield_stop_and_record_skips() {
+    let mut rec = ImproveRecord::empty("T", &"0".repeat(64), &[]);
+    rec.runs.push(RunEntry {
+        run: 1,
+        mode: "improve".into(),
+        settings: serde_json::json!({}),
+        table_in_sha256: None,
+        table_out_sha256: "x".into(),
+        budget_cpu_ms: None,
+        spent_cpu_ms: 3_600_000 * 10,
+        totals: serde_json::json!({"table_bytes_before": 3_000_000_000u64, "table_bytes_after": 1_000_000_000u64}),
+    });
+    let r = reference_yield(&rec).unwrap();
+    assert_eq!(r, 200_000_000.0, "2 GB in 10 CPU-h");
+    let y = YieldStop::default();
+    assert!((y.min_fraction - 1.0 / 3.0).abs() < 1e-12);
+    // 50 MB per CPU-h after 2 CPU-h: below 1/3 x 200 MB: stop; before min_cpu_s: no stop
+    assert_eq!(
+        yield_check(100_000_000, 7_200_000, Some(r), &y),
+        (Some(50_000_000.0), true)
+    );
+    assert!(!yield_check(1, 60_000, Some(r), &y).1);
+    assert!(
+        !yield_check(100_000_000, 7_200_000, None, &y).1,
+        "no reference: no stop"
+    );
+    assert!(
+        !yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1,
+        "70 MB/CPU-h >= 66.7: go on"
+    );
 }

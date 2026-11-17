@@ -196,6 +196,15 @@ fn portfolio_ranks_probes_runs_economy_and_records_the_choice() {
     let tp = imp["sources"][0]["path"].as_str().unwrap();
     assert_eq!(imp["sources"][0]["sha256"], sha256_file(Path::new(tp)));
     assert_eq!(c["winner_table"].as_str().unwrap(), tp);
+    // TRICKS 31 / 35: the winner table's rules carry their effective derivation (one line per rule)
+    let dref = &c["files"]["derivations"];
+    assert!(
+        dref["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("derivations.jsonl"),
+        "{dref:#}"
+    );
     // resume answers the same: a second start finds everything decided and exits 0 at once
     let again = run_to_end(&sp, &cdir, &["--plain"]);
     assert_eq!(again.last(), Some(&0), "{}", log_tail(&cdir));
@@ -310,6 +319,18 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
                 (json!("regular"), json!(true)),
                 "{d:#}"
             );
+            assert_eq!(
+                (
+                    d["score_form"].clone(),
+                    c["policy"]["poles"]["score"].clone()
+                ),
+                (json!("count"), json!("count"))
+            );
+            assert_eq!(
+                (d["score_level"].clone(), d["claim"].clone()),
+                (json!("rule"), json!("screen"))
+            );
+            assert_eq!(c["poles"]["dependences"], "upper_bound");
             assert!(
                 c["poles"]["scores"]
                     .as_array()

@@ -172,6 +172,41 @@ fn improve_replaces_only_verified_smaller_rules_records_everything_and_iterates(
         v.contains(&"replaced") && v.iter().any(|x| x.starts_with("exceptions_not_subset")),
         "{v:?}"
     );
+    // TRICKS 31 / 35: every generated candidate points at its effective derivation, written beside the record
+    let t0 = e0["tried"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["verdict"] == "replaced")
+        .unwrap();
+    let dptr = t0["derivation"].as_str().unwrap();
+    let (dfile, djob) = dptr.split_once('#').unwrap();
+    let ders: Vec<Value> = std::fs::read_to_string(d1.join(dfile))
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    let dl = ders
+        .iter()
+        .find(|d| format!("{}.a{}", d["job"].as_str().unwrap(), d["attempt"]) == djob)
+        .unwrap();
+    assert_eq!(dl["schema"], "rustred.campaign.rule-derivation.v1");
+    assert!(
+        dl["rule"]["committed"]["canon_blake3"].is_string(),
+        "{dl:#}"
+    );
+    assert_eq!(
+        dl["replay_args"], dl["args"],
+        "replay = the producing job's own args (deterministic): {dl:#}"
+    );
+    assert!(dl["relation_retries"].is_array() && dl["attempt_that_produced"].is_string());
+    assert!(dl["engine"]["sha256"].as_str().unwrap().len() == 64);
+    assert_eq!(
+        rec["runs"][0]["totals"]["derivations"]["lines"]
+            .as_u64()
+            .unwrap(),
+        ders.len() as u64
+    );
     let e1 = rec["rules"]
         .as_array()
         .unwrap()
@@ -209,6 +244,11 @@ fn improve_replaces_only_verified_smaller_rules_records_everything_and_iterates(
     // the largest 2 are now rules 1 (tried) and 0 (rung / tight tried): nothing new
     let res2 = read_json(&d2.join("genchoice/toy/improve/result.r2.json"));
     assert_eq!(res2["nothing_to_try"], true, "{res2:#}");
+    assert_eq!(
+        res2["skipped_by_record"],
+        json!([1, 0]),
+        "the relaunch skips what the record holds: {res2:#}"
+    );
     assert_eq!(res2["table_out"]["sha256"], res["table_out"]["sha256"]);
     // run 3: widen the filter: rule 2 only; rung gives 5 < 10 monomials
     let rec2 = PathBuf::from(res2["record"]["path"].as_str().unwrap());
@@ -457,6 +497,20 @@ fn improve_poles_generates_then_decides_from_scores_and_never_regenerates() {
     );
     assert!(e1["why"].as_str().unwrap().contains("pole objective"));
     assert_eq!(rec2["runs"][1]["totals"]["objective"], "poles");
+    assert_eq!(
+        rec2["runs"][1]["totals"]["score_form"], "count",
+        "records name the score form"
+    );
+    assert_eq!(
+        rec2["runs"][1]["totals"]["score_level"], "rule",
+        "and its level"
+    );
+    assert_eq!(
+        rec2["runs"][1]["totals"]["dependences"], "upper_bound",
+        "no dependence table given"
+    );
+    assert_eq!(e1["pole"]["level"], "rule");
+    assert_eq!(e1["pole"]["form"], "count");
     // run 3: the improved table, unchanged scores: the `original` lines describe the old table: nothing to do
     let c3 = cfg("p3.json", Path::new(&out), Some(&rec2p), &s2p);
     let d3 = t.cdir("cdirp3");

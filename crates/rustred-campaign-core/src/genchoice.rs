@@ -1383,6 +1383,10 @@ pub struct NodeEntry {
     /// Table-scope pole scores of this node's candidates (`rustred.campaign.pole-score.v1` lines; section 6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole_scores: Option<FileEntry>,
+    /// The dependence table of published symbols (versioned data, sha256-bound; section 6): substituted before
+    /// counting at `composed` level; absent = every pole statement is labelled an UPPER BOUND.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependences: Option<FileEntry>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1435,6 +1439,10 @@ impl Config {
                 (
                     "pole_scores.sha256",
                     n.pole_scores.as_ref().map(|b| &b.sha256),
+                ),
+                (
+                    "dependences.sha256",
+                    n.dependences.as_ref().map(|b| &b.sha256),
                 ),
             ] {
                 if let Some(h) = h

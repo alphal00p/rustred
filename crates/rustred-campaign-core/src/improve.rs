@@ -178,6 +178,10 @@ pub struct Tried {
     /// Its route-pole score at the keys the table's rule serves (scope `rule_poles`; section 6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole: Option<crate::economy::polescore::PoleScore>,
+    /// Pointer to the EFFECTIVE DERIVATION of the candidate's rule(s): `<derivations file>#<job>.a<attempt>`
+    /// (`rustred.campaign.rule-derivation.v1` lines; TRICKS 31 / 35).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derivation: Option<String>,
 }
 
 /// The record of one rule target.
@@ -338,8 +342,10 @@ impl ImproveRecord {
 pub struct RuleFilter {
     pub largest: Option<usize>,
     pub min_monomials: Option<u64>,
-    /// What "largest" ranks by: `monomials` (default) or `bytes` (the record size: the heaviest rules of a legacy
-    /// table such as T266 have huge coefficients but few monomials).
+    /// The SIZE MEASURE of the run: what "largest" ranks by AND what a replacement must reduce: `monomials` (default:
+    /// fewer monomials, not more bytes), `bytes` (fewer record bytes; the heaviest rules of a legacy table such as T266
+    /// carry huge coefficients on few monomials: rule 7181, 210.7 MB on 3,195 monomials, regenerates as a complete
+    /// 17.9 MB sub-table of 1.0 M monomials) or `use_cost` (the repair flow's cost model, `cost`).
     pub by: RankBy,
 }
 
@@ -348,6 +354,29 @@ pub struct RuleFilter {
 pub enum RankBy {
     Monomials,
     Bytes,
+    UseCost,
+}
+
+/// The size of rules under a measure (`use_cost`: load_ns_per_byte x bytes + per rule apply_ns_base +
+/// apply_ns_per_monomial x monomials, rounded to ns).
+pub fn size_of(
+    rules: &[&TableRule],
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+) -> u64 {
+    match by {
+        RankBy::Monomials => rules.iter().map(|r| r.monomials).sum(),
+        RankBy::Bytes => rules.iter().map(|r| r.bytes).sum(),
+        RankBy::UseCost => rules
+            .iter()
+            .map(|r| {
+                cost.load_ns_per_byte * r.bytes as f64
+                    + cost.apply_ns_base
+                    + cost.apply_ns_per_monomial * r.monomials as f64
+            })
+            .sum::<f64>()
+            .round() as u64,
+    }
 }
 
 impl Default for RuleFilter {
@@ -381,12 +410,88 @@ pub struct ImprovePolicy {
     /// Cases budget of a sub-tree job (`budgets.work.cases`; a sub-tree that does not complete within it never
     /// replaces anything).
     pub subtree_max_cases: u64,
+    /// Cost model of `filter.by: use_cost` (genchoice's; repairflow.md 2).
+    pub cost: crate::economy::genchoice::CostModel,
+    /// TRANCHE YIELD STOP (implementer 2026-11-16): the run stops starting candidates once its yield (bytes saved per
+    /// CPU-h, by the qualifying candidates so far) falls below `min_fraction` x the reference yield (the record's first
+    /// improve run that saved bytes, unless given); None = no yield stop.
+    pub yield_stop: Option<YieldStop>,
     /// IMPROVE POLES (section 6): the pole objective instead of size (None = size). Targets = the rules whose own
     /// rule-scope score has a pole (worst first); candidates run single-case (`--descend open`); a fresh candidate is
     /// `pole_score_pending` until its rule-scope score is supplied (node `pole_scores`), then decided by
     /// [`crate::economy::polescore::rule_pole_verdict`] without being generated again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub poles: Option<crate::economy::polescore::PolePolicy>,
+}
+
+/// See [`ImprovePolicy::yield_stop`].
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, default)]
+pub struct YieldStop {
+    /// Stop below this fraction of the reference yield (default 1/3: "within a factor 3 of the first tranche").
+    pub min_fraction: f64,
+    /// Reference yield in bytes per CPU-h; None = from the record ([`reference_yield`]); no reference = no stop.
+    pub reference_bytes_per_cpu_h: Option<f64>,
+    /// No stop before this much CPU is spent in the run (noise of the first jobs).
+    pub min_cpu_s: u64,
+}
+
+impl Default for YieldStop {
+    fn default() -> Self {
+        YieldStop {
+            min_fraction: 1.0 / 3.0,
+            reference_bytes_per_cpu_h: None,
+            min_cpu_s: 3600,
+        }
+    }
+}
+
+/// The reference yield of a record: bytes saved per CPU-h of its first improve run that saved bytes.
+pub fn reference_yield(rec: &ImproveRecord) -> Option<f64> {
+    rec.runs
+        .iter()
+        .filter(|r| r.mode == "improve" && r.spent_cpu_ms > 0)
+        .find_map(|r| {
+            let b = r.totals.get("table_bytes_before")?.as_u64()?;
+            let a = r.totals.get("table_bytes_after")?.as_u64()?;
+            (b > a).then(|| (b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6))
+        })
+}
+
+/// Yield of a run so far and whether it is below the stop line: (bytes per CPU-h, stop).
+pub fn yield_check(
+    saved_bytes: u64,
+    spent_cpu_ms: u64,
+    reference: Option<f64>,
+    y: &YieldStop,
+) -> (Option<f64>, bool) {
+    if spent_cpu_ms == 0 {
+        return (None, false);
+    }
+    let v = saved_bytes as f64 / (spent_cpu_ms as f64 / 3.6e6);
+    let stop = spent_cpu_ms >= y.min_cpu_s.saturating_mul(1000)
+        && reference.is_some_and(|r| v < y.min_fraction * r);
+    (Some(v), stop)
+}
+
+/// The rules inside the filter window that the record already holds completely (every candidate tried): skipped.
+pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePolicy) -> Vec<i64> {
+    let mut idx: Vec<usize> = (0..rules.len()).collect();
+    let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
+    idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
+    idx.into_iter()
+        .filter(|&i| {
+            p.filter
+                .min_monomials
+                .is_none_or(|m| rules[i].monomials >= m)
+        })
+        .take(p.filter.largest.unwrap_or(usize::MAX))
+        .filter(|&i| {
+            let key = rules[i].key();
+            p.candidates.iter().all(|c| rec.tried(&key, &c.name))
+        })
+        .map(|i| rules[i].index)
+        .collect()
 }
 
 impl ImprovePolicy {
@@ -427,6 +532,8 @@ impl Default for ImprovePolicy {
             min_gain: 1.0,
             subtree: true,
             subtree_max_cases: 64,
+            cost: crate::economy::genchoice::CostModel::default(),
+            yield_stop: Some(YieldStop::default()),
             poles: None,
         }
     }
@@ -440,10 +547,7 @@ pub fn targets(
     p: &ImprovePolicy,
 ) -> Vec<(usize, Vec<String>)> {
     let mut idx: Vec<usize> = (0..rules.len()).collect();
-    let size = |i: usize| match p.filter.by {
-        RankBy::Monomials => rules[i].monomials,
-        RankBy::Bytes => rules[i].bytes,
-    };
+    let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     let idx: Vec<usize> = idx
         .into_iter()
@@ -590,6 +694,62 @@ pub fn replacement_verdict(old: &TableRule, new: &TableRule, min_gain: f64) -> R
         return Err(format!("more_bytes ({} vs {})", new.bytes, old.bytes));
     }
     Ok(())
+}
+
+/// [`replacement_verdict`] under the run's size measure (`by`): structural test, then the measure strictly smaller
+/// (<= old x min_gain); `monomials` keeps the legacy rule (also not more bytes).
+pub fn replacement_verdict_by(
+    old: &TableRule,
+    new: &TableRule,
+    min_gain: f64,
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+) -> Result<(), String> {
+    if by == RankBy::Monomials {
+        return replacement_verdict(old, new, min_gain);
+    }
+    structural_verdict(old, new)?;
+    let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
+    if n >= o || (n as f64) > o as f64 * min_gain {
+        return Err(format!("not_smaller ({n} vs {o} {})", by_word(by)));
+    }
+    Ok(())
+}
+
+/// [`subtree_verdict`] under the run's size measure.
+pub fn subtree_verdict_by(
+    old: &TableRule,
+    new: &[TableRule],
+    min_gain: f64,
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+) -> Result<(), String> {
+    if by == RankBy::Monomials {
+        return subtree_verdict(old, new, min_gain);
+    }
+    let Some(first) = new.iter().find(|r| r.case == old.case) else {
+        return Err("no_rule_for_the_case".into());
+    };
+    if first.target != old.target {
+        return Err(format!("other_target ({} vs {})", first.target, old.target));
+    }
+    let nr: Vec<&TableRule> = new.iter().collect();
+    let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
+    if n >= o || (n as f64) > o as f64 * min_gain {
+        return Err(format!(
+            "not_smaller (sub-table {n} vs {o} {})",
+            by_word(by)
+        ));
+    }
+    Ok(())
+}
+
+fn by_word(by: RankBy) -> &'static str {
+    match by {
+        RankBy::Monomials => "monomials",
+        RankBy::Bytes => "bytes",
+        RankBy::UseCost => "use-cost ns",
+    }
 }
 
 /// SUB-TREE verdict: the complete sub-table `new` (its first rule must be the target case) may replace `old` when its
@@ -773,6 +933,7 @@ pub fn generation_record(
             verdict: "winner".into(),
             table: None,
             pole: None,
+            derivation: None,
         });
         for ((id, _), m) in others.iter().zip(&maps) {
             let r = m.get(&e.case);
@@ -793,6 +954,7 @@ pub fn generation_record(
                 verdict: "lost_node_choice".into(),
                 table: None,
                 pole: None,
+                derivation: None,
             });
         }
         e.untried = untried.to_vec();
@@ -823,6 +985,9 @@ pub struct ImproveNode {
     /// candidates with their sealed table) for the pole objective (section 6).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole_scores: Option<crate::economy::genchoice::FileEntry>,
+    /// The dependence table of published symbols (sha256-bound; absent = upper bound), as in genchoice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dependences: Option<crate::economy::genchoice::FileEntry>,
 }
 
 /// The improve config (campaign input of role `genchoice`, schema [`IMPROVE_CONFIG_SCHEMA`]).

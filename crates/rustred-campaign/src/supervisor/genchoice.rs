@@ -22,6 +22,7 @@ use rustred_campaign_contract::spec::{
     ArgShape, Budgets, InputRef, JobKind, WallBudgets, WorkBudgets,
 };
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
+use rustred_campaign_core::economy::derivation as dv;
 use rustred_campaign_core::economy::genchoice as gc;
 use rustred_campaign_core::economy::improve as im;
 use rustred_campaign_core::economy::polescore as ps;
@@ -122,6 +123,65 @@ pub fn poles_choose(rest: &[String]) -> Result<String, String> {
         d["size_winner"],
         d["reason"].as_str().unwrap_or("?"),
         d["changed"]
+    ))
+}
+
+/// `rr_campaign derivations --run-dir D --engine E --out O`: the effective derivation (`rustred.campaign.rule-derivation.v1`)
+/// of every rule a finished generate job sealed, from its own files (job.json, EVENTS.jsonl, stderr.log, out/F.table.jsonl).
+pub fn derivations_cmd(rest: &[String]) -> Result<String, String> {
+    let mut m: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut it = rest.iter();
+    while let Some(f) = it.next() {
+        let k = match f.as_str() {
+            "--run-dir" | "--engine" | "--out" => f.as_str(),
+            o => return Err(format!("unknown flag {o:?}")),
+        };
+        m.insert(k, it.next().ok_or_else(|| format!("{k} needs a value"))?);
+    }
+    let get = |k: &str| m.get(k).copied().ok_or_else(|| format!("{k} is required"));
+    let rd = Path::new(get("--run-dir")?);
+    let engine = get("--engine")?;
+    let txt = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
+    let spec: Value =
+        serde_json::from_str(&txt("job.json")).map_err(|e| format!("job.json: {e}"))?;
+    let job = spec
+        .get("job_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
+    let attempt = spec.get("attempt").and_then(Value::as_u64).unwrap_or(1) as u32;
+    let table = std::fs::read_to_string(rd.join("out").join("F.table.jsonl"))
+        .map_err(|e| format!("table: {e}"))?;
+    let lines: Vec<String> = table.lines().map(str::to_string).collect();
+    let (_, _, esha) = file_digests(Path::new(engine))?;
+    let (spec_t, events_t, stderr_t) = (txt("job.json"), txt("EVENTS.jsonl"), txt("stderr.log"));
+    let item = job
+        .rsplit_once("-t")
+        .map(|x| x.0)
+        .unwrap_or(&job)
+        .to_string();
+    let node = item.split('.').next().unwrap_or("").to_string();
+    let ds = dv::rule_derivations(&dv::JobFiles {
+        node: &node,
+        item: &item,
+        job: &job,
+        attempt,
+        job_spec: &spec_t,
+        events: &events_t,
+        stderr: &stderr_t,
+        table_lines: &lines,
+        engine_path: engine,
+        engine_sha256: &esha,
+    })?;
+    let mut b = Vec::new();
+    for d in &ds {
+        b.extend_from_slice(d.to_string().as_bytes());
+        b.push(b'\n');
+    }
+    crate::atomic::write_atomic(Path::new(get("--out")?), &b).map_err(|e| e.to_string())?;
+    Ok(format!(
+        "{} rule derivation(s) of job {job} a{attempt}",
+        ds.len()
     ))
 }
 
@@ -355,6 +415,8 @@ pub struct GenChoiceSource {
     answers: BTreeMap<String, Answer>,
     /// node -> BFI priority (cache of the registered candidates file).
     bfi: BTreeMap<String, Vec<usize>>,
+    /// The engine binary path recorded in every derivation (its sha256 is computed when a winner is written).
+    engine_path: String,
 }
 
 /// The allow-list check of the policy's extra flags against the contract's `generate` list (shape of each value).
@@ -481,6 +543,15 @@ impl GenChoiceSource {
                     ));
                 }
             }
+            if let Some(f) = &e.dependences {
+                let (_, _, h) = file_digests(Path::new(&f.path))?;
+                if h != f.sha256 {
+                    return Err(format!(
+                        "genchoice: {}: dependence table {} sha256 {h} differs from the config's {}",
+                        e.node, f.path, f.sha256
+                    ));
+                }
+            }
             let pole_scores = match &e.pole_scores {
                 Some(f) => {
                     let (_, _, h) = file_digests(Path::new(&f.path))?;
@@ -509,6 +580,12 @@ impl GenChoiceSource {
                 pole_scores,
             });
         }
+        let engine_path = fake
+            .as_ref()
+            .and_then(|f| spec.programs.get(&f.program))
+            .or_else(|| spec.programs.get(&cfg.program))
+            .map(|p| p.path.display().to_string())
+            .unwrap_or_default();
         Ok(GenChoiceSource {
             cfg_input: inp.id.clone(),
             cfg,
@@ -517,6 +594,7 @@ impl GenChoiceSource {
             fake,
             answers: BTreeMap::new(),
             bfi: BTreeMap::new(),
+            engine_path,
         })
     }
 
@@ -980,6 +1058,8 @@ impl GenChoiceSource {
                 .collect();
             let d = ps::choose_poles(&pc, winner, &p.poles)?;
             poles_section = Some(json!({
+                "score_form": p.poles.score.word(), "score_level": p.poles.level.word(),
+                "dependences": self.nodes[i].e.dependences.as_ref().map_or(json!("upper_bound"), |f| json!(f)),
                 "scores_file": self.nodes[i].e.pole_scores,
                 "scores": pc.iter().map(|c| json!({"cand": cands[c.cand].id, "size": c.size,
                     "cpu_ms": c.time_ms, "score": c.score.as_ref().map_or(json!("undecided"), |s| json!(s))}))
@@ -1067,6 +1147,50 @@ impl GenChoiceSource {
                     }
                     _ => {}
                 }
+            }
+            // the EFFECTIVE DERIVATION of every winner rule (TRICKS 31 / 35), from the winner job's own files
+            if let (Some(tp), Some(rd)) = (
+                &wa.table_path,
+                st.jobs.get(&wa.job).and_then(|j| j.run_dir.clone()),
+            ) {
+                let rd = Path::new(&rd);
+                let rd_text = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
+                let lines: Vec<String> = std::fs::read_to_string(tp)
+                    .map_err(|e| format!("{tp}: {e}"))?
+                    .lines()
+                    .map(str::to_string)
+                    .collect();
+                let engine_sha = file_digests(Path::new(&self.engine_path))
+                    .map(|d| d.2)
+                    .unwrap_or_default();
+                let (spec_t, events_t, stderr_t) = (
+                    rd_text("job.json"),
+                    rd_text("EVENTS.jsonl"),
+                    rd_text("stderr.log"),
+                );
+                let ds = dv::rule_derivations(&dv::JobFiles {
+                    node: &node,
+                    item: &wa.item,
+                    job: &wa.job,
+                    attempt: wa.attempt,
+                    job_spec: &spec_t,
+                    events: &events_t,
+                    stderr: &stderr_t,
+                    table_lines: &lines,
+                    engine_path: &self.engine_path,
+                    engine_sha256: &engine_sha,
+                })?;
+                let mut b = Vec::new();
+                for d in &ds {
+                    b.extend_from_slice(d.to_string().as_bytes());
+                    b.push(b'\n');
+                }
+                let rec = AcceptedRecord {
+                    path: format!("{}/derivations.jsonl", node_dir(&node)),
+                    bytes: b,
+                };
+                extra_files.insert("derivations".into(), json!(rec.file_ref()));
+                rt.accepts.push(rec);
             }
             let (lines, summary) = gc::per_rule_comparison(&wa.rows, &others);
             let mut b = Vec::new();
@@ -1177,6 +1301,20 @@ impl GenChoiceSource {
                         totals: json!({"rules": wrules.len(), "economy": gc::economy_account(first, &fr2, &p)}),
                     },
                 );
+                // the record points every winner rule at its effective derivation
+                let mut rec = rec;
+                if extra_files.contains_key("derivations") {
+                    for e in rec.rules.iter_mut() {
+                        for t in e.tried.iter_mut().filter(|t| t.verdict == "winner") {
+                            t.derivation = Some(format!(
+                                "{}/derivations.jsonl#{}.a{}",
+                                node_dir(&node),
+                                wa.job,
+                                wa.attempt
+                            ));
+                        }
+                    }
+                }
                 let r = AcceptedRecord {
                     path: format!("{}/record.json", node_dir(&node)),
                     bytes: json_bytes(&serde_json::to_value(&rec).map_err(|e| e.to_string())?),
