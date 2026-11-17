@@ -140,6 +140,8 @@ pub const SITES: &[&str] = &[
     "cpu_policy",
     "idlock",
     "real.program",
+    // procfix7 round 9: the job's stderr read for systemd-run's start acknowledgment (supervisor scope_end)
+    "job.stderr",
 ];
 
 fn is_absent(e: &io::Error) -> bool {
