@@ -602,24 +602,8 @@ impl ScopeRef {
                 ));
             }
         };
-        // ... and the kernel's RECURSIVE answer, cgroup.events `populated`: a scope populated without a listed member is
-        // never "empty" (the listing rule's second source)
-        if pids.iter().all(|&p| p == self.sid) {
-            match populated(&self.dir) {
-                Ok(false) => {}
-                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-                Ok(true) if pids.contains(&self.sid) => {}
-                Ok(true) => {
-                    return Err(format!(
-                        "{}: populated (cgroup.events) but no member listed in cgroup.procs (a process in a child cgroup?)",
-                        self.dir.display()
-                    ));
-                }
-                Err(e) => return Err(format!("{}/cgroup.events: {e}", self.dir.display())),
-            }
-        }
         let mut out = Vec::new();
-        for pid in pids {
+        for &pid in &pids {
             if pid == self.sid {
                 continue;
             }
@@ -627,6 +611,25 @@ impl ScopeRef {
                 Ok(st) if !st.is_dead() => out.push(pid),
                 Ok(_) | Err(crate::resources::ProcError::Gone) => {}
                 Err(e) => return Err(format!("stat of scope member {pid}: {e}")),
+            }
+        }
+        // ... and the kernel's RECURSIVE answer, cgroup.events `populated`: a scope populated without a listed live
+        // member is never "empty" (the listing rule's second source). procfix7 round 10 (gate13c G13c-M1, F3): read
+        // WHENEVER no live member is left, also when the listed members were dead or gone at their stat read (a member
+        // that ended after the listing may have handed off to a successor the listing did not show); before, only when
+        // nothing but the leader was listed
+        if out.is_empty() {
+            match populated(&self.dir) {
+                Ok(false) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+                Ok(true) if pids.contains(&self.sid) => {}
+                Ok(true) => {
+                    return Err(format!(
+                        "{}: populated (cgroup.events) but no live member listed in cgroup.procs (a hand-off, or a process in a child cgroup)",
+                        self.dir.display()
+                    ));
+                }
+                Err(e) => return Err(format!("{}/cgroup.events: {e}", self.dir.display())),
             }
         }
         Ok(out)
@@ -865,6 +868,37 @@ mod tests {
         }
         assert!(matches!(t("12:pids:/x\n"), ExitScope::Unknown(_)));
         assert!(matches!(t(""), ExitScope::Unknown(_)));
+    }
+
+    /// procfix7 round 10 (gate13c G13c-M1, F3): a scope whose listed members are all gone (or dead) when read, while the
+    /// kernel says it is still populated, is NEVER "empty" (a hand-off may have put a successor there after the
+    /// listing): live_members is an error, so the hunt's belt writes cgroup.kill and the proof pass is inconclusive.
+    /// Truly empty (populated 0) stays Ok([]). Emulated scope tree; no process is spawned or signalled.
+    #[test]
+    fn a_scope_populated_after_its_listed_members_ended_is_never_empty() {
+        use std::os::unix::fs::MetadataExt;
+        let root = std::env::temp_dir().join(format!("pf14-scope-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("rr-test-0123456789abcdef.scope");
+        std::fs::create_dir_all(&dir).unwrap();
+        // a pid that cannot exist (above every pid_max): its stat read is "gone"
+        std::fs::write(dir.join("cgroup.procs"), "4194305\n").unwrap();
+        std::fs::write(dir.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+        let md = std::fs::metadata(&dir).unwrap();
+        let s = ScopeRef {
+            dir: dir.clone(),
+            dev: md.dev(),
+            ino: md.ino(),
+            sid: 4194306,
+        };
+        let r = s.live_members();
+        assert!(
+            matches!(&r, Err(e) if e.contains("populated")),
+            "populated with only ended members listed: {r:?}"
+        );
+        std::fs::write(dir.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+        assert_eq!(s.live_members(), Ok(Vec::new()), "truly empty");
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// procfix7 round 7 (gate11 m11-mut M8): the restart backstop on an EMULATED scope tree: a scope whose cgroup.procs
