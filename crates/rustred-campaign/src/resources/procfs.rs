@@ -867,9 +867,25 @@ impl ProcRoot {
     /// trusted only with its completeness proof: the leader listed ([`ProcRoot::tasks`]), the kernel's `Threads:` the same
     /// before and after the listing and equal to the number listed, and the SAME task list after the children lists were
     /// read (a thread that exits hands its children to another thread of the group). Up to [`WALK_TRIES`] tries with a
-    /// back-off, else Unreadable (never a partial answer), except for THIS process (its own descendants are covered by
-    /// the kernel's wait answer at the end: the children it could read). Gone: the process is gone.
+    /// back-off, else Unreadable (never a partial answer). THIS process is exempt (its own descendants are covered by the
+    /// kernel's wait answer at the end): one read of each thread's list. Gone: the process is gone.
     pub fn children_all_threads_proven(&self, pid: u32) -> ProcResult<Vec<u32>> {
+        // procfix7 round 8: THIS process (the supervisor) is exempt from the proof, as since round 7 (round 7 kept the
+        // children it could read after 16 tries): its descendants are covered by the kernel's wait answer at the end (own-tree check, atomic). One read
+        // of each thread's list: a job that forks without a pause keeps the supervisor's own list (its re-parented
+        // incarnations and their zombies) changing for good, and proving it would cost every scan up to 16 x 8 reads of
+        // a list of thousands of entries (procfix9 g9_b2_fork_churner_live_session: no exit within 900 s).
+        if pid == std::process::id() {
+            let mut out = Vec::new();
+            for t in self.tasks(pid)? {
+                match self.children_once(pid, &format!("{pid}/task/{t}/children")) {
+                    Ok(k) => out.extend(k),
+                    Err(ProcError::Gone) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            return Ok(out);
+        }
         let first = self.status(pid)?.threads()?;
         let mut why = String::new();
         if first <= 1 {
@@ -888,7 +904,6 @@ impl ProcRoot {
                 self.what(&format!("{pid}/task/{pid}"))
             ));
         }
-        let mut partial: Vec<u32> = Vec::new();
         for attempt in 0..WALK_TRIES {
             // threads that come and go (helper threads) leave no quiet moment at once: back off (0.25 ms .. 8 ms)
             if attempt > 0 {
@@ -949,7 +964,6 @@ impl ProcRoot {
             }
             if let Some(w) = unstable {
                 why = w;
-                partial = out;
                 continue;
             }
             let entered_exit = !thread_gone
@@ -964,7 +978,6 @@ impl ProcRoot {
             if entered_exit {
                 why = "a thread exited while the children lists were read (its children moved to another thread)"
                     .to_string();
-                partial = out;
                 continue;
             }
             if before != after || ts.len() != after as usize {
@@ -972,23 +985,15 @@ impl ProcRoot {
                     "{} listed, the kernel counted {before} then {after} threads",
                     ts.len()
                 );
-                partial = out;
                 continue;
             }
             let mut again = self.tasks(pid).unwrap_or_default();
             again.sort_unstable();
             if thread_gone || again != listed {
                 why = "its threads changed while their children lists were read".to_string();
-                partial = out;
                 continue;
             }
             return Ok(out);
-        }
-        // procfix7 round 7: THIS process (the supervisor: its helper threads come and go with its jobs) keeps the
-        // children it could read; every descendant of this child subreaper is proven gone or named by the kernel's wait
-        // answer at the end (own-tree check, atomic), so a partial walk here cannot hide a survivor of an exit 0
-        if pid == std::process::id() {
-            return Ok(partial);
         }
         unreadable(format!(
             "{}: the children of every thread cannot be proven complete after {WALK_TRIES} tries ({why})",
