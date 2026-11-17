@@ -814,9 +814,15 @@ CLASS_WORDS = ('whole domain', 'every first-match key in cone', 'sampled N keys'
 
 def per_key_class(blob, cone_bound):
     """'every first-match key in cone' / ('sampled', N) / None from the evidence text bound to a record."""
+    # results already written in the class words (e.g. the per-key proof lane's table): taken as they are
+    if re.search(r'\bevery first-match key in cone\b', blob):
+        return 'every first-match key in cone'
+    m = re.search(r'\bsampled (\d+) keys\b', blob)
+    if m:
+        return ('sampled', int(m.group(1)))
     if re.search(r'ALL [\d,]+ first-match keys of cone %d\b' % cone_bound, blob) or re.search(r'all fm keys', blob):
         return 'every first-match key in cone'
-    m = re.search(r'ALL [\d,]+ first-match keys with D \+ r <= (\d+)', blob)
+    m = re.search(r'ALL [\d,]+ first-match keys (?:with|of) D \+ r <= (\d+)', blob)
     if m and int(m.group(1)) >= cone_bound:
         return 'every first-match key in cone'
     m = re.search(r'"keys": (\d+).*?"fm_count_cone\d+": (\d+)', blob)
@@ -862,7 +868,7 @@ def cmd_classes(a):
             r = json.loads(l)
             counts[(r.get('file'), r.get('table_index'))] = r
             # a lanefile row (liveness with its basis) fills the run's liveness where that step has no verdict
-            if r.get('liveness') in ('live', 'dead') and (r['file'], r['table_index']) not in live:
+            if r.get('liveness') in ('live', 'dead') and live.get((r['file'], r['table_index']), {}).get('live') not in ('live', 'dead'):
                 live[(r['file'], r['table_index'])] = {'live': r['liveness'], 'basis': r.get('basis')}
     out, tally, open_live = [], {}, []
     for l in open(os.path.join(a.run, 'exact', N + '.exact.jsonl')):
@@ -918,6 +924,10 @@ def cmd_classes(a):
                                                               'none_live_or_undecided': len(open_live)}
         dump(sj, sp)
         vs = os.path.join(a.deliver, 'VERIFIER_SPEC.md')
+        txt = open(vs).read()
+        cut = txt.find('\n## Per-rule exactness class')
+        if cut >= 0:   # a re-run replaces its own earlier section (always the last one appended)
+            open(vs, 'w').write(txt[:cut] + '\n')
         L = ['', '## Per-rule exactness class (%s; region %s)' % ('; '.join(CLASS_WORDS).replace('N keys', '<N> keys'), env['cfg_region']),
              'File `exact/%s.exact_classes.tsv` (and .jsonl): per rule its class, the evidence class text it rests on, its liveness in the region.' % N,
              'Counts: %s.' % ', '.join('%s %d' % (k, v) for k, v in sorted(tally.items())),
@@ -978,7 +988,7 @@ def cmd_lanefile(a):
             row.update(liveness='live', basis='counted', witness=c.get('witness'), fm_keys=c['fm_keys'], fm_keys_by_shell=c['fm_keys_by_shell'],
                        fm_count_complete=c['fm_count_complete'])
         elif c is not None and c['live'] in ('dead', 'undecided'):
-            row.update(liveness=c['live'], basis='counted' if c['live'] == 'dead' else 'record_liveness budget: ' + str(c.get('why')),
+            row.update(liveness=c['live'], basis=(c.get('why') or 'counted') if c['live'] == 'dead' else 'record_liveness budget: ' + str(c.get('why')),
                        fm_keys=0 if c['live'] == 'dead' else None)
         elif hc is not None and int(hc) == 0 and q['table_index'] < a.first_changed:
             row.update(liveness='dead', basis='helper exact count 0, record before the first changed rule %d' % a.first_changed, fm_keys=0)
