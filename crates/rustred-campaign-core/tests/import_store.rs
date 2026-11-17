@@ -691,3 +691,41 @@ fn store_block_cache_never_changes_a_check_and_saves_reads() {
     import::store::set_block_cache_capacity(64);
     assert!(reads[&(64, 1)] <= reads[&(0, 1)], "{reads:?}");
 }
+
+/// lane t266run (read path 2): the per-thread entry cache keeps one slot PER STORE however many stores are attached.
+/// The evidence layer asks every store for the same (record, key) twice (store_fact, then store_proof); with more
+/// stores than the old 16 round-robin slots, every slot was overwritten before its reuse (T266's closing run: 39 stores,
+/// 0 entry hits in 1.6e11 lookups). Here 40 handles on one store, swept twice in the same order: every handle's second
+/// lookup is an entry hit, and every answer equals the first sweep's.
+#[test]
+fn store_entry_cache_keeps_a_slot_per_store_beyond_sixteen_stores() {
+    let d = scratch("entrycache");
+    let top = 12;
+    let (spec0, _a) = toy(&d, top);
+    let set0 = load(&TableSetSpec::from_json(&spec0.to_string()).unwrap(), &d).unwrap();
+    let sha0 = set0.rules[0][0].record_sha256.clone();
+    let sha1 = set0.rules[0][1].record_sha256.clone();
+    let (fp, pp) = evidence_files(&d, &sha0, &sha1, top);
+    let mut spec = spec0.clone();
+    spec["evidence"] = json!({"facts":[{"path": fp.display().to_string()}],
+                              "proofs":[{"path": pp.display().to_string()}]});
+    let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
+    let so = StoreOptions { dir: d.join("s"), budget_bytes: 1, threads: 1 };
+    let ev = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so.clone()) }).unwrap();
+    drop(ev);
+    let sdir = std::fs::read_dir(&so.dir)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.is_dir())
+        .expect("a store directory");
+    let stores: Vec<EvidenceStore> = (0..40).map(|_| EvidenceStore::open(&sdir).unwrap()).collect();
+    let key = [6, 1, 0];
+    let first: Vec<_> = stores.iter().map(|s| s.get(&sha0, &key).map(|e| (*e).clone())).collect();
+    assert!(first.iter().all(Option::is_some), "the toy stores (sha0, [6,1,0])");
+    let second: Vec<_> = stores.iter().map(|s| s.get(&sha0, &key).map(|e| (*e).clone())).collect();
+    assert_eq!(first, second);
+    for (i, s) in stores.iter().enumerate() {
+        let r = s.read_stats();
+        assert_eq!((r.lookups, r.entry_hits), (2, 1), "store handle {i}: {r:?}");
+    }
+}

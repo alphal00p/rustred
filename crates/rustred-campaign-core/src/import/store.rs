@@ -237,16 +237,19 @@ pub struct StoreReadStats {
 
 /// One cached lookup per store and thread: (store id, record id, key, entry).
 type CacheSlot = (u64, u32, Vec<i32>, Option<Arc<StoreEntry>>);
-/// Stores with their own slot per thread (an evidence set holds a few stores; more evict round-robin). lane wireflow:
-/// 16 -> 256: a big-node closing loop attaches one store per 64 evidence files (55 on T162's margin after its per-key
-/// proofs); with fewer slots than stores every repeated per-term lookup of a key missed.
+/// Direct-mapped by store id (slot = id mod CACHE_SLOTS): every store keeps its own last lookup per thread.
+/// lane t266run (read path 2): the evidence layer asks EVERY attached store for each (record, key) (store_fact, then
+/// store_proof for the same pair: cross-store conflicts); with more stores than slots (T266's closing run: 39 stores,
+/// was 16 slots evicted round-robin) every store's slot was overwritten before its next use: 0 entry hits in 1.6e11
+/// lookups. Results never depend on it.
 const CACHE_SLOTS: usize = 256;
-/// lane wireflow: `data.bin` files up to this size are read into memory at open (see [`EvidenceStore`]).
+/// lane wireflow: `data.bin` files up to this size are read into memory at open (see [`EvidenceStore`]); int8: both lanes
+/// had raised the slots to 256 (wireflow round-robin, t266run read path 2 direct-mapped by store id: the latter kept).
 pub const MEM_RESIDENT_MAX: u64 = 64 << 20;
 /// lane t266run (read path): one cached BLOCK per thread: (store id, block position, raw block bytes).
 type BlockSlot = (u64, usize, Arc<Vec<u8>>);
 thread_local! {
-    static CACHE: RefCell<Vec<CacheSlot>> = const { RefCell::new(Vec::new()) };
+    static CACHE: RefCell<Vec<Option<CacheSlot>>> = const { RefCell::new(Vec::new()) };
     static BLOCKS: RefCell<Vec<BlockSlot>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -1221,10 +1224,12 @@ impl EvidenceStore {
     /// The entry of (record id, key) (per-thread one-entry cache).
     pub fn get_rec(&self, rec: u32, key: &[i32]) -> Option<Arc<StoreEntry>> {
         self.reads.lookups.fetch_add(1, AtOrd::Relaxed);
+        let at = (self.id % CACHE_SLOTS as u64) as usize;
         let hit = CACHE.with(|c| {
             c.borrow()
-                .iter()
-                .find(|(id, r, k, _)| *id == self.id && *r == rec && k.as_slice() == key)
+                .get(at)
+                .and_then(Option::as_ref)
+                .filter(|(id, r, k, _)| *id == self.id && *r == rec && k.as_slice() == key)
                 .map(|(_, _, _, e)| e.clone())
         });
         if let Some(e) = hit {
@@ -1234,15 +1239,10 @@ impl EvidenceStore {
         let e = self.lookup(rec, key).map(Arc::new);
         CACHE.with(|c| {
             let mut c = c.borrow_mut();
-            let slot = (self.id, rec, key.to_vec(), e.clone());
-            if let Some(i) = c.iter().position(|(id, ..)| *id == self.id) {
-                c[i] = slot;
-            } else if c.len() < CACHE_SLOTS {
-                c.push(slot);
-            } else {
-                let i = (self.id as usize) % CACHE_SLOTS;
-                c[i] = slot;
+            if c.len() < CACHE_SLOTS {
+                c.resize(CACHE_SLOTS, None);
             }
+            c[at] = Some((self.id, rec, key.to_vec(), e.clone()));
         });
         e
     }
