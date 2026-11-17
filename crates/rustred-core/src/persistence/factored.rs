@@ -452,7 +452,11 @@ fn read_at(file: &std::fs::File, offset: u64, len: u32) -> Result<Vec<u8>, Binar
     Ok(out)
 }
 
-fn append_at(file: &std::fs::File, end: &mut u64, bytes: &[u8]) -> Result<(u64, u32), BinaryIoError> {
+fn append_at(
+    file: &std::fs::File,
+    end: &mut u64,
+    bytes: &[u8],
+) -> Result<(u64, u32), BinaryIoError> {
     use std::os::unix::fs::FileExt;
     let offset = *end;
     file.write_all_at(bytes, offset)
@@ -563,10 +567,9 @@ impl SharedSpillWriter {
             .entry(hash)
             .or_default()
             .push((id, offset, len));
-        self.count = self
-            .count
-            .checked_add(1)
-            .ok_or(BinaryIoError::Invalid("shared table exceeds u32 coefficients"))?;
+        self.count = self.count.checked_add(1).ok_or(BinaryIoError::Invalid(
+            "shared table exceeds u32 coefficients",
+        ))?;
         Ok(id)
     }
 
@@ -592,7 +595,10 @@ impl SharedSpillWriter {
     pub fn section_len(&self) -> Result<usize, BinaryIoError> {
         let mut parts_count = Vec::new();
         varint(&mut parts_count, u64::from(self.count));
-        Ok(self.head()?.len() + self.entry_end as usize + parts_count.len() + self.parts_end as usize)
+        Ok(self.head()?.len()
+            + self.entry_end as usize
+            + parts_count.len()
+            + self.parts_end as usize)
     }
 
     /// The section: header, templates, the dictionary and the parts copied
@@ -605,7 +611,9 @@ impl SharedSpillWriter {
             file.seek(std::io::SeekFrom::Start(0)).map_err(io)?;
             let copied = std::io::copy(&mut (&mut file).take(len), writer).map_err(io)?;
             if copied != len {
-                return Err(BinaryIoError::Invalid("shared table scratch file truncated"));
+                return Err(BinaryIoError::Invalid(
+                    "shared table scratch file truncated",
+                ));
             }
             Ok(())
         };
@@ -941,7 +949,10 @@ mod tests {
         let ((p1, e1), (p2, f1)) = (scratch("e1"), scratch("p1"));
         let mut writer = SharedSpillWriter::new(e1, f1);
         let writer_ids: Vec<u32> = values.iter().map(|v| writer.intern(v).unwrap()).collect();
-        assert_eq!(writer_ids, ids.iter().map(|id| id.index() as u32).collect::<Vec<_>>());
+        assert_eq!(
+            writer_ids,
+            ids.iter().map(|id| id.index() as u32).collect::<Vec<_>>()
+        );
         let expected_len = writer.section_len().unwrap();
         let mut section = Vec::new();
         writer.write_section(&mut section).unwrap();
@@ -949,15 +960,28 @@ mod tests {
         assert_eq!(section, reference);
         // The spilled builder mode.
         let ((p3, e2), (p4, f2)) = (scratch("e2"), scratch("p2"));
-        let mut builder = CoefficientTableBuilder::with_shared_spill(BinaryIoLimits::default(), e2, f2);
+        let mut builder =
+            CoefficientTableBuilder::with_shared_spill(BinaryIoLimits::default(), e2, f2);
         let builder_ids: Vec<_> = values.iter().map(|v| builder.intern(v).unwrap()).collect();
         assert_eq!(builder_ids, ids);
         assert_eq!(builder.encoded_atom_bytes(), reference.len());
         let state = builder.encoded_state().unwrap();
-        assert_eq!(state, encoded.state);
         let mut section = Vec::new();
         builder.write_atoms(&mut section).unwrap();
         assert_eq!(section, reference);
+        // the exported Symbolica state is GLOBAL: tests running in parallel may register symbols between the two
+        // exports (batch 12a: flaky `state == encoded.state`), so the builder's state is checked by what it decodes
+        let decoded =
+            DecodedCoefficientTable::import_generated(&state, &section, BinaryIoLimits::default())
+                .unwrap();
+        assert_eq!(decoded.len(), originals.len());
+        for (i, original) in originals.iter().enumerate() {
+            let value = decoded
+                .coefficient(crate::persistence::CoefficientId::try_from_index(i).unwrap())
+                .unwrap();
+            assert_eq!(value.numerator, original.numerator, "numerator {i}");
+            assert_eq!(value.denominator, original.denominator, "denominator {i}");
+        }
         for path in [p1, p2, p3, p4] {
             std::fs::remove_file(path).unwrap();
         }
