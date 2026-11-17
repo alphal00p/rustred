@@ -22,9 +22,9 @@ use rustred_campaign_contract::spec::{
     ArgShape, Budgets, InputRef, JobKind, WallBudgets, WorkBudgets,
 };
 use rustred_campaign_contract::stop::{CaseResult, StopCode};
+use rustred_campaign_core::economy::derivation as dv;
 use rustred_campaign_core::economy::genchoice as gc;
 use rustred_campaign_core::economy::improve as im;
-use rustred_campaign_core::economy::derivation as dv;
 use rustred_campaign_core::economy::polescore as ps;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -142,14 +142,24 @@ pub fn derivations_cmd(rest: &[String]) -> Result<String, String> {
     let rd = Path::new(get("--run-dir")?);
     let engine = get("--engine")?;
     let txt = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
-    let spec: Value = serde_json::from_str(&txt("job.json")).map_err(|e| format!("job.json: {e}"))?;
-    let job = spec.get("job_id").and_then(Value::as_str).unwrap_or("").to_string();
+    let spec: Value =
+        serde_json::from_str(&txt("job.json")).map_err(|e| format!("job.json: {e}"))?;
+    let job = spec
+        .get("job_id")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_string();
     let attempt = spec.get("attempt").and_then(Value::as_u64).unwrap_or(1) as u32;
-    let table = std::fs::read_to_string(rd.join("out").join("F.table.jsonl")).map_err(|e| format!("table: {e}"))?;
+    let table = std::fs::read_to_string(rd.join("out").join("F.table.jsonl"))
+        .map_err(|e| format!("table: {e}"))?;
     let lines: Vec<String> = table.lines().map(str::to_string).collect();
     let (_, _, esha) = file_digests(Path::new(engine))?;
     let (spec_t, events_t, stderr_t) = (txt("job.json"), txt("EVENTS.jsonl"), txt("stderr.log"));
-    let item = job.rsplit_once("-t").map(|x| x.0).unwrap_or(&job).to_string();
+    let item = job
+        .rsplit_once("-t")
+        .map(|x| x.0)
+        .unwrap_or(&job)
+        .to_string();
     let node = item.split('.').next().unwrap_or("").to_string();
     let ds = dv::rule_derivations(&dv::JobFiles {
         node: &node,
@@ -169,7 +179,10 @@ pub fn derivations_cmd(rest: &[String]) -> Result<String, String> {
         b.push(b'\n');
     }
     crate::atomic::write_atomic(Path::new(get("--out")?), &b).map_err(|e| e.to_string())?;
-    Ok(format!("{} rule derivation(s) of job {job} a{attempt}", ds.len()))
+    Ok(format!(
+        "{} rule derivation(s) of job {job} a{attempt}",
+        ds.len()
+    ))
 }
 
 pub(crate) fn file_digests(p: &Path) -> Result<(u64, String, String), String> {
@@ -217,6 +230,9 @@ pub struct FakeRun {
     /// Milliseconds per case (overrides `ms`).
     #[serde(default)]
     pub ms: Option<u64>,
+    /// TESTS: the child's memory growth plan (touching the pages costs real CPU: a job with a measurable cpu time).
+    #[serde(default)]
+    pub rss: Option<RssPlan>,
 }
 
 pub(crate) fn fake_script(f: &FakeGen, cand: &str, stage: &str) -> FakeScript {
@@ -270,7 +286,7 @@ pub(crate) fn fake_script(f: &FakeGen, cand: &str, stage: &str) -> FakeScript {
         on_sigterm: OnSigterm::Graceful,
         slow_ms: 0,
         start_delay_ms: 0,
-        rss: RssPlan::default(),
+        rss: run.and_then(|r| r.rss).unwrap_or_default(),
         helpers: vec![],
         faults: vec![],
         time_scale: 1.0,
@@ -548,8 +564,12 @@ impl GenChoiceSource {
                             e.node, f.path, f.sha256
                         ));
                     }
-                    let t = std::fs::read_to_string(&f.path).map_err(|er| format!("{}: {er}", f.path))?;
-                    Some(ps::parse_scores(&t).map_err(|er| format!("genchoice: {}: {er}", e.node))?)
+                    let t = std::fs::read_to_string(&f.path)
+                        .map_err(|er| format!("{}: {er}", f.path))?;
+                    Some(
+                        ps::parse_scores(&t)
+                            .map_err(|er| format!("genchoice: {}: {er}", e.node))?,
+                    )
                 }
                 None => None,
             };
@@ -1032,7 +1052,9 @@ impl GenChoiceSource {
                         time_ms: r.cpu_ms,
                         score: scores
                             .iter()
-                            .find(|s| s.scope == "table" && s.node == node && s.cand == cands[r.cand].id)
+                            .find(|s| {
+                                s.scope == "table" && s.node == node && s.cand == cands[r.cand].id
+                            })
                             .map(|s| s.score.clone()),
                     })
                 })
@@ -1141,8 +1163,14 @@ impl GenChoiceSource {
                     .lines()
                     .map(str::to_string)
                     .collect();
-                let engine_sha = file_digests(Path::new(&self.engine_path)).map(|d| d.2).unwrap_or_default();
-                let (spec_t, events_t, stderr_t) = (rd_text("job.json"), rd_text("EVENTS.jsonl"), rd_text("stderr.log"));
+                let engine_sha = file_digests(Path::new(&self.engine_path))
+                    .map(|d| d.2)
+                    .unwrap_or_default();
+                let (spec_t, events_t, stderr_t) = (
+                    rd_text("job.json"),
+                    rd_text("EVENTS.jsonl"),
+                    rd_text("stderr.log"),
+                );
                 let ds = dv::rule_derivations(&dv::JobFiles {
                     node: &node,
                     item: &wa.item,
@@ -1281,8 +1309,12 @@ impl GenChoiceSource {
                 if extra_files.contains_key("derivations") {
                     for e in rec.rules.iter_mut() {
                         for t in e.tried.iter_mut().filter(|t| t.verdict == "winner") {
-                            t.derivation =
-                                Some(format!("{}/derivations.jsonl#{}.a{}", node_dir(&node), wa.job, wa.attempt));
+                            t.derivation = Some(format!(
+                                "{}/derivations.jsonl#{}.a{}",
+                                node_dir(&node),
+                                wa.job,
+                                wa.attempt
+                            ));
                         }
                     }
                 }

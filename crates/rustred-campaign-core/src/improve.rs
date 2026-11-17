@@ -367,7 +367,11 @@ pub enum RankBy {
 
 /// The size of rules under a measure (`use_cost`: load_ns_per_byte x bytes + per rule apply_ns_base +
 /// apply_ns_per_monomial x monomials, rounded to ns).
-pub fn size_of(rules: &[&TableRule], by: RankBy, cost: &crate::economy::genchoice::CostModel) -> u64 {
+pub fn size_of(
+    rules: &[&TableRule],
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+) -> u64 {
     match by {
         RankBy::Monomials => rules.iter().map(|r| r.monomials).sum(),
         RankBy::Bytes => rules.iter().map(|r| r.bytes).sum(),
@@ -478,7 +482,10 @@ impl YieldStop {
             Some(w) => format!("sliding window of the last {w} CPU-s of settled items"),
             None => "cumulative over the run".to_string(),
         };
-        format!("yield stop: {line}; {over}; armed after {} CPU-s", self.min_cpu_s)
+        format!(
+            "yield stop: {line}; {over}; armed after {} CPU-s",
+            self.min_cpu_s
+        )
     }
 }
 
@@ -504,15 +511,23 @@ pub fn reference_yield(rec: &ImproveRecord) -> Option<f64> {
 
 /// [`reference_yield`] with the run number it comes from.
 pub fn reference_yield_run(rec: &ImproveRecord) -> Option<(f64, u32)> {
-    rec.runs.iter().filter(|r| r.mode == "improve" && r.spent_cpu_ms > 0).find_map(|r| {
-        let b = r.totals.get("table_bytes_before")?.as_u64()?;
-        let a = r.totals.get("table_bytes_after")?.as_u64()?;
-        (b > a).then(|| ((b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6), r.run))
-    })
+    rec.runs
+        .iter()
+        .filter(|r| r.mode == "improve" && r.spent_cpu_ms > 0)
+        .find_map(|r| {
+            let b = r.totals.get("table_bytes_before")?.as_u64()?;
+            let a = r.totals.get("table_bytes_after")?.as_u64()?;
+            (b > a).then(|| ((b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6), r.run))
+        })
 }
 
 /// Yield of a run so far and whether it is below the stop line: (bytes per CPU-h, stop).
-pub fn yield_check(saved_bytes: u64, spent_cpu_ms: u64, reference: Option<f64>, y: &YieldStop) -> (Option<f64>, bool) {
+pub fn yield_check(
+    saved_bytes: u64,
+    spent_cpu_ms: u64,
+    reference: Option<f64>,
+    y: &YieldStop,
+) -> (Option<f64>, bool) {
     if spent_cpu_ms == 0 {
         return (None, false);
     }
@@ -529,7 +544,11 @@ pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePo
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     idx.into_iter()
         .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
-        .filter(|&i| p.filter.min_monomials.is_none_or(|m| rules[i].monomials >= m))
+        .filter(|&i| {
+            p.filter
+                .min_monomials
+                .is_none_or(|m| rules[i].monomials >= m)
+        })
         .take(p.filter.largest.unwrap_or(usize::MAX))
         .filter(|&i| {
             let key = rules[i].key();
@@ -596,19 +615,34 @@ pub fn targets(
     let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     if !p.filter.include.is_empty() {
-        let pos: BTreeMap<i64, usize> = rules.iter().enumerate().map(|(i, r)| (r.index, i)).collect();
-        idx = p.filter.include.iter().filter_map(|x| pos.get(x).copied()).collect();
+        let pos: BTreeMap<i64, usize> = rules
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.index, i))
+            .collect();
+        idx = p
+            .filter
+            .include
+            .iter()
+            .filter_map(|x| pos.get(x).copied())
+            .collect();
     }
     let explicit = !p.filter.include.is_empty();
     let idx: Vec<usize> = idx
         .into_iter()
         .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
-        .filter(|&i| explicit || {
-            p.filter
-                .min_monomials
-                .is_none_or(|m| rules[i].monomials >= m)
+        .filter(|&i| {
+            explicit || {
+                p.filter
+                    .min_monomials
+                    .is_none_or(|m| rules[i].monomials >= m)
+            }
         })
-        .take(if explicit { usize::MAX } else { p.filter.largest.unwrap_or(usize::MAX) })
+        .take(if explicit {
+            usize::MAX
+        } else {
+            p.filter.largest.unwrap_or(usize::MAX)
+        })
         .collect();
     idx.into_iter()
         .filter_map(|i| {
@@ -681,12 +715,16 @@ pub fn pole_targets(
                 .iter()
                 .filter(|c| {
                     !e.is_some_and(|e| {
-                        e.tried.iter().any(|t| t.scope == "rule_poles" && t.cand == c.name)
+                        e.tried
+                            .iter()
+                            .any(|t| t.scope == "rule_poles" && t.cand == c.name)
                     })
                 })
                 .map(|c| {
                     let sc = scores.iter().find(|s| {
-                        s.scope == "rule" && s.cand == c.name && s.rule_index == Some(rules[i].index)
+                        s.scope == "rule"
+                            && s.cand == c.name
+                            && s.rule_index == Some(rules[i].index)
                             && s.table.is_some()
                     });
                     let step = match sc {
@@ -763,7 +801,11 @@ pub fn replacement_verdict_eq(
     if accept_equal {
         structural_verdict(old, new)?;
         let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
-        return if n > o { Err(format!("larger ({n} vs {o} {})", by_word(by))) } else { Ok(()) };
+        return if n > o {
+            Err(format!("larger ({n} vs {o} {})", by_word(by)))
+        } else {
+            Ok(())
+        };
     }
     if by == RankBy::Monomials {
         return replacement_verdict(old, new, min_gain);
@@ -805,7 +847,11 @@ pub fn subtree_verdict_eq(
         }
         let nr: Vec<&TableRule> = new.iter().collect();
         let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
-        return if n > o { Err(format!("larger (sub-table {n} vs {o} {})", by_word(by))) } else { Ok(()) };
+        return if n > o {
+            Err(format!("larger (sub-table {n} vs {o} {})", by_word(by)))
+        } else {
+            Ok(())
+        };
     }
     if by == RankBy::Monomials {
         return subtree_verdict(old, new, min_gain);
@@ -819,7 +865,10 @@ pub fn subtree_verdict_eq(
     let nr: Vec<&TableRule> = new.iter().collect();
     let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
     if n >= o || (n as f64) > o as f64 * min_gain {
-        return Err(format!("not_smaller (sub-table {n} vs {o} {})", by_word(by)));
+        return Err(format!(
+            "not_smaller (sub-table {n} vs {o} {})",
+            by_word(by)
+        ));
     }
     Ok(())
 }

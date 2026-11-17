@@ -285,13 +285,30 @@ fn replacement_follows_the_size_measure() {
     b.bytes = 1_800_000;
     let sub = vec![a.clone(), b];
     let c = CostModel::default();
-    assert!(subtree_verdict(&old, &sub, 1.0).unwrap_err().starts_with("not_smaller"), "by monomials: refused");
-    assert_eq!(subtree_verdict_by(&old, &sub, 1.0, RankBy::Bytes, &c), Ok(()));
-    assert_eq!(subtree_verdict_by(&old, &sub, 1.0, RankBy::UseCost, &c), Ok(()));
-    assert_eq!(replacement_verdict_by(&old, &a, 1.0, RankBy::Bytes, &c), Ok(()));
+    assert!(
+        subtree_verdict(&old, &sub, 1.0)
+            .unwrap_err()
+            .starts_with("not_smaller"),
+        "by monomials: refused"
+    );
+    assert_eq!(
+        subtree_verdict_by(&old, &sub, 1.0, RankBy::Bytes, &c),
+        Ok(())
+    );
+    assert_eq!(
+        subtree_verdict_by(&old, &sub, 1.0, RankBy::UseCost, &c),
+        Ok(())
+    );
+    assert_eq!(
+        replacement_verdict_by(&old, &a, 1.0, RankBy::Bytes, &c),
+        Ok(())
+    );
     assert!(replacement_verdict_by(&a, &old, 1.0, RankBy::Bytes, &c).is_err());
     // size_of under use_cost: 30 ns/B + 20 us + 100 ns/monomial
-    assert_eq!(size_of(&[&old], RankBy::UseCost, &c), 6_300_000_000 + 20_000 + 319_500);
+    assert_eq!(
+        size_of(&[&old], RankBy::UseCost, &c),
+        6_300_000_000 + 20_000 + 319_500
+    );
 }
 
 #[test]
@@ -312,42 +329,113 @@ fn tranche_yield_stop_and_record_skips() {
     let y = YieldStop::default();
     assert!((y.min_fraction - 1.0 / 3.0).abs() < 1e-12);
     // 50 MB per CPU-h after 2 CPU-h: below 1/3 x 200 MB: stop; before min_cpu_s: no stop
-    assert_eq!(yield_check(100_000_000, 7_200_000, Some(r), &y), (Some(50_000_000.0), true));
+    assert_eq!(
+        yield_check(100_000_000, 7_200_000, Some(r), &y),
+        (Some(50_000_000.0), true)
+    );
     assert!(!yield_check(1, 60_000, Some(r), &y).1);
-    assert!(!yield_check(100_000_000, 7_200_000, None, &y).1, "no reference: no stop");
-    assert!(!yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1, "70 MB/CPU-h >= 66.7: go on");
-    assert_eq!(reference_yield_run(&rec), Some((200_000_000.0, 1)), "with the run it comes from");
+    assert!(
+        !yield_check(100_000_000, 7_200_000, None, &y).1,
+        "no reference: no stop"
+    );
+    assert!(
+        !yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1,
+        "70 MB/CPU-h >= 66.7: go on"
+    );
+    assert_eq!(
+        reference_yield_run(&rec),
+        Some((200_000_000.0, 1)),
+        "with the run it comes from"
+    );
 }
 
 /// interfaces/genchoice.md 5b (v1.7): NO yield stop unless the config writes one; `{}` = the documented values; the
 /// effective setting is one describable line; the sliding window takes the newest settled items up to its CPU.
 #[test]
 fn yield_stop_is_explicit_described_and_windowed() {
-    assert_eq!(ImprovePolicy::default().yield_stop, None, "an absent key is no stop (was Some(default) until v1.6)");
+    assert_eq!(
+        ImprovePolicy::default().yield_stop,
+        None,
+        "an absent key is no stop (was Some(default) until v1.6)"
+    );
     let absent: ImprovePolicy = serde_json::from_str("{}").unwrap();
     assert_eq!(absent.yield_stop, None);
     let explicit: ImprovePolicy = serde_json::from_str(r#"{"yield_stop": {}}"#).unwrap();
     assert_eq!(explicit.yield_stop, Some(YieldStop::default()));
-    let w: ImprovePolicy = serde_json::from_str(r#"{"yield_stop": {"window_cpu_s": 7200, "min_cpu_s": 0}}"#).unwrap();
+    let w: ImprovePolicy =
+        serde_json::from_str(r#"{"yield_stop": {"window_cpu_s": 7200, "min_cpu_s": 0}}"#).unwrap();
     assert_eq!(w.yield_stop.as_ref().unwrap().window_cpu_s, Some(7200));
-    assert!(serde_json::from_str::<ImprovePolicy>(r#"{"yield_stop": {"windw": 1}}"#).is_err(), "unknown field refused");
+    assert!(
+        serde_json::from_str::<ImprovePolicy>(r#"{"yield_stop": {"windw": 1}}"#).is_err(),
+        "unknown field refused"
+    );
     let y = YieldStop::default();
     let d = y.describe(Some(59_700_000.0), "reference = record run 1");
-    assert!(d.contains("0.3333 x 59700000") && d.contains("record run 1") && d.contains("cumulative over the run"), "{d}");
+    assert!(
+        d.contains("0.3333 x 59700000")
+            && d.contains("record run 1")
+            && d.contains("cumulative over the run"),
+        "{d}"
+    );
     assert!(d.contains("armed after 3600 CPU-s"), "{d}");
-    let dw = YieldStop { window_cpu_s: Some(7200), ..YieldStop::default() }.describe(None, "no reference");
-    assert!(dw.contains("never stops") && dw.contains("sliding window of the last 7200 CPU-s"), "{dw}");
+    let dw = YieldStop {
+        window_cpu_s: Some(7200),
+        ..YieldStop::default()
+    }
+    .describe(None, "no reference");
+    assert!(
+        dw.contains("never stops") && dw.contains("sliding window of the last 7200 CPU-s"),
+        "{dw}"
+    );
     // window: (cpu_ms, gain) oldest first; the newest items until their CPU reaches the window
-    let settled = [(3_600_000u64, 100u64), (1_000_000, 0), (1_000_000, 0), (1_000_000, 5)];
-    assert_eq!(window_totals(&settled, 2_000_000), (5, 2_000_000), "the two newest reach 2,000 CPU-s");
-    assert_eq!(window_totals(&settled, 2_500_000), (5, 3_000_000), "a third item is needed to reach the window");
-    assert_eq!(window_totals(&settled, u64::MAX), (105, 6_600_000), "never reached: everything (= cumulative)");
+    let settled = [
+        (3_600_000u64, 100u64),
+        (1_000_000, 0),
+        (1_000_000, 0),
+        (1_000_000, 5),
+    ];
+    assert_eq!(
+        window_totals(&settled, 2_000_000),
+        (5, 2_000_000),
+        "the two newest reach 2,000 CPU-s"
+    );
+    assert_eq!(
+        window_totals(&settled, 2_500_000),
+        (5, 3_000_000),
+        "a third item is needed to reach the window"
+    );
+    assert_eq!(
+        window_totals(&settled, u64::MAX),
+        (105, 6_600_000),
+        "never reached: everything (= cumulative)"
+    );
     assert_eq!(window_totals(&[], 1), (0, 0));
     // the cumulative yield of these items stays above a line the window falls under
     let r = 1_000_000.0;
     let (ws, wc) = window_totals(&settled, 2_000_000);
-    assert!(yield_check(ws, wc, Some(r), &YieldStop { min_cpu_s: 0, ..y.clone() }).1, "window: 9 B/CPU-h < 1/3 MB");
-    assert!(!yield_check(105_000_000, 6_600_000, Some(r), &YieldStop { min_cpu_s: 0, ..y }).1, "cumulative: ~57 MB/CPU-h");
+    assert!(
+        yield_check(
+            ws,
+            wc,
+            Some(r),
+            &YieldStop {
+                min_cpu_s: 0,
+                ..y.clone()
+            }
+        )
+        .1,
+        "window: 9 B/CPU-h < 1/3 MB"
+    );
+    assert!(
+        !yield_check(
+            105_000_000,
+            6_600_000,
+            Some(r),
+            &YieldStop { min_cpu_s: 0, ..y }
+        )
+        .1,
+        "cumulative: ~57 MB/CPU-h"
+    );
 }
 
 #[test]
@@ -362,18 +450,33 @@ fn excluded_rules_are_never_targeted() {
     p.filter.largest = Some(1);
     p.filter.by = RankBy::Bytes;
     p.filter.exclude = vec![0];
-    assert_eq!(targets(&rules, &rec, &p)[0].0, 1, "the excluded (dead) rule is skipped, the next one taken");
+    assert_eq!(
+        targets(&rules, &rec, &p)[0].0,
+        1,
+        "the excluded (dead) rule is skipped, the next one taken"
+    );
 }
 
 #[test]
 fn assembly_markers_with_a_rule_count_are_restated() {
     let per = std::collections::BTreeMap::from([("110".to_string(), 7u64)]);
-    let m = restate_marker(r#"{"type":"composite_assembly_complete","complete":true,"rules":2895,"residuals":2}"#, 2956, &per);
+    let m = restate_marker(
+        r#"{"type":"composite_assembly_complete","complete":true,"rules":2895,"residuals":2}"#,
+        2956,
+        &per,
+    );
     assert!(m.contains("\"rules\":2956"), "{m}");
-    let c = restate_marker(r#"{"type":"chart_end","chart":"110","rules":3}"#, 2956, &per);
+    let c = restate_marker(
+        r#"{"type":"chart_end","chart":"110","rules":3}"#,
+        2956,
+        &per,
+    );
     assert!(c.contains("\"rules\":7"), "{c}");
     let r = restate_marker(r#"{"type":"residual","rules":1}"#, 2956, &per);
-    assert!(r.contains("\"rules\":1"), "residual records are not markers");
+    assert!(
+        r.contains("\"rules\":1"),
+        "residual records are not markers"
+    );
 }
 
 #[test]
@@ -389,11 +492,18 @@ fn explicit_lists_and_equal_size_regeneration_for_exactness() {
     p.filter.largest = Some(1);
     p.filter.include = vec![1, 0];
     let t = targets(&rules, &rec, &p);
-    assert_eq!(t.iter().map(|x| x.0).collect::<Vec<_>>(), vec![1, 0], "the explicit list, in its order, largest ignored");
+    assert_eq!(
+        t.iter().map(|x| x.0).collect::<Vec<_>>(),
+        vec![1, 0],
+        "the explicit list, in its order, largest ignored"
+    );
     let c = CostModel::default();
     // equal size: refused normally, accepted for exactness; larger: always refused
     assert!(replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, false).is_err());
-    assert_eq!(replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, true), Ok(()));
+    assert_eq!(
+        replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, true),
+        Ok(())
+    );
     let mut bigger = b.clone();
     bigger.bytes = 101;
     assert!(replacement_verdict_eq(&b, &bigger, 0.9, RankBy::Bytes, &c, true).is_err());

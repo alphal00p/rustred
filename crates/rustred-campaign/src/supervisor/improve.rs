@@ -18,9 +18,9 @@ use crate::supervisor::worksource::{
 };
 use rustred_campaign_contract::classify::OutcomeKind;
 use rustred_campaign_contract::spec::{Budgets, InputRef, JobKind, WallBudgets, WorkBudgets};
+use rustred_campaign_core::economy::derivation as dv;
 use rustred_campaign_core::economy::genchoice as gc;
 use rustred_campaign_core::economy::improve as im;
-use rustred_campaign_core::economy::derivation as dv;
 use rustred_campaign_core::economy::polescore as ps;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -278,14 +278,16 @@ impl ImproveSource {
                             e.node, f.path
                         ));
                     }
-                    let t = std::fs::read_to_string(&f.path).map_err(|er| format!("{}: {er}", f.path))?;
+                    let t = std::fs::read_to_string(&f.path)
+                        .map_err(|er| format!("{}: {er}", f.path))?;
                     // an `original` line describes the rule of the table it was computed on: a line bound to
                     // another table (an earlier, since improved one) is not this table's score
                     ps::parse_scores(&t)?
                         .into_iter()
                         .filter(|l| l.node == e.node)
                         .filter(|l| {
-                            !(l.cand == "original" && l.table.as_ref().is_some_and(|t| t.sha256 != ts2))
+                            !(l.cand == "original"
+                                && l.table.as_ref().is_some_and(|t| t.sha256 != ts2))
                         })
                         .collect()
                 }
@@ -326,9 +328,14 @@ impl ImproveSource {
                     None => match im::reference_yield_run(&record) {
                         Some((r, run)) => (
                             Some(r),
-                            format!("reference = record run {run}, its first improve run that saved bytes"),
+                            format!(
+                                "reference = record run {run}, its first improve run that saved bytes"
+                            ),
                         ),
-                        None => (None, "the record has no improve run that saved bytes".to_string()),
+                        None => (
+                            None,
+                            "the record has no improve run that saved bytes".to_string(),
+                        ),
                     },
                 },
             };
@@ -358,7 +365,9 @@ impl ImproveSource {
             .or_else(|| spec.programs.get(&cfg.program))
             .map(|p| p.path.display().to_string())
             .unwrap_or_default();
-        let engine_sha = file_digests(Path::new(&engine_path)).map(|d| d.2).unwrap_or_default();
+        let engine_sha = file_digests(Path::new(&engine_path))
+            .map(|d| d.2)
+            .unwrap_or_default();
         Ok(ImproveSource {
             cfg_input: cfg_input.to_string(),
             engine: (engine_path, engine_sha),
@@ -517,7 +526,9 @@ impl ImproveSource {
         let mut its: Vec<(u64, String, u64)> = st
             .items
             .iter()
-            .filter(|(_, it)| it.node == node && it.kind == KIND_IMPROVE && Self::final_phase(&it.phase))
+            .filter(|(_, it)| {
+                it.node == node && it.kind == KIND_IMPROVE && Self::final_phase(&it.phase)
+            })
             .map(|(id, it)| (it.updated_seq, id.clone(), it.cpu_ms))
             .collect();
         its.sort();
@@ -556,7 +567,11 @@ impl ImproveSource {
     fn launch_job(st: &CampaignState, item: &str, it: &crate::state::ItemRec) -> Option<String> {
         match &it.phase {
             ItemPhase::Open => Some(format!("{item}-t{}", it.jobs.len())),
-            ItemPhase::InProgress => match it.jobs.last().and_then(|j| st.jobs.get(j).map(|x| (j, x.state))) {
+            ItemPhase::InProgress => match it
+                .jobs
+                .last()
+                .and_then(|j| st.jobs.get(j).map(|x| (j, x.state)))
+            {
                 Some((j, AttemptState::Queued)) => Some(j.clone()),
                 Some((_, AttemptState::Failed(_))) => Some(format!("{item}-t{}", it.jobs.len())),
                 _ => None,
@@ -684,7 +699,10 @@ impl ImproveSource {
                 .filter(|a| a.verdict == "ok" && (a.new_line.is_some() || !a.new_lines.is_empty()))
                 .min_by_key(|a| {
                     let r = a.new_rule.as_ref().expect("ok verdict has a rule");
-                    let (m, b) = (a.sub_monomials.unwrap_or(r.monomials), a.sub_bytes.unwrap_or(r.bytes));
+                    let (m, b) = (
+                        a.sub_monomials.unwrap_or(r.monomials),
+                        a.sub_bytes.unwrap_or(r.bytes),
+                    );
                     let c = &p.cost;
                     let primary = match p.filter.by {
                         im::RankBy::Monomials => m,
@@ -710,29 +728,40 @@ impl ImproveSource {
         let mut pole_new: BTreeMap<i64, (ps::PoleScore, String)> = BTreeMap::new();
         if let Some(pol) = p.poles.as_ref().filter(|_| p.poles_on()) {
             let decisions = self.nodes[i].decisions.clone();
-            let mut best: BTreeMap<i64, (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule)> =
-                BTreeMap::new();
+            let mut best: BTreeMap<
+                i64,
+                (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule),
+            > = BTreeMap::new();
             for (pos, cand, line) in &decisions {
                 let old = self.nodes[i].rules[*pos].clone();
                 let own = self.nodes[i]
                     .pole_scores
                     .iter()
-                    .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(old.index))
+                    .find(|s| {
+                        s.scope == "rule" && s.cand == "original" && s.rule_index == Some(old.index)
+                    })
                     .map(|s| s.score.clone());
                 let t = line.table.as_ref().expect("decide steps carry a table");
                 let (_, _, h) = file_digests(Path::new(&t.path))?;
                 let (verdict, new) = if h != t.sha256 {
-                    (format!("table_changed (sha256 {h} vs the score's {})", t.sha256), None)
+                    (
+                        format!("table_changed (sha256 {h} vs the score's {})", t.sha256),
+                        None,
+                    )
                 } else {
                     // the candidate's rule as the CANONICAL line (what a size-mode replacement writes and measures)
-                    let raw = std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
+                    let raw =
+                        std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
                     let mut found = None;
                     for l in raw.lines() {
-                        let Ok(c) = rustred_campaign_contract::canon::canonical_line(l.as_bytes()) else {
+                        let Ok(c) = rustred_campaign_contract::canon::canonical_line(l.as_bytes())
+                        else {
                             continue;
                         };
                         let c = String::from_utf8_lossy(&c).into_owned();
-                        if let Some(r) = im::TableRule::from_line(&c)?.filter(|r| r.case == old.case) {
+                        if let Some(r) =
+                            im::TableRule::from_line(&c)?.filter(|r| r.case == old.case)
+                        {
                             found = Some((r, c));
                             break;
                         }
@@ -801,7 +830,10 @@ impl ImproveSource {
             h.finish_hex()
         };
         if der_lines > 0 {
-            rt.accepts.push(AcceptedRecord { path: der_rel.clone(), bytes: der_bytes });
+            rt.accepts.push(AcceptedRecord {
+                path: der_rel.clone(),
+                bytes: der_bytes,
+            });
         }
         let tin = self.nodes[i].e.table.sha256.clone();
         // a partial snapshot copies the table only when the copy keeps the cdir above the spec's disk floor
@@ -944,7 +976,9 @@ impl ImproveSource {
             let own_score = self.nodes[i]
                 .pole_scores
                 .iter()
-                .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index))
+                .find(|s| {
+                    s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index)
+                })
                 .map(|s| s.score.clone());
             if let Some(v) = pole_tried.remove(&e.index) {
                 e.tried.extend(v);
@@ -962,11 +996,20 @@ impl ImproveSource {
                     let own = self.nodes[i]
                         .pole_scores
                         .iter()
-                        .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index))
+                        .find(|s| {
+                            s.scope == "rule"
+                                && s.cand == "original"
+                                && s.rule_index == Some(e.index)
+                        })
                         .map(|s| s.score.clone());
                     let tag = |s: Option<&ps::PoleScore>| {
                         s.map_or("undecided".to_string(), |s| {
-                            format!("max order {} on {} of {} keys", s.max_order.map_or("?".into(), |m| m.to_string()), s.keys_with_pole, s.keys)
+                            format!(
+                                "max order {} on {} of {} keys",
+                                s.max_order.map_or("?".into(), |m| m.to_string()),
+                                s.keys_with_pole,
+                                s.keys
+                            )
                         })
                     };
                     format!(
@@ -1018,17 +1061,17 @@ impl ImproveSource {
         let spent_now = Self::spent_ms(st, &node);
         let cumulative = (spent_now > 0).then(|| saved_now as f64 / (spent_now as f64 / 3.6e6));
         let yield_json = json!({"bytes_saved": saved_now, "cpu_h": spent_now as f64 / 3.6e6,
-            "bytes_per_cpu_h": cumulative, "measure": match p.yield_stop.as_ref().and_then(|y| y.window_cpu_s) {
-                Some(_) => "sliding_window", None => "cumulative" },
-            "judged_bytes_saved": ynow.saved, "judged_cpu_h": ynow.spent_ms as f64 / 3.6e6,
-            "judged_bytes_per_cpu_h": ynow.bytes_per_cpu_h,
-            "stop": self.yield_line(i), "yield_stop": p.yield_stop,
-            "reference_bytes_per_cpu_h": self.nodes[i].ref_yield, "reference_from": self.nodes[i].ref_from,
-            "min_fraction": p.yield_stop.as_ref().map(|y| y.min_fraction), "stopped_by_yield": ynow.stop,
-            "next_tranche_advised": match (ynow.bytes_per_cpu_h, self.nodes[i].ref_yield, &p.yield_stop) {
-                (Some(v), Some(r), Some(y)) => Some(v >= y.min_fraction * r),
-                _ => None,
-            }});
+        "bytes_per_cpu_h": cumulative, "measure": match p.yield_stop.as_ref().and_then(|y| y.window_cpu_s) {
+            Some(_) => "sliding_window", None => "cumulative" },
+        "judged_bytes_saved": ynow.saved, "judged_cpu_h": ynow.spent_ms as f64 / 3.6e6,
+        "judged_bytes_per_cpu_h": ynow.bytes_per_cpu_h,
+        "stop": self.yield_line(i), "yield_stop": p.yield_stop,
+        "reference_bytes_per_cpu_h": self.nodes[i].ref_yield, "reference_from": self.nodes[i].ref_from,
+        "min_fraction": p.yield_stop.as_ref().map(|y| y.min_fraction), "stopped_by_yield": ynow.stop,
+        "next_tranche_advised": match (ynow.bytes_per_cpu_h, self.nodes[i].ref_yield, &p.yield_stop) {
+            (Some(v), Some(r), Some(y)) => Some(v >= y.min_fraction * r),
+            _ => None,
+        }});
         let not_run: usize = untried.values().map(|v| v.len()).sum();
         let stopped_by = if partial.is_some() {
             Value::Null
@@ -1080,8 +1123,7 @@ impl ImproveSource {
             bytes: rec_bytes,
         });
         let import_rel = format!("{base}/import.r{run}{sfx}.json");
-        let import = self
-            .nodes[i]
+        let import = self.nodes[i]
             .e
             .r#box
             .as_ref()
@@ -1115,7 +1157,9 @@ impl ImproveSource {
                 res["why"] = json!(why);
                 res["pending"] = json!(pending);
                 res["table_not_written"] = json!(table_not_written);
-                res["resume"] = json!("PARTIAL snapshot, not the node's result: the same launch line resumes this campaign from its ledger and writes the final outputs of this run; or a NEW improve run with table / record = these partial outputs re-targets the pending pairs (every settled pair is in the record)");
+                res["resume"] = json!(
+                    "PARTIAL snapshot, not the node's result: the same launch line resumes this campaign from its ledger and writes the final outputs of this run; or a NEW improve run with table / record = these partial outputs re-targets the pending pairs (every settled pair is in the record)"
+                );
                 let bytes = json_bytes(&res);
                 let res_sha = {
                     let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -1431,15 +1475,24 @@ impl WorkSource for ImproveSource {
             .get(&done.job)
             .and_then(|j| j.run_dir.clone())
             .unwrap_or_default();
-        let table_path = (done.table.is_some() && !run_dir.is_empty())
-            .then(|| Path::new(&run_dir).join("out").join("F.table.jsonl").display().to_string());
+        let table_path = (done.table.is_some() && !run_dir.is_empty()).then(|| {
+            Path::new(&run_dir)
+                .join("out")
+                .join("F.table.jsonl")
+                .display()
+                .to_string()
+        });
         // the effective derivation of every rule the job sealed (TRICKS 31 / 35): from the job's own files
         let derivations = if run_dir.is_empty() || done.canonical_lines.is_empty() {
             vec![]
         } else {
             let rd = Path::new(&run_dir);
             let rd_text = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
-            let (spec_t, events_t, stderr_t) = (rd_text("job.json"), rd_text("EVENTS.jsonl"), rd_text("stderr.log"));
+            let (spec_t, events_t, stderr_t) = (
+                rd_text("job.json"),
+                rd_text("EVENTS.jsonl"),
+                rd_text("stderr.log"),
+            );
             dv::rule_derivations(&dv::JobFiles {
                 node: &it.node,
                 item: &done.item,
@@ -1561,7 +1614,12 @@ impl WorkSource for ImproveSource {
             } else if y.stop && !self.nodes[i].yield_partial_done {
                 // the yield stop holds back every launch while jobs still run: a snapshot of what is settled now
                 self.nodes[i].yield_partial_done = true;
-                self.write_outputs(st, i, &mut rt, Some("yield stop engaged; running jobs continue"))?;
+                self.write_outputs(
+                    st,
+                    i,
+                    &mut rt,
+                    Some("yield stop engaged; running jobs continue"),
+                )?;
             }
         }
         Ok(rt)
