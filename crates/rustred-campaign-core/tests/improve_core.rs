@@ -592,3 +592,91 @@ fn improved_tables_are_positioned_for_the_native_importer() {
             .unwrap();
     assert!(v["origin"].get("dispatch_position").is_none() && v["index"] == 9);
 }
+
+/// Fourth defect (2026-11-17): the certification facts of a replacement come from the tool (every sub-table rule, never only the
+/// first); declared terminals are checked exactly (fixed slots, equations, exception branches).
+#[test]
+fn replacement_facts_list_every_rule_and_check_declared_terminals() {
+    let r = |idx: i64, fixed: Value, exc: Value, target: &str| {
+        serde_json::json!({"type":"rule","chart":"111","index":idx,"fixed":fixed,"equations":[],"exceptions":exc,
+            "target":target,"rhs":[["I(n0-1,n1,n2)","1"]],"monomials":3}).to_string()
+    };
+    let old = r(
+        4,
+        serde_json::json!([1, null, null]),
+        serde_json::json!([["n2"], ["-1+n1"]]),
+        "I(1,n1,n2)",
+    );
+    let subs = vec![
+        r(
+            4,
+            serde_json::json!([1, null, null]),
+            serde_json::json!([["n2"], ["-2+n1"]]),
+            "I(1,n1,n2)",
+        ),
+        r(
+            5,
+            serde_json::json!([1, 1, null]),
+            serde_json::json!([]),
+            "I(1,1,n2)",
+        ),
+        r(
+            6,
+            serde_json::json!([1, 2, null]),
+            serde_json::json!([]),
+            "I(1,2,n2)",
+        ),
+    ];
+    let v = |l: &str| serde_json::from_str::<Value>(l).unwrap();
+    assert!(
+        serves_key(&v(&subs[0]), &[1, 1, 3]).unwrap(),
+        "-1+n1 is not a branch of the case rule (it captured it)"
+    );
+    assert!(
+        !serves_key(&v(&subs[0]), &[1, 2, 3]).unwrap(),
+        "exception branch -2+n1 holds"
+    );
+    assert!(
+        !serves_key(&v(&subs[0]), &[1, 5, 0]).unwrap(),
+        "exception branch n2 holds"
+    );
+    assert!(serves_key(&v(&subs[0]), &[1, 5, 3]).unwrap());
+    assert!(
+        !serves_key(&v(&subs[1]), &[2, 1, 0]).unwrap(),
+        "fixed slot differs"
+    );
+    assert!(serves_key(&v(&subs[1]), &[1, 1, 0]).unwrap());
+    let f = replacement_facts(&old, &subs, &[vec![1, 1, 0], vec![7, 7, 7]]).unwrap();
+    let pos: Vec<i64> = f["replacement"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["position"].as_i64().unwrap())
+        .collect();
+    assert_eq!(pos, vec![4, 5, 6], "every rule of the sub-table");
+    assert_eq!(f["replacement_rules"], 3);
+    assert_eq!(f["captured_branches"], serde_json::json!(["-1+n1"]));
+    assert_eq!(
+        f["new_branches_of_the_case_rule"],
+        serde_json::json!(["-2+n1"])
+    );
+    assert_eq!(
+        f["terminal_check"],
+        serde_json::json!([{"position": 5, "terminal": [1, 1, 0]}]),
+        "{f:#}"
+    );
+    assert_eq!(f["old"]["target_rhs_sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        f["replacement"][0]["target_rhs_sha256"], f["old"]["target_rhs_sha256"],
+        "same target and rhs here"
+    );
+    let clean = replacement_facts(&old, &subs, &[vec![9, 9, 9]]).unwrap();
+    assert_eq!(clean["terminal_check"], "clean");
+    let none = replacement_facts(&old, &subs, &[]).unwrap();
+    assert!(
+        none["terminal_check"]
+            .as_str()
+            .unwrap()
+            .starts_with("not requested")
+    );
+}

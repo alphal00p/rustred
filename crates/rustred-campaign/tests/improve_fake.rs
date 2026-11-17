@@ -283,7 +283,9 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
     });
     let cfg = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node",
         "nodes":[{"node":"toy","family":fam.display().to_string(),"family_sha256":sha256_file(&fam),
-                  "table":{"path":tab.display().to_string(),"sha256":sha256_file(&tab)}}],
+                  "table":{"path":tab.display().to_string(),"sha256":sha256_file(&tab)},
+                  // a declared terminal (spec data) the sub-table does not serve: terminal check clean
+                  "terminals":[[5,5,5]]}],
         "improve":{"filter":{"largest":2},"subtree":true,"candidates":[{"name":"rung","args":["--seed-pose-rung"]}]},
         "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
                "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
@@ -341,6 +343,50 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
             .iter()
             .any(|e| e["old"] == 2 && e["new"] == json!([3])),
         "{pm:#}"
+    );
+    // the CERTIFICATION LIST and the replay mini table are the tool's own outputs (the post-step script is retired: it bound
+    // only the first sub-table rule): EVERY replacement rule with its position and hashes
+    let cert = &res["certification"];
+    let cl: Vec<Value> = std::fs::read_to_string(cert["list"].as_str().unwrap())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        (cl.len(), &cert["replacements"]),
+        (1, &json!(1)),
+        "{cert:#}"
+    );
+    let c0 = &cl[0];
+    assert_eq!(c0["old"]["index"], 1);
+    let pos: Vec<i64> = c0["replacement"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["position"].as_i64().unwrap())
+        .collect();
+    assert_eq!(
+        pos,
+        vec![1, 2],
+        "every sub-table rule, at its position: {c0:#}"
+    );
+    assert_eq!(c0["replacement_rules"], 2);
+    assert_eq!(c0["new_branches_of_the_case_rule"], json!(["n2"]), "{c0:#}");
+    assert_eq!(c0["terminal_check"], "clean");
+    assert_eq!(c0["candidate"], "rung");
+    assert!(c0["side_files"].as_array().unwrap().len() >= 3, "{c0:#}");
+    assert_eq!(c0["replacement"][1]["monomials"], 50);
+    let mini: Vec<String> = std::fs::read_to_string(cert["replay_mini_table"].as_str().unwrap())
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(mini.len(), 3, "header + the 2 replacement lines");
+    let table_text = std::fs::read_to_string(&out).unwrap();
+    assert!(
+        mini[0].contains("\"header\"")
+            && mini[1..].iter().all(|l| table_text.lines().any(|t| t == l)),
+        "lines as written"
     );
     assert_eq!(
         lines.last().unwrap()["rules"],

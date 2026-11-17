@@ -855,6 +855,7 @@ impl ImproveSource {
             _ => None,
         };
         let mut positions_map: Option<Vec<Value>> = None;
+        let mut certification: Option<(String, String, usize)> = None;
         let (out_sha, out_path, out_bytes, new_rules) = if repl.is_empty() {
             (
                 tin.clone(),
@@ -903,6 +904,11 @@ impl ImproveSource {
             // move (only their index number changes); the map old -> new is written beside the table
             let mut pos = im::Positions::default();
             let mut moved: Vec<Value> = Vec::new();
+            // the certification list (one line per replacement) and the replay mini table (input header + every
+            // replacement line as written): the tool's own outputs for the final certification (no post-step script)
+            let mut certs: Vec<Value> = Vec::new();
+            let rel_m = format!("{base}/replacements.r{run}{sfx}.mini.table.jsonl");
+            let mut mini: Vec<u8> = Vec::new();
             let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
             for l in std::io::BufReader::new(f).lines() {
                 let l = l.map_err(|e| e.to_string())?;
@@ -916,7 +922,42 @@ impl ImproveSource {
                                 .ok_or("replacement line is not a rule")?;
                             pos.take(&nr.chart, nr.index)?;
                             sink.line(n)?;
+                            mini.extend_from_slice(n.as_bytes());
+                            mini.push(b'\n');
                         }
+                        let mut facts =
+                            im::replacement_facts(&l, &lines, &self.nodes[i].e.terminals)?;
+                        facts["node"] = json!(node);
+                        facts["run"] = json!(run);
+                        facts["partial"] = json!(partial.is_some());
+                        if let Some(a) = chosen.get(&r.index).and_then(|c| {
+                            per_rule
+                                .get(&r.index)
+                                .and_then(|v| v.iter().find(|a| &a.cand == c))
+                        }) {
+                            facts["candidate"] = json!(a.cand);
+                            facts["job"] = json!(a.job);
+                            facts["attempt"] = json!(a.attempt);
+                            facts["derivation"] = json!(
+                                (!a.derivations.is_empty())
+                                    .then(|| format!("{der_rel}#{}.a{}", a.job, a.attempt))
+                            );
+                            let run_dir = st
+                                .jobs
+                                .get(&a.job)
+                                .and_then(|j| j.run_dir.clone())
+                                .unwrap_or_default();
+                            let side: Vec<Value> = ["job.json", "OUTCOME.json", "EVENTS.jsonl", "stderr.log", "out/F.cert.jsonl"]
+                                .iter()
+                                .filter_map(|f| {
+                                    let p = Path::new(&run_dir).join(f);
+                                    let (b, _, h) = file_digests(&p).ok()?;
+                                    Some(json!({"file": p.display().to_string(), "sha256": h, "bytes": b}))
+                                })
+                                .collect();
+                            facts["side_files"] = json!(side);
+                        }
+                        certs.push(facts);
                         moved.push(json!({"chart": r.chart, "old": r.index, "new": (first..first + lines.len() as i64).collect::<Vec<_>>(), "replaced": true}));
                         old_lines.push(l);
                     }
@@ -932,6 +973,33 @@ impl ImproveSource {
                 }
             }
             positions_map = Some(moved);
+            // the input table's header first (a replay reads the frame from it)
+            let header = std::io::BufReader::new(
+                std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+            )
+            .lines()
+            .next()
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+            let mut m = header.into_bytes();
+            m.push(b'\n');
+            m.extend_from_slice(&mini);
+            rt.accepts.push(AcceptedRecord {
+                path: rel_m.clone(),
+                bytes: m,
+            });
+            let mut cb = Vec::new();
+            for c in &certs {
+                cb.extend_from_slice(c.to_string().as_bytes());
+                cb.push(b'\n');
+            }
+            let rel_c = format!("{base}/certification.r{run}{sfx}.jsonl");
+            rt.accepts.push(AcceptedRecord {
+                path: rel_c.clone(),
+                bytes: cb,
+            });
+            certification = Some((rel_c, rel_m, certs.len()));
             let written = sink.file.is_some();
             if let Some(mut w) = sink.file.take() {
                 w.flush().map_err(|e| e.to_string())?;
@@ -1180,6 +1248,8 @@ impl ImproveSource {
             "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
             "not_run": not_run, "stopped_by": stopped_by,
             "positions": positions_rel.as_ref().map(|r| self.cdir.join(r).display().to_string()),
+            "certification": certification.as_ref().map(|(c, m, n)| json!({"list": self.cdir.join(c).display().to_string(),
+                "replay_mini_table": self.cdir.join(m).display().to_string(), "replacements": n})),
             "nothing_to_try": targets.is_empty() && self.nodes[i].decisions.is_empty()});
         let res_rel = format!("{base}/result.r{run}{sfx}.json");
         match partial {
@@ -1500,6 +1570,29 @@ impl WorkSource for ImproveSource {
             )
         } else {
             (None, None, None)
+        };
+        // declared terminals (spec data): a regeneration serving one never replaces anything
+        let terminals = self.nodes[i].e.terminals.clone();
+        let verdict = if verdict == "ok" && !terminals.is_empty() {
+            let mut hit = None;
+            for (_, l) in &all {
+                let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
+                if let Some(t) = terminals
+                    .iter()
+                    .find(|t| im::serves_key(&v, t).unwrap_or(true))
+                {
+                    hit = Some((v.get("index").cloned().unwrap_or(Value::Null), t.clone()));
+                    break;
+                }
+            }
+            match hit {
+                Some((ix, t)) => format!(
+                    "serves_declared_terminal (rule {ix} serves {t:?}, or its domain could not be evaluated there)"
+                ),
+                None => verdict,
+            }
+        } else {
+            verdict
         };
         // IMPROVE POLES: a fresh candidate waits for its rule-scope score (never replaces on size alone)
         let verdict = if self.cfg.improve.poles_on() && new_rule.is_some() {

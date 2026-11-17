@@ -1032,6 +1032,125 @@ pub fn replacement_lines(
     Ok(out)
 }
 
+/// Whether the rule record `v` serves `key`: every fixed slot equal, every case equation zero, and no exception branch
+/// (a list of polynomials that all vanish, or one polynomial) holds at the key. Polynomials in n0.. (d-free), exact.
+pub fn serves_key(v: &Value, key: &[i32]) -> Result<bool, String> {
+    let arity = key.len();
+    let zero = |text: &str| -> Result<bool, String> {
+        let p = crate::poly::Poly::parse_d_free_exact(text, arity)
+            .map_err(|e| format!("{text}: {e:?}"))?;
+        p.is_zero_at(key).map_err(|e| format!("{text}: {e:?}"))
+    };
+    if let Some(f) = v.get("fixed").and_then(Value::as_array) {
+        if f.len() != arity {
+            return Err(format!("fixed has {} slots, the key {arity}", f.len()));
+        }
+        for (k, x) in f.iter().enumerate() {
+            if let Some(n) = x.as_i64()
+                && n != key[k] as i64
+            {
+                return Ok(false);
+            }
+        }
+    }
+    for q in v
+        .get("equations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if !zero(q.as_str().ok_or("equation is not a string")?)? {
+            return Ok(false);
+        }
+    }
+    for b in v
+        .get("exceptions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let polys: Vec<&str> = match b {
+            Value::Array(a) => a.iter().filter_map(Value::as_str).collect(),
+            Value::String(t) => vec![t.as_str()],
+            _ => return Err(format!("exception branch {b}")),
+        };
+        let mut holds = true;
+        for t in polys {
+            if !zero(t)? {
+                holds = false;
+                break;
+            }
+        }
+        if holds {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// sha256 of `[target, rhs]` in compact JSON: the binding key of independent exactness results (helper VH's
+/// `target_rhs_sha256`); independent of the rule's index and of every other member.
+pub fn target_rhs_sha256(v: &Value) -> String {
+    let t = serde_json::to_string(&Value::Array(vec![
+        v.get("target").cloned().unwrap_or(Value::Null),
+        v.get("rhs").cloned().unwrap_or(Value::Null),
+    ]))
+    .unwrap_or_default();
+    let mut h = crate::closure::sha256::Sha256::new();
+    h.update(t.as_bytes());
+    h.finish_hex()
+}
+
+/// The CERTIFICATION facts of one replacement (what a final certification needs per replaced rule): the old record
+/// (index, line sha256, bytes, monomials, exceptions, target+rhs sha256, origin.dispatch_position) and EVERY replacement
+/// line as written (position, line sha256, bytes, monomials, target, case, fixed, equations, exceptions, target+rhs sha256),
+/// the exception branches the case rule captured / added, and the declared terminals any replacement line serves.
+pub fn replacement_facts(
+    old_line: &str,
+    new_lines: &[String],
+    terminals: &[Vec<i32>],
+) -> Result<Value, String> {
+    let sha = |b: &str| {
+        let mut h = crate::closure::sha256::Sha256::new();
+        h.update(b.as_bytes());
+        h.finish_hex()
+    };
+    let old: Value = serde_json::from_str(old_line).map_err(|e| e.to_string())?;
+    let o = TableRule::from_line(old_line)?.ok_or("old line is not a rule")?;
+    let mut subs = Vec::with_capacity(new_lines.len());
+    let mut violations = Vec::new();
+    let mut case_exc: Vec<String> = vec![];
+    for (k, l) in new_lines.iter().enumerate() {
+        let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
+        let r = TableRule::from_line(l)?.ok_or("replacement line is not a rule")?;
+        if k == 0 {
+            case_exc = r.exceptions.clone();
+        }
+        for t in terminals {
+            if serves_key(&v, t)? {
+                violations.push(serde_json::json!({"position": r.index, "terminal": t}));
+            }
+        }
+        subs.push(serde_json::json!({"position": r.index, "line_sha256": sha(l), "bytes": r.bytes, "monomials": r.monomials,
+            "target": r.target, "case": v.get("case").cloned().unwrap_or(Value::Null), "fixed": r.fixed,
+            "equations": r.equations, "exceptions": r.exceptions, "target_rhs_sha256": target_rhs_sha256(&v)}));
+    }
+    Ok(serde_json::json!({
+        "old": {"index": o.index, "line_sha256": sha(old_line), "bytes": o.bytes, "monomials": o.monomials,
+                "exceptions": o.exceptions, "target_rhs_sha256": target_rhs_sha256(&old),
+                "origin_dispatch_position": old.get("origin").and_then(|x| x.get("dispatch_position")).cloned()},
+        "replacement": subs,
+        "replacement_rules": new_lines.len(),
+        "replacement_bytes": subs.iter().filter_map(|s| s["bytes"].as_u64()).sum::<u64>(),
+        "replacement_monomials": subs.iter().filter_map(|s| s["monomials"].as_u64()).sum::<u64>(),
+        "captured_branches": o.exceptions.iter().filter(|e| !case_exc.contains(e)).collect::<Vec<_>>(),
+        "new_branches_of_the_case_rule": case_exc.iter().filter(|e| !o.exceptions.contains(e)).collect::<Vec<_>>(),
+        "insertion_order": "the case rule at the replaced rule's position, the sub-table's other rules after it in engine order, consecutive positions; later rules moved (positions map)",
+        "terminal_check": if terminals.is_empty() { serde_json::json!("not requested (no declared terminals)") }
+                          else if violations.is_empty() { serde_json::json!("clean") } else { Value::Array(violations) },
+    }))
+}
+
 /// (Superseded in the improve writer by [`replacement_lines`] + [`set_index`]: fresh indices break the native importer's
 /// order rule, see [`Positions`].) The lines replacing one rule by its sub-table: the first keeps the old `index` (same dispatch position), the others
 /// take fresh indices from `next_free` (unique labels; first match follows the file order, not the index).
@@ -1248,6 +1367,11 @@ pub struct ImproveNode {
     /// The dependence table of published symbols (sha256-bound; absent = upper bound), as in genchoice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependences: Option<crate::economy::genchoice::FileEntry>,
+    /// Declared TERMINAL keys of the node (spec data, e.g. the masters the table stops at): a regenerated rule that serves
+    /// one of them never replaces anything (verdict `serves_declared_terminal`); listed per replacement in the
+    /// certification list. Empty = no terminal check.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals: Vec<Vec<i32>>,
 }
 
 /// The improve config (campaign input of role `genchoice`, schema [`IMPROVE_CONFIG_SCHEMA`]).
