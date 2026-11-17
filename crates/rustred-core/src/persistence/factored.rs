@@ -487,6 +487,10 @@ impl SharedSpillWriter {
         self.count as usize
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
     fn map_of(&mut self, c: &Coefficient) -> u32 {
         let vars = c.numerator.variables();
         match self.maps.iter().position(|m| m == vars) {
@@ -607,7 +611,7 @@ impl SharedSpillWriter {
         use std::io::{Read, Seek};
         let io = super::native_io_error;
         writer.write_all(&self.head()?).map_err(io)?;
-        let mut copy = |mut file: &std::fs::File, len: u64, writer: &mut dyn std::io::Write| {
+        let copy = |mut file: &std::fs::File, len: u64, writer: &mut dyn std::io::Write| {
             file.seek(std::io::SeekFrom::Start(0)).map_err(io)?;
             let copied = std::io::copy(&mut (&mut file).take(len), writer).map_err(io)?;
             if copied != len {
