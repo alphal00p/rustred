@@ -788,13 +788,15 @@ pub fn restate_marker(line: &str, total: u64, per_chart: &BTreeMap<String, u64>)
         .and_then(|t| t.as_str())
         .unwrap_or_default()
         .to_string();
+    // any completion / assembly marker that states a rule count (end, assembly_end, chart_end, chart_partial, and
+    // assembled tables' own markers such as composite_assembly_complete): per chart when it names one, else the total
     let n = match kind.as_str() {
-        "end" | "assembly_end" => Some(total),
-        "chart_end" | "chart_partial" => v
-            .get("chart")
-            .and_then(|c| c.as_str())
-            .map(|c| per_chart.get(c).copied().unwrap_or(0)),
-        _ => None,
+        "rule" | "header" | "chart" | "residual" => None,
+        _ if v.get("rules").and_then(|r| r.as_u64()).is_none() => None,
+        _ => match v.get("chart").and_then(|c| c.as_str()) {
+            Some(c) => Some(per_chart.get(c).copied().unwrap_or(0)),
+            None => Some(total),
+        },
     };
     match n {
         Some(n) if v.get("rules").is_some() => {
