@@ -1065,7 +1065,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
     let report = json!({"schema": REPORT_SCHEMA, "spec_sha256": sha256_hex(&sb), "cells_sha256": spec.cells.sha256,
         "depths_sha256": spec.depths.sha256, "dependences_sha256": spec.dependences.as_ref().map(|d| &d.sha256),
         "score": {"level": "composed", "form": "rank", "claim": if upper {"objective_upper_bound"} else {"objective"}},
-        "cell_definition": "cells (D, r) with r <= top(D); top(D) = top_r_at_D_if_n4hint of the cell table (top_r_at_D where empty), not clipped by box_r_max; margin = cells between the hint and top_r_at_D (TRICKS 45, coordinator ruling 2026-11-17)",
+        "cell_definition": "cells (D, r) with r <= top(D); top(D) = top_r_at_D_if_n4hint of the cell table when numeric, else top_r_exact (exact n4, TRICKS 49), else top_r_at_D; never clipped by box_r_max (a main-line cell above it is shown as outside BOXDEF v3); margin = cells between top(D) and top_r_at_D (TRICKS 45, coordinator ruling 2026-11-17)",
         "nodes": nodes, "cells": outcomes});
     let tmp = dir.join("pole_report.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&report).expect("json"))
