@@ -78,7 +78,7 @@ fn ranks_known_by_construction() {
     let lau = SymbolicaLaurent::new("4").unwrap();
     let map = TerminalMap::default();
     let dep = depths();
-    let data = RankData { map: &map, depths: &dep, dependences: None, lau: &lau };
+    let data = RankData { map: &map, depths: &dep, dependences: None, lau: &lau, exchange: None };
     // two keys with the SAME polar row (proportional): rank 1, pivot on the first symbol
     let same = [(5, 7), (10, 14)];
     let r = cell_rank(&data, &result(combos(&same, 4, &[1, 2])), "c", 1);
@@ -92,7 +92,7 @@ fn ranks_known_by_construction() {
     let deps = Dependences::from_json(&json!({"schema": "rustred.campaign.dependences.v1", "label": "toy",
         "entries": [{"master": "I(1,1,0)", "order": 1, "symbols": {"S": "1"}},
                     {"master": "I(1,0,1)", "order": 2, "symbols": {"S": "10/7"}}]})).unwrap();
-    let data_d = RankData { map: &map, depths: &dep, dependences: Some(&deps), lau: &lau };
+    let data_d = RankData { map: &map, depths: &dep, dependences: Some(&deps), lau: &lau, exchange: None };
     let r0 = cell_rank(&data_d, &result(combos(&same, 4, &[1, 2])), "c", 1);
     assert_eq!(r0["rank"], 0, "{r0}");
     assert_eq!(r0["verdict"], "count zero: yes");
@@ -114,7 +114,7 @@ fn typed_not_decided_cases() {
     let lau = SymbolicaLaurent::new("4").unwrap();
     let map = TerminalMap::default();
     let dep = depths();
-    let data = RankData { map: &map, depths: &dep, dependences: None, lau: &lau };
+    let data = RankData { map: &map, depths: &dep, dependences: None, lau: &lau, exchange: None };
     // one seed only
     let r = cell_rank(&data, &result(combos(&[(5, 7)], 4, &[1])), "c", 1);
     assert_eq!(r["verdict"], "not decided (SINGLE_SEED)");

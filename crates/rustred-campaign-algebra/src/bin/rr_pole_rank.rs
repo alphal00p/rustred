@@ -11,7 +11,7 @@
 use rustred_campaign_algebra::SymbolicaAlgebra;
 use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::polerank::{
-    DepthTable, Dependences, RankData, TerminalMap, cell_rank,
+    DepthTable, Dependences, Exchange, RankData, TerminalMap, cell_rank,
 };
 use serde_json::{Value, json};
 
@@ -88,11 +88,21 @@ fn main() {
         (None, None) => TerminalMap::default(),
         _ => die("--library and --catalogue go together"),
     };
+    // --basis old (default) | exchanged --exchange exchange_list.json
+    let exchange = match get("--basis").as_deref() {
+        None | Some("old") => None,
+        Some("exchanged") => {
+            let p = get("--exchange").unwrap_or_else(|| die("--basis exchanged needs --exchange FILE"));
+            Some(Exchange::from_json(&read(&p, &mut bound, "exchange")).unwrap_or_else(|e| die(&e)))
+        }
+        Some(b) => die(&format!("--basis {b}: old | exchanged")),
+    };
     let data = RankData {
         map: &map,
         depths: &depths,
         dependences: deps.as_ref(),
         lau: &lau,
+        exchange: exchange.as_ref().map(|x| (x, &alg)),
     };
     let prefix = get("--rank-prefix").unwrap_or_else(|| "c".into());
     let tseed: u64 = get("--tseed").and_then(|s| s.parse().ok()).unwrap_or(1);

@@ -139,6 +139,64 @@ fn parse_rational(s: &str) -> Result<Rational, String> {
     Ok(Rational::new(Integer::from(n), Integer::from(d)))
 }
 
+/// The exchange basis (helper VH 2's `helper-vh2.exchange-list.v1`, TRICKS 28 / 30 / 47): per exchanged master m the
+/// relation `int[m] = sum_n B[m][n] new[n] + sum_k A[m][k] int[k]` exact in d; rotating a reduction sends
+/// c'(target) += c_m x coefficient(m -> target) and drops m (no reduction is redone). The new masters' known depth q
+/// comes from the same file. Rules are parsed (Symbolica) when first met.
+pub struct Exchange {
+    rules: BTreeMap<String, Vec<(String, String)>>,
+    pub new_q: BTreeMap<String, i64>,
+    parsed: std::cell::RefCell<BTreeMap<String, Vec<(String, TCoeff)>>>,
+    pub label: String,
+}
+
+impl Exchange {
+    pub fn from_json(v: &Value) -> Result<Exchange, String> {
+        let mut rules = BTreeMap::new();
+        for r in v["relation"]["rows"].as_array().ok_or("exchange: relation.rows")? {
+            let m = r["master_out"].as_str().ok_or("exchange: master_out")?.to_string();
+            let mut ts = vec![];
+            for e in r["B"].as_array().into_iter().flatten().chain(r["A"].as_array().into_iter().flatten()) {
+                let target = e["master"].as_str().ok_or("exchange: master")?.to_string();
+                let num = e["coefficient"]["num"].as_str().ok_or("exchange: num")?;
+                let den = e["coefficient"]["den"].as_str().ok_or("exchange: den")?;
+                ts.push((target, format!("({num})/({den})")));
+            }
+            rules.insert(m, ts);
+        }
+        let mut new_q = BTreeMap::new();
+        for n in v["new_master_definitions"].as_array().ok_or("exchange: new_master_definitions")? {
+            new_q.insert(
+                n["master"].as_str().ok_or("exchange: new master")?.to_string(),
+                n["q"].as_i64().ok_or("exchange: q")?,
+            );
+        }
+        Ok(Exchange {
+            rules,
+            new_q,
+            parsed: Default::default(),
+            label: format!("{} {}", v["schema"].as_str().unwrap_or(""), v["data_version"].as_str().unwrap_or("")),
+        })
+    }
+
+    pub fn exchanged(&self) -> impl Iterator<Item = &String> {
+        self.rules.keys()
+    }
+
+    fn rule(&self, alg: &SymbolicaAlgebra, lau: &SymbolicaLaurent, m: &str) -> Result<Vec<(String, TCoeff)>, String> {
+        if let Some(r) = self.parsed.borrow().get(m) {
+            return Ok(r.clone());
+        }
+        let mut out = vec![];
+        for (target, text) in self.rules.get(m).ok_or(format!("exchange: no rule for {m}"))? {
+            let (n, d) = alg.parse_ratio(text, 0)?;
+            out.push((target.clone(), lau.coeff_from_zpolys(&n, &d, 0)?));
+        }
+        self.parsed.borrow_mut().insert(m.to_string(), out.clone());
+        Ok(out)
+    }
+}
+
 /// One product of a row entry: an exact rational function of t (at d0) times prod Gamma(1 + m eps)^e.
 #[derive(Clone, Debug)]
 pub struct RowPart {
@@ -738,6 +796,19 @@ pub struct RankData<'a> {
     pub depths: &'a DepthTable,
     pub dependences: Option<&'a Dependences>,
     pub lau: &'a SymbolicaLaurent,
+    /// The exchanged basis (None = the old basis) and the parser it needs.
+    pub exchange: Option<(&'a Exchange, &'a SymbolicaAlgebra)>,
+}
+
+impl RankData<'_> {
+    fn depth(&self, m: &str) -> Option<i64> {
+        if let Some((x, _)) = self.exchange
+            && let Some(q) = x.new_q.get(m)
+        {
+            return Some(*q);
+        }
+        self.depths.known_through.get(m).copied()
+    }
 }
 
 /// The row of one request at one prime (interfaces/tadic-job.md 4).
@@ -758,7 +829,7 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
     let terms = terms_at_prime(request, fp.p)?;
     // target precision per master: -q (orders below -q needed); planned per product
     let mut acc: BTreeMap<String, Lau> = BTreeMap::new();
-    let target = |m: &str| -> Option<i64> { data.depths.known_through.get(m).map(|q| -q) };
+    let target = |m: &str| -> Option<i64> { data.depth(m).map(|q| -q) };
     for t in &terms {
         let r = fp.term_series(t.valuation, t.precision, &t.coeffs);
         let row = data.map.row_of(&t.basis);
@@ -815,6 +886,28 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
             acc.insert(m, next);
         }
     }
+    // the exchanged basis: rotate every exchanged master's coefficient onto its rule's targets (exact in d)
+    if let Some((x, alg)) = data.exchange {
+        let present: Vec<String> = x.exchanged().filter(|m| acc.contains_key(*m)).cloned().collect();
+        for m in present {
+            let cm = acc.remove(&m).expect("present");
+            for (target, coeff) in x.rule(alg, data.lau, &m)? {
+                let vt = match coeff.valuation() {
+                    rustred_campaign_core::epsdepth::Val::Order(o) => o,
+                    _ => continue,
+                };
+                let tq = data.depth(&target).unwrap_or(0);
+                let need = (-tq - fp.val(&cm) + 1).max(vt + 1);
+                let s = fp.rational_series(data.lau, &coeff, need)?;
+                let prod = fp.mul(&cm, &s);
+                let next = match acc.remove(&target) {
+                    None => prod,
+                    Some(a) => fp.add(&a, &prod),
+                };
+                acc.insert(target, next);
+            }
+        }
+    }
     let mut entries: BTreeMap<String, u64> = BTreeMap::new();
     let mut needs = BTreeMap::new();
     let mut beyond = vec![];
@@ -825,7 +918,7 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
         if data.depths.fully_known.contains(m) {
             continue;
         }
-        let Some(&q) = data.depths.known_through.get(m) else {
+        let Some(q) = data.depth(m) else {
             if c.s.is_some() && v < 0 {
                 return Ok(RowOutcome::NotDecided(format!("MISSING_DEPTH:{m}")));
             }
@@ -1040,12 +1133,13 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
     }
     let beyond: Vec<Value> = cell_needs
         .iter()
-        .filter_map(|(m, &n)| data.depths.known_through.get(m).filter(|&&q| n > q).map(|&q| json!({"master": m, "need": n, "q": q})))
+        .filter_map(|(m, &n)| data.depth(m).filter(|&q| n > q).map(|q| json!({"master": m, "need": n, "q": q})))
         .collect();
     json!({"version": POLERANK_VERSION, "rank_prefix": rank_prefix, "rank_requests": n_rank_requests,
         "verdict": verdict, "rank": rank, "pivots": pivots,
         "rank_kind": if data.dependences.is_some() {"rank of rho (dependences substituted)"} else {"NAIVE UPPER BOUND (no dependence table: every master order beyond its known depth is its own symbol)"},
         "depths": data.depths.label, "dependences": data.dependences.map(|d| d.label.clone()),
+        "basis": data.exchange.map(|(x, _)| format!("exchanged ({})", x.label)).unwrap_or_else(|| "old".into()),
         "per_prime": per_prime, "requests": per_request.into_values().collect::<Vec<_>>(),
         "cell_needs": cell_needs, "cell_beyond": beyond,
         "transcendental_substitution": {"used": transcendental_used, "seed": transcendental_seed,
