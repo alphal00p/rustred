@@ -42,21 +42,28 @@ pub fn order(disp: &Dispatcher) -> Vec<(usize, usize)> {
         .collect()
 }
 
-/// Is there a key of `region` whose FIRST MATCH in `disp` is the record at first-match position `pos`? Exact
-/// (see the module header); `opts.budget` bounds the partition AND the element pass (its wall), `enum_cap` the lattice
-/// enumeration of an element without a box cell.
-pub fn record_liveness(
+/// The partition behind a record's first-match questions in a region (shared by [`record_liveness`] and
+/// [`record_first_match_counts`]): the record's FACE (its fixed slots and one-slot linear bounds as caps), the EARLIER records
+/// partitioned on it, and the gap elements they leave that meet the region.
+struct FacePartition {
+    ti: usize,
+    ri: usize,
+    cp: super::cone::ConePartition,
+    cov: super::cone::ConeCoverage,
+    cone: Cone,
+    o: ConeOptions,
+}
+
+fn face_partition(
     disp: &Dispatcher,
     frame: &NodeFrame,
     region: &Cone,
     pos: usize,
     opts: &ConeOptions,
-    enum_cap: u64,
-) -> Liveness {
-    let t0 = std::time::Instant::now();
+) -> Result<FacePartition, String> {
     let ord = order(disp);
     let Some(&(ti, ri)) = ord.get(pos) else {
-        return Liveness::Undecided(format!("position {pos} beyond {} records", ord.len()));
+        return Err(format!("position {pos} beyond {} records", ord.len()));
     };
     let n = frame.arity();
     let d = &disp.tables()[ti].domains[ri];
@@ -105,23 +112,51 @@ pub fn record_liveness(
     }
     let capped = match capped_dispatcher(disp, frame, &caps) {
         Ok(c) => c,
-        Err(e) => return Liveness::Undecided(format!("caps: {e}")),
+        Err(e) => return Err(format!("caps: {e}")),
     };
     let ncaps = capped.tables()[0].domains.len();
     let mut o = opts.clone();
     o.rule_subset = Some((0..ncaps).chain((0..pos).map(|p| ncaps + p)).collect());
     let cp = match partition_for_cones_with(&capped, frame, &o, None) {
         Ok(c) => c,
-        Err(e) => return Liveness::Undecided(format!("partition: {e}")),
+        Err(e) => return Err(format!("partition: {e}")),
     };
     if let Some(b) = cp.report.budget_exhausted() {
-        return Liveness::Undecided(format!("partition budget: {b}"));
+        return Err(format!("partition budget: {b}"));
     }
     let cone = region.clone().and(&caps);
     let cov = match coverage_from_partition(&cp, &capped, frame, &cone, &o) {
         Ok(c) => c,
-        Err(e) => return Liveness::Undecided(format!("coverage: {e}")),
+        Err(e) => return Err(format!("coverage: {e}")),
     };
+    Ok(FacePartition {
+        ti,
+        ri,
+        cp,
+        cov,
+        cone,
+        o,
+    })
+}
+
+/// Is there a key of `region` whose FIRST MATCH in `disp` is the record at first-match position `pos`? Exact
+/// (see the module header); `opts.budget` bounds the partition AND the element pass (its wall), `enum_cap` the lattice
+/// enumeration of an element without a box cell.
+pub fn record_liveness(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    region: &Cone,
+    pos: usize,
+    opts: &ConeOptions,
+    enum_cap: u64,
+) -> Liveness {
+    let t0 = std::time::Instant::now();
+    let fp = match face_partition(disp, frame, region, pos, opts) {
+        Ok(f) => f,
+        Err(e) => return Liveness::Undecided(e),
+    };
+    let (ti, ri, cp, cov, cone, o) = (fp.ti, fp.ri, &fp.cp, &fp.cov, &fp.cone, &fp.o);
+    let d = &disp.tables()[ti].domains[ri];
     let deadline = o.budget.wall.map(|w| t0 + w);
     // the region as bounds b - a.k >= 0
     let mut rbounds: Vec<Poly> = Vec::new();
@@ -187,7 +222,7 @@ pub fn record_liveness(
                 found = Some(k.to_vec());
             }
         };
-        let sized = region_keys_each(&el.region(), &cone, enum_cap, &mut push);
+        let sized = region_keys_each(&el.region(), cone, enum_cap, &mut push);
         if let Some(k) = found {
             return Liveness::Live(k);
         }
@@ -202,6 +237,44 @@ pub fn record_liveness(
             "an element was not decided (emptiness budget or enumeration cap)".into(),
         )
     }
+}
+
+/// First-match keys of one record in a region, counted per SHELL (`shell(k)`, e.g. D + r): every key of the region whose
+/// first match in `disp` is the record, enumerated on the gap elements the EARLIER records leave on the record's face (the
+/// partition of [`record_liveness`]), each key once (elements may overlap). `Ok((counts, complete))`: `complete` = every gap
+/// element was enumerated within `enum_cap` keys, else the counts are LOWER bounds; `Err` = the partition was not decided.
+pub fn record_first_match_counts(
+    disp: &Dispatcher,
+    frame: &NodeFrame,
+    region: &Cone,
+    pos: usize,
+    opts: &ConeOptions,
+    enum_cap: u64,
+    shell: &dyn Fn(&[i32]) -> i64,
+) -> Result<(std::collections::BTreeMap<i64, u64>, bool), String> {
+    let fp = face_partition(disp, frame, region, pos, opts)?;
+    let d = &disp.tables()[fp.ti].domains[fp.ri];
+    let mut seen: std::collections::HashSet<Vec<i32>> = std::collections::HashSet::new();
+    let mut counts = std::collections::BTreeMap::new();
+    let mut complete = true;
+    for l in &fp.cov.listed {
+        let Some(i) = l["element"].as_u64() else {
+            continue;
+        };
+        let el = &fp.cp.elements[i as usize];
+        let mut push = |k: &[i32]| {
+            if d.applies(k).applies()
+                && is_first_match(disp, k, fp.ti, fp.ri)
+                && seen.insert(k.to_vec())
+            {
+                *counts.entry(shell(k)).or_insert(0u64) += 1;
+            }
+        };
+        if region_keys_each(&el.region(), &fp.cone, enum_cap, &mut push).is_none() {
+            complete = false;
+        }
+    }
+    Ok((counts, complete))
 }
 
 /// Is the record (table `ti`, record `ri`) the FIRST MATCH of `disp` at `k` (the witness check of a live verdict)?
@@ -236,7 +309,7 @@ impl PruneReport {
 /// the run then has to justify by the certificate checks alone). `verdicts[pos]` per first-match position (None = not
 /// computed: kept). `trust_verdicts = false` re-proves every drop with [`record_liveness`]. Returns the pruned
 /// dispatcher and the report; `Err` only for construction failures; a failed check is in `report.problems`.
-#[allow(clippy::too_many_arguments)] // the run's settings, each named at the call site (as ibp_rows / symmetry)
+#[allow(clippy::too_many_arguments)] // the pruning inputs are independent knobs of one library call (published interface)
 pub fn prune(
     disp: &Dispatcher,
     frame: &NodeFrame,

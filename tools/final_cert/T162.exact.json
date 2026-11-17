@@ -3,6 +3,6 @@
   {"name": "helper VH t162-table-A-exact", "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t162-table-A-exact.records.tsv", "index_col": "index", "hash_col": "target_rhs_sha256", "class_col": "class"},
   {"name": "helper VH t162-table-B-exact (reviewer, final)", "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t162-table-B-exact.records.tsv", "index_col": "table_index", "hash_col": "target_rhs_sha256", "class_col": "class_final"}
  ],
- "categories": {"whole": ["^E-WHOLE", "^POINT", "^SYM", "^FACE-VERDICT"], "per_key": ["^E-KEYS", "^per-key certificates", "^K[0-9]+ "]},
+ "categories": {"whole": ["^E-WHOLE", "^POINT", "^SYM", "^FACE-VERDICT", "^whole domain"], "per_key": ["^E-KEYS", "^per-key certificates", "^K[0-9]+ ", "^every first-match key in cone", "^sampled [0-9]+ keys"]},
  "watch_dispatch_positions": [2920, 2912, 3567, 2515, 2464, 3523, 2448, 3418, 1497, 1847],
  "watch_note": "TRICKS 62: 2920, 2912, 3567, 2515, 2464 not established, 3523 unfinished, 2448 / 3418 sample only; d = 4 pole cases 1497 (27,490 singular keys, 31 at order 3) and 1847 (order 6)"}

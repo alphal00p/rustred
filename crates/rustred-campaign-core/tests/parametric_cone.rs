@@ -805,3 +805,58 @@ fn a_duplicate_after_its_original_is_dead() {
         x => panic!("{x:?}"),
     }
 }
+
+/// Per-record FIRST-MATCH KEY COUNTS per shell (D + r) on a region equal brute force (frame: 2 lines, 1 numerator): every key of the region counted once,
+/// for the record that is its first match; a shadowed record counts 0; the counts are complete within the enumeration cap.
+#[test]
+fn first_match_counts_per_shell_equal_brute_force() {
+    use rustred_campaign_core::parametric::prune::record_first_match_counts;
+    use std::collections::BTreeMap;
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut r0 = rec(3);
+    r0.bounds.push("n0-2"); // n0 >= 2
+    let mut r1 = rec(3);
+    r1.exceptions.push(vec!["-1+n1"]); // excepted at n1 = 1
+    let r2 = rec(3); // everything left
+    let r3 = rec(3); // shadowed by r2
+    let d = disp(&f, &[r0, r1, r2, r3]);
+    let region = Cone::excess_simplex(&f, 4);
+    let o = ConeOptions::default();
+    let shell = |k: &[i32]| -> i64 {
+        (0..3)
+            .map(|s| {
+                if f.is_line(s) {
+                    i64::from(k[s]) - 1
+                } else {
+                    -i64::from(k[s])
+                }
+            })
+            .sum()
+    };
+    // brute force over a box that contains the region
+    let mut want: Vec<BTreeMap<i64, u64>> = vec![BTreeMap::new(); 4];
+    for a in 1..=7 {
+        for b in 1..=7 {
+            for x in -6..=0 {
+                let k = vec![a, b, x];
+                if !region.contains(&k) {
+                    continue;
+                }
+                if let Ok(Dispatch::Covered(r)) = d.first_match(&k) {
+                    *want[r.record].entry(shell(&k)).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        want[0].values().sum::<u64>() > 0
+            && want[1].values().sum::<u64>() > 0
+            && want[2].values().sum::<u64>() > 0
+    );
+    for (pos, w) in want.iter().enumerate() {
+        let (got, complete) =
+            record_first_match_counts(&d, &f, &region, pos, &o, 1_000_000, &shell).unwrap();
+        assert!(complete, "record {pos}");
+        assert_eq!(&got, w, "record {pos}");
+    }
+}

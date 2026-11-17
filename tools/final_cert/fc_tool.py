@@ -808,6 +808,210 @@ def cmd_candcheck(a):
     return 0 if not probs else FAIL
 
 
+# ------------------------------------------------------------------------------------------------------------- classes
+CLASS_WORDS = ('whole domain', 'every first-match key in cone', 'sampled N keys', 'dead in cone', 'none')
+
+
+def per_key_class(blob, cone_bound):
+    """'every first-match key in cone' / ('sampled', N) / None from the evidence text bound to a record."""
+    # results already written in the class words (e.g. the per-key proof lane's table): taken as they are
+    if re.search(r'\bevery first-match key in cone\b', blob):
+        return 'every first-match key in cone'
+    m = re.search(r'\bsampled (\d+) keys\b', blob)
+    if m:
+        return ('sampled', int(m.group(1)))
+    if re.search(r'ALL [\d,]+ first-match keys of cone %d\b' % cone_bound, blob) or re.search(r'all fm keys', blob):
+        return 'every first-match key in cone'
+    m = re.search(r'ALL [\d,]+ first-match keys (?:with|of) D \+ r <= (\d+)', blob)
+    if m and int(m.group(1)) >= cone_bound:
+        return 'every first-match key in cone'
+    m = re.search(r'"keys": (\d+).*?"fm_count_cone\d+": (\d+)', blob)
+    if m:
+        return 'every first-match key in cone' if int(m.group(1)) >= int(m.group(2)) else ('sampled', int(m.group(1)))
+    for pat in (r'EXACT at (\d+) keys', r'all (\d+) served', r'at (\d+) keys'):
+        m = re.search(pat, blob)
+        if m:
+            return ('sampled', int(m.group(1)))
+    return None
+
+
+def cmd_classes(a):
+    """Per rule ONE exactness class in the coordinator's words (whole domain / every first-match key in cone / sampled N keys /
+    dead in cone / none), from the exactness binding (evidence re-read for the key counts), the liveness in the region and the
+    optional first-match counts; written into the run and the delivery (classes file, VERIFIER_SPEC section, summary metadata,
+    MANIFEST re-issued)."""
+    env = run_env(a.run); N = env['cfg_node']
+    cfgx = json.load(open(env['cfg_exact_config']))
+    cone_bound = int(re.search(r'simplex:(\d+)', env['cfg_region']).group(1))
+    # every evidence row's full text, by (form, hash) and by index
+    blobs_h, blobs_i = {}, {}
+    for e in cfgx['evidence']:
+        lines = [l for l in open(e['path']) if not (e.get('comment') and l.startswith(e['comment']))]
+        for r in csv.DictReader(lines, delimiter='\t'):
+            text = ' | '.join('%s=%s' % (k, v) for k, v in r.items() if v)
+            if e.get('hash_col') and r.get(e['hash_col']):
+                blobs_h.setdefault((e.get('hash_form', 'list'), r[e['hash_col']]), []).append(text)
+            try:
+                blobs_i.setdefault(int(r[e['index_col']]), []).append(text)
+            except (KeyError, ValueError):
+                pass
+    live = {}
+    lp = os.path.join(a.run, 'live', N + '.liveness.jsonl')
+    if os.path.exists(lp):
+        for l in open(lp):
+            r = json.loads(l)
+            if r.get('file') is not None:
+                live[(r['file'], r['table_index'])] = r
+    counts = {}
+    if a.counts and os.path.exists(a.counts):
+        for l in open(a.counts):
+            r = json.loads(l)
+            counts[(r.get('file'), r.get('table_index'))] = r
+            # a lanefile row (liveness with its basis) fills the run's liveness where that step has no verdict
+            if r.get('liveness') in ('live', 'dead') and live.get((r['file'], r['table_index']), {}).get('live') not in ('live', 'dead'):
+                live[(r['file'], r['table_index'])] = {'live': r['liveness'], 'basis': r.get('basis')}
+    out, tally, open_live = [], {}, []
+    for l in open(os.path.join(a.run, 'exact', N + '.exact.jsonl')):
+        r = json.loads(l)
+        key = (r['file'], r['table_index'])
+        lv = live.get(key, {}).get('live')
+        blob = ' || '.join(sum((blobs_h.get((f, h), []) for f, h in r['target_rhs_sha256_forms'].items()), [])
+                           + (blobs_i.get(r['dispatch_position'], []) if r['dispatch_position'] is not None and r['bound_by'] == 'index' else []))
+        if r['category'] == 'whole':
+            cls, n = 'whole domain', None
+        elif lv == 'dead':
+            cls, n = 'dead in cone', None
+        else:
+            pk = per_key_class(blob, cone_bound) if r['category'] == 'per_key' else None
+            if pk == 'every first-match key in cone':
+                cls, n = pk, None
+            elif isinstance(pk, tuple):
+                cls, n = 'sampled N keys', pk[1]
+            else:
+                cls, n = 'none', None
+        words = cls.replace('N', str(n)) if cls == 'sampled N keys' else cls
+        c = counts.get(key, {})
+        row = {'file': r['file'], 'table_index': r['table_index'], 'dispatch_position': r['dispatch_position'], 'bytes': r['bytes'],
+               'target_rhs_sha256': r['target_rhs_sha256'], 'exactness_class': words, 'evidence_class': r['class'],
+               'evidence_source': r['class_source'], 'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
+               'liveness_basis': live.get(key, {}).get('basis', 'run liveness step' if lv else None),
+               'fm_keys_in_cone': c.get('fm_keys'), 'fm_keys_by_shell': c.get('fm_keys_by_shell'), 'fm_count_complete': c.get('fm_count_complete')}
+        out.append(row); tally[cls] = tally.get(cls, 0) + 1
+        if cls == 'none' and lv in ('live', 'undecided', None):
+            open_live.append(row)
+    rd = os.path.join(a.run, 'exact')
+    with open(os.path.join(rd, N + '.exact_classes.jsonl'), 'w') as g:
+        for row in out:
+            g.write(json.dumps(row) + '\n')
+    with open(os.path.join(rd, N + '.exact_classes.tsv'), 'w') as g:
+        cols = list(out[0].keys())
+        g.write('\t'.join(cols) + '\n')
+        for row in out:
+            g.write('\t'.join('' if row[c] is None else str(row[c]) for c in cols) + '\n')
+    summ = {'region': env['cfg_region'], 'words': list(CLASS_WORDS), 'by_class': tally, 'records': len(out),
+            'none_live_or_undecided': [{k: x[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'evidence_class', 'liveness_in_cone')} for x in open_live],
+            'status': ('EXACTNESS OPEN: see %s' % a.open_lane) if open_live else 'every rule live in the cone has an exactness class other than none',
+            'rule': 'whole domain if the re-bound evidence proves the identity on the whole domain; else dead in cone if record_liveness proves'
+                    ' it never first match in the region; else every first-match key in cone / sampled N keys from the per-key evidence; else none'}
+    dump(summ, os.path.join(rd, N + '.exact_classes.summary.json'))
+    print(json.dumps({k: v for k, v in summ.items() if k != 'none_live_or_undecided'}), len(open_live))
+    if a.deliver:
+        for f in (N + '.exact_classes.jsonl', N + '.exact_classes.tsv', N + '.exact_classes.summary.json'):
+            import shutil
+            shutil.copy2(os.path.join(rd, f), os.path.join(a.deliver, 'exact', f))
+        sp = os.path.join(a.deliver, 'summary.json')
+        sj = json.load(open(sp)); sj['exactness_classes'] = {'file': 'exact/%s.exact_classes.tsv' % N, 'by_class': tally, 'status': summ['status'],
+                                                              'none_live_or_undecided': len(open_live)}
+        dump(sj, sp)
+        vs = os.path.join(a.deliver, 'VERIFIER_SPEC.md')
+        txt = open(vs).read()
+        cut = txt.find('\n## Per-rule exactness class')
+        if cut >= 0:   # a re-run replaces its own earlier section (always the last one appended)
+            open(vs, 'w').write(txt[:cut] + '\n')
+        L = ['', '## Per-rule exactness class (%s; region %s)' % ('; '.join(CLASS_WORDS).replace('N keys', '<N> keys'), env['cfg_region']),
+             'File `exact/%s.exact_classes.tsv` (and .jsonl): per rule its class, the evidence class text it rests on, its liveness in the region.' % N,
+             'Counts: %s.' % ', '.join('%s %d' % (k, v) for k, v in sorted(tally.items())),
+             '**%s**' % summ['status']]
+        if open_live:
+            L.append('Rules with class "none" that are live (or undecided / not run) in %s: %d (listed in exact/%s.exact_classes.summary.json).' % (env['cfg_region'], len(open_live), N))
+        if a.note:
+            L += ['', '### Run notes', open(a.note).read().strip() if os.path.isfile(a.note) else a.note]
+        open(vs, 'a').write('\n'.join(L) + '\n')
+        cmd_manifest(argparse.Namespace(dir=a.deliver, label=env.get('FC_LABEL', 'FINAL'), extra=os.path.join(a.deliver, 'referenced_outside.json')))
+        print('MANIFEST', sha256_file(os.path.join(a.deliver, 'MANIFEST.json')))
+    return 0
+
+
+# --------------------------------------------------------------------------------------------------------------- lanefile
+def cmd_lanefile(a):
+    """The per-rule liveness + first-match count file for the per-key proof lane: every record the exactness step could not bind
+    to a whole-domain proof (the run's live/selected.json), with its identity (table index, dispatch position, target + rhs hash),
+    evidence class, liveness in the region and its BASIS, and its first-match distinct keys per shell D + r where computed.
+    Bases: 'counted' (record_first_match_counts on the run's sources); 'helper exact count 0, record before the first changed rule'
+    (first-match sets of records before every changed rule are those of the reference table: earlier dropped records are never
+    first match); 'record_liveness' (the run's liveness step); otherwise 'pending'."""
+    run = a.run; env = run_env(run); N = env['cfg_node']
+    sel = json.load(open(os.path.join(run, 'live', 'selected.json')))
+    pos = {json.loads(l)['position']: json.loads(l) for l in open(os.path.join(run, 'prep', N + '.positions.jsonl'))}
+    ex = {}
+    for l in open(os.path.join(run, 'exact', N + '.exact.jsonl')):
+        r = json.loads(l); ex[(r['file'], r['table_index'])] = r
+    ref = json.load(open(a.ref_counts)) if a.ref_counts else {}
+    counted = {}
+    for f in sorted(glob.glob(a.counts)):
+        for l in open(f):
+            try:
+                x = json.loads(l)
+            except ValueError:
+                continue
+            old = counted.get(x['position'])
+            # a decided verdict (live / dead) is never replaced by an undecided one (e.g. a re-run with a larger budget elsewhere)
+            if old is None or x['live'] in ('live', 'dead') or old['live'] not in ('live', 'dead'):
+                counted[x['position']] = x
+    runlive = {}
+    for f in sorted(glob.glob(os.path.join(run, 'live', 'live.*.jsonl'))):
+        for l in open(f):
+            try:
+                x = json.loads(l)
+            except ValueError:
+                continue
+            runlive[x['position']] = x
+    rows, tally = [], {}
+    for p in sorted(sel):
+        q = pos[p]; r = ex[(q['file'], q['table_index'])]; dp = r['dispatch_position']
+        hc = ref.get(str(dp)) if dp is not None else None
+        row = {'position': p, 'file': q['file'], 'table_index': q['table_index'], 'dispatch_position': dp, 'target': r['target'],
+               'target_rhs_sha256': r['target_rhs_sha256'], 'bytes': r['bytes'], 'evidence_class': r['class'], 'evidence_category': r['category'],
+               'reference_fm_count': None if hc is None else int(hc), 'region': env['cfg_region']}
+        c = counted.get(p)
+        if c is not None and c['live'] == 'live' and 'fm_keys' in c:
+            row.update(liveness='live', basis='counted', witness=c.get('witness'), fm_keys=c['fm_keys'], fm_keys_by_shell=c['fm_keys_by_shell'],
+                       fm_count_complete=c['fm_count_complete'])
+        elif c is not None and c['live'] in ('dead', 'undecided'):
+            row.update(liveness=c['live'], basis=(c.get('why') or 'counted') if c['live'] == 'dead' else 'record_liveness budget: ' + str(c.get('why')),
+                       fm_keys=0 if c['live'] == 'dead' else None)
+        elif hc is not None and int(hc) == 0 and q['table_index'] < a.first_changed:
+            row.update(liveness='dead', basis='helper exact count 0, record before the first changed rule %d' % a.first_changed, fm_keys=0)
+        elif p in runlive and runlive[p]['live'] in ('live', 'dead'):
+            row.update(liveness=runlive[p]['live'], basis='record_liveness (run step)', witness=runlive[p].get('witness'))
+        else:
+            row.update(liveness='pending', basis='counting running')
+        rows.append(row); tally[row['liveness']] = tally.get(row['liveness'], 0) + 1
+    with open(a.out + '.tmp', 'w') as g:
+        for row in rows:
+            g.write(json.dumps(row) + '\n')
+    os.replace(a.out + '.tmp', a.out)
+    summ = {'schema': 'lane-parametric.liveness-for-exact.v1', 'node': N, 'region': env['cfg_region'], 'utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'status': 'partial' if tally.get('pending') else 'complete', 'records': len(rows), 'by_liveness': tally,
+            'live_records_fm_keys_total': sum(r.get('fm_keys') or 0 for r in rows if r['liveness'] == 'live'),
+            'candidate_sha256': env['FC_CAND_SHAS'], 'file': a.out, 'file_sha256': sha256_file(a.out),
+            'reference_counts': a.ref_counts, 'reference_counts_sha256': sha256_file(a.ref_counts) if a.ref_counts else None,
+            'counting': 'parametric::prune::record_first_match_counts (harness PARAMETRIC_LIVENESS_COUNTS=1), the same model as the certificate (engine 4895ee68, G5 reduced)',
+            'counts_unit': 'distinct keys of the region whose first match is the record, per shell D + r (fm_keys_by_shell)'}
+    dump(summ, a.out + '.summary.json'); print(json.dumps(summ))
+    return 0
+
+
 # ------------------------------------------------------------------------------------------------------ summary / deliver
 STEPS = ['prep', 'cert', 'term', 'b1', 'exact', 'imp_plain', 'imp_shared', 'live', 'fm', 'one', 'deliver']
 
@@ -1065,6 +1269,10 @@ def main():
     p.add_argument('--work', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('candcheck'); p.add_argument('--candidate', required=True); p.add_argument('--reference', required=True); p.add_argument('--sub', default='')
     p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
+    p = sp.add_parser('classes'); p.add_argument('--run', required=True); p.add_argument('--deliver', default=''); p.add_argument('--counts', default='')
+    p.add_argument('--open-lane', default='exact162'); p.add_argument('--note', default='')
+    p = sp.add_parser('lanefile'); p.add_argument('--run', required=True); p.add_argument('--counts', required=True); p.add_argument('--ref-counts', default='')
+    p.add_argument('--first-changed', type=int, required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('summary'); p.add_argument('--run', required=True); p.add_argument('--state', required=True)
     p = sp.add_parser('deliver'); p.add_argument('--run', required=True); p.add_argument('--out', required=True)

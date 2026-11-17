@@ -3,6 +3,6 @@
   {"name": "helper VH t178-exact-A (producer, final incl. post-snapshot, B2-verified)", "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t178-exact-A.records.tsv", "comment": "#", "index_col": "index", "hash_col": "target_rhs_sha256_v2", "hash_form": "dict_sorted", "class_col": "result"},
   {"name": "helper VH t178-exact-B (reviewer)", "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t178-exact-B.records.tsv", "comment": "#", "index_col": "record", "class_col": "combined_review_class"}
  ],
- "categories": {"whole": ["^E-WHOLE", "^POINT", "^SYM", "^FACE-VERDICT"], "per_key": ["^E-KEYS", "^per-key certificates", "^K[0-9]+ "]},
+ "categories": {"whole": ["^E-WHOLE", "^POINT", "^SYM", "^FACE-VERDICT", "^whole domain"], "per_key": ["^E-KEYS", "^per-key certificates", "^K[0-9]+ ", "^every first-match key in cone", "^sampled [0-9]+ keys"]},
  "watch_dispatch_positions": [5128, 5131, 5132, 5179, 5180, 5184, 5244],
  "watch_note": "TRICKS 53: 5128, 5131, 5132, 5179, 5180, 5184 exact per key to D + r 32; 5244 on arrivals + probabilistic evidence"}
