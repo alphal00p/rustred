@@ -230,6 +230,9 @@ pub struct FakeRun {
     /// Milliseconds per case (overrides `ms`).
     #[serde(default)]
     pub ms: Option<u64>,
+    /// TESTS: the child's memory growth plan (touching the pages costs real CPU: a job with a measurable cpu time).
+    #[serde(default)]
+    pub rss: Option<RssPlan>,
 }
 
 pub(crate) fn fake_script(f: &FakeGen, cand: &str, stage: &str) -> FakeScript {
@@ -283,7 +286,7 @@ pub(crate) fn fake_script(f: &FakeGen, cand: &str, stage: &str) -> FakeScript {
         on_sigterm: OnSigterm::Graceful,
         slow_ms: 0,
         start_delay_ms: 0,
-        rss: RssPlan::default(),
+        rss: run.and_then(|r| r.rss).unwrap_or_default(),
         helpers: vec![],
         faults: vec![],
         time_scale: 1.0,

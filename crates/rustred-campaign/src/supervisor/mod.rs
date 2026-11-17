@@ -545,7 +545,7 @@ fn dir_id(p: &Path) -> Option<(u64, u64)> {
         .map(|m| (m.dev(), m.ino()))
 }
 
-fn statvfs_avail(p: &Path) -> Option<u64> {
+pub(crate) fn statvfs_avail(p: &Path) -> Option<u64> {
     use std::ffi::CString;
     use std::os::unix::ffi::OsStrExt;
     let c = CString::new(p.as_os_str().as_bytes()).ok()?;
@@ -4073,7 +4073,33 @@ impl Supervisor {
                 effect: effect.clone(),
             },
         };
-        match self.commit_or_refused(vec![applied]) {
+        let mut batch = vec![applied];
+        // lane sizegen (2026-11-17): skip / retry of an item in progress whose work waits in a QUEUED attempt (the
+        // reducer refuses it while an attempt may hold a process): that attempt is cancelled in the same commit, so it
+        // can never be launched for a decided item
+        if matches!(verb, ControlVerb::Retry | ControlVerb::Skip)
+            && let ControlTarget::Item { item } = &target
+            && let Some(it) = self.st().items.get(item)
+            && it.phase == ItemPhase::InProgress
+        {
+            for j in &it.jobs {
+                if let Some(jr) = self.st().jobs.get(j)
+                    && jr.state == AttemptState::Queued
+                {
+                    batch.push(Event::Job {
+                        job: j.clone(),
+                        attempt: jr.attempt,
+                        ev: JobEvent::Cancel {
+                            reason: format!(
+                                "control {id}: {} of item {item} by the operator (attempt queued, never launched)",
+                                r.verb
+                            ),
+                        },
+                    });
+                }
+            }
+        }
+        match self.commit_or_refused(batch) {
             Ok(true) => {
                 self.log.line("INFO", &format!("control {id}: {effect}"));
                 if verb == ControlVerb::Stop && self.signals.handle.level() == StopLevel::Running {
@@ -4273,6 +4299,26 @@ impl Supervisor {
                 return;
             }
         };
+        self.apply_source_routing(routing);
+    }
+
+    /// lane sizegen (2026-11-17): an ORDERLY stop (every child ended, before the `stop drained` record): the work
+    /// source's snapshot of its outputs ([`WorkSource::drained`]); never on a dead ledger or a full disk.
+    fn drain_snapshot(&mut self) {
+        if self.ledger_dead.is_some() || self.fsize_stop {
+            return;
+        }
+        match self.source.drained(self.ledger.state(), &self.ctx) {
+            Ok(r) => self.apply_source_routing(r),
+            Err(e) => self
+                .log
+                .line("ERROR", &format!("work source drain snapshot: {e}")),
+        }
+    }
+
+    /// A source routing outside a settle: records first, then one group commit; the source's notes are also log
+    /// lines (lane sizegen: decisions such as a yield stop must be visible in the log, not only in the ledger).
+    fn apply_source_routing(&mut self, routing: worksource::Routing) {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
@@ -4287,6 +4333,11 @@ impl Supervisor {
                     &format!("source record {}: {e}; not recorded", a.path),
                 );
                 return;
+            }
+        }
+        for ev in &routing.events {
+            if let Event::Note { text } = ev {
+                self.log.line("INFO", text);
             }
         }
         if let Err(e) = self.commit_or_refused(routing.events) {
@@ -4779,6 +4830,7 @@ impl Supervisor {
                 .all(|p| self.survivors.contains_key(&p.label()) && p.sweep.is_none());
             if self.children.is_empty() && (self.pending.is_empty() || blocked_pending) {
                 if level > StopLevel::Running {
+                    self.drain_snapshot();
                     self.commit(vec![Event::Campaign {
                         ev: crate::state::CampaignEvent::Stop,
                         reason: "drained".into(),

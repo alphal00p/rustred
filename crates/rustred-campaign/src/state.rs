@@ -753,9 +753,19 @@ pub const ITEM_TABLE: &[(&str, &str, &str)] = &[
         "open  (generation + 1; never counted as a failure)",
     ),
     (
+        "in_progress",
+        "control_retry",
+        "open  (generation + 1)  [reducer: no attempt of the item may hold a process (launching / running / unconfirmed); its queued attempt is cancelled in the same commit]",
+    ),
+    (
         "open|attention|rejected|terminal_candidate",
         "control_skip",
         "skipped",
+    ),
+    (
+        "in_progress",
+        "control_skip",
+        "skipped  [reducer: as in_progress control_retry]",
     ),
     ("<any but stale>", "mark_stale", "stale"),
     (
@@ -798,6 +808,10 @@ pub fn apply_item(
         }
         (P::Skipped, E::ControlSkip) => same(),
         (P::Attention(_) | P::Rejected(_) | P::Skipped | P::Stale, E::ControlRetry) => to(P::Open),
+        // lane sizegen (2026-11-17): an operator decides an item whose work waits in a QUEUED attempt (e.g. requeued by a
+        // drain while its work source holds launches back); the reducer refuses it while an attempt may hold a process
+        (P::InProgress, E::ControlSkip) => to(P::Skipped),
+        (P::InProgress, E::ControlRetry) => to(P::Open),
         (P::Open, E::Start) => to(P::InProgress),
         (P::Open, E::ProposeTerminal) => to(P::TerminalCandidate),
         (P::Open, E::Import(l)) => to(P::Accepted(*l)),
@@ -4210,6 +4224,21 @@ impl CampaignState {
                         };
                         let next = apply_item(&cur, &mev)
                             .map_err(|err| ReduceError::Illegal { seq, err })?;
+                        // lane sizegen (2026-11-17): from in_progress only when no attempt of the item may hold a
+                        // process (a queued / failed / cancelled / settled one is decided; never a live one)
+                        if it.phase == ItemPhase::InProgress
+                            && let Some((j, st)) = it.jobs.iter().find_map(|j| {
+                                self.jobs
+                                    .get(j)
+                                    .filter(|x| !x.state.is_settled())
+                                    .map(|x| (j.clone(), x.state.tag()))
+                            })
+                        {
+                            return Err(invalid(format!(
+                                "{} of {item}: item in progress and its attempt {j} is {st} (may hold a process): stop or wait for it first",
+                                mev.tag()
+                            )));
+                        }
                         if c.verb == ControlVerb::Retry
                             && it.phase == ItemPhase::Stale
                             && self.nodes[&it.node].state.phase == NodePhase::Stale

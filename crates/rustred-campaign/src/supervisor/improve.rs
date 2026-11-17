@@ -106,6 +106,48 @@ struct NodeRt {
     skipped: Vec<i64>,
     /// Reference yield of the tranche stop (bytes per CPU-h).
     ref_yield: Option<f64>,
+    /// Where the reference comes from (logged with every yield line).
+    ref_from: String,
+    /// Last logged yield-stop state of this session: (stopped, launches held back).
+    yield_logged: Option<(bool, usize)>,
+    /// A partial snapshot was written at the yield stop's engagement in this session.
+    yield_partial_done: bool,
+}
+
+/// Yield of a node's run so far (see `improve.yield_stop`).
+#[derive(Clone, Debug, Default)]
+struct YieldNow {
+    saved: u64,
+    spent_ms: u64,
+    bytes_per_cpu_h: Option<f64>,
+    stop: bool,
+}
+
+/// A sink that writes a table (or only digests it, when there is no room for the copy) and collects its rule lines'
+/// metadata on the way (no re-read of a multi-GB table).
+struct TableSink {
+    file: Option<std::io::BufWriter<std::fs::File>>,
+    sha: rustred_campaign_core::closure::sha256::Sha256,
+    bytes: u64,
+    rules: Vec<im::TableRule>,
+    /// The native importer's order rule, enforced on every written rule (index = position in its chart).
+    order: im::Positions,
+}
+
+impl TableSink {
+    fn line(&mut self, l: &str) -> Result<(), String> {
+        if let Some(r) = im::TableRule::from_line(l)? {
+            self.order.take(&r.chart, r.index)?;
+            self.rules.push(r);
+        }
+        self.sha.update(l.as_bytes());
+        self.sha.update(b"\n");
+        self.bytes += l.len() as u64 + 1;
+        if let Some(f) = self.file.as_mut() {
+            writeln!(f, "{l}").map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
 }
 
 pub struct ImproveSource {
@@ -116,6 +158,8 @@ pub struct ImproveSource {
     /// TESTS ONLY (config key `fake`): runs keyed by rule index, then candidate name.
     fake: Option<FakeGen>,
     cdir: PathBuf,
+    /// The spec's disk floor: a partial snapshot never copies the table below it.
+    disk_floor: u64,
     nodes: Vec<NodeRt>,
     answers: BTreeMap<String, ImproveAnswer>,
 }
@@ -280,10 +324,24 @@ impl ImproveSource {
             } else {
                 im::skipped_by_record(&rules, &record, &cfg.improve)
             };
-            let ref_yield = cfg.improve.yield_stop.as_ref().and_then(|y| {
-                y.reference_bytes_per_cpu_h
-                    .or_else(|| im::reference_yield(&record))
-            });
+            let (ref_yield, ref_from) = match cfg.improve.yield_stop.as_ref() {
+                None => (None, "no yield stop configured".to_string()),
+                Some(y) => match y.reference_bytes_per_cpu_h {
+                    Some(r) => (Some(r), "reference given in improve.yield_stop".to_string()),
+                    None => match im::reference_yield_run(&record) {
+                        Some((r, run)) => (
+                            Some(r),
+                            format!(
+                                "reference = record run {run}, its first improve run that saved bytes"
+                            ),
+                        ),
+                        None => (
+                            None,
+                            "the record has no improve run that saved bytes".to_string(),
+                        ),
+                    },
+                },
+            };
             nodes.push(NodeRt {
                 e: e.clone(),
                 family_blake3: fb3,
@@ -299,6 +357,9 @@ impl ImproveSource {
                 unscored,
                 skipped,
                 ref_yield,
+                ref_from,
+                yield_logged: None,
+                yield_partial_done: false,
             });
         }
         let engine_path = fake
@@ -316,6 +377,7 @@ impl ImproveSource {
             cfg,
             fake,
             cdir: cdir.to_path_buf(),
+            disk_floor: spec.resources.disk_floor.0,
             nodes,
             answers: BTreeMap::new(),
         })
@@ -415,12 +477,152 @@ impl ImproveSource {
 
     /// (yield so far in bytes per CPU-h, the run is below the tranche stop line).
     fn yield_state(&mut self, st: &CampaignState, i: usize) -> (Option<f64>, bool) {
-        let Some(y) = self.cfg.improve.yield_stop.clone() else {
-            return (None, false);
+        let y = self.yield_now(st, i);
+        (y.bytes_per_cpu_h, y.stop)
+    }
+
+    /// The yield the stop judges: CUMULATIVE over the run (bytes saved by the best qualifying answer per rule / CPU of
+    /// every settled job of the node), or over the SLIDING WINDOW `yield_stop.window_cpu_s` (the most recently settled
+    /// items; an answer's gain = what it improved over the best before it on the same rule). Without a yield stop: the
+    /// cumulative numbers, never a stop.
+    fn yield_now(&mut self, st: &CampaignState, i: usize) -> YieldNow {
+        let y = self.cfg.improve.yield_stop.clone();
+        let (saved, spent) = match y.as_ref().and_then(|y| y.window_cpu_s) {
+            Some(w) => im::window_totals(&self.settled_gains(st, i), w.saturating_mul(1000)),
+            None => (
+                self.saved_so_far(st, i),
+                Self::spent_ms(st, &self.nodes[i].e.node),
+            ),
         };
-        let spent = Self::spent_ms(st, &self.nodes[i].e.node);
-        let saved = self.saved_so_far(st, i);
-        im::yield_check(saved, spent, self.nodes[i].ref_yield, &y)
+        // the arming threshold (min_cpu_s) is on the RUN's CPU, also with a window
+        let (v, stop) = match &y {
+            Some(y) => im::yield_check(
+                saved,
+                spent,
+                self.nodes[i].ref_yield,
+                &im::YieldStop {
+                    min_cpu_s: 0,
+                    ..y.clone()
+                },
+            ),
+            None => im::yield_check(saved, spent, None, &im::YieldStop::default()),
+        };
+        let armed = y.as_ref().is_none_or(|y| {
+            Self::spent_ms(st, &self.nodes[i].e.node) >= y.min_cpu_s.saturating_mul(1000)
+        });
+        YieldNow {
+            saved,
+            spent_ms: spent,
+            bytes_per_cpu_h: v,
+            stop: stop && armed,
+        }
+    }
+
+    /// (cpu_ms, gain bytes) of the node's SETTLED items in settle order (ledger sequence of their final phase).
+    fn settled_gains(&mut self, st: &CampaignState, i: usize) -> Vec<(u64, u64)> {
+        let node = self.nodes[i].e.node.clone();
+        let old: BTreeMap<i64, u64> = self.nodes[i]
+            .targets
+            .iter()
+            .map(|(p, _)| (self.nodes[i].rules[*p].index, self.nodes[i].rules[*p].bytes))
+            .collect();
+        let mut its: Vec<(u64, String, u64)> = st
+            .items
+            .iter()
+            .filter(|(_, it)| {
+                it.node == node && it.kind == KIND_IMPROVE && Self::final_phase(&it.phase)
+            })
+            .map(|(id, it)| (it.updated_seq, id.clone(), it.cpu_ms))
+            .collect();
+        its.sort();
+        let mut best: BTreeMap<i64, u64> = BTreeMap::new();
+        let mut out = Vec::with_capacity(its.len());
+        for (_, id, cpu) in its {
+            let gain = match self.answer(st, &id) {
+                Some(a) if a.verdict == "ok" => {
+                    let b = a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes));
+                    match (b, old.get(&a.index)) {
+                        (Some(b), Some(&o)) => {
+                            let cur = best.entry(a.index).or_insert(o);
+                            let g = cur.saturating_sub(b);
+                            *cur = (*cur).min(b);
+                            g
+                        }
+                        _ => 0,
+                    }
+                }
+                _ => 0,
+            };
+            out.push((cpu, gain));
+        }
+        out
+    }
+
+    /// The effective yield-stop setting of node `i` (one line, logged at every session start).
+    fn yield_line(&self, i: usize) -> String {
+        match &self.cfg.improve.yield_stop {
+            None => "yield stop: none (improve.yield_stop not set)".to_string(),
+            Some(y) => y.describe(self.nodes[i].ref_yield, &self.nodes[i].ref_from),
+        }
+    }
+
+    /// The job id an item would launch with now (open, or in progress with a queued / failed last attempt).
+    fn launch_job(st: &CampaignState, item: &str, it: &crate::state::ItemRec) -> Option<String> {
+        match &it.phase {
+            ItemPhase::Open => Some(format!("{item}-t{}", it.jobs.len())),
+            ItemPhase::InProgress => match it
+                .jobs
+                .last()
+                .and_then(|j| st.jobs.get(j).map(|x| (j, x.state)))
+            {
+                Some((j, AttemptState::Queued)) => Some(j.clone()),
+                Some((_, AttemptState::Failed(_))) => Some(format!("{item}-t{}", it.jobs.len())),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// An attempt of the item may hold a process (launching / running / unconfirmed). A QUEUED attempt (e.g. requeued
+    /// by a drain) does not: it never blocks the node's end (the deadlock found on v31, 2026-11-17).
+    fn live(st: &CampaignState, it: &crate::state::ItemRec) -> bool {
+        matches!(it.phase, ItemPhase::InProgress)
+            && it
+                .jobs
+                .iter()
+                .filter_map(|j| st.jobs.get(j))
+                .any(|j| !j.state.is_settled())
+    }
+
+    /// The `improve_yield` note of node `i` when the stop state or the number of launches it holds back changed.
+    fn yield_note(&mut self, st: &CampaignState, i: usize, y: &YieldNow, rt: &mut Routing) {
+        let Some(ys) = self.cfg.improve.yield_stop.clone() else {
+            return;
+        };
+        let node = self.nodes[i].e.node.clone();
+        let held = if y.stop {
+            st.items
+                .iter()
+                .filter(|(_, it)| it.node == node && it.kind == KIND_IMPROVE)
+                .filter(|(id, it)| Self::launch_job(st, id, it).is_some())
+                .count()
+        } else {
+            0
+        };
+        let cur = (y.stop, held);
+        let was_stopped = self.nodes[i].yield_logged.is_some_and(|(s, _)| s);
+        if self.nodes[i].yield_logged != Some(cur) && (y.stop || was_stopped) {
+            let v = json!({"node": node, "state": if y.stop { "engaged" } else { "released" }, "held_back": held,
+                "bytes_saved": y.saved, "cpu_h": y.spent_ms as f64 / 3.6e6, "bytes_per_cpu_h": y.bytes_per_cpu_h,
+                "reference_bytes_per_cpu_h": self.nodes[i].ref_yield, "reference_from": self.nodes[i].ref_from,
+                "min_fraction": ys.min_fraction, "stop_line_bytes_per_cpu_h": self.nodes[i].ref_yield.map(|r| r * ys.min_fraction),
+                "window_cpu_s": ys.window_cpu_s, "measure": if ys.window_cpu_s.is_some() { "sliding_window" } else { "cumulative" },
+                "min_cpu_s": ys.min_cpu_s, "run_cpu_h": Self::spent_ms(st, &node) as f64 / 3.6e6});
+            rt.events.push(Event::Note {
+                text: format!("improve_yield {v}"),
+            });
+        }
+        self.nodes[i].yield_logged = Some(cur);
     }
 
     /// The result of a node: improved table (when a rule was replaced), replaced rules, the appended record, the import
@@ -431,9 +633,29 @@ impl ImproveSource {
         i: usize,
         rt: &mut Routing,
     ) -> Result<(), String> {
+        self.write_outputs(st, i, rt, None)
+    }
+
+    /// The outputs of node `i` from the settled answers: FINAL (`partial` None: registered as the node's result) or a
+    /// PARTIAL snapshot (`partial` = why: under `improve/partial/`, never registered, the node goes on; a ledger note
+    /// `improve_partial` names the files). interfaces/genchoice.md 5b.
+    fn write_outputs(
+        &mut self,
+        st: &CampaignState,
+        i: usize,
+        rt: &mut Routing,
+        partial: Option<&str>,
+    ) -> Result<(), String> {
         let node = self.nodes[i].e.node.clone();
         let p = self.cfg.improve.clone();
         let run = self.nodes[i].record.next_run();
+        let (base, sfx) = match partial {
+            Some(_) => (format!("{}/partial", dir(&node)), ".partial"),
+            None => (dir(&node), ""),
+        };
+        let ynow = self.yield_now(st, i);
+        let budget_spent = self.budget_spent(st, &node);
+        let mut pending: Vec<String> = Vec::new();
         // the answers of this run, per rule index: the best qualifying candidate
         let mut per_rule: BTreeMap<i64, Vec<ImproveAnswer>> = BTreeMap::new();
         let mut untried: BTreeMap<i64, Vec<String>> = BTreeMap::new();
@@ -442,13 +664,32 @@ impl ImproveSource {
             let idx = self.nodes[i].rules[*pos].index;
             for c in cands {
                 let item = item_id(&node, idx, c);
-                let fin = st
-                    .items
-                    .get(&item)
-                    .is_some_and(|it| Self::final_phase(&it.phase));
+                let phase = st.items.get(&item).map(|it| it.phase.clone());
+                let fin = phase.as_ref().is_some_and(Self::final_phase);
                 match (fin, self.answer(st, &item)) {
                     (true, Some(a)) => per_rule.entry(idx).or_default().push(a),
-                    _ => untried.entry(idx).or_default().push(format!("{c}: not run (improve.budget_cpu_s spent, tranche yield stop, or no settled attempt)")),
+                    _ => {
+                        let why = if phase == Some(ItemPhase::Skipped) {
+                            "skipped by the operator".to_string()
+                        } else if fin {
+                            "no settled answer".to_string()
+                        } else if let Some(w) = partial {
+                            pending.push(item.clone());
+                            format!("pending at a partial snapshot ({w})")
+                        } else if ynow.stop {
+                            format!(
+                                "not run: tranche yield stop ({:.0} B/CPU-h < {} x {:.0})",
+                                ynow.bytes_per_cpu_h.unwrap_or(0.0),
+                                p.yield_stop.as_ref().map_or(0.0, |y| y.min_fraction),
+                                self.nodes[i].ref_yield.unwrap_or(0.0)
+                            )
+                        } else if budget_spent {
+                            "not run: improve.budget_cpu_s spent".to_string()
+                        } else {
+                            "not run (no settled attempt)".to_string()
+                        };
+                        untried.entry(idx).or_default().push(format!("{c}: {why}"));
+                    }
                 }
             }
         }
@@ -490,8 +731,10 @@ impl ImproveSource {
         let mut pole_new: BTreeMap<i64, (ps::PoleScore, String)> = BTreeMap::new();
         if let Some(pol) = p.poles.as_ref().filter(|_| p.poles_on()) {
             let decisions = self.nodes[i].decisions.clone();
-            type Best = (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule);
-            let mut best: BTreeMap<i64, Best> = BTreeMap::new();
+            let mut best: BTreeMap<
+                i64,
+                (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule),
+            > = BTreeMap::new();
             for (pos, cand, line) in &decisions {
                 let old = self.nodes[i].rules[*pos].clone();
                 let own = self.nodes[i]
@@ -572,7 +815,7 @@ impl ImproveSource {
             }
         }
         // the derivations of this run's candidates (every rule each job sealed), one file per run
-        let der_rel = format!("{}/derivations.r{run}.jsonl", dir(&node));
+        let der_rel = format!("{base}/derivations.r{run}{sfx}.jsonl");
         let mut der_bytes = Vec::new();
         let mut der_lines = 0usize;
         for v in per_rule.values() {
@@ -596,18 +839,50 @@ impl ImproveSource {
             });
         }
         let tin = self.nodes[i].e.table.sha256.clone();
-        let (out_sha, out_path) = if repl.is_empty() {
-            (tin.clone(), self.nodes[i].e.table.path.clone())
+        // a partial snapshot copies the table only when the copy keeps the cdir above the spec's disk floor
+        let table_not_written: Option<String> = match partial {
+            Some(_) if !repl.is_empty() => {
+                let need = self.nodes[i].table_bytes;
+                match super::statvfs_avail(&self.cdir) {
+                    Some(a) if a >= need.saturating_add(self.disk_floor) => None,
+                    Some(a) => Some(format!(
+                        "{a} bytes free < table {need} + disk floor {}: the improved table is only digested (its sha256 binds the record); the final outputs or a later snapshot write it",
+                        self.disk_floor
+                    )),
+                    None => Some("free space unknown: the improved table is only digested".into()),
+                }
+            }
+            _ => None,
+        };
+        let mut positions_map: Option<Vec<Value>> = None;
+        let mut certification: Option<(String, String, usize)> = None;
+        let (out_sha, out_path, out_bytes, new_rules) = if repl.is_empty() {
+            (
+                tin.clone(),
+                self.nodes[i].e.table.path.clone(),
+                self.nodes[i].table_bytes,
+                self.nodes[i].rules.clone(),
+            )
         } else {
             // stream the old table, replacing the chosen rules at their index
-            let rel_t = format!("{}/improved.r{run}.table.jsonl", dir(&node));
-            let rel_o = format!("{}/replaced_rules.r{run}.jsonl", dir(&node));
+            let rel_t = format!("{base}/improved.r{run}{sfx}.table.jsonl");
+            let rel_o = format!("{base}/replaced_rules.r{run}{sfx}.jsonl");
             let abs_t = self.cdir.join(&rel_t);
             let abs_o = self.cdir.join(&rel_o);
             std::fs::create_dir_all(abs_t.parent().expect("dir")).map_err(|e| e.to_string())?;
             let tmp_t = abs_t.with_extension("jsonl.tmp");
-            let mut wt =
-                std::io::BufWriter::new(std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?);
+            let mut sink = TableSink {
+                file: match table_not_written {
+                    None => Some(std::io::BufWriter::new(
+                        std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?,
+                    )),
+                    Some(_) => None,
+                },
+                sha: rustred_campaign_core::closure::sha256::Sha256::new(),
+                bytes: 0,
+                rules: Vec::new(),
+                order: im::Positions::default(),
+            };
             let mut old_lines = Vec::new();
             // the new rule counts (completion markers): old rules - replaced + the replacement lines, per chart
             let mut per_chart: BTreeMap<String, u64> = BTreeMap::new();
@@ -624,55 +899,156 @@ impl ImproveSource {
                 }
             }
             let total: u64 = per_chart.values().sum();
-            let mut next_free = self.nodes[i]
-                .rules
-                .iter()
-                .map(|r| r.index)
-                .max()
-                .unwrap_or(-1)
-                + 1;
+            // POSITIONED (native importer order rule): every rule record's index = its position among its chart's rules
+            // in file order; a sub-table takes consecutive positions at the replaced rule's place, the rules after it
+            // move (only their index number changes); the map old -> new is written beside the table
+            let mut pos = im::Positions::default();
+            let mut moved: Vec<Value> = Vec::new();
+            // the certification list (one line per replacement) and the replay mini table (input header + every
+            // replacement line as written): the tool's own outputs for the final certification (no post-step script)
+            let mut certs: Vec<Value> = Vec::new();
+            let rel_m = format!("{base}/replacements.r{run}{sfx}.mini.table.jsonl");
+            let mut mini: Vec<u8> = Vec::new();
             let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
             for l in std::io::BufReader::new(f).lines() {
                 let l = l.map_err(|e| e.to_string())?;
                 match im::TableRule::from_line(&l)? {
                     Some(r) if repl.contains_key(&r.index) => {
-                        for n in im::subtree_lines(&repl[&r.index], r.index, &mut next_free)? {
-                            writeln!(wt, "{n}").map_err(|e| e.to_string())?;
+                        let first = pos.peek(&r.chart);
+                        let lines =
+                            im::replacement_lines(&repl[&r.index], &l, r.index, first, run)?;
+                        for n in &lines {
+                            let nr = im::TableRule::from_line(n)?
+                                .ok_or("replacement line is not a rule")?;
+                            pos.take(&nr.chart, nr.index)?;
+                            sink.line(n)?;
+                            mini.extend_from_slice(n.as_bytes());
+                            mini.push(b'\n');
                         }
+                        let mut facts =
+                            im::replacement_facts(&l, &lines, &self.nodes[i].e.terminals)?;
+                        facts["node"] = json!(node);
+                        facts["run"] = json!(run);
+                        facts["partial"] = json!(partial.is_some());
+                        if let Some(a) = chosen.get(&r.index).and_then(|c| {
+                            per_rule
+                                .get(&r.index)
+                                .and_then(|v| v.iter().find(|a| &a.cand == c))
+                        }) {
+                            facts["candidate"] = json!(a.cand);
+                            facts["job"] = json!(a.job);
+                            facts["attempt"] = json!(a.attempt);
+                            facts["derivation"] = json!(
+                                (!a.derivations.is_empty())
+                                    .then(|| format!("{der_rel}#{}.a{}", a.job, a.attempt))
+                            );
+                            let run_dir = st
+                                .jobs
+                                .get(&a.job)
+                                .and_then(|j| j.run_dir.clone())
+                                .unwrap_or_default();
+                            let side: Vec<Value> = ["job.json", "OUTCOME.json", "EVENTS.jsonl", "stderr.log", "out/F.cert.jsonl"]
+                                .iter()
+                                .filter_map(|f| {
+                                    let p = Path::new(&run_dir).join(f);
+                                    let (b, _, h) = file_digests(&p).ok()?;
+                                    Some(json!({"file": p.display().to_string(), "sha256": h, "bytes": b}))
+                                })
+                                .collect();
+                            facts["side_files"] = json!(side);
+                        }
+                        certs.push(facts);
+                        moved.push(json!({"chart": r.chart, "old": r.index, "new": (first..first + lines.len() as i64).collect::<Vec<_>>(), "replaced": true}));
                         old_lines.push(l);
                     }
-                    Some(_) => writeln!(wt, "{l}").map_err(|e| e.to_string())?,
-                    None => writeln!(wt, "{}", im::restate_marker(&l, total, &per_chart))
-                        .map_err(|e| e.to_string())?,
+                    Some(r) => {
+                        let at = pos.peek(&r.chart);
+                        pos.take(&r.chart, at)?;
+                        if at != r.index {
+                            moved.push(json!({"chart": r.chart, "old": r.index, "new": [at]}));
+                        }
+                        sink.line(&im::set_index(&l, at)?)?;
+                    }
+                    None => sink.line(&im::restate_marker(&l, total, &per_chart))?,
                 }
             }
-            wt.flush().map_err(|e| e.to_string())?;
-            drop(wt);
-            std::fs::rename(&tmp_t, &abs_t).map_err(|e| e.to_string())?;
+            positions_map = Some(moved);
+            // the input table's header first (a replay reads the frame from it)
+            let header = std::io::BufReader::new(
+                std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+            )
+            .lines()
+            .next()
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+            let mut m = header.into_bytes();
+            m.push(b'\n');
+            m.extend_from_slice(&mini);
+            rt.accepts.push(AcceptedRecord {
+                path: rel_m.clone(),
+                bytes: m,
+            });
+            let mut cb = Vec::new();
+            for c in &certs {
+                cb.extend_from_slice(c.to_string().as_bytes());
+                cb.push(b'\n');
+            }
+            let rel_c = format!("{base}/certification.r{run}{sfx}.jsonl");
+            rt.accepts.push(AcceptedRecord {
+                path: rel_c.clone(),
+                bytes: cb,
+            });
+            certification = Some((rel_c, rel_m, certs.len()));
+            let written = sink.file.is_some();
+            if let Some(mut w) = sink.file.take() {
+                w.flush().map_err(|e| e.to_string())?;
+                drop(w);
+                std::fs::rename(&tmp_t, &abs_t).map_err(|e| e.to_string())?;
+            }
             let mut ob = Vec::new();
             for l in &old_lines {
                 ob.extend_from_slice(l.as_bytes());
                 ob.push(b'\n');
             }
             crate::atomic::write_atomic(&abs_o, &ob).map_err(|e| e.to_string())?;
-            let (_, _, s2) = file_digests(&abs_t)?;
-            (s2, abs_t.display().to_string())
+            let path = if written {
+                abs_t.display().to_string()
+            } else {
+                String::new()
+            };
+            (sink.sha.finish_hex(), path, sink.bytes, sink.rules)
         };
+        // the positions map (consumers that address rules by position, e.g. positioned recipe entries, re-point by it)
+        let positions_rel = positions_map.map(|m| {
+            let rel = format!("{base}/positions.r{run}{sfx}.json");
+            rt.accepts.push(AcceptedRecord {
+                path: rel.clone(),
+                bytes: json_bytes(&json!({"schema": "rustred.campaign.improve-positions.v1",
+                    "rule": "every rule record's index = its position among its chart's rules in file order (native importer); listed: the input rules whose index changed (old -> new) and the replaced rules (old -> the positions of their replacement lines); every other rule kept its index",
+                    "table_in_sha256": self.nodes[i].e.table.sha256, "table_out_sha256": out_sha, "entries": m})),
+            });
+            rel
+        });
         // the appended record
-        let (_, new_rules) = if repl.is_empty() {
-            (None, self.nodes[i].rules.clone())
-        } else {
-            read_rules(Path::new(&out_path))?
-        };
         let mut rec = self.nodes[i].record.clone();
         let old_by_index: BTreeMap<i64, im::TableRule> = self.nodes[i]
             .rules
             .iter()
             .map(|r| (r.index, r.clone()))
             .collect();
+        // the run's decisions are keyed by the rule's index in the INPUT table; the improved table renumbers (positions):
+        // an entry finds its input rule by key (target | case; a sub-table's case rule has the replaced rule's key)
+        let old_by_key: BTreeMap<String, i64> = self.nodes[i]
+            .rules
+            .iter()
+            .rev()
+            .map(|r| (r.key(), r.index))
+            .collect();
         rec.align(&new_rules);
         for e in rec.rules.iter_mut() {
-            if let Some(v) = per_rule.get(&e.index) {
+            let ix = old_by_key.get(&e.key).copied().unwrap_or(i64::MIN);
+            if let Some(v) = per_rule.get(&ix) {
                 for a in v {
                     let j = st.jobs.get(&a.job);
                     e.tried.push(im::Tried {
@@ -691,7 +1067,7 @@ impl ImproveSource {
                         monomials: a.sub_monomials.or(a.new_rule.as_ref().map(|r| r.monomials)),
                         bytes: a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes)),
                         cpu_ms: j.map(|j| j.cpu_ms),
-                        verdict: if chosen.get(&e.index) == Some(&a.cand) && !p.poles_on() {
+                        verdict: if chosen.get(&ix) == Some(&a.cand) && !p.poles_on() {
                             "replaced".into()
                         } else {
                             a.verdict.clone()
@@ -706,30 +1082,26 @@ impl ImproveSource {
             let own_score = self.nodes[i]
                 .pole_scores
                 .iter()
-                .find(|s| {
-                    s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index)
-                })
+                .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(ix))
                 .map(|s| s.score.clone());
-            if let Some(v) = pole_tried.remove(&e.index) {
+            if let Some(v) = pole_tried.remove(&ix) {
                 e.tried.extend(v);
             }
             if p.poles_on() {
-                e.pole = match pole_new.get(&e.index) {
+                e.pole = match pole_new.get(&ix) {
                     Some((sc, _)) => Some(sc.clone()),
                     None => own_score.or(e.pole.take()),
                 };
             }
-            if let Some(c) = chosen.get(&e.index) {
-                let old = &old_by_index[&e.index];
+            if let Some(c) = chosen.get(&ix) {
+                let old = &old_by_index[&ix];
                 e.chosen = format!("rule:{c}");
                 e.why = if p.poles_on() {
                     let own = self.nodes[i]
                         .pole_scores
                         .iter()
                         .find(|s| {
-                            s.scope == "rule"
-                                && s.cand == "original"
-                                && s.rule_index == Some(e.index)
+                            s.scope == "rule" && s.cand == "original" && s.rule_index == Some(ix)
                         })
                         .map(|s| s.score.clone());
                     let tag = |s: Option<&ps::PoleScore>| {
@@ -745,7 +1117,7 @@ impl ImproveSource {
                     format!(
                         "improve run {run} (pole objective): route poles {} -> {}; {} -> {} monomials; exceptions a subset of the old rule's; same dispatch position",
                         tag(own.as_ref()),
-                        tag(pole_new.get(&e.index).map(|x| &x.0)),
+                        tag(pole_new.get(&ix).map(|x| &x.0)),
                         old.monomials,
                         e.monomials
                     )
@@ -754,7 +1126,7 @@ impl ImproveSource {
                         "improve run {run}: rule of {} monomials / {} bytes replaced at its dispatch position by a COMPLETE sub-table of {} rule(s) (first: {} monomials); the sub-table covers the whole case domain",
                         old.monomials,
                         old.bytes,
-                        repl.get(&e.index).map_or(0, |v| v.len()),
+                        repl.get(&ix).map_or(0, |v| v.len()),
                         e.monomials
                     )
                 } else {
@@ -764,7 +1136,7 @@ impl ImproveSource {
                     )
                 };
             }
-            if let Some(u) = untried.get(&e.index) {
+            if let Some(u) = untried.get(&ix) {
                 e.untried.extend(u.iter().cloned());
             }
         }
@@ -780,21 +1152,39 @@ impl ImproveSource {
             .rules
             .iter()
             .filter(|e| {
+                let ix = old_by_key.get(&e.key).copied().unwrap_or(i64::MIN);
                 targets
                     .iter()
-                    .any(|(p, _)| self.nodes[i].rules[*p].index == e.index)
+                    .any(|(p, _)| self.nodes[i].rules[*p].index == ix)
             })
             .collect();
-        let (out_bytes, _, _) = file_digests(Path::new(&out_path))?;
-        let (yield_now, yield_stopped) = self.yield_state(st, i);
+        // the yield: CUMULATIVE over the run (bytes_saved / cpu_h / bytes_per_cpu_h); `judged_*` = what the stop judges
+        // (the same, or the sliding window `yield_stop.window_cpu_s`)
         let saved_now = self.saved_so_far(st, i);
-        let yield_json = json!({"bytes_saved": saved_now, "cpu_h": Self::spent_ms(st, &node) as f64 / 3.6e6,
-        "bytes_per_cpu_h": yield_now, "reference_bytes_per_cpu_h": self.nodes[i].ref_yield,
-        "min_fraction": p.yield_stop.as_ref().map(|y| y.min_fraction), "stopped_by_yield": yield_stopped,
-        "next_tranche_advised": match (yield_now, self.nodes[i].ref_yield, &p.yield_stop) {
+        let spent_now = Self::spent_ms(st, &node);
+        let cumulative = (spent_now > 0).then(|| saved_now as f64 / (spent_now as f64 / 3.6e6));
+        let yield_json = json!({"bytes_saved": saved_now, "cpu_h": spent_now as f64 / 3.6e6,
+        "bytes_per_cpu_h": cumulative, "measure": match p.yield_stop.as_ref().and_then(|y| y.window_cpu_s) {
+            Some(_) => "sliding_window", None => "cumulative" },
+        "judged_bytes_saved": ynow.saved, "judged_cpu_h": ynow.spent_ms as f64 / 3.6e6,
+        "judged_bytes_per_cpu_h": ynow.bytes_per_cpu_h,
+        "stop": self.yield_line(i), "yield_stop": p.yield_stop,
+        "reference_bytes_per_cpu_h": self.nodes[i].ref_yield, "reference_from": self.nodes[i].ref_from,
+        "min_fraction": p.yield_stop.as_ref().map(|y| y.min_fraction), "stopped_by_yield": ynow.stop,
+        "next_tranche_advised": match (ynow.bytes_per_cpu_h, self.nodes[i].ref_yield, &p.yield_stop) {
             (Some(v), Some(r), Some(y)) => Some(v >= y.min_fraction * r),
             _ => None,
         }});
+        let not_run: usize = untried.values().map(|v| v.len()).sum();
+        let stopped_by = if partial.is_some() {
+            Value::Null
+        } else if ynow.stop {
+            json!("yield_stop")
+        } else if budget_spent {
+            json!("budget_cpu_s")
+        } else {
+            Value::Null
+        };
         rec.table_sha256 = out_sha.clone();
         rec.runs.push(im::RunEntry {
             run,
@@ -817,12 +1207,15 @@ impl ImproveSource {
                     Value::Null
                 },
                 "decided_from_scores": self.nodes[i].decisions.len(), "unscored_rules": self.nodes[i].unscored.len(),
+                "partial": partial.is_some(), "partial_why": partial, "pending": pending.len(), "not_run": not_run,
+                "positions": positions_rel.as_ref().map(|r| self.cdir.join(r).display().to_string()),
+                "stopped_by": stopped_by,
                 "replaced": repl.len(), "table_bytes_before": self.nodes[i].table_bytes, "table_bytes_after": out_bytes,
                 "targets_bytes_before": tb, "targets_bytes_after": after.iter().map(|e| e.bytes).sum::<u64>(),
                 "targets_monomials_before": tm, "targets_monomials_after": after.iter().map(|e| e.monomials).sum::<u64>()}),
         });
         rec.rank();
-        let rec_rel = format!("{}/record.r{run}.json", dir(&node));
+        let rec_rel = format!("{base}/record.r{run}{sfx}.json");
         let rec_bytes = json_bytes(&serde_json::to_value(&rec).map_err(|e| e.to_string())?);
         let rec_sha = {
             let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
@@ -833,29 +1226,67 @@ impl ImproveSource {
             path: rec_rel.clone(),
             bytes: rec_bytes,
         });
+        let import_rel = format!("{base}/import.r{run}{sfx}.json");
         let import = self.nodes[i]
             .e
             .r#box
             .as_ref()
+            .filter(|_| !out_path.is_empty())
             .map(|b| gc::import_spec(&node, &b.path, &b.sha256, &out_path, &out_sha));
         if let Some(s) = &import {
             rt.accepts.push(AcceptedRecord {
-                path: format!("{}/import.r{run}.json", dir(&node)),
+                path: import_rel.clone(),
                 bytes: json_bytes(s),
             });
         }
-        let res = json!({"schema": "rustred.campaign.improve-result.v1", "node": node, "run": run,
+        let mut res = json!({"schema": "rustred.campaign.improve-result.v1", "node": node, "run": run,
+            "partial": partial.is_some(),
             "table_in": {"path": self.nodes[i].e.table.path, "sha256": tin},
             "table_out": {"path": out_path, "sha256": out_sha, "bytes": out_bytes},
             "replaced": repl.len(), "record": {"path": self.cdir.join(&rec_rel).display().to_string(), "sha256": rec_sha},
-            "import_spec": import.as_ref().map(|_| self.cdir.join(format!("{}/import.r{run}.json", dir(&node))).display().to_string()),
+            "import_spec": import.as_ref().map(|_| self.cdir.join(&import_rel).display().to_string()),
             "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
+            "not_run": not_run, "stopped_by": stopped_by,
+            "positions": positions_rel.as_ref().map(|r| self.cdir.join(r).display().to_string()),
+            "certification": certification.as_ref().map(|(c, m, n)| json!({"list": self.cdir.join(c).display().to_string(),
+                "replay_mini_table": self.cdir.join(m).display().to_string(), "replacements": n})),
             "nothing_to_try": targets.is_empty() && self.nodes[i].decisions.is_empty()});
-        let r = AcceptedRecord {
-            path: format!("{}/result.r{run}.json", dir(&node)),
-            bytes: json_bytes(&res),
-        };
-        self.reg(rt, input_result(&node), ROLE_IMPROVE_RESULT, r);
+        let res_rel = format!("{base}/result.r{run}{sfx}.json");
+        match partial {
+            None => {
+                let r = AcceptedRecord {
+                    path: res_rel,
+                    bytes: json_bytes(&res),
+                };
+                self.reg(rt, input_result(&node), ROLE_IMPROVE_RESULT, r);
+            }
+            Some(why) => {
+                res["why"] = json!(why);
+                res["pending"] = json!(pending);
+                res["table_not_written"] = json!(table_not_written);
+                res["resume"] = json!(
+                    "PARTIAL snapshot, not the node's result: the same launch line resumes this campaign from its ledger and writes the final outputs of this run; or a NEW improve run with table / record = these partial outputs re-targets the pending pairs (every settled pair is in the record)"
+                );
+                let bytes = json_bytes(&res);
+                let res_sha = {
+                    let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
+                    h.update(&bytes);
+                    h.finish_hex()
+                };
+                rt.accepts.push(AcceptedRecord {
+                    path: res_rel.clone(),
+                    bytes,
+                });
+                let note = json!({"node": node, "run": run, "why": why,
+                    "result": self.cdir.join(&res_rel).display().to_string(), "result_sha256": res_sha,
+                    "record": self.cdir.join(&rec_rel).display().to_string(), "record_sha256": rec_sha,
+                    "table": (!out_path.is_empty()).then_some(&out_path), "table_sha256": out_sha,
+                    "table_not_written": table_not_written, "replaced": repl.len(), "pending": pending.len()});
+                rt.events.push(Event::Note {
+                    text: format!("improve_partial {note}"),
+                });
+            }
+        }
         Ok(())
     }
 }
@@ -966,20 +1397,8 @@ impl WorkSource for ImproveSource {
                     let Some(it) = st.items.get(&item) else {
                         continue;
                     };
-                    let job = match &it.phase {
-                        ItemPhase::Open => format!("{item}-t{}", it.jobs.len()),
-                        ItemPhase::InProgress => match it
-                            .jobs
-                            .last()
-                            .and_then(|j| st.jobs.get(j).map(|x| (j, x.state)))
-                        {
-                            Some((j, AttemptState::Queued)) => j.clone(),
-                            Some((_, AttemptState::Failed(_))) => {
-                                format!("{item}-t{}", it.jobs.len())
-                            }
-                            _ => continue,
-                        },
-                        _ => continue,
+                    let Some(job) = Self::launch_job(st, &item, it) else {
+                        continue;
                     };
                     // the case input: the rule's case in the table's PRESENTED frame
                     let line =
@@ -1152,6 +1571,29 @@ impl WorkSource for ImproveSource {
         } else {
             (None, None, None)
         };
+        // declared terminals (spec data): a regeneration serving one never replaces anything
+        let terminals = self.nodes[i].e.terminals.clone();
+        let verdict = if verdict == "ok" && !terminals.is_empty() {
+            let mut hit = None;
+            for (_, l) in &all {
+                let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
+                if let Some(t) = terminals
+                    .iter()
+                    .find(|t| im::serves_key(&v, t).unwrap_or(true))
+                {
+                    hit = Some((v.get("index").cloned().unwrap_or(Value::Null), t.clone()));
+                    break;
+                }
+            }
+            match hit {
+                Some((ix, t)) => format!(
+                    "serves_declared_terminal (rule {ix} serves {t:?}, or its domain could not be evaluated there)"
+                ),
+                None => verdict,
+            }
+        } else {
+            verdict
+        };
         // IMPROVE POLES: a fresh candidate waits for its rule-scope score (never replaces on size alone)
         let verdict = if self.cfg.improve.poles_on() && new_rule.is_some() {
             format!("pole_score_pending (size: {verdict})")
@@ -1291,19 +1733,49 @@ impl WorkSource for ImproveSource {
             if items.len() < expected {
                 continue;
             }
-            let running = items.iter().any(|it| {
-                matches!(it.phase, ItemPhase::InProgress)
-                    && it
-                        .jobs
-                        .last()
-                        .and_then(|j| st.jobs.get(j))
-                        .is_some_and(|j| !matches!(j.state, AttemptState::Failed(_)))
-            });
+            // only an attempt that may hold a process is running: a QUEUED one (requeued by a drain / SIGTERM) never
+            // keeps a stopped node from finishing (v31 deadlock, 2026-11-17)
+            let running = items.iter().any(|it| Self::live(st, it));
             let all_final = items.iter().all(|it| Self::final_phase(&it.phase));
-            if all_final
-                || (!running && (self.budget_spent(st, &node) || self.yield_state(st, i).1))
-            {
+            let y = self.yield_now(st, i);
+            self.yield_note(st, i, &y, &mut rt);
+            if all_final || (!running && (self.budget_spent(st, &node) || y.stop)) {
                 self.finish_node(st, i, &mut rt)?;
+            } else if y.stop && !self.nodes[i].yield_partial_done {
+                // the yield stop holds back every launch while jobs still run: a snapshot of what is settled now
+                self.nodes[i].yield_partial_done = true;
+                self.write_outputs(
+                    st,
+                    i,
+                    &mut rt,
+                    Some("yield stop engaged; running jobs continue"),
+                )?;
+            }
+        }
+        Ok(rt)
+    }
+
+    fn drained(&mut self, st: &CampaignState, _ctx: &SourceContext) -> Result<Routing, String> {
+        let mut rt = Routing::default();
+        for i in 0..self.nodes.len() {
+            let node = self.nodes[i].e.node.clone();
+            if st.inputs.contains_key(&input_result(&node)) || !st.nodes.contains_key(&node) {
+                continue;
+            }
+            let settled = st
+                .items
+                .values()
+                .filter(|it| it.node == node && it.kind == KIND_IMPROVE)
+                .any(|it| Self::final_phase(&it.phase));
+            if settled || !self.nodes[i].decisions.is_empty() {
+                self.write_outputs(st, i, &mut rt, Some("orderly stop (drain)"))?;
+            } else {
+                rt.events.push(Event::Note {
+                    text: format!(
+                        "improve_partial {}",
+                        json!({"node": node, "why": "orderly stop (drain)", "written": false, "reason": "nothing settled in this run yet"})
+                    ),
+                });
             }
         }
         Ok(rt)
@@ -1324,13 +1796,17 @@ impl WorkSource for ImproveSource {
     }
 
     fn describe(&self) -> String {
+        let ys: Vec<String> = (0..self.nodes.len())
+            .map(|i| format!("{}: {}", self.nodes[i].e.node, self.yield_line(i)))
+            .collect();
         format!(
-            "improve: {} node(s), {} rule-candidate pair(s) to try",
+            "improve: {} node(s), {} rule-candidate pair(s) to try; {}",
             self.nodes.len(),
             self.nodes
                 .iter()
                 .map(|n| n.targets.iter().map(|(_, c)| c.len()).sum::<usize>())
-                .sum::<usize>()
+                .sum::<usize>(),
+            ys.join("; ")
         )
     }
 }

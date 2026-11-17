@@ -13,6 +13,7 @@ mod sup_common;
 use closeloop_support::{blake3_file, sha256_file};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 use sup_common::*;
 
 const FAMILY: &str = "I(\n name(TOY),\n loops(k1),\n externals(q),\n dimension(d),\n prop(D1,(k1)^2,1),\n prop(D2,(k1+q)^2,1),\n prop(D3,(k1-q)^2,0),\n gram(q,q,1)\n)\n";
@@ -282,7 +283,9 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
     });
     let cfg = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node",
         "nodes":[{"node":"toy","family":fam.display().to_string(),"family_sha256":sha256_file(&fam),
-                  "table":{"path":tab.display().to_string(),"sha256":sha256_file(&tab)}}],
+                  "table":{"path":tab.display().to_string(),"sha256":sha256_file(&tab)},
+                  // a declared terminal (spec data) the sub-table does not serve: terminal check clean
+                  "terminals":[[5,5,5]]}],
         "improve":{"filter":{"largest":2},"subtree":true,"candidates":[{"name":"rung","args":["--seed-pose-rung"]}]},
         "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
                "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
@@ -308,8 +311,83 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
         rules[1]["index"], 1,
         "the sub-table's case rule keeps the old index"
     );
-    assert_eq!(rules[2]["index"], 3, "its child takes a fresh index");
+    // POSITIONED (native importer order rule): the child takes the next position, the rule after it moves by one
+    assert_eq!(rules[2]["index"], 2, "its child takes the next position");
     assert_eq!(rules[2]["monomials"], 50);
+    assert_eq!(
+        (rules[3]["index"].as_i64(), rules[3]["monomials"].as_u64()),
+        (Some(3), Some(10)),
+        "old rule 2 moved to 3"
+    );
+    for (k, r) in rules.iter().enumerate() {
+        assert_eq!(r["index"], k as i64, "index = position in file order");
+    }
+    assert_eq!(rules[2]["origin"]["replaces"]["index"], 1, "{:#}", rules[2]);
+    // strict read of the written table (every member known to the reader) + the positions map
+    let tf = rustred_campaign_core::record::read_table_file(&out, Default::default()).unwrap();
+    assert_eq!(tf.rules.len(), 4);
+    assert!(
+        tf.rules.iter().all(|r| r.unknown_members.is_empty()),
+        "no member unknown to the reader (origin is a known member)"
+    );
+    let pm = read_json(Path::new(res["positions"].as_str().unwrap()));
+    let entries = pm["entries"].as_array().unwrap();
+    assert!(
+        entries
+            .iter()
+            .any(|e| e["old"] == 1 && e["new"] == json!([1, 2]) && e["replaced"] == true),
+        "{pm:#}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|e| e["old"] == 2 && e["new"] == json!([3])),
+        "{pm:#}"
+    );
+    // the CERTIFICATION LIST and the replay mini table are the tool's own outputs (the post-step script is retired: it bound
+    // only the first sub-table rule): EVERY replacement rule with its position and hashes
+    let cert = &res["certification"];
+    let cl: Vec<Value> = std::fs::read_to_string(cert["list"].as_str().unwrap())
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        (cl.len(), &cert["replacements"]),
+        (1, &json!(1)),
+        "{cert:#}"
+    );
+    let c0 = &cl[0];
+    assert_eq!(c0["old"]["index"], 1);
+    let pos: Vec<i64> = c0["replacement"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["position"].as_i64().unwrap())
+        .collect();
+    assert_eq!(
+        pos,
+        vec![1, 2],
+        "every sub-table rule, at its position: {c0:#}"
+    );
+    assert_eq!(c0["replacement_rules"], 2);
+    assert_eq!(c0["new_branches_of_the_case_rule"], json!(["n2"]), "{c0:#}");
+    assert_eq!(c0["terminal_check"], "clean");
+    assert_eq!(c0["candidate"], "rung");
+    assert!(c0["side_files"].as_array().unwrap().len() >= 3, "{c0:#}");
+    assert_eq!(c0["replacement"][1]["monomials"], 50);
+    let mini: Vec<String> = std::fs::read_to_string(cert["replay_mini_table"].as_str().unwrap())
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    assert_eq!(mini.len(), 3, "header + the 2 replacement lines");
+    let table_text = std::fs::read_to_string(&out).unwrap();
+    assert!(
+        mini[0].contains("\"header\"")
+            && mini[1..].iter().all(|l| table_text.lines().any(|t| t == l)),
+        "lines as written"
+    );
     assert_eq!(
         lines.last().unwrap()["rules"],
         4,
@@ -521,5 +599,298 @@ fn improve_poles_generates_then_decides_from_scores_and_never_regenerates() {
         (res3["nothing_to_try"].clone(), res3["replaced"].clone()),
         (json!(true), json!(0)),
         "{res3:#}"
+    );
+}
+
+/// interfaces/genchoice.md 5b (v1.7; tool defects found by lane sizegen-takeover on v31). A YIELD STOP engages after the first
+/// (fast, qualifying) answer while two slow jobs run: a PARTIAL snapshot is written and a `improve_yield` note says so. An orderly
+/// stop (SIGTERM drain) requeues the slow attempts (queued) and writes a partial snapshot again. The resumed session must NOT
+/// idle (the v31 deadlock: queued attempts counted as running under the stop): it finishes at once with the final outputs, the
+/// not-run pairs listed. Variant Y: before the resume the operator SKIPS one queued in-progress item and RETRIES the other: both
+/// are applied (were refused on v31), the queued attempts are cancelled, the retried item is held back by the stop (note).
+#[test]
+fn improve_yield_stop_drain_partial_outputs_no_deadlock_and_operator_controls() {
+    let _g = serial();
+    let t = Tmp::new("improveys");
+    let m = t.path.join("material");
+    std::fs::create_dir_all(&m).unwrap();
+    let tab = table(&m);
+    let fam = m.join("TOY.sym");
+    std::fs::write(&fam, FAMILY).unwrap();
+    let run =
+        |rules: Vec<Value>, stop: Value, ms: u64| json!({"rules": rules, "stop": stop, "ms": ms});
+    // the fast job must spend MEASURABLE cpu (a job's cpu = sampled /proc ticks of 10 ms; a sleeping fake spends none): its
+    // memory growth touches 150 MB of pages within ~1 s (under the 256 MiB job cap)
+    let burn = |mut r: Value| {
+        r["rss"] = json!({"grow_bytes_per_s": 150_000_000u64, "max_bytes": 150_000_000u64});
+        r
+    };
+    // rule 0: qualifies (100 < 5000 monomials) after 2 s; rules 1 and 2: slow (killed by the drain long before they end)
+    let runs = json!({
+        "0": {"rung": burn(run(vec![rec(json!([null,null,null]), "I(n0,n1,n2)", json!([["-1+n0"]]), 100)], json!("max_cases"), 2000))},
+        "1": {"rung": run(vec![rec(json!([1,null,null]), "I(1,n1,n2)", json!([]), 10)], json!("max_cases"), 600_000)},
+        "2": {"rung": run(vec![rec(json!([1,1,null]), "I(1,1,n2)", json!([]), 1)], json!("max_cases"), 600_000)},
+    });
+    let cfg = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node",
+        "nodes":[{"node":"toy","family":fam.display().to_string(),"family_sha256":sha256_file(&fam),
+                  "table":{"path":tab.display().to_string(),"sha256":sha256_file(&tab)}}],
+        "improve":{"filter":{"largest":3},"subtree":false,"candidates":[{"name":"rung","args":["--seed-pose-rung"]}],
+                   // stop as soon as any CPU is spent: every yield is below 1e30 B/CPU-h
+                   "yield_stop":{"min_fraction":1.0,"reference_bytes_per_cpu_h":1e30,"min_cpu_s":0}},
+        "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
+               "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
+        "fake":{"program":"rr_fake_child","ms":5,"runs":runs}});
+    let cfg_p = m.join("ys.json");
+    std::fs::write(&cfg_p, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+    let spec_p = write_spec(
+        &t,
+        "ys.spec.json",
+        &json!({
+            "schema": "rustred.campaign.spec.v1", "campaign": format!("{}-ys", t.campaign),
+            "programs": {"rr_fake_child": {"path": FAKE}, "rr_node": {"path": FAKE}},
+            "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 3, "mem_total": "2G", "disk_floor": "1G",
+                          "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
+                          "start_timeout_s": 120},
+            "progress": {"cadence_seconds": 1},
+            "inputs": [{"id": "improve-config", "role": "genchoice", "path": cfg_p.display().to_string(),
+                        "blake3": blake3_file(&cfg_p)}]
+        }),
+    );
+    let im = |d: &Path| d.join("genchoice/toy/improve");
+    let item = |i: u32| format!("toy.im.{i}.rung");
+    for variant in ["X", "Y"] {
+        let d = t.cdir(&format!("cdir{variant}"));
+        // session 1: the fast answer engages the stop -> partial snapshot; then SIGTERM (orderly stop)
+        let mut c = start(&spec_p, &d, &["--plain"], &[]);
+        let part = im(&d).join("partial/result.r1.partial.json");
+        let t0 = std::time::Instant::now();
+        while !part.exists() {
+            assert!(
+                t0.elapsed() < Duration::from_secs(120),
+                "no partial snapshot at the yield stop; notes {:?}; log {}",
+                notes(&d, "improve_"),
+                log_tail(&d)
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        let p1 = read_json(&part);
+        assert_eq!(p1["partial"], true, "{p1:#}");
+        assert_eq!(p1["replaced"], 1, "rule 0 qualified: {p1:#}");
+        assert!(p1["why"].as_str().unwrap().contains("yield stop"), "{p1:#}");
+        assert!(p1["yield"]["stopped_by_yield"].as_bool().unwrap(), "{p1:#}");
+        assert!(
+            !im(&d).join("result.r1.json").exists(),
+            "no final result while jobs run"
+        );
+        let eng = notes(&d, "improve_yield ");
+        assert!(
+            eng.iter().any(|n| n.contains("\"state\":\"engaged\"")),
+            "{eng:?}"
+        );
+        signal(&c, libc::SIGTERM);
+        let code = wait(&mut c, Duration::from_secs(120));
+        assert_ne!(code, 0, "an orderly stop is not a finish: {}", log_tail(&d));
+        let p2 = read_json(&part);
+        assert!(
+            p2["why"].as_str().unwrap().contains("orderly stop"),
+            "drain snapshot: {p2:#}"
+        );
+        let pending: Vec<String> = p2["pending"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|x| x.as_str().unwrap().to_string())
+            .collect();
+        assert_eq!(pending, vec![item(1), item(2)], "{p2:#}");
+        assert!(
+            im(&d)
+                .join("partial/improved.r1.partial.table.jsonl")
+                .exists(),
+            "the snapshot carries the table"
+        );
+        assert!(im(&d).join("partial/record.r1.partial.json").exists());
+        assert!(
+            notes(&d, "improve_partial ").len() >= 2,
+            "one note per snapshot"
+        );
+        let st = state(&d);
+        for i in [1, 2] {
+            let it = &st.items[&item(i)];
+            assert_eq!(
+                it.phase,
+                rustred_campaign::state::ItemPhase::InProgress,
+                "{}",
+                item(i)
+            );
+            let j = &st.jobs[it.jobs.last().unwrap()];
+            assert_eq!(
+                j.state,
+                rustred_campaign::state::AttemptState::Queued,
+                "requeued by the drain: {}",
+                item(i)
+            );
+        }
+        let launches_before = count(&d, |e| {
+            matches!(
+                e,
+                rustred_campaign::ledger::Event::Job {
+                    ev: rustred_campaign::ledger::JobEvent::Launch { .. },
+                    ..
+                }
+            )
+        });
+        if variant == "Y" {
+            let ds = d.to_string_lossy().into_owned();
+            assert_eq!(cli(&["control", &ds, "skip", &item(1)]).0, 0);
+            assert_eq!(cli(&["control", &ds, "retry", &item(2)]).0, 0);
+        }
+        // session 2: must finish without relaunching anything (v31: idled forever)
+        let t0 = std::time::Instant::now();
+        let codes = run_to_end(&spec_p, &d, &["--plain"]);
+        assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d));
+        assert!(
+            t0.elapsed() < Duration::from_secs(120),
+            "no slow job may run again"
+        );
+        let launches_after = count(&d, |e| {
+            matches!(
+                e,
+                rustred_campaign::ledger::Event::Job {
+                    ev: rustred_campaign::ledger::JobEvent::Launch { .. },
+                    ..
+                }
+            )
+        });
+        assert_eq!(
+            launches_after, launches_before,
+            "nothing relaunched under the yield stop"
+        );
+        let res = read_json(&im(&d).join("result.r1.json"));
+        assert_eq!(res["partial"], false, "{res:#}");
+        assert_eq!(res["replaced"], 1, "{res:#}");
+        assert_eq!(res["stopped_by"], "yield_stop", "{res:#}");
+        assert_eq!(res["not_run"], 2, "{res:#}");
+        assert!(
+            res["yield"]["stop"]
+                .as_str()
+                .unwrap()
+                .starts_with("yield stop: stop below"),
+            "{res:#}"
+        );
+        let rec = read_json(Path::new(res["record"]["path"].as_str().unwrap()));
+        let untried = |i: i64| -> Vec<String> {
+            rec["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["index"] == i)
+                .unwrap()["untried"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|x| x.as_str().unwrap().to_string())
+                .collect()
+        };
+        let log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+        assert!(
+            log.contains("improve_yield {"),
+            "the yield decisions are log lines too"
+        );
+        assert!(
+            log.contains("yield stop: stop below"),
+            "the effective setting is logged at the start"
+        );
+        let st = state(&d);
+        if variant == "X" {
+            assert!(
+                untried(1)[0].contains("not run: tranche yield stop"),
+                "{:?}",
+                untried(1)
+            );
+            assert!(
+                untried(2)[0].contains("not run: tranche yield stop"),
+                "{:?}",
+                untried(2)
+            );
+            // the resumed session logs how many launches the stop holds back (the two queued attempts)
+            assert!(
+                notes(&d, "improve_yield ")
+                    .iter()
+                    .any(|n| n.contains("\"held_back\":2")),
+                "{:?}",
+                notes(&d, "improve_yield ")
+            );
+        } else {
+            let applied = |verb: &str| {
+                controls(&d)
+                    .iter()
+                    .any(|(_, v, s)| v == verb && s == "applied")
+            };
+            assert!(applied("skip") && applied("retry"), "{:?}", controls(&d));
+            assert!(
+                untried(1)[0].contains("skipped by the operator"),
+                "{:?}",
+                untried(1)
+            );
+            assert!(
+                untried(2)[0].contains("not run: tranche yield stop"),
+                "{:?}",
+                untried(2)
+            );
+            assert_eq!(
+                st.items[&item(1)].phase,
+                rustred_campaign::state::ItemPhase::Skipped
+            );
+            assert_eq!(
+                st.items[&item(2)].phase,
+                rustred_campaign::state::ItemPhase::Open
+            );
+            for i in [1, 2] {
+                let it = &st.items[&item(i)];
+                assert!(
+                    it.jobs
+                        .iter()
+                        .all(|j| st.jobs[j].state != rustred_campaign::state::AttemptState::Queued),
+                    "the queued attempt of {} was cancelled",
+                    item(i)
+                );
+            }
+            assert!(
+                notes(&d, "improve_yield ")
+                    .iter()
+                    .any(|n| n.contains("\"held_back\":1")),
+                "the retried item is held back"
+            );
+        }
+    }
+}
+
+/// interfaces/genchoice.md 5b (v1.7): an improve config WITHOUT `improve.yield_stop` has no stop (until v1.6 a silent default
+/// tied to the record's first run); the start line says so.
+#[test]
+fn improve_without_yield_stop_has_none_and_says_so() {
+    let _g = serial();
+    let t = Tmp::new("improvenys");
+    let m = t.path.join("material");
+    std::fs::create_dir_all(&m).unwrap();
+    let tab = table(&m);
+    let c1 = config(&m, "c1.json", &tab, None, 1);
+    let s1 = spec(&t, "s1.json", &c1);
+    let d1 = t.cdir("cdir1");
+    let codes = run_to_end(&s1, &d1, &["--plain"]);
+    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d1));
+    let log = std::fs::read_to_string(d1.with_extension("log")).unwrap_or_default();
+    assert!(
+        log.contains("yield stop: none (improve.yield_stop not set)"),
+        "{}",
+        log_tail(&d1)
+    );
+    let res = read_json(&d1.join("genchoice/toy/improve/result.r1.json"));
+    assert_eq!(res["yield"]["stopped_by_yield"], false, "{res:#}");
+    assert_eq!(res["yield"]["yield_stop"], Value::Null, "{res:#}");
+    assert_eq!(res["yield"]["measure"], "cumulative", "{res:#}");
+    assert!(
+        notes(&d1, "improve_yield ").is_empty(),
+        "no stop, no yield note"
     );
 }

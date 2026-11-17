@@ -427,7 +427,9 @@ pub struct ImprovePolicy {
     pub accept_equal: bool,
     /// TRANCHE YIELD STOP (implementer 2026-11-16): the run stops starting candidates once its yield (bytes saved per
     /// CPU-h, by the qualifying candidates so far) falls below `min_fraction` x the reference yield (the record's first
-    /// improve run that saved bytes, unless given); None = no yield stop.
+    /// improve run that saved bytes, unless given). DEFAULT NONE (interfaces/genchoice.md 5b, v1.7): a stop decides
+    /// which candidates are never tried, so it is written in the config (`"yield_stop": {}` = the documented values);
+    /// until v1.6 an absent key silently meant `Some(YieldStop::default())`.
     pub yield_stop: Option<YieldStop>,
     /// IMPROVE POLES (section 6): the pole objective instead of size (None = size). Targets = the rules whose own
     /// rule-scope score has a pole (worst first); candidates run single-case (`--descend open`); a fresh candidate is
@@ -447,6 +449,10 @@ pub struct YieldStop {
     pub reference_bytes_per_cpu_h: Option<f64>,
     /// No stop before this much CPU is spent in the run (noise of the first jobs).
     pub min_cpu_s: u64,
+    /// None (default) = the yield is CUMULATIVE over the run (all bytes saved / all CPU of its settled jobs). Some(N) =
+    /// SLIDING WINDOW: the most recently settled items whose summed CPU first reaches N CPU-s ([`window_totals`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_cpu_s: Option<u64>,
 }
 
 impl Default for YieldStop {
@@ -455,19 +461,63 @@ impl Default for YieldStop {
             min_fraction: 1.0 / 3.0,
             reference_bytes_per_cpu_h: None,
             min_cpu_s: 3600,
+            window_cpu_s: None,
         }
     }
 }
 
+impl YieldStop {
+    /// One line stating the effective stop (logged at every session start; `reference` with where it came from).
+    pub fn describe(&self, reference: Option<f64>, reference_from: &str) -> String {
+        let line = match reference {
+            Some(r) => format!(
+                "stop below {:.4} x {:.0} B/CPU-h ({reference_from}) = {:.0} B/CPU-h",
+                self.min_fraction,
+                r,
+                self.min_fraction * r
+            ),
+            None => format!("no reference yield ({reference_from}): never stops"),
+        };
+        let over = match self.window_cpu_s {
+            Some(w) => format!("sliding window of the last {w} CPU-s of settled items"),
+            None => "cumulative over the run".to_string(),
+        };
+        format!(
+            "yield stop: {line}; {over}; armed after {} CPU-s",
+            self.min_cpu_s
+        )
+    }
+}
+
+/// Bytes saved and CPU spent inside a sliding window: `settled` = (cpu_ms, gain bytes) of the settled items in settle
+/// order (oldest first); the window takes the newest items until their summed CPU reaches `window_ms` (all of them when
+/// they never do). Returns (bytes saved, cpu_ms) of the window.
+pub fn window_totals(settled: &[(u64, u64)], window_ms: u64) -> (u64, u64) {
+    let (mut saved, mut spent) = (0u64, 0u64);
+    for &(cpu, gain) in settled.iter().rev() {
+        if spent >= window_ms {
+            break;
+        }
+        spent = spent.saturating_add(cpu);
+        saved = saved.saturating_add(gain);
+    }
+    (saved, spent)
+}
+
 /// The reference yield of a record: bytes saved per CPU-h of its first improve run that saved bytes.
 pub fn reference_yield(rec: &ImproveRecord) -> Option<f64> {
+    reference_yield_run(rec).map(|x| x.0)
+}
+
+/// [`reference_yield`] with the run number it comes from.
+pub fn reference_yield_run(rec: &ImproveRecord) -> Option<(f64, u32)> {
     rec.runs
         .iter()
         .filter(|r| r.mode == "improve" && r.spent_cpu_ms > 0)
         .find_map(|r| {
             let b = r.totals.get("table_bytes_before")?.as_u64()?;
             let a = r.totals.get("table_bytes_after")?.as_u64()?;
-            (b > a).then(|| (b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6))
+            (b > a).then(|| ((b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6), r.run))
         })
 }
 
@@ -548,7 +598,7 @@ impl Default for ImprovePolicy {
             subtree_max_cases: 64,
             cost: crate::economy::genchoice::CostModel::default(),
             accept_equal: false,
-            yield_stop: Some(YieldStop::default()),
+            yield_stop: None,
             poles: None,
         }
     }
@@ -609,8 +659,6 @@ pub fn targets(
 }
 
 /// What an IMPROVE POLES run does with one (rule, candidate).
-// int8: a planning value (a few per rule and run); boxing the score line would only move it to the heap
-#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PoleStep {
     /// Generate the candidate (not tried on this rule yet).
@@ -621,9 +669,6 @@ pub enum PoleStep {
     AwaitScore,
 }
 
-/// The result of [`pole_targets`]: (rule position, candidates with their step) per target, and the unscored rules.
-pub type PoleTargets = (Vec<(usize, Vec<(String, PoleStep)>)>, Vec<i64>);
-
 /// IMPROVE POLES targets: the rules whose own score (`original` line of `scores` at their index) is decided with a
 /// pole, worst first (max order, keys with a pole, monomials, index), at most `filter.largest`; per rule the candidates
 /// with something to do. A (rule, candidate) already decided under the pole objective (scope `rule_poles`) is done:
@@ -633,7 +678,7 @@ pub fn pole_targets(
     rec: &ImproveRecord,
     p: &ImprovePolicy,
     scores: &[crate::economy::polescore::ScoreLine],
-) -> PoleTargets {
+) -> (Vec<(usize, Vec<(String, PoleStep)>)>, Vec<i64>) {
     let own = |idx: i64| {
         scores
             .iter()
@@ -859,7 +904,255 @@ pub fn subtree_verdict(old: &TableRule, new: &[TableRule], min_gain: f64) -> Res
     Ok(())
 }
 
-/// The lines replacing one rule by its sub-table: the first keeps the old `index` (same dispatch position), the others
+/// The native importer's ORDER RULE of a `table_dump.v1` table: a rule record's `index` equals the number of rule records of
+/// its chart before it in file order (rustred-core propagator/table_import.rs; slot-alias rules are rule records too).
+/// Per-chart counter of the next position.
+#[derive(Clone, Debug, Default)]
+pub struct Positions {
+    next: BTreeMap<String, i64>,
+}
+
+impl Positions {
+    /// The position the next rule record of `chart` must carry (does not advance).
+    pub fn peek(&self, chart: &str) -> i64 {
+        self.next.get(chart).copied().unwrap_or(0)
+    }
+    /// Advance `chart` by one rule record carrying `index`; refused when `index` is not the chart's next position.
+    pub fn take(&mut self, chart: &str, index: i64) -> Result<(), String> {
+        let want = self.peek(chart);
+        if index != want {
+            return Err(format!(
+                "rule {index} of chart {chart} out of order: its position is {want} (index = position among the chart's rules)"
+            ));
+        }
+        self.next.insert(chart.to_string(), want + 1);
+        Ok(())
+    }
+}
+
+/// The byte offset of the TOP-LEVEL `"index":` member of a JSON object line (depth 1, outside strings), if any.
+fn top_level_index_member(line: &str) -> Option<usize> {
+    let b = line.as_bytes();
+    let (mut depth, mut in_str, mut esc) = (0i32, false, false);
+    let pat = b"\"index\":";
+    for (k, &c) in b.iter().enumerate() {
+        if in_str {
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            b'"' => {
+                if depth == 1 && b[k..].starts_with(pat) {
+                    return Some(k);
+                }
+                in_str = true;
+            }
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A rule line with its top-level `index` set to `index`: ONLY that number changes (byte substitution at the top-level
+/// member, found by a syntactic scan); the line itself when already right; re-serialised only when the line has no
+/// integer `index` member to substitute.
+pub fn set_index(line: &str, index: i64) -> Result<String, String> {
+    if let Some(k) = top_level_index_member(line) {
+        let start = k + "\"index\":".len();
+        let ws = line[start..].len() - line[start..].trim_start().len();
+        let num = start + ws;
+        let len = line[num..]
+            .bytes()
+            .enumerate()
+            .take_while(|&(j, c)| c.is_ascii_digit() || (j == 0 && c == b'-'))
+            .count();
+        if len > 0 && line[num..num + len].parse::<i64>().is_ok() {
+            if line[num..num + len].parse::<i64>() == Ok(index) {
+                return Ok(line.to_string());
+            }
+            return Ok(format!("{}{index}{}", &line[..num], &line[num + len..]));
+        }
+    }
+    let mut v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
+    v["index"] = Value::from(index);
+    Ok(v.to_string())
+}
+
+/// The lines replacing the rule `old_line` (index `old_index`) by its regeneration `sub` (target case first, then the
+/// sub-table's other rules in engine order), POSITIONED: consecutive indices from `first_index` (the old rule's position;
+/// the rules after them move by `sub.len() - 1`). Each line's `origin` keeps the replaced record's
+/// `origin.dispatch_position` (when it has one) and names what it replaces (index, record sha256, its place in the
+/// sub-table) and the improve run.
+pub fn replacement_lines(
+    sub: &[String],
+    old_line: &str,
+    old_index: i64,
+    first_index: i64,
+    run: u32,
+) -> Result<Vec<String>, String> {
+    let old: Value = serde_json::from_str(old_line).map_err(|e| e.to_string())?;
+    let dispatch = old
+        .get("origin")
+        .and_then(|o| o.get("dispatch_position"))
+        .cloned();
+    let old_sha = {
+        let mut h = crate::closure::sha256::Sha256::new();
+        h.update(old_line.as_bytes());
+        h.finish_hex()
+    };
+    let mut out = Vec::with_capacity(sub.len());
+    for (k, n) in sub.iter().enumerate() {
+        let mut v: Value = serde_json::from_str(n).map_err(|e| e.to_string())?;
+        v["type"] = Value::from("rule");
+        v["index"] = Value::from(first_index + k as i64);
+        let mut o = v
+            .get("origin")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(d) = &dispatch {
+            o.insert("dispatch_position".into(), d.clone());
+        }
+        o.insert(
+            "replaces".into(),
+            serde_json::json!({"index": old_index, "record_sha256": old_sha, "subtable_rule": k, "subtable_rules": sub.len()}),
+        );
+        o.insert("improve_run".into(), Value::from(run));
+        v["origin"] = Value::Object(o);
+        out.push(v.to_string());
+    }
+    Ok(out)
+}
+
+/// Whether the rule record `v` serves `key`: every fixed slot equal, every case equation zero, and no exception branch
+/// (a list of polynomials that all vanish, or one polynomial) holds at the key. Polynomials in n0.. (d-free), exact.
+pub fn serves_key(v: &Value, key: &[i32]) -> Result<bool, String> {
+    let arity = key.len();
+    let zero = |text: &str| -> Result<bool, String> {
+        let p = crate::poly::Poly::parse_d_free_exact(text, arity)
+            .map_err(|e| format!("{text}: {e:?}"))?;
+        p.is_zero_at(key).map_err(|e| format!("{text}: {e:?}"))
+    };
+    if let Some(f) = v.get("fixed").and_then(Value::as_array) {
+        if f.len() != arity {
+            return Err(format!("fixed has {} slots, the key {arity}", f.len()));
+        }
+        for (k, x) in f.iter().enumerate() {
+            if let Some(n) = x.as_i64()
+                && n != key[k] as i64
+            {
+                return Ok(false);
+            }
+        }
+    }
+    for q in v
+        .get("equations")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        if !zero(q.as_str().ok_or("equation is not a string")?)? {
+            return Ok(false);
+        }
+    }
+    for b in v
+        .get("exceptions")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+    {
+        let polys: Vec<&str> = match b {
+            Value::Array(a) => a.iter().filter_map(Value::as_str).collect(),
+            Value::String(t) => vec![t.as_str()],
+            _ => return Err(format!("exception branch {b}")),
+        };
+        let mut holds = true;
+        for t in polys {
+            if !zero(t)? {
+                holds = false;
+                break;
+            }
+        }
+        if holds {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// sha256 of `[target, rhs]` in compact JSON: the binding key of independent exactness results (helper VH's
+/// `target_rhs_sha256`); independent of the rule's index and of every other member.
+pub fn target_rhs_sha256(v: &Value) -> String {
+    let t = serde_json::to_string(&Value::Array(vec![
+        v.get("target").cloned().unwrap_or(Value::Null),
+        v.get("rhs").cloned().unwrap_or(Value::Null),
+    ]))
+    .unwrap_or_default();
+    let mut h = crate::closure::sha256::Sha256::new();
+    h.update(t.as_bytes());
+    h.finish_hex()
+}
+
+/// The CERTIFICATION facts of one replacement (what a final certification needs per replaced rule): the old record
+/// (index, line sha256, bytes, monomials, exceptions, target+rhs sha256, origin.dispatch_position) and EVERY replacement
+/// line as written (position, line sha256, bytes, monomials, target, case, fixed, equations, exceptions, target+rhs sha256),
+/// the exception branches the case rule captured / added, and the declared terminals any replacement line serves.
+pub fn replacement_facts(
+    old_line: &str,
+    new_lines: &[String],
+    terminals: &[Vec<i32>],
+) -> Result<Value, String> {
+    let sha = |b: &str| {
+        let mut h = crate::closure::sha256::Sha256::new();
+        h.update(b.as_bytes());
+        h.finish_hex()
+    };
+    let old: Value = serde_json::from_str(old_line).map_err(|e| e.to_string())?;
+    let o = TableRule::from_line(old_line)?.ok_or("old line is not a rule")?;
+    let mut subs = Vec::with_capacity(new_lines.len());
+    let mut violations = Vec::new();
+    let mut case_exc: Vec<String> = vec![];
+    for (k, l) in new_lines.iter().enumerate() {
+        let v: Value = serde_json::from_str(l).map_err(|e| e.to_string())?;
+        let r = TableRule::from_line(l)?.ok_or("replacement line is not a rule")?;
+        if k == 0 {
+            case_exc = r.exceptions.clone();
+        }
+        for t in terminals {
+            if serves_key(&v, t)? {
+                violations.push(serde_json::json!({"position": r.index, "terminal": t}));
+            }
+        }
+        subs.push(serde_json::json!({"position": r.index, "line_sha256": sha(l), "bytes": r.bytes, "monomials": r.monomials,
+            "target": r.target, "case": v.get("case").cloned().unwrap_or(Value::Null), "fixed": r.fixed,
+            "equations": r.equations, "exceptions": r.exceptions, "target_rhs_sha256": target_rhs_sha256(&v)}));
+    }
+    Ok(serde_json::json!({
+        "old": {"index": o.index, "line_sha256": sha(old_line), "bytes": o.bytes, "monomials": o.monomials,
+                "exceptions": o.exceptions, "target_rhs_sha256": target_rhs_sha256(&old),
+                "origin_dispatch_position": old.get("origin").and_then(|x| x.get("dispatch_position")).cloned()},
+        "replacement": subs,
+        "replacement_rules": new_lines.len(),
+        "replacement_bytes": subs.iter().filter_map(|s| s["bytes"].as_u64()).sum::<u64>(),
+        "replacement_monomials": subs.iter().filter_map(|s| s["monomials"].as_u64()).sum::<u64>(),
+        "captured_branches": o.exceptions.iter().filter(|e| !case_exc.contains(e)).collect::<Vec<_>>(),
+        "new_branches_of_the_case_rule": case_exc.iter().filter(|e| !o.exceptions.contains(e)).collect::<Vec<_>>(),
+        "insertion_order": "the case rule at the replaced rule's position, the sub-table's other rules after it in engine order, consecutive positions; later rules moved (positions map)",
+        "terminal_check": if terminals.is_empty() { serde_json::json!("not requested (no declared terminals)") }
+                          else if violations.is_empty() { serde_json::json!("clean") } else { Value::Array(violations) },
+    }))
+}
+
+/// (Superseded in the improve writer by [`replacement_lines`] + [`set_index`]: fresh indices break the native importer's
+/// order rule, see [`Positions`].) The lines replacing one rule by its sub-table: the first keeps the old `index` (same dispatch position), the others
 /// take fresh indices from `next_free` (unique labels; first match follows the file order, not the index).
 pub fn subtree_lines(
     sub: &[String],
@@ -1074,6 +1367,11 @@ pub struct ImproveNode {
     /// The dependence table of published symbols (sha256-bound; absent = upper bound), as in genchoice.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dependences: Option<crate::economy::genchoice::FileEntry>,
+    /// Declared TERMINAL keys of the node (spec data, e.g. the masters the table stops at): a regenerated rule that serves
+    /// one of them never replaces anything (verdict `serves_declared_terminal`); listed per replacement in the
+    /// certification list. Empty = no terminal check.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub terminals: Vec<Vec<i32>>,
 }
 
 /// The improve config (campaign input of role `genchoice`, schema [`IMPROVE_CONFIG_SCHEMA`]).

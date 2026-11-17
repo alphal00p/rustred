@@ -134,6 +134,13 @@ pub trait WorkSource {
     fn poll(&mut self, _st: &CampaignState, _ctx: &SourceContext) -> Result<Routing, String> {
         Ok(Routing::default())
     }
+    /// lane sizegen (2026-11-17): called ONCE at an ORDERLY stop (drain: control stop, SIGTERM / SIGINT / SIGHUP, disk
+    /// floor, resource stop) when every child has ended, just before the `stop drained` record; never on a forced stop,
+    /// a dead ledger or a full disk. A source may write a snapshot of its unfinished outputs (records first, then events,
+    /// as `poll`), marked as partial: it must not finish work here (the campaign resumes from its ledger). Default: none.
+    fn drained(&mut self, _st: &CampaignState, _ctx: &SourceContext) -> Result<Routing, String> {
+        Ok(Routing::default())
+    }
     /// Decision row 3 (`no_rule`, action `confirm_coverage_else_next_rung`; contract lane contractfix2, audit ac2-m9):
     /// the child only CLAIMS (OUTCOME `per_case`) that no case of the item needs a rule. The source's OWN coverage check
     /// (forward closure / partition of the item's keys) may confirm it: `Ok(Some(events))` closes the item with those

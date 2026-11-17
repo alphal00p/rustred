@@ -1,6 +1,7 @@
 //! Lane sizegen: the improvement record and improve mode's pure decisions (interfaces/genchoice.md 5).
 
 use rustred_campaign_core::economy::improve::*;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn line(index: i64, fixed: &str, target: &str, exc: &str, monomials: u64) -> String {
@@ -342,6 +343,100 @@ fn tranche_yield_stop_and_record_skips() {
         !yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1,
         "70 MB/CPU-h >= 66.7: go on"
     );
+    assert_eq!(
+        reference_yield_run(&rec),
+        Some((200_000_000.0, 1)),
+        "with the run it comes from"
+    );
+}
+
+/// interfaces/genchoice.md 5b (v1.7): NO yield stop unless the config writes one; `{}` = the documented values; the
+/// effective setting is one describable line; the sliding window takes the newest settled items up to its CPU.
+#[test]
+fn yield_stop_is_explicit_described_and_windowed() {
+    assert_eq!(
+        ImprovePolicy::default().yield_stop,
+        None,
+        "an absent key is no stop (was Some(default) until v1.6)"
+    );
+    let absent: ImprovePolicy = serde_json::from_str("{}").unwrap();
+    assert_eq!(absent.yield_stop, None);
+    let explicit: ImprovePolicy = serde_json::from_str(r#"{"yield_stop": {}}"#).unwrap();
+    assert_eq!(explicit.yield_stop, Some(YieldStop::default()));
+    let w: ImprovePolicy =
+        serde_json::from_str(r#"{"yield_stop": {"window_cpu_s": 7200, "min_cpu_s": 0}}"#).unwrap();
+    assert_eq!(w.yield_stop.as_ref().unwrap().window_cpu_s, Some(7200));
+    assert!(
+        serde_json::from_str::<ImprovePolicy>(r#"{"yield_stop": {"windw": 1}}"#).is_err(),
+        "unknown field refused"
+    );
+    let y = YieldStop::default();
+    let d = y.describe(Some(59_700_000.0), "reference = record run 1");
+    assert!(
+        d.contains("0.3333 x 59700000")
+            && d.contains("record run 1")
+            && d.contains("cumulative over the run"),
+        "{d}"
+    );
+    assert!(d.contains("armed after 3600 CPU-s"), "{d}");
+    let dw = YieldStop {
+        window_cpu_s: Some(7200),
+        ..YieldStop::default()
+    }
+    .describe(None, "no reference");
+    assert!(
+        dw.contains("never stops") && dw.contains("sliding window of the last 7200 CPU-s"),
+        "{dw}"
+    );
+    // window: (cpu_ms, gain) oldest first; the newest items until their CPU reaches the window
+    let settled = [
+        (3_600_000u64, 100u64),
+        (1_000_000, 0),
+        (1_000_000, 0),
+        (1_000_000, 5),
+    ];
+    assert_eq!(
+        window_totals(&settled, 2_000_000),
+        (5, 2_000_000),
+        "the two newest reach 2,000 CPU-s"
+    );
+    assert_eq!(
+        window_totals(&settled, 2_500_000),
+        (5, 3_000_000),
+        "a third item is needed to reach the window"
+    );
+    assert_eq!(
+        window_totals(&settled, u64::MAX),
+        (105, 6_600_000),
+        "never reached: everything (= cumulative)"
+    );
+    assert_eq!(window_totals(&[], 1), (0, 0));
+    // the cumulative yield of these items stays above a line the window falls under
+    let r = 1_000_000.0;
+    let (ws, wc) = window_totals(&settled, 2_000_000);
+    assert!(
+        yield_check(
+            ws,
+            wc,
+            Some(r),
+            &YieldStop {
+                min_cpu_s: 0,
+                ..y.clone()
+            }
+        )
+        .1,
+        "window: 9 B/CPU-h < 1/3 MB"
+    );
+    assert!(
+        !yield_check(
+            105_000_000,
+            6_600_000,
+            Some(r),
+            &YieldStop { min_cpu_s: 0, ..y }
+        )
+        .1,
+        "cumulative: ~57 MB/CPU-h"
+    );
 }
 
 #[test]
@@ -413,4 +508,175 @@ fn explicit_lists_and_equal_size_regeneration_for_exactness() {
     let mut bigger = b.clone();
     bigger.bytes = 101;
     assert!(replacement_verdict_eq(&b, &bigger, 0.9, RankBy::Bytes, &c, true).is_err());
+}
+
+/// Third defect (lane parametric, 2026-11-17): the improved table must satisfy the native importer's ORDER RULE (index =
+/// position among the chart's rules in file order). `set_index` changes only the top-level index number (never a nested
+/// "index" member, never a string); `replacement_lines` positions a sub-table and keeps origin.dispatch_position.
+#[test]
+fn improved_tables_are_positioned_for_the_native_importer() {
+    let mut p = Positions::default();
+    assert!(p.take("a", 0).is_ok() && p.take("a", 1).is_ok() && p.take("b", 0).is_ok());
+    assert!(
+        p.take("a", 3).unwrap_err().contains("out of order"),
+        "a gap is refused"
+    );
+    assert_eq!(
+        (p.peek("a"), p.peek("b"), p.peek("c")),
+        (2, 1, 0),
+        "per chart"
+    );
+    // only the top-level number moves: nested "index" members and string contents stay
+    let l = r#"{"type":"rule","chart":"11","index":7,"origin":{"index":7,"note":"\"index\":7"},"rhs":[["I(1,1)","1"]]}"#;
+    let n = set_index(l, 3).unwrap();
+    assert_eq!(
+        n,
+        l.replacen(r#""index":7,"origin""#, r#""index":3,"origin""#, 1)
+    );
+    let v: Value = serde_json::from_str(&n).unwrap();
+    assert_eq!(
+        (v["index"].as_i64(), v["origin"]["index"].as_i64()),
+        (Some(3), Some(7))
+    );
+    assert_eq!(v["origin"]["note"], "\"index\":7");
+    assert_eq!(
+        set_index(&n, 3).unwrap(),
+        n,
+        "already right: unchanged bytes"
+    );
+    // a key order with the index late in the line, with a space
+    let late = r#"{"case":"x","chart":"11","index": 12,"type":"rule"}"#;
+    assert_eq!(
+        set_index(late, 4).unwrap(),
+        r#"{"case":"x","chart":"11","index": 4,"type":"rule"}"#
+    );
+    // replacement lines: consecutive positions from the old rule's place, provenance kept
+    let old = r#"{"type":"rule","chart":"11","index":5,"origin":{"dispatch_position":42,"source":"bank#1"},"rhs":[]}"#;
+    let sub = vec![
+        r#"{"chart":"11","target":"I(n0,1)","rhs":[]}"#.to_string(),
+        r#"{"chart":"11","target":"I(1,1)","rhs":[],"origin":{"engine":"x"}}"#.to_string(),
+    ];
+    let out = replacement_lines(&sub, old, 5, 5, 2).unwrap();
+    let vs: Vec<Value> = out
+        .iter()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        (vs[0]["index"].as_i64(), vs[1]["index"].as_i64()),
+        (Some(5), Some(6))
+    );
+    for (k, v) in vs.iter().enumerate() {
+        assert_eq!(v["type"], "rule");
+        assert_eq!(
+            v["origin"]["dispatch_position"], 42,
+            "kept from the replaced record"
+        );
+        assert_eq!(v["origin"]["replaces"]["index"], 5);
+        assert_eq!(v["origin"]["replaces"]["subtable_rule"], k);
+        assert_eq!(
+            v["origin"]["replaces"]["record_sha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert_eq!(v["origin"]["improve_run"], 2);
+    }
+    assert_eq!(
+        vs[1]["origin"]["engine"], "x",
+        "the line's own origin members stay"
+    );
+    let no_origin = r#"{"type":"rule","chart":"11","index":5,"rhs":[]}"#;
+    let v: Value =
+        serde_json::from_str(&replacement_lines(&sub[..1], no_origin, 5, 9, 1).unwrap()[0])
+            .unwrap();
+    assert!(v["origin"].get("dispatch_position").is_none() && v["index"] == 9);
+}
+
+/// Fourth defect (2026-11-17): the certification facts of a replacement come from the tool (every sub-table rule, never only the
+/// first); declared terminals are checked exactly (fixed slots, equations, exception branches).
+#[test]
+fn replacement_facts_list_every_rule_and_check_declared_terminals() {
+    let r = |idx: i64, fixed: Value, exc: Value, target: &str| {
+        serde_json::json!({"type":"rule","chart":"111","index":idx,"fixed":fixed,"equations":[],"exceptions":exc,
+            "target":target,"rhs":[["I(n0-1,n1,n2)","1"]],"monomials":3}).to_string()
+    };
+    let old = r(
+        4,
+        serde_json::json!([1, null, null]),
+        serde_json::json!([["n2"], ["-1+n1"]]),
+        "I(1,n1,n2)",
+    );
+    let subs = vec![
+        r(
+            4,
+            serde_json::json!([1, null, null]),
+            serde_json::json!([["n2"], ["-2+n1"]]),
+            "I(1,n1,n2)",
+        ),
+        r(
+            5,
+            serde_json::json!([1, 1, null]),
+            serde_json::json!([]),
+            "I(1,1,n2)",
+        ),
+        r(
+            6,
+            serde_json::json!([1, 2, null]),
+            serde_json::json!([]),
+            "I(1,2,n2)",
+        ),
+    ];
+    let v = |l: &str| serde_json::from_str::<Value>(l).unwrap();
+    assert!(
+        serves_key(&v(&subs[0]), &[1, 1, 3]).unwrap(),
+        "-1+n1 is not a branch of the case rule (it captured it)"
+    );
+    assert!(
+        !serves_key(&v(&subs[0]), &[1, 2, 3]).unwrap(),
+        "exception branch -2+n1 holds"
+    );
+    assert!(
+        !serves_key(&v(&subs[0]), &[1, 5, 0]).unwrap(),
+        "exception branch n2 holds"
+    );
+    assert!(serves_key(&v(&subs[0]), &[1, 5, 3]).unwrap());
+    assert!(
+        !serves_key(&v(&subs[1]), &[2, 1, 0]).unwrap(),
+        "fixed slot differs"
+    );
+    assert!(serves_key(&v(&subs[1]), &[1, 1, 0]).unwrap());
+    let f = replacement_facts(&old, &subs, &[vec![1, 1, 0], vec![7, 7, 7]]).unwrap();
+    let pos: Vec<i64> = f["replacement"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x["position"].as_i64().unwrap())
+        .collect();
+    assert_eq!(pos, vec![4, 5, 6], "every rule of the sub-table");
+    assert_eq!(f["replacement_rules"], 3);
+    assert_eq!(f["captured_branches"], serde_json::json!(["-1+n1"]));
+    assert_eq!(
+        f["new_branches_of_the_case_rule"],
+        serde_json::json!(["-2+n1"])
+    );
+    assert_eq!(
+        f["terminal_check"],
+        serde_json::json!([{"position": 5, "terminal": [1, 1, 0]}]),
+        "{f:#}"
+    );
+    assert_eq!(f["old"]["target_rhs_sha256"].as_str().unwrap().len(), 64);
+    assert_eq!(
+        f["replacement"][0]["target_rhs_sha256"], f["old"]["target_rhs_sha256"],
+        "same target and rhs here"
+    );
+    let clean = replacement_facts(&old, &subs, &[vec![9, 9, 9]]).unwrap();
+    assert_eq!(clean["terminal_check"], "clean");
+    let none = replacement_facts(&old, &subs, &[]).unwrap();
+    assert!(
+        none["terminal_check"]
+            .as_str()
+            .unwrap()
+            .starts_with("not requested")
+    );
 }
