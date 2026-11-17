@@ -652,11 +652,12 @@ impl SlotAliasRecord {
 /// function, which finds its marker and ignores every other line: a line of a kind added by a later importer would
 /// therefore be skipped silently (as `slot_aliases` was by readers before 8be0df7f). [`check_provenance_kinds`]
 /// refuses such a payload instead.
-pub const PROVENANCE_KINDS: [&str; 5] = [
+pub const PROVENANCE_KINDS: [&str; 6] = [
     "boxed_node",
     "certified_keys",
     "recipes",
     "slot_aliases",
+    "required_features",
     "slot_order",
 ];
 
@@ -3328,6 +3329,14 @@ mod provenance_kind_tests {
         );
         assert!(check_provenance_kinds(&known).is_ok());
         assert!(check_provenance_kinds(&format!("imported{SLOT_ORDER_MARKER}[]")).is_ok());
+        // batch 12a's reader-feature line (schema v4) is understood
+        let features = crate::propagator::bundle_wire::REQUIRED_FEATURES_MARKER;
+        assert!(
+            check_provenance_kinds(&format!(
+                "imported x{SLOT_ALIASES_MARKER}[]{features}slot_aliases{SLOT_ORDER_MARKER}[0,1]"
+            ))
+            .is_ok()
+        );
         // a later importer's line kind: refused, never skipped
         let unknown = format!("{known}\nalias_faces [1,2,3]");
         let error = check_provenance_kinds(&unknown).unwrap_err();
