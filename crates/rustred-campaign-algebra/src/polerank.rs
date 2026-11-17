@@ -1502,6 +1502,10 @@ pub fn cell_rank(
             }
         }
     }
+    // the known depth q of every master the cell needs (null = known to every order or not in the depth table): the
+    // report reads tripwire masters (need above q) from here without a depth reader of its own
+    let cell_depths: BTreeMap<&String, Option<i64>> =
+        cell_needs.keys().map(|m| (m, data.depth(m))).collect();
     let beyond: Vec<Value> = cell_needs
         .iter()
         .filter_map(|(m, &n)| {
@@ -1583,7 +1587,7 @@ pub fn cell_rank(
         "depths": data.depths.label, "dependences": data.dependences.map(|d| d.label.clone()),
         "basis": data.exchange.map(|(x, _)| format!("exchanged ({})", x.label)).unwrap_or_else(|| "old".into()),
         "per_prime": per_prime, "requests": per_request.into_values().collect::<Vec<_>>(),
-        "cell_needs": cell_needs, "cell_beyond": beyond,
+        "cell_needs": cell_needs, "cell_depths": cell_depths, "cell_beyond": beyond,
         "exchange_observation": exchange_observation,
         "transcendental_substitution": {"used": transcendental_used, "seed": transcendental_seed,
             "constants": "gamma_E, pi^2, zeta(odd) seeded random in F_p; zeta(2k) = rational x pi^2k"},

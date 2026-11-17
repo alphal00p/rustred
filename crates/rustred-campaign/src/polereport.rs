@@ -180,6 +180,9 @@ pub struct CellRow {
     pub box_r_max: i64,
     pub keys_in_cell: u64,
     pub units_reaching: String,
+    /// The row's position against the reference line of the offset (`vs_old_line`: below / on / above; empty when the
+    /// table has no such column).
+    pub vs_line: String,
 }
 
 /// Read a cell-tops TSV (columns by header name).
@@ -210,6 +213,7 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
     // the table regenerated with exact n4, TRICKS 49: the hint is then 'superseded'), else `top_r_at_D`
     let ch = col("top_r_at_D_if_n4hint").ok();
     let cx = col("top_r_exact").ok();
+    let cl = col("vs_old_line").ok();
     let mut out = vec![];
     for (n, l) in lines.enumerate() {
         if l.trim().is_empty() {
@@ -239,9 +243,73 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
                 .parse()
                 .map_err(|e| format!("keys_in_cell: {e}"))?,
             units_reaching: get(cu).to_string(),
+            vs_line: cl.map(|i| get(i).trim().to_string()).unwrap_or_default(),
         });
     }
     Ok(out)
+}
+
+/// The OFFSET of a cell (TRICKS 64: need follows o, not D or r): o = r - (E + D - s), the numerator rank above the
+/// reference line r = E + D - s. The shift s is DATA: the spec's `offset_shift`, else read from the cell table's rows
+/// labelled `on` the line (E + D - r on every such row of the node; rows that disagree are an error, never averaged).
+/// Ok(None) = no reference line for this node (no `on` row and no spec value): the cells are shown without an offset.
+pub fn offset_shift(
+    rows: &[CellRow],
+    node: &str,
+    spec_shift: Option<i64>,
+) -> Result<Option<(i64, String)>, String> {
+    if let Some(s) = spec_shift {
+        return Ok(Some((s, "spec offset_shift".into())));
+    }
+    let on: std::collections::BTreeSet<i64> = rows
+        .iter()
+        .filter(|c| c.node == node && c.vs_line == "on")
+        .map(|c| c.e + c.d - c.r)
+        .collect();
+    match on.len() {
+        0 => Ok(None),
+        1 => Ok(on
+            .first()
+            .map(|&s| (s, "cell table rows 'on' the line (E + D - r)".to_string()))),
+        _ => Err(format!(
+            "cell table: the rows of {node} 'on' the line disagree on E + D - r: {on:?}"
+        )),
+    }
+}
+
+/// One TRIPWIRE master of a node (TRICKS 64; data of the spec, never of the code): its need on a cell above its known
+/// depth q by more than `allowance` orders is reported as `fired` beside the rank (the node's own argument says what a
+/// fired tripwire proves; the verdict stays the rank's).
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Tripwire {
+    pub master: String,
+    #[serde(default)]
+    pub allowance: i64,
+}
+
+/// The tripwire records of a cell from a rank record (`cell_needs`, `cell_depths`; `cell_beyond` for q when an older
+/// rank binary wrote no depths). need = null: the master does not occur on the cell (never fired).
+pub fn tripwire_records(wires: &[Tripwire], rank: &Value) -> Vec<Value> {
+    wires
+        .iter()
+        .map(|w| {
+            let need = rank["cell_needs"][&w.master].as_i64();
+            let q = rank["cell_depths"][&w.master].as_i64().or_else(|| {
+                rank["cell_beyond"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|b| b["master"] == w.master.as_str())
+                    .and_then(|b| b["q"].as_i64())
+            });
+            let fired = match (need, q) {
+                (Some(n), Some(q)) => json!(n > q.saturating_add(w.allowance)),
+                (None, _) => json!(false),
+                (Some(_), None) => Value::Null,
+            };
+            json!({"master": w.master, "need": need, "q": q, "allowance": w.allowance, "fired": fired})
+        })
+        .collect()
 }
 
 /// The keys of cell (D, r): line slots at power 1 + dots (sum D, each <= `max_dots`), ISP slots at power <= 0 (sum -r).
@@ -331,6 +399,9 @@ pub struct NodeSpec {
     pub isps: Vec<usize>,
     #[serde(default = "four")]
     pub max_dots_per_line: i64,
+    /// Tripwire masters of the node (data; TRICKS 64), reported per cell.
+    #[serde(default)]
+    pub tripwires: Vec<Tripwire>,
 }
 
 fn four() -> i64 {
@@ -357,6 +428,9 @@ pub struct PoleReportSpec {
     pub r_max: Option<i64>,
     #[serde(default)]
     pub include_margin: bool,
+    /// The shift s of the offset o = r - (E + D - s) (absent = read from the cell table's rows 'on' the line).
+    #[serde(default)]
+    pub offset_shift: Option<i64>,
     pub package: PathBuf,
     pub relations: Option<PathBuf>,
     pub library: Bound,
@@ -475,6 +549,8 @@ pub struct CellOutcome {
     pub node: String,
     pub d: i64,
     pub r: i64,
+    /// o = r - (E + D - s) (None: no reference line for the node).
+    pub offset: Option<i64>,
     pub keys: usize,
     pub line: &'static str,
     pub outside_box: bool,
@@ -498,6 +574,8 @@ pub struct CellOutcome {
     pub blocks: Vec<Value>,
     /// Per request of the cell: keys in the union, combinations, trace ops, plan max need, max series length.
     pub requests: Vec<Value>,
+    /// The node's tripwire masters on this cell: need, q, allowance, fired.
+    pub tripwires: Vec<Value>,
 }
 
 fn rank_of(
@@ -685,6 +763,8 @@ struct CellCtx<'a> {
     depths: &'a DataFile,
     deps: &'a Option<DataFile>,
     dir: &'a Path,
+    /// The node's offset shift s (o = r - (E + D - s)), None = no reference line.
+    shift: Option<i64>,
 }
 
 /// One group of keys combined at random: the whole cell (union route) or one block.
@@ -885,6 +965,7 @@ fn run_cell(
         node: ns.node.clone(),
         d: c.d,
         r: c.r,
+        offset: ctx.shift.map(|s| c.r - (c.e + c.d - s)),
         keys: keys.len(),
         line,
         outside_box: c.r > c.box_r_max,
@@ -908,6 +989,7 @@ fn run_cell(
         },
         blocks: vec![],
         requests: vec![],
+        tripwires: vec![],
     };
     if keys.len() as u64 != c.keys_in_cell {
         out.verdict = format!(
@@ -1002,6 +1084,7 @@ fn run_cell(
         }
         out.rank = rank["rank"].clone();
         out.pivots = rank["pivots"].clone();
+        out.tripwires = tripwire_records(&ns.tripwires, &rank);
         out.rank_kind = rank["rank_kind"].as_str().unwrap_or("").to_string();
         let v = rank["verdict"].as_str().unwrap_or("").to_string();
         out.verdict = if groups.iter().any(|g| !g.stable) {
@@ -1131,7 +1214,15 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         None => None,
     };
     let mut outcomes: Vec<CellOutcome> = vec![];
+    let mut shifts: BTreeMap<String, Option<(i64, String)>> = BTreeMap::new();
     for ns in &spec.nodes {
+        shifts.insert(
+            ns.node.clone(),
+            offset_shift(&rows, &ns.node, spec.offset_shift)?,
+        );
+    }
+    for ns in &spec.nodes {
+        let shift = shifts.get(&ns.node).cloned().flatten().map(|x| x.0);
         let mut cells: Vec<(&CellRow, &'static str)> = rows
             .iter()
             .filter(|c| c.node == ns.node)
@@ -1163,6 +1254,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 depths: &depths,
                 deps: &deps,
                 dir: &dir,
+                shift,
             };
             let out = run_cell(&ctx, ns, c, line)?;
             outcomes.push(out);
@@ -1223,10 +1315,18 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             } else {
                 v["verdict"].as_str().unwrap_or("").to_string()
             };
+            let offset = shifts
+                .get(node)
+                .cloned()
+                .flatten()
+                .zip(rows.iter().find(|c| c.node == node).map(|c| c.e))
+                .map(|((s, _), e)| r - (e + d - s))
+                .or(v["offset"].as_i64());
             outcomes.push(CellOutcome {
                 node: v["node"].as_str().unwrap_or("").to_string(),
-                d: v["d"].as_i64().unwrap_or(-1),
-                r: v["r"].as_i64().unwrap_or(-1),
+                d,
+                r,
+                offset,
                 keys: v["keys"].as_u64().unwrap_or(0) as usize,
                 line,
                 outside_box: v["outside_box"].as_bool().unwrap_or(false),
@@ -1246,6 +1346,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 package: v["package"].as_str().unwrap_or("").to_string(),
                 blocks: v["blocks"].as_array().cloned().unwrap_or_default(),
                 requests: v["requests"].as_array().cloned().unwrap_or_default(),
+                tripwires: v["tripwires"].as_array().cloned().unwrap_or_default(),
             });
         }
     }
@@ -1266,12 +1367,24 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             && !mine.is_empty()
             && mine.iter().all(|o| o.verdict == "count zero: yes");
         let any_no = mine.iter().any(|o| o.verdict.starts_with("count zero: no"));
+        // TRICKS 59: a cell touching an unmapped terminal is never counted (neither zero nor non-zero)
+        let incomplete: Vec<String> = mine
+            .iter()
+            .filter(|o| o.verdict.starts_with("incomplete"))
+            .map(|o| format!("D{}r{}", o.d, o.r))
+            .collect();
         let verdict = if all_zero {
             "count zero on all cells up to top(D): yes".to_string()
         } else if any_no && !upper {
             "count zero on all cells up to top(D): no".to_string()
         } else if any_no {
             "count zero on all cells up to top(D): not decided (naive upper bound > 0: no dependence table)".to_string()
+        } else if !incomplete.is_empty() {
+            format!(
+                "count zero on all cells up to top(D): not decided ({} cell(s) incomplete: unmapped terminal, never counted: {})",
+                incomplete.len(),
+                incomplete.join(", ")
+            )
         } else {
             "count zero on all cells up to top(D): not decided (cells not decided or not run)"
                 .to_string()
@@ -1282,6 +1395,10 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         "depths_sha256": spec.depths.sha256, "dependences_sha256": spec.dependences.as_ref().map(|d| &d.sha256),
         "score": {"level": "composed", "form": "rank", "claim": if upper {"objective_upper_bound"} else {"objective"}},
         "cell_definition": "cells (D, r) with r <= top(D); top(D) = top_r_at_D_if_n4hint of the cell table when numeric, else top_r_exact (exact n4, TRICKS 49), else top_r_at_D; never clipped by box_r_max (a main-line cell above it is shown as outside BOXDEF v3); margin = cells between top(D) and top_r_at_D (TRICKS 45, coordinator ruling 2026-11-17)",
+        "offsets": shifts.iter().map(|(n, x)| (n.clone(), match x {
+            Some((s, src)) => json!({"definition": "o = r - (E + D - s)", "s": s, "source": src}),
+            None => json!({"definition": "o = r - (E + D - s)", "s": null, "source": "no reference line (no row 'on' the line, no spec offset_shift)"}),
+        })).collect::<BTreeMap<_, _>>(),
         "nodes": nodes, "cells": outcomes});
     let tmp = dir.join("pole_report.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&report).expect("json"))
@@ -1292,7 +1409,34 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
     Ok(md)
 }
 
-/// The markdown table of a report.
+/// The tripwire column of one cell: `master need/q` per wire, `FIRED` where the need passes q + allowance.
+fn tripwire_text(c: &Value) -> String {
+    let w: Vec<String> = c["tripwires"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|t| {
+            let need = t["need"]
+                .as_i64()
+                .map_or("-".to_string(), |n| n.to_string());
+            let q = t["q"].as_i64().map_or("?".to_string(), |n| n.to_string());
+            let mark = match t["fired"].as_bool() {
+                Some(true) => " FIRED",
+                Some(false) => "",
+                None => " (q unknown)",
+            };
+            format!("{} {need}/{q}{mark}", t["master"].as_str().unwrap_or(""))
+        })
+        .collect();
+    if w.is_empty() {
+        "-".into()
+    } else {
+        w.join("; ")
+    }
+}
+
+/// The markdown table of a report: per node, cells by OFFSET o = r - (E + D - s) (TRICKS 64), then D; the tripwire
+/// masters beside the true and the naive rank; a cell touching an unmapped terminal is "incomplete", never counted.
 pub fn markdown(report: &Value) -> String {
     let mut s = String::from("# Pole report (rank of rho per cell)\n\n");
     s.push_str(&format!(
@@ -1301,10 +1445,26 @@ pub fn markdown(report: &Value) -> String {
         report["cell_definition"].as_str().unwrap_or("")
     ));
     for (n, v) in report["nodes"].as_object().into_iter().flatten() {
-        s.push_str(&format!("- **{n}**: {}\n", v.as_str().unwrap_or("")));
+        let off = &report["offsets"][n];
+        s.push_str(&format!(
+            "- **{n}**: {} (offset o = r - (E + D - s), s = {} from {})\n",
+            v.as_str().unwrap_or(""),
+            off["s"],
+            off["source"].as_str().unwrap_or("-")
+        ));
     }
-    s.push_str("\n| node | cell | line | keys | comb. | rank | naive rank | surviving directions | verdict | CPU-s | peak GB | max need | max series |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
-    for c in report["cells"].as_array().into_iter().flatten() {
+    s.push_str("\n| node | o | cell | line | keys | verdict (TRUE rank) | true rank | naive rank | tripwires need/q | surviving directions | comb. | CPU-s | peak GB | max need | max series |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+    let mut cells: Vec<&Value> = report["cells"].as_array().into_iter().flatten().collect();
+    cells.sort_by_key(|c| {
+        (
+            c["node"].as_str().unwrap_or("").to_string(),
+            c["offset"].as_i64().is_none(),
+            c["offset"].as_i64(),
+            c["d"].as_i64(),
+            c["r"].as_i64(),
+        )
+    });
+    for c in cells {
         let mut line = c["line"].as_str().unwrap_or("").to_string();
         if c["outside_box"] == true {
             line = format!(
@@ -1313,17 +1473,19 @@ pub fn markdown(report: &Value) -> String {
             );
         }
         s.push_str(&format!(
-            "| {} | D{}r{} | {} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
+            "| {} | {} | D{}r{} | {} | {} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
             c["node"].as_str().unwrap_or(""),
+            c["offset"].as_i64().map_or("-".to_string(), |o| format!("{o:+}")),
             c["d"],
             c["r"],
             line,
             c["keys"],
-            c["combinations"],
+            c["verdict"].as_str().unwrap_or(""),
             c["rank"],
             c["naive_rank"],
+            tripwire_text(c),
             c["pivots"],
-            c["verdict"].as_str().unwrap_or(""),
+            c["combinations"],
             c["cpu_seconds"].as_f64().unwrap_or(0.0),
             c["peak_gb"].as_f64().unwrap_or(0.0),
             c["max_plan_need"],
@@ -1382,5 +1544,104 @@ mod tests {
                   X\t12\t0\t3\t3\tsuperseded\t120\t5\t52\t3\n";
         let rows = read_cell_tops(t2).unwrap();
         assert_eq!((rows[0].top, rows[0].top_upper), (3, 3));
+    }
+
+    #[test]
+    fn offset_shift_from_the_rows_on_the_line_or_the_spec() {
+        // test data: a node with E = 12 whose line is r = E + D - 11 (rows 'on' at D0r1 and D1r2)
+        let t = "node\tE\tD\tr\ttop_r_at_D\tkeys_in_cell\tbox_r_max\tvs_old_line\tqcd_units_reaching\n\
+                 X\t12\t0\t0\t3\t1\t5\tbelow\t52\n\
+                 X\t12\t0\t1\t3\t8\t5\ton\t52\n\
+                 X\t12\t1\t2\t4\t432\t5\ton\t52\n\
+                 X\t12\t0\t3\t3\t120\t5\tabove\t52\n\
+                 Y\t13\t0\t2\t3\t36\t6\tabove\t9\n";
+        let rows = read_cell_tops(t).unwrap();
+        assert_eq!(rows[1].vs_line, "on");
+        let (sx, _) = offset_shift(&rows, "X", None).unwrap().unwrap();
+        assert_eq!(sx, 11);
+        // o = r - (E + D - s): D0r3 -> +2, D0r0 -> -1
+        assert_eq!(rows[3].r - (rows[3].e + rows[3].d - sx), 2);
+        assert_eq!(rows[0].r - (rows[0].e + rows[0].d - sx), -1);
+        // no row on the line and no spec value: no offset; the spec value wins over the table
+        assert_eq!(offset_shift(&rows, "Y", None).unwrap(), None);
+        assert_eq!(offset_shift(&rows, "Y", Some(9)).unwrap().unwrap().0, 9);
+        // rows that disagree are an error, never averaged
+        let bad = "node\tE\tD\tr\ttop_r_at_D\tkeys_in_cell\tbox_r_max\tvs_old_line\tqcd_units_reaching\n\
+                   X\t12\t0\t1\t3\t8\t5\ton\t52\n\
+                   X\t12\t1\t3\t4\t1440\t5\ton\t52\n";
+        assert!(offset_shift(&read_cell_tops(bad).unwrap(), "X", None).is_err());
+    }
+
+    #[test]
+    fn tripwires_need_against_depth_with_allowance() {
+        let wires = vec![
+            Tripwire {
+                master: "m8".into(),
+                allowance: 0,
+            },
+            Tripwire {
+                master: "m11".into(),
+                allowance: 0,
+            },
+            Tripwire {
+                master: "m137".into(),
+                allowance: 1,
+            },
+            Tripwire {
+                master: "absent".into(),
+                allowance: 0,
+            },
+            Tripwire {
+                master: "old".into(),
+                allowance: 0,
+            },
+        ];
+        let rank = json!({"cell_needs": {"m8": 5, "m11": 6, "m137": 3, "old": 4},
+            "cell_depths": {"m8": 5, "m11": 5, "m137": 2},
+            "cell_beyond": [{"master": "old", "need": 4, "q": 3}]});
+        let t = tripwire_records(&wires, &rank);
+        let fired: Vec<Value> = t.iter().map(|x| x["fired"].clone()).collect();
+        // m8 at its depth: not fired; m11 one above: fired; m137 one above with allowance 1: not fired; absent: not
+        // fired; "old" (no cell_depths entry, q from cell_beyond): fired
+        assert_eq!(
+            fired,
+            vec![
+                json!(false),
+                json!(true),
+                json!(false),
+                json!(false),
+                json!(true)
+            ]
+        );
+        assert_eq!(t[1]["need"], 6);
+        assert_eq!(t[1]["q"], 5);
+        assert_eq!(t[3]["need"], Value::Null);
+        // need known, q unknown: not decided (null), never "not fired"
+        let u = tripwire_records(&wires[..1], &json!({"cell_needs": {"m8": 9}}));
+        assert_eq!(u[0]["fired"], Value::Null);
+    }
+
+    #[test]
+    fn markdown_orders_cells_by_offset_and_shows_tripwires() {
+        let cell = |d: i64, r: i64, o: Option<i64>, v: &str| {
+            json!({"node": "X", "d": d, "r": r, "offset": o, "line": "main", "keys": 1, "verdict": v,
+                "rank": 0, "naive_rank": 0, "pivots": [], "combinations": 4, "cpu_seconds": 1.0, "peak_gb": 1.0,
+                "max_plan_need": 1, "max_series_length": 1,
+                "tripwires": [{"master": "m11", "need": 6, "q": 5, "allowance": 0, "fired": true}]})
+        };
+        let report = json!({"score": {"claim": "objective"}, "cell_definition": "test",
+            "offsets": {"X": {"s": 11, "source": "test"}},
+            "nodes": {"X": "count zero on all cells up to top(D): not decided (1 cell(s) incomplete: unmapped terminal, never counted: D0r2)"},
+            "cells": [cell(0, 3, Some(2), "count zero: yes"), cell(1, 0, Some(-2), "count zero: yes"),
+                      cell(0, 2, Some(1), "incomplete: unmapped terminal (R:9)"), cell(0, 1, Some(0), "count zero: yes")]});
+        let md = markdown(&report);
+        let order: Vec<usize> = ["| -2 | D1r0", "| +0 | D0r1", "| +1 | D0r2", "| +2 | D0r3"]
+            .iter()
+            .map(|k| md.find(k).unwrap_or_else(|| panic!("{k} missing in\n{md}")))
+            .collect();
+        assert!(order.windows(2).all(|w| w[0] < w[1]), "{md}");
+        assert!(md.contains("m11 6/5 FIRED"), "{md}");
+        assert!(md.contains("incomplete: unmapped terminal (R:9)"));
+        assert!(md.contains("s = 11"));
     }
 }
