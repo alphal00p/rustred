@@ -3415,6 +3415,8 @@ fn chain_walk() {
     let mut seen: std::collections::BTreeSet<Vec<i32>> = std::collections::BTreeSet::new();
     let mut frontier = vec![start.clone()];
     seen.insert(start.clone());
+    // the keys served by a record without rhs (coverage stub / bounded recipe): listed (the engine needs their relations)
+    let mut stub_keys: BTreeMap<String, Vec<Vec<i32>>> = BTreeMap::new();
     let (mut depth, mut open, mut stub_steps, mut used, mut terminal_hits, mut lower) = (
         0usize,
         Vec::new(),
@@ -3464,6 +3466,7 @@ fn chain_walk() {
                     match ent {
                         None => {
                             *stub_steps.entry(format!("{tname}#{lab}")).or_default() += 1;
+                            stub_keys.entry(format!("{tname}#{lab}")).or_default().push(k.clone());
                         }
                         Some((tg, pats)) => {
                             *used.entry(format!("{tname}#{lab}")).or_default() += 1;
@@ -3529,7 +3532,7 @@ fn chain_walk() {
     let res = json!({"start": start, "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
         "keys_reached_in_top_sector": seen.len(), "depth": depth, "complete": frontier.is_empty(), "terminal_hits": terminal_hits,
         "terms_leaving_the_sector": lower, "records_used": used.len(), "records_used_top": used_top,
-        "stub_steps": stub_steps, "open_keys": open});
+        "stub_steps": stub_steps, "stub_keys": stub_keys, "open_keys": open});
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!(
         "chain walk: {} keys, depth {depth}, {} records, stub steps {:?}, open {}",
