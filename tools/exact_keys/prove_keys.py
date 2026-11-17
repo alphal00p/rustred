@@ -97,6 +97,8 @@ def main():
     ap.add_argument('--rules', default='', help='comma list: only these rules')
     ap.add_argument('--max-keys-per-rule', type=int, default=0, help='> 0: only the first N jobs of each rule (measurement)')
     ap.add_argument('--stop-file', default='', help='extra stop flag to honour (e.g. a quota PAUSE)')
+    ap.add_argument('--kernel-arg', action='append', default=[],
+                    help='extra kernel argument, repeatable (e.g. --kernel-arg=--symmetry-group --kernel-arg=FILE)')
     a = ap.parse_args()
     out = a.out
     for d in ('rules', 'results', 'chunks'):
@@ -156,7 +158,7 @@ def main():
         os.makedirs(wd, exist_ok=True)
         env = dict(os.environ, TMPDIR=wd)
         cmd = [a.rr_proof, '--mode', 'instance-span', '--table', a.table, '--rule', str(r), '--offset', str(ident['offset']),
-               '--keys', stem + '.keys', '--family', a.family]
+               '--keys', stem + '.keys', '--family', a.family] + a.kernel_arg
         t0 = time.time()
         p = subprocess.Popen(['/run/current-system/sw/bin/time', '-f', '%e %M', '-o', stem + '.time'] + cmd,
                              stdout=subprocess.PIPE, stderr=open(stem + '.err', 'w'), cwd=wd, env=env, text=True,
