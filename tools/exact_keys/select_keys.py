@@ -75,7 +75,8 @@ def main():
     jobs = collections.defaultdict(set)
     summ = {}
     for r in rules:
-        name, s = r['name'], {'rule': r['rule'], 'name': name, 'sources': {}}
+        name = r['name']
+        s = {'rule': r['rule'], 'name': name, 'sources': {}}
         for w in r['want']:
             parts = w.split(':')
             tag = parts[0]
