@@ -1087,19 +1087,41 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         }
         extra.sort_by_key(|v| (v["d"].as_i64(), v["r"].as_i64()));
         for v in extra {
+            // a cell the CURRENT table still lists (not selected in this run) keeps its line and verdict; only a cell the
+            // table no longer lists is "dropped"
+            let (d, r) = (v["d"].as_i64().unwrap_or(-1), v["r"].as_i64().unwrap_or(-1));
+            let node = v["node"].as_str().unwrap_or("");
+            let in_table = rows
+                .iter()
+                .find(|c| c.node == node && c.d == d && c.r == r)
+                .map(|c| {
+                    if c.r <= c.top {
+                        "main"
+                    } else if c.r <= c.top_upper {
+                        "margin"
+                    } else {
+                        "dropped"
+                    }
+                });
+            let line: &'static str = in_table.unwrap_or("dropped");
+            let verdict = if line == "dropped" {
+                format!(
+                    "outside the exact tops, computed anyway: {}",
+                    v["verdict"].as_str().unwrap_or("")
+                )
+            } else {
+                v["verdict"].as_str().unwrap_or("").to_string()
+            };
             outcomes.push(CellOutcome {
                 node: v["node"].as_str().unwrap_or("").to_string(),
                 d: v["d"].as_i64().unwrap_or(-1),
                 r: v["r"].as_i64().unwrap_or(-1),
                 keys: v["keys"].as_u64().unwrap_or(0) as usize,
-                line: "dropped",
+                line,
                 outside_box: v["outside_box"].as_bool().unwrap_or(false),
                 units_reaching: v["units_reaching"].as_str().unwrap_or("").to_string(),
                 combinations: v["combinations"].as_u64().unwrap_or(0) as usize,
-                verdict: format!(
-                    "outside the exact tops, computed anyway: {}",
-                    v["verdict"].as_str().unwrap_or("")
-                ),
+                verdict,
                 rank: v["rank"].clone(),
                 pivots: v["pivots"].clone(),
                 rank_kind: v["rank_kind"].as_str().unwrap_or("").to_string(),
