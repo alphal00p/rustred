@@ -348,6 +348,9 @@ pub struct PoleReportSpec {
     /// Which main-line cells to run (None = all); margin cells only with `include_margin`.
     #[serde(default)]
     pub d_max: Option<i64>,
+    /// An explicit list of cells [D, r] to run (with d_max / r_max still applied); absent = every selected cell.
+    #[serde(default)]
+    pub cell_list: Option<Vec<(i64, i64)>>,
     #[serde(default)]
     pub r_max: Option<i64>,
     #[serde(default)]
@@ -482,6 +485,8 @@ pub struct CellOutcome {
     pub jobs: Vec<String>,
     /// `union` or `blocks`, with the block structure (keys per block, label prefix, weight stream, combinations).
     pub route: String,
+    /// The package the cell was computed on (library.json sha256): cells of different packages never enter one verdict.
+    pub package: String,
     pub blocks: Vec<Value>,
     /// Per request of the cell: keys in the union, combinations, trace ops, plan max need, max series length.
     pub requests: Vec<Value>,
@@ -539,6 +544,25 @@ fn rank_of_with(
         ));
     }
     read_json(&out.display().to_string()).map(|x| x.0)
+}
+
+/// "boxed node N key I(..)" from an engine refusal text ("... failed for boxed node N: ... could not solve the key I(..)"),
+/// or None.
+pub fn stop_key(message: &str) -> Option<String> {
+    let node = message
+        .split("boxed node ")
+        .nth(1)
+        .and_then(|s| s.split(|c: char| c == ':' || c.is_whitespace()).next())
+        .map(str::to_string);
+    let key = message.split("the key ").nth(1).and_then(|s| {
+        let end = s.find(')')?;
+        s.starts_with("I(").then(|| s[..=end].to_string())
+    });
+    match (node, key) {
+        (Some(n), Some(k)) => Some(format!("boxed node {n} key {k}")),
+        (None, Some(k)) => Some(format!("key {k}")),
+        _ => None,
+    }
 }
 
 /// What one cell's run needs from the campaign.
@@ -711,7 +735,15 @@ fn group_job(
         return Ok(Err(format!("NOT_CERTIFIED: {}", f.to_json())));
     }
     if let Some(q) = checked.requests.iter().find(|q| !q.outcome.is_decided()) {
-        return Ok(Err(format!("{}: {}", q.label, q.outcome.word())));
+        // a request that stopped at a key the package cannot reduce: name the boxed node and the key (acceptance cases)
+        let stop = match &q.outcome {
+            tadicjob::RequestOutcome::NotDecided { message, .. } => stop_key(message),
+            _ => None,
+        };
+        return Ok(Err(match stop {
+            Some(s) => format!("{}: {} at {s}", q.label, q.outcome.word()),
+            None => format!("{}: {}", q.label, q.outcome.word()),
+        }));
     }
     out.jobs.push(content.clone());
     g.results
@@ -757,6 +789,7 @@ fn run_cell(
         max_plan_need: Value::Null,
         max_series_length: Value::Null,
         jobs: vec![],
+        package: spec.library.sha256.clone(),
         route: if block.is_some() {
             "blocks".into()
         } else {
@@ -1001,7 +1034,12 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 }
             })
             .filter(|(c, _)| {
-                spec.d_max.is_none_or(|x| c.d <= x) && spec.r_max.is_none_or(|x| c.r <= x)
+                spec.d_max.is_none_or(|x| c.d <= x)
+                    && spec.r_max.is_none_or(|x| c.r <= x)
+                    && spec
+                        .cell_list
+                        .as_ref()
+                        .is_none_or(|l| l.contains(&(c.d, c.r)))
             })
             .collect();
         cells.sort_by_key(|(c, _)| (c.keys_in_cell, c.d, c.r));
@@ -1039,7 +1077,11 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 v["d"].as_i64().unwrap_or(-1),
                 v["r"].as_i64().unwrap_or(-1),
             );
-            if !listed.contains(&key) && spec.nodes.iter().any(|n| n.node == key.0) {
+            // only cells of THIS package (a cell record of another package is never mixed into the verdict)
+            if !listed.contains(&key)
+                && spec.nodes.iter().any(|n| n.node == key.0)
+                && v["package"].as_str() == Some(spec.library.sha256.as_str())
+            {
                 extra.push(v);
             }
         }
@@ -1068,6 +1110,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 max_series_length: v["max_series_length"].clone(),
                 jobs: vec![],
                 route: v["route"].as_str().unwrap_or("").to_string(),
+                package: v["package"].as_str().unwrap_or("").to_string(),
                 blocks: v["blocks"].as_array().cloned().unwrap_or_default(),
                 requests: v["requests"].as_array().cloned().unwrap_or_default(),
             });
@@ -1173,6 +1216,13 @@ mod tests {
         assert_eq!(k.iter().filter(|&&x| x == 2).count(), 1);
         // the dot cap: 5 dots on 2 lines with at most 4 each -> (4,1), (3,2), (2,3), (1,4)
         assert_eq!(cell_keys(3, &[0, 1], &[2], 5, 0, 4).len(), 4);
+    }
+
+    #[test]
+    fn stop_key_is_read_from_an_engine_refusal() {
+        let m = "seeds [1]: recipe OUTSIDE_NO_RELATION failed for boxed node T9: recipe x could not solve the key I(1,5,-2) (recipe frame I(5,1,-2)): outside";
+        assert_eq!(stop_key(m).as_deref(), Some("boxed node T9 key I(1,5,-2)"));
+        assert_eq!(stop_key("nothing"), None);
     }
 
     #[test]
