@@ -423,7 +423,9 @@ pub struct ImprovePolicy {
     pub accept_equal: bool,
     /// TRANCHE YIELD STOP (implementer 2026-11-16): the run stops starting candidates once its yield (bytes saved per
     /// CPU-h, by the qualifying candidates so far) falls below `min_fraction` x the reference yield (the record's first
-    /// improve run that saved bytes, unless given); None = no yield stop.
+    /// improve run that saved bytes, unless given). DEFAULT NONE (interfaces/genchoice.md 5b, v1.7): a stop decides
+    /// which candidates are never tried, so it is written in the config (`"yield_stop": {}` = the documented values);
+    /// until v1.6 an absent key silently meant `Some(YieldStop::default())`.
     pub yield_stop: Option<YieldStop>,
     /// IMPROVE POLES (section 6): the pole objective instead of size (None = size). Targets = the rules whose own
     /// rule-scope score has a pole (worst first); candidates run single-case (`--descend open`); a fresh candidate is
@@ -443,6 +445,10 @@ pub struct YieldStop {
     pub reference_bytes_per_cpu_h: Option<f64>,
     /// No stop before this much CPU is spent in the run (noise of the first jobs).
     pub min_cpu_s: u64,
+    /// None (default) = the yield is CUMULATIVE over the run (all bytes saved / all CPU of its settled jobs). Some(N) =
+    /// SLIDING WINDOW: the most recently settled items whose summed CPU first reaches N CPU-s ([`window_totals`]).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_cpu_s: Option<u64>,
 }
 
 impl Default for YieldStop {
@@ -451,16 +457,57 @@ impl Default for YieldStop {
             min_fraction: 1.0 / 3.0,
             reference_bytes_per_cpu_h: None,
             min_cpu_s: 3600,
+            window_cpu_s: None,
         }
     }
 }
 
+impl YieldStop {
+    /// One line stating the effective stop (logged at every session start; `reference` with where it came from).
+    pub fn describe(&self, reference: Option<f64>, reference_from: &str) -> String {
+        let line = match reference {
+            Some(r) => format!(
+                "stop below {:.4} x {:.0} B/CPU-h ({reference_from}) = {:.0} B/CPU-h",
+                self.min_fraction,
+                r,
+                self.min_fraction * r
+            ),
+            None => format!("no reference yield ({reference_from}): never stops"),
+        };
+        let over = match self.window_cpu_s {
+            Some(w) => format!("sliding window of the last {w} CPU-s of settled items"),
+            None => "cumulative over the run".to_string(),
+        };
+        format!("yield stop: {line}; {over}; armed after {} CPU-s", self.min_cpu_s)
+    }
+}
+
+/// Bytes saved and CPU spent inside a sliding window: `settled` = (cpu_ms, gain bytes) of the settled items in settle
+/// order (oldest first); the window takes the newest items until their summed CPU reaches `window_ms` (all of them when
+/// they never do). Returns (bytes saved, cpu_ms) of the window.
+pub fn window_totals(settled: &[(u64, u64)], window_ms: u64) -> (u64, u64) {
+    let (mut saved, mut spent) = (0u64, 0u64);
+    for &(cpu, gain) in settled.iter().rev() {
+        if spent >= window_ms {
+            break;
+        }
+        spent = spent.saturating_add(cpu);
+        saved = saved.saturating_add(gain);
+    }
+    (saved, spent)
+}
+
 /// The reference yield of a record: bytes saved per CPU-h of its first improve run that saved bytes.
 pub fn reference_yield(rec: &ImproveRecord) -> Option<f64> {
+    reference_yield_run(rec).map(|x| x.0)
+}
+
+/// [`reference_yield`] with the run number it comes from.
+pub fn reference_yield_run(rec: &ImproveRecord) -> Option<(f64, u32)> {
     rec.runs.iter().filter(|r| r.mode == "improve" && r.spent_cpu_ms > 0).find_map(|r| {
         let b = r.totals.get("table_bytes_before")?.as_u64()?;
         let a = r.totals.get("table_bytes_after")?.as_u64()?;
-        (b > a).then(|| (b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6))
+        (b > a).then(|| ((b - a) as f64 / (r.spent_cpu_ms as f64 / 3.6e6), r.run))
     })
 }
 
@@ -532,7 +579,7 @@ impl Default for ImprovePolicy {
             subtree_max_cases: 64,
             cost: crate::economy::genchoice::CostModel::default(),
             accept_equal: false,
-            yield_stop: Some(YieldStop::default()),
+            yield_stop: None,
             poles: None,
         }
     }

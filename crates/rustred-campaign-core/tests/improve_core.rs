@@ -316,6 +316,38 @@ fn tranche_yield_stop_and_record_skips() {
     assert!(!yield_check(1, 60_000, Some(r), &y).1);
     assert!(!yield_check(100_000_000, 7_200_000, None, &y).1, "no reference: no stop");
     assert!(!yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1, "70 MB/CPU-h >= 66.7: go on");
+    assert_eq!(reference_yield_run(&rec), Some((200_000_000.0, 1)), "with the run it comes from");
+}
+
+/// interfaces/genchoice.md 5b (v1.7): NO yield stop unless the config writes one; `{}` = the documented values; the
+/// effective setting is one describable line; the sliding window takes the newest settled items up to its CPU.
+#[test]
+fn yield_stop_is_explicit_described_and_windowed() {
+    assert_eq!(ImprovePolicy::default().yield_stop, None, "an absent key is no stop (was Some(default) until v1.6)");
+    let absent: ImprovePolicy = serde_json::from_str("{}").unwrap();
+    assert_eq!(absent.yield_stop, None);
+    let explicit: ImprovePolicy = serde_json::from_str(r#"{"yield_stop": {}}"#).unwrap();
+    assert_eq!(explicit.yield_stop, Some(YieldStop::default()));
+    let w: ImprovePolicy = serde_json::from_str(r#"{"yield_stop": {"window_cpu_s": 7200, "min_cpu_s": 0}}"#).unwrap();
+    assert_eq!(w.yield_stop.as_ref().unwrap().window_cpu_s, Some(7200));
+    assert!(serde_json::from_str::<ImprovePolicy>(r#"{"yield_stop": {"windw": 1}}"#).is_err(), "unknown field refused");
+    let y = YieldStop::default();
+    let d = y.describe(Some(59_700_000.0), "reference = record run 1");
+    assert!(d.contains("0.3333 x 59700000") && d.contains("record run 1") && d.contains("cumulative over the run"), "{d}");
+    assert!(d.contains("armed after 3600 CPU-s"), "{d}");
+    let dw = YieldStop { window_cpu_s: Some(7200), ..YieldStop::default() }.describe(None, "no reference");
+    assert!(dw.contains("never stops") && dw.contains("sliding window of the last 7200 CPU-s"), "{dw}");
+    // window: (cpu_ms, gain) oldest first; the newest items until their CPU reaches the window
+    let settled = [(3_600_000u64, 100u64), (1_000_000, 0), (1_000_000, 0), (1_000_000, 5)];
+    assert_eq!(window_totals(&settled, 2_000_000), (5, 2_000_000), "the two newest reach 2,000 CPU-s");
+    assert_eq!(window_totals(&settled, 2_500_000), (5, 3_000_000), "a third item is needed to reach the window");
+    assert_eq!(window_totals(&settled, u64::MAX), (105, 6_600_000), "never reached: everything (= cumulative)");
+    assert_eq!(window_totals(&[], 1), (0, 0));
+    // the cumulative yield of these items stays above a line the window falls under
+    let r = 1_000_000.0;
+    let (ws, wc) = window_totals(&settled, 2_000_000);
+    assert!(yield_check(ws, wc, Some(r), &YieldStop { min_cpu_s: 0, ..y.clone() }).1, "window: 9 B/CPU-h < 1/3 MB");
+    assert!(!yield_check(105_000_000, 6_600_000, Some(r), &YieldStop { min_cpu_s: 0, ..y }).1, "cumulative: ~57 MB/CPU-h");
 }
 
 #[test]
