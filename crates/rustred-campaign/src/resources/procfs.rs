@@ -837,6 +837,44 @@ impl ProcRoot {
         ))
     }
 
+    /// procfix7 round 8b (item c'): the children of every thread of `pid`, each list read ONCE, whatever can be read
+    /// (for processes whose lists cannot hold a marked process: [`ProcRoot::children_all_threads_proven`]).
+    fn children_best_effort(&self, pid: u32) -> Vec<u32> {
+        let tids = self.tasks(pid).unwrap_or_else(|_| vec![pid]);
+        let mut out = Vec::new();
+        for t in tids {
+            if let Ok(k) = self.children_once(pid, &format!("{pid}/task/{t}/children")) {
+                out.extend(k);
+            }
+        }
+        out
+    }
+
+    /// procfix7 round 8b (item c'): is `pid` an ancestor of THIS process (the re-parent targets of its descendants)? The
+    /// chain is read once per process (pid and start time of each ancestor) and compared with the start time now.
+    fn is_own_ancestor(&self, pid: u32) -> bool {
+        static CHAIN: std::sync::OnceLock<Vec<(u32, u64)>> = std::sync::OnceLock::new();
+        let chain = CHAIN.get_or_init(|| {
+            let mut v = Vec::new();
+            let mut p = std::process::id();
+            for _ in 0..64 {
+                let Ok(st) = self.stat(p) else { break };
+                if st.ppid == 0 {
+                    break;
+                }
+                p = st.ppid;
+                match self.stat(p) {
+                    Ok(a) => v.push((p, a.start_ticks)),
+                    Err(_) => break,
+                }
+            }
+            v
+        });
+        chain
+            .iter()
+            .any(|&(a, start)| a == pid && self.stat(pid).is_ok_and(|st| st.start_ticks == start))
+    }
+
     /// One read of a children file.
     fn children_once(&self, pid: u32, rel: &str) -> ProcResult<Vec<u32>> {
         let b = self.read_file(Kind::Children, Some(pid), rel)?;
@@ -886,7 +924,21 @@ impl ProcRoot {
             }
             return Ok(out);
         }
-        let first = self.status(pid)?.threads()?;
+        let status = self.status(pid)?;
+        let first = status.threads()?;
+        // procfix7 round 8b (host step 1, item c'): a children list needs its PROOF only where it can hold a marked
+        // process. A marked process descends by fork from a job leader of ours, or was re-parented to a subreaper among
+        // its ancestors; a child's REAL uid is its parent's unless the child has the privilege to change it, so its
+        // possible parents have the real uid ours or 0 (root), or are ancestors of this supervisor (the re-parent
+        // targets). Any other process (another user's, e.g. a builder with hundreds of churning threads: 7 unverified /
+        // 3 unproven ends on the host) is read ONCE, best effort, never "unprovable".
+        let must_prove = match status.real_uid() {
+            Ok(u) => u == super::our_uid() || u == 0 || self.is_own_ancestor(pid),
+            Err(_) => true,
+        };
+        if !must_prove {
+            return Ok(self.children_best_effort(pid));
+        }
         let mut why = String::new();
         if first <= 1 {
             // procfix7 round 8 (gate12 G12-M1): a children list that keeps changing is "not proven yet" (try again)
@@ -1888,5 +1940,57 @@ mod tests {
         assert_eq!(f.hit(Kind::Stat, Some(42)), None);
         assert_eq!(f.hit(Kind::Stat, Some(42)), Some(Mode::Errno(libc::EIO)));
         assert!(Faults::parse("after_spawn:2").is_none());
+    }
+
+    /// procfix7 round 8b (host step 1, item c'): a children list needs its proof only where it can hold a marked
+    /// process. Two multi-threaded processes whose task list can never be proven (Threads: 3, two tasks listed): one of
+    /// ANOTHER user (real uid 4242) -> its lists are read once, best effort, Ok with its children; one of OUR real uid ->
+    /// Unreadable after the tries (a marked process could be on its lists).
+    #[test]
+    fn round8b_a_foreign_process_never_makes_the_walk_unprovable() {
+        let d = std::env::temp_dir().join(format!("rr-procfs-8b-{}-{}", me(), now_ticks()));
+        let mk = |pid: u32, ruid: u32, kids: &str| {
+            let p = d.join(pid.to_string());
+            for t in [pid, pid + 1] {
+                std::fs::create_dir_all(p.join(format!("task/{t}"))).unwrap();
+                std::fs::write(
+                    p.join(format!("task/{t}/stat")),
+                    format!("{t} (x) S 1 {pid} {pid} 0 -1 0 0 0 0 0 1 1 0 0 20 0 3 0 77 0 0\n"),
+                )
+                .unwrap();
+                std::fs::write(
+                    p.join(format!("task/{t}/children")),
+                    if t == pid { kids } else { "" },
+                )
+                .unwrap();
+            }
+            std::fs::write(
+                p.join("stat"),
+                format!("{pid} (x) S 1 {pid} {pid} 0 -1 0 0 0 0 0 1 1 0 0 20 0 3 0 77 0 0\n"),
+            )
+            .unwrap();
+            std::fs::write(
+                p.join("status"),
+                format!("Name:\tx\nUid:\t{ruid}\t{ruid}\t{ruid}\t{ruid}\nThreads:\t3\n"),
+            )
+            .unwrap();
+        };
+        let ours = crate::resources::our_uid();
+        let foreign = if ours == 4242 { 4343 } else { 4242 };
+        mk(500, foreign, "777 778 ");
+        mk(600, ours, "888 ");
+        let r = ProcRoot::at(&d);
+        let mut v = r.children_all_threads_proven(500).unwrap();
+        v.sort_unstable();
+        assert_eq!(
+            v,
+            vec![777, 778],
+            "another user's process: read once, never unprovable"
+        );
+        match r.children_all_threads_proven(600) {
+            Err(ProcError::Unreadable(w)) => assert!(w.contains("cannot be proven"), "{w}"),
+            other => panic!("our own unprovable process must stay Unreadable: {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
