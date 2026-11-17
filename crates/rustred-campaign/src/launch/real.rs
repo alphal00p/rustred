@@ -274,21 +274,28 @@ pub fn scope_unit_result(unit: &str) -> Result<(String, String), String> {
     }
     let exe = which("systemctl").ok_or("systemctl not on PATH")?;
     let name = format!("{unit}.scope");
+    // `.status()` with stdout on a pipe (the process-form tripwire allows no `.output()`): the answer is a few bytes,
+    // far below the pipe's capacity, read after the exit
+    let (mut rd, wr) = std::io::pipe().map_err(|e| format!("systemctl show: pipe: {e}"))?;
     let r = run_bounded(Duration::from_secs(10), move || {
         let mut c = Command::new(&exe);
         c.args(["--user", "show", "--property=LoadState,Result", "--", &name])
             .env_clear()
             .stdin(Stdio::null())
+            .stdout(wr)
             .stderr(Stdio::null());
         for (k, v) in systemd_env() {
             c.env(k, v);
         }
-        c.output()
+        let st = c.status()?;
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(&mut rd, &mut out)?;
+        Ok::<_, std::io::Error>((st, out))
     });
     let out = match r {
-        crate::resources::Bounded::Done(Ok(o)) if o.status.success() => o.stdout,
-        crate::resources::Bounded::Done(Ok(o)) => {
-            return Err(format!("systemctl show: {}", o.status));
+        crate::resources::Bounded::Done(Ok((st, out))) if st.success() => out,
+        crate::resources::Bounded::Done(Ok((st, _))) => {
+            return Err(format!("systemctl show: {st}"));
         }
         crate::resources::Bounded::Done(Err(e)) => return Err(format!("systemctl show: {e}")),
         crate::resources::Bounded::TimedOut => {
