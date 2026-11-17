@@ -926,6 +926,73 @@ def cmd_classes(a):
     return 0
 
 
+# --------------------------------------------------------------------------------------------------------------- lanefile
+def cmd_lanefile(a):
+    """The per-rule liveness + first-match count file for the per-key proof lane: every record the exactness step could not bind
+    to a whole-domain proof (the run's live/selected.json), with its identity (table index, dispatch position, target + rhs hash),
+    evidence class, liveness in the region and its BASIS, and its first-match distinct keys per shell D + r where computed.
+    Bases: 'counted' (record_first_match_counts on the run's sources); 'helper exact count 0, record before the first changed rule'
+    (first-match sets of records before every changed rule are those of the reference table: earlier dropped records are never
+    first match); 'record_liveness' (the run's liveness step); otherwise 'pending'."""
+    run = a.run; env = run_env(run); N = env['cfg_node']
+    sel = json.load(open(os.path.join(run, 'live', 'selected.json')))
+    pos = {json.loads(l)['position']: json.loads(l) for l in open(os.path.join(run, 'prep', N + '.positions.jsonl'))}
+    ex = {}
+    for l in open(os.path.join(run, 'exact', N + '.exact.jsonl')):
+        r = json.loads(l); ex[(r['file'], r['table_index'])] = r
+    ref = json.load(open(a.ref_counts)) if a.ref_counts else {}
+    counted = {}
+    for f in sorted(glob.glob(a.counts)):
+        for l in open(f):
+            try:
+                x = json.loads(l)
+            except ValueError:
+                continue
+            counted[x['position']] = x
+    runlive = {}
+    for f in sorted(glob.glob(os.path.join(run, 'live', 'live.*.jsonl'))):
+        for l in open(f):
+            try:
+                x = json.loads(l)
+            except ValueError:
+                continue
+            runlive[x['position']] = x
+    rows, tally = [], {}
+    for p in sorted(sel):
+        q = pos[p]; r = ex[(q['file'], q['table_index'])]; dp = r['dispatch_position']
+        hc = ref.get(str(dp)) if dp is not None else None
+        row = {'position': p, 'file': q['file'], 'table_index': q['table_index'], 'dispatch_position': dp, 'target': r['target'],
+               'target_rhs_sha256': r['target_rhs_sha256'], 'bytes': r['bytes'], 'evidence_class': r['class'], 'evidence_category': r['category'],
+               'reference_fm_count': None if hc is None else int(hc), 'region': env['cfg_region']}
+        c = counted.get(p)
+        if c is not None and c['live'] == 'live' and 'fm_keys' in c:
+            row.update(liveness='live', basis='counted', witness=c.get('witness'), fm_keys=c['fm_keys'], fm_keys_by_shell=c['fm_keys_by_shell'],
+                       fm_count_complete=c['fm_count_complete'])
+        elif c is not None and c['live'] in ('dead', 'undecided'):
+            row.update(liveness=c['live'], basis='counted' if c['live'] == 'dead' else 'record_liveness budget: ' + str(c.get('why')),
+                       fm_keys=0 if c['live'] == 'dead' else None)
+        elif hc is not None and int(hc) == 0 and q['table_index'] < a.first_changed:
+            row.update(liveness='dead', basis='helper exact count 0, record before the first changed rule %d' % a.first_changed, fm_keys=0)
+        elif p in runlive and runlive[p]['live'] in ('live', 'dead'):
+            row.update(liveness=runlive[p]['live'], basis='record_liveness (run step)', witness=runlive[p].get('witness'))
+        else:
+            row.update(liveness='pending', basis='counting running')
+        rows.append(row); tally[row['liveness']] = tally.get(row['liveness'], 0) + 1
+    with open(a.out + '.tmp', 'w') as g:
+        for row in rows:
+            g.write(json.dumps(row) + '\n')
+    os.replace(a.out + '.tmp', a.out)
+    summ = {'schema': 'lane-parametric.liveness-for-exact.v1', 'node': N, 'region': env['cfg_region'], 'utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+            'status': 'partial' if tally.get('pending') else 'complete', 'records': len(rows), 'by_liveness': tally,
+            'live_records_fm_keys_total': sum(r.get('fm_keys') or 0 for r in rows if r['liveness'] == 'live'),
+            'candidate_sha256': env['FC_CAND_SHAS'], 'file': a.out, 'file_sha256': sha256_file(a.out),
+            'reference_counts': a.ref_counts, 'reference_counts_sha256': sha256_file(a.ref_counts) if a.ref_counts else None,
+            'counting': 'parametric::prune::record_first_match_counts (harness PARAMETRIC_LIVENESS_COUNTS=1), the same model as the certificate (engine 4895ee68, G5 reduced)',
+            'counts_unit': 'distinct keys of the region whose first match is the record, per shell D + r (fm_keys_by_shell)'}
+    dump(summ, a.out + '.summary.json'); print(json.dumps(summ))
+    return 0
+
+
 # ------------------------------------------------------------------------------------------------------ summary / deliver
 STEPS = ['prep', 'cert', 'term', 'b1', 'exact', 'imp_plain', 'imp_shared', 'live', 'fm', 'one', 'deliver']
 
@@ -1185,6 +1252,8 @@ def main():
     p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('classes'); p.add_argument('--run', required=True); p.add_argument('--deliver', default=''); p.add_argument('--counts', default='')
     p.add_argument('--open-lane', default='exact162')
+    p = sp.add_parser('lanefile'); p.add_argument('--run', required=True); p.add_argument('--counts', required=True); p.add_argument('--ref-counts', default='')
+    p.add_argument('--first-changed', type=int, required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('summary'); p.add_argument('--run', required=True); p.add_argument('--state', required=True)
     p = sp.add_parser('deliver'); p.add_argument('--run', required=True); p.add_argument('--out', required=True)
