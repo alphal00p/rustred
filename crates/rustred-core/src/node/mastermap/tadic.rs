@@ -17,7 +17,7 @@
 //!
 //! The DAG has no recorded erasures (no zero decision on a weight). Its only zero decisions are the rule terms whose
 //! integral lies outside the family support (an ISP in a denominator): `reduce_mod` drops them after testing the
-//! coefficient at two generic values of `d`; here each dropped coefficient is checked to be EXACTLY zero over Q(d)
+//! coefficient with its exact-in-d test (`Expr::vanishes_in_d`); here each dropped coefficient is re-checked EXACTLY zero over Q(d)
 //! at the rule point (else the request fails). Rule applicability (case equations, exception conjunctions) is the
 //! table's responsibility and is decided by the same `find_rule` as `reduce_mod`.
 //!
@@ -32,7 +32,7 @@ use symbolica::domains::finite_field::PrimeIteratorU64;
 
 use super::super::replay::arith;
 use super::super::replay::expr::{Expr, Node};
-use super::{EXCEPTION_D, Key, Table, at, key_text};
+use super::{Key, Table, at, key_text};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::reduction::ordered_reduction::coefficient_valuation;
 use crate::reduction::{TadicSeries, expand_coefficient};
@@ -424,7 +424,6 @@ impl Table {
         }
         let mut uncovered: Vec<Key> = vec![];
         let mut vanishing: Vec<(u32, usize, Vec<i64>)> = vec![];
-        let gen_d = EXCEPTION_D;
         for &r in seed_ids.iter().flatten() {
             let mut stack: Vec<(u32, usize)> = vec![(r, 0)];
             while let Some((u, ci)) = stack.pop() {
@@ -457,7 +456,9 @@ impl Table {
                                     let k = at(&self.rules[ri].rhs_pats[ti], &pt);
                                     if (0..n).any(|i| !self.mask[i] && k[i] > 0) {
                                         let e = &self.rules[ri].rhs_expr.as_ref().expect("parsed")[ti];
-                                        if !gen_d.iter().all(|d| e.is_zero_at(&pt, *d).unwrap_or(false)) {
+                                        // the same exact-in-d test as `reduce_mod` (batch 11, b42390d6); the
+                                        // dropped term is re-checked EXACTLY zero over Q(d) below
+                                        if !e.vanishes_in_d(&pt).unwrap_or(false) {
                                             return Err(typed(
                                                 "TADIC_TABLE_INVALID",
                                                 format!(
@@ -566,7 +567,7 @@ impl Table {
                 return Err(typed(
                     "TADIC_ERASURE_FAILED",
                     format!(
-                        "rule {ri} term {ti}: an outside-support term dropped as zero (two generic d) is nonzero over Q(d) at the rule point"
+                        "rule {ri} term {ti}: an outside-support term dropped as zero (vanishes_in_d) is nonzero over Q(d) at the rule point"
                     ),
                 ));
             }
