@@ -347,6 +347,10 @@ pub struct RuleFilter {
     /// carry huge coefficients on few monomials: rule 7181, 210.7 MB on 3,195 monomials, regenerates as a complete
     /// 17.9 MB sub-table of 1.0 M monomials) or `use_cost` (the repair flow's cost model, `cost`).
     pub by: RankBy,
+    /// Rule indices never targeted (e.g. records known DEAD: never first match in the statement's region; they are
+    /// dropped at the final step instead of improved).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -381,6 +385,7 @@ impl Default for RuleFilter {
             largest: Some(20),
             min_monomials: None,
             by: RankBy::Monomials,
+            exclude: vec![],
         }
     }
 }
@@ -468,6 +473,7 @@ pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePo
     let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     idx.into_iter()
+        .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
         .filter(|&i| p.filter.min_monomials.is_none_or(|m| rules[i].monomials >= m))
         .take(p.filter.largest.unwrap_or(usize::MAX))
         .filter(|&i| {
@@ -535,6 +541,7 @@ pub fn targets(
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     let idx: Vec<usize> = idx
         .into_iter()
+        .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
         .filter(|&i| {
             p.filter
                 .min_monomials

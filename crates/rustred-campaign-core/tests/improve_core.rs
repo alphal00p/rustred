@@ -92,6 +92,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
             largest: Some(2),
             min_monomials: None,
             by: RankBy::Monomials,
+            exclude: vec![],
         },
         ..ImprovePolicy::default()
     };
@@ -126,6 +127,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
         largest: None,
         min_monomials: Some(3000),
         by: RankBy::Monomials,
+        exclude: vec![],
     };
     assert_eq!(
         targets(&rules, &rec, &p)
@@ -312,4 +314,19 @@ fn tranche_yield_stop_and_record_skips() {
     assert!(!yield_check(1, 60_000, Some(r), &y).1);
     assert!(!yield_check(100_000_000, 7_200_000, None, &y).1, "no reference: no stop");
     assert!(!yield_check(140_000_000, 2 * 3_600_000, Some(r), &y).1, "70 MB/CPU-h >= 66.7: go on");
+}
+
+#[test]
+fn excluded_rules_are_never_targeted() {
+    let mut a = rule(&line(0, "[null,1,0]", "I(n0,1,0)", "[]", 5000));
+    let mut b = rule(&line(1, "[1,1,0]", "I(1,1,0)", "[]", 10));
+    a.bytes = 9000;
+    b.bytes = 100;
+    let rules = vec![a, b];
+    let rec = ImproveRecord::empty("T", &"0".repeat(64), &rules);
+    let mut p = ImprovePolicy::default();
+    p.filter.largest = Some(1);
+    p.filter.by = RankBy::Bytes;
+    p.filter.exclude = vec![0];
+    assert_eq!(targets(&rules, &rec, &p)[0].0, 1, "the excluded (dead) rule is skipped, the next one taken");
 }
