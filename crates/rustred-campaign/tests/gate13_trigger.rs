@@ -122,24 +122,20 @@ fn g13_trigger_never_signals_a_decoy_at_a_reused_pid() {
     }
     let _g = serial();
     let t = Tmp::new("g13-trig");
-    let foreign = format!(
-        "{}.ffffffffffffffff:N0.i0001.L0-t0:a1",
-        t.campaign
-    );
+    let foreign = format!("{}.ffffffffffffffff:N0.i0001.L0-t0:a1", t.campaign);
     let decoys: Arc<Mutex<Vec<Decoy>>> = Arc::new(Mutex::new(Vec::new()));
     let t0 = Instant::now();
-    for (i, env) in [
-        None,
-        Some(("RR_CAMPAIGN_JOB", foreign.as_str())),
-        None,
-    ]
-    .into_iter()
-    .enumerate()
+    for (i, env) in [None, Some(("RR_CAMPAIGN_JOB", foreign.as_str())), None]
+        .into_iter()
+        .enumerate()
     {
         let c = spawn_decoy(&t.path, env);
         let pid = c.id();
         decoys.lock().unwrap().push(Decoy {
-            kind: format!("plain{i}{}", if env.is_some() { "+foreign-marker" } else { "" }),
+            kind: format!(
+                "plain{i}{}",
+                if env.is_some() { "+foreign-marker" } else { "" }
+            ),
             aimed: 0,
             pid,
             start: start_ticks(pid),
@@ -191,7 +187,9 @@ fn g13_trigger_never_signals_a_decoy_at_a_reused_pid() {
                     watch.swap_remove(i);
                     let _ = std::fs::write("/proc/sys/kernel/ns_last_pid", format!("{}", p - 1));
                     n += 1;
-                    let env = (n % 2 == 0).then_some(("RR_CAMPAIGN_JOB", foreign.as_str()));
+                    let env = n
+                        .is_multiple_of(2)
+                        .then_some(("RR_CAMPAIGN_JOB", foreign.as_str()));
                     let c = spawn_decoy(&dir, env);
                     let pid = c.id();
                     let start = start_ticks(pid);
@@ -272,7 +270,9 @@ fn g13_trigger_never_signals_a_decoy_at_a_reused_pid() {
         } = &r.event
         {
             sigs += 1;
-            *by_proof.entry(format!("{proof}/{target}/{signal}")).or_default() += 1;
+            *by_proof
+                .entry(format!("{proof}/{target}/{signal}"))
+                .or_default() += 1;
             for x in ds.iter() {
                 // a process record names (pid, start time): exact. A GROUP record (no start time) names the pinned
                 // leader's number, which a squatted leader decoy reuses AFTER the legitimate group signals of the
@@ -291,10 +291,13 @@ fn g13_trigger_never_signals_a_decoy_at_a_reused_pid() {
     let summary = format!(
         "G13 trigger: exit {code}; containment {:?}; decoys {} (plain {}, squatted leader {hit_l}, squatted helper {hit_h}, \
          squat missed the pid {miss}); signal_sent {sigs} {by_proof:?}; t {:?}",
-        words.iter().fold(std::collections::BTreeMap::<&str, usize>::new(), |mut m, w| {
-            *m.entry(w.as_str()).or_default() += 1;
-            m
-        }),
+        words.iter().fold(
+            std::collections::BTreeMap::<&str, usize>::new(),
+            |mut m, w| {
+                *m.entry(w.as_str()).or_default() += 1;
+                m
+            }
+        ),
         ds.len(),
         ds.iter().filter(|x| x.aimed == 0).count(),
         t0.elapsed()
@@ -321,7 +324,11 @@ fn g13_trigger_never_signals_a_decoy_at_a_reused_pid() {
     assert_eq!(code, 71, "{summary}\n{}", log_tail(&d));
     assert!(!words.iter().any(|w| w == "marker_only"), "{summary}");
     assert!(
-        words.iter().filter(|w| *w == "scope_unverified_ended").count() >= 3,
+        words
+            .iter()
+            .filter(|w| *w == "scope_unverified_ended")
+            .count()
+            >= 3,
         "{summary}"
     );
     assert!(

@@ -68,10 +68,14 @@ fn g13_uid_rule_cases() {
         (800, "our real uid", true),
     ] {
         let a = r.children_all_threads_proven(pid);
-        let proven_path = matches!(&a, Err(ProcError::Unreadable(w)) if w.contains("cannot be proven"));
+        let proven_path =
+            matches!(&a, Err(ProcError::Unreadable(w)) if w.contains("cannot be proven"));
         out.push(format!("{pid} {what}: {a:?}"));
         if must_prove {
-            assert!(proven_path, "{what}: must keep its proof (Unreadable): {a:?}");
+            assert!(
+                proven_path,
+                "{what}: must keep its proof (Unreadable): {a:?}"
+            );
         } else {
             assert!(
                 matches!(&a, Ok(v) if !v.is_empty()),
