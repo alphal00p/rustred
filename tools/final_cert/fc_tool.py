@@ -861,6 +861,9 @@ def cmd_classes(a):
         for l in open(a.counts):
             r = json.loads(l)
             counts[(r.get('file'), r.get('table_index'))] = r
+            # a lanefile row (liveness with its basis) fills the run's liveness where that step has no verdict
+            if r.get('liveness') in ('live', 'dead') and (r['file'], r['table_index']) not in live:
+                live[(r['file'], r['table_index'])] = {'live': r['liveness'], 'basis': r.get('basis')}
     out, tally, open_live = [], {}, []
     for l in open(os.path.join(a.run, 'exact', N + '.exact.jsonl')):
         r = json.loads(l)
@@ -885,7 +888,8 @@ def cmd_classes(a):
         row = {'file': r['file'], 'table_index': r['table_index'], 'dispatch_position': r['dispatch_position'], 'bytes': r['bytes'],
                'target_rhs_sha256': r['target_rhs_sha256'], 'exactness_class': words, 'evidence_class': r['class'],
                'evidence_source': r['class_source'], 'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
-               'fm_keys_in_cone': c.get('fm_keys'), 'fm_count_complete': c.get('fm_count_complete')}
+               'liveness_basis': live.get(key, {}).get('basis', 'run liveness step' if lv else None),
+               'fm_keys_in_cone': c.get('fm_keys'), 'fm_keys_by_shell': c.get('fm_keys_by_shell'), 'fm_count_complete': c.get('fm_count_complete')}
         out.append(row); tally[cls] = tally.get(cls, 0) + 1
         if cls == 'none' and lv in ('live', 'undecided', None):
             open_live.append(row)
@@ -920,6 +924,8 @@ def cmd_classes(a):
              '**%s**' % summ['status']]
         if open_live:
             L.append('Rules with class "none" that are live (or undecided / not run) in %s: %d (listed in exact/%s.exact_classes.summary.json).' % (env['cfg_region'], len(open_live), N))
+        if a.note:
+            L += ['', '### Run notes', open(a.note).read().strip() if os.path.isfile(a.note) else a.note]
         open(vs, 'a').write('\n'.join(L) + '\n')
         cmd_manifest(argparse.Namespace(dir=a.deliver, label=env.get('FC_LABEL', 'FINAL'), extra=os.path.join(a.deliver, 'referenced_outside.json')))
         print('MANIFEST', sha256_file(os.path.join(a.deliver, 'MANIFEST.json')))
@@ -948,7 +954,10 @@ def cmd_lanefile(a):
                 x = json.loads(l)
             except ValueError:
                 continue
-            counted[x['position']] = x
+            old = counted.get(x['position'])
+            # a decided verdict (live / dead) is never replaced by an undecided one (e.g. a re-run with a larger budget elsewhere)
+            if old is None or x['live'] in ('live', 'dead') or old['live'] not in ('live', 'dead'):
+                counted[x['position']] = x
     runlive = {}
     for f in sorted(glob.glob(os.path.join(run, 'live', 'live.*.jsonl'))):
         for l in open(f):
@@ -1251,7 +1260,7 @@ def main():
     p = sp.add_parser('candcheck'); p.add_argument('--candidate', required=True); p.add_argument('--reference', required=True); p.add_argument('--sub', default='')
     p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('classes'); p.add_argument('--run', required=True); p.add_argument('--deliver', default=''); p.add_argument('--counts', default='')
-    p.add_argument('--open-lane', default='exact162')
+    p.add_argument('--open-lane', default='exact162'); p.add_argument('--note', default='')
     p = sp.add_parser('lanefile'); p.add_argument('--run', required=True); p.add_argument('--counts', required=True); p.add_argument('--ref-counts', default='')
     p.add_argument('--first-changed', type=int, required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)

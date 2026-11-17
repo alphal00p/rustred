@@ -191,15 +191,15 @@ pub fn record_liveness(
             use super::descent::{EmptyState, emptiness};
             let mut bounds = rbounds.clone();
             for (sl, (lo, hi)) in cell.iter().enumerate() {
-                if let Some(lo) = lo {
-                    if let Ok(x) = Poly::var(sl).sub(&Poly::constant(i128::from(*lo))) {
-                        bounds.push(x);
-                    }
+                if let Some(lo) = lo
+                    && let Ok(x) = Poly::var(sl).sub(&Poly::constant(i128::from(*lo)))
+                {
+                    bounds.push(x);
                 }
-                if let Some(hi) = hi {
-                    if let Ok(x) = Poly::constant(i128::from(*hi)).sub(&Poly::var(sl)) {
-                        bounds.push(x);
-                    }
+                if let Some(hi) = hi
+                    && let Ok(x) = Poly::constant(i128::from(*hi)).sub(&Poly::var(sl))
+                {
+                    bounds.push(x);
                 }
             }
             match emptiness(d, frame, &ProofBudget::default(), &[], &bounds) {
@@ -309,6 +309,7 @@ impl PruneReport {
 /// the run then has to justify by the certificate checks alone). `verdicts[pos]` per first-match position (None = not
 /// computed: kept). `trust_verdicts = false` re-proves every drop with [`record_liveness`]. Returns the pruned
 /// dispatcher and the report; `Err` only for construction failures; a failed check is in `report.problems`.
+#[allow(clippy::too_many_arguments)] // the pruning inputs are independent knobs of one library call (published interface)
 pub fn prune(
     disp: &Dispatcher,
     frame: &NodeFrame,
@@ -459,12 +460,11 @@ pub fn decided_positions(text: &str) -> (std::collections::BTreeSet<usize>, usiz
             break;
         }
         keep += line.len();
-        if let Ok(v) = serde_json::from_str::<Value>(line.trim_end()) {
-            if let (Some(p), Some(_)) = (v["position"].as_u64(), v["live"].as_str()) {
-                if let Ok(p) = usize::try_from(p) {
-                    done.insert(p);
-                }
-            }
+        if let Ok(v) = serde_json::from_str::<Value>(line.trim_end())
+            && let (Some(p), Some(_)) = (v["position"].as_u64(), v["live"].as_str())
+            && let Ok(p) = usize::try_from(p)
+        {
+            done.insert(p);
         }
     }
     (done, keep)
