@@ -234,7 +234,7 @@ fn parse_rational(s: &str) -> Result<Rational, String> {
     };
     let n = Integer::from_str(n).map_err(|e| format!("rational {s}: {e}"))?;
     let d = Integer::from_str(d).map_err(|e| format!("rational {s}: {e}"))?;
-    if d == Integer::from(0) {
+    if d == 0 {
         return Err(format!("rational {s}: zero denominator"));
     }
     Ok(Rational::new(n, d))
@@ -371,7 +371,10 @@ type ZPolyR = symbolica::poly::polynomial::MultivariatePolynomial<
 /// variables; the numerator's monomials are grouped by their Gamma exponents; the denominator must be a single Gamma
 /// monomial times a polynomial in d (else refused). Returns (numerator in d, denominator in d, tag) per product, the
 /// polynomials on the variable map [d, pg...] with degree 0 in every pg.
-pub fn row_products(text: &str) -> Result<Vec<(ZPolyR, ZPolyR, BTreeMap<i64, i64>)>, String> {
+/// One product of a catalogue row: numerator and denominator in d, and its Gamma tag.
+pub type RowProduct = (ZPolyR, ZPolyR, BTreeMap<i64, i64>);
+
+pub fn row_products(text: &str) -> Result<Vec<RowProduct>, String> {
     // the PGamma indices present
     let mut ms: BTreeSet<i64> = BTreeSet::new();
     let mut rest = text;
@@ -704,7 +707,7 @@ pub struct Fp {
 fn int_mod(f: &Zp64, i: &Integer) -> Elem {
     let p = Integer::from(f.get_prime());
     let mut r = i % &p;
-    if r < Integer::from(0) {
+    if r < 0 {
         r += &p;
     }
     f.to_element(u64::try_from(r).expect("residue fits u64"))
@@ -1500,7 +1503,7 @@ pub fn cell_rank(
         "transcendental_substitution": {"used": transcendental_used, "seed": transcendental_seed,
             "constants": "gamma_E, pi^2, zeta(odd) seeded random in F_p; zeta(2k) = rational x pi^2k"},
         "failure_probability": {
-            "weights": format!("<= rank / 2^62 per cell (Schwartz-Zippel on a maximal minor; weights uniform in [1, 2^62))"),
+            "weights": "<= rank / 2^62 per cell (Schwartz-Zippel on a maximal minor; weights uniform in [1, 2^62))",
             "transcendentals": "<= (rank x series length) / p per prime",
             "mod_p": "the rank mod p is a lower bound of the rank over Q; equality fails only if p divides a maximal minor (no height bound: two primes per seed and two seeds must agree)"}})
 }
