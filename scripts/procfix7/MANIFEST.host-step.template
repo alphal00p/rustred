@@ -1,0 +1,66 @@
+FROZEN HOST-STEP HAND-OVER (lane procfix7, @UTC@). Never edited after creation; a later version goes to a NEW dated
+directory. Directory: @DIR@
+SUPERSEDES @SUPERSEDES@. Do not use those.
+
+Source: branch ac/procfix7 commit @COMMIT@ (WS/wt/ac-procfix7), release build (light_build.sh, 0 warnings;
+RR_CAMPAIGN_FAILPOINT and "TEST BUILD" absent from bin/rr_campaign). Host-tests: copies of WS/plan/auto-campaign/host-tests/
+(also in git: scripts/procfix7/host-tests/). No .pyc is shipped; every python3 call uses -I -B. Made by
+scripts/procfix7/freeze_host_step.sh.
+
+THE SUPERVISOR IS A DETACHED systemd USER SERVICE with an exact name: the script runs
+  setsid systemd-run --user --wait --collect --unit=hoststep-fake1-<HHMMSS> -p Type=exec -p KillMode=mixed
+    -p TimeoutStopSec=infinity -p MemoryMax=8G -p MemorySwapMax=0 -p "UnsetEnvironment=RR_CAMPAIGN_JOB RR_CAMPAIGN_FAILPOINT"
+    -p StandardError=append:OUT/run.log -p StandardOutput=append:OUT/supervisor.stdout --working-directory=OUT
+    --setenv=PATH=<the launching shell's PATH> --setenv=HOME=<HOME> [--setenv=TMPDIR=<TMPDIR if set>]
+    -- bin/rr_campaign run --spec OUT/spec.json --plain          (dry-run.txt prints it in full)
+  - the unit's main process IS the supervisor (systemd makes it its own session leader); its jobs start their own sessions
+    and their own rr-<id>-* scopes;
+  - the --wait client runs in its own session (output OUT/launcher.log) and reports systemd's exit status of the unit
+    (P1 needs exit 0 AND systemd's "code=exited, status=0"; a death by signal is 128 + the signal, never 0);
+  - follow: systemctl --user status hoststep-fake1-<HHMMSS>.service (exact name in OUT/supervisor.unit; unloaded when it
+    ends: --collect); if the launching script ended early: REL=<dir>/bin OUT=<OUT> bash <dir>/host_step_fake1.sh --grade
+    (follows the same unit by name, waits up to 30 s for the client's end report, then grades);
+  - stop: <dir>/bin/rr_campaign control OUT/c stop (a request; the watcher's ABORT files exactly this), or
+    systemctl --user stop hoststep-fake1-<HHMMSS>.service (SIGTERM to the supervisor = the same graceful stop, exit 143,
+    P1 FAIL; systemd never escalates against the supervisor: TimeoutStopSec=infinity). KillMode=mixed: at a stop systemd
+    sends SIGTERM to the supervisor only; once the supervisor has EXITED (a stop or a normal end) systemd sends SIGKILL to
+    whatever is still in the SERVICE's own cgroup: only descendants of the supervisor that never moved into a job scope
+    (its own systemctl helpers, a job's systemd-run client before its scope move). The jobs' scopes are separate units
+    and are never touched by it; no foreign process can be in that cgroup.
+
+THE END-OF-JOB PROOF (round 10, gate13c G13c-M1): a listed process that ended between the listing and its examination
+(possibly handing off to a successor born after the listing) is never counted as absent: the hunt keeps looking, a proof
+pass that sees one is inconclusive, and a scope still populated with no live member listed gets cgroup.kill. A proof that
+stays inconclusive ends as an unverified / unproven end (P5), never as a proven one.
+
+HOW TO READ P5: P5 stays STRICT: any unproven_end note FAILs it. When unproven_end notes exist, pass.txt carries an extra
+line "P5-unproven INFO: N unproven_end note(s) (<attempts>): k of N cleared later (unverified_end_cleared of the same
+attempt); signals not accounted for 0, POSSIBLY SENT 0, other P5 notes none: the strict P5 FAILs ONLY on these notes".
+If that line says k == N, 0 unaccounted signals and "ONLY on these notes", the FAIL of P5 is a proof-completeness FAIL,
+not a signal or containment one: the coordinator decides whether to accept it. Any other P5-unproven text: a real FAIL.
+
+Contents:
+  host_step_fake1.sh        the host step (RUNBOOK 1.7): --dry-run / --run / --rehearse-ns / --grade; the pre-flight
+                            bin/rr_campaign scope-check (--run only) must PASS before anything starts
+  grade_host_step.py        P1-P8 + the P5-unproven INFO line
+  p8_units.py               P8 (this campaign's rr-<id>-* units and the step's own units, by exact name)
+  test_p8_units.py          (python3 -I -B test_p8_units.py)
+  test_grade_host_step.py   on the RECORDED host step 1 (fixtures/host-step-1, read-only here)   (python3 -I -B ...)
+  rehearsal-fake-systemd/   systemd-run / systemctl FAKES for --rehearse-ns ONLY (refused outside a private user AND pid
+                            namespace; the script refuses them for --run / --dry-run)
+  fixtures/host-step-1/     host step 1's ledger, run.log, scopes.peak, site/spec, CPU-ledger lines, units seen
+  bin/rr_campaign           release, @COMMIT@ (sha256 @RC_SHA@)
+  bin/rr_fake_child         release, @COMMIT@ (sha256 @FC_SHA@)
+  dry-run.txt               the --dry-run output (made inside a private namespace)
+  SHA256SUMS                sha256 of EVERY other file of this directory (MANIFEST included)
+
+Commands (from any clean shell; the SERVICE needs no pane or session, the grading needs the launching script or a later
+--grade):
+  cd @DIR@ && sha256sum -c SHA256SUMS && python3 -I -B test_p8_units.py && python3 -I -B test_grade_host_step.py
+  REL=@DIR@/bin bash @DIR@/host_step_fake1.sh --dry-run
+  REL=@DIR@/bin bash @DIR@/host_step_fake1.sh --run
+Pass criteria: RUNBOOK 1.7 P1-P8 as the script writes them to OUT/pass.txt.
+WHAT ONLY THE HOST RUN SHOWS (a namespace has no systemd; the rehearsal emulates the unit with the fakes): the real unit's
+creation, environment (manager's + PATH/HOME), Type=exec start, --wait exit-status propagation and --collect unload, the
+jobs' scopes created from inside the service's cgroup, P3's scope counts, P8's unit accounting, KillMode=mixed /
+TimeoutStopSec=infinity on a real stop, the scope belt's cgroup.kill.
