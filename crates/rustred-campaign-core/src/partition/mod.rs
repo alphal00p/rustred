@@ -388,6 +388,8 @@ pub struct PartitionOptions {
     pub rule_subset: Option<Vec<usize>>,
     pub dedup: bool,
     pub factor_exceptions: bool,
+    /// Engine model: exact zero test (no modular-zero-risk stop pieces; [`nf::NfOptions::engine_exact_zero`]).
+    pub engine_exact_zero: bool,
     /// Resolve every F class into loci ([`crate::loci`]).
     pub resolve_loci: bool,
     pub loci: crate::loci::LociOptions,
@@ -413,6 +415,7 @@ impl Default for PartitionOptions {
             rule_subset: None,
             dedup: true,
             factor_exceptions: false,
+            engine_exact_zero: false,
             resolve_loci: true,
             loci: crate::loci::LociOptions::default(),
             budget: Budget::default(),
@@ -630,6 +633,8 @@ pub struct PartitionReport {
     /// dispatch position). Their regions are open: the point oracle stays exact (`uncovered`), `class_of` answers
     /// `Unexplored` there, the outcome is `Partial` (aborted).
     blocked_skipped: Vec<(usize, usize)>,
+    /// Work spent per blocked sub-partition, in computation order: (source, units, classes, complete). Diagnostic only.
+    blocked_work: Vec<(usize, u64, usize, bool)>,
     /// Why the call's work budget was exhausted (main recursion, a sub-partition or the loci), if it was.
     budget_exhausted: Option<String>,
     /// Main report: per rule the smallest dispatch position of its sources (for the blocked regions' oracle).
@@ -785,6 +790,7 @@ pub(crate) fn gap_partition_with(
             dedup: opts.dedup,
             subset: opts.rule_subset.clone(),
             factor_exceptions: opts.factor_exceptions,
+            engine_exact_zero: opts.engine_exact_zero,
         },
     )?;
     // FailClosed: each elided record blocks; dispatch mode: every record with a stop set blocks.
@@ -849,7 +855,14 @@ pub(crate) fn gap_partition_with(
                     _ => None,
                 })
                 .collect();
+            let u0 = meter.used();
             let mut b = partition_nf(sub, opts, None, meter, mode)?;
+            rep.blocked_work.push((
+                e,
+                meter.used().saturating_sub(u0),
+                b.classes.len(),
+                b.outcome.is_complete(),
+            ));
             b.coverage = opts.coverage;
             b.blocked_stop = which;
             if !inexact.is_empty() {
@@ -955,6 +968,7 @@ pub(crate) fn prove_dispatch_no_gap(
         rule_subset: None,
         dedup: true,
         factor_exceptions: false,
+        engine_exact_zero: false,
         resolve_loci: true,
         loci: crate::loci::LociOptions {
             deadline: meter.deadline(),
@@ -1046,6 +1060,7 @@ fn partition_nf(
         blocked: vec![],
         blocked_empty: 0,
         blocked_skipped: vec![],
+        blocked_work: vec![],
         budget_exhausted: None,
         rule_min_pos: vec![],
         blocked_pos: 0,
@@ -1207,6 +1222,10 @@ impl PartitionReport {
     /// (partfix2, re-audit RA2-M5).
     pub fn blocked_skipped(&self) -> &[(usize, usize)] {
         &self.blocked_skipped
+    }
+    /// Work spent per blocked sub-partition, in computation order: (source, units, classes, complete).
+    pub fn blocked_work(&self) -> &[(usize, u64, usize, bool)] {
+        &self.blocked_work
     }
     /// Why the call's work budget was exhausted, if it was (partfix2).
     pub fn budget_exhausted(&self) -> Option<&str> {

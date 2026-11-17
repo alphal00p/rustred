@@ -1062,8 +1062,44 @@ fn load_sources(path: &Path) -> Loaded {
             witness,
             ..DomainOptions::default()
         };
-        let full = Table::from_table_file(id.clone(), p.display().to_string(), &tf, opts)
+        let mut full = Table::from_table_file(id.clone(), p.display().to_string(), &tf, opts)
             .unwrap_or_else(|e| panic!("{id} ({}): {e}", p.display()));
+        // BOUNDED RECIPE WITH SEAL (source class "sealed_recipe"): every record's domain is its face INTERSECTED with
+        // D + r <= bound_dr (a linear bound added to the domain); the seal (every key of that region solved, descent ok) is
+        // an input bound by sha256 (refused on mismatch); recorded in the loader notes
+        if let Some(bdr) = src["bound_dr"].as_i64() {
+            let seal = &src["seal"];
+            let sp = seal["path"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{id}: sealed_recipe without seal.path"));
+            let want = seal["sha256"]
+                .as_str()
+                .unwrap_or_else(|| panic!("{id}: sealed_recipe without seal.sha256"));
+            let got = sha256_file(Path::new(sp));
+            assert_eq!(
+                got, want,
+                "{id}: seal {sp} hashes to {got}, the source names {want}"
+            );
+            let fr = NodeFrame::from_header(tf.header.as_ref().unwrap()).unwrap();
+            let n = fr.arity();
+            // bound_dr + #lines - sum_lines n_i + sum_numerators n_j >= 0
+            let nl = (0..n).filter(|&i| fr.is_line(i)).count() as i128;
+            let mut b = rustred_campaign_core::poly::Poly::constant(i128::from(bdr) + nl);
+            for i in 0..n {
+                let v = rustred_campaign_core::poly::Poly::var(i);
+                b = if fr.is_line(i) {
+                    b.sub(&v).unwrap()
+                } else {
+                    b.add(&v).unwrap()
+                };
+            }
+            for d in &mut full.domains {
+                d.bounds.push(b.clone());
+            }
+            notes.push(format!(
+                "{id}: sealed bounded recipe: D + r <= {bdr}, seal {sp} sha256 {got}"
+            ));
+        }
         let offs = line_offsets(&p);
         digests.insert(id.clone(), format!("sha256:{}", sha256_file(&p)));
         let ti = tables.len();
@@ -1379,18 +1415,37 @@ fn b2_face_by_face() {
     let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
         .ok()
         .map(|f| restore_loci(&mut ld, &f));
+    let bank_loci = std::env::var("PARAMETRIC_BANK_LOCI")
+        .ok()
+        .map(|f| restore_bank_loci(&mut ld, &f));
+    if let Some(b) = &bank_loci {
+        eprintln!("bank witness loci: {b}");
+    }
+    // PARAMETRIC_ENGINE_ORDER=1: certify the ENGINE's two-phase order (ordinary records, then slot aliases; TRICKS 43)
+    let engine_order_info = (std::env::var("PARAMETRIC_ENGINE_ORDER").as_deref() == Ok("1"))
+        .then(|| engine_order(&mut ld));
+    if let Some(e) = &engine_order_info {
+        eprintln!("engine order: {e}");
+    }
     // PARAMETRIC_NOTCARRIED=engine: records whose source carries NO witness loci (status NotCarried: T162's converted
     // bank tables) are treated as the ENGINE treats them (its matcher never tests witness loci; it writes their
     // vanishing sets into the exceptions): their witness check is disabled (Assurance::CheckDisabled, labelled in the
     // evidence). Default: the core's fail-closed block (every key where such a record is selected is open).
     let mut notcarried_disabled = 0usize;
-    if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
+    let elided_engine = std::env::var("PARAMETRIC_ELIDED").as_deref() == Ok("engine");
+    if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") || elided_engine {
+        // PARAMETRIC_ELIDED=engine: records whose witness loci are ELIDED are applied as the engine applies them
+        // (its matcher never tests witness loci); labelled in the evidence (notcarried_witness_check_disabled counts both)
         use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+        let nc = std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine");
         let mut tables = ld.disp.tables().to_vec();
         for t in &mut tables {
-            for m in &mut t.meta {
-                if m.witness == WitnessStatus::NotCarried {
+            for (m, d) in t.meta.iter_mut().zip(t.domains.iter_mut()) {
+                if (nc && m.witness == WitnessStatus::NotCarried)
+                    || (elided_engine && m.witness == WitnessStatus::Elided)
+                {
                     m.witness_basis = Assurance::CheckDisabled;
+                    d.witness_elided = false;
                     notcarried_disabled += 1;
                 }
             }
@@ -1421,6 +1476,12 @@ fn b2_face_by_face() {
         let mut l2 = load_any(Path::new(rs), None);
         if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
             restore_loci(&mut l2, &f);
+        }
+        if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+            eprintln!(
+                "re-dispatcher bank witness loci: {}",
+                restore_bank_loci(&mut l2, &f)
+            );
         }
         if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
             use rustred_campaign_core::cover::{Assurance, WitnessStatus};
@@ -1529,6 +1590,22 @@ fn b2_face_by_face() {
     opts.max_blocked_classes = std::env::var("PARAMETRIC_MAX_BLOCKED_CLASSES")
         .ok()
         .and_then(|s| s.parse().ok());
+    // ENGINE MODEL keyed by engine id (recorded in every certificate): "line7d" (default: frozen engine-line7d, two-prime zero
+    // test, its misreads modelled as modular-zero-risk stop pieces) or "4895ee68" (rustred slot-alias 4895ee68: exact zero
+    // test via da5d13da, slot aliases in table order: no modular stop pieces)
+    let engine_id = std::env::var("PARAMETRIC_ENGINE").unwrap_or_else(|_| "line7d".into());
+    let engine_model = match engine_id.as_str() {
+        "line7d" => {
+            json!({"id": "frozen engine-line7d (bin/frozen/20261115T0652Z-engine-line7d)", "zero_test": "two primes 2^61-1, 2^61-31 (misreads modelled as modular-zero-risk stop pieces)", "alias_order": "table order (no alias records)"})
+        }
+        "4895ee68" => {
+            opts.engine_exact_zero = true;
+            json!({"id": "rustred slot-alias 4895ee68 (2746b4c5 alias order, da5d13da exact zero test)", "zero_test": "exact: two primes, then big rationals when both residues vanish (no modular stop piece)", "alias_order": "slot-permuted alias records in table order"})
+        }
+        other => panic!("PARAMETRIC_ENGINE {other}: unknown engine id (line7d | 4895ee68)"),
+    };
+    // affine pieces: the loci resolver makes the pieces' equations explicit (one parameter fewer per equation)
+    opts.reduce_equalities = std::env::var("PARAMETRIC_PIECE_EQS").is_ok();
     let dir = PathBuf::from(format!("{out}.pieces"));
     std::fs::create_dir_all(&dir).unwrap();
     let lines_path = format!("{out}.pieces.jsonl");
@@ -1566,17 +1643,102 @@ fn b2_face_by_face() {
             .replace(", ", "_")
             .replace(' ', "_")
     };
+    // PARAMETRIC_TERMINALS=<file>: the TERMINAL SET as an explicit input of every certificate (TRICKS 34): a JSON list of
+    // keys or JSONL rows {"key": [...]}; written into each certificate (keys + sha256) and every cone reports the open
+    // keys outside it (the statement is "open set = terminal set inside the cone")
+    let terminals: Option<(BTreeSet<Vec<i32>>, serde_json::Value)> =
+        std::env::var("PARAMETRIC_TERMINALS").ok().map(|p| {
+            let txt = std::fs::read_to_string(&p).unwrap();
+            let parsed = serde_json::from_str::<serde_json::Value>(&txt);
+            // a terminal-set document {"keys": [...]} (rustred.campaign.terminal-set.v1), a JSON list, or JSONL rows
+            let parsed = match parsed {
+                Ok(serde_json::Value::Object(o)) if o.get("keys").is_some_and(|k| k.is_array()) => {
+                    Ok(o["keys"].clone())
+                }
+                other => other,
+            };
+            let keys: Vec<Vec<i32>> = match parsed {
+                Ok(serde_json::Value::Array(a)) => a
+                    .iter()
+                    .map(|k| {
+                        serde_json::from_value(k.get("key").cloned().unwrap_or(k.clone())).unwrap()
+                    })
+                    .collect(),
+                _ => txt
+                    .lines()
+                    .filter(|l| !l.trim().is_empty())
+                    .map(|l| {
+                        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+                        serde_json::from_value(v.get("key").cloned().unwrap_or(v)).unwrap()
+                    })
+                    .collect(),
+            };
+            let meta = json!({"path": p, "sha256": sha256_file(Path::new(&p)), "keys": keys});
+            (keys.into_iter().collect(), meta)
+        });
     let mut queue: VecDeque<Vec<(usize, bool)>> = VecDeque::new();
-    for code in 0..(1usize << depth) {
-        queue.push_back(
-            (0..depth)
-                .map(|j| (slots[j], (code >> (depth - 1 - j)) & 1 == 1))
-                .collect(),
-        );
+    // PARAMETRIC_PIECE_LIST="1,2,8;2,6;0,5,9;...": explicit FACES instead of the split (each piece = the listed slots
+    // beyond their boundary value: line >= 2 / numerator <= -1, EVERY other slot at its boundary value: line = 1 /
+    // numerator = 0); "none" = the corner
+    if let Ok(list) = std::env::var("PARAMETRIC_PIECE_LIST") {
+        for face in list.split(';').filter(|x| !x.trim().is_empty()) {
+            let beyond: BTreeSet<usize> = face
+                .split(',')
+                .filter(|x| !x.trim().is_empty() && x.trim() != "none")
+                .map(|x| x.trim().parse().unwrap())
+                .collect();
+            queue.push_back(
+                (0..frame.arity())
+                    .map(|s| (s, beyond.contains(&s)))
+                    .collect(),
+            );
+        }
+    } else {
+        for code in 0..(1usize << depth) {
+            queue.push_back(
+                (0..depth)
+                    .map(|j| (slots[j], (code >> (depth - 1 - j)) & 1 == 1))
+                    .collect(),
+            );
+        }
     }
     let mut n_run = 0usize;
     while let Some(choice) = queue.pop_front() {
-        let piece = face_piece(&frame, &choice).expect("piece");
+        let mut piece = face_piece(&frame, &choice).expect("piece");
+        // PARAMETRIC_CAP_BOX=R: the piece is also capped to the box |k_s - boundary| <= R per slot (lines <= R + 1,
+        // numerators >= -R), which contains the cone D + r <= R: keys outside it are served by the cap records, so
+        // the partition (and every blocked sub-partition) only describes the box (a radius-R statement)
+        if let Ok(rb) = std::env::var("PARAMETRIC_CAP_BOX") {
+            let rb: i64 = rb.parse().unwrap();
+            for s in 0..frame.arity() {
+                let mut a = vec![0i64; frame.arity()];
+                if frame.is_line(s) {
+                    a[s] = 1;
+                    piece.constraints.push((a, rb + 1));
+                } else {
+                    a[s] = -1;
+                    piece.constraints.push((a, rb));
+                }
+            }
+            piece.label = format!("{} [box {rb}]", piece.label);
+        }
+        // PARAMETRIC_PIECE_EQS="a_0,...,a_{n-1}=b;...": every piece is also cut to the AFFINE SUBSPACE sum_s a_s k_s = b
+        // (two opposite constraints per equation): an exact partition of a lattice line / plane of the face, e.g. a
+        // common-zero family of a fragile rule's exception branch found by elimination (lane parametric, 2026-11-17)
+        if let Ok(eqs) = std::env::var("PARAMETRIC_PIECE_EQS") {
+            for eq in eqs.split(';').filter(|x| !x.trim().is_empty()) {
+                let (lhs, rhs) = eq.split_once('=').expect("PARAMETRIC_PIECE_EQS: a,..=b");
+                let a: Vec<i64> = lhs.split(',').map(|x| x.trim().parse().unwrap()).collect();
+                assert_eq!(a.len(), frame.arity(), "PARAMETRIC_PIECE_EQS: arity");
+                let b: i64 = rhs.trim().parse().unwrap();
+                piece.constraints.push((a.clone(), b));
+                piece.constraints.push((a.iter().map(|x| -x).collect(), -b));
+            }
+            // short label (file names): the equations are hashed; the full text is in the run's log line below
+            let h = eqs.bytes().fold(0xcbf2_9ce4_8422_2325u64, |a, b| (a ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+            eprintln!("affine piece eqs {h:016x}: {eqs}");
+            piece.label = format!("{} [affine {h:016x}]", piece.label);
+        }
         let id = piece.label.clone();
         let children = |q: &mut VecDeque<Vec<(usize, bool)>>| {
             let s = slots[choice.len()];
@@ -1680,15 +1842,35 @@ fn b2_face_by_face() {
             let cert = certificate(&cov, &capped, &frame);
             let chk = check_cone_certificate(&cert, &capped, &frame, None);
             let fid = file_id(&id);
+            let mut cert_v = serde_json::to_value(&cert).unwrap();
+            if let Some((_, meta)) = &terminals {
+                cert_v["terminals"] = meta.clone();
+            }
+            // the engine model and the completeness rule: a certificate over an incomplete partition (work-budget
+            // exhaustion, a skipped blocked sub-partition, any flag) is REFUSED
+            cert_v["engine"] = engine_model.clone();
+            let status = if cp.flags.is_empty() {
+                "complete".to_string()
+            } else {
+                format!("REFUSED: incomplete partition: {}", cp.flags.join("; "))
+            };
+            cert_v["certificate_status"] = json!(status);
             std::fs::write(
                 dir.join(format!("{fid}.{tag}.certificate.json")),
-                serde_json::to_string(&cert).unwrap(),
+                serde_json::to_string(&cert_v).unwrap(),
             )
             .unwrap();
+            let mut open_not_terminal: Vec<Vec<i32>> = Vec::new();
+            let mut open_terminals = 0u64;
             let (mut res_keys, mut unsized_cells, mut open_keys) = (0u64, 0usize, 0u64);
             let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
             let mut faces: BTreeMap<String, u64> = BTreeMap::new();
             let mut keys_out: Vec<String> = Vec::new();
+            // a key can lie in several listed elements (main and blocked sub-partition elements overlap): every count is in
+            // DISTINCT keys (TRICKS 39); duplicate rows are counted apart
+            let mut seen_keys: std::collections::HashSet<Vec<i32>> =
+                std::collections::HashSet::new();
+            let mut duplicate_rows = 0u64;
             for l in &cov.listed {
                 let i = l["element"].as_u64().unwrap() as usize;
                 let el = &cp.elements[i];
@@ -1711,6 +1893,10 @@ fn b2_face_by_face() {
                 match sized {
                     Some(()) => {
                         for k in keys_here {
+                            if !seen_keys.insert(k.clone()) {
+                                duplicate_rows += 1;
+                                continue;
+                            }
                             res_keys += 1;
                             let d = match &g5 {
                                 Some(g) => format!("{:?}", g.first_match(&k)),
@@ -1728,6 +1914,13 @@ fn b2_face_by_face() {
                                 d.chars().take(40).collect()
                             };
                             let open = why != "covered";
+                            if open && let Some((tset, _)) = &terminals {
+                                if tset.contains(&k) {
+                                    open_terminals += 1;
+                                } else if open_not_terminal.len() < 1000 {
+                                    open_not_terminal.push(k.clone());
+                                }
+                            }
                             if open {
                                 open_keys += 1;
                                 *faces
@@ -1752,9 +1945,12 @@ fn b2_face_by_face() {
                 .unwrap();
             }
             cone_lines.push(json!({
-                "cone": tag, "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
+                "cone": tag, "certificate_status": status, "engine": engine_model["id"], "verdict": cov.verdict, "elements": cov.elements, "outside_cone": cov.outside,
                 "uncovered": cov.uncovered, "undecided": cov.undecided,
-                "residual": {"cell_keys_in_cone": res_keys, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
+                "residual": {"cell_keys_in_cone": res_keys, "duplicate_rows_skipped": duplicate_rows, "open": open_keys, "cells_not_sized": unsized_cells, "by_dispatch": reasons, "open_by_face": faces},
+                "terminals": terminals.as_ref().map(|(t, m)| json!({"terminal_set_sha256": m["sha256"], "terminal_keys": t.len(),
+                    "open_terminal_keys": open_terminals, "open_keys_not_terminal": open_not_terminal.len(), "open_not_terminal_first": open_not_terminal.iter().take(20).collect::<Vec<_>>(),
+                    "open_set_equals_terminals_in_cone": open_not_terminal.is_empty() && unsized_cells == 0 && cov.undecided == 0})),
                 "probes": cov.probes.len(), "probes_open_unexplained": cov.probes_open_unexplained,
                 "checker": {"ok": chk.ok(), "n_problems": chk.problems.len(), "problems": chk.problems.iter().take(10).collect::<Vec<_>>(), "witnesses_checked": chk.witnesses_checked, "probes_checked": chk.probes_checked},
             }));
@@ -1860,7 +2056,8 @@ fn b2_face_by_face() {
         "spec": {"path": spec_path.display().to_string(), "sha256": sha256_file(&spec_path)},
         "node": ld.node, "loader": ld.loader, "tables": ld.tables, "records": ld.jobs.len(),
         "restored_loci": restored, "fall_through": ft_mode, "fall_through_stats": ft_stats, "factor_exceptions": opts.factor_exceptions,
-        "notcarried_witness_check_disabled": notcarried_disabled, "residual_redispatch_spec": redispatch_spec,
+        "notcarried_witness_check_disabled": notcarried_disabled, "elided_engine": elided_engine, "residual_redispatch_spec": redispatch_spec,
+        "bank_witness_loci": bank_loci, "engine_order": engine_order_info,
         "budget_per_piece": {"units": units, "wall_seconds": wall, "max_memo": opts.budget.max_memo, "rss_gb": rss_max >> 30},
         "pieces": {"done": done.len(), "refined": refined, "failed": failed.iter().map(|v| v["piece"].clone()).collect::<Vec<_>>(), "run_now": n_run},
     });
@@ -2018,6 +2215,15 @@ fn redispatch_keys() {
     let restored = std::env::var("PARAMETRIC_SUPPLIED_LOCI")
         .ok()
         .map(|f| restore_loci(&mut ld, &f));
+    let bank_loci = std::env::var("PARAMETRIC_BANK_LOCI")
+        .ok()
+        .map(|f| restore_bank_loci(&mut ld, &f));
+    if let Some(b) = &bank_loci {
+        eprintln!("bank witness loci: {b}");
+    }
+    if std::env::var("PARAMETRIC_ENGINE_ORDER").as_deref() == Ok("1") {
+        eprintln!("engine order: {}", engine_order(&mut ld));
+    }
     let mut notcarried = 0usize;
     if std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine") {
         use rustred_campaign_core::cover::{Assurance, WitnessStatus};
@@ -2043,11 +2249,161 @@ fn redispatch_keys() {
     )
     .unwrap();
     let lines: Vec<bool> = (0..ld.frame.arity()).map(|i| ld.frame.is_line(i)).collect();
+    // BINARY key lists (lane arrivals' RRKEYS01: magic, u32 LE header length, header JSON, then per key arity x i8 + u8 depth
+    // + u8 senders): streamed in blocks over PARAMETRIC_THREADS threads; counts only (no per-key file)
+    if keys_p.extension().is_some_and(|e| e == "bin") {
+        use std::io::Read;
+        let mut f =
+            std::io::BufReader::with_capacity(1 << 24, std::fs::File::open(&keys_p).unwrap());
+        let mut magic = [0u8; 8];
+        f.read_exact(&mut magic).unwrap();
+        assert_eq!(&magic, b"RRKEYS01", "not an RRKEYS01 file");
+        let mut hl = [0u8; 4];
+        f.read_exact(&mut hl).unwrap();
+        let mut hdr = vec![0u8; u32::from_le_bytes(hl) as usize];
+        f.read_exact(&mut hdr).unwrap();
+        let header: serde_json::Value = serde_json::from_slice(&hdr).unwrap();
+        let n = ld.frame.arity();
+        let rec = n + 2;
+        let threads: usize = std::env::var("PARAMETRIC_THREADS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(16);
+        let block = 1usize << 20;
+        let mut served: BTreeMap<String, u64> = BTreeMap::new();
+        let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
+        let mut open_faces: BTreeMap<String, u64> = BTreeMap::new();
+        let mut open_first: Vec<serde_json::Value> = Vec::new();
+        let (mut total, mut open) = (0u64, 0u64);
+        let t0 = std::time::Instant::now();
+        let mut buf = vec![0u8; block * rec];
+        loop {
+            let mut got = 0usize;
+            while got < buf.len() {
+                let k = f.read(&mut buf[got..]).unwrap();
+                if k == 0 {
+                    break;
+                }
+                got += k;
+            }
+            if got == 0 {
+                break;
+            }
+            assert_eq!(got % rec, 0, "truncated record");
+            let nk = got / rec;
+            let chunk = nk.div_ceil(threads);
+            type Part = (
+                BTreeMap<String, u64>,
+                BTreeMap<String, u64>,
+                BTreeMap<String, u64>,
+                Vec<serde_json::Value>,
+                u64,
+            );
+            let parts: Vec<Part> = std::thread::scope(|sc| {
+                let hs: Vec<_> = (0..threads)
+                    .map(|t| {
+                        let lo = (t * chunk).min(nk);
+                        let hi = ((t + 1) * chunk).min(nk);
+                        let data = &buf[lo * rec..hi * rec];
+                        let g5 = &g5;
+                        let lines = &lines;
+                        sc.spawn(move || {
+                            let (mut sv, mut rs, mut of, mut ofirst, mut op) = (
+                                BTreeMap::new(),
+                                BTreeMap::new(),
+                                BTreeMap::new(),
+                                Vec::new(),
+                                0u64,
+                            );
+                            for r in data.chunks_exact(rec) {
+                                let k: Vec<i32> =
+                                    r[..n].iter().map(|&b| i32::from(b as i8)).collect();
+                                match g5.first_match(&k) {
+                                    Ok(Dispatch::Covered(rr)) => {
+                                        *sv.entry(format!(
+                                            "{}#{}",
+                                            g5.tables()[rr.table].name,
+                                            g5.tables()[rr.table].labels[rr.record]
+                                        ))
+                                        .or_insert(0u64) += 1;
+                                    }
+                                    other => {
+                                        op += 1;
+                                        let s = format!("{other:?}");
+                                        let why = match s.find("reason: ") {
+                                            Some(p) => format!(
+                                                    "blocked:{}",
+                                                    s[p + 8..]
+                                                        .chars()
+                                                        .take_while(
+                                                            |c| c.is_alphanumeric() || *c == '_'
+                                                        )
+                                                        .collect::<String>()
+                                                ),
+                                            None => s.chars().take(40).collect(),
+                                        };
+                                        *rs.entry(why.clone()).or_insert(0u64) += 1;
+                                        *of.entry(format!("{:?}", face_of(lines, &k)))
+                                            .or_insert(0u64) += 1;
+                                        if ofirst.len() < 200 {
+                                            ofirst.push(json!({"key": k, "why": why}));
+                                        }
+                                    }
+                                }
+                            }
+                            (sv, rs, of, ofirst, op)
+                        })
+                    })
+                    .collect();
+                hs.into_iter().map(|h| h.join().unwrap()).collect()
+            });
+            for (sv, rs, of, ofirst, op) in parts {
+                for (k, v) in sv {
+                    *served.entry(k).or_default() += v;
+                }
+                for (k, v) in rs {
+                    *reasons.entry(k).or_default() += v;
+                }
+                for (k, v) in of {
+                    *open_faces.entry(k).or_default() += v;
+                }
+                for x in ofirst {
+                    if open_first.len() < 2000 {
+                        open_first.push(x);
+                    }
+                }
+                open += op;
+            }
+            total += nk as u64;
+            if total % (16 * block as u64) < block as u64 {
+                eprintln!(
+                    "  {total} keys, {open} open, {:.0} s",
+                    t0.elapsed().as_secs_f64()
+                );
+            }
+        }
+        let res = json!({
+            "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "loader": ld.loader,
+            "keys": {"path": keys_p.display().to_string(), "format": "RRKEYS01", "header": header},
+            "restored_loci": restored, "bank_witness_loci": bank_loci, "fall_through": "reduced (decision G5)",
+            "keys_checked": total, "open": open, "open_by_dispatch": reasons, "open_by_face": open_faces,
+            "open_keys_first_2000": open_first, "covered_by_record": served, "seconds": t0.elapsed().as_secs_f64(),
+            "threads": threads,
+        });
+        std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+        eprintln!("redispatch (binary): {total} keys, {open} open");
+        return;
+    }
     let f = std::io::BufReader::new(std::fs::File::open(&keys_p).unwrap());
     let (mut n, mut open) = (0u64, 0u64);
     let mut reasons: BTreeMap<String, u64> = BTreeMap::new();
     let mut faces: BTreeMap<String, u64> = BTreeMap::new();
     let mut served_by_table: BTreeMap<String, u64> = BTreeMap::new();
+    let mut served_by_record: BTreeMap<String, u64> = BTreeMap::new();
+    let mut open_keys: Vec<serde_json::Value> = Vec::new();
+    // per key: the serving record (table#label) or the open reason, in input order
+    let mut per_key =
+        std::io::BufWriter::new(std::fs::File::create(format!("{out}.keys.jsonl")).unwrap());
     for line in f.lines() {
         let line = line.unwrap();
         if line.trim().is_empty() {
@@ -2070,6 +2426,13 @@ fn redispatch_keys() {
                 *served_by_table
                     .entry(g5.tables()[r.table].name.clone())
                     .or_default() += 1;
+                *served_by_record
+                    .entry(format!(
+                        "{}#{}",
+                        g5.tables()[r.table].name,
+                        g5.tables()[r.table].labels[r.record]
+                    ))
+                    .or_default() += 1;
                 "covered".to_string()
             }
             other => {
@@ -2086,8 +2449,34 @@ fn redispatch_keys() {
                 }
             }
         };
+        {
+            use std::io::Write;
+            let rec = |r: &rustred_campaign_core::cover::RuleRef| {
+                json!(format!(
+                    "{}#{}",
+                    g5.tables()[r.table].name,
+                    g5.tables()[r.table].labels[r.record]
+                ))
+            };
+            let (served, at) = match &d {
+                Ok(Dispatch::Covered(r)) => (rec(r), serde_json::Value::Null),
+                Ok(Dispatch::Blocked { at, .. }) | Ok(Dispatch::Undecided { at, .. }) => {
+                    (serde_json::Value::Null, rec(at))
+                }
+                _ => (serde_json::Value::Null, serde_json::Value::Null),
+            };
+            writeln!(
+                per_key,
+                "{}",
+                json!({"key": k, "served": served, "why": why, "at": at})
+            )
+            .unwrap();
+        }
         if why != "covered" {
             open += 1;
+            if open_keys.len() < 2000 {
+                open_keys.push(json!({"key": k, "why": why}));
+            }
             *faces
                 .entry(format!("{:?}", face_of(&lines, &k)))
                 .or_default() += 1;
@@ -2100,6 +2489,7 @@ fn redispatch_keys() {
         "restored_loci": restored, "notcarried_witness_check_disabled": notcarried, "fall_through": "reduced (decision G5)",
         "fall_through_stats": {"poles": st.poles, "redundant": st.redundant, "moved_unknown": st.moved_unknown, "moved_nonempty": st.moved_nonempty},
         "keys_checked": n, "open": open, "by_dispatch": reasons, "open_by_face": faces, "covered_by_table": served_by_table,
+        "covered_by_record": served_by_record, "open_keys_first_2000": open_keys, "bank_witness_loci": bank_loci,
     });
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!("redispatch: {n} keys, {open} open");
@@ -2199,16 +2589,46 @@ fn element_probe(
         } else {
             region_keys_each(&el.region(), &cone, 2_000_000, &mut |_| nk += 1)
         };
+        let later = std::env::var("PARAMETRIC_PROBE_LATER").as_deref() == Ok("1");
         let blocker = el.blocked_by.map(|e| {
             let r = src.rule_ref(e);
             let applies = bx
                 .as_ref()
                 .and_then(|b| box_inside_domain(b, src.domain(e), frame, &budget));
+            let exact_lits = bx.as_ref().and_then(|b| {
+                rustred_campaign_core::parametric::cone::literals_exact_on_box(
+                    src.domain(e),
+                    b,
+                    1 << 20,
+                )
+            });
+            // the first LATER record (dispatch order) that applies on the whole element, with its own literal status
+            let mut later_rec = serde_json::Value::Null;
+            if later
+                && applies != Some(true)
+                && let Some(b) = &bx
+            {
+                for j in e + 1..src.len() {
+                    if box_inside_domain(b, src.domain(j), frame, &budget) == Some(true) {
+                        let rr = src.rule_ref(j);
+                        let ex = rustred_campaign_core::parametric::cone::literals_exact_on_box(
+                            src.domain(j),
+                            b,
+                            1 << 20,
+                        );
+                        later_rec = json!({"source": j, "table": disp.tables()[rr.table].name,
+                            "label": rr.label, "literals_exact_on_element": ex});
+                        break;
+                    }
+                }
+            }
             json!({"source": e, "table": disp.tables()[r.table].name, "label": r.label,
-                   "applies_on_whole_element": applies})
+                   "applies_on_whole_element": applies, "literals_exact_on_element": exact_lits,
+                   "later_container": later_rec})
         });
         let mut contained = serde_json::Value::Null;
         let mut contain_undecided = 0usize;
+        let mut contain_undecided_list: Vec<serde_json::Value> = Vec::new();
         if contain && let Some(b) = &bx {
             for j in 0..jsrc.len() {
                 match box_inside_domain(b, jsrc.domain(j), frame, &budget) {
@@ -2219,7 +2639,18 @@ fn element_probe(
                             "point_rule": d.fixed.iter().all(|x| x.is_some())});
                         break;
                     }
-                    None => contain_undecided += 1,
+                    None => {
+                        contain_undecided += 1;
+                        if contain_undecided_list.len() < 6 {
+                            let r = jsrc.rule_ref(j);
+                            let d = jsrc.domain(j);
+                            contain_undecided_list.push(json!({"table": judge.tables()[r.table].name, "label": r.label,
+                                "fixed": d.fixed,
+                                "equations": d.equations.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                                "bounds": d.bounds.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                                "exceptions": d.exceptions.iter().map(|br| br.iter().map(|p| p.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>()}));
+                        }
+                    }
                     Some(false) => {}
                 }
             }
@@ -2239,7 +2670,7 @@ fn element_probe(
                 "box": bx.as_ref().map(|b| b.iter().map(|(l, h)| json!([l, h])).collect::<Vec<_>>()),
                 "dotted": dotted, "nonzero": nonzero, "free": free, "unbounded": unbounded, "min_excess": min_excess,
                 "keys_in_probe_cone": if sized.is_some() { json!(nk) } else { json!(null) },
-                "contained_by": contained, "contain_undecided_records": contain_undecided, "samples": samples,
+                "contained_by": contained, "contain_undecided_records": contain_undecided, "contain_undecided_list": contain_undecided_list, "samples": samples,
                 "arity": n})
         )
         .unwrap();
@@ -2252,4 +2683,1098 @@ fn element_probe(
         }
     }
     f.flush().unwrap();
+}
+
+/// T178-UNBOXED item A': the stated radius R. For every record of the dispatch (PARAMETRIC_SPEC, PARAMETRIC_APPENDED,
+/// PARAMETRIC_FALLTHROUGH = 1 | reduced) its engine modular-zero risk (`partition::nf::modular_risk`): Far radii
+/// `(v, r)` (a misread needs |pt[v]| >= r), Points, Anywhere. A key with D + r <= R has every line <= R + 1 and every
+/// |numerator| <= R, so |pt[v]| <= R + 1 + |o_v| (o_v = the target offset of parameter v; an unmapped parameter keeps
+/// its fixed value). R_record = min over its Far entries of (r - |o_v| - 2); R = min over records. Points / Anywhere
+/// risks are listed (a Points risk inside the cone is a stop AT that point). Output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn modular_radii() {
+    use rustred_campaign_core::domain::{TargetMap, TargetSlot};
+    use rustred_campaign_core::partition::nf::{
+        ModularRisk, modular_risk, modular_risk_value_bound,
+    };
+    // PARAMETRIC_RADIUS_CRITERION=value: the plain value bound (no factor criterion; VERIFIER_SPEC item 4)
+    let value_bound = std::env::var("PARAMETRIC_RADIUS_CRITERION").as_deref() == Ok("value");
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let mut ld = load_any(&spec, None);
+    // the same restored witness loci as the coverage runs (moved loci become exception members: literals the engine
+    // evaluates)
+    if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+        eprintln!("restored loci: {}", restore_loci(&mut ld, &f));
+    }
+    if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+        eprintln!("bank witness loci: {}", restore_bank_loci(&mut ld, &f));
+    }
+    let mode = std::env::var("PARAMETRIC_FALLTHROUGH").unwrap_or_default();
+    let disp = match mode.as_str() {
+        "1" => rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap(),
+        "reduced" => {
+            let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+                &ld.disp,
+                &ld.frame,
+                &ProofBudget::default(),
+            )
+            .unwrap();
+            eprintln!(
+                "reduced fall-through: {}",
+                serde_json::to_string(&json!({"poles": st.poles, "redundant": st.redundant,
+                    "moved_nonempty": st.moved_nonempty, "moved_unknown": st.moved_unknown}))
+                .unwrap()
+            );
+            d
+        }
+        _ => {
+            let d =
+                Dispatcher::new(ld.disp.tables().to_vec(), ld.disp.priority().to_vec()).unwrap();
+            match ld.disp.chart() {
+                Some(c) => d.with_chart(c.to_vec()).unwrap(),
+                None => d,
+            }
+        }
+    };
+    let mut recs = Vec::new();
+    let mut r_global: Option<(i128, String, i64)> = None;
+    let (mut n_far, mut n_points, mut n_any) = (0, 0, 0);
+    for &ti in disp.priority() {
+        let t = &disp.tables()[ti];
+        for (ri, d) in t.domains.iter().enumerate() {
+            let risk = if value_bound {
+                modular_risk_value_bound(d)
+            } else {
+                modular_risk(d)
+            };
+            let Some(risk) = risk else {
+                continue;
+            };
+            let label = t.labels.get(ri).copied().unwrap_or(-1);
+            let off = |v: usize| -> Option<i128> {
+                match &d.target {
+                    TargetMap::Canonical => Some(0),
+                    TargetMap::Pattern(slots) => slots.iter().find_map(|s| match *s {
+                        TargetSlot::Param { param, offset } if param == v => {
+                            Some(i128::from(offset).abs())
+                        }
+                        _ => None,
+                    }),
+                }
+            };
+            match &risk {
+                ModularRisk::Far(list) => {
+                    n_far += 1;
+                    let mut rr: Option<i128> = None;
+                    for &(v, r) in list {
+                        // unmapped parameter: fixed value (never reaches r if |fixed| < r)
+                        let Some(o) = off(v) else { continue };
+                        let b = r.abs() - o - 2;
+                        rr = Some(rr.map_or(b, |x| x.min(b)));
+                    }
+                    if let Some(b) = rr
+                        && r_global.as_ref().is_none_or(|g| b < g.0)
+                    {
+                        r_global = Some((b, t.name.clone(), label));
+                    }
+                    recs.push(json!({"table": t.name, "label": label, "kind": "far", "far": list, "r_record": rr}));
+                }
+                ModularRisk::Points(p) => {
+                    n_points += 1;
+                    recs.push(
+                        json!({"table": t.name, "label": label, "kind": "points", "points": p}),
+                    );
+                }
+                ModularRisk::Anywhere(w) => {
+                    n_any += 1;
+                    recs.push(
+                        json!({"table": t.name, "label": label, "kind": "anywhere", "why": w}),
+                    );
+                }
+            }
+        }
+    }
+    let res = json!({
+        "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "fall_through": mode,
+        "records": disp.tables().iter().map(|t| t.domains.len()).sum::<usize>(),
+        "records_with_far_risk": n_far, "records_with_point_risk": n_points, "records_with_anywhere_risk": n_any,
+        "R": r_global.as_ref().map(|g| g.0), "R_binding_record": r_global.as_ref().map(|g| json!({"table": g.1, "label": g.2})),
+        "criterion": if value_bound { "value bound (no factor criterion)" } else { "factor criterion (dispatcher)" }, "rule": "R = min over records and Far entries (v, r) of r - |o_v| - 2: every key with D + r <= R has |pt[v]| <= R + 1 + |o_v| < r",
+        "risks": recs,
+    });
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "modular radii: far {n_far}, points {n_points}, anywhere {n_any}; R = {:?}",
+        r_global
+    );
+}
+
+/// T178-UNBOXED A': exact containment of given BOXES (PARAMETRIC_BOXES: JSON list of per-slot [lo|null, hi|null]) in
+/// the records of a dispatch (PARAMETRIC_SPEC, PARAMETRIC_APPENDED, PARAMETRIC_FALLTHROUGH = 1 | reduced): for each box
+/// every record that APPLIES on the whole box (`box_inside_domain`, budget PARAMETRIC_BOX_NODES, default 200,000) and the
+/// undecided ones with their exception branches; output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn box_containment() {
+    use rustred_campaign_core::parametric::cone::{box_inside_domain, literals_exact_on_box};
+    use rustred_campaign_core::partition::{DispatcherSource, DomainSource};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let boxes: Vec<Vec<(Option<i64>, Option<i64>)>> = serde_json::from_str(
+        &std::fs::read_to_string(std::env::var("PARAMETRIC_BOXES").expect("PARAMETRIC_BOXES"))
+            .unwrap(),
+    )
+    .unwrap();
+    let nodes: u64 = std::env::var("PARAMETRIC_BOX_NODES")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(200_000);
+    let ld = load_any(&spec, None);
+    let disp = match std::env::var("PARAMETRIC_FALLTHROUGH").as_deref() {
+        Ok("reduced") => {
+            rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+                &ld.disp,
+                &ld.frame,
+                &ProofBudget::default(),
+            )
+            .unwrap()
+            .0
+        }
+        _ => rustred_campaign_core::parametric::cone::fall_through_poles(&ld.disp).unwrap(),
+    };
+    let src = DispatcherSource::new(&disp);
+    let budget = ProofBudget {
+        max_nodes: nodes,
+        ..ProofBudget::default()
+    };
+    let mut res = Vec::new();
+    for bx in &boxes {
+        let (mut apply, mut undecided) = (Vec::new(), Vec::new());
+        for j in 0..src.len() {
+            let d = src.domain(j);
+            match box_inside_domain(bx, d, &ld.frame, &budget) {
+                Some(true) => {
+                    let r = src.rule_ref(j);
+                    apply.push(
+                        json!({"source": j, "table": disp.tables()[r.table].name, "label": r.label,
+                        "literals_exact_on_box": literals_exact_on_box(d, bx, 1 << 20)}),
+                    );
+                }
+                None => {
+                    let r = src.rule_ref(j);
+                    undecided.push(json!({"source": j, "table": disp.tables()[r.table].name, "label": r.label,
+                        "fixed": d.fixed, "bounds": d.bounds.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
+                        "exceptions": d.exceptions.iter().map(|b| b.iter().map(|p| p.to_string()).collect::<Vec<_>>()).collect::<Vec<_>>()}));
+                }
+                Some(false) => {}
+            }
+        }
+        eprintln!(
+            "box: {} records apply on the whole box, {} undecided",
+            apply.len(),
+            undecided.len()
+        );
+        res.push(json!({"box": bx, "apply_on_whole_box": apply, "undecided": undecided}));
+    }
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+}
+
+/// T178-UNBOXED item D: the core side of the engine drill. Keys from PARAMETRIC_KEYS (one JSON array per line) are
+/// dispatched by the dispatcher of PARAMETRIC_SPEC (sources list; PARAMETRIC_FALLTHROUGH = reduced applies the G5
+/// transform, which on a table whose loci are already exception branches drops every pole); one line per key in
+/// PARAMETRIC_OUT: {"key", "label" (record label or null), "dispatch"}. Compared with `rr_node first-match` outside.
+#[test]
+#[ignore]
+fn drill_core_first_match() {
+    use rustred_campaign_core::cover::Dispatch;
+    use std::io::BufRead;
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let keys = std::env::var("PARAMETRIC_KEYS").expect("PARAMETRIC_KEYS");
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let mut ld = load_any(&spec, None);
+    let el = std::env::var("PARAMETRIC_ELIDED").as_deref() == Ok("engine");
+    let nc = std::env::var("PARAMETRIC_NOTCARRIED").as_deref() == Ok("engine");
+    if el || nc {
+        use rustred_campaign_core::cover::{Assurance, WitnessStatus};
+        let mut tables = ld.disp.tables().to_vec();
+        let mut n = 0;
+        for t in &mut tables {
+            for (m, d) in t.meta.iter_mut().zip(t.domains.iter_mut()) {
+                if (el && m.witness == WitnessStatus::Elided)
+                    || (nc && m.witness == WitnessStatus::NotCarried)
+                {
+                    m.witness_basis = Assurance::CheckDisabled;
+                    d.witness_elided = false;
+                    n += 1;
+                }
+            }
+        }
+        eprintln!("elided / not-carried records applied as the engine does: {n}");
+        let d = Dispatcher::new(tables, ld.disp.priority().to_vec()).unwrap();
+        ld.disp = match ld.disp.chart() {
+            Some(c) => d.with_chart(c.to_vec()).unwrap(),
+            None => d,
+        };
+    }
+    let (disp, st) = if std::env::var("PARAMETRIC_FALLTHROUGH").as_deref() == Ok("reduced") {
+        let (d, st) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+            &ld.disp,
+            &ld.frame,
+            &ProofBudget::default(),
+        )
+        .unwrap();
+        (d, Some(st))
+    } else {
+        let d = Dispatcher::new(ld.disp.tables().to_vec(), ld.disp.priority().to_vec()).unwrap();
+        (
+            match ld.disp.chart() {
+                Some(c) => d.with_chart(c.to_vec()).unwrap(),
+                None => d,
+            },
+            None,
+        )
+    };
+    if let Some(st) = &st {
+        eprintln!(
+            "reduced fall-through: poles {} redundant {} moved {}",
+            st.poles,
+            st.redundant,
+            st.moved_unknown + st.moved_nonempty
+        );
+    }
+    let mut f = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
+    let mut n = 0u64;
+    for line in std::io::BufReader::new(std::fs::File::open(&keys).unwrap()).lines() {
+        let line = line.unwrap();
+        if line.trim().is_empty() {
+            continue;
+        }
+        let k: Vec<i32> = serde_json::from_str(&line).unwrap();
+        let d = disp.first_match(&k);
+        let (label, why) = match &d {
+            Ok(Dispatch::Covered(r)) => (json!(r.label), "covered".to_string()),
+            other => (
+                json!(null),
+                format!("{other:?}").chars().take(600).collect(),
+            ),
+        };
+        writeln!(f, "{}", json!({"key": k, "label": label, "dispatch": why})).unwrap();
+        n += 1;
+    }
+    f.flush().unwrap();
+    eprintln!("drill: {n} keys dispatched");
+}
+
+/// T162 bank witness loci (reports/T162-WITNESS-LOCI.md; witness-loci-bank.jsonl, one line per bank record): RESTORED /
+/// RESTORED_WITH_HIDDEN_BRANCHES records get their witness loci as pole loci (status Complete) and the hidden exception
+/// branches; NOT_ESTABLISHED records are left as they are (no witness loci: they BLOCK under the strict reading). Matched
+/// by the raw line's sha256 (import jobs: `record_sha256`, bank-conv tables) or, for catalogue tables built by lane
+/// parametric, by `origin.source == "bank#<index>"`.
+fn restore_bank_loci(ld: &mut Loaded, file: &str) -> serde_json::Value {
+    use rustred_campaign_core::domain::{PoleKind, PoleLocus};
+    use std::io::{Read, Seek, SeekFrom};
+    let mut by_sha: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut by_index: BTreeMap<i64, serde_json::Value> = BTreeMap::new();
+    for l in std::fs::read_to_string(file)
+        .unwrap()
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+    {
+        let v: serde_json::Value = serde_json::from_str(l).unwrap();
+        by_sha.insert(v["record_sha256"].as_str().unwrap().to_string(), v.clone());
+        by_index.insert(v["index"].as_i64().unwrap(), v);
+    }
+    let n = ld.frame.arity();
+    let mut tables: Vec<Table> = ld.disp.tables().to_vec();
+    let (mut restored, mut hidden, mut not_est, mut matched) = (0usize, 0usize, 0usize, 0usize);
+    let mut elided_kept = 0usize;
+    let mut unproven: Vec<serde_json::Value> = Vec::new();
+    let unproven_engine = std::env::var("PARAMETRIC_BANK_UNPROVEN").as_deref() == Ok("engine");
+    let mut seen: std::collections::BTreeSet<i64> = std::collections::BTreeSet::new();
+    for j in &mut ld.jobs {
+        let mut entry = by_sha.get(&j.record_sha256).cloned();
+        if entry.is_none() {
+            let mut f = std::fs::File::open(&j.path).unwrap();
+            f.seek(SeekFrom::Start(j.offset)).unwrap();
+            let mut b = vec![0u8; j.bytes as usize];
+            f.read_exact(&mut b).unwrap();
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b)
+                && let Some(s) = v["origin"]["source"].as_str()
+                && let Some(ix) = s.strip_prefix("bank#").and_then(|x| x.parse::<i64>().ok())
+            {
+                entry = by_index.get(&ix).cloned();
+            }
+        }
+        let Some(e) = entry else { continue };
+        matched += 1;
+        seen.insert(e["index"].as_i64().unwrap());
+        let status = e["status"].as_str().unwrap_or("");
+        let ix = e["index"].as_i64().unwrap();
+        let t = &mut tables[j.table];
+        let d = &mut t.domains[j.record];
+        // hidden exception branches (the re-lift's rule has them): added where not already present; this only
+        // removes domain
+        if let Some(hb) = e["hidden_branches"].as_array() {
+            for br in hb {
+                let members: Vec<rustred_campaign_core::poly::Poly> = match br {
+                    serde_json::Value::Array(a) => a
+                        .iter()
+                        .map(|m| {
+                            rustred_campaign_core::poly::Poly::parse_d_free_exact(
+                                m.as_str().unwrap(),
+                                n,
+                            )
+                            .unwrap()
+                        })
+                        .collect(),
+                    serde_json::Value::String(s) => {
+                        vec![rustred_campaign_core::poly::Poly::parse_d_free_exact(s, n).unwrap()]
+                    }
+                    _ => continue,
+                };
+                if !d.exceptions.contains(&members) {
+                    d.exceptions.push(members);
+                    hidden += 1;
+                }
+            }
+        }
+        let loci: Vec<String> = e["witness_loci"]
+            .as_array()
+            .map(|a| a.iter().map(|x| x.as_str().unwrap().to_string()).collect())
+            .unwrap_or_default();
+        let elided = loci.iter().any(|x| x.trim() == "elided");
+        if status == "NOT_ESTABLISHED" || elided {
+            // strict: unusable wherever selected (NotCarried / Elided); PARAMETRIC_BANK_UNPROVEN=engine applies them as
+            // the engine does (to measure their cost by difference)
+            if status == "NOT_ESTABLISHED" {
+                not_est += 1;
+                unproven.push(json!({"bank": ix, "status": status, "why": "not established"}));
+            } else {
+                elided_kept += 1;
+                d.witness_elided = true;
+                t.meta[j.record].witness = rustred_campaign_core::cover::WitnessStatus::Elided;
+                unproven.push(json!({"bank": ix, "status": status, "why": "restored loci are the literal elided (ruling F1)"}));
+            }
+            if unproven_engine {
+                d.witness_elided = false;
+                t.meta[j.record].witness_basis =
+                    rustred_campaign_core::cover::Assurance::CheckDisabled;
+            }
+            j.domain = d.clone();
+            continue;
+        }
+        d.poles.retain(|p| p.kind != PoleKind::Witness);
+        for s in &loci {
+            let p = rustred_campaign_core::poly::Poly::parse_exact(s, n, true).unwrap();
+            d.poles.push(PoleLocus::new(PoleKind::Witness, &p));
+        }
+        d.witness_elided = false;
+        t.meta[j.record].witness = rustred_campaign_core::cover::WitnessStatus::Complete;
+        t.meta[j.record].witness_basis = rustred_campaign_core::cover::Assurance::Record;
+        j.domain = d.clone();
+        restored += 1;
+    }
+    let still_notcarried = tables
+        .iter()
+        .flat_map(|t| t.meta.iter())
+        .filter(|m| m.witness == rustred_campaign_core::cover::WitnessStatus::NotCarried)
+        .count();
+    let still_elided = tables
+        .iter()
+        .flat_map(|t| t.domains.iter())
+        .filter(|d| d.witness_elided)
+        .count();
+    let pr = ld.disp.priority().to_vec();
+    ld.disp = Dispatcher::new(tables, pr)
+        .unwrap()
+        .with_chart(ld.frame.mask().to_vec())
+        .unwrap();
+    json!({"file": file, "sha256": sha256_file(Path::new(file)), "lines": by_sha.len(), "records_matched": matched,
+           "distinct_bank_indices_matched": seen.len(), "restored": restored, "hidden_branches_added": hidden,
+           "not_established": not_est, "elided_loci": elided_kept, "unproven": unproven,
+           "unproven_applied_as_engine": unproven_engine,
+           "records_still_notcarried": still_notcarried, "records_still_elided": still_elided})
+}
+
+/// A record whose rhs carries a symbol at another slot (`n<i>` at slot j != i): the engine treats it as a SLOT ALIAS and
+/// applies it AFTER every ordinary rule (TRICKS 43).
+fn is_slot_alias_raw(v: &serde_json::Value) -> bool {
+    let Some(rhs) = v["rhs"].as_array() else {
+        return false;
+    };
+    rhs.iter().any(|t| {
+        let Some(term) = t.get(0).and_then(|x| x.as_str()) else {
+            return false;
+        };
+        let (Some(a), Some(b)) = (term.find('('), term.rfind(')')) else {
+            return false;
+        };
+        term[a + 1..b].split(',').enumerate().any(|(j, e)| {
+            let e = e.trim();
+            e.strip_prefix('n')
+                .map(|r| {
+                    r.chars()
+                        .take_while(|c| c.is_ascii_digit())
+                        .collect::<String>()
+                })
+                .and_then(|d| d.parse::<usize>().ok())
+                .is_some_and(|i| i != j)
+        })
+    })
+}
+
+/// Per (table, record) of the dispatcher: is it a slot alias (read from the record's raw line).
+fn alias_flags(ld: &Loaded) -> std::collections::BTreeSet<(usize, usize)> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut out = std::collections::BTreeSet::new();
+    for j in &ld.jobs {
+        let mut f = std::fs::File::open(&j.path).unwrap();
+        f.seek(SeekFrom::Start(j.offset)).unwrap();
+        let mut b = vec![0u8; j.bytes as usize];
+        f.read_exact(&mut b).unwrap();
+        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b)
+            && is_slot_alias_raw(&v)
+        {
+            out.insert((j.table, j.record));
+        }
+    }
+    out
+}
+
+/// The ENGINE's effective first-match order (TRICKS 43): every ordinary record in table order, THEN the slot aliases.
+/// The dispatcher is rebuilt so: one ordinary copy per table (same priority), then one alias copy per table holding
+/// aliases. Labels are kept; jobs are re-pointed.
+fn engine_order(ld: &mut Loaded) -> serde_json::Value {
+    let aliases = alias_flags(ld);
+    if aliases.is_empty() {
+        return json!({"slot_aliases": 0});
+    }
+    let tables = ld.disp.tables().to_vec();
+    let prio = ld.disp.priority().to_vec();
+    let mut new_tables: Vec<Table> = Vec::new();
+    let mut remap: BTreeMap<(usize, usize), (usize, usize)> = BTreeMap::new();
+    let mut alias_parts: Vec<Table> = Vec::new();
+    let mut alias_src: Vec<Vec<(usize, usize)>> = Vec::new();
+    for &ti in &prio {
+        let t = &tables[ti];
+        let mut ord = t.clone();
+        let mut ali = t.clone();
+        let (mut od, mut ol, mut om) = (vec![], vec![], vec![]);
+        let (mut ad, mut al, mut am) = (vec![], vec![], vec![]);
+        let mut asrc = vec![];
+        for r in 0..t.domains.len() {
+            if aliases.contains(&(ti, r)) {
+                ad.push(t.domains[r].clone());
+                al.push(t.labels[r]);
+                am.push(t.meta[r].clone());
+                asrc.push((ti, r));
+            } else {
+                remap.insert((ti, r), (new_tables.len(), od.len()));
+                od.push(t.domains[r].clone());
+                ol.push(t.labels[r]);
+                om.push(t.meta[r].clone());
+            }
+        }
+        ord.domains = od;
+        ord.labels = ol;
+        ord.meta = om;
+        new_tables.push(ord);
+        if !ad.is_empty() {
+            ali.name = format!("{} [slot aliases, engine phase 2]", t.name);
+            ali.domains = ad;
+            ali.labels = al;
+            ali.meta = am;
+            alias_parts.push(ali);
+            alias_src.push(asrc);
+        }
+    }
+    for (k, t) in alias_parts.into_iter().enumerate() {
+        let ni = new_tables.len();
+        for (r, &src) in alias_src[k].iter().enumerate() {
+            remap.insert(src, (ni, r));
+        }
+        new_tables.push(t);
+    }
+    for j in &mut ld.jobs {
+        let (t, r) = remap[&(j.table, j.record)];
+        j.table = t;
+        j.record = r;
+    }
+    let m = new_tables.len();
+    ld.disp = Dispatcher::new(new_tables, (0..m).collect())
+        .unwrap()
+        .with_chart(ld.frame.mask().to_vec())
+        .unwrap();
+    json!({"slot_aliases": aliases.len(), "order": "ordinary records in table order, then slot aliases (engine two-phase dispatch)"})
+}
+
+/// DISPATCH-ORDER CHECK (TRICKS 43, builder check): for every slot alias A of PARAMETRIC_SPEC (sources list / import spec,
+/// certified order) and every ORDINARY record R placed after it, is A's selected set disjoint from R's (fixed slots,
+/// equations, bounds; R's exception branches are ignored: a superset)? A non-empty intersection means the engine (aliases
+/// applied after every ordinary rule) may serve those keys with R instead of A. Output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn dispatch_order_check() {
+    use rustred_campaign_core::parametric::descent::{EmptyState, emptiness};
+    use rustred_campaign_core::poly::Poly;
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let ld = load_any(&spec, None);
+    let aliases = alias_flags(&ld);
+    let budget = ProofBudget::default();
+    let order: Vec<(usize, usize)> = ld
+        .disp
+        .priority()
+        .iter()
+        .flat_map(|&ti| (0..ld.disp.tables()[ti].domains.len()).map(move |r| (ti, r)))
+        .collect();
+    let mut found = Vec::new();
+    let (mut checked, mut overlaps) = (0usize, 0usize);
+    for (p, &(ta, ra)) in order.iter().enumerate() {
+        if !aliases.contains(&(ta, ra)) {
+            continue;
+        }
+        let a = &ld.disp.tables()[ta].domains[ra];
+        for &(tr, rr) in &order[p + 1..] {
+            if aliases.contains(&(tr, rr)) {
+                continue;
+            }
+            let r = &ld.disp.tables()[tr].domains[rr];
+            let mut eqs: Vec<Poly> = r.equations.clone();
+            let mut conflict = false;
+            for (s, fx) in r.fixed.iter().enumerate() {
+                if let Some(v) = fx {
+                    if let Some(av) = a.fixed[s] {
+                        if av != *v {
+                            conflict = true;
+                            break;
+                        }
+                        continue;
+                    }
+                    eqs.push(Poly::var(s).sub(&Poly::constant(i128::from(*v))).unwrap());
+                }
+            }
+            checked += 1;
+            if conflict {
+                continue;
+            }
+            let (st, w, why) = emptiness(a, &ld.frame, &budget, &eqs, &r.bounds);
+            if st != EmptyState::Empty {
+                overlaps += 1;
+                found.push(json!({"alias": {"table": ld.disp.tables()[ta].name, "label": ld.disp.tables()[ta].labels[ra], "position": p},
+                    "ordinary_after": {"table": ld.disp.tables()[tr].name, "label": ld.disp.tables()[tr].labels[rr]},
+                    "intersection": format!("{st:?}"), "witness": w, "why": why}));
+            }
+        }
+    }
+    let res = json!({"spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)}, "slot_aliases": aliases.len(),
+        "pairs_checked": checked, "overlaps": overlaps, "found": found,
+        "rule": "no ordinary record after a slot alias may overlap it (the engine applies aliases after every ordinary rule)"});
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "dispatch order check: {} aliases, {checked} pairs, {overlaps} overlaps",
+        aliases.len()
+    );
+}
+
+/// TERMINAL / STUB CHECK of a delivered table (TRICKS 51; builder check): PARAMETRIC_SPEC (sources list / import spec),
+/// PARAMETRIC_TERMINALS (terminal-set document): REFUSED when any record's domain contains a declared terminal key
+/// (`cone::records_containing`) or when any record is a coverage STUB (empty rhs: an intermediate device, never in a delivered
+/// table). Output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn terminal_check() {
+    use rustred_campaign_core::parametric::cone::records_containing;
+    use std::io::{Read, Seek, SeekFrom};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let tp = std::env::var("PARAMETRIC_TERMINALS").expect("PARAMETRIC_TERMINALS");
+    let tdoc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&tp).unwrap()).unwrap();
+    let terms: Vec<Vec<i32>> = serde_json::from_value(tdoc["keys"].clone()).unwrap();
+    let ld = load_any(&spec, None);
+    let mut contained = Vec::new();
+    for k in &terms {
+        for (t, r) in records_containing(&ld.disp, k) {
+            contained.push(json!({"terminal": k, "table": ld.disp.tables()[t].name, "label": ld.disp.tables()[t].labels[r]}));
+        }
+    }
+    let mut stubs = Vec::new();
+    // a BOUNDED RECIPE (source class sealed_recipe, its seal verified by sha256 at load) is its own artifact kind: its
+    // coverage record has no rhs by construction and is NOT a coverage stub (listed separately)
+    let mut recipes = Vec::new();
+    for j in &ld.jobs {
+        if j.meta["class"].as_str() == Some("sealed_recipe") {
+            recipes.push(json!({"table": ld.disp.tables()[j.table].name, "label": ld.disp.tables()[j.table].labels[j.record]}));
+            continue;
+        }
+        let mut f = std::fs::File::open(&j.path).unwrap();
+        f.seek(SeekFrom::Start(j.offset)).unwrap();
+        let mut b = vec![0u8; j.bytes as usize];
+        f.read_exact(&mut b).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        if v["rhs"].as_array().is_some_and(|a| a.is_empty()) {
+            stubs.push(json!({"table": ld.disp.tables()[j.table].name, "label": ld.disp.tables()[j.table].labels[j.record]}));
+        }
+    }
+    let refused = !contained.is_empty() || !stubs.is_empty();
+    let res = json!({"spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
+        "terminals": {"path": tp, "sha256": sha256_file(Path::new(&tp)), "keys": terms},
+        "records_containing_a_terminal": contained, "coverage_stubs": stubs.len(), "stubs_first": stubs.iter().take(100).collect::<Vec<_>>(),
+        "bounded_recipes_not_stubs": recipes,
+        "verdict": if refused { "REFUSED" } else { "ok" },
+        "rule": "a declared terminal is never served by a record; a delivered table carries no coverage stub"});
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "terminal check: {} containments, {} stubs: {}",
+        contained.len(),
+        stubs.len(),
+        if refused { "REFUSED" } else { "ok" }
+    );
+}
+
+/// CHAIN WALK of one key through a dispatch (acceptance case, TRICKS 52): breadth-first over the TOP-SECTOR keys reached from
+/// PARAMETRIC_KEY (comma list) by first match + rhs instantiation (rhs read from the record line, or from its origin source
+/// line when the dispatch record is a coverage form), the strict loci / G5 reduced dispatch as in redispatch_keys. Stubs
+/// (empty rhs) and open keys are NOT expanded and are listed; terminals (PARAMETRIC_TERMINALS) stop the walk. Output
+/// PARAMETRIC_OUT (JSON): records used, keys, max depth, stub steps (by stub record), open keys.
+#[test]
+#[ignore]
+fn chain_walk() {
+    use rustred_campaign_core::cover::Dispatch;
+    use std::io::{Read, Seek, SeekFrom};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let start: Vec<i32> = std::env::var("PARAMETRIC_KEY")
+        .expect("PARAMETRIC_KEY")
+        .split(',')
+        .map(|x| x.trim().parse().unwrap())
+        .collect();
+    let max_keys: usize = std::env::var("PARAMETRIC_MAX_KEYS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(5_000_000);
+    let terms: std::collections::BTreeSet<Vec<i32>> = std::env::var("PARAMETRIC_TERMINALS")
+        .ok()
+        .map(|p| {
+            let v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            serde_json::from_value::<Vec<Vec<i32>>>(v["keys"].clone())
+                .unwrap()
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut ld = load_any(
+        &spec,
+        std::env::var("PARAMETRIC_INDEX_DIR")
+            .ok()
+            .map(PathBuf::from),
+    );
+    if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+        restore_loci(&mut ld, &f);
+    }
+    if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+        restore_bank_loci(&mut ld, &f);
+    }
+    let (g5, _) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+        &ld.disp,
+        &ld.frame,
+        &ProofBudget::default(),
+    )
+    .unwrap();
+    let n = ld.frame.arity();
+    let lines: Vec<bool> = (0..n).map(|i| ld.frame.is_line(i)).collect();
+    let job_of: BTreeMap<(usize, usize), usize> = ld
+        .jobs
+        .iter()
+        .enumerate()
+        .map(|(i, j)| ((j.table, j.record), i))
+        .collect();
+    let read_line = |p: &str, off: u64, len: Option<u64>| -> serde_json::Value {
+        let mut f = std::fs::File::open(p).unwrap();
+        f.seek(SeekFrom::Start(off)).unwrap();
+        let b = match len {
+            Some(l) => {
+                let mut b = vec![0u8; l as usize];
+                f.read_exact(&mut b).unwrap();
+                b
+            }
+            None => {
+                let mut r = std::io::BufReader::new(f);
+                let mut s = String::new();
+                std::io::BufRead::read_line(&mut r, &mut s).unwrap();
+                s.into_bytes()
+            }
+        };
+        serde_json::from_slice(&b).unwrap()
+    };
+    // per (table, record): (target slots, rhs term slots) or None for a stub
+    let mut rules: BTreeMap<(usize, usize), Option<(Vec<String>, Vec<Vec<String>>)>> =
+        BTreeMap::new();
+    let parse_slots = |t: &str| -> Vec<String> {
+        t[t.find('(').unwrap() + 1..t.rfind(')').unwrap()]
+            .split(',')
+            .map(|x| x.trim().to_string())
+            .collect()
+    };
+    let mut seen: std::collections::BTreeSet<Vec<i32>> = std::collections::BTreeSet::new();
+    let mut frontier = vec![start.clone()];
+    seen.insert(start.clone());
+    // the keys served by a record without rhs (coverage stub / bounded recipe): listed (the engine needs their relations)
+    let mut stub_keys: BTreeMap<String, Vec<Vec<i32>>> = BTreeMap::new();
+    let (mut depth, mut open, mut stub_steps, mut used, mut terminal_hits, mut lower) = (
+        0usize,
+        Vec::new(),
+        BTreeMap::<String, u64>::new(),
+        BTreeMap::<String, u64>::new(),
+        0u64,
+        0u64,
+    );
+    while !frontier.is_empty() && seen.len() < max_keys {
+        let mut next = Vec::new();
+        for k in &frontier {
+            if terms.contains(k) {
+                terminal_hits += 1;
+                continue;
+            }
+            match g5.first_match(k) {
+                Ok(Dispatch::Covered(r)) => {
+                    let tname = g5.tables()[r.table].name.clone();
+                    let lab = g5.tables()[r.table].labels[r.record];
+                    let ent = rules.entry((r.table, r.record)).or_insert_with(|| {
+                        let j = &ld.jobs[job_of[&(r.table, r.record)]];
+                        let v = read_line(&j.path, j.offset, Some(j.bytes));
+                        let v = if v["rhs"].as_array().is_some_and(|a| a.is_empty())
+                            && v["origin"]["path"].is_string()
+                            && (v["origin"]["offset"].is_u64() || v["origin"]["offset"].is_string())
+                        {
+                            let off: u64 = v["origin"]["offset"]
+                                .as_str()
+                                .map(|s| s.parse().unwrap())
+                                .or(v["origin"]["offset"].as_u64())
+                                .unwrap();
+                            read_line(v["origin"]["path"].as_str().unwrap(), off, None)
+                        } else {
+                            v
+                        };
+                        let rhs = v["rhs"].as_array().cloned().unwrap_or_default();
+                        if rhs.is_empty() {
+                            return None;
+                        }
+                        Some((
+                            parse_slots(v["target"].as_str().unwrap()),
+                            rhs.iter()
+                                .map(|t| parse_slots(t[0].as_str().unwrap()))
+                                .collect(),
+                        ))
+                    });
+                    match ent {
+                        None => {
+                            *stub_steps.entry(format!("{tname}#{lab}")).or_default() += 1;
+                            stub_keys.entry(format!("{tname}#{lab}")).or_default().push(k.clone());
+                        }
+                        Some((tg, pats)) => {
+                            *used.entry(format!("{tname}#{lab}")).or_default() += 1;
+                            // parameter values from the target pattern: slot s = n_j + o  =>  n_j = k[s] - o
+                            let mut val: BTreeMap<usize, i64> = BTreeMap::new();
+                            let sym = |e: &str| -> Option<(usize, i64)> {
+                                let e = e.trim();
+                                let rest = e.strip_prefix('n')?;
+                                let d: String =
+                                    rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                                let o = rest[d.len()..].trim();
+                                Some((
+                                    d.parse().ok()?,
+                                    if o.is_empty() {
+                                        0
+                                    } else {
+                                        o.replace('+', "").parse().ok()?
+                                    },
+                                ))
+                            };
+                            for (s, e) in tg.iter().enumerate() {
+                                if let Some((j, o)) = sym(e) {
+                                    val.insert(j, i64::from(k[s]) - o);
+                                }
+                            }
+                            for p in pats.iter() {
+                                let c: Vec<i32> = p
+                                    .iter()
+                                    .map(|e| match sym(e) {
+                                        Some((j, o)) => (val[&j] + o) as i32,
+                                        None => e.parse().unwrap(),
+                                    })
+                                    .collect();
+                                if (0..n).any(|i| lines[i] && c[i] < 1) {
+                                    lower += 1; // leaves the top sector (another node)
+                                    continue;
+                                }
+                                if seen.insert(c.clone()) {
+                                    next.push(c);
+                                }
+                            }
+                        }
+                    }
+                }
+                other => {
+                    if open.len() < 200 {
+                        open.push(json!({"key": k, "dispatch": format!("{other:?}").chars().take(120).collect::<String>()}));
+                    }
+                }
+            }
+        }
+        frontier = next;
+        depth += 1;
+        eprintln!(
+            "  depth {depth}: {} keys seen, frontier {}",
+            seen.len(),
+            frontier.len()
+        );
+    }
+    let mut used_top: Vec<(&String, &u64)> = used.iter().collect();
+    used_top.sort_by(|a, b| b.1.cmp(a.1));
+    used_top.truncate(40);
+    let res = json!({"start": start, "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
+        "keys_reached_in_top_sector": seen.len(), "depth": depth, "complete": frontier.is_empty(), "terminal_hits": terminal_hits,
+        "terms_leaving_the_sector": lower, "records_used": used.len(), "records_used_top": used_top,
+        "stub_steps": stub_steps, "stub_keys": stub_keys, "open_keys": open});
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "chain walk: {} keys, depth {depth}, {} records, stub steps {:?}, open {}",
+        seen.len(),
+        used.len(),
+        stub_steps,
+        open.len()
+    );
+}
+
+/// PER-RECORD LIVENESS in a cone (delivery note / dead-record pruning): record r is LIVE iff some key of D + r <= R is first-
+/// matched by it. Exact: the dispatcher capped to r's face (one-slot caps from its fixed slots and one-slot bounds) is
+/// partitioned with ONLY the records before r (rule subset); every uncovered element inside the cone is enumerated (cap per
+/// element) and r tested at its keys: a key where r applies = live (witness); none with complete enumeration = dead; else
+/// undecided. Env: PARAMETRIC_SPEC (+ loci / bank loci / FALLTHROUGH reduced, ENGINE), PARAMETRIC_LIVENESS_DR (R),
+/// PARAMETRIC_LIVENESS_RANGE "a:b" (records by global dispatch position), PARAMETRIC_OUT (JSONL, one line per record).
+#[test]
+#[ignore]
+fn record_liveness() {
+    use rustred_campaign_core::parametric::cone::{
+        Cone, ConeOptions, capped_dispatcher, coverage_from_partition, partition_for_cones_with,
+    };
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let rdr: i64 = std::env::var("PARAMETRIC_LIVENESS_DR")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(39);
+    let mut ld = load_any(
+        &spec,
+        std::env::var("PARAMETRIC_INDEX_DIR")
+            .ok()
+            .map(PathBuf::from),
+    );
+    if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+        restore_loci(&mut ld, &f);
+    }
+    if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+        restore_bank_loci(&mut ld, &f);
+    }
+    let (g5, _) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+        &ld.disp,
+        &ld.frame,
+        &ProofBudget::default(),
+    )
+    .unwrap();
+    let frame = ld.frame.clone();
+    let n = frame.arity();
+    let order: Vec<(usize, usize)> = g5
+        .priority()
+        .iter()
+        .flat_map(|&ti| (0..g5.tables()[ti].domains.len()).map(move |r| (ti, r)))
+        .collect();
+    let (a, b) = std::env::var("PARAMETRIC_LIVENESS_RANGE")
+        .ok()
+        .and_then(|x| {
+            x.split_once(':')
+                .map(|(p, q)| (p.parse().unwrap(), q.parse().unwrap()))
+        })
+        .unwrap_or((0usize, order.len()));
+    let mut base_opts = ConeOptions::default();
+    // per-record budget (a record that exceeds it is UNDECIDED, never live / dead)
+    base_opts.budget.max_nodes = Some(
+        std::env::var("PARAMETRIC_LIVENESS_UNITS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(50_000_000),
+    );
+    base_opts.budget.wall = Some(std::time::Duration::from_secs(
+        std::env::var("PARAMETRIC_LIVENESS_WALL")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(120),
+    ));
+    base_opts.engine_exact_zero = std::env::var("PARAMETRIC_ENGINE").as_deref() == Ok("4895ee68");
+    // the cone D + r <= R
+    let mut cone_a = vec![0i64; n];
+    let mut cone_b = rdr;
+    for (s, c) in cone_a.iter_mut().enumerate() {
+        if frame.is_line(s) {
+            *c = 1;
+            cone_b += 1;
+        } else {
+            *c = -1;
+        }
+    }
+    let mut w = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
+    for pos in a..b.min(order.len()) {
+        let (ti, ri) = order[pos];
+        let d = &g5.tables()[ti].domains[ri];
+        let label = g5.tables()[ti].labels[ri];
+        let t0 = std::time::Instant::now();
+        // caps: fixed slots (two one-slot caps each) + one-slot linear bounds  (c * n_s + e >= 0)
+        let mut caps = Cone {
+            label: format!("face of record {pos}"),
+            constraints: vec![],
+        };
+        for (s, fx) in d.fixed.iter().enumerate() {
+            if let Some(v) = fx {
+                let mut up = vec![0i64; n];
+                up[s] = 1;
+                let mut dn = vec![0i64; n];
+                dn[s] = -1;
+                caps.constraints.push((up, i64::from(*v)));
+                caps.constraints.push((dn, -i64::from(*v)));
+            }
+        }
+        for p in &d.bounds {
+            // linear one-slot bound c * n_s + e >= 0
+            let sup = p.support();
+            if sup.len() != 1 || p.degree() != 1 || p.has_d() {
+                continue;
+            }
+            let s = sup[0];
+            let Some(terms) = p.small_terms() else {
+                continue;
+            };
+            let (mut c, mut e) = (0i128, 0i128);
+            for (mo, k) in terms {
+                if mo.is_empty() {
+                    e = *k;
+                } else {
+                    c = *k;
+                }
+            }
+            if c == 1 {
+                let mut dn = vec![0i64; n];
+                dn[s] = -1;
+                caps.constraints.push((dn, e as i64)); // -n_s <= e
+            } else if c == -1 {
+                let mut up = vec![0i64; n];
+                up[s] = 1;
+                caps.constraints.push((up, e as i64)); // n_s <= e
+            }
+        }
+        let capped = match capped_dispatcher(&g5, &frame, &caps) {
+            Ok(c) => c,
+            Err(e) => {
+                writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": "undecided", "why": format!("caps: {e}")})).unwrap();
+                continue;
+            }
+        };
+        let ncaps = capped.tables()[0].domains.len();
+        let mut opts = base_opts.clone();
+        opts.rule_subset = Some((0..ncaps).chain((0..pos).map(|p| ncaps + p)).collect());
+        let cp = match partition_for_cones_with(&capped, &frame, &opts, None) {
+            Ok(c) => c,
+            Err(e) => {
+                writeln!(w, "{}", json!({"position": pos, "label": label, "live": "undecided", "why": format!("partition: {e}")})).unwrap();
+                continue;
+            }
+        };
+        let budget_hit = cp.report.budget_exhausted().map(str::to_string);
+        let mut cone = Cone {
+            label: format!("D + r <= {rdr}"),
+            constraints: vec![(cone_a.clone(), cone_b)],
+        };
+        cone = cone.and(&caps);
+        let cov = coverage_from_partition(&cp, &capped, &frame, &cone, &opts).unwrap();
+        let mut witness: Option<Vec<i32>> = None;
+        let mut exhausted = true;
+        // the record's WALL budget also bounds the element loop (exact cell emptiness / bounded enumeration): past it the
+        // remaining elements are not examined and the record is UNDECIDED (never reported dead without a full pass)
+        let deadline = t0 + base_opts.budget.wall.unwrap_or(std::time::Duration::from_secs(120));
+        let enum_cap: u64 = std::env::var("PARAMETRIC_LIVENESS_ENUM")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(200_000);
+        'el: for l in &cov.listed {
+            if std::time::Instant::now() > deadline {
+                exhausted = false;
+                break 'el;
+            }
+            let i = l["element"].as_u64().unwrap() as usize;
+            let el = &cp.elements[i];
+            // a CELL (box): exact emptiness of (r's domain AND the box AND the cone), with a witness
+            if let Some(cell) = &el.cell {
+                use rustred_campaign_core::parametric::descent::{EmptyState, emptiness};
+                use rustred_campaign_core::poly::Poly;
+                let mut bounds: Vec<Poly> = Vec::new();
+                for (sl, (lo, hi)) in cell.iter().enumerate() {
+                    if let Some(lo) = lo {
+                        bounds.push(Poly::var(sl).sub(&Poly::constant(i128::from(*lo))).unwrap());
+                    }
+                    if let Some(hi) = hi {
+                        bounds.push(Poly::constant(i128::from(*hi)).sub(&Poly::var(sl)).unwrap());
+                    }
+                }
+                let mut cb = Poly::constant(i128::from(cone_b));
+                for (sl, c) in cone_a.iter().enumerate() {
+                    cb = cb
+                        .sub(&Poly::var(sl).mul(&Poly::constant(i128::from(*c))).unwrap())
+                        .unwrap();
+                }
+                bounds.push(cb);
+                match emptiness(d, &frame, &ProofBudget::default(), &[], &bounds) {
+                    (EmptyState::Empty, _, _) => continue,
+                    (EmptyState::NonEmpty, Some(wk), _) => {
+                        witness = Some(wk);
+                        break 'el;
+                    }
+                    _ => {
+                        exhausted = false;
+                        continue;
+                    }
+                }
+            }
+            let mut found = None;
+            let mut push = |k: &[i32]| {
+                if found.is_none() && d.applies(k).applies() {
+                    found = Some(k.to_vec());
+                }
+            };
+            let sized = rustred_campaign_core::parametric::cone::region_keys_each(
+                &el.region(),
+                &cone,
+                enum_cap,
+                &mut push,
+            );
+            if let Some(k) = found {
+                witness = Some(k);
+                break 'el;
+            }
+            if sized.is_none() {
+                exhausted = false;
+            }
+        }
+        let live = match (&witness, exhausted && budget_hit.is_none()) {
+            (Some(_), _) => "live",
+            (None, true) => "dead",
+            (None, false) => "undecided",
+        };
+        writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
+            "uncovered_elements_in_cone": cov.listed.len(), "budget": budget_hit, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
+        w.flush().unwrap();
+    }
 }

@@ -325,6 +325,10 @@ pub struct NfOptions {
     pub subset: Option<Vec<usize>>,
     /// Split product members of exception branches by their exact linear factors (default false = the checker's form).
     pub factor_exceptions: bool,
+    /// ENGINE MODEL: the engine's zero test is EXACT (rustred slot-alias 4895ee68 / da5d13da: two primes, then big rationals
+    /// when both residues vanish), so no modular-zero-risk stop piece exists. Default false: the two-prime engine
+    /// (frozen line7d), whose misreads are modelled as stop pieces.
+    pub engine_exact_zero: bool,
 }
 
 struct Builder {
@@ -641,6 +645,12 @@ fn factor_can_vanish(f: &Poly, m: &[u128], pm: u128, p1: u128, p2: u128) -> bool
 /// m^e < pm`: never; `q = a x + b` in one variable: exactly at the residue `x = -b / a (mod pm)` inside the box;
 /// otherwise anywhere.
 fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
+    literal_modular_risk_with(f, m, true)
+}
+
+/// [`literal_modular_risk`] with the FACTOR criterion on (`factor = true`, the dispatcher's sharper test) or off (the
+/// plain VALUE BOUND `sum |c_q| prod m^e < pm`, the criterion an independent verifier states; never smaller radii).
+fn literal_modular_risk_with(f: &Poly, m: &[u128], factor: bool) -> Result<LitRisk, String> {
     let p1 = u128::from(ENGINE_PRIMES[0]);
     let p2 = u128::from(ENGINE_PRIMES[1]);
     // a coefficient beyond i128 (exact parser: big literal): the normal form cannot represent it either (the record
@@ -712,7 +722,7 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
     // divides q(pt) iff it divides some l_i(pt) or r(pt); a factor whose value bound stays below p (or a one-monomial
     // cofactor) is divisible by p only where it is 0, i.e. where q(pt) = 0. So each prime of pm must be reachable by a
     // "large" factor; products of small linear factors (high-degree exception members of real tables) never are.
-    if !factor_can_vanish(f, m, pm, p1, p2) {
+    if factor && !factor_can_vanish(f, m, pm, p1, p2) {
         return Ok(LitRisk::Points(vec![]));
     }
     // one-variable linear primitive part a x + b: the residue is solved exactly; anything else: the far radius
@@ -803,6 +813,17 @@ fn literal_modular_risk(f: &Poly, m: &[u128]) -> Result<LitRisk, String> {
 /// dispatcher and are not part of the engine's first match; the engine's modular REDUCTION at huge keys is a separate
 /// matter, interfaces/partition.md 14.)
 pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
+    modular_risk_with(d, true)
+}
+
+/// [`modular_risk`] WITHOUT the factor criterion: every literal whose plain value bound reaches the modulus counts
+/// (the criterion of an independent radius check, VERIFIER_SPEC item 4); its far radii are never larger than those of
+/// [`modular_risk`].
+pub fn modular_risk_value_bound(d: &CaseDomain) -> Option<ModularRisk> {
+    modular_risk_with(d, false)
+}
+
+fn modular_risk_with(d: &CaseDomain, factor: bool) -> Option<ModularRisk> {
     let m = match rule_point_bounds(d) {
         Ok(m) => m,
         Err(why) => return Some(ModularRisk::Anywhere(why)),
@@ -810,7 +831,7 @@ pub fn modular_risk(d: &CaseDomain) -> Option<ModularRisk> {
     let mut points: Vec<(usize, i128)> = vec![];
     let mut far: Vec<(usize, i128)> = vec![];
     for (_, f) in reached_literals(d) {
-        match literal_modular_risk(f, &m) {
+        match literal_modular_risk_with(f, &m, factor) {
             Ok(LitRisk::Points(p)) => points.extend(p),
             Ok(LitRisk::Far(p)) => far.extend(p),
             Err(why) => return Some(ModularRisk::Anywhere(why)),
@@ -1109,7 +1130,11 @@ pub fn build(
         // literals evaluated before it hold (earlier equations zero; for a member: every equation zero, every bound
         // >= 0, the earlier members of its branch zero) AND the literal's risk region (exact residue points, far
         // radius, or everything); a condition that cannot be represented is left out (a larger piece: sound)
-        let reached = reached_literals(d);
+        let reached = if opts.engine_exact_zero {
+            vec![] // exact engine zero test: no modular misread, no stop piece
+        } else {
+            reached_literals(d)
+        };
         let risks: Vec<(LitPos, Result<LitRisk, String>)> = match rule_point_bounds(d) {
             Ok(mb) => reached
                 .iter()

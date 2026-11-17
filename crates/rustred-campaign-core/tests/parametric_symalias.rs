@@ -206,3 +206,74 @@ fn descent_verdict_agrees_with_the_concrete_comparator_on_the_piece() {
     );
     assert_eq!(undecided, 0, "{lower} / {not_lower} / {undecided}");
 }
+
+/// TRICKS 23 (helper VH on the T162 aliases): a one-term symmetry record may be emitted only on a domain where g has
+/// NO fixed point and the term is strictly lower. A line law WITHOUT its bound contains its end point, a fixed point of
+/// the swap: refused; with the bound the same element is shippable.
+#[test]
+fn fixed_point_on_the_line_is_refused() {
+    use rustred_campaign_core::parametric::symalias::FixedPoints;
+    // element: lines 1 <-> 2 (everything else kept); piece: n2 = 2 n1 - 1 (end point n1 = n2 = 1 is fixed by the swap)
+    let chart: Vec<bool> = (0..N).map(|s| s < LINES).collect();
+    let el = SymElement {
+        matrix: Some(vec![1, 0, 0, 1]),
+        action: (0..N)
+            .map(|s| match s {
+                1 => ex(2),
+                2 => ex(1),
+                s => ex(s),
+            })
+            .collect(),
+    };
+    let g = SymGroup {
+        arity: N,
+        loops: 0,
+        chart,
+        elements: vec![el],
+    };
+    let f = NodeFrame::without_header_lines_first(N, LINES);
+    let cmp = NodeComparator::from_descriptor(OrderDescriptor::spired_uncut(N)).unwrap();
+    let base = Piece {
+        name: "law n2 = 2 n1 - 1".into(),
+        fixed: vec![
+            Some(1),
+            None,
+            None,
+            Some(1),
+            Some(1),
+            Some(0),
+            Some(0),
+            Some(0),
+        ],
+        equations: vec!["n2-2*n1+1".into()],
+        domain_bounds: None,
+    };
+    let c = candidates(&g, &base, &f, &cmp, &ProofBudget::default(), 0).unwrap();
+    assert_eq!(c.len(), 1);
+    match &c[0].fixed_points {
+        FixedPoints::Exists { witness } => {
+            assert_eq!(witness[1], 1);
+            assert_eq!(witness[2], 1);
+        }
+        other => panic!("the end point is a fixed point: {other:?}"),
+    }
+    assert!(
+        !c[0].shippable(),
+        "a record with a fixed point on its domain must be refused"
+    );
+    assert!(
+        !c[0].lower(),
+        "not strictly lower at the fixed point either"
+    );
+    // with the bound n1 >= 2 the domain has no fixed point (n2 = 2 n1 - 1 > n1)
+    let bounded = Piece {
+        domain_bounds: Some(
+            json!({"min": [null, 2, null, null, null, null, null, null], "max": null}),
+        ),
+        ..base.clone()
+    };
+    let c = candidates(&g, &bounded, &f, &cmp, &ProofBudget::default(), 0).unwrap();
+    assert_eq!(c[0].fixed_points, FixedPoints::None);
+    // shippable iff also strictly lower under this order; the fixed-point verdict alone never ships a record
+    assert_eq!(c[0].shippable(), c[0].lower());
+}

@@ -137,6 +137,14 @@ pub struct ConeOptions {
     /// covered); flagged. `None` = list everything. (T162: a superset stop piece of its generic first record gives a
     /// 66.6 M-class sub-report.)
     pub max_blocked_classes: Option<usize>,
+    /// Engine model: the engine's zero test is exact (rustred slot-alias 4895ee68): no modular-zero-risk stop pieces.
+    pub engine_exact_zero: bool,
+    /// Partition only these sources (positions in the dispatcher's priority order; `PartitionOptions::rule_subset`), e.g. the
+    /// records BEFORE a record whose liveness is decided.
+    pub rule_subset: Option<Vec<usize>>,
+    /// Loci: make implicit equalities explicit before resolving ([`crate::loci::LociOptions::reduce_equalities`]); for
+    /// affine pieces (a face cut by equations). Default false.
+    pub reduce_equalities: bool,
 }
 
 impl Default for ConeOptions {
@@ -153,6 +161,9 @@ impl Default for ConeOptions {
             factor_exceptions: false,
             describe: false,
             max_blocked_classes: None,
+            engine_exact_zero: false,
+            rule_subset: None,
+            reduce_equalities: false,
         }
     }
 }
@@ -240,8 +251,8 @@ pub fn cell_keys_each(
     }
 }
 
-/// A dispatcher with leading CAP records (B2 scaling, sound): one record per one-slot cap `a k_s <= b` of `caps`, whose
-/// domain is the cap's VIOLATION (`a k_s - b - 1 >= 0`), placed BEFORE every table of `disp`. A key outside the caps is
+/// A dispatcher with leading CAP records (B2 scaling, sound): one record per linear cap `a . k <= b` of `caps` (one-slot
+/// caps in the face-by-face split; several slots for affine pieces), whose domain is the cap's VIOLATION (`a . k - b - 1 >= 0`), placed BEFORE every table of `disp`. A key outside the caps is
 /// served by a cap record (no exception, no pole: it applies wherever it is selected); a key inside every cap selects no
 /// cap record and is dispatched exactly as by `disp`. So the dispatch-uncovered set of the result is `disp`'s
 /// uncovered set intersected with the caps, and the partition only has to describe a bounded region. The cone used
@@ -258,15 +269,19 @@ pub fn capped_dispatcher(
     let mut t = Table::new("cone-caps", n);
     for (i, (a, b)) in caps.constraints.iter().enumerate() {
         let nz: Vec<usize> = (0..a.len()).filter(|&j| a[j] != 0).collect();
-        if a.len() != n || nz.len() != 1 {
-            return Err(format!("cap {i}: only one-slot caps are allowed"));
+        if a.len() != n || nz.is_empty() {
+            return Err(format!("cap {i}: a cap needs the arity and a nonzero coefficient"));
         }
-        let s = nz[0];
-        // a k_s - b - 1 >= 0
-        let p = Poly::var(s)
-            .mul(&Poly::constant(i128::from(a[s])))
-            .and_then(|x| x.sub(&Poly::constant(i128::from(*b) + 1)))
-            .map_err(|e| format!("{e:?}"))?;
+        // sum_j a_j k_j - b - 1 >= 0 (the cap's violation; a LINEAR cap in several slots is as sound as a one-slot cap:
+        // the record applies wherever it is selected, so the uncovered set is the dispatcher's intersected with the cap;
+        // lane parametric 2026-11-17, used for the affine pieces PARAMETRIC_PIECE_EQS)
+        let mut p = Poly::constant(-(i128::from(*b) + 1));
+        for &s in &nz {
+            p = Poly::var(s)
+                .mul(&Poly::constant(i128::from(a[s])))
+                .and_then(|x| x.add(&p))
+                .map_err(|e| format!("{e:?}"))?;
+        }
         let mut d = CaseDomain::free(n, Some(frame.mask().to_vec()));
         d.bounds.push(p);
         t.push(i as i64, d).map_err(|e| e.to_string())?;
@@ -953,6 +968,7 @@ pub fn partition_options(budget: &Budget) -> PartitionOptions {
         rule_subset: None,
         dedup: true,
         factor_exceptions: false,
+        engine_exact_zero: false,
         resolve_loci: true,
         loci: crate::loci::LociOptions {
             deadline: budget
@@ -1017,6 +1033,9 @@ pub fn partition_for_cones_traced(
     let t0 = std::time::Instant::now();
     let mut po = partition_options(&opts.budget);
     po.factor_exceptions = opts.factor_exceptions;
+    po.engine_exact_zero = opts.engine_exact_zero;
+    po.rule_subset = opts.rule_subset.clone();
+    po.loci.reduce_equalities = opts.reduce_equalities;
     let report = if opts.describe {
         crate::partition::gap_partition(&src, frame, &po, progress)
     } else {
@@ -1044,6 +1063,19 @@ pub fn partition_for_cones_traced(
         sizes(&report),
         blocked
     ));
+    {
+        let mut w: Vec<(usize, u64, usize, bool)> = report.blocked_work().to_vec();
+        let total: u64 = w.iter().map(|x| x.1).sum();
+        w.sort_by_key(|x| std::cmp::Reverse(x.1));
+        w.truncate(25);
+        trace(&format!(
+            "blocked sub-partitions: {} computed, {} units; skipped {:?}; largest (source, units, classes, complete) {:?}",
+            report.blocked_work().len(),
+            total,
+            report.blocked_skipped(),
+            w
+        ));
+    }
     let mut flags = Vec::new();
     if let Err(e) = report.complete_run() {
         flags.push(format!("not a complete run: {e}"));
@@ -1719,6 +1751,85 @@ pub fn sample_keys_beyond(
                 },
                 &mut out,
             );
+        }
+    }
+    out
+}
+
+/// Can the ENGINE's two-prime zero test misread a literal of `d` (equations, exception members) on the box `bx`?
+/// `Some(true)` = NO literal can be misread there: for each literal `f = g q` (content `g`) the bound
+/// `sum |c_q| prod max|x_v|^e` over the box (unbounded ends clipped to the representable keys `|n| <= 2^31 + margin`)
+/// stays below `pm`, the product of the engine primes not dividing `g`; a nonzero `q(pt)` then never vanishes modulo
+/// `pm`, so the engine's test equals the exact one on the box (the core's `modular_zero_risk` argument, restricted to
+/// the box). `Some(false)` = some literal's bound reaches `pm` (a misread is not excluded by the bound); `None` =
+/// unreadable literal (beyond i128). The margin covers target-pattern offsets (`pt = n - o`).
+pub fn literals_exact_on_box(
+    d: &crate::domain::CaseDomain,
+    bx: &[(Option<i64>, Option<i64>)],
+    margin: u64,
+) -> Option<bool> {
+    use crate::poly::ENGINE_PRIMES;
+    let cap: u128 = (1u128 << 31) + u128::from(margin);
+    let maxabs: Vec<u128> = bx
+        .iter()
+        .map(|(l, h)| {
+            let l = l.map_or(cap, |v| u128::from(v.unsigned_abs()) + u128::from(margin));
+            let h = h.map_or(cap, |v| u128::from(v.unsigned_abs()) + u128::from(margin));
+            l.max(h).min(cap)
+        })
+        .collect();
+    let lits = d.equations.iter().chain(d.exceptions.iter().flatten());
+    for f in lits {
+        let terms = f.small_terms()?;
+        let mut g: u128 = 0;
+        for (_, c) in terms {
+            let (mut a, mut b) = (c.unsigned_abs(), g);
+            while b != 0 {
+                let r = a % b;
+                a = b;
+                b = r;
+            }
+            g = a;
+        }
+        if g == 0 || terms.len() <= 1 {
+            continue; // zero polynomial or a monomial: exact (a monomial vanishes modulo a huge prime only where 0)
+        }
+        let mut pm: u128 = 1;
+        for p in ENGINE_PRIMES {
+            if !g.is_multiple_of(u128::from(p)) {
+                pm = pm.saturating_mul(u128::from(p));
+            }
+        }
+        let mut bound: u128 = 0;
+        for (mo, c) in terms {
+            let mut t = c.unsigned_abs() / g;
+            for &(v, e) in mo.iter() {
+                let mv = *maxabs.get(usize::from(v)).unwrap_or(&cap);
+                t = mv
+                    .checked_pow(e)
+                    .and_then(|x| t.checked_mul(x))
+                    .unwrap_or(u128::MAX);
+            }
+            bound = bound.saturating_add(t);
+        }
+        if bound >= pm {
+            return Some(false);
+        }
+    }
+    Some(true)
+}
+
+/// Every record of `disp` (tables in priority order) whose domain APPLIES at `key` (selected and no exception branch holding),
+/// as (table, record) pairs. TERMINAL RULE (TRICKS 51): a declared terminal key may never be served by a record, so a delivered
+/// table is refused when this list is non-empty for any terminal.
+pub fn records_containing(disp: &Dispatcher, key: &[i32]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for &ti in disp.priority() {
+        let t = &disp.tables()[ti];
+        for (r, d) in t.domains.iter().enumerate() {
+            if d.applies(key).applies() {
+                out.push((ti, r));
+            }
         }
     }
     out

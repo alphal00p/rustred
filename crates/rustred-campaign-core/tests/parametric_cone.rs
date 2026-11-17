@@ -502,3 +502,173 @@ fn region_keys_each_enumerates_a_lattice_region_inside_a_cone_exactly() {
     // unbounded without a cone
     assert!(region_keys_each(&reg, &Cone::orthant(), 1_000_000, &mut |_| {}).is_none());
 }
+
+/// TRICKS 51: a declared terminal key may never be served: `records_containing` finds every record whose domain applies at
+/// the key (a refusal for a delivered table), and none for a key outside every domain.
+#[test]
+fn a_record_containing_a_terminal_is_found() {
+    use rustred_campaign_core::cover::{Dispatcher, Table};
+    use rustred_campaign_core::domain::CaseDomain;
+    use rustred_campaign_core::parametric::cone::records_containing;
+    let n = 3;
+    let chart = vec![true, true, false];
+    let mut t = Table::new("t", n);
+    // record 0: the face n0 >= 2 (free n0, n1 = 1, n2 = 0)
+    let mut d0 = CaseDomain::free(n, Some(chart.clone()));
+    d0.fixed = vec![None, Some(1), Some(0)];
+    d0.bounds.push(
+        rustred_campaign_core::poly::Poly::var(0)
+            .sub(&rustred_campaign_core::poly::Poly::constant(2))
+            .unwrap(),
+    );
+    t.push(0, d0).unwrap();
+    // record 1: the corner point (1, 1, 0)
+    let mut d1 = CaseDomain::free(n, Some(chart.clone()));
+    d1.fixed = vec![Some(1), Some(1), Some(0)];
+    t.push(1, d1).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(chart)
+        .unwrap();
+    // the corner is contained by record 1 (a terminal there would be refused)
+    assert_eq!(records_containing(&disp, &[1, 1, 0]), vec![(0, 1)]);
+    // a face key is contained by record 0 only
+    assert_eq!(records_containing(&disp, &[3, 1, 0]), vec![(0, 0)]);
+    // a key outside every domain: nothing (a terminal there is fine)
+    assert!(records_containing(&disp, &[1, 2, 0]).is_empty());
+}
+
+/// A LINEAR (several-slot) cap is served exactly on its violation, and inside every cap the capped dispatcher selects
+/// what the original selects: an affine piece (an equation as two opposite caps) restricts the partition to a
+/// lattice line / plane of the face (lane parametric 2026-11-17, `PARAMETRIC_PIECE_EQS`).
+#[test]
+fn a_linear_cap_is_served_exactly_on_its_violation() {
+    use rustred_campaign_core::parametric::cone::capped_dispatcher;
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut rng = Rng(0x00af_f1e5);
+    let mut inside_n = 0;
+    for case in 0..40 {
+        let mut recs = Vec::new();
+        for _ in 0..1 + rng.below(3) as usize {
+            let mut r = rec(3);
+            for _ in 0..rng.below(3) {
+                r.exceptions
+                    .push(vec![EXC[rng.below(EXC.len() as u64) as usize]]);
+            }
+            if rng.below(3) == 0 {
+                r.bounds.push(BND[rng.below(BND.len() as u64) as usize]);
+            }
+            recs.push(r);
+        }
+        let d = disp(&f, &recs);
+        let c = rng.below(3) as i64 - 1;
+        let caps = Cone {
+            label: "affine".into(),
+            constraints: vec![
+                (vec![1, -2, 0], c),
+                (vec![-1, 2, 0], -c),
+                (vec![0, 1, -1], 6),
+            ],
+        };
+        let cd = capped_dispatcher(&d, &f, &caps).unwrap();
+        for k0 in 1..=9i32 {
+            for k1 in 1..=5i32 {
+                for k2 in -3..=0i32 {
+                    {
+                        {
+                            let k = [k0, k1, k2];
+                            let inside = caps.constraints.iter().all(|(a, b)| {
+                                a.iter().zip(&k).map(|(x, y)| x * i64::from(*y)).sum::<i64>() <= *b
+                            });
+                            let got = cd.first_match(&k).unwrap();
+                            if !inside {
+                                assert!(matches!(&got, Dispatch::Covered(r) if r.table == 0), "case {case} {k:?}: {got:?}");
+                                continue;
+                            }
+                            inside_n += 1;
+                            let want = d.first_match(&k).unwrap();
+                            match (&got, &want) {
+                                (Dispatch::Covered(a), Dispatch::Covered(b)) => {
+                                    assert!(a.table >= 1 && a.record == b.record, "case {case} {k:?}")
+                                }
+                                (Dispatch::Uncovered, Dispatch::Uncovered) => {}
+                                (Dispatch::Blocked { at: a, .. }, Dispatch::Blocked { at: b, .. }) => {
+                                    assert!(a.table >= 1 && a.record == b.record, "case {case} {k:?}")
+                                }
+                                _ => panic!("case {case} {k:?}: capped {got:?} vs {want:?}"),
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    assert!(inside_n > 100, "{inside_n}");
+}
+
+/// Region::reduce_equalities: two opposite constraints are an equation; the reduced region has one parameter fewer per
+/// equation and exactly the same integer points (checked by enumeration).
+#[test]
+fn implicit_equalities_are_made_explicit_with_the_same_points() {
+    use rustred_campaign_core::loci::region::Region;
+    use rustred_campaign_core::partition::exact::Affine;
+    let mut rng = Rng(0x0e9a_11e5);
+    for case in 0..60 {
+        let k = 3usize;
+        let x: Vec<Affine> = (0..k)
+            .map(|i| Affine { coef: (0..k).map(|j| i128::from(i == j)).collect(), c: 0 })
+            .collect();
+        let a: Vec<i128> = (0..k).map(|_| rng.below(5) as i128 - 2).collect();
+        if a.iter().all(|&v| v == 0) {
+            continue;
+        }
+        let b = rng.below(7) as i128 - 3;
+        let mut cons = vec![
+            Affine { coef: a.clone(), c: b },
+            Affine { coef: a.iter().map(|v| -v).collect(), c: -b },
+        ];
+        // box -4..=4 per parameter
+        for j in 0..k {
+            let mut e = vec![0i128; k];
+            e[j] = 1;
+            cons.push(Affine { coef: e.clone(), c: 4 });
+            e[j] = -1;
+            cons.push(Affine { coef: e, c: 4 });
+        }
+        let r = Region { k, x, cons, names: (0..k).map(|i| format!("t{i}")).collect() };
+        let pts = |r: &Region, w: i128| -> std::collections::BTreeSet<Vec<i128>> {
+            let mut out = std::collections::BTreeSet::new();
+            let rng_k: Vec<i128> = (-w..=w).collect();
+            let mut t = vec![-w; r.k];
+            loop {
+                if r.cons.iter().all(|c| c.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + c.c >= 0) {
+                    out.insert(r.x.iter().map(|xa| xa.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + xa.c).collect());
+                }
+                let mut s = 0;
+                loop {
+                    if s == r.k {
+                        return out;
+                    }
+                    if t[s] < *rng_k.last().unwrap() {
+                        t[s] += 1;
+                        break;
+                    }
+                    t[s] = rng_k[0];
+                    s += 1;
+                }
+                if r.k == 0 {
+                    return out;
+                }
+            }
+        };
+        let before = pts(&r, 6);
+        match r.reduce_equalities().unwrap() {
+            None => assert!(before.is_empty(), "case {case}: reduced to empty but {} points", before.len()),
+            Some(red) => {
+                assert_eq!(red.k, k - 1, "case {case}");
+                // the lattice re-parametrisation may stretch the parameters: a wide window
+                assert_eq!(pts(&red, 150), before, "case {case}");
+            }
+        }
+    }
+}

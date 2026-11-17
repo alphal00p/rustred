@@ -79,6 +79,9 @@ pub struct LociOptions {
     /// Values tried by the exhaustive integer search that decides whether a piece without a found point is empty
     /// (re-audit RA2-M3; beyond: the piece is flagged).
     pub max_enumeration: u64,
+    /// Make implicit equalities of a region explicit before resolving it ([`region::Region::reduce_equalities`]):
+    /// needed for AFFINE pieces (a lattice line / plane cut out of a face by equations). Off by default.
+    pub reduce_equalities: bool,
 }
 
 impl Default for LociOptions {
@@ -93,6 +96,7 @@ impl Default for LociOptions {
             deadline: None,
             max_open_regions: 16,
             max_enumeration: 100_000,
+            reduce_equalities: false,
         }
     }
 }
@@ -507,6 +511,19 @@ impl<'a> Resolver<'a> {
             self.cap(why);
             return;
         }
+        let region = if self.opts.reduce_equalities {
+            match region.reduce_equalities() {
+                Ok(Some(r)) => r,
+                Ok(None) => return, // no integer point: nothing uncovered here
+                Err(e) => {
+                    self.errors = self.errors.saturating_add(1);
+                    self.open_region(region, trail, format!("equality reduction failed: {e}"));
+                    return;
+                }
+            }
+        } else {
+            region
+        };
         let d1 = depth.saturating_add(1);
         let mut superset = superset;
         let mut qcache: BTreeMap<u32, MPoly> = BTreeMap::new();
