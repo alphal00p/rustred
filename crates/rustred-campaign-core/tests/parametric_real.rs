@@ -3302,7 +3302,14 @@ fn terminal_check() {
         }
     }
     let mut stubs = Vec::new();
+    // a BOUNDED RECIPE (source class sealed_recipe, its seal verified by sha256 at load) is its own artifact kind: its
+    // coverage record has no rhs by construction and is NOT a coverage stub (listed separately)
+    let mut recipes = Vec::new();
     for j in &ld.jobs {
+        if j.meta["class"].as_str() == Some("sealed_recipe") {
+            recipes.push(json!({"table": ld.disp.tables()[j.table].name, "label": ld.disp.tables()[j.table].labels[j.record]}));
+            continue;
+        }
         let mut f = std::fs::File::open(&j.path).unwrap();
         f.seek(SeekFrom::Start(j.offset)).unwrap();
         let mut b = vec![0u8; j.bytes as usize];
@@ -3316,6 +3323,7 @@ fn terminal_check() {
     let res = json!({"spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
         "terminals": {"path": tp, "sha256": sha256_file(Path::new(&tp)), "keys": terms},
         "records_containing_a_terminal": contained, "coverage_stubs": stubs.len(), "stubs_first": stubs.iter().take(100).collect::<Vec<_>>(),
+        "bounded_recipes_not_stubs": recipes,
         "verdict": if refused { "REFUSED" } else { "ok" },
         "rule": "a declared terminal is never served by a record; a delivered table carries no coverage stub"});
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
