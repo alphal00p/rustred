@@ -444,9 +444,28 @@ impl fmt::Debug for Decoded {
     }
 }
 
+/// Diagnostic (engine-line on-demand assessment): `RUSTRED_P_PAYLOAD_PROFILE=1`
+/// prints where a payload's first use spends time and memory (stderr).
+fn payload_profile() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RUSTRED_P_PAYLOAD_PROFILE").is_ok_and(|v| v == "1"))
+}
+
+fn rss_gb() -> f64 {
+    std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|statm| statm.split_whitespace().nth(1)?.parse::<f64>().ok())
+        .map_or(0.0, |pages| pages * 4096.0 / 1e9)
+}
+
 /// Decode a payload with its coefficients, bound to `presentation`'s family
 /// and arity; without a presentation, to the family the payload records.
 fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded, PError> {
+    let profile = payload_profile();
+    let (started, rss0) = (
+        std::time::Instant::now(),
+        if profile { rss_gb() } else { 0.0 },
+    );
     let Structure {
         envelope,
         family,
@@ -469,6 +488,11 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             .map(Arc::<[u8]>::from)
             .ok_or_else(|| payload_error("expected a generated candidate binary program"))
     };
+    let (structure_s, rss1) = (
+        started.elapsed().as_secs_f64(),
+        if profile { rss_gb() } else { 0.0 },
+    );
+    let section_bytes = |tag| envelope.section(tag).map_or(0, <[u8]>::len);
     let table = LazyDecodedCoefficientTable::new(
         section(SectionTag::SYMBOLICA_STATE)?,
         section(SectionTag::COEFFICIENTS)?,
@@ -476,6 +500,45 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
     )
     .map_err(payload_error)?
     .without_retention();
+    if profile {
+        let rules: Vec<&RuleRecord> = program
+            .sectors
+            .iter()
+            .flat_map(|sector| &sector.rules)
+            .collect();
+        let terms: usize = rules.iter().map(|rule| rule.rhs.len()).sum();
+        let conditions: usize = rules
+            .iter()
+            .map(|rule| {
+                rule.case.equations.len() + rule.exclusions.iter().map(Vec::len).sum::<usize>()
+            })
+            .sum();
+        let mut sizes: Vec<usize> = rules.iter().map(|rule| rule.rhs.len()).collect();
+        sizes.sort_unstable_by(|a, b| b.cmp(a));
+        let top20: usize = sizes.iter().take(20).sum();
+        eprintln!(
+            "payload-profile decode: payload {} B, PROGRAM {} B, COEFFICIENTS {} B, STATE {} B; charts {}, rules {}, rhs terms {}, \
+             top-20 rules {} terms ({:.1} %), largest {:?}; case/exception conditions {}; coefficients {}; structure {:.2} s \
+             (rss {:.2} -> {:.2} GB), coefficient table {:.2} s (rss -> {:.2} GB)",
+            payload.len(),
+            section_bytes(SectionTag::PROGRAM),
+            section_bytes(SectionTag::COEFFICIENTS),
+            section_bytes(SectionTag::SYMBOLICA_STATE),
+            program.sectors.len(),
+            rules.len(),
+            terms,
+            top20,
+            100.0 * top20 as f64 / terms.max(1) as f64,
+            &sizes[..sizes.len().min(5)],
+            conditions,
+            table.len(),
+            structure_s,
+            rss0,
+            rss1,
+            started.elapsed().as_secs_f64() - structure_s,
+            rss_gb(),
+        );
+    }
     for rule in program.sectors.iter().flat_map(|sector| &sector.rules) {
         validate_rule_ids(rule, table.len()).map_err(wire_error)?;
     }
@@ -541,6 +604,12 @@ impl Decoded {
             variables: &variables,
             indices: &indices,
         };
+        let profile = payload_profile();
+        let (started, rss0) = (
+            std::time::Instant::now(),
+            if profile { rss_gb() } else { 0.0 },
+        );
+        let restore_seconds = std::cell::Cell::new(0.0f64);
         let (_, solution, rules) = restore
             .sector_streamed(
                 program,
@@ -557,11 +626,35 @@ impl Decoded {
             ordering: self.ordering.clone(),
             solution,
         };
-        CandidateOwnerPrograms::try_new_streamed(
+        let terms = program.sectors[ordinal]
+            .rules
+            .iter()
+            .map(|rule| rule.rhs.len())
+            .sum::<usize>();
+        let mut rules = rules;
+        let timed = std::iter::from_fn(|| {
+            let at = std::time::Instant::now();
+            let next = rules.next();
+            restore_seconds.set(restore_seconds.get() + at.elapsed().as_secs_f64());
+            next
+        });
+        let prepared = CandidateOwnerPrograms::try_new_streamed(
             context,
             input,
-            rules.map(|rule| rule.map_err(restore_error)),
-        )
+            timed.map(|rule| rule.map_err(restore_error)),
+        );
+        if profile {
+            let total = started.elapsed().as_secs_f64();
+            eprintln!(
+                "payload-profile chart {ordinal}: rules {}, rhs terms {terms}, restore (decode coefficients + rule) {:.2} s, \
+                 prepare (admit/specialisation programs) {:.2} s, rss {rss0:.2} -> {:.2} GB",
+                program.sectors[ordinal].rules.len(),
+                restore_seconds.get(),
+                total - restore_seconds.get(),
+                rss_gb()
+            );
+        }
+        prepared
     }
 }
 

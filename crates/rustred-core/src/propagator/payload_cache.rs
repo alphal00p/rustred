@@ -117,7 +117,16 @@ impl PPayloadFile {
         let failed = |detail: String| {
             PError::MalformedLibrary(format!("payload {}: {detail}", self.path.display()))
         };
+        let read_started = std::time::Instant::now();
         let data = std::fs::read(&self.path).map_err(|error| failed(error.to_string()))?;
+        if std::env::var("RUSTRED_P_PAYLOAD_PROFILE").is_ok_and(|v| v == "1") {
+            eprintln!(
+                "payload-profile read: {} B in {:.2} s ({})",
+                data.len(),
+                read_started.elapsed().as_secs_f64(),
+                self.path.display()
+            );
+        }
         self.reads.fetch_add(1, Ordering::Relaxed);
         if data.len() as u64 != self.bytes {
             return Err(failed(format!(
