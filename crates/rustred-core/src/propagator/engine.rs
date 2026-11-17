@@ -852,6 +852,7 @@ impl PEngine {
         retain: bool,
         outside: &mut BTreeSet<super::library::POutsideKey>,
         tadic: Option<Option<u8>>,
+        tadic_variants: Option<crate::reduction::TadicVariants>,
     ) -> Result<OrderedOutput, PError> {
         // p requests run the p profile (M5 batch 2) unless the caller chose one.
         let scheduler = scheduler.resolve_profile(OrderedProfile::P);
@@ -904,6 +905,7 @@ impl PEngine {
             inspector,
             outside: BTreeSet::new(),
             tadic,
+            tadic_variants,
         };
         let output = run_with_step_cache_and_options(
             &mut kernel,
@@ -3121,6 +3123,8 @@ struct PKernel<'l, 'r> {
     /// t-adic series; `Some(Some(loops))` when it maps the terminals onto the
     /// masters (the targets are then raised by the poles of the basis rows).
     tadic: Option<Option<u8>>,
+    /// helper-vh2 B3: seeds and weight vectors of the one recording.
+    tadic_variants: Option<crate::reduction::TadicVariants>,
 }
 
 impl PKernel<'_, '_> {
@@ -3309,6 +3313,10 @@ impl OrderedKernel for PKernel<'_, '_> {
                 Ok(options.order - lowest)
             })
             .collect()
+    }
+
+    fn tadic_variants(&self) -> Option<crate::reduction::TadicVariants> {
+        self.tadic_variants.clone()
     }
 
     /// p5l-library-3: the Custom programs of lazy payloads are not used by

@@ -379,6 +379,7 @@ where
     kernel.record_work(work);
     let output = output?;
     let targets = super::tadic_targets(&*kernel, &arithmetic, &output)?;
+    recorder.set_tadic_variants(kernel.tadic_variants());
     modular_output(recorder, output, composer.as_deref(), targets).map_err(Into::into)
 }
 

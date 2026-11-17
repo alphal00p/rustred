@@ -49,7 +49,7 @@ use symbolica::utils::resources;
 use super::executor::Executor;
 use super::field::{DenseRational, Fe, reduce};
 use super::replay::{ReplayError, replay};
-use super::{CoefRef, ModularStatistics, OpTag, Trace, error};
+use super::{CONSTANT_FLAG, CoefRef, ModularStatistics, OpTag, Trace, error};
 use crate::algebra::Coefficient;
 use crate::family::IntegralKey;
 use crate::reduction::ReductionError;
@@ -870,6 +870,11 @@ fn replay_series(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TadicImage {
     pub prime: u64,
+    /// helper-vh2 B3: the seed whose prime stream and check points gave this
+    /// image, and the weight vector (index into the request's vectors; 0
+    /// when the request has none) it replayed.
+    pub seed: u64,
+    pub vector: usize,
     /// One series per output terminal, in output order.
     pub terminals: Vec<TadicSeries>,
 }
@@ -976,6 +981,8 @@ fn one_prime(
         Ok(replayed) => Ok(PrimeOutcome {
             image: Some(TadicImage {
                 prime,
+                seed,
+                vector: 0,
                 terminals: replayed
                     .outputs
                     .iter()
@@ -1018,8 +1025,26 @@ fn certificate(trace: &Trace, orders: &Orders, plan: &Plan, statistics: &mut Mod
     statistics.tadic_plan_digest = Some(hasher.finish());
 }
 
+/// helper-vh2 B3: what one recorded trace is replayed for. Every seed gives
+/// its own prime stream and erasure-check points (exactly as a separate run
+/// with that seed would); every weight vector replaces the exact input weights
+/// of the request's `Init` operations (the trace is linear in them: the
+/// scheduler's control flow depends on the weights only through the recorded
+/// erasures, which every replay re-certifies with its own weights).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TadicVariants {
+    /// Seeds to replay (empty: the request's own seed).
+    pub seeds: Vec<u64>,
+    /// Per admitted input: the integer MARKER weight it was recorded with
+    /// (random, distinct: it identifies the input's `Init` operation whatever
+    /// the admission order) and its exact constant weight `(numerator,
+    /// denominator)` in every weight vector. Empty: the recorded weights.
+    pub init_weights: Vec<(Integer, Vec<(Integer, Integer)>)>,
+}
+
 /// Replay the trace for `options.primes` usable primes and return the series
 /// of the output terminals (`outputs`: `(terminal slot, target precision)`).
+#[cfg_attr(not(test), allow(dead_code))] // the single-seed form (unit tests)
 pub(super) fn images(
     trace: &Trace,
     outputs: &[(usize, i32)],
@@ -1030,16 +1055,170 @@ pub(super) fn images(
     statistics: &mut ModularStatistics,
 ) -> Result<Vec<TadicImage>, ReductionError> {
     let prepared = Instant::now();
-    // TODO(helper-vh2): `Orders::new` runs exact synthetic divisions over Z
-    // for every distinct polynomial coefficient (~0.6-1.6 M on 5L cells)
-    // on one thread; measure, and parallelise on the executor if it shows.
     let orders = Orders::new(trace, options.d0)?;
-    let plan = plan(trace, &orders, outputs, options.erasure_check_order)?;
+    statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
+    planned_images(trace, &orders, outputs, options, &[seed], 0, max_primes, executor, statistics)
+}
+
+/// helper-vh2 B3: replay ONE recorded trace for every seed and weight vector
+/// of `variants` (the trace is recorded once per request). The `Init`
+/// operations are re-pointed per weight vector (`trace` is restored before
+/// returning).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn variant_images(
+    trace: &mut Trace,
+    outputs: &[(usize, i32)],
+    options: &TadicOptions,
+    request_seed: u64,
+    variants: &TadicVariants,
+    max_primes: usize,
+    executor: &Executor,
+    statistics: &mut ModularStatistics,
+) -> Result<Vec<TadicImage>, ReductionError> {
+    let seeds: Vec<u64> = if variants.seeds.is_empty() {
+        vec![request_seed]
+    } else {
+        variants.seeds.clone()
+    };
+    if variants.init_weights.is_empty() {
+        let prepared = Instant::now();
+        let orders = Orders::new(trace, options.d0)?;
+        statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
+        return planned_images(trace, &orders, outputs, options, &seeds, 0, max_primes, executor, statistics);
+    }
+    // Every admitted input has one `Init`, whose constant is its marker.
+    let vectors = variants.init_weights[0].1.len();
+    if vectors == 0 || variants.init_weights.iter().any(|(_, row)| row.len() != vectors) {
+        return Err(error("t-adic weight vectors of different lengths"));
+    }
+    let mut by_marker: std::collections::HashMap<&Integer, usize> = Default::default();
+    for (input, (marker, _)) in variants.init_weights.iter().enumerate() {
+        if by_marker.insert(marker, input).is_some() {
+            return Err(error("two t-adic inputs share a recording marker"));
+        }
+    }
+    let mut init_ops: Vec<(usize, usize)> = Vec::new(); // (op index, input)
+    for (index, op) in trace.ops.iter().enumerate() {
+        if op.tag() != OpTag::Init {
+            continue;
+        }
+        let input = (op.coefficient.is_constant())
+            .then(|| &trace.constants[op.coefficient.index()])
+            .filter(|(_, denominator)| *denominator == Integer::one())
+            .and_then(|(numerator, _)| by_marker.get(numerator).copied())
+            .ok_or_else(|| {
+                error("a t-adic Init operation carries no recording marker (inputs merged or \
+                       rescaled at admission); weight vectors are refused")
+            })?;
+        init_ops.push((index, input));
+    }
+    let mut seen = vec![false; variants.init_weights.len()];
+    for &(_, input) in &init_ops {
+        if std::mem::replace(&mut seen[input], true) {
+            return Err(error("a t-adic recording marker is admitted twice"));
+        }
+    }
+    if seen.iter().any(|seen| !seen) {
+        return Err(error("a t-adic input was not admitted (zero weight at recording?)"));
+    }
+    let recorded: Vec<CoefRef> = init_ops.iter().map(|&(index, _)| trace.ops[index].coefficient).collect();
+    // One fresh constant per (vector, input): no interned constant is shared.
+    let mut references: Vec<Vec<CoefRef>> = Vec::with_capacity(vectors);
+    for vector in 0..vectors {
+        let mut row = Vec::with_capacity(init_ops.len());
+        for &(_, input) in &init_ops {
+            let (numerator, denominator) = &variants.init_weights[input].1[vector];
+            if denominator.is_zero() {
+                return Err(error("a t-adic weight has a zero denominator"));
+            }
+            let index = trace.constants.len() as u32;
+            if index & CONSTANT_FLAG != 0 {
+                return Err(error("too many t-adic weight constants"));
+            }
+            trace.constants.push((numerator.clone(), denominator.clone()));
+            row.push(CoefRef(CONSTANT_FLAG | index));
+        }
+        references.push(row);
+    }
+    let prepared = Instant::now();
+    let orders = Orders::new(trace, options.d0)?;
+    statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
+    let mut images = Vec::new();
+    let mut outcome = Ok(());
+    for (vector, row) in references.iter().enumerate() {
+        for (&(index, _), reference) in init_ops.iter().zip(row) {
+            trace.ops[index].coefficient = *reference;
+        }
+        match planned_images(trace, &orders, outputs, options, &seeds, vector, max_primes, executor, statistics) {
+            Ok(mut more) => images.append(&mut more),
+            Err(failure) => {
+                outcome = Err(failure);
+                break;
+            }
+        }
+    }
+    for (&(index, _), reference) in init_ops.iter().zip(&recorded) {
+        trace.ops[index].coefficient = *reference;
+    }
+    outcome.map(|()| images)
+}
+
+/// Plan once, then replay every seed (`vector` labels the images).
+#[allow(clippy::too_many_arguments)]
+fn planned_images(
+    trace: &Trace,
+    orders: &Orders,
+    outputs: &[(usize, i32)],
+    options: &TadicOptions,
+    seeds: &[u64],
+    vector: usize,
+    max_primes: usize,
+    executor: &Executor,
+    statistics: &mut ModularStatistics,
+) -> Result<Vec<TadicImage>, ReductionError> {
+    let prepared = Instant::now();
+    let plan = plan(trace, orders, outputs, options.erasure_check_order)?;
     statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
     statistics.tadic_dead_ops = plan.dead_ops;
     statistics.tadic_max_need = if plan.max_need == i32::MIN { 0 } else { plan.max_need };
     statistics.tadic_min_need = if plan.min_need == i32::MAX { 0 } else { plan.min_need };
-    certificate(trace, &orders, &plan, statistics);
+    certificate(trace, orders, &plan, statistics);
+    let mut images = Vec::new();
+    for &seed in seeds {
+        let checks_before = statistics.cancel_checks;
+        let unusable_before = statistics.unusable_primes;
+        let mut found = seed_images(trace, orders, &plan, outputs, options, seed, max_primes, executor, statistics)?;
+        for image in &mut found {
+            image.vector = vector;
+        }
+        statistics.tadic_variant_records.push(format!(
+            "{{\"vector\":{vector},\"seed\":\"{seed}\",\"primes\":[{}],\"unusable_primes\":{},\
+             \"erasure_point_checks\":{},\"plan_digest\":\"{:016x}\",\"max_need\":{},\"min_need\":{}}}",
+            found.iter().map(|image| format!("\"{}\"", image.prime)).collect::<Vec<_>>().join(","),
+            statistics.unusable_primes - unusable_before,
+            statistics.cancel_checks - checks_before,
+            statistics.tadic_plan_digest.unwrap_or(0),
+            statistics.tadic_max_need,
+            statistics.tadic_min_need,
+        ));
+        images.append(&mut found);
+    }
+    Ok(images)
+}
+
+/// The usable primes of one seed.
+#[allow(clippy::too_many_arguments)]
+fn seed_images(
+    trace: &Trace,
+    orders: &Orders,
+    plan: &Plan,
+    outputs: &[(usize, i32)],
+    options: &TadicOptions,
+    seed: u64,
+    max_primes: usize,
+    executor: &Executor,
+    statistics: &mut ModularStatistics,
+) -> Result<Vec<TadicImage>, ReductionError> {
     let mut rng = StdRng::seed_from_u64(seed ^ TADIC_SALT);
     let mut stream = PrimeIteratorU64::new(TADIC_BASE + (rng.random::<u64>() >> 5));
     let mut images = Vec::with_capacity(options.primes);
@@ -1058,7 +1237,6 @@ pub(super) fn images(
             primes.push(stream.next().ok_or_else(|| error("exhausted 64-bit primes"))?);
         }
         consumed += wanted;
-        let (trace, orders, plan) = (trace, &orders, &plan);
         let outcomes = executor.map(primes, |prime| {
             one_prime(trace, orders, plan, outputs, options, seed, prime)
         })?;

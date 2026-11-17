@@ -24,7 +24,7 @@ pub use arithmetic::{
 };
 pub(crate) use modular::tadic::coefficient_valuation;
 pub use modular::tadic::{
-    TADIC_PRECISION_FAILURE, TadicImage, TadicSeries, TadicTerminals, add_series,
+    TADIC_PRECISION_FAILURE, TadicImage, TadicSeries, TadicTerminals, TadicVariants, add_series,
     expand_coefficient, is_precision_failure, scale_series,
 };
 pub use composition::{
@@ -172,6 +172,11 @@ pub(crate) trait OrderedKernel {
         options: &TadicOptions,
     ) -> Result<Vec<i32>, Self::Error> {
         Ok(vec![options.order; terminals.len()])
+    }
+    /// helper-vh2 B3: the seeds and weight vectors one recording of a t-adic
+    /// request is replayed for (`None`: the request's seed and weights).
+    fn tadic_variants(&self) -> Option<TadicVariants> {
+        None
     }
     /// rr-frontier diagnostics (`memstats`): allocator bytes owned by a key.
     /// Default: nothing measured.
@@ -1429,6 +1434,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         output.and_then(|output| {
             kernel.forward_finished();
             let targets = tadic_targets(&*kernel, &arithmetic, &output)?;
+            weights.set_tadic_variants(kernel.tadic_variants());
             modular_output(weights, output, composer.as_deref(), targets).map_err(Into::into)
         })
     }

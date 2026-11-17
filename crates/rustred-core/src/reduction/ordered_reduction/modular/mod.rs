@@ -536,6 +536,10 @@ pub(crate) struct ModularStatistics {
     pub tadic_erasures: usize,
     pub tadic_valuation_histogram: Vec<(i32, usize)>,
     pub tadic_plan_digest: Option<u64>,
+    /// helper-vh2 B3: recordings behind the replays (1: one trace for every
+    /// seed and weight vector) and one JSON object per (vector, seed) replay.
+    pub tadic_recordings: usize,
+    pub tadic_variant_records: Vec<String>,
 }
 
 impl ModularStatistics {
@@ -563,6 +567,7 @@ impl ModularStatistics {
                 "\"tadic_dead_ops\":{},\"tadic_max_need\":{},\"tadic_min_need\":{},",
                 "\"tadic_max_length\":{},",
                 "\"tadic_erasures\":{},\"tadic_valuation_histogram\":[{}],\"tadic_plan_digest\":{},",
+                "\"tadic_recordings\":{},\"tadic_variants\":[{}],",
                 "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
@@ -628,6 +633,8 @@ impl ModularStatistics {
                 .join(","),
             self.tadic_plan_digest
                 .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
+            self.tadic_recordings,
+            self.tadic_variant_records.join(","),
             self.replay_phase_cpu_seconds
                 .iter()
                 .map(|(phase, seconds)| format!(
@@ -691,6 +698,9 @@ pub(crate) struct ModularRecorder {
     /// Channel replay: the probe values of the k-th admitted input
     /// (Σ λ_c · probe(input of channel c)), in admission order.
     multi_probes: std::collections::VecDeque<[Fe; PROBES]>,
+    /// helper-vh2 B3: seeds and weight vectors the t-adic replay of this
+    /// one recording serves (`None`: the request's seed and weights).
+    tadic_variants: Option<tadic::TadicVariants>,
 }
 
 /// rr-par2: shards of [`SharedIntern`] (low bits of an id).
@@ -871,6 +881,10 @@ impl ModularRecorder {
 
     /// rr-par2: create (or drop) the table the workers intern step
     /// coefficients into (`OrderedTuning::prestage`); before any step.
+    pub(crate) fn set_tadic_variants(&mut self, variants: Option<tadic::TadicVariants>) {
+        self.tadic_variants = variants;
+    }
+
     pub(crate) fn set_prestage(&mut self, prestage: bool) {
         self.shared = prestage.then(|| {
             std::sync::Arc::new(SharedIntern {
@@ -923,6 +937,7 @@ impl ModularRecorder {
             terminal_slots: 0,
             lookups: 0,
             started: Instant::now(),
+            tadic_variants: None,
             modular_round: None,
             par_replay: false,
             shared: None,
@@ -1390,7 +1405,8 @@ impl ModularRecorder {
         drop(std::mem::take(&mut self.entry_refs));
         drop(std::mem::take(&mut self.entry_hashes));
         let ops = self.take_op_store()?;
-        let trace = Trace {
+        #[allow(unused_mut)] // re-pointed by the t-adic weight vectors (helper-vh2 B3)
+        let mut trace = Trace {
             ops,
             constants,
             polynomials,
@@ -1465,11 +1481,14 @@ impl ModularRecorder {
             let outputs: Vec<(usize, i32)> =
                 slots.iter().copied().zip(targets.iter().copied()).collect();
             let executor = Executor::new(self.common.threads)?;
-            let images = tadic::images(
-                &trace,
+            let variants = self.tadic_variants.take().unwrap_or_default();
+            statistics.tadic_recordings = 1;
+            let images = tadic::variant_images(
+                &mut trace,
                 &outputs,
                 &options,
                 self.common.seed,
+                &variants,
                 self.common.max_primes,
                 &executor,
                 &mut statistics,

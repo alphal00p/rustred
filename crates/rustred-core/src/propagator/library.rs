@@ -12,7 +12,8 @@ use crate::family::IntegralKey;
 use crate::reduction::{
     OrderedPhaseEvent, OrderedSchedulerOptions, OrderedStepCache, OrderedStepCacheAdapter,
     OrderedStepCacheBinding, OrderedWeightArithmetic, ReductionError, ReductionLimits,
-    ReductionStatistics, TadicSeries, add_series, coefficient_valuation, scale_series,
+    ReductionStatistics, TadicSeries, TadicVariants, add_series, coefficient_valuation,
+    scale_series,
 };
 use crate::solver::{CandidateOrderedReductionProgress, UnresolvedPolicy};
 
@@ -285,7 +286,23 @@ pub struct PTadicTerm {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PTadicImage {
     pub prime: u64,
+    /// helper-vh2 B3: the seed of the prime and the weight vector replayed
+    /// (index into [`PTadicVariants::weight_vectors`]; 0 without vectors).
+    pub seed: u64,
+    pub vector: usize,
     pub terms: Vec<PTadicTerm>,
+}
+
+/// helper-vh2 B3: what ONE recording of a t-adic request is replayed for.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PTadicVariants {
+    /// Seeds (prime streams and erasure-check points); empty: the
+    /// arithmetic's own seed.
+    pub seeds: Vec<u64>,
+    /// Weight vectors, each with one exact CONSTANT weight per request input
+    /// (in input order). Non-empty: the request is recorded once with random
+    /// marker weights (its own weights are ignored) and replayed per vector.
+    pub weight_vectors: Vec<Vec<Coefficient>>,
 }
 
 /// helper-vh2: result of [`PLibrary::reduce_tadic`]: the same terms as
@@ -304,6 +321,37 @@ pub struct PTadicReduction {
     pub statistics: PStatistics,
     pub outside_certified: Vec<POutsideKey>,
     pub relation_cache: super::relation_entries::RelationCacheStatistics,
+    /// helper-vh2 B3: the marker weights the request was recorded with (one
+    /// per input, in input order; empty without weight vectors).
+    pub recording_markers: Vec<u64>,
+}
+
+/// helper-vh2 B3: seed of the recording markers (a fixed stream: the marker
+/// values are part of the trace digest).
+const TADIC_MARKER_SEED: u64 = 0x6d61_726b_6572_7376;
+
+/// The exact integer value of a constant integer coefficient.
+fn constant_integer(coefficient: &Coefficient) -> Option<symbolica::domains::integer::Integer> {
+    use symbolica::domains::integer::Integer;
+    if !coefficient.numerator.is_constant() || !coefficient.denominator.is_constant() {
+        return None;
+    }
+    let numerator = coefficient.numerator.coefficients.first().cloned().unwrap_or(Integer::zero());
+    let denominator = coefficient.denominator.coefficients.first().cloned()?;
+    (denominator == Integer::one()).then_some(numerator)
+}
+
+/// The exact constant rational `(numerator, denominator)` of a coefficient.
+fn constant_rational(
+    coefficient: &Coefficient,
+) -> Option<(symbolica::domains::integer::Integer, symbolica::domains::integer::Integer)> {
+    use symbolica::domains::integer::Integer;
+    if !coefficient.numerator.is_constant() || !coefficient.denominator.is_constant() {
+        return None;
+    }
+    let numerator = coefficient.numerator.coefficients.first().cloned().unwrap_or(Integer::zero());
+    let denominator = coefficient.denominator.coefficients.first().cloned()?;
+    Some((numerator, denominator))
 }
 
 /// One engine run of a request (shared by `reduce` and `reduce_tadic`).
@@ -313,6 +361,8 @@ struct PRun<'s> {
     output: crate::reduction::ordered_reduction::OrderedOutput,
     outside: BTreeSet<POutsideKey>,
     cache_before: super::relation_entries::RelationCacheStatistics,
+    /// helper-vh2 B3: recording marker weights (weight vectors only).
+    markers: Vec<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -927,7 +977,7 @@ impl PLibrary {
             ));
         }
         let (onto_masters, limits) = (request.onto_masters, request.limits);
-        let run = self.run_request(request, false)?;
+        let run = self.run_request(request, false, None)?;
         let mut terms = PTermSum::default();
         let raw = run
             .output
@@ -964,7 +1014,12 @@ impl PLibrary {
     /// arithmetic, and its terminal targets are raised by the poles of the
     /// basis rows when the request maps onto the masters.
     #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
-    fn run_request(&self, request: PReductionRequest<'_>, tadic: bool) -> Result<PRun<'_>, PError> {
+    fn run_request(
+        &self,
+        request: PReductionRequest<'_>,
+        tadic: bool,
+        variants: Option<&PTadicVariants>,
+    ) -> Result<PRun<'_>, PError> {
         let PReductionRequest {
             inputs,
             arithmetic,
@@ -1000,7 +1055,79 @@ impl PLibrary {
             self.check_boxed_inputs(engine, &inputs)
                 .map_err(with_request)?;
         }
-        let initial = engine.initial(self, inputs, &limits)?;
+        // helper-vh2 B3: weight vectors: record with distinct random marker
+        // weights, then hand the per-key weight of every vector to the replay
+        // (keyed by the key's marker sum: inputs merged into one key add up).
+        let mut markers: Vec<u64> = Vec::new();
+        let mut init_weights = Vec::new();
+        let initial = match variants.filter(|v| !v.weight_vectors.is_empty()) {
+            None => engine.initial(self, inputs, &limits)?,
+            Some(variants) => {
+                use rand::{Rng, SeedableRng};
+                if variants.weight_vectors.iter().any(|vector| vector.len() != inputs.len()) {
+                    return Err(PError::Unsupported(
+                        "a t-adic weight vector has not one weight per input".into(),
+                    ));
+                }
+                let mut rng = rand::rngs::StdRng::seed_from_u64(TADIC_MARKER_SEED);
+                let mut used = BTreeSet::new();
+                while markers.len() < inputs.len() {
+                    let marker = rng.random_range((1u64 << 40)..(1u64 << 56));
+                    if used.insert(marker) {
+                        markers.push(marker);
+                    }
+                }
+                let with = |weights: Vec<Coefficient>| -> Vec<(PresentationId, IntegralKey, Coefficient)> {
+                    inputs
+                        .iter()
+                        .zip(weights)
+                        .map(|((presentation, key, _), weight)| (*presentation, key.clone(), weight))
+                        .collect()
+                };
+                let recorded = engine.initial(
+                    self,
+                    with(markers.iter().map(|&m| self.context.unsigned_integer(u128::from(m))).collect()),
+                    &limits,
+                )?;
+                let mut per_vector = Vec::with_capacity(variants.weight_vectors.len());
+                for vector in &variants.weight_vectors {
+                    if vector.iter().any(|w| constant_rational(w).is_none()) {
+                        return Err(PError::Unsupported(
+                            "t-adic weights must be constant in d".into(),
+                        ));
+                    }
+                    per_vector.push(engine.initial(self, with(vector.clone()), &limits)?);
+                }
+                for (key, marker) in &recorded {
+                    let marker = constant_integer(marker).ok_or_else(|| {
+                        PError::Unsupported("a merged t-adic marker is not an integer".into())
+                    })?;
+                    let mut row = Vec::with_capacity(per_vector.len());
+                    for initial in &per_vector {
+                        row.push(match initial.get(key) {
+                            Some(weight) => constant_rational(weight).ok_or_else(|| {
+                                PError::Unsupported("t-adic weights must be constant in d".into())
+                            })?,
+                            None => (
+                                symbolica::domains::integer::Integer::zero(),
+                                symbolica::domains::integer::Integer::one(),
+                            ),
+                        });
+                    }
+                    init_weights.push((marker, row));
+                }
+                if per_vector.iter().any(|initial| initial.keys().any(|key| !recorded.contains_key(key))) {
+                    return Err(PError::Unsupported(
+                        "a t-adic weight vector reaches a key the recording did not admit".into(),
+                    ));
+                }
+                recorded
+            }
+        };
+        let tadic_variants = variants.map(|variants| TadicVariants {
+            seeds: variants.seeds.clone(),
+            init_weights,
+        });
         let cache_before = super::relation_entries::relation_cache_statistics();
         let mut outside = BTreeSet::new();
         let output = engine
@@ -1015,6 +1142,7 @@ impl PLibrary {
                 retain,
                 &mut outside,
                 tadic.then_some(onto_masters.then_some(loops)),
+                tadic_variants,
             )
             .map_err(with_request)
             .map_err(|error| self.with_recipe_chain(engine, error))?;
@@ -1024,6 +1152,7 @@ impl PLibrary {
             output,
             outside,
             cache_before,
+            markers,
         })
     }
 
@@ -1036,13 +1165,26 @@ impl PLibrary {
     /// (any exact weights are allowed: they are part of the trace).
     #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
     pub fn reduce_tadic(&self, request: PReductionRequest<'_>) -> Result<PTadicReduction, PError> {
+        self.reduce_tadic_variants(request, &PTadicVariants::default())
+    }
+
+    /// helper-vh2 B3: [`Self::reduce_tadic`] with ONE recording replayed for
+    /// every seed and every weight vector of `variants` (images labelled by
+    /// seed and vector). Each replay certifies the recorded erasures at its
+    /// own check points with its own weights.
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
+    pub fn reduce_tadic_variants(
+        &self,
+        request: PReductionRequest<'_>,
+        variants: &PTadicVariants,
+    ) -> Result<PTadicReduction, PError> {
         let OrderedWeightArithmetic::Tadic(_, options) = request.arithmetic else {
             return Err(PError::Unsupported(
                 "reduce_tadic needs the tadic arithmetic".into(),
             ));
         };
         let onto_masters = request.onto_masters;
-        let run = self.run_request(request, true)?;
+        let run = self.run_request(request, true, Some(variants))?;
         let engine_error = |detail: &str| {
             PError::Engine(ReductionError::ModularWeights {
                 detail: detail.to_owned(),
@@ -1094,6 +1236,8 @@ impl PLibrary {
             }
             images.push(PTadicImage {
                 prime: image.prime,
+                seed: image.seed,
+                vector: image.vector,
                 terms: sums
                     .into_iter()
                     .map(|((basis, tag), series)| PTadicTerm {
@@ -1117,6 +1261,7 @@ impl PLibrary {
             outside_certified: run.outside.into_iter().collect(),
             relation_cache: super::relation_entries::relation_cache_statistics()
                 .since(&run.cache_before),
+            recording_markers: run.markers,
         })
     }
 

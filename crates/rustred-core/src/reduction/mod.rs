@@ -48,7 +48,7 @@ pub use ordered_reduction::{
     OrderedTailTable, OrderedTailTableStatistics, OrderedTerminalComposer,
     OrderedTerminalComposerSlot, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
     PolynomialDenominators, PolynomialOptions, SampledOptions, TADIC_PRECISION_FAILURE,
-    TadicImage, TadicOptions, TadicSeries, TadicTerminals, add_series, expand_coefficient,
+    TadicImage, TadicOptions, TadicSeries, TadicTerminals, TadicVariants, add_series, expand_coefficient,
     is_precision_failure, scale_series,
 };
 pub(crate) use ordered_reduction::coefficient_valuation;
