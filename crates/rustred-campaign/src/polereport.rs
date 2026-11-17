@@ -473,6 +473,8 @@ pub struct CellOutcome {
     pub rank: Value,
     pub pivots: Value,
     pub rank_kind: String,
+    /// The NAIVE rank (no dependence table: every master order beyond its known depth its own symbol) beside the true one.
+    pub naive_rank: Value,
     pub cpu_seconds: f64,
     pub peak_gb: f64,
     pub max_plan_need: Value,
@@ -491,6 +493,18 @@ fn rank_of(
     results: &[PathBuf],
     tag: &str,
     prefix: &str,
+) -> Result<Value, String> {
+    rank_of_with(spec, dir, results, tag, prefix, true)
+}
+
+/// The rank step; `with_dependences = false` = the NAIVE upper bound (no dependence table).
+fn rank_of_with(
+    spec: &PoleReportSpec,
+    dir: &Path,
+    results: &[PathBuf],
+    tag: &str,
+    prefix: &str,
+    with_dependences: bool,
 ) -> Result<Value, String> {
     let out = dir.join(format!("rank.{tag}.json"));
     let mut cmd = std::process::Command::new(&spec.rank_bin.path);
@@ -513,7 +527,7 @@ fn rank_of(
         }
     }
     cmd.arg("--rank-prefix").arg(prefix).arg("--out").arg(&out);
-    if let Some(d) = &spec.dependences {
+    if with_dependences && let Some(d) = &spec.dependences {
         cmd.arg("--dependences").arg(&d.path);
     }
     let o = cmd.output().map_err(|e| format!("rr_pole_rank: {e}"))?;
@@ -737,6 +751,7 @@ fn run_cell(
         rank: Value::Null,
         pivots: Value::Null,
         rank_kind: String::new(),
+        naive_rank: Value::Null,
         cpu_seconds: 0.0,
         peak_gb: 0.0,
         max_plan_need: Value::Null,
@@ -833,6 +848,10 @@ fn run_cell(
     } else if !all.is_empty() {
         let prefix = if block.is_some() { "b" } else { "c" };
         let rank = rank_of(spec, &cdir, &all, "cell", prefix)?;
+        if spec.dependences.is_some() {
+            out.naive_rank =
+                rank_of_with(spec, &cdir, &all, "cell_naive", prefix, false)?["rank"].clone();
+        }
         out.rank = rank["rank"].clone();
         out.pivots = rank["pivots"].clone();
         out.rank_kind = rank["rank_kind"].as_str().unwrap_or("").to_string();
@@ -1030,6 +1049,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 rank: v["rank"].clone(),
                 pivots: v["pivots"].clone(),
                 rank_kind: v["rank_kind"].as_str().unwrap_or("").to_string(),
+                naive_rank: v["naive_rank"].clone(),
                 cpu_seconds: v["cpu_seconds"].as_f64().unwrap_or(0.0),
                 peak_gb: v["peak_gb"].as_f64().unwrap_or(0.0),
                 max_plan_need: v["max_plan_need"].clone(),
@@ -1048,7 +1068,15 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             .iter()
             .filter(|o| o.node == ns.node && o.line == "main")
             .collect();
-        let all_zero = !mine.is_empty() && mine.iter().all(|o| o.verdict == "count zero: yes");
+        // EVERY main-line cell of the node in the cell table must be computed (a spec that selects fewer cells never
+        // gives "yes")
+        let table_main = rows
+            .iter()
+            .filter(|c| c.node == ns.node && c.r <= c.top)
+            .count();
+        let all_zero = mine.len() == table_main
+            && !mine.is_empty()
+            && mine.iter().all(|o| o.verdict == "count zero: yes");
         let any_no = mine.iter().any(|o| o.verdict.starts_with("count zero: no"));
         let verdict = if all_zero {
             "count zero on all cells up to top(D): yes".to_string()
@@ -1087,7 +1115,7 @@ pub fn markdown(report: &Value) -> String {
     for (n, v) in report["nodes"].as_object().into_iter().flatten() {
         s.push_str(&format!("- **{n}**: {}\n", v.as_str().unwrap_or("")));
     }
-    s.push_str("\n| node | cell | line | keys | comb. | rank | surviving directions | verdict | CPU-s | peak GB | max need | max series |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+    s.push_str("\n| node | cell | line | keys | comb. | rank | naive rank | surviving directions | verdict | CPU-s | peak GB | max need | max series |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
     for c in report["cells"].as_array().into_iter().flatten() {
         let mut line = c["line"].as_str().unwrap_or("").to_string();
         if c["outside_box"] == true {
@@ -1097,7 +1125,7 @@ pub fn markdown(report: &Value) -> String {
             );
         }
         s.push_str(&format!(
-            "| {} | D{}r{} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
+            "| {} | D{}r{} | {} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
             c["node"].as_str().unwrap_or(""),
             c["d"],
             c["r"],
@@ -1105,6 +1133,7 @@ pub fn markdown(report: &Value) -> String {
             c["keys"],
             c["combinations"],
             c["rank"],
+            c["naive_rank"],
             c["pivots"],
             c["verdict"].as_str().unwrap_or(""),
             c["cpu_seconds"].as_f64().unwrap_or(0.0),
