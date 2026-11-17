@@ -502,3 +502,38 @@ fn region_keys_each_enumerates_a_lattice_region_inside_a_cone_exactly() {
     // unbounded without a cone
     assert!(region_keys_each(&reg, &Cone::orthant(), 1_000_000, &mut |_| {}).is_none());
 }
+
+/// TRICKS 51: a declared terminal key may never be served: `records_containing` finds every record whose domain applies at
+/// the key (a refusal for a delivered table), and none for a key outside every domain.
+#[test]
+fn a_record_containing_a_terminal_is_found() {
+    use rustred_campaign_core::cover::{Dispatcher, Table};
+    use rustred_campaign_core::domain::CaseDomain;
+    use rustred_campaign_core::parametric::cone::records_containing;
+    let n = 3;
+    let chart = vec![true, true, false];
+    let mut t = Table::new("t", n);
+    // record 0: the face n0 >= 2 (free n0, n1 = 1, n2 = 0)
+    let mut d0 = CaseDomain::free(n, Some(chart.clone()));
+    d0.fixed = vec![None, Some(1), Some(0)];
+    d0.bounds.push(
+        rustred_campaign_core::poly::Poly::var(0)
+            .sub(&rustred_campaign_core::poly::Poly::constant(2))
+            .unwrap(),
+    );
+    t.push(0, d0).unwrap();
+    // record 1: the corner point (1, 1, 0)
+    let mut d1 = CaseDomain::free(n, Some(chart.clone()));
+    d1.fixed = vec![Some(1), Some(1), Some(0)];
+    t.push(1, d1).unwrap();
+    let disp = Dispatcher::new(vec![t], vec![0])
+        .unwrap()
+        .with_chart(chart)
+        .unwrap();
+    // the corner is contained by record 1 (a terminal there would be refused)
+    assert_eq!(records_containing(&disp, &[1, 1, 0]), vec![(0, 1)]);
+    // a face key is contained by record 0 only
+    assert_eq!(records_containing(&disp, &[3, 1, 0]), vec![(0, 0)]);
+    // a key outside every domain: nothing (a terminal there is fine)
+    assert!(records_containing(&disp, &[1, 2, 0]).is_empty());
+}

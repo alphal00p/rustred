@@ -1804,3 +1804,19 @@ pub fn literals_exact_on_box(
     }
     Some(true)
 }
+
+/// Every record of `disp` (tables in priority order) whose domain APPLIES at `key` (selected and no exception branch holding),
+/// as (table, record) pairs. TERMINAL RULE (TRICKS 51): a declared terminal key may never be served by a record, so a delivered
+/// table is refused when this list is non-empty for any terminal.
+pub fn records_containing(disp: &Dispatcher, key: &[i32]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
+    for &ti in disp.priority() {
+        let t = &disp.tables()[ti];
+        for (r, d) in t.domains.iter().enumerate() {
+            if d.applies(key).applies() {
+                out.push((ti, r));
+            }
+        }
+    }
+    out
+}

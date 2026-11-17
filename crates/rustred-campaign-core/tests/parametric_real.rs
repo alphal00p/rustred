@@ -3259,3 +3259,51 @@ fn dispatch_order_check() {
         aliases.len()
     );
 }
+
+/// TERMINAL / STUB CHECK of a delivered table (TRICKS 51; builder check): PARAMETRIC_SPEC (sources list / import spec),
+/// PARAMETRIC_TERMINALS (terminal-set document): REFUSED when any record's domain contains a declared terminal key
+/// (`cone::records_containing`) or when any record is a coverage STUB (empty rhs: an intermediate device, never in a delivered
+/// table). Output PARAMETRIC_OUT (JSON).
+#[test]
+#[ignore]
+fn terminal_check() {
+    use rustred_campaign_core::parametric::cone::records_containing;
+    use std::io::{Read, Seek, SeekFrom};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let tp = std::env::var("PARAMETRIC_TERMINALS").expect("PARAMETRIC_TERMINALS");
+    let tdoc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&tp).unwrap()).unwrap();
+    let terms: Vec<Vec<i32>> = serde_json::from_value(tdoc["keys"].clone()).unwrap();
+    let ld = load_any(&spec, None);
+    let mut contained = Vec::new();
+    for k in &terms {
+        for (t, r) in records_containing(&ld.disp, k) {
+            contained.push(json!({"terminal": k, "table": ld.disp.tables()[t].name, "label": ld.disp.tables()[t].labels[r]}));
+        }
+    }
+    let mut stubs = Vec::new();
+    for j in &ld.jobs {
+        let mut f = std::fs::File::open(&j.path).unwrap();
+        f.seek(SeekFrom::Start(j.offset)).unwrap();
+        let mut b = vec![0u8; j.bytes as usize];
+        f.read_exact(&mut b).unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        if v["rhs"].as_array().is_some_and(|a| a.is_empty()) {
+            stubs.push(json!({"table": ld.disp.tables()[j.table].name, "label": ld.disp.tables()[j.table].labels[j.record]}));
+        }
+    }
+    let refused = !contained.is_empty() || !stubs.is_empty();
+    let res = json!({"spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
+        "terminals": {"path": tp, "sha256": sha256_file(Path::new(&tp)), "keys": terms},
+        "records_containing_a_terminal": contained, "coverage_stubs": stubs.len(), "stubs_first": stubs.iter().take(100).collect::<Vec<_>>(),
+        "verdict": if refused { "REFUSED" } else { "ok" },
+        "rule": "a declared terminal is never served by a record; a delivered table carries no coverage stub"});
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "terminal check: {} containments, {} stubs: {}",
+        contained.len(),
+        stubs.len(),
+        if refused { "REFUSED" } else { "ok" }
+    );
+}
