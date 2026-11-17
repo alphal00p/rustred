@@ -258,13 +258,17 @@ impl Trace {
                 OpTag::Init | OpTag::New | OpTag::TermNew => *state = 1,
                 OpTag::Add | OpTag::TermAdd => {
                     if *state == 2 {
-                        return Err(format!("op {index} ({tag:?}) accumulates into slot {slot} after its pop/erasure"));
+                        return Err(format!(
+                            "op {index} ({tag:?}) accumulates into slot {slot} after its pop/erasure"
+                        ));
                     }
                     *state = 1;
                 }
                 OpTag::Pop | OpTag::Cancel | OpTag::TermCancel => {
                     if *state == 2 {
-                        return Err(format!("op {index} ({tag:?}) reads slot {slot} after its pop/erasure"));
+                        return Err(format!(
+                            "op {index} ({tag:?}) reads slot {slot} after its pop/erasure"
+                        ));
                     }
                     *state = 2;
                 }
@@ -1108,6 +1112,7 @@ impl ModularRecorder {
             multi_inputs: None,
             multi_probes: Default::default(),
             spill: None,
+            tadic_variants: None,
         }
     }
 
@@ -1177,7 +1182,7 @@ impl ModularRecorder {
                     })
                 })
                 .collect();
-            out.push(copy.finish(channel_terms, None)?);
+            out.push(copy.finish(channel_terms, None, None)?);
         }
         Ok(out)
     }

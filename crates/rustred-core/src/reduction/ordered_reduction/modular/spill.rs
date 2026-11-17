@@ -198,6 +198,22 @@ impl Drop for OpStore {
     }
 }
 
+impl OpStore {
+    /// batch 12t: mutable ops (the t-adic replay re-points the recorded input
+    /// ops per weight vector); a mapped store is first copied into memory
+    /// (the mapping and its spill file are released).
+    pub(super) fn to_mut(&mut self) -> &mut Vec<Op> {
+        if let Self::Mapped { .. } = self {
+            let ops: Vec<Op> = std::ops::Deref::deref(self).to_vec();
+            *self = Self::Memory(ops);
+        }
+        match self {
+            Self::Memory(ops) => ops,
+            Self::Mapped { .. } => unreachable!("copied into memory above"),
+        }
+    }
+}
+
 impl std::ops::Deref for OpStore {
     type Target = [Op];
     fn deref(&self) -> &[Op] {

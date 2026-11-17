@@ -22,17 +22,17 @@ pub use arithmetic::{
     ModularCommon, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
     PolynomialDenominators, PolynomialOptions, SampledOptions, TadicOptions,
 };
-pub(crate) use modular::tadic::coefficient_valuation;
-pub use modular::tadic::{
-    TADIC_PRECISION_FAILURE, TadicImage, TadicSeries, TadicTerminals, TadicVariants, add_series,
-    expand_coefficient, is_precision_failure, scale_series,
-};
 pub use composition::{
     ComposedTerminals, OrderedCompositionPlan, OrderedCompositionStage, OrderedTerminalComposer,
     OrderedTerminalComposerSlot,
 };
 use frontier::{Child, ChildAction, Frontier, FrontierLayout, FrontierMode};
 pub(crate) use frontier::{CompactPowers, FrontierKey};
+pub(crate) use modular::tadic::coefficient_valuation;
+pub use modular::tadic::{
+    TADIC_PRECISION_FAILURE, TadicImage, TadicSeries, TadicTerminals, TadicVariants, add_series,
+    expand_coefficient, is_precision_failure, scale_series,
+};
 use modular::{Lifter, ModularRecorder};
 pub(crate) use parallel::{ConcurrentOrderedKernel, NoDetached, OrderedStepper};
 use parallel::{ConcurrentWeights, Pipelined, Prefetched, Workers};
@@ -1411,6 +1411,7 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
                 nonzero_conditions: output.nonzero_conditions,
                 work: output.work,
                 progress: output.progress,
+                tadic: None,
             });
         }
         let mut weights = recorder;
@@ -1533,7 +1534,11 @@ fn cross_check_tadic(
     tadic: &TadicTerminals,
 ) -> Result<(), ReductionError> {
     if tadic.terminals.len() != exact.len()
-        || tadic.terminals.iter().zip(exact.keys()).any(|(a, b)| a != b)
+        || tadic
+            .terminals
+            .iter()
+            .zip(exact.keys())
+            .any(|(a, b)| a != b)
     {
         return Err(modular::error(
             "the t-adic terminals differ from the exact terminal map",

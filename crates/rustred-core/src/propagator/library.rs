@@ -336,7 +336,12 @@ fn constant_integer(coefficient: &Coefficient) -> Option<symbolica::domains::int
     if !coefficient.numerator.is_constant() || !coefficient.denominator.is_constant() {
         return None;
     }
-    let numerator = coefficient.numerator.coefficients.first().cloned().unwrap_or(Integer::zero());
+    let numerator = coefficient
+        .numerator
+        .coefficients
+        .first()
+        .cloned()
+        .unwrap_or(Integer::zero());
     let denominator = coefficient.denominator.coefficients.first().cloned()?;
     (denominator == Integer::one()).then_some(numerator)
 }
@@ -344,12 +349,20 @@ fn constant_integer(coefficient: &Coefficient) -> Option<symbolica::domains::int
 /// The exact constant rational `(numerator, denominator)` of a coefficient.
 fn constant_rational(
     coefficient: &Coefficient,
-) -> Option<(symbolica::domains::integer::Integer, symbolica::domains::integer::Integer)> {
+) -> Option<(
+    symbolica::domains::integer::Integer,
+    symbolica::domains::integer::Integer,
+)> {
     use symbolica::domains::integer::Integer;
     if !coefficient.numerator.is_constant() || !coefficient.denominator.is_constant() {
         return None;
     }
-    let numerator = coefficient.numerator.coefficients.first().cloned().unwrap_or(Integer::zero());
+    let numerator = coefficient
+        .numerator
+        .coefficients
+        .first()
+        .cloned()
+        .unwrap_or(Integer::zero());
     let denominator = coefficient.denominator.coefficients.first().cloned()?;
     Some((numerator, denominator))
 }
@@ -531,7 +544,11 @@ impl PLibrary {
     /// estimates them). Request worker pools are private to a request: their
     /// threads, and so their thread-local caches, end with it.
     pub fn retained_state(&self) -> serde_json::Value {
-        let programs = self.owners.values().filter(|owner| owner.program.get().is_some()).count();
+        let programs = self
+            .owners
+            .values()
+            .filter(|owner| owner.program.get().is_some())
+            .count();
         let budget = self.program_budget.as_ref().map(|budget| {
             let stats = budget.stats();
             serde_json::json!({"limit_bytes": stats.limit_bytes, "resident_bytes": stats.resident_bytes,
@@ -579,7 +596,10 @@ impl PLibrary {
         for owner in self.owners.values_mut() {
             programs += usize::from(owner.program.take().is_some());
         }
-        let budget_freed = self.program_budget.as_ref().map_or(0, |budget| budget.release_unheld());
+        let budget_freed = self
+            .program_budget
+            .as_ref()
+            .map_or(0, |budget| budget.release_unheld());
         let engine_cells = match self.engine.get_mut() {
             Some(Ok(engine)) => engine.release(),
             _ => 0,
@@ -1133,7 +1153,11 @@ impl PLibrary {
             None => engine.initial(self, inputs, &limits)?,
             Some(variants) => {
                 use rand::{Rng, SeedableRng};
-                if variants.weight_vectors.iter().any(|vector| vector.len() != inputs.len()) {
+                if variants
+                    .weight_vectors
+                    .iter()
+                    .any(|vector| vector.len() != inputs.len())
+                {
                     return Err(PError::Unsupported(
                         "a t-adic weight vector has not one weight per input".into(),
                     ));
@@ -1146,16 +1170,24 @@ impl PLibrary {
                         markers.push(marker);
                     }
                 }
-                let with = |weights: Vec<Coefficient>| -> Vec<(PresentationId, IntegralKey, Coefficient)> {
-                    inputs
-                        .iter()
-                        .zip(weights)
-                        .map(|((presentation, key, _), weight)| (*presentation, key.clone(), weight))
-                        .collect()
-                };
+                let with =
+                    |weights: Vec<Coefficient>| -> Vec<(PresentationId, IntegralKey, Coefficient)> {
+                        inputs
+                            .iter()
+                            .zip(weights)
+                            .map(|((presentation, key, _), weight)| {
+                                (*presentation, key.clone(), weight)
+                            })
+                            .collect()
+                    };
                 let recorded = engine.initial(
                     self,
-                    with(markers.iter().map(|&m| self.context.unsigned_integer(u128::from(m))).collect()),
+                    with(
+                        markers
+                            .iter()
+                            .map(|&m| self.context.unsigned_integer(u128::from(m)))
+                            .collect(),
+                    ),
                     &limits,
                 )?;
                 let mut per_vector = Vec::with_capacity(variants.weight_vectors.len());
@@ -1185,7 +1217,10 @@ impl PLibrary {
                     }
                     init_weights.push((marker, row));
                 }
-                if per_vector.iter().any(|initial| initial.keys().any(|key| !recorded.contains_key(key))) {
+                if per_vector
+                    .iter()
+                    .any(|initial| initial.keys().any(|key| !recorded.contains_key(key)))
+                {
                     return Err(PError::Unsupported(
                         "a t-adic weight vector reaches a key the recording did not admit".into(),
                     ));
@@ -1545,6 +1580,9 @@ impl PLibrary {
             None,
             retain,
             &mut outside,
+            // channel replay is not a t-adic request
+            None,
+            None,
         );
         let per_channel = crate::reduction::ordered_reduction::modular_channels_take_out();
         let output = run.map_err(with_request)?;

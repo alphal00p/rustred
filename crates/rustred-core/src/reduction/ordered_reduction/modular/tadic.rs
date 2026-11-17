@@ -380,10 +380,7 @@ impl Expansion {
             return None;
         }
         debug_assert!(
-            numerator
-                .iter()
-                .take(m as usize)
-                .all(|c| field.is_zero(c)),
+            numerator.iter().take(m as usize).all(|c| field.is_zero(c)),
             "an exact root of the numerator survives modulo p"
         );
         Some(Self {
@@ -971,8 +968,7 @@ fn one_prime(
         max_length: 0,
         seconds,
     };
-    let Some((checks, bad_points)) =
-        certify_erasures(trace, &field, seed, options.check_points)?
+    let Some((checks, bad_points)) = certify_erasures(trace, &field, seed, options.check_points)?
     else {
         return Ok(unusable(begun.elapsed().as_secs_f64(), 0));
     };
@@ -1057,7 +1053,17 @@ pub(super) fn images(
     let prepared = Instant::now();
     let orders = Orders::new(trace, options.d0)?;
     statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
-    planned_images(trace, &orders, outputs, options, &[seed], 0, max_primes, executor, statistics)
+    planned_images(
+        trace,
+        &orders,
+        outputs,
+        options,
+        &[seed],
+        0,
+        max_primes,
+        executor,
+        statistics,
+    )
 }
 
 /// helper-vh2 B3: replay ONE recorded trace for every seed and weight vector
@@ -1084,11 +1090,18 @@ pub(super) fn variant_images(
         let prepared = Instant::now();
         let orders = Orders::new(trace, options.d0)?;
         statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
-        return planned_images(trace, &orders, outputs, options, &seeds, 0, max_primes, executor, statistics);
+        return planned_images(
+            trace, &orders, outputs, options, &seeds, 0, max_primes, executor, statistics,
+        );
     }
     // Every admitted input has one `Init`, whose constant is its marker.
     let vectors = variants.init_weights[0].1.len();
-    if vectors == 0 || variants.init_weights.iter().any(|(_, row)| row.len() != vectors) {
+    if vectors == 0
+        || variants
+            .init_weights
+            .iter()
+            .any(|(_, row)| row.len() != vectors)
+    {
         return Err(error("t-adic weight vectors of different lengths"));
     }
     let mut by_marker: std::collections::HashMap<&Integer, usize> = Default::default();
@@ -1107,8 +1120,10 @@ pub(super) fn variant_images(
             .filter(|(_, denominator)| *denominator == Integer::one())
             .and_then(|(numerator, _)| by_marker.get(numerator).copied())
             .ok_or_else(|| {
-                error("a t-adic Init operation carries no recording marker (inputs merged or \
-                       rescaled at admission); weight vectors are refused")
+                error(
+                    "a t-adic Init operation carries no recording marker (inputs merged or \
+                       rescaled at admission); weight vectors are refused",
+                )
             })?;
         init_ops.push((index, input));
     }
@@ -1119,9 +1134,14 @@ pub(super) fn variant_images(
         }
     }
     if seen.iter().any(|seen| !seen) {
-        return Err(error("a t-adic input was not admitted (zero weight at recording?)"));
+        return Err(error(
+            "a t-adic input was not admitted (zero weight at recording?)",
+        ));
     }
-    let recorded: Vec<CoefRef> = init_ops.iter().map(|&(index, _)| trace.ops[index].coefficient).collect();
+    let recorded: Vec<CoefRef> = init_ops
+        .iter()
+        .map(|&(index, _)| trace.ops[index].coefficient)
+        .collect();
     // One fresh constant per (vector, input): no interned constant is shared.
     let mut references: Vec<Vec<CoefRef>> = Vec::with_capacity(vectors);
     for vector in 0..vectors {
@@ -1135,7 +1155,9 @@ pub(super) fn variant_images(
             if index & CONSTANT_FLAG != 0 {
                 return Err(error("too many t-adic weight constants"));
             }
-            trace.constants.push((numerator.clone(), denominator.clone()));
+            trace
+                .constants
+                .push((numerator.clone(), denominator.clone()));
             row.push(CoefRef(CONSTANT_FLAG | index));
         }
         references.push(row);
@@ -1147,9 +1169,11 @@ pub(super) fn variant_images(
     let mut outcome = Ok(());
     for (vector, row) in references.iter().enumerate() {
         for (&(index, _), reference) in init_ops.iter().zip(row) {
-            trace.ops[index].coefficient = *reference;
+            trace.ops.to_mut()[index].coefficient = *reference;
         }
-        match planned_images(trace, &orders, outputs, options, &seeds, vector, max_primes, executor, statistics) {
+        match planned_images(
+            trace, &orders, outputs, options, &seeds, vector, max_primes, executor, statistics,
+        ) {
             Ok(mut more) => images.append(&mut more),
             Err(failure) => {
                 outcome = Err(failure);
@@ -1158,7 +1182,7 @@ pub(super) fn variant_images(
         }
     }
     for (&(index, _), reference) in init_ops.iter().zip(&recorded) {
-        trace.ops[index].coefficient = *reference;
+        trace.ops.to_mut()[index].coefficient = *reference;
     }
     outcome.map(|()| images)
 }
@@ -1180,14 +1204,24 @@ fn planned_images(
     let plan = plan(trace, orders, outputs, options.erasure_check_order)?;
     statistics.prepare_seconds += prepared.elapsed().as_secs_f64();
     statistics.tadic_dead_ops = plan.dead_ops;
-    statistics.tadic_max_need = if plan.max_need == i32::MIN { 0 } else { plan.max_need };
-    statistics.tadic_min_need = if plan.min_need == i32::MAX { 0 } else { plan.min_need };
+    statistics.tadic_max_need = if plan.max_need == i32::MIN {
+        0
+    } else {
+        plan.max_need
+    };
+    statistics.tadic_min_need = if plan.min_need == i32::MAX {
+        0
+    } else {
+        plan.min_need
+    };
     certificate(trace, orders, &plan, statistics);
     let mut images = Vec::new();
     for &seed in seeds {
         let checks_before = statistics.cancel_checks;
         let unusable_before = statistics.unusable_primes;
-        let mut found = seed_images(trace, orders, &plan, outputs, options, seed, max_primes, executor, statistics)?;
+        let mut found = seed_images(
+            trace, orders, &plan, outputs, options, seed, max_primes, executor, statistics,
+        )?;
         for image in &mut found {
             image.vector = vector;
         }
@@ -1234,7 +1268,11 @@ fn seed_images(
         }
         let mut primes = Vec::with_capacity(wanted);
         for _ in 0..wanted {
-            primes.push(stream.next().ok_or_else(|| error("exhausted 64-bit primes"))?);
+            primes.push(
+                stream
+                    .next()
+                    .ok_or_else(|| error("exhausted 64-bit primes"))?,
+            );
         }
         consumed += wanted;
         let outcomes = executor.map(primes, |prime| {
@@ -1318,7 +1356,11 @@ pub fn scale_series(
     };
     let active = Series::from_public(&field, series);
     let precision = active.precision() + expansion.valuation;
-    Ok(Some(expansion.product(&field, &active, precision)?.public(&field)))
+    Ok(Some(
+        expansion
+            .product(&field, &active, precision)?
+            .public(&field),
+    ))
 }
 
 /// `a + b` modulo `prime`; the precision is the smaller one.
@@ -1385,24 +1427,37 @@ mod tests {
         assert_eq!(s.precision(), 3);
         assert_eq!(s.coefficients, vec![1, 0, 0, 0]);
         // (d-3)/(d-4)^2 = (1+t)/t^2
-        let s = expand_coefficient(&c("(d-3)/(d-4)^2"), 4, P, 1).unwrap().unwrap();
+        let s = expand_coefficient(&c("(d-3)/(d-4)^2"), 4, P, 1)
+            .unwrap()
+            .unwrap();
         assert_eq!((s.start, s.coefficients.clone()), (-2, vec![1, 1, 0]));
         assert_eq!(s.valuation(), Some(-2));
         // 1/(d-2) = 1/(2+t) = 1/2 - t/4 + t^2/8
         let s = expand_coefficient(&c("1/(d-2)"), 4, P, 3).unwrap().unwrap();
         assert_eq!(s.coefficients, vec![q(1, 2), q(-1, 4), q(1, 8)]);
         // (d-4)^2/(d+1) = t^2/(5+t) = t^2/5 - t^3/25 + ...
-        let s = expand_coefficient(&c("(d-4)^2/(d+1)"), 4, P, 4).unwrap().unwrap();
-        assert_eq!((s.start, s.coefficients.clone()), (2, vec![q(1, 5), q(-1, 25)]));
+        let s = expand_coefficient(&c("(d-4)^2/(d+1)"), 4, P, 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (s.start, s.coefficients.clone()),
+            (2, vec![q(1, 5), q(-1, 25)])
+        );
         // Below the valuation nothing is known but zeros: O(t^1).
-        let s = expand_coefficient(&c("(d-4)^2/(d+1)"), 4, P, 1).unwrap().unwrap();
+        let s = expand_coefficient(&c("(d-4)^2/(d+1)"), 4, P, 1)
+            .unwrap()
+            .unwrap();
         assert_eq!((s.start, s.coefficients.len()), (1, 0));
         assert_eq!(s.valuation(), None);
         // A prime dividing the leading Taylor coefficient of the denominator
         // is bad: (d - 4 - P) at d0 = 4 has U(0) = -P.
         let bad = c(&format!("1/(d-{})", 4 + P));
         assert_eq!(expand_coefficient(&bad, 4, P, 2).unwrap(), None);
-        assert!(expand_coefficient(&bad, 4, 1_000_000_009, 2).unwrap().is_some());
+        assert!(
+            expand_coefficient(&bad, 4, 1_000_000_009, 2)
+                .unwrap()
+                .is_some()
+        );
     }
 
     #[test]
@@ -1481,7 +1536,7 @@ mod tests {
             Op::new(OpTag::TermAdd, 0, polynomial(2)), // T += (d-2) w2
         ];
         Trace {
-            ops,
+            ops: super::super::spill::OpStore::Memory(ops),
             constants: vec![(Integer::from(1), Integer::from(1))],
             polynomials: vec![
                 dense(&[1], &[-4, 1]),
@@ -1519,7 +1574,7 @@ mod tests {
     fn dead_values_are_skipped_and_never_read() {
         let mut trace = cancelling_trace();
         // A second terminal nobody asks for: its products are dead.
-        trace.ops.push(Op::new(OpTag::Pop, 0, constant(0)));
+        trace.ops.to_mut().push(Op::new(OpTag::Pop, 0, constant(0)));
         trace.terminal_slots = 2;
         let orders = Orders::new(&trace, 4).unwrap();
         let plan = plan(&trace, &orders, &[(0, 1)], None).unwrap();
@@ -1536,8 +1591,16 @@ mod tests {
             primes: 2,
             ..TadicOptions::default()
         };
-        let images = images(&trace, &[(0, 2)], &options, 7, 16, &executor, &mut statistics)
-            .unwrap();
+        let images = images(
+            &trace,
+            &[(0, 2)],
+            &options,
+            7,
+            16,
+            &executor,
+            &mut statistics,
+        )
+        .unwrap();
         assert_eq!(images.len(), 2);
         assert_ne!(images[0].prime, images[1].prime);
         for image in &images {
@@ -1554,7 +1617,10 @@ mod tests {
     fn corrupted_traces_are_caught_or_change_the_result() {
         let mut trace = cancelling_trace();
         // Erase w2 although it is nonzero.
-        trace.ops.insert(4, Op::new(OpTag::Cancel, 2, constant(0)));
+        trace
+            .ops
+            .to_mut()
+            .insert(4, Op::new(OpTag::Cancel, 2, constant(0)));
         let executor = Executor::new(1).unwrap();
         let mut statistics = ModularStatistics::default();
         let error = images(
@@ -1596,20 +1662,32 @@ mod tests {
         // Accumulating into w1 after its pop: sampled adds to the old value,
         // the take-on-pop replays to zero.
         let mut trace = cancelling_trace();
-        trace.ops.push(Op::new(OpTag::Add, 1, polynomial(2)));
+        trace
+            .ops
+            .to_mut()
+            .push(Op::new(OpTag::Add, 1, polynomial(2)));
         assert!(trace.slot_discipline(&[0]).is_err());
         // Popping a slot twice.
         let mut trace = cancelling_trace();
-        trace.ops.push(Op::new(OpTag::Pop, 2, constant(0)));
+        trace.ops.to_mut().push(Op::new(OpTag::Pop, 2, constant(0)));
         assert!(trace.slot_discipline(&[0]).is_err());
         // An erased terminal used as an output.
         let mut trace = cancelling_trace();
-        trace.ops.push(Op::new(OpTag::TermCancel, 0, constant(0)));
+        trace
+            .ops
+            .to_mut()
+            .push(Op::new(OpTag::TermCancel, 0, constant(0)));
         assert!(trace.slot_discipline(&[0]).is_err());
         // A New after the pop makes the slot live again.
         let mut trace = cancelling_trace();
-        trace.ops.push(Op::new(OpTag::New, 1, polynomial(2)));
-        trace.ops.push(Op::new(OpTag::Add, 1, polynomial(2)));
+        trace
+            .ops
+            .to_mut()
+            .push(Op::new(OpTag::New, 1, polynomial(2)));
+        trace
+            .ops
+            .to_mut()
+            .push(Op::new(OpTag::Add, 1, polynomial(2)));
         assert_eq!(trace.slot_discipline(&[0]), Ok(()));
     }
 
