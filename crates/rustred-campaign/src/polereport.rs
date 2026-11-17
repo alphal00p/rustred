@@ -10,22 +10,24 @@
 //! node's line slots (at most `max_dots_per_line` each) times the ISP powers summing to -r (generic enumerator; its
 //! count is checked against the table's `keys_in_cell`). Jobs run through the tadic-replay adapter and the process layer
 //! (RealLauncher; run the campaign inside a private pid namespace); the rank step is the Symbolica-backed `rr_pole_rank`
-//! (pinned by sha256, run as a subprocess on the verified results). Resume: the result store (a stored job is never
+//! (pinned by sha256, checked at every launch, run on the verified results as a child of the same process layer:
+//! [`run_program_child`]; caps `rank_memory_cap_bytes` / `rank_wall_seconds`). Resume: the result store (a stored job is never
 //! rerun) and the per-cell records in the campaign directory.
 //!
 //! Generic (L8): nodes, slots, cells, packages, masters, depths and seeds are data.
 
-use crate::adapters::job::{JobAdapter, Program, RunOptions, run_attempt, sha256_hex};
+use crate::adapters::job::{JobAdapter, Program, RunOptions, drive, run_attempt, sha256_hex};
 use crate::adapters::tadicjob::{
     DataFile, ResultStore, TadicAdapter, TadicInput, TadicJobRequest, TadicLevel, TadicLimits,
     TadicRequest, WeightVectors,
 };
-use crate::launch::RealLauncher;
+use crate::launch::{ChildLauncher, ExitState, FinalReport, LaunchSpec, RealLauncher};
 use crate::resources::{Sampler, SamplerConfig};
 use rustred_campaign_contract::tadicjob::{self, Pins, certificate};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -348,6 +350,9 @@ pub struct PoleReportSpec {
     /// Which main-line cells to run (None = all); margin cells only with `include_margin`.
     #[serde(default)]
     pub d_max: Option<i64>,
+    /// An explicit list of cells [D, r] to run (with d_max / r_max still applied); absent = every selected cell.
+    #[serde(default)]
+    pub cell_list: Option<Vec<(i64, i64)>>,
     #[serde(default)]
     pub r_max: Option<i64>,
     #[serde(default)]
@@ -398,6 +403,12 @@ pub struct PoleReportSpec {
     pub max_length: u64,
     pub threads: u32,
     pub memory_cap_bytes: u64,
+    /// Memory cap of one rank step (`rr_pole_rank`, a child of the process layer); absent = `memory_cap_bytes`.
+    #[serde(default)]
+    pub rank_memory_cap_bytes: Option<u64>,
+    /// Wall cap of one rank step in seconds; absent = `wall_seconds`.
+    #[serde(default)]
+    pub rank_wall_seconds: Option<u64>,
     #[serde(default)]
     pub licence_env: Option<String>,
     /// Test stand: the fake child runs the jobs (program = rr_fake_child).
@@ -473,6 +484,8 @@ pub struct CellOutcome {
     pub rank: Value,
     pub pivots: Value,
     pub rank_kind: String,
+    /// The NAIVE rank (no dependence table: every master order beyond its known depth its own symbol) beside the true one.
+    pub naive_rank: Value,
     pub cpu_seconds: f64,
     pub peak_gb: f64,
     pub max_plan_need: Value,
@@ -480,51 +493,187 @@ pub struct CellOutcome {
     pub jobs: Vec<String>,
     /// `union` or `blocks`, with the block structure (keys per block, label prefix, weight stream, combinations).
     pub route: String,
+    /// The package the cell was computed on (library.json sha256): cells of different packages never enter one verdict.
+    pub package: String,
     pub blocks: Vec<Value>,
     /// Per request of the cell: keys in the union, combinations, trace ops, plan max need, max series length.
     pub requests: Vec<Value>,
 }
 
 fn rank_of(
-    spec: &PoleReportSpec,
+    ctx: &CellCtx<'_>,
     dir: &Path,
     results: &[PathBuf],
     tag: &str,
     prefix: &str,
 ) -> Result<Value, String> {
+    rank_of_with(ctx, dir, results, tag, prefix, true)
+}
+
+/// The rank step; `with_dependences = false` = the NAIVE upper bound (no dependence table). `rr_pole_rank` runs as a
+/// child of the process layer ([`run_program_child`]), never spawned directly (L10, tripwire procfix3_proc m5).
+fn rank_of_with(
+    ctx: &CellCtx<'_>,
+    dir: &Path,
+    results: &[PathBuf],
+    tag: &str,
+    prefix: &str,
+    with_dependences: bool,
+) -> Result<Value, String> {
+    let spec = ctx.spec;
     let out = dir.join(format!("rank.{tag}.json"));
-    let mut cmd = std::process::Command::new(&spec.rank_bin.path);
+    let mut a: Vec<OsString> = vec![];
     for r in results {
-        cmd.arg("--result").arg(r);
+        a.push("--result".into());
+        a.push(r.into());
     }
-    cmd.arg("--depths").arg(&spec.depths.path);
+    a.push("--depths".into());
+    a.push((&spec.depths.path).into());
     match &spec.terminal_map {
         Some(m) => {
-            cmd.arg("--terminal-map").arg(&m.path);
+            a.push("--terminal-map".into());
+            a.push((&m.path).into());
             if let Some(r) = &spec.rows_route {
-                cmd.arg("--route").arg(r);
+                a.push("--route".into());
+                a.push(r.into());
             }
         }
         None => {
-            cmd.arg("--library")
-                .arg(&spec.library.path)
-                .arg("--catalogue")
-                .arg(&spec.catalogue.path);
+            a.push("--library".into());
+            a.push((&spec.library.path).into());
+            a.push("--catalogue".into());
+            a.push((&spec.catalogue.path).into());
         }
     }
-    cmd.arg("--rank-prefix").arg(prefix).arg("--out").arg(&out);
-    if let Some(d) = &spec.dependences {
-        cmd.arg("--dependences").arg(&d.path);
+    for x in ["--rank-prefix", prefix, "--out"] {
+        a.push(x.into());
     }
-    let o = cmd.output().map_err(|e| format!("rr_pole_rank: {e}"))?;
-    if !o.status.success() {
-        return Err(format!(
-            "rr_pole_rank exit {}: {}",
-            o.status,
-            String::from_utf8_lossy(&o.stderr).trim()
-        ));
+    a.push((&out).into());
+    if with_dependences && let Some(d) = &spec.dependences {
+        a.push("--dependences".into());
+        a.push((&d.path).into());
+    }
+    // the binary that runs is the pinned one (checked again at every launch, not only at the start of the campaign)
+    spec.rank_bin.check("rank binary")?;
+    let opts = RunOptions {
+        cpus: vec![],
+        memory_cap_bytes: Some(spec.rank_memory_cap_bytes.unwrap_or(spec.memory_cap_bytes)),
+        licence_env: spec.licence_env.clone(),
+        wall_cap: Some(Duration::from_secs(
+            spec.rank_wall_seconds.unwrap_or(spec.wall_seconds),
+        )),
+        grace: Some(Duration::from_secs(10)),
+    };
+    let run = run_program_child(
+        ctx.sampler,
+        &spec.rank_bin.path,
+        &a,
+        &dir.join("rank-runs"),
+        &format!("pole-rank-{tag}"),
+        &opts,
+    )?;
+    if !run.success() {
+        return Err(format!("rr_pole_rank {}: {}", run.how(), run.stderr_tail()));
     }
     read_json(&out.display().to_string()).map(|x| x.0)
+}
+
+/// One finished child of [`run_program_child`]: its launcher report and the run directory (stdout.log, stderr.log).
+#[derive(Debug, Clone)]
+pub struct ProgramRun {
+    pub report: FinalReport,
+    pub run_dir: PathBuf,
+}
+
+impl ProgramRun {
+    /// Exit 0, no kill by the supervisor, and the session proven empty.
+    pub fn success(&self) -> bool {
+        self.report.exit == Some(ExitState::Exited(0))
+            && self.report.kill_reason.is_none()
+            && self.report.verification.is_verified()
+    }
+
+    /// How the child ended, in words (exit code or signal, the supervisor's kill reason, an unverified session).
+    pub fn how(&self) -> String {
+        let mut w = match self.report.exit {
+            Some(ExitState::Exited(c)) => format!("exit {c}"),
+            Some(ExitState::Signaled { signal, .. }) => format!("signal {signal}"),
+            Some(ExitState::Unknown) | None => "exit unknown".to_string(),
+        };
+        if let Some(k) = &self.report.kill_reason {
+            w.push_str(&format!(", killed by the supervisor ({})", k.outcome()));
+        }
+        if !self.report.verification.is_verified() {
+            w.push_str(", session not verified empty");
+        }
+        w
+    }
+
+    /// The last 2,000 bytes of the child's stderr (empty when unreadable).
+    pub fn stderr_tail(&self) -> String {
+        let b = std::fs::read(self.run_dir.join("stderr.log")).unwrap_or_default();
+        let from = b.len().saturating_sub(2000);
+        String::from_utf8_lossy(&b[from..]).trim().to_string()
+    }
+}
+
+/// Run one program to its end as a child of the process layer (L10): the [`RealLauncher`] starts it in its own session
+/// under the campaign marker, with the minimal contract environment (TMPDIR = `<run dir>/tmp`), the licence variable
+/// passed BY NAME only, the memory cap and the wall cap of `opts`; stdout / stderr go to the run directory
+/// `<runs>/<label>.<n>` (n = the first free attempt number; nothing is overwritten). A launch error (nothing started)
+/// is an Err; a started child returns its report whatever its exit (the caller decides).
+pub fn run_program_child(
+    sampler: &Arc<Sampler>,
+    program: &Path,
+    args: &[OsString],
+    runs: &Path,
+    label: &str,
+    opts: &RunOptions,
+) -> Result<ProgramRun, String> {
+    std::fs::create_dir_all(runs).map_err(|e| format!("{}: {e}", runs.display()))?;
+    let mut n = 1u32;
+    let run_dir = loop {
+        let d = runs.join(format!("{label}.{n}"));
+        match std::fs::create_dir(&d) {
+            Ok(()) => break d,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(format!("{}: {e}", d.display())),
+        }
+    };
+    let tmp = run_dir.join("tmp");
+    std::fs::create_dir(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let mut ls = LaunchSpec::new(format!("{label}.{n}"), program, &run_dir).with_contract_env(&tmp);
+    ls.args = args.to_vec();
+    ls.cpus = opts.cpus.clone();
+    ls.memory_cap_bytes = opts.memory_cap_bytes;
+    if let Some(name) = &opts.licence_env {
+        ls.env_passthrough.push(name.clone());
+    }
+    let mut l = RealLauncher::new(sampler.clone());
+    let mut h = l
+        .launch(&ls)
+        .map_err(|e| format!("launch of {}: {e}", program.display()))?;
+    let report = drive(&mut h, opts);
+    Ok(ProgramRun { report, run_dir })
+}
+
+/// "boxed node N key I(..)" from an engine refusal text ("... failed for boxed node N: ... could not solve the key I(..)"),
+/// or None.
+pub fn stop_key(message: &str) -> Option<String> {
+    let node = message
+        .split("boxed node ")
+        .nth(1)
+        .and_then(|s| s.split(|c: char| c == ':' || c.is_whitespace()).next())
+        .map(str::to_string);
+    let key = message.split("the key ").nth(1).and_then(|s| {
+        let end = s.find(')')?;
+        s.starts_with("I(").then(|| s[..=end].to_string())
+    });
+    match (node, key) {
+        (Some(n), Some(k)) => Some(format!("boxed node {n} key {k}")),
+        (None, Some(k)) => Some(format!("key {k}")),
+        _ => None,
+    }
 }
 
 /// What one cell's run needs from the campaign.
@@ -697,7 +846,15 @@ fn group_job(
         return Ok(Err(format!("NOT_CERTIFIED: {}", f.to_json())));
     }
     if let Some(q) = checked.requests.iter().find(|q| !q.outcome.is_decided()) {
-        return Ok(Err(format!("{}: {}", q.label, q.outcome.word())));
+        // a request that stopped at a key the package cannot reduce: name the boxed node and the key (acceptance cases)
+        let stop = match &q.outcome {
+            tadicjob::RequestOutcome::NotDecided { message, .. } => stop_key(message),
+            _ => None,
+        };
+        return Ok(Err(match stop {
+            Some(s) => format!("{}: {} at {s}", q.label, q.outcome.word()),
+            None => format!("{}: {}", q.label, q.outcome.word()),
+        }));
     }
     out.jobs.push(content.clone());
     g.results
@@ -737,11 +894,13 @@ fn run_cell(
         rank: Value::Null,
         pivots: Value::Null,
         rank_kind: String::new(),
+        naive_rank: Value::Null,
         cpu_seconds: 0.0,
         peak_gb: 0.0,
         max_plan_need: Value::Null,
         max_series_length: Value::Null,
         jobs: vec![],
+        package: spec.library.sha256.clone(),
         route: if block.is_some() {
             "blocks".into()
         } else {
@@ -763,6 +922,10 @@ fn run_cell(
         .join("cells")
         .join(format!("{}_D{}r{}", ns.node, c.d, c.r));
     std::fs::create_dir_all(&cdir).map_err(|e| e.to_string())?;
+    // the cost of jobs reused from the store is the cost recorded when they ran (the previous cell record, same jobs)
+    let previous: Option<Value> = std::fs::read(cdir.join("cell.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
     let mut groups: Vec<Group> = match block {
         None => vec![Group {
             prefix: "c".into(),
@@ -797,7 +960,7 @@ fn run_cell(
                 break;
             }
             let r = rank_of(
-                spec,
+                ctx,
                 &cdir,
                 &g.results,
                 &format!("{}m{}", g.prefix, g.m),
@@ -832,7 +995,11 @@ fn run_cell(
         out.verdict = format!("not decided ({why})");
     } else if !all.is_empty() {
         let prefix = if block.is_some() { "b" } else { "c" };
-        let rank = rank_of(spec, &cdir, &all, "cell", prefix)?;
+        let rank = rank_of(ctx, &cdir, &all, "cell", prefix)?;
+        if spec.dependences.is_some() {
+            out.naive_rank =
+                rank_of_with(ctx, &cdir, &all, "cell_naive", prefix, false)?["rank"].clone();
+        }
         out.rank = rank["rank"].clone();
         out.pivots = rank["pivots"].clone();
         out.rank_kind = rank["rank_kind"].as_str().unwrap_or("").to_string();
@@ -866,6 +1033,14 @@ fn run_cell(
         }
         out.max_plan_need = json!(mpn);
         out.max_series_length = json!(msl);
+    }
+    if let Some(p) = previous
+        && out.cpu_seconds == 0.0
+        && !out.jobs.is_empty()
+        && p["jobs"] == json!(out.jobs)
+    {
+        out.cpu_seconds = p["cpu_seconds"].as_f64().unwrap_or(0.0);
+        out.peak_gb = p["peak_gb"].as_f64().unwrap_or(0.0);
     }
     let _ = std::fs::write(
         cdir.join("cell.json"),
@@ -970,7 +1145,12 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 }
             })
             .filter(|(c, _)| {
-                spec.d_max.is_none_or(|x| c.d <= x) && spec.r_max.is_none_or(|x| c.r <= x)
+                spec.d_max.is_none_or(|x| c.d <= x)
+                    && spec.r_max.is_none_or(|x| c.r <= x)
+                    && spec
+                        .cell_list
+                        .as_ref()
+                        .is_none_or(|l| l.contains(&(c.d, c.r)))
             })
             .collect();
         cells.sort_by_key(|(c, _)| (c.keys_in_cell, c.d, c.r));
@@ -1008,34 +1188,62 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 v["d"].as_i64().unwrap_or(-1),
                 v["r"].as_i64().unwrap_or(-1),
             );
-            if !listed.contains(&key) && spec.nodes.iter().any(|n| n.node == key.0) {
+            // only cells of THIS package (a cell record of another package is never mixed into the verdict)
+            if !listed.contains(&key)
+                && spec.nodes.iter().any(|n| n.node == key.0)
+                && v["package"].as_str() == Some(spec.library.sha256.as_str())
+            {
                 extra.push(v);
             }
         }
         extra.sort_by_key(|v| (v["d"].as_i64(), v["r"].as_i64()));
         for v in extra {
+            // a cell the CURRENT table still lists (not selected in this run) keeps its line and verdict; only a cell the
+            // table no longer lists is "dropped"
+            let (d, r) = (v["d"].as_i64().unwrap_or(-1), v["r"].as_i64().unwrap_or(-1));
+            let node = v["node"].as_str().unwrap_or("");
+            let in_table = rows
+                .iter()
+                .find(|c| c.node == node && c.d == d && c.r == r)
+                .map(|c| {
+                    if c.r <= c.top {
+                        "main"
+                    } else if c.r <= c.top_upper {
+                        "margin"
+                    } else {
+                        "dropped"
+                    }
+                });
+            let line: &'static str = in_table.unwrap_or("dropped");
+            let verdict = if line == "dropped" {
+                format!(
+                    "outside the exact tops, computed anyway: {}",
+                    v["verdict"].as_str().unwrap_or("")
+                )
+            } else {
+                v["verdict"].as_str().unwrap_or("").to_string()
+            };
             outcomes.push(CellOutcome {
                 node: v["node"].as_str().unwrap_or("").to_string(),
                 d: v["d"].as_i64().unwrap_or(-1),
                 r: v["r"].as_i64().unwrap_or(-1),
                 keys: v["keys"].as_u64().unwrap_or(0) as usize,
-                line: "dropped",
+                line,
                 outside_box: v["outside_box"].as_bool().unwrap_or(false),
                 units_reaching: v["units_reaching"].as_str().unwrap_or("").to_string(),
                 combinations: v["combinations"].as_u64().unwrap_or(0) as usize,
-                verdict: format!(
-                    "outside the exact tops, computed anyway: {}",
-                    v["verdict"].as_str().unwrap_or("")
-                ),
+                verdict,
                 rank: v["rank"].clone(),
                 pivots: v["pivots"].clone(),
                 rank_kind: v["rank_kind"].as_str().unwrap_or("").to_string(),
+                naive_rank: v["naive_rank"].clone(),
                 cpu_seconds: v["cpu_seconds"].as_f64().unwrap_or(0.0),
                 peak_gb: v["peak_gb"].as_f64().unwrap_or(0.0),
                 max_plan_need: v["max_plan_need"].clone(),
                 max_series_length: v["max_series_length"].clone(),
                 jobs: vec![],
                 route: v["route"].as_str().unwrap_or("").to_string(),
+                package: v["package"].as_str().unwrap_or("").to_string(),
                 blocks: v["blocks"].as_array().cloned().unwrap_or_default(),
                 requests: v["requests"].as_array().cloned().unwrap_or_default(),
             });
@@ -1048,7 +1256,15 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             .iter()
             .filter(|o| o.node == ns.node && o.line == "main")
             .collect();
-        let all_zero = !mine.is_empty() && mine.iter().all(|o| o.verdict == "count zero: yes");
+        // EVERY main-line cell of the node in the cell table must be computed (a spec that selects fewer cells never
+        // gives "yes")
+        let table_main = rows
+            .iter()
+            .filter(|c| c.node == ns.node && c.r <= c.top)
+            .count();
+        let all_zero = mine.len() == table_main
+            && !mine.is_empty()
+            && mine.iter().all(|o| o.verdict == "count zero: yes");
         let any_no = mine.iter().any(|o| o.verdict.starts_with("count zero: no"));
         let verdict = if all_zero {
             "count zero on all cells up to top(D): yes".to_string()
@@ -1065,7 +1281,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
     let report = json!({"schema": REPORT_SCHEMA, "spec_sha256": sha256_hex(&sb), "cells_sha256": spec.cells.sha256,
         "depths_sha256": spec.depths.sha256, "dependences_sha256": spec.dependences.as_ref().map(|d| &d.sha256),
         "score": {"level": "composed", "form": "rank", "claim": if upper {"objective_upper_bound"} else {"objective"}},
-        "cell_definition": "cells (D, r) with r <= top(D); top(D) = top_r_at_D_if_n4hint of the cell table (top_r_at_D where empty), not clipped by box_r_max; margin = cells between the hint and top_r_at_D (TRICKS 45, coordinator ruling 2026-11-17)",
+        "cell_definition": "cells (D, r) with r <= top(D); top(D) = top_r_at_D_if_n4hint of the cell table when numeric, else top_r_exact (exact n4, TRICKS 49), else top_r_at_D; never clipped by box_r_max (a main-line cell above it is shown as outside BOXDEF v3); margin = cells between top(D) and top_r_at_D (TRICKS 45, coordinator ruling 2026-11-17)",
         "nodes": nodes, "cells": outcomes});
     let tmp = dir.join("pole_report.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&report).expect("json"))
@@ -1087,7 +1303,7 @@ pub fn markdown(report: &Value) -> String {
     for (n, v) in report["nodes"].as_object().into_iter().flatten() {
         s.push_str(&format!("- **{n}**: {}\n", v.as_str().unwrap_or("")));
     }
-    s.push_str("\n| node | cell | line | keys | comb. | rank | surviving directions | verdict | CPU-s | peak GB | max need | max series |\n|---|---|---|---|---|---|---|---|---|---|---|---|\n");
+    s.push_str("\n| node | cell | line | keys | comb. | rank | naive rank | surviving directions | verdict | CPU-s | peak GB | max need | max series |\n|---|---|---|---|---|---|---|---|---|---|---|---|---|\n");
     for c in report["cells"].as_array().into_iter().flatten() {
         let mut line = c["line"].as_str().unwrap_or("").to_string();
         if c["outside_box"] == true {
@@ -1097,7 +1313,7 @@ pub fn markdown(report: &Value) -> String {
             );
         }
         s.push_str(&format!(
-            "| {} | D{}r{} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
+            "| {} | D{}r{} | {} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
             c["node"].as_str().unwrap_or(""),
             c["d"],
             c["r"],
@@ -1105,6 +1321,7 @@ pub fn markdown(report: &Value) -> String {
             c["keys"],
             c["combinations"],
             c["rank"],
+            c["naive_rank"],
             c["pivots"],
             c["verdict"].as_str().unwrap_or(""),
             c["cpu_seconds"].as_f64().unwrap_or(0.0),
@@ -1132,6 +1349,13 @@ mod tests {
         assert_eq!(k.iter().filter(|&&x| x == 2).count(), 1);
         // the dot cap: 5 dots on 2 lines with at most 4 each -> (4,1), (3,2), (2,3), (1,4)
         assert_eq!(cell_keys(3, &[0, 1], &[2], 5, 0, 4).len(), 4);
+    }
+
+    #[test]
+    fn stop_key_is_read_from_an_engine_refusal() {
+        let m = "seeds [1]: recipe OUTSIDE_NO_RELATION failed for boxed node T9: recipe x could not solve the key I(1,5,-2) (recipe frame I(5,1,-2)): outside";
+        assert_eq!(stop_key(m).as_deref(), Some("boxed node T9 key I(1,5,-2)"));
+        assert_eq!(stop_key("nothing"), None);
     }
 
     #[test]
