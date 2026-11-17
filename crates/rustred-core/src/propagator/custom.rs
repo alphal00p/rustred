@@ -1019,6 +1019,35 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
     }
 }
 
+/// batch 12a: an item dispatched at a table position.
+enum Positioned<'a> {
+    Alias(&'a super::table_import::SlotAliasRecord),
+    Recipe {
+        recipes: &'a RecipeDispatch,
+        index: usize,
+        rules_before: usize,
+    },
+}
+
+impl Positioned<'_> {
+    fn rules_before(&self) -> usize {
+        match self {
+            Self::Alias(alias) => alias.rules_before,
+            Self::Recipe { rules_before, .. } => *rules_before,
+        }
+    }
+
+    fn table_index(&self) -> usize {
+        match self {
+            Self::Alias(alias) => alias.index,
+            Self::Recipe { recipes, index, .. } => recipes.bundle().records[*index]
+                .position
+                .as_ref()
+                .map_or(usize::MAX, |position| position.index),
+        }
+    }
+}
+
 // ----- the lane step -----
 
 /// A Custom owner's program: the generated rules of every raw chart of its
@@ -1265,7 +1294,7 @@ impl<const N: usize> CustomStep<N> {
             return self.apply_recipe(recipes, index, powers);
         }
         let chart = self.chart(powers);
-        let alias = self.first_alias(powers);
+        let positioned = self.first_positioned(powers);
         let guards = conditions.len();
         let applied = apply_prepared_owner(
             &self.programs,
@@ -1278,11 +1307,11 @@ impl<const N: usize> CustomStep<N> {
         );
         match applied {
             Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
-            Ok(AppliedOwnerStep::Applied(terms, position)) => match alias {
-                // first match: an alias before the matched rule in the table wins
-                Some(alias) if alias.rules_before <= position => {
+            Ok(AppliedOwnerStep::Applied(terms, position)) => match positioned {
+                // first match: an alias or positioned recipe before the matched rule in the table wins
+                Some(item) if item.rules_before() <= position => {
                     conditions.truncate(guards);
-                    self.apply_alias(alias, powers)
+                    self.apply_positioned(item, powers)
                 }
                 _ => Ok(KeyApplied::Children(
                     terms,
@@ -1290,8 +1319,8 @@ impl<const N: usize> CustomStep<N> {
                 )),
             },
             Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
-                if let Some(alias) = alias {
-                    return self.apply_alias(alias, powers);
+                if let Some(item) = positioned {
+                    return self.apply_positioned(item, powers);
                 }
                 match &self.recipes {
                     Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
@@ -1321,6 +1350,32 @@ impl<const N: usize> CustomStep<N> {
         self.aliases
             .iter()
             .find(|alias| alias.image(powers).is_some())
+    }
+
+    /// batch 12a: the first item dispatched at a table position (a slot-permuted alias, a recipe of an unboxed
+    /// table) whose domain holds `powers`: the one earliest in the table.
+    fn first_positioned(&self, powers: &[i64]) -> Option<Positioned<'_>> {
+        let alias = self.first_alias(powers).map(Positioned::Alias);
+        let recipe = self.recipes.as_ref().and_then(|recipes| {
+            recipes
+                .positioned(powers)
+                .map(|(index, rules_before)| Positioned::Recipe {
+                    recipes,
+                    index,
+                    rules_before,
+                })
+        });
+        [alias, recipe]
+            .into_iter()
+            .flatten()
+            .min_by_key(|item| (item.rules_before(), item.table_index()))
+    }
+
+    fn apply_positioned(&self, item: Positioned<'_>, powers: &[i64]) -> Result<KeyApplied, PError> {
+        match item {
+            Positioned::Alias(alias) => self.apply_alias(alias, powers),
+            Positioned::Recipe { recipes, index, .. } => self.apply_recipe(recipes, index, powers),
+        }
     }
 
     /// `I(key) = c * I(image)` by a slot-permuted alias rule whose domain holds `powers`. The image must stay on the
@@ -2030,13 +2085,21 @@ fn build<const N: usize>(
     // vk5l WP2: the recipe bundle of a boxed payload.
     let recipes = match super::recipes::recipes_of_source(&program.family_source)? {
         Some(bundle) => {
-            let Some(record) = &boxed else {
+            // batch 12a: an unboxed payload carries recipes only at table positions
+            let positioned_only = !bundle.records.is_empty()
+                && bundle
+                    .records
+                    .iter()
+                    .all(|record| record.position.is_some());
+            if boxed.is_none() && !positioned_only {
                 return Err(payload_error(format!(
                     "recipes of node {} on a payload without a box record",
                     bundle.node
                 )));
-            };
-            if bundle.node != record.node {
+            }
+            if let Some(record) = &boxed
+                && bundle.node != record.node
+            {
                 return Err(payload_error(format!(
                     "the recipes of node {} on boxed node {}",
                     bundle.node, record.node
@@ -3024,6 +3087,8 @@ pub struct CustomReplay {
     /// (`RUSTRED_P_REPLAY_MAX_STEPS`, a diagnostic: e.g. one step checks the
     /// seed's own rule application); empty for a complete replay.
     pub open: Vec<(Vec<i64>, Coefficient)>,
+    /// Wall seconds of this seed's replay.
+    pub seconds: f64,
 }
 
 /// Each seed (a key of the owner support) reduced with the owner's program,
@@ -3070,6 +3135,7 @@ pub fn replay_custom_payload(
         queue.insert((ops.order_of(seed)?, seed.clone()), context.one());
         let (mut residuals, mut boundary) = (BTreeMap::new(), BTreeMap::new());
         let mut steps = 0;
+        let started = std::time::Instant::now();
         while let Some(((order, key), weight)) = queue.pop_last() {
             if weight.is_zero() {
                 continue;
@@ -3119,6 +3185,7 @@ pub fn replay_custom_payload(
             boundary: nonzero(boundary),
             steps,
             open: nonzero(open),
+            seconds: started.elapsed().as_secs_f64(),
         });
     }
     Ok(replays)

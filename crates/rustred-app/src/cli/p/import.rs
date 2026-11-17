@@ -367,7 +367,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
             || arguments.replay.is_some()
         {
             return Err(CliError::Input(
-                "--stream-payload needs --no-verify and allows neither --coef-form factored / shared nor --replay"
+                "--stream-payload needs --no-verify and allows neither --coef-form factored nor --replay"
                     .to_owned(),
             ));
         }
@@ -402,7 +402,9 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
                 parts: open_scratch(&scratch_paths[1])?,
             }
         } else {
-            rustred::propagator::table_import::StreamScratch::Atoms(open_scratch(&scratch_paths[0])?)
+            rustred::propagator::table_import::StreamScratch::Atoms(open_scratch(
+                &scratch_paths[0],
+            )?)
         };
         let partial =
             std::fs::File::create(&partial_path).map_err(|error| io(&partial_path, error))?;
@@ -679,6 +681,12 @@ pub(super) fn read_recipe_records(
         };
         let value: serde_json::Value =
             serde_json::from_str(line).map_err(|error| at(error.to_string()))?;
+        // batch 12a: a delivery's positioned recipe (`rustred.campaign.recipe-record.v1`: `position`, `bound`,
+        // `recipe_record` -> its `recipe.file`, both checked by sha256)
+        if value["schema"] == "rustred.campaign.recipe-record.v1" {
+            records.push(positioned_recipe(&value).map_err(at)?);
+            continue;
+        }
         let (recipe, extra) = if value.get("schema").is_some() {
             (value.clone(), serde_json::Value::Null)
         } else {
@@ -708,6 +716,74 @@ pub(super) fn read_recipe_records(
         )));
     }
     Ok(records)
+}
+
+/// batch 12a: one positioned recipe of an unboxed table from a delivery record.
+fn positioned_recipe(
+    value: &serde_json::Value,
+) -> Result<rustred::propagator::recipes::RecipeRecord, String> {
+    use rustred::propagator::relation_entries::sha256_hex;
+    let read_checked = |path: &std::path::Path, sha256: Option<&str>| -> Result<Vec<u8>, String> {
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if let Some(expected) = sha256
+            && sha256_hex(&bytes) != expected
+        {
+            return Err(format!(
+                "{}: sha256 differs from the record's",
+                path.display()
+            ));
+        }
+        Ok(bytes)
+    };
+    let position = value["position"]
+        .as_u64()
+        .ok_or("a positioned recipe record needs `position` (a table record index)")?
+        as usize;
+    let bound_dr = match &value["bound"] {
+        serde_json::Value::Null => None,
+        bound if bound["kind"] == "D + r <= bound_dr" => Some(
+            bound["bound_dr"]
+                .as_i64()
+                .ok_or("bound.bound_dr is not an integer")?,
+        ),
+        other => return Err(format!("unsupported bound {other}")),
+    };
+    let record_path = std::path::PathBuf::from(
+        value["recipe_record"]["path"]
+            .as_str()
+            .ok_or("recipe_record.path missing")?,
+    );
+    let wrapper: serde_json::Value = serde_json::from_slice(&read_checked(
+        &record_path,
+        value["recipe_record"]["sha256"].as_str(),
+    )?)
+    .map_err(|error| format!("{}: {error}", record_path.display()))?;
+    let recipe_path = record_path
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join(
+            wrapper["recipe"]["file"]
+                .as_str()
+                .ok_or("recipe.file missing")?,
+        );
+    let recipe_bytes = read_checked(&recipe_path, wrapper["recipe"]["sha256"].as_str())?;
+    let recipe_text = String::from_utf8(recipe_bytes).map_err(|_| "recipe file is not UTF-8")?;
+    let mut record = RecipeBundle::record_of(&recipe_text).map_err(|error| error.to_string())?;
+    if let Some(digest) = wrapper["recipe"]["engine_recipe_digest"].as_str()
+        && digest != record.recipe_digest
+    {
+        return Err(format!(
+            "{}: engine recipe digest {} differs from the record's {digest}",
+            recipe_path.display(),
+            record.recipe_digest
+        ));
+    }
+    record.position = Some(rustred::propagator::recipes::RecipeTablePosition {
+        index: position,
+        rules_before: 0,
+        bound_dr,
+    });
+    Ok(record)
 }
 
 /// vk5l WP2: the recipe bundle in one JSON object (import record).
@@ -1023,9 +1099,17 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     // and writes the check record without stepping any key.
     let mut load_only = false;
     let (mut cache, mut prefilled, mut workers) = (None, None, None);
+    // batch 12a: --replay SEEDS.json (table-slot keys) replays each seed through the built owner (first match,
+    // aliases and positioned recipes as in production; RUSTRED_P_REPLAY_MAX_STEPS caps the steps) instead of the check
+    let mut replay: Option<PathBuf> = None;
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("--force") if !force => force = true,
+            Some("--replay") if replay.is_none() => {
+                replay = Some(PathBuf::from(
+                    next_value(&mut arguments, "--replay").map_err(CliError::Usage)?,
+                ));
+            }
             Some("--load-only") if !load_only => load_only = true,
             Some("--recipe-cache") if cache.is_none() => {
                 cache = Some(PathBuf::from(
@@ -1075,6 +1159,65 @@ fn run_check(arguments: Vec<OsString>) -> Result<(), CliError> {
     // chart prepared, certified set decoded), before the check steps keys.
     let built = custom_payload_load(presentation, payload, meta).map_err(failed)?;
     let (rss_built, peak_built) = rss_bytes();
+    if let Some(seeds_path) = &replay {
+        let seeds_text = read_input(&StreamPath::File(seeds_path.clone()))?;
+        let table_seeds: Vec<Vec<i64>> = serde_json::from_str(&seeds_text)
+            .map_err(|error| CliError::Input(format!("{}: {error}", seeds_path.display())))?;
+        let slot_map = &loaded.slot_map;
+        let seeds: Vec<Vec<i64>> = table_seeds
+            .iter()
+            .map(|seed| {
+                let mut out = vec![0; slot_map.len()];
+                for (slot, &power) in seed.iter().enumerate() {
+                    out[slot_map[slot]] = power;
+                }
+                out
+            })
+            .collect();
+        let to_table =
+            |key: &[i64]| -> Vec<i64> { slot_map.iter().map(|&image| key[image]).collect() };
+        let started = Instant::now();
+        let replays = replay_custom_payload(presentation, payload, meta, &seeds).map_err(failed)?;
+        let replay_seconds = started.elapsed().as_secs_f64();
+        let terms =
+            |terms: &[(Vec<i64>, rustred::algebra::Coefficient)]| -> Vec<serde_json::Value> {
+                terms
+                    .iter()
+                    .map(|(key, value)| serde_json::json!([to_table(key), value.to_string()]))
+                    .collect()
+            };
+        let results: Vec<serde_json::Value> = replays
+            .iter()
+            .zip(&table_seeds)
+            .map(|(replay, seed)| {
+                serde_json::json!({"seed": seed, "steps": replay.steps, "seconds": replay.seconds,
+                    "residuals": terms(&replay.residuals), "boundary": terms(&replay.boundary),
+                    "open": terms(&replay.open)})
+            })
+            .collect();
+        let (rss_end, peak) = rss_bytes();
+        let gb = |bytes: u64| bytes as f64 / 1e9;
+        let out = serde_json::json!({
+            "schema": "rustred.p-imported-owner-replay.v1", "label": label,
+            "payload": payload_path.display().to_string(),
+            "load": {"read_seconds": read_seconds, "build_seconds": built.build_seconds,
+                     "rss_after_build_gb": gb(rss_built), "peak_after_build_gb": gb(peak_built)},
+            "replay_seconds": replay_seconds, "rss_end_gb": gb(rss_end), "peak_gb": gb(peak),
+            "recipes": recipe_statistics_json(), "results": results,
+        });
+        let text = serde_json::to_string(&out).map_err(json_error)?;
+        write_output(
+            &StreamPath::File(record_path.with_file_name(format!("{label}.replay.json"))),
+            format!("{text}\n").as_bytes(),
+            force,
+        )?;
+        return writeln!(
+            std::io::stdout().lock(),
+            "{label}: replayed {} seeds in {replay_seconds:.3} s",
+            seeds.len()
+        )
+        .map_err(|error| CliError::OutputIo(error.to_string()));
+    }
     if load_only {
         let gb = |bytes: u64| bytes as f64 / 1e9;
         let out = serde_json::json!({
