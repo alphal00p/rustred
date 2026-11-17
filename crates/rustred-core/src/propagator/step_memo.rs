@@ -756,9 +756,13 @@ impl SharedMemo {
             return;
         }
         if self.entries.load(Ordering::Relaxed) >= memo_entries() as u64 {
-            static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            static REPORTED: std::sync::atomic::AtomicBool =
+                std::sync::atomic::AtomicBool::new(false);
             if !REPORTED.swap(true, Ordering::Relaxed) {
-                eprintln!("rustred step memo: shared memo full at {} entries", memo_entries());
+                eprintln!(
+                    "rustred step memo: shared memo full at {} entries",
+                    memo_entries()
+                );
             }
             return;
         }
