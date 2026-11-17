@@ -1510,9 +1510,70 @@ pub fn cell_rank(
                 .map(|q| json!({"master": m, "need": n, "q": q}))
         })
         .collect();
-    // TRICKS 57 (b): in the exchanged basis the count is an OBSERVATION, never a verdict (not an invariant)
-    let verdict = if data.exchange.is_some() {
-        format!("OBSERVATION (exchanged basis, not an invariant, TRICKS 57): {verdict}")
+    // TRICKS 57 / 60: in the exchanged basis the count is an OBSERVATION, never a verdict. Violations (masters beyond depth)
+    // are "an exchange still to be found": the PROPORTIONALITY CHECK (the violating polar rows are multiples of one row:
+    // rank <= 1 of the rows without dependences, at every prime) and the CANDIDATE exchange = the master in the most
+    // (master, request) violations (the exchange loop's first rule; ties: the master name).
+    let mut exchange_observation = Value::Null;
+    let verdict = if let Some((_, _)) = data.exchange {
+        let mut count: BTreeMap<String, usize> = BTreeMap::new();
+        for e in per_request.values() {
+            if let Some(pp) = e["per_prime"].as_array().and_then(|a| a.first()) {
+                for b in pp["beyond"].as_array().into_iter().flatten() {
+                    *count
+                        .entry(b["master"].as_str().unwrap_or("").to_string())
+                        .or_insert(0) += 1;
+                }
+            }
+        }
+        if count.is_empty() {
+            exchange_observation = json!({"violations": 0});
+            format!("OBSERVATION (exchanged basis): 0 masters beyond depth; {verdict}")
+        } else {
+            let naive = RankData {
+                map: data.map,
+                depths: data.depths,
+                dependences: None,
+                lau: data.lau,
+                exchange: data.exchange,
+            };
+            let mut ranks = BTreeSet::new();
+            for &(p, _) in &primes {
+                let Ok(fp) = Fp::new(p, transcendental_seed) else {
+                    continue;
+                };
+                let rows: Vec<BTreeMap<String, u64>> = requests
+                    .iter()
+                    .filter(|r| {
+                        r["label"]
+                            .as_str()
+                            .is_some_and(|l| l.starts_with(rank_prefix))
+                    })
+                    .filter_map(|r| match request_row(&fp, &naive, r) {
+                        RowOutcome::Row { entries, .. } => Some(entries),
+                        RowOutcome::NotDecided(_) => None,
+                    })
+                    .collect();
+                let refs: Vec<&BTreeMap<String, u64>> = rows.iter().collect();
+                if let Ok((rk, _)) = rank_at_prime(&fp, &refs) {
+                    ranks.insert(rk);
+                }
+            }
+            let proportional = ranks.len() == 1 && ranks.iter().all(|&r| r <= 1);
+            let candidate = count
+                .iter()
+                .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
+                .map(|(m, n)| json!({"master": m, "violations_cleared": n}));
+            exchange_observation = json!({"violations": count.values().sum::<usize>(),
+                "masters_beyond": count, "proportional": proportional, "naive_ranks": ranks,
+                "candidate_exchange": candidate,
+                "wording": "an exchange still to be found (TRICKS 60): the published pole bound fails on these keys"});
+            format!(
+                "OBSERVATION (exchanged basis): an exchange still to be found ({} violations; proportional: {}); {verdict}",
+                count.values().sum::<usize>(),
+                if proportional { "yes" } else { "no" }
+            )
+        }
     } else {
         verdict
     };
@@ -1523,6 +1584,7 @@ pub fn cell_rank(
         "basis": data.exchange.map(|(x, _)| format!("exchanged ({})", x.label)).unwrap_or_else(|| "old".into()),
         "per_prime": per_prime, "requests": per_request.into_values().collect::<Vec<_>>(),
         "cell_needs": cell_needs, "cell_beyond": beyond,
+        "exchange_observation": exchange_observation,
         "transcendental_substitution": {"used": transcendental_used, "seed": transcendental_seed,
             "constants": "gamma_E, pi^2, zeta(odd) seeded random in F_p; zeta(2k) = rational x pi^2k"},
         "failure_probability": {

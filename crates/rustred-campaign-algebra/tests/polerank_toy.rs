@@ -6,7 +6,7 @@
 
 use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::polerank::{
-    Dependences, DepthTable, Fp, RankData, TerminalMap, cell_rank, row_products,
+    Dependences, DepthTable, Exchange, Fp, RankData, TerminalMap, cell_rank, row_products,
 };
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use serde_json::{Value, json};
@@ -218,6 +218,46 @@ fn a_cell_touching_an_unmapped_terminal_is_incomplete_never_counted() {
     let r = cell_rank(&data, &result(reqs), "c", 1);
     assert_eq!(r["verdict"], "incomplete: unmapped terminal (R:7)", "{r}");
     assert!(r["rank"].is_null());
+}
+
+#[test]
+fn exchanged_basis_violations_are_an_observation_with_proportionality_and_candidate() {
+    if !licensed() {
+        eprintln!("SKIP: Symbolica licence absent");
+        return;
+    }
+    let alg = SymbolicaAlgebra::new().unwrap();
+    let lau = SymbolicaLaurent::new("4").unwrap();
+    let map = TerminalMap::default();
+    let dep = depths();
+    // B = I(1,0,1) exchanged for new[1] (coefficient 1) whose depth is 0: B's pole of order 2 becomes a violation of new[1]
+    let x = Exchange::from_json(&json!({"schema": "helper-vh2.exchange-list.v1", "data_version": "toy",
+        "relation": {"rows": [{"master_out": "I(1,0,1)", "B": [{"master": "new[1]", "coefficient": {"num": "1", "den": "1"}}], "A": []}]},
+        "new_master_definitions": [{"master": "new[1]", "q": 0}]}))
+    .unwrap();
+    let data = RankData {
+        map: &map,
+        depths: &dep,
+        dependences: None,
+        lau: &lau,
+        exchange: Some((&x, &alg)),
+    };
+    let r = cell_rank(
+        &data,
+        &result(combos(&[(5, 7), (10, 14)], 4, &[1, 2])),
+        "c",
+        1,
+    );
+    let o = &r["exchange_observation"];
+    assert!(
+        r["verdict"]
+            .as_str()
+            .unwrap()
+            .starts_with("OBSERVATION (exchanged basis): an exchange still to be found"),
+        "{r}"
+    );
+    assert_eq!(o["proportional"], true, "{o}");
+    assert!(o["masters_beyond"]["new[1]"].as_u64().unwrap() >= 4, "{o}");
 }
 
 #[test]
