@@ -778,6 +778,10 @@ fn run_cell(
         .join("cells")
         .join(format!("{}_D{}r{}", ns.node, c.d, c.r));
     std::fs::create_dir_all(&cdir).map_err(|e| e.to_string())?;
+    // the cost of jobs reused from the store is the cost recorded when they ran (the previous cell record, same jobs)
+    let previous: Option<Value> = std::fs::read(cdir.join("cell.json"))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok());
     let mut groups: Vec<Group> = match block {
         None => vec![Group {
             prefix: "c".into(),
@@ -885,6 +889,14 @@ fn run_cell(
         }
         out.max_plan_need = json!(mpn);
         out.max_series_length = json!(msl);
+    }
+    if let Some(p) = previous
+        && out.cpu_seconds == 0.0
+        && !out.jobs.is_empty()
+        && p["jobs"] == json!(out.jobs)
+    {
+        out.cpu_seconds = p["cpu_seconds"].as_f64().unwrap_or(0.0);
+        out.peak_gb = p["peak_gb"].as_f64().unwrap_or(0.0);
     }
     let _ = std::fs::write(
         cdir.join("cell.json"),
