@@ -3307,3 +3307,216 @@ fn terminal_check() {
         if refused { "REFUSED" } else { "ok" }
     );
 }
+
+/// CHAIN WALK of one key through a dispatch (acceptance case, TRICKS 52): breadth-first over the TOP-SECTOR keys reached from
+/// PARAMETRIC_KEY (comma list) by first match + rhs instantiation (rhs read from the record line, or from its origin source
+/// line when the dispatch record is a coverage form), the strict loci / G5 reduced dispatch as in redispatch_keys. Stubs
+/// (empty rhs) and open keys are NOT expanded and are listed; terminals (PARAMETRIC_TERMINALS) stop the walk. Output
+/// PARAMETRIC_OUT (JSON): records used, keys, max depth, stub steps (by stub record), open keys.
+#[test]
+#[ignore]
+fn chain_walk() {
+    use rustred_campaign_core::cover::Dispatch;
+    use std::io::{Read, Seek, SeekFrom};
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let start: Vec<i32> = std::env::var("PARAMETRIC_KEY")
+        .expect("PARAMETRIC_KEY")
+        .split(',')
+        .map(|x| x.trim().parse().unwrap())
+        .collect();
+    let max_keys: usize = std::env::var("PARAMETRIC_MAX_KEYS")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(5_000_000);
+    let terms: std::collections::BTreeSet<Vec<i32>> = std::env::var("PARAMETRIC_TERMINALS")
+        .ok()
+        .map(|p| {
+            let v: serde_json::Value =
+                serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap();
+            serde_json::from_value::<Vec<Vec<i32>>>(v["keys"].clone())
+                .unwrap()
+                .into_iter()
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut ld = load_any(
+        &spec,
+        std::env::var("PARAMETRIC_INDEX_DIR")
+            .ok()
+            .map(PathBuf::from),
+    );
+    if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+        restore_loci(&mut ld, &f);
+    }
+    if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+        restore_bank_loci(&mut ld, &f);
+    }
+    let (g5, _) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+        &ld.disp,
+        &ld.frame,
+        &ProofBudget::default(),
+    )
+    .unwrap();
+    let n = ld.frame.arity();
+    let lines: Vec<bool> = (0..n).map(|i| ld.frame.is_line(i)).collect();
+    let job_of: BTreeMap<(usize, usize), usize> = ld
+        .jobs
+        .iter()
+        .enumerate()
+        .map(|(i, j)| ((j.table, j.record), i))
+        .collect();
+    let read_line = |p: &str, off: u64, len: Option<u64>| -> serde_json::Value {
+        let mut f = std::fs::File::open(p).unwrap();
+        f.seek(SeekFrom::Start(off)).unwrap();
+        let b = match len {
+            Some(l) => {
+                let mut b = vec![0u8; l as usize];
+                f.read_exact(&mut b).unwrap();
+                b
+            }
+            None => {
+                let mut r = std::io::BufReader::new(f);
+                let mut s = String::new();
+                std::io::BufRead::read_line(&mut r, &mut s).unwrap();
+                s.into_bytes()
+            }
+        };
+        serde_json::from_slice(&b).unwrap()
+    };
+    // per (table, record): (target slots, rhs term slots) or None for a stub
+    let mut rules: BTreeMap<(usize, usize), Option<(Vec<String>, Vec<Vec<String>>)>> =
+        BTreeMap::new();
+    let parse_slots = |t: &str| -> Vec<String> {
+        t[t.find('(').unwrap() + 1..t.rfind(')').unwrap()]
+            .split(',')
+            .map(|x| x.trim().to_string())
+            .collect()
+    };
+    let mut seen: std::collections::BTreeSet<Vec<i32>> = std::collections::BTreeSet::new();
+    let mut frontier = vec![start.clone()];
+    seen.insert(start.clone());
+    let (mut depth, mut open, mut stub_steps, mut used, mut terminal_hits, mut lower) = (
+        0usize,
+        Vec::new(),
+        BTreeMap::<String, u64>::new(),
+        BTreeMap::<String, u64>::new(),
+        0u64,
+        0u64,
+    );
+    while !frontier.is_empty() && seen.len() < max_keys {
+        let mut next = Vec::new();
+        for k in &frontier {
+            if terms.contains(k) {
+                terminal_hits += 1;
+                continue;
+            }
+            match g5.first_match(k) {
+                Ok(Dispatch::Covered(r)) => {
+                    let tname = g5.tables()[r.table].name.clone();
+                    let lab = g5.tables()[r.table].labels[r.record];
+                    let ent = rules.entry((r.table, r.record)).or_insert_with(|| {
+                        let j = &ld.jobs[job_of[&(r.table, r.record)]];
+                        let v = read_line(&j.path, j.offset, Some(j.bytes));
+                        let v = if v["rhs"].as_array().is_some_and(|a| a.is_empty())
+                            && v["origin"]["path"].is_string()
+                            && (v["origin"]["offset"].is_u64() || v["origin"]["offset"].is_string())
+                        {
+                            let off: u64 = v["origin"]["offset"]
+                                .as_str()
+                                .map(|s| s.parse().unwrap())
+                                .or(v["origin"]["offset"].as_u64())
+                                .unwrap();
+                            read_line(v["origin"]["path"].as_str().unwrap(), off, None)
+                        } else {
+                            v
+                        };
+                        let rhs = v["rhs"].as_array().cloned().unwrap_or_default();
+                        if rhs.is_empty() {
+                            return None;
+                        }
+                        Some((
+                            parse_slots(v["target"].as_str().unwrap()),
+                            rhs.iter()
+                                .map(|t| parse_slots(t[0].as_str().unwrap()))
+                                .collect(),
+                        ))
+                    });
+                    match ent {
+                        None => {
+                            *stub_steps.entry(format!("{tname}#{lab}")).or_default() += 1;
+                        }
+                        Some((tg, pats)) => {
+                            *used.entry(format!("{tname}#{lab}")).or_default() += 1;
+                            // parameter values from the target pattern: slot s = n_j + o  =>  n_j = k[s] - o
+                            let mut val: BTreeMap<usize, i64> = BTreeMap::new();
+                            let sym = |e: &str| -> Option<(usize, i64)> {
+                                let e = e.trim();
+                                let rest = e.strip_prefix('n')?;
+                                let d: String =
+                                    rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                                let o = rest[d.len()..].trim();
+                                Some((
+                                    d.parse().ok()?,
+                                    if o.is_empty() {
+                                        0
+                                    } else {
+                                        o.replace('+', "").parse().ok()?
+                                    },
+                                ))
+                            };
+                            for (s, e) in tg.iter().enumerate() {
+                                if let Some((j, o)) = sym(e) {
+                                    val.insert(j, i64::from(k[s]) - o);
+                                }
+                            }
+                            for p in pats.iter() {
+                                let c: Vec<i32> = p
+                                    .iter()
+                                    .map(|e| match sym(e) {
+                                        Some((j, o)) => (val[&j] + o) as i32,
+                                        None => e.parse().unwrap(),
+                                    })
+                                    .collect();
+                                if (0..n).any(|i| lines[i] && c[i] < 1) {
+                                    lower += 1; // leaves the top sector (another node)
+                                    continue;
+                                }
+                                if seen.insert(c.clone()) {
+                                    next.push(c);
+                                }
+                            }
+                        }
+                    }
+                }
+                other => {
+                    if open.len() < 200 {
+                        open.push(json!({"key": k, "dispatch": format!("{other:?}").chars().take(120).collect::<String>()}));
+                    }
+                }
+            }
+        }
+        frontier = next;
+        depth += 1;
+        eprintln!(
+            "  depth {depth}: {} keys seen, frontier {}",
+            seen.len(),
+            frontier.len()
+        );
+    }
+    let mut used_top: Vec<(&String, &u64)> = used.iter().collect();
+    used_top.sort_by(|a, b| b.1.cmp(a.1));
+    used_top.truncate(40);
+    let res = json!({"start": start, "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
+        "keys_reached_in_top_sector": seen.len(), "depth": depth, "complete": frontier.is_empty(), "terminal_hits": terminal_hits,
+        "terms_leaving_the_sector": lower, "records_used": used.len(), "records_used_top": used_top,
+        "stub_steps": stub_steps, "open_keys": open});
+    std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
+    eprintln!(
+        "chain walk: {} keys, depth {depth}, {} records, stub steps {:?}, open {}",
+        seen.len(),
+        used.len(),
+        stub_steps,
+        open.len()
+    );
+}
