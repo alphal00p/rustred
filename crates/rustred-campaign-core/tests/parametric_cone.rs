@@ -578,22 +578,38 @@ fn a_linear_cap_is_served_exactly_on_its_violation() {
                         {
                             let k = [k0, k1, k2];
                             let inside = caps.constraints.iter().all(|(a, b)| {
-                                a.iter().zip(&k).map(|(x, y)| x * i64::from(*y)).sum::<i64>() <= *b
+                                a.iter()
+                                    .zip(&k)
+                                    .map(|(x, y)| x * i64::from(*y))
+                                    .sum::<i64>()
+                                    <= *b
                             });
                             let got = cd.first_match(&k).unwrap();
                             if !inside {
-                                assert!(matches!(&got, Dispatch::Covered(r) if r.table == 0), "case {case} {k:?}: {got:?}");
+                                assert!(
+                                    matches!(&got, Dispatch::Covered(r) if r.table == 0),
+                                    "case {case} {k:?}: {got:?}"
+                                );
                                 continue;
                             }
                             inside_n += 1;
                             let want = d.first_match(&k).unwrap();
                             match (&got, &want) {
                                 (Dispatch::Covered(a), Dispatch::Covered(b)) => {
-                                    assert!(a.table >= 1 && a.record == b.record, "case {case} {k:?}")
+                                    assert!(
+                                        a.table >= 1 && a.record == b.record,
+                                        "case {case} {k:?}"
+                                    )
                                 }
                                 (Dispatch::Uncovered, Dispatch::Uncovered) => {}
-                                (Dispatch::Blocked { at: a, .. }, Dispatch::Blocked { at: b, .. }) => {
-                                    assert!(a.table >= 1 && a.record == b.record, "case {case} {k:?}")
+                                (
+                                    Dispatch::Blocked { at: a, .. },
+                                    Dispatch::Blocked { at: b, .. },
+                                ) => {
+                                    assert!(
+                                        a.table >= 1 && a.record == b.record,
+                                        "case {case} {k:?}"
+                                    )
                                 }
                                 _ => panic!("case {case} {k:?}: capped {got:?} vs {want:?}"),
                             }
@@ -616,7 +632,10 @@ fn implicit_equalities_are_made_explicit_with_the_same_points() {
     for case in 0..60 {
         let k = 3usize;
         let x: Vec<Affine> = (0..k)
-            .map(|i| Affine { coef: (0..k).map(|j| i128::from(i == j)).collect(), c: 0 })
+            .map(|i| Affine {
+                coef: (0..k).map(|j| i128::from(i == j)).collect(),
+                c: 0,
+            })
             .collect();
         let a: Vec<i128> = (0..k).map(|_| rng.below(5) as i128 - 2).collect();
         if a.iter().all(|&v| v == 0) {
@@ -624,25 +643,48 @@ fn implicit_equalities_are_made_explicit_with_the_same_points() {
         }
         let b = rng.below(7) as i128 - 3;
         let mut cons = vec![
-            Affine { coef: a.clone(), c: b },
-            Affine { coef: a.iter().map(|v| -v).collect(), c: -b },
+            Affine {
+                coef: a.clone(),
+                c: b,
+            },
+            Affine {
+                coef: a.iter().map(|v| -v).collect(),
+                c: -b,
+            },
         ];
         // box -4..=4 per parameter
         for j in 0..k {
             let mut e = vec![0i128; k];
             e[j] = 1;
-            cons.push(Affine { coef: e.clone(), c: 4 });
+            cons.push(Affine {
+                coef: e.clone(),
+                c: 4,
+            });
             e[j] = -1;
             cons.push(Affine { coef: e, c: 4 });
         }
-        let r = Region { k, x, cons, names: (0..k).map(|i| format!("t{i}")).collect() };
+        let r = Region {
+            k,
+            x,
+            cons,
+            names: (0..k).map(|i| format!("t{i}")).collect(),
+        };
         let pts = |r: &Region, w: i128| -> std::collections::BTreeSet<Vec<i128>> {
             let mut out = std::collections::BTreeSet::new();
             let rng_k: Vec<i128> = (-w..=w).collect();
             let mut t = vec![-w; r.k];
             loop {
-                if r.cons.iter().all(|c| c.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + c.c >= 0) {
-                    out.insert(r.x.iter().map(|xa| xa.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + xa.c).collect());
+                if r.cons
+                    .iter()
+                    .all(|c| c.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + c.c >= 0)
+                {
+                    out.insert(
+                        r.x.iter()
+                            .map(|xa| {
+                                xa.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + xa.c
+                            })
+                            .collect(),
+                    );
                 }
                 let mut s = 0;
                 loop {
@@ -663,7 +705,11 @@ fn implicit_equalities_are_made_explicit_with_the_same_points() {
         };
         let before = pts(&r, 6);
         match r.reduce_equalities().unwrap() {
-            None => assert!(before.is_empty(), "case {case}: reduced to empty but {} points", before.len()),
+            None => assert!(
+                before.is_empty(),
+                "case {case}: reduced to empty but {} points",
+                before.len()
+            ),
             Some(red) => {
                 assert_eq!(red.k, k - 1, "case {case}");
                 // the lattice re-parametrisation may stretch the parameters: a wide window

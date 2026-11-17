@@ -710,19 +710,41 @@ fn store_entry_cache_keeps_a_slot_per_store_beyond_sixteen_stores() {
     spec["evidence"] = json!({"facts":[{"path": fp.display().to_string()}],
                               "proofs":[{"path": pp.display().to_string()}]});
     let set = load(&TableSetSpec::from_json(&pin_ev(&spec)).unwrap(), &d).unwrap();
-    let so = StoreOptions { dir: d.join("s"), budget_bytes: 1, threads: 1 };
-    let ev = Evidence::from_spec_with(&set, &d, &EvidenceOptions { store: Some(so.clone()) }).unwrap();
+    let so = StoreOptions {
+        dir: d.join("s"),
+        budget_bytes: 1,
+        threads: 1,
+    };
+    let ev = Evidence::from_spec_with(
+        &set,
+        &d,
+        &EvidenceOptions {
+            store: Some(so.clone()),
+        },
+    )
+    .unwrap();
     drop(ev);
     let sdir = std::fs::read_dir(&so.dir)
         .unwrap()
         .map(|e| e.unwrap().path())
         .find(|p| p.is_dir())
         .expect("a store directory");
-    let stores: Vec<EvidenceStore> = (0..40).map(|_| EvidenceStore::open(&sdir).unwrap()).collect();
+    let stores: Vec<EvidenceStore> = (0..40)
+        .map(|_| EvidenceStore::open(&sdir).unwrap())
+        .collect();
     let key = [6, 1, 0];
-    let first: Vec<_> = stores.iter().map(|s| s.get(&sha0, &key).map(|e| (*e).clone())).collect();
-    assert!(first.iter().all(Option::is_some), "the toy stores (sha0, [6,1,0])");
-    let second: Vec<_> = stores.iter().map(|s| s.get(&sha0, &key).map(|e| (*e).clone())).collect();
+    let first: Vec<_> = stores
+        .iter()
+        .map(|s| s.get(&sha0, &key).map(|e| (*e).clone()))
+        .collect();
+    assert!(
+        first.iter().all(Option::is_some),
+        "the toy stores (sha0, [6,1,0])"
+    );
+    let second: Vec<_> = stores
+        .iter()
+        .map(|s| s.get(&sha0, &key).map(|e| (*e).clone()))
+        .collect();
     assert_eq!(first, second);
     for (i, s) in stores.iter().enumerate() {
         let r = s.read_stats();

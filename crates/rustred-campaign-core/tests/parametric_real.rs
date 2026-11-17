@@ -1735,7 +1735,9 @@ fn b2_face_by_face() {
                 piece.constraints.push((a.iter().map(|x| -x).collect(), -b));
             }
             // short label (file names): the equations are hashed; the full text is in the run's log line below
-            let h = eqs.bytes().fold(0xcbf2_9ce4_8422_2325u64, |a, b| (a ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+            let h = eqs.bytes().fold(0xcbf2_9ce4_8422_2325u64, |a, b| {
+                (a ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            });
             eprintln!("affine piece eqs {h:016x}: {eqs}");
             piece.label = format!("{} [affine {h:016x}]", piece.label);
         }
@@ -3474,7 +3476,10 @@ fn chain_walk() {
                     match ent {
                         None => {
                             *stub_steps.entry(format!("{tname}#{lab}")).or_default() += 1;
-                            stub_keys.entry(format!("{tname}#{lab}")).or_default().push(k.clone());
+                            stub_keys
+                                .entry(format!("{tname}#{lab}"))
+                                .or_default()
+                                .push(k.clone());
                         }
                         Some((tg, pats)) => {
                             *used.entry(format!("{tname}#{lab}")).or_default() += 1;
@@ -3704,7 +3709,11 @@ fn record_liveness() {
         let mut exhausted = true;
         // the record's WALL budget also bounds the element loop (exact cell emptiness / bounded enumeration): past it the
         // remaining elements are not examined and the record is UNDECIDED (never reported dead without a full pass)
-        let deadline = t0 + base_opts.budget.wall.unwrap_or(std::time::Duration::from_secs(120));
+        let deadline = t0
+            + base_opts
+                .budget
+                .wall
+                .unwrap_or(std::time::Duration::from_secs(120));
         let enum_cap: u64 = std::env::var("PARAMETRIC_LIVENESS_ENUM")
             .ok()
             .and_then(|x| x.parse().ok())

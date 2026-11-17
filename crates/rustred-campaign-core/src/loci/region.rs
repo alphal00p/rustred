@@ -442,7 +442,10 @@ impl Region {
                 for b in r.cons.iter().skip(i + 1) {
                     if b.c == a.c.checked_neg().unwrap_or(i128::MIN)
                         && b.coef.len() == a.coef.len()
-                        && b.coef.iter().zip(&a.coef).all(|(&x, &y)| y.checked_neg() == Some(x))
+                        && b.coef
+                            .iter()
+                            .zip(&a.coef)
+                            .all(|(&x, &y)| y.checked_neg() == Some(x))
                     {
                         pair = Some((a.coef.clone(), a.c));
                         break 'find;

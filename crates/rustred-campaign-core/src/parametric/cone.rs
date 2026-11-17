@@ -270,7 +270,9 @@ pub fn capped_dispatcher(
     for (i, (a, b)) in caps.constraints.iter().enumerate() {
         let nz: Vec<usize> = (0..a.len()).filter(|&j| a[j] != 0).collect();
         if a.len() != n || nz.is_empty() {
-            return Err(format!("cap {i}: a cap needs the arity and a nonzero coefficient"));
+            return Err(format!(
+                "cap {i}: a cap needs the arity and a nonzero coefficient"
+            ));
         }
         // sum_j a_j k_j - b - 1 >= 0 (the cap's violation; a LINEAR cap in several slots is as sound as a one-slot cap:
         // the record applies wherever it is selected, so the uncovered set is the dispatcher's intersected with the cap;
