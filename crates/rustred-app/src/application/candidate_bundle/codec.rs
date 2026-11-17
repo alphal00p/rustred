@@ -135,7 +135,9 @@ pub(super) fn write_records(
     validate(records, limits)?;
     if !matches!(
         records.schema.as_str(),
-        CANDIDATE_BUNDLE_SCHEMA | DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+        CANDIDATE_BUNDLE_SCHEMA
+            | DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+            | rustred::propagator::bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA
     ) {
         return Err(AppError::schema(
             "legacy candidate structural records are read-only; new output requires explicit order metadata",
@@ -194,7 +196,10 @@ pub(super) fn validate_ids(records: &ProgramRecord, count: usize) -> Result<(), 
 fn validate(bundle: &ProgramRecord, limits: CandidateBundleLimits) -> Result<(), AppError> {
     if !matches!(
         bundle.schema.as_str(),
-        CANDIDATE_BUNDLE_SCHEMA | LEGACY_CANDIDATE_BUNDLE_SCHEMA | DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+        CANDIDATE_BUNDLE_SCHEMA
+            | LEGACY_CANDIDATE_BUNDLE_SCHEMA
+            | DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+            | rustred::propagator::bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA
     ) || bundle.status != STATUS
     {
         return Err(AppError::schema(

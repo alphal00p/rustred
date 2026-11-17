@@ -3052,11 +3052,36 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
             serde_json::to_string(&alias_records).map_err(|error| malformed(error))?
         )
     };
+    // batch 12a: reader features this payload needs; then schema v4, so a reader built before them refuses
+    // the payload instead of skipping provenance it does not know (s12349c-era payloads keep v2 / v3)
+    let mut features: Vec<&str> = Vec::new();
+    if !alias_records.is_empty() {
+        features.push("slot_aliases");
+    }
+    if recipe_bundle.as_ref().is_some_and(|bundle| {
+        bundle
+            .records
+            .iter()
+            .any(|record| record.position.is_some())
+    }) {
+        features.push("positioned_recipes");
+    }
+    let features_provenance = if features.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{}{}",
+            super::bundle_wire::REQUIRED_FEATURES_MARKER,
+            features.join(",")
+        )
+    };
     let root_sector: Vec<bool> = (0..arity)
         .map(|slot| matches!(presentation.slots[slot], Slot::Line(_)))
         .collect();
     let program = ProgramRecord {
-        schema: if dispatch.is_empty() {
+        schema: if !features.is_empty() {
+            super::bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA
+        } else if dispatch.is_empty() {
             CANDIDATE_BUNDLE_SCHEMA
         } else {
             DISPATCH_CANDIDATE_BUNDLE_SCHEMA
@@ -3073,7 +3098,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
             IMPORT_SOLVER_POLICY.to_owned()
         },
         family_source: format!(
-            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{alias_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
+            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{alias_provenance}{features_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
             schema,
             family.name

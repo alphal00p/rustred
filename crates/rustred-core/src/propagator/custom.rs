@@ -76,8 +76,11 @@ use super::{OwnerClassId, PTerminalId, PresentationId};
 /// Bundle schemas a payload may carry: the generated candidate bundle without
 /// and with a rule-dispatch table, as [`super::bundle_wire`] defines them (the
 /// application's codec writes them). Legacy v1 bundles have no order program.
-pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 2] =
-    [CANDIDATE_BUNDLE_SCHEMA, DISPATCH_CANDIDATE_BUNDLE_SCHEMA];
+pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 3] = [
+    CANDIDATE_BUNDLE_SCHEMA,
+    DISPATCH_CANDIDATE_BUNDLE_SCHEMA,
+    super::bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA,
+];
 /// First line of [`custom_payload_dump`]; bump it when the dump's text changes.
 pub const CUSTOM_PAYLOAD_DUMP_VERSION: &str = "rustred.p-custom-payload-dump.v1";
 /// Unrestricted solver policies: the default numerical depth, or an explicit
