@@ -514,33 +514,55 @@ fn derivative_slots_close_the_all_mass_kite() {
     assert_eq!(report["modular"]["masters"], report2["modular"]["masters"]);
 }
 
-/// The checkpoint key of a spec without `derivative_slots` is the one the
-/// command used before that field existed (PINNED, measured with the
-/// pre-field binary on this spec), so existing checkpoints are still found;
-/// a non-empty `derivative_slots` changes the key.
+/// `derivative_slots` adds nothing to the checkpoint key when it is empty, so
+/// specs without it keep the key they had before the field existed and
+/// existing checkpoints are still found; a non-empty field changes the key.
+///
+/// The key is a hash of the serialised spec (without paths and the
+/// finite-field fields) and of the family block, which includes the router
+/// fingerprint. The test therefore checks the serialisation itself, and
+/// compares keys only with each other, so it holds for any router
+/// fingerprint format. (For the record: with the v1 census-router
+/// fingerprint, i.e. before the v2 router fingerprint, the K6 spec below,
+/// modular phase only, has the key
+/// d6a5ee80df8daa08481000be9c3a4b4a191c6c39ef8514c0bea8face09fc131e, the same
+/// with and without this change, measured with the pre-field binary.)
 #[test]
-fn checkpoint_key_without_derivative_slots_is_unchanged() {
-    const PINNED: &str = "d6a5ee80df8daa08481000be9c3a4b4a191c6c39ef8514c0bea8face09fc131e";
-    let binding = |dir: &Path| -> String {
+fn derivative_slots_adds_nothing_to_the_checkpoint_key_when_empty() {
+    let serialised = |spec: &Value| -> String {
+        let spec: rustred_app::SectorBoxReduceSpec = serde_json::from_value(spec.clone()).unwrap();
+        serde_json::to_string(&serde_json::to_value(&spec).unwrap()).unwrap()
+    };
+    let dir = scratch("key-input");
+    let mut without = k6_spec(&dir);
+    without["modular_only"] = json!(true);
+    let mut empty = without.clone();
+    empty["derivative_slots"] = json!([]);
+    let mut with_slots = without.clone();
+    with_slots["derivative_slots"] = json!([0]);
+    // The key input: no entry when empty, byte-identical to no field at all.
+    assert!(!serialised(&without).contains("derivative_slots"));
+    assert_eq!(serialised(&empty), serialised(&without));
+    assert!(serialised(&with_slots).contains("\"derivative_slots\":[0]"));
+    // A non-empty field changes the key (keys compared with each other only).
+    let binding = |dir: &Path, spec: &Value| -> String {
+        let mut spec = spec.clone();
+        spec["out_dir"] = json!(dir.join("out"));
+        spec["checkpoint_dir"] = json!(dir.join("ckpt"));
+        let (code, report) = run(dir, &spec);
+        assert_eq!(code, 0, "{report}");
         let saved: Value = serde_json::from_str(
             &std::fs::read_to_string(dir.join("ckpt").join("modular.json")).unwrap(),
         )
         .unwrap();
         saved["binding"].as_str().unwrap().to_string()
     };
-    let dir = scratch("key-pin");
-    let mut spec = k6_spec(&dir);
-    spec["modular_only"] = json!(true);
-    let (code, report) = run(&dir, &spec);
-    assert_eq!(code, 0, "{report}");
-    assert_eq!(binding(&dir), PINNED);
-    let other = scratch("key-pin-slots");
-    let mut with_slots = k6_spec(&other);
-    with_slots["modular_only"] = json!(true);
-    with_slots["derivative_slots"] = json!([0]);
-    let (code, report) = run(&other, &with_slots);
-    assert_eq!(code, 0, "{report}");
-    assert_ne!(binding(&other), PINNED);
-    std::fs::remove_dir_all(&dir).unwrap();
-    std::fs::remove_dir_all(&other).unwrap();
+    let plain = binding(&dir, &without);
+    let other = scratch("key-input-slots");
+    assert_ne!(binding(&other, &with_slots), plain);
+    let again = scratch("key-input-empty");
+    assert_eq!(binding(&again, &empty), plain);
+    for path in [dir, other, again] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
 }
