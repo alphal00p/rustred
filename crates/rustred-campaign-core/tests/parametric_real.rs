@@ -3702,7 +3702,18 @@ fn record_liveness() {
         let cov = coverage_from_partition(&cp, &capped, &frame, &cone, &opts).unwrap();
         let mut witness: Option<Vec<i32>> = None;
         let mut exhausted = true;
+        // the record's WALL budget also bounds the element loop (exact cell emptiness / bounded enumeration): past it the
+        // remaining elements are not examined and the record is UNDECIDED (never reported dead without a full pass)
+        let deadline = t0 + base_opts.budget.wall.unwrap_or(std::time::Duration::from_secs(120));
+        let enum_cap: u64 = std::env::var("PARAMETRIC_LIVENESS_ENUM")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(200_000);
         'el: for l in &cov.listed {
+            if std::time::Instant::now() > deadline {
+                exhausted = false;
+                break 'el;
+            }
             let i = l["element"].as_u64().unwrap() as usize;
             let el = &cp.elements[i];
             // a CELL (box): exact emptiness of (r's domain AND the box AND the cone), with a witness
@@ -3746,7 +3757,7 @@ fn record_liveness() {
             let sized = rustred_campaign_core::parametric::cone::region_keys_each(
                 &el.region(),
                 &cone,
-                200_000,
+                enum_cap,
                 &mut push,
             );
             if let Some(k) = found {
