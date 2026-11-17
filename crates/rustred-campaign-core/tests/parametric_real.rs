@@ -2955,14 +2955,26 @@ fn drill_core_first_match() {
         }
         let k: Vec<i32> = serde_json::from_str(&line).unwrap();
         let d = disp.first_match(&k);
-        let (label, why) = match &d {
-            Ok(Dispatch::Covered(r)) => (json!(r.label), "covered".to_string()),
+        // the serving TABLE (source id) beside the label (2026-11-17, final certification: a recipe source's labels
+        // repeat table labels, so the label alone does not name the record)
+        let (label, table, why) = match &d {
+            Ok(Dispatch::Covered(r)) => (
+                json!(r.label),
+                json!(disp.tables()[r.table].name),
+                "covered".to_string(),
+            ),
             other => (
+                json!(null),
                 json!(null),
                 format!("{other:?}").chars().take(600).collect(),
             ),
         };
-        writeln!(f, "{}", json!({"key": k, "label": label, "dispatch": why})).unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({"key": k, "label": label, "table": table, "dispatch": why})
+        )
+        .unwrap();
         n += 1;
     }
     f.flush().unwrap();
@@ -3639,8 +3651,58 @@ fn record_liveness() {
         .and_then(|x| x.parse().ok())
         .unwrap_or(20_000);
     let _ = (&cone_a, cone_b);
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
-    for (pos, &(ti, ri)) in order.iter().enumerate().take(b.min(order.len())).skip(a) {
+    // final-certification tool step (2026-11-17): PARAMETRIC_LIVENESS_POSITIONS = a file or a list of positions (JSON array
+    // or "a,b,c:d") restricting the range (second pass on undecided records); PARAMETRIC_LIVENESS_RESUME=1 keeps the complete
+    // lines of an existing PARAMETRIC_OUT, cuts a torn tail and decides only the positions not yet written
+    use rustred_campaign_core::parametric::prune::{
+        decided_positions, parse_positions, positions_to_decide,
+    };
+    let selected = std::env::var("PARAMETRIC_LIVENESS_POSITIONS")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let txt = if Path::new(&s).is_file() {
+                std::fs::read_to_string(&s).unwrap()
+            } else {
+                s
+            };
+            parse_positions(&txt).unwrap()
+        });
+    let resume = std::env::var("PARAMETRIC_LIVENESS_RESUME").as_deref() == Ok("1");
+    let (done, keep) = if resume {
+        std::fs::read_to_string(&out)
+            .map(|t| decided_positions(&t))
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+    let file = if resume {
+        use std::io::{Seek, SeekFrom};
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&out)
+            .unwrap();
+        f.set_len(keep as u64).unwrap();
+        f.seek(SeekFrom::End(0)).unwrap();
+        f
+    } else {
+        std::fs::File::create(&out).unwrap()
+    };
+    let todo = positions_to_decide((a, b), order.len(), selected.as_ref(), &done);
+    eprintln!(
+        "record_liveness: {} position(s) to decide in [{a}, {b}) of {} ({} already written; selection {})",
+        todo.len(),
+        order.len(),
+        done.len(),
+        selected
+            .as_ref()
+            .map_or("none".to_string(), |s| s.len().to_string())
+    );
+    let mut w = std::io::BufWriter::new(file);
+    for pos in todo {
+        let (ti, ri) = order[pos];
         let label = g5.tables()[ti].labels[ri];
         let t0 = std::time::Instant::now();
         // the library's exact first-match liveness (rustred_campaign_core::parametric::prune, commit 16e65d06)

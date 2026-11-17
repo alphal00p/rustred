@@ -353,3 +353,121 @@ pub fn prune(
     };
     Ok((pruned, report))
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// RESUMABLE / SELECTED LIVENESS SHARDS (lane parametric 2026-11-17, final-certification tool step "per-record liveness in
+// the certified cone"): [`record_liveness`] decides one record; a certification runs it over every first-match position
+// in shards. These helpers make a shard resumable (a stopped shard continues after its last complete line) and let a
+// second pass re-run only chosen positions (the undecided ones, with a larger budget). No node knowledge: positions only.
+
+/// The first-match positions a liveness shard still has to decide: those of `range` = [a, b) (clipped to `len`), or of
+/// `selected` inside it when given, that `done` does not hold yet. Ascending, without duplicates.
+pub fn positions_to_decide(
+    range: (usize, usize),
+    len: usize,
+    selected: Option<&std::collections::BTreeSet<usize>>,
+    done: &std::collections::BTreeSet<usize>,
+) -> Vec<usize> {
+    let (a, b) = (range.0.min(len), range.1.min(len));
+    (a..b)
+        .filter(|p| selected.is_none_or(|s| s.contains(p)))
+        .filter(|p| !done.contains(p))
+        .collect()
+}
+
+/// The positions already decided in a liveness output (one JSON object per line with a numeric `position` and a string
+/// `live`), and the byte length of its COMPLETE prefix: a torn last line (no newline: the writer was stopped mid-line) is
+/// not counted, and a resumed writer truncates the file to that length before appending. A complete line that does not
+/// parse counts as not decided (its position is decided again; readers take the last line per position).
+pub fn decided_positions(text: &str) -> (std::collections::BTreeSet<usize>, usize) {
+    let mut done = std::collections::BTreeSet::new();
+    let mut keep = 0usize;
+    for line in text.split_inclusive('\n') {
+        if !line.ends_with('\n') {
+            break;
+        }
+        keep += line.len();
+        if let Ok(v) = serde_json::from_str::<Value>(line.trim_end()) {
+            if let (Some(p), Some(_)) = (v["position"].as_u64(), v["live"].as_str()) {
+                if let Ok(p) = usize::try_from(p) {
+                    done.insert(p);
+                }
+            }
+        }
+    }
+    (done, keep)
+}
+
+/// A position selection: a JSON array of positions (`[3, 7, 9]`) or a comma / whitespace separated list whose items are
+/// positions or half-open ranges `a:b`.
+pub fn parse_positions(spec: &str) -> Result<std::collections::BTreeSet<usize>, String> {
+    let s = spec.trim();
+    if s.starts_with('[') {
+        let v: Vec<usize> = serde_json::from_str(s).map_err(|e| format!("positions: {e}"))?;
+        return Ok(v.into_iter().collect());
+    }
+    let mut out = std::collections::BTreeSet::new();
+    for item in s
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .filter(|x| !x.is_empty())
+    {
+        if let Some((a, b)) = item.split_once(':') {
+            let a: usize = a
+                .parse()
+                .map_err(|_| format!("positions: bad range start {item:?}"))?;
+            let b: usize = b
+                .parse()
+                .map_err(|_| format!("positions: bad range end {item:?}"))?;
+            out.extend(a..b);
+        } else {
+            out.insert(
+                item.parse()
+                    .map_err(|_| format!("positions: bad item {item:?}"))?,
+            );
+        }
+    }
+    Ok(out)
+}
+
+#[cfg(test)]
+mod shard_tests {
+    use super::{decided_positions, parse_positions, positions_to_decide};
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn a_resumed_shard_skips_complete_lines_and_cuts_a_torn_tail() {
+        let text = concat!(
+            "{\"position\":4,\"live\":\"dead\"}\n",
+            "{\"position\":5,\"live\":\"live\",\"witness\":[1,2]}\n",
+            "not json\n",
+            "{\"position\":6,\"li"
+        );
+        let (done, keep) = decided_positions(text);
+        assert_eq!(done, BTreeSet::from([4, 5]));
+        // the complete prefix ends after "not json\n": the torn line for 6 is cut, 6 is decided again
+        assert_eq!(
+            &text[..keep],
+            text.rsplit_once("{\"position\":6").unwrap().0
+        );
+        assert_eq!(positions_to_decide((4, 9), 100, None, &done), vec![6, 7, 8]);
+        // the range is clipped to the dispatch length
+        assert_eq!(positions_to_decide((4, 9), 7, None, &done), vec![6]);
+    }
+
+    #[test]
+    fn a_second_pass_runs_only_the_selected_positions_of_its_range() {
+        let sel = parse_positions("[2, 9, 40, 41]").unwrap();
+        assert_eq!(
+            positions_to_decide((0, 41), 1000, Some(&sel), &BTreeSet::new()),
+            vec![2, 9, 40]
+        );
+        let sel = parse_positions("3, 10:13 20").unwrap();
+        assert_eq!(sel, BTreeSet::from([3, 10, 11, 12, 20]));
+        assert_eq!(
+            positions_to_decide((0, 100), 100, Some(&sel), &BTreeSet::from([11])),
+            vec![3, 10, 12, 20]
+        );
+        assert!(parse_positions("3,x").is_err());
+        assert!(parse_positions("5:z").is_err());
+    }
+}
