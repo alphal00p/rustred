@@ -136,5 +136,11 @@ pub fn helper_spec(dir: &Path, label: &str, test_name: &str, mode: &str) -> Laun
     if let Some(p) = std::env::var_os("PATH") {
         s.env.push(("PATH".into(), p));
     }
+    // procfix7 round 7 (gate11 m11-tmp): inside a private namespace the helper supervisor's id lock lives under TMPDIR
+    // (`launch::idlock::default_lock_dir`); without it a helper the test SIGKILLs left its ad-hoc lock file in the host
+    // /tmp (one per run of proc_pdeathsig / proc_memory, proc_audit_regressions)
+    if let Some(t) = std::env::var_os("TMPDIR") {
+        s.env.push(("TMPDIR".into(), t));
+    }
     s
 }
