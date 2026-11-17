@@ -15,8 +15,8 @@
 use serde_json::{Value, json};
 
 use super::cone::{
-    Cone, ConeOptions, capped_dispatcher, cone_coverage, coverage_from_partition, partition_for_cones_with,
-    region_keys_each,
+    Cone, ConeOptions, capped_dispatcher, cone_coverage, coverage_from_partition,
+    partition_for_cones_with, region_keys_each,
 };
 use crate::cover::{Dispatch, Dispatcher};
 use crate::key::NodeFrame;
@@ -81,7 +81,9 @@ pub fn record_liveness(
             continue;
         }
         let s = sup[0];
-        let Some(terms) = p.small_terms() else { continue };
+        let Some(terms) = p.small_terms() else {
+            continue;
+        };
         let (mut c, mut e) = (0i128, 0i128);
         for (mo, k) in terms {
             if mo.is_empty() {
@@ -127,7 +129,10 @@ pub fn record_liveness(
         let mut q = Poly::constant(i128::from(*b));
         for (s, c) in a.iter().enumerate() {
             if *c != 0 {
-                q = match Poly::var(s).mul(&Poly::constant(i128::from(*c))).and_then(|x| q.sub(&x)) {
+                q = match Poly::var(s)
+                    .mul(&Poly::constant(i128::from(*c)))
+                    .and_then(|x| q.sub(&x))
+                {
                     Ok(x) => x,
                     Err(e) => return Liveness::Undecided(format!("region bound: {e:?}")),
                 };
@@ -140,7 +145,9 @@ pub fn record_liveness(
         if deadline.is_some_and(|dl| std::time::Instant::now() > dl) {
             return Liveness::Undecided("wall budget reached in the element pass".into());
         }
-        let Some(i) = l["element"].as_u64() else { continue };
+        let Some(i) = l["element"].as_u64() else {
+            continue;
+        };
         // every listed gap element of the EARLIER records is examined (an "enumerated_covered" verdict is decided with the FULL
         // dispatcher, the record itself included: never a reason to skip); a witness counts only if the full dispatcher's first
         // match at it IS the record (2026-11-17 fix: a key of a nonlinear part where an earlier record applies gave a false live)
@@ -162,7 +169,9 @@ pub fn record_liveness(
             }
             match emptiness(d, frame, &ProofBudget::default(), &[], &bounds) {
                 (EmptyState::Empty, _, _) => continue,
-                (EmptyState::NonEmpty, Some(w), _) if is_first_match(disp, &w, ti, ri) => return Liveness::Live(w),
+                (EmptyState::NonEmpty, Some(w), _) if is_first_match(disp, &w, ti, ri) => {
+                    return Liveness::Live(w);
+                }
                 (EmptyState::NonEmpty, _, _) => {
                     // a key of the element where the record applies but is not first match: enumerate the element instead
                 }
@@ -189,7 +198,9 @@ pub fn record_liveness(
     if exhausted {
         Liveness::Dead
     } else {
-        Liveness::Undecided("an element was not decided (emptiness budget or enumeration cap)".into())
+        Liveness::Undecided(
+            "an element was not decided (emptiness budget or enumeration cap)".into(),
+        )
     }
 }
 
@@ -252,7 +263,9 @@ pub fn prune(
             }
             match record_liveness(disp, frame, region, pos, opts, enum_cap) {
                 Liveness::Dead => {}
-                Liveness::Live(w) => problems.push(format!("position {pos}: IS first match in the region at {w:?} (not dead)")),
+                Liveness::Live(w) => problems.push(format!(
+                    "position {pos}: IS first match in the region at {w:?} (not dead)"
+                )),
                 Liveness::Undecided(why) if keep_undecided => {
                     problems.push(format!("position {pos}: dead not re-proved ({why})"))
                 }
@@ -277,17 +290,24 @@ pub fn prune(
         let mut it = keep.iter();
         t.meta.retain(|_| *it.next().unwrap());
     }
-    let mut pruned = Dispatcher::new(tables, disp.priority().to_vec()).map_err(|e| e.to_string())?;
+    let mut pruned =
+        Dispatcher::new(tables, disp.priority().to_vec()).map_err(|e| e.to_string())?;
     if let Some(ch) = disp.chart() {
         pruned = pruned.with_chart(ch.to_vec()).map_err(|e| e.to_string())?;
     }
     let a = cone_coverage(disp, frame, region, opts)?;
     let b = cone_coverage(&pruned, frame, region, opts)?;
     if b.uncovered > a.uncovered {
-        problems.push(format!("coverage REDUCED on the region: {} uncovered elements, {} before", b.uncovered, a.uncovered));
+        problems.push(format!(
+            "coverage REDUCED on the region: {} uncovered elements, {} before",
+            b.uncovered, a.uncovered
+        ));
     }
     if b.undecided > a.undecided {
-        problems.push(format!("{} undecided elements on the region, {} before", b.undecided, a.undecided));
+        problems.push(format!(
+            "{} undecided elements on the region, {} before",
+            b.undecided, a.undecided
+        ));
     }
     if a.verdict != b.verdict {
         problems.push(format!("region verdict {} -> {}", a.verdict, b.verdict));
@@ -295,15 +315,24 @@ pub fn prune(
     // first-match identity on the original run's probe keys (table name + label)
     let name_of = |dd: &Dispatcher, k: &[i32]| -> String {
         match dd.first_match(k) {
-            Ok(Dispatch::Covered(r)) => format!("{}#{}", dd.tables()[r.table].name, dd.tables()[r.table].labels[r.record]),
+            Ok(Dispatch::Covered(r)) => format!(
+                "{}#{}",
+                dd.tables()[r.table].name,
+                dd.tables()[r.table].labels[r.record]
+            ),
             Ok(x) => format!("{x:?}"),
             Err(e) => format!("error {e:?}"),
         }
     };
     let mut probes_checked = 0usize;
     for p in &a.probes {
-        let Some(k) = p["key"].as_array() else { continue };
-        let k: Vec<i32> = k.iter().filter_map(|x| x.as_i64().and_then(|v| i32::try_from(v).ok())).collect();
+        let Some(k) = p["key"].as_array() else {
+            continue;
+        };
+        let k: Vec<i32> = k
+            .iter()
+            .filter_map(|x| x.as_i64().and_then(|v| i32::try_from(v).ok()))
+            .collect();
         if !region.contains(&k) {
             continue;
         }

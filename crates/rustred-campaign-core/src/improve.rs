@@ -494,7 +494,11 @@ pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePo
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     idx.into_iter()
         .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
-        .filter(|&i| p.filter.min_monomials.is_none_or(|m| rules[i].monomials >= m))
+        .filter(|&i| {
+            p.filter
+                .min_monomials
+                .is_none_or(|m| rules[i].monomials >= m)
+        })
         .take(p.filter.largest.unwrap_or(usize::MAX))
         .filter(|&i| {
             let key = rules[i].key();
@@ -561,19 +565,34 @@ pub fn targets(
     let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     if !p.filter.include.is_empty() {
-        let pos: BTreeMap<i64, usize> = rules.iter().enumerate().map(|(i, r)| (r.index, i)).collect();
-        idx = p.filter.include.iter().filter_map(|x| pos.get(x).copied()).collect();
+        let pos: BTreeMap<i64, usize> = rules
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (r.index, i))
+            .collect();
+        idx = p
+            .filter
+            .include
+            .iter()
+            .filter_map(|x| pos.get(x).copied())
+            .collect();
     }
     let explicit = !p.filter.include.is_empty();
     let idx: Vec<usize> = idx
         .into_iter()
         .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
-        .filter(|&i| explicit || {
-            p.filter
-                .min_monomials
-                .is_none_or(|m| rules[i].monomials >= m)
+        .filter(|&i| {
+            explicit || {
+                p.filter
+                    .min_monomials
+                    .is_none_or(|m| rules[i].monomials >= m)
+            }
         })
-        .take(if explicit { usize::MAX } else { p.filter.largest.unwrap_or(usize::MAX) })
+        .take(if explicit {
+            usize::MAX
+        } else {
+            p.filter.largest.unwrap_or(usize::MAX)
+        })
         .collect();
     idx.into_iter()
         .filter_map(|i| {
@@ -737,7 +756,11 @@ pub fn replacement_verdict_eq(
     if accept_equal {
         structural_verdict(old, new)?;
         let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
-        return if n > o { Err(format!("larger ({n} vs {o} {})", by_word(by))) } else { Ok(()) };
+        return if n > o {
+            Err(format!("larger ({n} vs {o} {})", by_word(by)))
+        } else {
+            Ok(())
+        };
     }
     if by == RankBy::Monomials {
         return replacement_verdict(old, new, min_gain);
@@ -779,7 +802,11 @@ pub fn subtree_verdict_eq(
         }
         let nr: Vec<&TableRule> = new.iter().collect();
         let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
-        return if n > o { Err(format!("larger (sub-table {n} vs {o} {})", by_word(by))) } else { Ok(()) };
+        return if n > o {
+            Err(format!("larger (sub-table {n} vs {o} {})", by_word(by)))
+        } else {
+            Ok(())
+        };
     }
     if by == RankBy::Monomials {
         return subtree_verdict(old, new, min_gain);

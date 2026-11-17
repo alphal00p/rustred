@@ -356,18 +356,33 @@ fn excluded_rules_are_never_targeted() {
     p.filter.largest = Some(1);
     p.filter.by = RankBy::Bytes;
     p.filter.exclude = vec![0];
-    assert_eq!(targets(&rules, &rec, &p)[0].0, 1, "the excluded (dead) rule is skipped, the next one taken");
+    assert_eq!(
+        targets(&rules, &rec, &p)[0].0,
+        1,
+        "the excluded (dead) rule is skipped, the next one taken"
+    );
 }
 
 #[test]
 fn assembly_markers_with_a_rule_count_are_restated() {
     let per = std::collections::BTreeMap::from([("110".to_string(), 7u64)]);
-    let m = restate_marker(r#"{"type":"composite_assembly_complete","complete":true,"rules":2895,"residuals":2}"#, 2956, &per);
+    let m = restate_marker(
+        r#"{"type":"composite_assembly_complete","complete":true,"rules":2895,"residuals":2}"#,
+        2956,
+        &per,
+    );
     assert!(m.contains("\"rules\":2956"), "{m}");
-    let c = restate_marker(r#"{"type":"chart_end","chart":"110","rules":3}"#, 2956, &per);
+    let c = restate_marker(
+        r#"{"type":"chart_end","chart":"110","rules":3}"#,
+        2956,
+        &per,
+    );
     assert!(c.contains("\"rules\":7"), "{c}");
     let r = restate_marker(r#"{"type":"residual","rules":1}"#, 2956, &per);
-    assert!(r.contains("\"rules\":1"), "residual records are not markers");
+    assert!(
+        r.contains("\"rules\":1"),
+        "residual records are not markers"
+    );
 }
 
 #[test]
@@ -383,11 +398,18 @@ fn explicit_lists_and_equal_size_regeneration_for_exactness() {
     p.filter.largest = Some(1);
     p.filter.include = vec![1, 0];
     let t = targets(&rules, &rec, &p);
-    assert_eq!(t.iter().map(|x| x.0).collect::<Vec<_>>(), vec![1, 0], "the explicit list, in its order, largest ignored");
+    assert_eq!(
+        t.iter().map(|x| x.0).collect::<Vec<_>>(),
+        vec![1, 0],
+        "the explicit list, in its order, largest ignored"
+    );
     let c = CostModel::default();
     // equal size: refused normally, accepted for exactness; larger: always refused
     assert!(replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, false).is_err());
-    assert_eq!(replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, true), Ok(()));
+    assert_eq!(
+        replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, true),
+        Ok(())
+    );
     let mut bigger = b.clone();
     bigger.bytes = 101;
     assert!(replacement_verdict_eq(&b, &bigger, 0.9, RankBy::Bytes, &c, true).is_err());

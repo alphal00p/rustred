@@ -733,9 +733,18 @@ fn prune_drops_only_dead_records_and_fails_on_a_live_one() {
     let d = disp(&f, &[r0, r1, r2]);
     let region = Cone::excess_simplex(&f, 3);
     let o = ConeOptions::default();
-    assert!(matches!(record_liveness(&d, &f, &region, 0, &o, 10_000), Liveness::Live(_)));
-    assert!(matches!(record_liveness(&d, &f, &region, 1, &o, 10_000), Liveness::Live(_)));
-    assert_eq!(record_liveness(&d, &f, &region, 2, &o, 10_000), Liveness::Dead);
+    assert!(matches!(
+        record_liveness(&d, &f, &region, 0, &o, 10_000),
+        Liveness::Live(_)
+    ));
+    assert!(matches!(
+        record_liveness(&d, &f, &region, 1, &o, 10_000),
+        Liveness::Live(_)
+    ));
+    assert_eq!(
+        record_liveness(&d, &f, &region, 2, &o, 10_000),
+        Liveness::Dead
+    );
     // the dead record pruned: ok, coverage and first matches unchanged
     let v = vec![None, None, Some(Liveness::Dead)];
     let (p, rep) = prune(&d, &f, &region, &v, true, false, &o, 10_000).unwrap();
@@ -746,10 +755,18 @@ fn prune_drops_only_dead_records_and_fails_on_a_live_one() {
     // a LIVE record forged as dead: the re-proof refuses it
     let v = vec![Some(Liveness::Dead), None, None];
     let (_, rep) = prune(&d, &f, &region, &v, true, false, &o, 10_000).unwrap();
-    assert!(!rep.ok() && rep.problems.iter().any(|p| p.contains("IS first match")), "{:?}", rep.problems);
+    assert!(
+        !rep.ok() && rep.problems.iter().any(|p| p.contains("IS first match")),
+        "{:?}",
+        rep.problems
+    );
     // the same with trusted verdicts: the first-match identity on the probe keys refuses it
     let (_, rep) = prune(&d, &f, &region, &v, true, true, &o, 10_000).unwrap();
-    assert!(!rep.ok() && rep.problems.iter().any(|p| p.contains("first match")), "{:?}", rep.problems);
+    assert!(
+        !rep.ok() && rep.problems.iter().any(|p| p.contains("first match")),
+        "{:?}",
+        rep.problems
+    );
     // an undecided verdict is kept with keep_undecided
     let v = vec![None, None, Some(Liveness::Undecided("budget".into()))];
     let (_, rep) = prune(&d, &f, &region, &v, true, true, &o, 10_000).unwrap();
@@ -770,7 +787,10 @@ fn a_duplicate_after_its_original_is_dead() {
     let d = disp(&f, &[r0, r1, r2]);
     let region = Cone::excess_simplex(&f, 4);
     let o = ConeOptions::default();
-    assert_eq!(record_liveness(&d, &f, &region, 1, &o, 10_000), Liveness::Dead);
+    assert_eq!(
+        record_liveness(&d, &f, &region, 1, &o, 10_000),
+        Liveness::Dead
+    );
     match record_liveness(&d, &f, &region, 2, &o, 10_000) {
         Liveness::Live(w) => {
             assert_eq!(w[0], 2, "{w:?}");
@@ -779,7 +799,9 @@ fn a_duplicate_after_its_original_is_dead() {
         x => panic!("{x:?}"),
     }
     match record_liveness(&d, &f, &region, 0, &o, 10_000) {
-        Liveness::Live(w) => assert!(matches!(d.first_match(&w), Ok(Dispatch::Covered(r)) if r.record == 0)),
+        Liveness::Live(w) => {
+            assert!(matches!(d.first_match(&w), Ok(Dispatch::Covered(r)) if r.record == 0))
+        }
         x => panic!("{x:?}"),
     }
 }

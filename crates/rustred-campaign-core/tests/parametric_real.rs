@@ -3565,9 +3565,7 @@ fn chain_walk() {
 #[test]
 #[ignore]
 fn record_liveness() {
-    use rustred_campaign_core::parametric::cone::{
-        ConeOptions,
-    };
+    use rustred_campaign_core::parametric::cone::ConeOptions;
     let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
     let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
     let rdr: i64 = std::env::var("PARAMETRIC_LIVENESS_DR")
@@ -3646,11 +3644,15 @@ fn record_liveness() {
         let label = g5.tables()[ti].labels[ri];
         let t0 = std::time::Instant::now();
         // the library's exact first-match liveness (rustred_campaign_core::parametric::prune, commit 16e65d06)
-        let v = rustred_campaign_core::parametric::prune::record_liveness(&g5, &frame, &region, pos, &base_opts, enum_cap);
+        let v = rustred_campaign_core::parametric::prune::record_liveness(
+            &g5, &frame, &region, pos, &base_opts, enum_cap,
+        );
         let (live, witness, why) = match v {
             rustred_campaign_core::parametric::prune::Liveness::Live(k) => ("live", Some(k), None),
             rustred_campaign_core::parametric::prune::Liveness::Dead => ("dead", None, None),
-            rustred_campaign_core::parametric::prune::Liveness::Undecided(y) => ("undecided", None, Some(y)),
+            rustred_campaign_core::parametric::prune::Liveness::Undecided(y) => {
+                ("undecided", None, Some(y))
+            }
         };
         writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
             "why": why, "region": region.label, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
