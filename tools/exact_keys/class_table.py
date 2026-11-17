@@ -31,6 +31,7 @@ def main():
     ap.add_argument('--name-format', action='append', default=[])
     ap.add_argument('--per-key-n', action='append', default=[])
     ap.add_argument('--per-key-all', default='', help='comma list of evidence classes meaning "all first-match keys"')
+    ap.add_argument('--per-key-all-rules', default='', help='comma list of rules whose evidence covers all first-match keys')
     ap.add_argument('--out', required=True)
     ap.add_argument('--summary', required=True)
     a = ap.parse_args()
@@ -38,6 +39,7 @@ def main():
     scope = {int(s['rule']): s for s in json.load(open(a.scope))}
     pkn = {int(x.split('=')[0]): int(x.split('=')[1]) for x in a.per_key_n}
     allcls = set(x for x in a.per_key_all.split(',') if x)
+    allrules = set(int(x) for x in a.per_key_all_rules.split(',') if x.strip())
 
     def label_of(served):
         for f in a.name_format:
@@ -78,7 +80,7 @@ def main():
             if b.get('category') == 'whole':
                 row['class'] = 'whole domain'
             elif b.get('category') == 'per_key':
-                if b.get('class') in allcls:
+                if b.get('class') in allcls or r in allrules:
                     row['class'] = 'every first-match key in cone'
                 else:
                     row['class'] = f'sampled {pkn[r]} keys' if r in pkn else 'sampled N keys'

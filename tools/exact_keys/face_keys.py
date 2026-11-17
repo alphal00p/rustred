@@ -15,15 +15,15 @@ RRKEYS01 layout (as the arrival key files): magic, u32 LE header length, header 
 import argparse, json, struct, itertools
 
 
-def chart_of(table):
-    with open(table) as f:
-        for i, line in enumerate(f):
-            v = json.loads(line)
-            if v.get('type') == 'chart':
-                return v['chart']
-            if i > 4:
-                break
-    raise SystemExit('no chart record near the top of the table')
+def chart_of(table, index_path):
+    """The chart record of the table, located through the per-line index (type "chart")."""
+    for l in open(index_path):
+        e = json.loads(l)
+        if e.get('type') == 'chart':
+            with open(table, 'rb') as f:
+                f.seek(e['offset'])
+                return json.loads(f.read(e['length']))['chart']
+    raise SystemExit('no chart record in the index')
 
 
 def rule_line(table, idx, r):
@@ -54,7 +54,7 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--summary', default='')
     a = ap.parse_args()
-    chart = chart_of(a.table)
+    chart = chart_of(a.table, a.index)
     lines = [c == '1' for c in chart]
     n = len(chart)
     idx = {}
