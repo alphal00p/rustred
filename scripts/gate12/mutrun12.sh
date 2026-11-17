@@ -18,7 +18,7 @@ for mut in "$@"; do
   echo "######## $mut ($(date -u +%T))"
   [ $mut = M0 ] || python3 -I $S/scripts/mutate12.py $mut || { echo "apply failed"; git checkout -q -- crates/rustred-campaign/src; continue; }
   git diff --stat crates/rustred-campaign/src | tail -1
-  nice -n 10 $LB gate12 test -p rustred-campaign --lib --test procfix11 --test procfix11_seed --no-run > $S/logs/mut12_$mut.build.txt 2>&1 || { echo "BUILD FAILED"; grep -E '^error' -A5 $S/logs/mut12_$mut.build.txt | head -12; git checkout -q -- crates/rustred-campaign/src; continue; }
+  XDG_RUNTIME_DIR=/run/user/1002 nice -n 10 $LB gate12 test -p rustred-campaign --lib --test procfix11 --test procfix11_seed --no-run > $S/logs/mut12_$mut.build.txt 2>&1 || { echo "BUILD FAILED"; grep -E '^error' -A5 $S/logs/mut12_$mut.build.txt | head -12; git checkout -q -- crates/rustred-campaign/src; continue; }
   IFS=';' read -ra items <<< "$(sel $mut)"
   for it in "${items[@]}"; do
     name=${it%%=*}; filt=${it#*=}
