@@ -15,7 +15,11 @@ use crate::reduction::ReductionError;
 pub(super) fn block_ops() -> usize {
     static BLOCK: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
     *BLOCK.get_or_init(|| {
-        std::env::var("RUSTRED_TRACE_SPILL_BLOCK_OPS").ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0).unwrap_or(8 << 20)
+        std::env::var("RUSTRED_TRACE_SPILL_BLOCK_OPS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(8 << 20)
     })
 }
 
@@ -35,7 +39,12 @@ pub(super) struct Spill {
 
 impl Spill {
     pub(super) fn create(dir: PathBuf) -> Result<Self, ReductionError> {
-        Ok(Self { dir, file: None, flushed: 0, keep: false })
+        Ok(Self {
+            dir,
+            file: None,
+            flushed: 0,
+            keep: false,
+        })
     }
 
     /// Resume mode: `<dir>/ops.bin`, cut back to `ops` ops when continuing
@@ -50,11 +59,18 @@ impl Spill {
             .open(&path)
             .map_err(|e| error(format!("resume ops file: {e}")))?;
         let flushed = ops.unwrap_or(0) as usize;
-        file.set_len((flushed * std::mem::size_of::<Op>()) as u64).map_err(|e| error(format!("resume ops cut: {e}")))?;
+        file.set_len((flushed * std::mem::size_of::<Op>()) as u64)
+            .map_err(|e| error(format!("resume ops cut: {e}")))?;
         use std::io::Seek;
         let mut file = file;
-        file.seek(std::io::SeekFrom::End(0)).map_err(|e| error(format!("resume ops seek: {e}")))?;
-        Ok(Self { dir: dir.to_path_buf(), file: Some((file, path)), flushed, keep: true })
+        file.seek(std::io::SeekFrom::End(0))
+            .map_err(|e| error(format!("resume ops seek: {e}")))?;
+        Ok(Self {
+            dir: dir.to_path_buf(),
+            file: Some((file, path)),
+            flushed,
+            keep: true,
+        })
     }
 
     /// Append `ops` and clear them.
@@ -63,7 +79,8 @@ impl Spill {
             return Ok(());
         }
         if self.file.is_none() {
-            std::fs::create_dir_all(&self.dir).map_err(|e| error(format!("trace spill directory: {e}")))?;
+            std::fs::create_dir_all(&self.dir)
+                .map_err(|e| error(format!("trace spill directory: {e}")))?;
             static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = self.dir.join(format!("ops-{}-{n}.bin", std::process::id()));
@@ -72,8 +89,14 @@ impl Spill {
         }
         let (file, _) = self.file.as_mut().expect("spill file");
         // SAFETY: Op is repr(C) of two u32 (8 bytes, no padding).
-        let bytes = unsafe { std::slice::from_raw_parts(ops.as_ptr().cast::<u8>(), ops.len() * std::mem::size_of::<Op>()) };
-        file.write_all(bytes).map_err(|e| error(format!("trace spill write: {e}")))?;
+        let bytes = unsafe {
+            std::slice::from_raw_parts(
+                ops.as_ptr().cast::<u8>(),
+                ops.len() * std::mem::size_of::<Op>(),
+            )
+        };
+        file.write_all(bytes)
+            .map_err(|e| error(format!("trace spill write: {e}")))?;
         self.flushed += ops.len();
         ops.clear();
         Ok(())
@@ -82,8 +105,10 @@ impl Spill {
     /// Make the written ops durable (resume checkpoints).
     pub(super) fn sync(&mut self) -> Result<(), ReductionError> {
         if let Some((file, _)) = &mut self.file {
-            file.flush().map_err(|e| error(format!("trace spill flush: {e}")))?;
-            file.sync_data().map_err(|e| error(format!("trace spill sync: {e}")))?;
+            file.flush()
+                .map_err(|e| error(format!("trace spill flush: {e}")))?;
+            file.sync_data()
+                .map_err(|e| error(format!("trace spill sync: {e}")))?;
         }
         Ok(())
     }
@@ -100,7 +125,8 @@ impl Spill {
         self.flush(rest)?;
         *rest = Vec::new();
         let (mut file, path) = self.file.take().expect("spill file");
-        file.flush().map_err(|e| error(format!("trace spill flush: {e}")))?;
+        file.flush()
+            .map_err(|e| error(format!("trace spill flush: {e}")))?;
         drop(file);
         OpStore::map(path, self.flushed)
     }
@@ -120,7 +146,11 @@ impl Drop for Spill {
 /// The ops of a trace: in memory, or a read-only mapping of a spill file.
 pub(super) enum OpStore {
     Memory(Vec<Op>),
-    Mapped { ptr: *const Op, len: usize, path: PathBuf },
+    Mapped {
+        ptr: *const Op,
+        len: usize,
+        path: PathBuf,
+    },
 }
 
 // SAFETY: the mapping is read-only and lives as long as the store.
@@ -138,13 +168,24 @@ impl OpStore {
         use std::os::fd::AsRawFd;
         // SAFETY: a fresh read-only private mapping of a file we wrote.
         let ptr = unsafe {
-            libc::mmap(std::ptr::null_mut(), bytes, libc::PROT_READ, libc::MAP_PRIVATE, file.as_raw_fd(), 0)
+            libc::mmap(
+                std::ptr::null_mut(),
+                bytes,
+                libc::PROT_READ,
+                libc::MAP_PRIVATE,
+                file.as_raw_fd(),
+                0,
+            )
         };
         if ptr == libc::MAP_FAILED {
             return Err(error("trace spill mmap failed"));
         }
         unsafe { libc::madvise(ptr, bytes, libc::MADV_SEQUENTIAL) };
-        Ok(Self::Mapped { ptr: ptr.cast::<Op>(), len, path })
+        Ok(Self::Mapped {
+            ptr: ptr.cast::<Op>(),
+            len,
+            path,
+        })
     }
 }
 
@@ -182,7 +223,6 @@ impl From<Vec<Op>> for OpStore {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::super::{CoefRef, Op, OpTag};
@@ -194,7 +234,9 @@ mod tests {
     fn spilled_ops_map_back_in_order_and_leave_no_file() {
         let dir = std::env::temp_dir().join(format!("rustred-spill-test-{}", std::process::id()));
         let mut spill = Spill::create(dir.clone()).unwrap();
-        let all: Vec<Op> = (0..1000u32).map(|i| Op::new(OpTag::Add, i % 7, CoefRef(i))).collect();
+        let all: Vec<Op> = (0..1000u32)
+            .map(|i| Op::new(OpTag::Add, i % 7, CoefRef(i)))
+            .collect();
         let mut buffer = all[..600].to_vec();
         spill.flush(&mut buffer).unwrap();
         assert!(buffer.is_empty());

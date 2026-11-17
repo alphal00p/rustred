@@ -1004,10 +1004,19 @@ impl PLibrary {
         if !enabled || channels.len() < 2 || arithmetic == OrderedWeightArithmetic::Exact {
             return one_by_one(channels);
         }
-        match self.reduce_channels_once(&channels, arithmetic, scheduler, uncovered, onto_masters, limits) {
+        match self.reduce_channels_once(
+            &channels,
+            arithmetic,
+            scheduler,
+            uncovered,
+            onto_masters,
+            limits,
+        ) {
             Ok(reductions) => Ok(reductions),
             Err(error) => {
-                eprintln!("rustred channel replay: falling back to one reduction per channel ({error})");
+                eprintln!(
+                    "rustred channel replay: falling back to one reduction per channel ({error})"
+                );
                 one_by_one(channels)
             }
         }
@@ -1034,7 +1043,8 @@ impl PLibrary {
             .as_ref()
             .map_err(Clone::clone)?;
         if !retain {
-            self.check_boxed_inputs(engine, &union).map_err(with_request)?;
+            self.check_boxed_inputs(engine, &union)
+                .map_err(with_request)?;
         }
         // The mix only decides the recording's zero tests (probe values,
         // formed by the recorder from the channels and these weights); the
@@ -1047,7 +1057,9 @@ impl PLibrary {
         let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
         for inputs in channels {
             let initial = engine.initial(self, inputs.clone(), &limits)?;
-            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            state = state
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             lambdas.push((state >> 33) % 1_000_003 + 1);
             for (key, value) in &initial {
                 if !value.is_zero() {
@@ -1060,7 +1072,15 @@ impl PLibrary {
         let cache_before = super::relation_entries::relation_cache_statistics();
         let mut outside = BTreeSet::new();
         let run = engine.run_reporting(
-            self, mixed, arithmetic, scheduler, None, limits, None, retain, &mut outside,
+            self,
+            mixed,
+            arithmetic,
+            scheduler,
+            None,
+            limits,
+            None,
+            retain,
+            &mut outside,
         );
         let per_channel = crate::reduction::ordered_reduction::modular_channels_take_out();
         let output = run.map_err(with_request)?;
@@ -1068,9 +1088,12 @@ impl PLibrary {
             PError::MalformedLibrary("channel replay left no per-channel output".to_owned())
         })?;
         if per_channel.len() != channels.len() {
-            return Err(PError::MalformedLibrary("channel replay: wrong channel count".to_owned()));
+            return Err(PError::MalformedLibrary(
+                "channel replay: wrong channel count".to_owned(),
+            ));
         }
-        let relation_cache = super::relation_entries::relation_cache_statistics().since(&cache_before);
+        let relation_cache =
+            super::relation_entries::relation_cache_statistics().since(&cache_before);
         let outside: Vec<_> = outside.into_iter().collect();
         let mut reductions = Vec::with_capacity(per_channel.len());
         for terms_c in per_channel {
@@ -1094,11 +1117,11 @@ impl PLibrary {
                 terms: terms.into_terms(),
                 nonzero_conditions: output.nonzero_conditions.clone(),
                 statistics: PStatistics {
-                    work: output.work.clone(),
-                    progress: output.progress.clone(),
+                    work: output.work,
+                    progress: output.progress,
                 },
                 outside_certified: outside.clone(),
-                relation_cache: relation_cache.clone(),
+                relation_cache,
             });
         }
         Ok(reductions)

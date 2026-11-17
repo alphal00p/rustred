@@ -19,11 +19,16 @@ pub(crate) fn dir() -> Option<PathBuf> {
 }
 
 pub(crate) fn interval() -> f64 {
-    std::env::var("RUSTRED_RESUME_SECONDS").ok().and_then(|v| v.parse().ok()).unwrap_or(1800.0)
+    std::env::var("RUSTRED_RESUME_SECONDS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1800.0)
 }
 
 pub(crate) fn stop_after_phase() -> Option<usize> {
-    std::env::var("RUSTRED_RESUME_STOP_AFTER_PHASE").ok().and_then(|v| v.parse().ok())
+    std::env::var("RUSTRED_RESUME_STOP_AFTER_PHASE")
+        .ok()
+        .and_then(|v| v.parse().ok())
 }
 
 /// Write a coefficient (numerator, denominator) with the step-cache codec.
@@ -38,7 +43,10 @@ pub(crate) fn get_coefficient(
 ) -> Result<Coefficient, String> {
     let numerator = r.polynomial(&template.numerator)?;
     let denominator = r.polynomial(&template.denominator)?;
-    Ok(Coefficient { numerator, denominator })
+    Ok(Coefficient {
+        numerator,
+        denominator,
+    })
 }
 
 /// The directory of one request: blake3 of the version, the encoded input
@@ -73,7 +81,6 @@ pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -87,7 +94,11 @@ mod tests {
         let d = context.parameter("d").unwrap();
         let limits = crate::algebra::ExactAlgebraLimits::default();
         let value = context
-            .try_div(&context.try_add(&d, &context.integer(3), limits).unwrap(), &context.try_mul(&d, &d, limits).unwrap(), limits)
+            .try_div(
+                &context.try_add(&d, &context.integer(3), limits).unwrap(),
+                &context.try_mul(&d, &d, limits).unwrap(),
+                limits,
+            )
             .unwrap();
         let mut w = Writer { bytes: Vec::new() };
         put_coefficient(&mut w, &value);
@@ -95,7 +106,10 @@ mod tests {
         let mut r = Reader::new(&w.bytes);
         let template = context.zero();
         assert_eq!(get_coefficient(&mut r, &template).unwrap(), value);
-        assert_eq!(get_coefficient(&mut r, &template).unwrap(), context.integer(-7));
+        assert_eq!(
+            get_coefficient(&mut r, &template).unwrap(),
+            context.integer(-7)
+        );
         assert!(r.is_empty());
     }
 }

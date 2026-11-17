@@ -843,6 +843,7 @@ impl OnDemandFactoredSection {
     }
 
     /// Dictionary entries decoded so far.
+    #[cfg(test)]
     pub(super) fn decoded_entries(&self) -> usize {
         self.entries
             .iter()

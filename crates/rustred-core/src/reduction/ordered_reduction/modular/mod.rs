@@ -851,7 +851,9 @@ impl ModularRecorder {
             multi_inputs: None,
             multi_probes: Default::default(),
             spill: match spill::spill_dir() {
-                Some(dir) => Some(std::sync::Arc::new(std::sync::Mutex::new(spill::Spill::create(dir)?))),
+                Some(dir) => Some(std::sync::Arc::new(std::sync::Mutex::new(
+                    spill::Spill::create(dir)?,
+                ))),
                 None => None,
             },
         })
@@ -859,7 +861,11 @@ impl ModularRecorder {
 
     /// Ops recorded so far (spilled and in memory).
     fn op_count(&self) -> usize {
-        self.ops.len() + self.spill.as_ref().map_or(0, |s| s.lock().map_or(0, |s| s.flushed))
+        self.ops.len()
+            + self
+                .spill
+                .as_ref()
+                .map_or(0, |s| s.lock().map_or(0, |s| s.flushed))
     }
 
     /// The whole trace as one store (spilled file mapped, or the Vec).
@@ -1031,7 +1037,8 @@ impl ModularRecorder {
             .take()
             .ok_or_else(|| error("channel replay without channel inputs"))?;
         // reference -> entry index (constants and polynomials apart).
-        let mut entry_of = std::collections::HashMap::<u32, u32>::with_capacity(self.entry_refs.len());
+        let mut entry_of =
+            std::collections::HashMap::<u32, u32>::with_capacity(self.entry_refs.len());
         for (index, reference) in self.entry_refs.iter().enumerate() {
             entry_of.insert(reference.0, index as u32);
         }
@@ -1042,9 +1049,15 @@ impl ModularRecorder {
                 return Err(error("a channel patch of another length"));
             }
             let live: Vec<bool> = patch.iter().map(|c| !c.is_zero()).collect();
-            let sliced = slice_channel(&all, &live, self.next_slot as usize, self.terminal_slots as usize)?;
+            let sliced = slice_channel(
+                &all,
+                &live,
+                self.next_slot as usize,
+                self.terminal_slots as usize,
+            )?;
             let ops = sliced.ops;
-            let mut patched: std::collections::HashMap<u32, Coefficient> = std::collections::HashMap::new();
+            let mut patched: std::collections::HashMap<u32, Coefficient> =
+                std::collections::HashMap::new();
             for (&index, coefficient) in inputs.iter().zip(patch) {
                 self.context
                     .validate_with_limits(&coefficient, self.limits)
@@ -1058,7 +1071,15 @@ impl ModularRecorder {
                 .iter()
                 .filter_map(|(key, weight)| {
                     let mapped = *sliced.term_map.get(weight.slot as usize)?;
-                    (mapped != u32::MAX).then(|| (key.clone(), ModularWeight { slot: mapped, probe: weight.probe }))
+                    (mapped != u32::MAX).then(|| {
+                        (
+                            key.clone(),
+                            ModularWeight {
+                                slot: mapped,
+                                probe: weight.probe,
+                            },
+                        )
+                    })
                 })
                 .collect();
             out.push(copy.finish(channel_terms, None)?);
@@ -1583,7 +1604,10 @@ impl ModularRecorder {
 
     /// fwd-opt: `len` more ops (placeholders), to be written by the caller.
     pub(super) fn layered_append(&mut self, len: usize) -> &mut [Op] {
-        assert!(self.spill.is_none(), "layered mode does not spill its trace");
+        assert!(
+            self.spill.is_none(),
+            "layered mode does not spill its trace"
+        );
         let start = self.ops.len();
         self.ops.resize(start + len, Op::bare(OpTag::Pop, 0));
         &mut self.ops[start..]
@@ -1787,16 +1811,28 @@ impl OrderedWeights for ModularRecorder {
         })
     }
 
-    fn resume_bind(&mut self, dir: &std::path::Path, ops: Option<u64>) -> Result<bool, ReductionError> {
+    fn resume_bind(
+        &mut self,
+        dir: &std::path::Path,
+        ops: Option<u64>,
+    ) -> Result<bool, ReductionError> {
         if self.multi_inputs.is_some() || self.shared.is_some() || !self.ops.is_empty() {
             return Ok(false);
         }
-        self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(spill::Spill::at(dir, ops)?)));
+        self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(
+            spill::Spill::at(dir, ops)?,
+        )));
         Ok(true)
     }
 
-    fn resume_save(&mut self, w: &mut super::step_cache::codec::Writer) -> Result<(), ReductionError> {
-        let spill = self.spill.as_ref().ok_or_else(|| error("resume state without a spill file"))?;
+    fn resume_save(
+        &mut self,
+        w: &mut super::step_cache::codec::Writer,
+    ) -> Result<(), ReductionError> {
+        let spill = self
+            .spill
+            .as_ref()
+            .ok_or_else(|| error("resume state without a spill file"))?;
         let mut spill = spill.lock().map_err(|_| error("trace spill poisoned"))?;
         spill.flush(&mut self.ops)?;
         spill.sync()?;
@@ -1834,7 +1870,10 @@ impl OrderedWeights for ModularRecorder {
         Ok(())
     }
 
-    fn resume_load(&mut self, r: &mut super::step_cache::codec::Reader<'_>) -> Result<(), ReductionError> {
+    fn resume_load(
+        &mut self,
+        r: &mut super::step_cache::codec::Reader<'_>,
+    ) -> Result<(), ReductionError> {
         let e = |m: String| error(format!("resume state: {m}"));
         let _ops = r.varint().map_err(e)?;
         let template = self.context.zero();
@@ -1851,10 +1890,14 @@ impl OrderedWeights for ModularRecorder {
             self.entry_refs.push(reference);
             self.entry_hashes.push(hash);
             let hashes = &self.entry_hashes;
-            self.table.insert_unique(hash, index as u32, |&i| hashes[i as usize]);
+            self.table
+                .insert_unique(hash, index as u32, |&i| hashes[i as usize]);
         }
         let n = r.len(usize::MAX).map_err(e)?;
-        self.constant_probe = (0..n).map(|_| r.varint().map(|v| self.probe_field.to_element(v))).collect::<Result<_, _>>().map_err(e)?;
+        self.constant_probe = (0..n)
+            .map(|_| r.varint().map(|v| self.probe_field.to_element(v)))
+            .collect::<Result<_, _>>()
+            .map_err(e)?;
         let n = r.len(usize::MAX).map_err(e)?;
         let mut probes = Vec::with_capacity(n);
         for _ in 0..n {
@@ -1868,7 +1911,10 @@ impl OrderedWeights for ModularRecorder {
         self.constant_count = r.varint().map_err(e)? as u32;
         self.polynomial_count = r.varint().map_err(e)? as u32;
         let n = r.len(usize::MAX).map_err(e)?;
-        self.free_slots = (0..n).map(|_| r.varint().map(|v| v as u32)).collect::<Result<_, _>>().map_err(e)?;
+        self.free_slots = (0..n)
+            .map(|_| r.varint().map(|v| v as u32))
+            .collect::<Result<_, _>>()
+            .map_err(e)?;
         self.next_slot = r.varint().map_err(e)? as u32;
         self.terminal_slots = r.varint().map_err(e)? as u32;
         let n = r.len(usize::MAX).map_err(e)?;
@@ -1887,7 +1933,10 @@ impl OrderedWeights for ModularRecorder {
         }
     }
 
-    fn resume_get_weight(&self, r: &mut super::step_cache::codec::Reader<'_>) -> Result<ModularWeight, ReductionError> {
+    fn resume_get_weight(
+        &self,
+        r: &mut super::step_cache::codec::Reader<'_>,
+    ) -> Result<ModularWeight, ReductionError> {
         let e = |m: String| error(format!("resume state: {m}"));
         let slot = r.varint().map_err(e)? as u32;
         let mut probe = [self.probe_field.zero(); PROBES];
@@ -2049,7 +2098,9 @@ impl OrderedWeights for ModularRecorder {
         // A spilled trace is rewritten only after its last flushed op.
         let flushed = self.op_count() - self.ops.len();
         if rewrite.ops < flushed {
-            return Err(error("tail rewrites below the spilled part of a trace are not supported"));
+            return Err(error(
+                "tail rewrites below the spilled part of a trace are not supported",
+            ));
         }
         if rewrite.ops > self.op_count() {
             return Err(error("tail checkpoint beyond the recorded trace"));
@@ -2224,7 +2275,6 @@ pub(crate) fn take_reported_statistics() -> Vec<ModularStatistics> {
     REPORTED.with(|reported| std::mem::take(&mut *reported.borrow_mut()))
 }
 
-
 /// vk5l-physrun channel replay: the per-channel inputs of the next modular
 /// request on this thread (type-erased `Vec<BTreeMap<Key, Coefficient>>`),
 /// and the per-channel terminal maps it leaves behind.
@@ -2249,7 +2299,11 @@ pub(crate) mod channels {
     #[allow(clippy::type_complexity)]
     pub(crate) fn take<K: 'static>() -> Option<(Vec<BTreeMap<K, Coefficient>>, Vec<u64>)> {
         IN.with(|cell| cell.borrow_mut().take())
-            .and_then(|boxed| boxed.downcast::<(Vec<BTreeMap<K, Coefficient>>, Vec<u64>)>().ok())
+            .and_then(|boxed| {
+                boxed
+                    .downcast::<(Vec<BTreeMap<K, Coefficient>>, Vec<u64>)>()
+                    .ok()
+            })
             .map(|boxed| *boxed)
     }
 
@@ -2262,7 +2316,6 @@ pub(crate) mod channels {
         OUT.with(|cell| cell.borrow_mut().take())
     }
 }
-
 
 /// vk5l-physrun channel replay: the ops of a trace recorded over mixed inputs
 /// that one channel needs: `live[k]` tells whether the k-th admitted input
@@ -2292,15 +2345,16 @@ fn slice_channel(
     let mut popped: Option<usize> = None;
     let mut inputs = live.iter();
     let mut out = Vec::with_capacity(ops.len() / 2);
-    let mut map = |slot: usize, slot_map: &mut Vec<u32>, free: &mut Vec<u32>, next_slot: &mut u32| -> u32 {
-        if slot_map[slot] == u32::MAX {
-            slot_map[slot] = free.pop().unwrap_or_else(|| {
-                *next_slot += 1;
-                *next_slot - 1
-            });
-        }
-        slot_map[slot]
-    };
+    let map =
+        |slot: usize, slot_map: &mut Vec<u32>, free: &mut Vec<u32>, next_slot: &mut u32| -> u32 {
+            if slot_map[slot] == u32::MAX {
+                slot_map[slot] = free.pop().unwrap_or_else(|| {
+                    *next_slot += 1;
+                    *next_slot - 1
+                });
+            }
+            slot_map[slot]
+        };
     let release = |slot: usize, slot_map: &mut Vec<u32>, free: &mut Vec<u32>| {
         if slot_map[slot] != u32::MAX {
             free.push(slot_map[slot]);
@@ -2315,10 +2369,12 @@ fn slice_channel(
         term_map[slot]
     };
     for op in ops {
-        let slot = op.slot() as usize;
+        let slot = op.slot();
         match op.tag() {
             OpTag::Init => {
-                let on = *inputs.next().ok_or_else(|| error("more inputs in the trace than in the channel"))?;
+                let on = *inputs
+                    .next()
+                    .ok_or_else(|| error("more inputs in the trace than in the channel"))?;
                 slot_live[slot] = on;
                 if on {
                     let s = map(slot, &mut slot_map, &mut free, &mut next_slot);
@@ -2349,7 +2405,11 @@ fn slice_channel(
             }
             OpTag::Add => {
                 if active {
-                    let tag = if slot_live[slot] { OpTag::Add } else { OpTag::New };
+                    let tag = if slot_live[slot] {
+                        OpTag::Add
+                    } else {
+                        OpTag::New
+                    };
                     let s = map(slot, &mut slot_map, &mut free, &mut next_slot);
                     out.push(Op::new(tag, s, op.coefficient));
                     slot_live[slot] = true;
@@ -2377,7 +2437,11 @@ fn slice_channel(
             }
             OpTag::TermAdd => {
                 if active {
-                    let tag = if term_live[slot] { OpTag::TermAdd } else { OpTag::TermNew };
+                    let tag = if term_live[slot] {
+                        OpTag::TermAdd
+                    } else {
+                        OpTag::TermNew
+                    };
                     let t = term(slot, &mut term_map, &mut next_term);
                     out.push(Op::new(tag, t, op.coefficient));
                     term_live[slot] = true;
@@ -2394,7 +2458,12 @@ fn slice_channel(
     if inputs.next().is_some() {
         return Err(error("fewer inputs in the trace than in the channel"));
     }
-    Ok(SlicedChannel { ops: out, slots: next_slot, terminal_slots: next_term, term_map })
+    Ok(SlicedChannel {
+        ops: out,
+        slots: next_slot,
+        terminal_slots: next_term,
+        term_map,
+    })
 }
 
 /// One channel's slice of a mixed trace ([`slice_channel`]).
@@ -2405,7 +2474,6 @@ struct SlicedChannel {
     /// union terminal slot -> channel terminal slot (`u32::MAX`: never written).
     term_map: Vec<u32>,
 }
-
 
 #[cfg(test)]
 mod channel_slice_tests {
@@ -2433,7 +2501,14 @@ mod channel_slice_tests {
         let tags: Vec<OpTag> = sliced.ops.iter().map(|op| op.tag()).collect();
         assert_eq!(
             tags,
-            vec![OpTag::Init, OpTag::Pop, OpTag::New, OpTag::TermNew, OpTag::Pop, OpTag::TermAdd]
+            vec![
+                OpTag::Init,
+                OpTag::Pop,
+                OpTag::New,
+                OpTag::TermNew,
+                OpTag::Pop,
+                OpTag::TermAdd
+            ]
         );
         assert_eq!(sliced.terminal_slots, 1);
         assert_eq!(sliced.term_map[1], 0);
