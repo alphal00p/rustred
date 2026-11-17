@@ -22,12 +22,10 @@ pub(super) fn contextual_coefficient(
 ) -> Coefficient {
     Coefficient::from_num_den(
         context
-            .template()
-            .numerator
+            .thread_template()
             .constant(bounded_integer_copy(value.numerator_ref())),
         context
-            .template()
-            .numerator
+            .thread_template()
             .constant(bounded_integer_copy(value.denominator_ref())),
         &Z,
         false,

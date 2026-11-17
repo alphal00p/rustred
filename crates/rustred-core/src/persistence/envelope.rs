@@ -117,6 +117,83 @@ pub fn encode_program(
     Ok(out.finish())
 }
 
+/// [`encode_program`] written to `writer` section by section (vk5l WP6:
+/// streamed import of a large boxed table): `sections` gives each section's
+/// tag and exact byte length up front, `write_section(i, writer)` then writes
+/// section `i`'s bytes. Same checks and the same bytes as [`encode_program`]
+/// on the same sections; a section whose written length differs from its
+/// declared one is an error. Returns the program length. A failure leaves
+/// partial output: callers publish only on success.
+pub fn encode_program_streamed<W: Write>(
+    writer: &mut W,
+    kind: BinaryProgramKind,
+    sections: &[(SectionTag, usize)],
+    limits: BinaryIoLimits,
+    mut write_section: impl FnMut(usize, &mut CountingWriter<'_, W>) -> Result<(), BinaryIoError>,
+) -> Result<u64, BinaryIoError> {
+    limits.check_count("section count", sections.len(), limits.max_sections)?;
+    let count = u32::try_from(sections.len())
+        .map_err(|_| BinaryIoError::Invalid("section count exceeds wire width"))?;
+    let mut total = HEADER_BYTES;
+    let mut previous = None;
+    for &(tag, len) in sections {
+        check_tag_order(previous, tag)?;
+        previous = Some(tag);
+        let limit = if tag == SectionTag::SYMBOLICA_STATE {
+            limits.max_state_bytes
+        } else {
+            limits.max_program_bytes
+        };
+        check_limit("section bytes", len, limit)?;
+        total = total
+            .checked_add(SECTION_HEADER_BYTES)
+            .and_then(|size| size.checked_add(len))
+            .ok_or(BinaryIoError::Invalid("program length overflow"))?;
+    }
+    check_limit("program bytes", total, limits.max_program_bytes)?;
+    let write = |result: std::io::Result<()>| result.map_err(super::native_io_error);
+    write(writer.write_all(MAGIC))?;
+    write(writer.write_all(&BINARY_PROGRAM_VERSION.to_le_bytes()))?;
+    write(writer.write_all(&[kind as u8, WIRE_LENGTH_BYTES, 0, 0]))?;
+    write(writer.write_all(&count.to_le_bytes()))?;
+    for (index, &(tag, len)) in sections.iter().enumerate() {
+        write(writer.write_all(&tag.0.to_le_bytes()))?;
+        write(writer.write_all(&0u16.to_le_bytes()))?;
+        let wire = u64::try_from(len)
+            .map_err(|_| BinaryIoError::Invalid("section length exceeds wire width"))?;
+        write(writer.write_all(&wire.to_le_bytes()))?;
+        let mut counting = CountingWriter {
+            inner: writer,
+            written: 0,
+        };
+        write_section(index, &mut counting)?;
+        if counting.written != wire {
+            return Err(BinaryIoError::Invalid(
+                "a streamed section's length differs from its declared length",
+            ));
+        }
+    }
+    u64::try_from(total).map_err(|_| BinaryIoError::Invalid("program length overflow"))
+}
+
+/// A writer that counts the bytes written through it.
+pub struct CountingWriter<'a, W: Write> {
+    inner: &'a mut W,
+    written: u64,
+}
+
+impl<W: Write> Write for CountingWriter<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let n = self.inner.write(buf)?;
+        self.written += n as u64;
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+
 /// Inspect bounded borrowed sections without invoking any native decoder.
 /// This operation is safe for arbitrary bytes; it grants no algebraic authority.
 pub fn inspect_program(

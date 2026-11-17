@@ -656,6 +656,23 @@ impl PEngine {
         self.owner_sectors.get(&(presentation, support)).copied()
     }
 
+    /// needs-compose: whether a key on the sector of `powers` on `presentation` survives [`TARGET_KEEP`].
+    fn target_kept_sector(
+        &self,
+        library: &PLibrary,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Result<bool, PError> {
+        let Some(keep) = TARGET_KEEP.get() else {
+            return Ok(true);
+        };
+        let support = self.shape(presentation)?.support(powers);
+        Ok(match self.sector(library, presentation, support)? {
+            Sector::Zero => true,
+            Sector::Owner(class) | Sector::Routed { class, .. } => keep.contains(&class.0),
+        })
+    }
+
     /// The Route key of `powers` on `presentation` with `tag`.
     fn route_key(
         &self,
@@ -736,6 +753,10 @@ impl PEngine {
                 )));
             }
             self.sector(library, presentation, support)?;
+            if !self.target_kept_sector(library, presentation, key.powers())? {
+                TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                continue;
+            }
             let key = self.route_key(presentation, key.powers(), &one)?;
             merge(context, limits, &mut initial, key, coefficient)?;
         }
@@ -932,6 +953,18 @@ impl PEngine {
 /// takes them right after the step (`take_light`) and maps a handle to a
 /// value only once per request (`light_value`). `RUSTRED_P_LIGHT_STEPS=off`
 /// disables it. Value-neutral (the same terms, the same coefficients).
+/// `RUSTRED_P_RAW_ZERO=0|off|false` disables zero pruning on the raw sector
+/// of a routed child ([`PStepper::raw_known_zero`]); default on.
+fn raw_zero_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        !matches!(
+            std::env::var("RUSTRED_P_RAW_ZERO").as_deref(),
+            Ok("0" | "off" | "false")
+        )
+    })
+}
+
 pub(crate) mod light {
     use std::cell::{Cell, RefCell};
     use std::sync::OnceLock;
@@ -1965,7 +1998,13 @@ impl<'l> PStepper<'l> {
                         .zip(relative)
                         .map(|(base, &relative)| base + i64::from(relative)),
                 );
-                let (child, negative) = if shape.support(&target) == owner.support {
+                let target_support = shape.support(&target);
+                if target_support != owner.support
+                    && self.raw_known_zero(owner.presentation, target_support)
+                {
+                    continue;
+                }
+                let (child, negative) = if target_support == owner.support {
                     self.apply_key_with(class, &target, &tag, false, |b| !b)?
                 } else {
                     self.route_child_with(owner.presentation, &target, &tag, false, |b| !b)?
@@ -2019,6 +2058,13 @@ impl<'l> PStepper<'l> {
                         .zip(relative)
                         .map(|(base, &relative)| base + i64::from(relative)),
                 );
+                let target_support = shape.support(&target);
+                if target_support != owner.support
+                    && self.raw_known_zero(owner.presentation, target_support)
+                    && !values(coefficient).is_zero()
+                {
+                    continue;
+                }
                 let (child, coefficient) = child(&target, values(coefficient))?;
                 if self.keep_canonical_child(&child, &coefficient)? {
                     pairs.push((child, coefficient));
@@ -2584,6 +2630,33 @@ impl<'l> PStepper<'l> {
         self.keep_canonical_key(child, counters)
     }
 
+    /// vk5l-physrun: zero pruning of a routed child before its
+    /// canonicalisation. The census sector of the child's raw powers decides:
+    /// a presentation automorphism maps a sector onto an isomorphic one, so
+    /// the canonical image lies in a zero sector exactly when the raw sector
+    /// is one. Only a census verdict `Zero` prunes (a gap, an owner or a
+    /// routed sector go through the canonical check as before). The counters
+    /// of [`Self::keep_canonical_key`] are kept as if it had pruned the child.
+    /// `RUSTRED_P_RAW_ZERO=off` disables it.
+    fn raw_known_zero(&self, presentation: PresentationId, support: u64) -> bool {
+        let Some(counters) = self.zero_pruning else {
+            return false;
+        };
+        if !raw_zero_enabled()
+            || !matches!(
+                self.engine.sector(self.library, presentation, support),
+                Ok(Sector::Zero)
+            )
+        {
+            return false;
+        }
+        counters
+            .canonical_candidates
+            .fetch_add(1, AtomicOrdering::Relaxed);
+        counters.known_zero.fetch_add(1, AtomicOrdering::Relaxed);
+        true
+    }
+
     /// `keep_canonical_child` of a child with a nonzero weight (fwd-opt).
     fn keep_canonical_key(
         &self,
@@ -2630,6 +2703,21 @@ impl<'l> PStepper<'l> {
                     child.powers.len()
                 )));
             }
+            if target_pruning_on() {
+                let kept = match child.stage {
+                    PStage::Route => self.engine.target_kept_sector(
+                        self.library,
+                        child.presentation,
+                        &child.powers,
+                    )?,
+                    PStage::Apply => true, // checked on the key below
+                };
+                if !kept {
+                    TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    super::step_memo::put_powers(child.powers);
+                    continue;
+                }
+            }
             let (key, coefficient) = match child.stage {
                 PStage::Route => self.route_child(
                     child.presentation,
@@ -2639,6 +2727,13 @@ impl<'l> PStepper<'l> {
                 )?,
                 PStage::Apply => self.apply_child(&child)?,
             };
+            if let (Some(keep), PKey::Apply { class, .. }) = (TARGET_KEEP.get(), &key)
+                && !keep.contains(&class.0)
+            {
+                TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                super::step_memo::put_powers(child.powers);
+                continue;
+            }
             if self.keep_canonical_child(&key, &coefficient)? {
                 pairs.push((key, coefficient));
             }
@@ -2650,6 +2745,14 @@ impl<'l> PStepper<'l> {
             // materialised and summed, the others stay light.
             let mut light_pairs: Vec<(PKey, u64)> = Vec::with_capacity(children.len());
             for (powers, handle) in children {
+                if !self
+                    .engine
+                    .target_kept_sector(self.library, presentation, &powers)?
+                {
+                    TARGET_PRUNED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    super::step_memo::put_powers(powers);
+                    continue;
+                }
                 let (key, negative) =
                     self.route_child_with(presentation, &powers, &tag, false, |b| !b)?;
                 super::step_memo::put_powers(powers);
@@ -2742,7 +2845,10 @@ impl<'l> PStepper<'l> {
         let OwnerProgram::Lane(lane) = owner.loaded_program()? else {
             return None;
         };
-        let node = lane.boxed_node()?;
+        // (a lazy program forwards its box record, not its node name; never
+        // build a program here: a cache hit needs none)
+        let record = lane.boxed_record_if_known()?;
+        let node = record.node.as_str();
         let slot = self.engine.owner(*class).ok()?;
         let slots = view.slots();
         let (powers, _) = self.engine.split(slot.presentation, &slots).ok()?;
@@ -2750,6 +2856,55 @@ impl<'l> PStepper<'l> {
             node: node.to_owned(),
             presentation: slot.presentation,
             powers: powers.to_vec(),
+        })
+    }
+
+    /// vk5l WP2: the refusal of `key` when it lands on a boxed Custom owner
+    /// outside its certified set and that node's policy refuses (the owner's
+    /// program is built for the check: its keys follow anyway).
+    fn early_refusal(&self, key: &PKey) -> Option<PError> {
+        let PKey::Apply { class, view } = key else {
+            return None;
+        };
+        let owner = self.library.owner(*class)?;
+        if owner.spec.lane != OwnerLane::Custom {
+            return None;
+        }
+        let OwnerProgram::Lane(lane) = owner.program(self.library).ok()? else {
+            return None;
+        };
+        let record = lane.boxed_record()?;
+        if super::recipes::outside_policy_of(&record.node) != super::recipes::POutsidePolicy::Refuse
+        {
+            return None;
+        }
+        let slot = self.engine.owner(*class).ok()?;
+        let slots = view.slots();
+        let (powers, _) = self.engine.split(slot.presentation, &slots).ok()?;
+        if lane.box_contains(powers) != Some(false) {
+            return None;
+        }
+        let key = IntegralKey::try_new(powers.iter().copied()).ok()?;
+        let violated = record.violation(powers).map(Box::new);
+        Some(match lane.certified_keys() {
+            Some(certified_keys) => PError::OutsideCertifiedSet {
+                class: *class,
+                violated,
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+                certified_keys,
+                request: None,
+            },
+            // a box-only node: its box is the domain
+            None => PError::OutsideBox {
+                class: *class,
+                key,
+                node: record.node.clone(),
+                definition: record.describe(),
+                violated,
+                request: None,
+            },
         })
     }
 
@@ -2852,6 +3007,22 @@ impl OrderedStepper for PStepper<'_> {
                 (result, account)
             }
         };
+        // vk5l WP2: under a Refuse policy a key outside a boxed node's
+        // certified set is refused as soon as a step produces it (before the
+        // rest of the request is reduced), not when it is stepped.
+        // (a Retain request keeps such a key as a named residual at its own
+        // step instead)
+        if let Ok(step) = &result
+            && !self.retain
+            && super::recipes::refuse_policy_anywhere()
+            && let Some(error) = step
+                .terms
+                .keys()
+                .find_map(|child| self.early_refusal(child))
+        {
+            EARLY_REFUSALS.fetch_add(1, AtomicOrdering::Relaxed);
+            return (Err(error), account);
+        }
         if let (Some(started), Ok(step)) = (started, &result) {
             let nanos = u64::try_from(started.elapsed().as_nanos()).unwrap_or(u64::MAX);
             let mut record = self.census_record(key, step, nanos);
@@ -2927,6 +3098,15 @@ impl OrderedStepper for PStepper<'_> {
             None => {}
         }
     }
+}
+
+/// vk5l WP2: refusals made when a step produced an outside key (tests).
+static EARLY_REFUSALS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// vk5l WP2: how many requests were refused early (an outside key produced
+/// by a step under a Refuse policy) in this process.
+pub fn early_outside_refusals() -> u64 {
+    EARLY_REFUSALS.load(AtomicOrdering::Relaxed)
 }
 
 /// The adapter of one request.
@@ -3092,6 +3272,14 @@ impl OrderedKernel for PKernel<'_, '_> {
         }
     }
 
+    /// p5l-library-3: the Custom programs of lazy payloads are not used by
+    /// the replay; release them (5L: up to the program budget, 32 GB).
+    fn forward_finished(&mut self) {
+        if let Some(budget) = self.stepper.library.program_budget() {
+            budget.release_unheld();
+        }
+    }
+
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), PError> {
         if self.stepper.census.on {
             let stepper = self.stepper;
@@ -3165,6 +3353,14 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
     fn step_cache_refresh(&self, step: OrderedStep<PKey>) -> Result<OrderedStep<PKey>, PError> {
         self.stepper.refresh_canonical(step)
     }
+
+    fn step_cache_refresh_is_identity(&self) -> bool {
+        !self.stepper.canonical
+            || REFRESH_CLASSES
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .is_empty()
+    }
 }
 
 /// Owner classes whose Apply children are canonicalised again when a step is
@@ -3172,6 +3368,30 @@ impl OrderedStepCacheKernel for PKernel<'_, '_> {
 /// program whose order of these owners differs holds representatives chosen
 /// in the old order. Process-wide; empty (the default) changes nothing.
 static REFRESH_CLASSES: std::sync::RwLock<BTreeSet<u64>> = std::sync::RwLock::new(BTreeSet::new());
+
+/// needs-compose: TARGET-MASTER DESCENT PRUNING. When set, a scheduled key whose owner class (its Apply class, or the owner /
+/// routed class of its Route sector) is not in this set is dropped (treated as contributing nothing). Sound for the
+/// coefficients of the target terminals when the set is closed upwards under the topology DAG (every owner whose sector
+/// contains a target terminal's sector as a contraction minor), because the decomposition onto the terminals is unique and a
+/// terminal enters only the reduction of keys whose sector contains it. The coefficients of all other terminals are then
+/// WRONG by design. Process-wide, set once; unset = no pruning. Never use with a persistent step cache.
+static TARGET_KEEP: std::sync::OnceLock<std::collections::HashSet<u64>> =
+    std::sync::OnceLock::new();
+static TARGET_PRUNED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Set the kept owner classes of [`TARGET_KEEP`] (once per process).
+pub fn set_target_keep_classes(classes: std::collections::HashSet<u64>) -> bool {
+    TARGET_KEEP.set(classes).is_ok()
+}
+
+/// Keys dropped by [`TARGET_KEEP`] so far in this process.
+pub fn target_pruned_count() -> u64 {
+    TARGET_PRUNED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn target_pruning_on() -> bool {
+    TARGET_KEEP.get().is_some()
+}
 
 /// Set the classes of [`REFRESH_CLASSES`] for the requests that start after
 /// this call (dry census only; never set it while a cache serves programs

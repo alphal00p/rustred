@@ -10,7 +10,7 @@ use super::domain::Domain;
 ///
 /// The primitive witness has already been replayed through Symbolica's native
 /// integer matrix product before a certificate can be constructed.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Certificate {
     pub(super) family_fingerprint: Arc<String>,
     pub(super) raw_sector: Mask,

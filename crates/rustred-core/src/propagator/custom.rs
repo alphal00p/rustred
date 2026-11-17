@@ -947,6 +947,8 @@ pub struct CustomStep<const N: usize> {
     /// vk5l WP2: the recipe records of a boxed payload and their in-process
     /// solve ([`super::recipes`]).
     recipes: Option<Arc<RecipeDispatch>>,
+    /// Slot-permuted alias rules of the payload ([`super::table_import::SlotAliasRecord`]): dispatched in table order with the rules (`rules_before`).
+    aliases: Vec<super::table_import::SlotAliasRecord>,
 }
 
 /// vk5l WP2: what the dispatch of one key gives.
@@ -963,6 +965,8 @@ enum KeyVia {
     Rule(u64, usize),
     /// A recipe record.
     Recipe,
+    /// A slot-permuted alias rule.
+    Alias,
 }
 
 impl<const N: usize> fmt::Debug for CustomStep<N> {
@@ -1150,6 +1154,16 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
+        // vk5l WP2 (manifest): a shipped entry with precedence `over_table`
+        // comes before the table's first match
+        if let Some(recipes) = &self.recipes
+            && let Some((relation, id)) = recipes.entry_over_table(powers)?
+        {
+            return Ok(KeyApplied::Children(
+                relation_children(&relation, &id)?,
+                KeyVia::Recipe,
+            ));
+        }
         if let Some(recipes) = &self.recipes
             && recipes.order() == RecipeDispatchOrder::RecipesFirst
             && !self.residuals.contains(integral)
@@ -1158,6 +1172,8 @@ impl<const N: usize> CustomStep<N> {
             return self.apply_recipe(recipes, index, powers);
         }
         let chart = self.chart(powers);
+        let alias = self.first_alias(powers);
+        let guards = conditions.len();
         let applied = apply_prepared_owner(
             &self.programs,
             &chart,
@@ -1169,22 +1185,104 @@ impl<const N: usize> CustomStep<N> {
         );
         match applied {
             Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
-            Ok(AppliedOwnerStep::Applied(terms, position)) => Ok(KeyApplied::Children(
-                terms,
-                KeyVia::Rule(mask(&chart), position),
-            )),
+            Ok(AppliedOwnerStep::Applied(terms, position)) => match alias {
+                // first match: an alias before the matched rule in the table wins
+                Some(alias) if alias.rules_before <= position => {
+                    conditions.truncate(guards);
+                    self.apply_alias(alias, powers)
+                }
+                _ => Ok(KeyApplied::Children(
+                    terms,
+                    KeyVia::Rule(mask(&chart), position),
+                )),
+            },
             Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
+                if let Some(alias) = alias {
+                    return self.apply_alias(alias, powers);
+                }
                 match &self.recipes {
                     Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
                         match self.recipe_of(recipes, powers) {
                             Some(index) => self.apply_recipe(recipes, index, powers),
-                            None => Err(self.uncovered(class, integral.clone())),
+                            // vk5l WP2: no recipe record: a shipped relation
+                            // entry or the persistent cache, else the refusal
+                            None => match recipes.served_entry(powers)? {
+                                Some((relation, id)) => Ok(KeyApplied::Children(
+                                    relation_children(&relation, &id)?,
+                                    KeyVia::Recipe,
+                                )),
+                                None => Err(self.uncovered(class, integral.clone())),
+                            },
                         }
                     }
                     _ => Err(self.uncovered(class, integral.clone())),
                 }
             }
             Err(error) => Err(self.step_error(class, error)),
+        }
+    }
+
+    /// The first slot-permuted alias rule (in table order) whose domain holds `powers`. It applies when no ordinary
+    /// rule of the chart before it in the table matches (`rules_before`).
+    fn first_alias(&self, powers: &[i64]) -> Option<&super::table_import::SlotAliasRecord> {
+        self.aliases
+            .iter()
+            .find(|alias| alias.image(powers).is_some())
+    }
+
+    /// `I(key) = c * I(image)` by a slot-permuted alias rule whose domain holds `powers`. The image must stay on the
+    /// key's chart and be strictly lower in the owner's order (fail closed otherwise).
+    fn apply_alias(
+        &self,
+        alias: &super::table_import::SlotAliasRecord,
+        powers: &[i64],
+    ) -> Result<KeyApplied, PError> {
+        {
+            let image = alias
+                .image(powers)
+                .expect("the alias's domain holds the key");
+            let failed = |detail: String| {
+                PError::MalformedLibrary(format!(
+                    "custom owner on presentation {}: slot-permuted alias rule {} at {powers:?}: {detail}",
+                    self.presentation.0, alias.index
+                ))
+            };
+            if image
+                .iter()
+                .map(|&p| p > 0)
+                .ne(powers.iter().map(|&p| p > 0))
+            {
+                return Err(failed(format!(
+                    "the image {image:?} leaves the key's chart"
+                )));
+            }
+            let ordering = owner_ordering(&self.programs, &self.chart(powers))
+                .ok_or_else(|| failed("no chart of the owner holds the key".to_owned()))?;
+            let (key_order, image_order) = (
+                ordering
+                    .complexity_key(powers)
+                    .map_err(|error| failed(error.to_string()))?,
+                ordering
+                    .complexity_key(&image)
+                    .map_err(|error| failed(error.to_string()))?,
+            );
+            if image_order >= key_order {
+                return Err(failed(format!(
+                    "the image {image:?} is not strictly lower than the key"
+                )));
+            }
+            let child = IntegralKey::try_new(image.iter().copied())
+                .map_err(|error| failed(error.to_string()))?;
+            let coefficient = self
+                .programs
+                .context()
+                .coefficient_context()
+                .base()
+                .integer(alias.coefficient);
+            Ok(KeyApplied::Children(
+                std::collections::BTreeMap::from([(child, coefficient)]),
+                KeyVia::Alias,
+            ))
         }
     }
 
@@ -1200,35 +1298,70 @@ impl<const N: usize> CustomStep<N> {
         conditions: &mut Vec<Coefficient>,
         limits: &ReductionLimits,
     ) -> Result<KeyApplied, PError> {
-        let chart = self.chart(powers);
-        let applied = apply_prepared_owner(
-            &self.programs,
-            &chart,
-            integral,
-            conditions,
-            &mut ReductionRequest::default(),
-            &mut ReductionStatistics::default(),
-            limits,
-        );
-        match applied {
-            Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
-            Ok(AppliedOwnerStep::Applied(terms, position)) => Ok(KeyApplied::Children(
-                terms,
-                KeyVia::Rule(mask(&chart), position),
-            )),
-            Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
-                match &self.recipes {
-                    Some(recipes) => {
-                        let (relation, id) = recipes.solve_outside(powers)?;
-                        Ok(KeyApplied::Children(
-                            relation_children(&relation, &id)?,
-                            KeyVia::Recipe,
-                        ))
-                    }
-                    None => Err(self.uncovered(class, integral.clone())),
+        // (0) a shipped entry with precedence `over_table` (node manifest)
+        if let Some(recipes) = &self.recipes
+            && let Some((relation, id)) = recipes.entry_over_table(powers)?
+        {
+            super::recipes::count_outside_entry_hit();
+            return Ok(KeyApplied::Children(
+                relation_children(&relation, &id)?,
+                KeyVia::Recipe,
+            ));
+        }
+        // (1) the table's first match (parametric, strictly lowering rules),
+        // unless the node's settings forbid rules outside the set
+        let rules_outside = self
+            .boxed
+            .as_ref()
+            .is_none_or(|record| super::recipes::outside_settings_of(&record.node).rules_outside);
+        if rules_outside {
+            let chart = self.chart(powers);
+            let alias = self.first_alias(powers);
+            let guards = conditions.len();
+            let applied = apply_prepared_owner(
+                &self.programs,
+                &chart,
+                integral,
+                conditions,
+                &mut ReductionRequest::default(),
+                &mut ReductionStatistics::default(),
+                limits,
+            );
+            match applied {
+                Ok(AppliedOwnerStep::Terminal) => return Ok(KeyApplied::Terminal),
+                Ok(AppliedOwnerStep::Applied(_, position))
+                    if alias.is_some_and(|alias| alias.rules_before <= position) =>
+                {
+                    conditions.truncate(guards);
+                    return self.apply_alias(alias.expect("matched"), powers);
                 }
+                Ok(AppliedOwnerStep::Applied(terms, position)) => {
+                    super::recipes::count_outside_rule_step();
+                    return Ok(KeyApplied::Children(
+                        terms,
+                        KeyVia::Rule(mask(&chart), position),
+                    ));
+                }
+                Ok(AppliedOwnerStep::Uncovered)
+                | Err(CandidateReductionError::Uncovered { .. }) => {
+                    if let Some(alias) = alias {
+                        return self.apply_alias(alias, powers);
+                    }
+                }
+                Err(error) => return Err(self.step_error(class, error)),
             }
-            Err(error) => Err(self.step_error(class, error)),
+        }
+        // (2) shipped entries / persistent cache, (3) recipe families,
+        // (4) the typed refusal
+        match &self.recipes {
+            Some(recipes) => match recipes.solve_outside(powers)? {
+                Some((relation, id)) => Ok(KeyApplied::Children(
+                    relation_children(&relation, &id)?,
+                    KeyVia::Recipe,
+                )),
+                None => Err(self.uncovered(class, integral.clone())),
+            },
+            None => Err(self.uncovered(class, integral.clone())),
         }
     }
 
@@ -1506,6 +1639,10 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
         self.boxed.clone()
     }
 
+    fn certified_keys(&self) -> Option<u64> {
+        self.certified.as_deref().map(|set| set.len() as u64)
+    }
+
     fn recipe_chain(&self, from: &[i64], to: &[i64], budget: usize) -> Option<Vec<PChainLink>> {
         self.chain_to(from, to, budget)
     }
@@ -1529,39 +1666,115 @@ pub(crate) fn take_rule_hit() -> Option<(u64, u32)> {
     LAST_RULE.with(std::cell::Cell::take)
 }
 
+/// [`zero_certificates`], computed once per process for each family and
+/// support (p5l-library-3): a lazily loaded Custom program evicted under its
+/// library's program budget is rebuilt on its next use, and the zero analysis
+/// (exact Symanzik determinants per subsector) was most of a 5L rebuild. The
+/// proofs depend only on the family and the support; an entry keeps its
+/// family alive, so the address key is never reused by another family.
+fn cached_zero_certificates(
+    presentation: &Presentation,
+    support: u64,
+) -> Result<Vec<zero::Certificate>, PError> {
+    type Entry = (
+        Arc<crate::family::IntegralFamily>,
+        Arc<Vec<zero::Certificate>>,
+    );
+    static CACHE: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(usize, u64), Entry>>,
+    > = std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(Default::default);
+    let key = (Arc::as_ptr(&presentation.family) as usize, support);
+    if let Some((_, proofs)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
+        return Ok(proofs.as_ref().clone());
+    }
+    let proofs = Arc::new(zero_certificates(presentation, support)?);
+    cache
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key)
+        .or_insert_with(|| (Arc::clone(&presentation.family), Arc::clone(&proofs)));
+    Ok(proofs.as_ref().clone())
+}
+
+/// Run `f` with this thread's zero analyzer of `family` (engine threading, batch 10): one analyzer
+/// per (thread, family), built on first use and kept (its Symanzik polynomials on this thread's
+/// polynomial context), so the many owners of one family and later requests reuse it instead of
+/// rebuilding it per owner and per pool thread. An entry holds its family alive (its address cannot
+/// be reused by another family); the map is cleared beyond 64 families.
+fn with_family_analyzer<R>(
+    family: &Arc<crate::family::IntegralFamily>,
+    f: impl FnOnce(&zero::Analyzer) -> Result<R, PError>,
+) -> Result<R, PError> {
+    type Entry = (
+        Arc<crate::family::IntegralFamily>,
+        std::rc::Rc<zero::Analyzer>,
+    );
+    thread_local! {
+        static ANALYZERS: std::cell::RefCell<std::collections::HashMap<usize, Entry>> =
+            std::cell::RefCell::new(std::collections::HashMap::new());
+    }
+    let key = Arc::as_ptr(family) as usize;
+    let cached = ANALYZERS.with_borrow(|map| map.get(&key).map(|(_, analyzer)| analyzer.clone()));
+    let analyzer = match cached {
+        Some(analyzer) => analyzer,
+        None => {
+            let analyzer =
+                std::rc::Rc::new(zero::Analyzer::try_unrestricted(family).map_err(|error| {
+                    PError::Unsupported(format!("custom owner zero analysis: {error}"))
+                })?);
+            ANALYZERS.with_borrow_mut(|map| {
+                if map.len() >= 64 {
+                    map.clear();
+                }
+                map.insert(key, (Arc::clone(family), analyzer.clone()));
+            });
+            analyzer
+        }
+    };
+    f(&analyzer)
+}
+
 /// Zero proofs of the downset of `support` (raw sectors; eps axes are always
 /// effective in the analyzer).
+///
+/// SEQUENTIAL on the calling thread. This runs while an owner program's `OnceLock` is being initialised
+/// (`POwner::program` -> `lane_program` -> `build_custom_step_with`): a `par_iter` on the request's rayon pool
+/// here let the waiting thread steal another step that waits on the same `OnceLock` (deadlock, batch-10 gate,
+/// p_path_census P4L_J11 at 4 / 16 threads). The analyzer comes from this thread's per-family cache
+/// ([`with_family_analyzer`]), so a family's Symanzik polynomials are built once per thread, not per owner.
 fn zero_certificates(
     presentation: &Presentation,
     support: u64,
 ) -> Result<Vec<zero::Certificate>, PError> {
     let family = &presentation.family;
-    let analyzer = zero::Analyzer::try_unrestricted(family)
-        .map_err(|error| PError::Unsupported(format!("custom owner zero analysis: {error}")))?;
     let arity = presentation.slots.len();
-    let mut proofs = Vec::new();
-    let mut subset = support;
-    loop {
-        let sector = Mask::try_new(bits(subset, arity))
-            .map_err(|error| PError::Contract(error.to_string()))?;
-        match analyzer
-            .analyze(&sector)
-            .map_err(|error| PError::Unsupported(format!("custom owner zero analysis: {error}")))?
-        {
-            zero::Decision::ProvedZero(proof) => proofs.push(proof),
-            zero::Decision::Inconclusive(_) => {}
-            zero::Decision::Excluded(_) => {
-                return Err(PError::Unsupported(format!(
+    let decide =
+        |analyzer: &zero::Analyzer, subset: u64| -> Result<Option<zero::Certificate>, PError> {
+            let sector = Mask::try_new(bits(subset, arity))
+                .map_err(|error| PError::Contract(error.to_string()))?;
+            match analyzer.analyze(&sector).map_err(|error| {
+                PError::Unsupported(format!("custom owner zero analysis: {error}"))
+            })? {
+                zero::Decision::ProvedZero(proof) => Ok(Some(proof)),
+                zero::Decision::Inconclusive(_) => Ok(None),
+                zero::Decision::Excluded(_) => Err(PError::Unsupported(format!(
                     "custom owner zero analysis excluded the sector {subset:#x}"
-                )));
+                ))),
             }
+        };
+    with_family_analyzer(family, |analyzer| {
+        let mut proofs = Vec::new();
+        let mut subset = support;
+        loop {
+            proofs.extend(decide(analyzer, subset)?);
+            if subset == 0 {
+                break;
+            }
+            subset = (subset - 1) & support;
         }
-        if subset == 0 {
-            break;
-        }
-        subset = (subset - 1) & support;
-    }
-    Ok(proofs)
+        Ok(proofs)
+    })
 }
 
 /// The explicit application order of a Custom owner's rules (p artefact v2,
@@ -1689,6 +1902,7 @@ fn build<const N: usize>(
     }
     check_residual_positions(forced, &residuals)?;
     let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
+    let aliases = super::table_import::slot_aliases_of_source(&program.family_source)?;
     // vk5l WP1: the certified set of a boxed payload, with its record.
     let certified = match &boxed {
         Some(record) => {
@@ -1746,7 +1960,7 @@ fn build<const N: usize>(
         }
         None => None,
     };
-    let proofs = zero_certificates(presentation, support)?;
+    let proofs = cached_zero_certificates(presentation, support)?;
     let scope = CandidateOwnerScope {
         max_numerator_rank: None,
         finite_case_policy: FiniteCasePolicy::SearchFinite,
@@ -1808,6 +2022,7 @@ fn build<const N: usize>(
         boxed: boxed.map(Arc::new),
         certified,
         recipes,
+        aliases,
     };
     if prepare {
         step.prepare_charts()?;
@@ -2021,7 +2236,7 @@ enum Applied {
 }
 
 /// The owner program of one payload, for checks outside a library.
-trait CustomOwnerOps {
+trait CustomOwnerOps: Sync {
     fn support(&self) -> u64;
     fn arity(&self) -> usize;
     fn forced(&self) -> u64;
@@ -2040,6 +2255,9 @@ trait CustomOwnerOps {
     /// vk5l WP2: whether the table's rules (or a terminal) take `powers`.
     fn rules_take(&self, powers: &[i64]) -> bool;
 }
+
+/// One chunk of the threaded certified-key check: (chunk index, checked keys or (key index, error)).
+type ChunkCheck = (usize, Result<usize, (usize, PError)>);
 
 impl<const N: usize> CustomOwnerOps for CustomStep<N> {
     fn support(&self) -> u64 {
@@ -2281,6 +2499,112 @@ pub fn custom_payload_recipe_prefill(
         .collect())
 }
 
+/// vk5l WP2 producer: one key of [`custom_payload_relation_produce`].
+#[derive(Clone, Debug)]
+pub struct RelationProduceEntry {
+    /// The key in the TABLE frame (as given).
+    pub key_table: Vec<i64>,
+    pub outside_certified_set: bool,
+    /// The family id that solved it (or the source of a stored entry).
+    pub source: Result<Option<String>, PError>,
+    pub seconds: f64,
+    pub children: usize,
+    pub relation_digest: Option<String>,
+}
+
+/// vk5l WP2: the recipe dispatch of a boxed payload WITHOUT building its
+/// owner program (no chart is prepared, the certified set is not decoded):
+/// the bundle (records or the relation binding) from the payload's family
+/// source, its caches opened under the roots in force. `None` without one.
+pub fn custom_payload_recipe_dispatch(
+    presentation: &Presentation,
+    payload: &[u8],
+) -> Result<Option<RecipeDispatch>, PError> {
+    let source = custom_payload_family_source(payload)?;
+    match super::recipes::recipes_of_source(&source)? {
+        Some(bundle) => Ok(Some(RecipeDispatch::new(
+            bundle,
+            presentation.slots.len(),
+            presentation.family.fingerprint(),
+            presentation.family.coefficient_context(),
+            0,
+        )?)),
+        None => Ok(None),
+    }
+}
+
+/// vk5l WP2 producer (plan/ARTIFACT_MANIFEST.md): an explicit relation at
+/// every key of `keys_table` (TABLE frame) of a boxed payload,
+/// [`RecipeDispatch::produce`], `threads` workers, on the light dispatch
+/// ([`custom_payload_recipe_dispatch`]: the owner program is never built, so
+/// a node such as T266 needs its payload bytes only); `outside[i]` marks
+/// keys outside the certified set (entry diagnostics). Each winner is written
+/// to the writable relation cache root in force at once (the caller sets it
+/// and the solver), so a rerun resumes. With `closure` (the certified set)
+/// only relations whose top-sector right-hand side stays in it are kept.
+/// Failures are reported per key.
+#[allow(clippy::too_many_arguments)]
+pub fn custom_payload_relation_produce(
+    presentation: &Presentation,
+    payload: &[u8],
+    keys_table: &[Vec<i64>],
+    outside: &[bool],
+    depths: &[u8],
+    closure: Option<&CertifiedKeySet>,
+    threads: usize,
+    progress: &(dyn Fn(&RelationProduceEntry) + Sync),
+) -> Result<Vec<RelationProduceEntry>, PError> {
+    let recipes = custom_payload_recipe_dispatch(presentation, payload)?.ok_or_else(|| {
+        PError::Unsupported("the payload carries no recipe / relation binding".to_owned())
+    })?;
+    let recipes = &recipes;
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let results: std::sync::Mutex<Vec<Option<RelationProduceEntry>>> =
+        std::sync::Mutex::new(vec![None; keys_table.len()]);
+    std::thread::scope(|scope| {
+        for _ in 0..threads.max(1).min(keys_table.len().max(1)) {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let Some(key_table) = keys_table.get(index) else {
+                        break;
+                    };
+                    let key = recipes.bundle().to_presentation(key_table);
+                    let outside = outside.get(index).copied().unwrap_or(false);
+                    let started = std::time::Instant::now();
+                    let solved = recipes.produce(&key, depths, outside, closure);
+                    let entry = RelationProduceEntry {
+                        key_table: key_table.clone(),
+                        outside_certified_set: outside,
+                        seconds: started.elapsed().as_secs_f64(),
+                        children: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(Option::as_ref)
+                            .map_or(0, |(relation, _)| relation.children.len()),
+                        relation_digest: solved
+                            .as_ref()
+                            .ok()
+                            .and_then(Option::as_ref)
+                            .and_then(|(relation, _)| relation.relation_digest.clone()),
+                        source: solved.map(|found| found.map(|(_, id)| id)),
+                    };
+                    progress(&entry);
+                    results
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)[index] = Some(entry);
+                }
+            });
+        }
+    });
+    Ok(results
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
 /// vk5l WP2: [`RecipeDispatch::solve_outside`] at `key` (presentation slots)
 /// on a boxed payload with recipes (tools, tests): the relation and the id
 /// of the recipe family that solved it.
@@ -2289,7 +2613,7 @@ pub fn custom_payload_solve_outside(
     payload: &[u8],
     meta: &CustomOwnerMeta,
     key: &[i64],
-) -> Result<(Arc<super::recipes::Relation>, String), PError> {
+) -> Result<Option<(Arc<super::recipes::Relation>, String)>, PError> {
     let ops = custom_owner_ops(presentation, payload, meta)?;
     let recipes = ops
         .recipe_dispatch()
@@ -2507,11 +2831,21 @@ pub fn verify_custom_payload(
             Some(set) => format!("its certified key set ({} keys)", set.len()),
             None => record.describe(),
         };
-        for key in keys {
-            if ops.is_residual(&key) {
-                continue;
+        // vk5l WP6: RUSTRED_P_CHECK_THREADS=<n> steps the keys on n threads
+        // (contiguous key ranges over the shared owner; default 1 = in order).
+        // The counts are the same; on a failure the one of the smallest key
+        // index is reported, as the sequential check would.
+        let threads = std::env::var("RUSTRED_P_CHECK_THREADS")
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(1)
+            .min(keys.len().max(1));
+        let step = |key: &Vec<i64>| -> Result<bool, PError> {
+            if ops.is_residual(key) {
+                return Ok(false);
             }
-            let applied = ops.apply_powers(&key).map_err(|error| match error {
+            let applied = ops.apply_powers(key).map_err(|error| match error {
                 // vk5l WP2: a recipe failure is reported as it is.
                 error @ PError::RecipeFailed(_) => error,
                 error => fail(format!(
@@ -2529,7 +2863,54 @@ pub fn verify_custom_payload(
                     }
                 }
             }
-            check.box_keys_stepped += 1;
+            Ok(true)
+        };
+        let chunk = keys.len().div_ceil(threads).max(1);
+        let failed = std::sync::atomic::AtomicUsize::new(usize::MAX);
+        let results: Vec<ChunkCheck> = std::thread::scope(|scope| {
+            let handles: Vec<_> = keys
+                .chunks(chunk)
+                .enumerate()
+                .map(|(part, slice)| {
+                    let (step, failed) = (&step, &failed);
+                    scope.spawn(move || {
+                        let mut stepped = 0usize;
+                        for (offset, key) in slice.iter().enumerate() {
+                            let index = part * chunk + offset;
+                            if index > failed.load(std::sync::atomic::Ordering::Relaxed) {
+                                break;
+                            }
+                            match step(key) {
+                                Ok(true) => stepped += 1,
+                                Ok(false) => {}
+                                Err(error) => {
+                                    failed.fetch_min(index, std::sync::atomic::Ordering::Relaxed);
+                                    return (part, Err((index, error)));
+                                }
+                            }
+                        }
+                        (part, Ok(stepped))
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("a check thread panicked"))
+                .collect()
+        });
+        let mut first_error: Option<(usize, PError)> = None;
+        for (_, result) in results {
+            match result {
+                Ok(stepped) => check.box_keys_stepped += stepped,
+                Err((index, error)) => {
+                    if first_error.as_ref().is_none_or(|(at, _)| index < *at) {
+                        first_error = Some((index, error));
+                    }
+                }
+            }
+        }
+        if let Some((_, error)) = first_error {
+            return Err(error);
         }
     }
     Ok(check)
@@ -2546,6 +2927,10 @@ pub struct CustomReplay {
     pub boundary: Vec<(Vec<i64>, Coefficient)>,
     /// Rule applications.
     pub steps: usize,
+    /// Keys still to reduce when the replay stopped at its step cap
+    /// (`RUSTRED_P_REPLAY_MAX_STEPS`, a diagnostic: e.g. one step checks the
+    /// seed's own rule application); empty for a complete replay.
+    pub open: Vec<(Vec<i64>, Coefficient)>,
 }
 
 /// Each seed (a key of the owner support) reduced with the owner's program,
@@ -2577,6 +2962,9 @@ pub fn replay_custom_payload(
                 map.insert(key, value);
             }
         };
+    let max_steps: Option<usize> = std::env::var("RUSTRED_P_REPLAY_MAX_STEPS")
+        .ok()
+        .and_then(|value| value.trim().parse().ok());
     let mut replays = Vec::with_capacity(seeds.len());
     for seed in seeds {
         if support_of(seed) != support {
@@ -2592,6 +2980,10 @@ pub fn replay_custom_payload(
         while let Some(((order, key), weight)) = queue.pop_last() {
             if weight.is_zero() {
                 continue;
+            }
+            if max_steps.is_some_and(|max| steps >= max) {
+                queue.insert((order, key), weight);
+                break;
             }
             steps += 1;
             match ops.apply_powers(&key)? {
@@ -2624,11 +3016,16 @@ pub fn replay_custom_payload(
                 .filter(|(_, value)| !value.is_zero())
                 .collect()
         };
+        let open = queue
+            .into_iter()
+            .map(|((_, key), value)| (key, value))
+            .collect();
         replays.push(CustomReplay {
             seed: seed.clone(),
             residuals: nonzero(residuals),
             boundary: nonzero(boundary),
             steps,
+            open: nonzero(open),
         });
     }
     Ok(replays)
@@ -2637,6 +3034,30 @@ pub fn replay_custom_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The per-(thread, family) analyzer cache gives the proofs of a fresh analyzer, also on a pool worker
+    /// (where the zero analysis must stay sequential: it runs under an owner program's OnceLock).
+    #[test]
+    fn cached_analyzer_zero_certificates_equal_a_fresh_analysis() {
+        let library = super::super::testing::boxed_kite_library().unwrap();
+        let presentation = (library.presentations().iter())
+            .max_by_key(|p| p.slots.len())
+            .unwrap()
+            .clone();
+        let support = (1_u64 << presentation.slots.len()) - 1;
+        let first = zero_certificates(&presentation, support).unwrap();
+        let again = zero_certificates(&presentation, support).unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .build()
+            .unwrap();
+        let on_pool = pool
+            .install(|| zero_certificates(&presentation, support))
+            .unwrap();
+        assert!(!first.is_empty());
+        assert_eq!(format!("{first:?}"), format!("{again:?}"));
+        assert_eq!(format!("{first:?}"), format!("{on_pool:?}"));
+    }
 
     fn keys(powers: &[&[i64]]) -> Vec<IntegralKey> {
         (powers.iter())

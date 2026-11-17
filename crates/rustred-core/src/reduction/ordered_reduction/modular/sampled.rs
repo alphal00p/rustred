@@ -6,7 +6,8 @@
 //! between primes. Sampling is sized by need:
 //!
 //! - the first usable prime discovers the degrees adaptively: half of
-//!   `batch_points` points, then doubling the total until every terminal's
+//!   `batch_points` points, then growing the total by a quarter (at least an
+//!   eighth of `batch_points`) until every terminal's
 //!   interpolation is confirmed by `verification_points` consecutive fresh
 //!   points;
 //! - every later prime draws exactly the points needed (the most Thiele
@@ -509,9 +510,14 @@ impl<'a> SampledSource<'a> {
             if open.is_empty() {
                 break;
             }
-            // Double the points drawn so far, within the budget.
-            count = samples[0]
-                .drawn
+            // Grow by a quarter of the points drawn so far (at least an eighth
+            // of a batch), within the budget: a terminal that needs a few
+            // points more than the first batch is not replayed at twice its
+            // need (vk5l-physrun: 828's channels need ~69 points, doubling
+            // replayed 128). The points come from the same seeded generator
+            // in the same order, so the converged interpolants are the same.
+            count = (samples[0].drawn / 4)
+                .max(self.options.batch_points / 8)
                 .min(self.options.max_points_per_prime - samples[0].drawn)
                 .max(1);
         }

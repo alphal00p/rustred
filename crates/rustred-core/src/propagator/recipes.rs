@@ -104,11 +104,31 @@ static OUTSIDE_OVERRIDES: RwLock<BTreeMap<String, POutsidePolicy>> = RwLock::new
 /// Set the outside policy of the boxed node `node` in this process (tests,
 /// embedders); it wins over [`OUTSIDE_POLICY_ENV`].
 pub fn set_outside_policy_for(node: &str, policy: POutsidePolicy) {
+    if policy == POutsidePolicy::Refuse {
+        REFUSE_OVERRIDDEN.store(true, Ordering::Relaxed);
+    }
     OUTSIDE_OVERRIDES
         .write()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(node.to_owned(), policy);
 }
+
+/// Whether any node may refuse outside keys in this process (an override
+/// or the environment says `refuse`): enables the early check of step
+/// children (a Solve-only process skips it).
+pub fn refuse_policy_anywhere() -> bool {
+    static FROM_ENV: OnceLock<bool> = OnceLock::new();
+    REFUSE_OVERRIDDEN.load(Ordering::Relaxed)
+        || *FROM_ENV.get_or_init(|| {
+            matches!(
+                std::env::var(OUTSIDE_POLICY_ENV).as_deref().map(str::trim),
+                Ok("refuse" | "off" | "0")
+            )
+        })
+}
+
+/// Set once a node is given the Refuse policy ([`set_outside_policy_for`]).
+static REFUSE_OVERRIDDEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// The outside policy of `node`: its override, else [`OUTSIDE_POLICY_ENV`]
 /// (`refuse` / `off` / `0` refuse; anything else solves).
@@ -123,6 +143,175 @@ pub fn outside_policy_of(node: &str) -> POutsidePolicy {
     match std::env::var(OUTSIDE_POLICY_ENV).as_deref().map(str::trim) {
         Ok("refuse" | "off" | "0") => POutsidePolicy::Refuse,
         _ => POutsidePolicy::Solve,
+    }
+}
+
+/// Optional cap of the size of a regular relation relative to a relation
+/// with a (d-4) pole already found: `unbounded` (default) or a rational >= 1
+/// (`3/2`, `2`).
+pub const OUTSIDE_MAX_SIZE_RATIO_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_SIZE_RATIO";
+
+/// The settings of run-time solves at keys outside a certified set
+/// (programmatic, for embedders such as vakint; the environment is the
+/// fallback when none were set).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct POutsideSettings {
+    /// Recipe families tried at one key. 0 = LIST-ONLY (batch 11, for a
+    /// coverage pass): no recipe is solved; a key no rule and no shipped or
+    /// cached entry takes gets the typed refusal at once, which
+    /// `PUncoveredPolicy::Retain` keeps as a residual terminal, so one forward
+    /// pass lists every arrival outside the certified sets.
+    pub max_recipes: usize,
+    /// Trace-row cap of one solve.
+    pub max_trace_rows: usize,
+    /// Prefer a relation regular at d = 4 (default on): a relation with a
+    /// (d-4) pole is kept as fallback while the next families are tried.
+    pub prefer_regular_at_4: bool,
+    /// `None` (default, "unbounded"): a regular relation ALWAYS wins, whatever
+    /// its size. `Some((p, q))`: a regular relation wins over a pole relation
+    /// already found only when its number of terms is at most p/q times the
+    /// pole relation's (p/q >= 1); a larger one is set aside and the search
+    /// goes on; when no regular relation qualifies, the smallest pole relation
+    /// is taken.
+    pub max_size_ratio: Option<(u64, u64)>,
+    /// Outside the certified set the table's first match comes first (its
+    /// rules are parametric and strictly lowering; the step is counted as an
+    /// outside rule step). `false`: certified-only use, the rules are not
+    /// applied outside the set (entries, then recipes, then the refusal).
+    pub rules_outside: bool,
+    /// Wall bound of ONE recipe solve at an outside key (a lift cannot be
+    /// interrupted: the wait stops, the solve is typed BUDGET and its engine
+    /// session group is retired); `None`: no bound.
+    pub max_seconds_per_solve: Option<f64>,
+    /// Wall bound of all recipe solves at one outside key; `None`: no bound.
+    pub max_seconds_per_key: Option<f64>,
+}
+
+/// Defaults of the two outside-solve wall bounds (seconds).
+pub const OUTSIDE_MAX_SECONDS_PER_SOLVE: f64 = 120.0;
+pub const OUTSIDE_MAX_SECONDS_PER_KEY: f64 = 600.0;
+
+impl Default for POutsideSettings {
+    fn default() -> Self {
+        Self {
+            max_recipes: OUTSIDE_MAX_RECIPES,
+            max_trace_rows: OUTSIDE_MAX_TRACE_ROWS,
+            prefer_regular_at_4: true,
+            max_size_ratio: None,
+            rules_outside: true,
+            max_seconds_per_solve: Some(OUTSIDE_MAX_SECONDS_PER_SOLVE),
+            max_seconds_per_key: Some(OUTSIDE_MAX_SECONDS_PER_KEY),
+        }
+    }
+}
+
+/// Parse a size ratio: `unbounded` -> `None`, `p/q` or `p` (>= 1) -> `Some`.
+pub fn parse_size_ratio(text: &str) -> Result<Option<(u64, u64)>, String> {
+    let text = text.trim();
+    if text.eq_ignore_ascii_case("unbounded") {
+        return Ok(None);
+    }
+    let (p, q) = match text.split_once('/') {
+        Some((p, q)) => (p.trim(), q.trim()),
+        None => (text, "1"),
+    };
+    let (Ok(p), Ok(q)) = (p.parse::<u64>(), q.parse::<u64>()) else {
+        return Err(format!(
+            "max_size_ratio {text:?}: `unbounded` or a rational p/q >= 1"
+        ));
+    };
+    if q == 0 || p < q {
+        return Err(format!("max_size_ratio {text:?}: must be a rational >= 1"));
+    }
+    Ok(Some((p, q)))
+}
+
+static OUTSIDE_SETTINGS: RwLock<Option<POutsideSettings>> = RwLock::new(None);
+static NODE_OUTSIDE_SETTINGS: RwLock<BTreeMap<String, POutsideSettings>> =
+    RwLock::new(BTreeMap::new());
+
+/// Set the outside-solve settings of this process.
+pub fn set_outside_settings(settings: POutsideSettings) {
+    *OUTSIDE_SETTINGS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(settings);
+}
+
+/// Set the outside-solve settings of node `node` (wins over the process's).
+pub fn set_outside_settings_for(node: &str, settings: POutsideSettings) {
+    NODE_OUTSIDE_SETTINGS
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .insert(node.to_owned(), settings);
+}
+
+/// The outside-solve settings in force for `node`: its own, the process's,
+/// else the environment over the defaults.
+pub fn outside_settings_of(node: &str) -> POutsideSettings {
+    if let Some(settings) = NODE_OUTSIDE_SETTINGS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(node)
+    {
+        return *settings;
+    }
+    if let Some(settings) = *OUTSIDE_SETTINGS
+        .read()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    {
+        return settings;
+    }
+    POutsideSettings {
+        // 0 is accepted here: list-only (see `POutsideSettings::max_recipes`)
+        max_recipes: std::env::var(OUTSIDE_MAX_RECIPES_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse().ok())
+            .unwrap_or(OUTSIDE_MAX_RECIPES),
+        max_trace_rows: env_cap(OUTSIDE_MAX_TRACE_ROWS_ENV, OUTSIDE_MAX_TRACE_ROWS),
+        prefer_regular_at_4: !matches!(
+            std::env::var(PREFER_REGULAR_ENV).as_deref().map(str::trim),
+            Ok("0" | "off" | "no" | "false")
+        ),
+        max_size_ratio: std::env::var(OUTSIDE_MAX_SIZE_RATIO_ENV)
+            .ok()
+            .and_then(|text| match parse_size_ratio(&text) {
+                Ok(ratio) => Some(ratio),
+                Err(error) => {
+                    eprintln!("rustred: {OUTSIDE_MAX_SIZE_RATIO_ENV} ignored: {error}");
+                    None
+                }
+            })
+            .flatten(),
+        rules_outside: !matches!(
+            std::env::var(OUTSIDE_RULES_ENV).as_deref().map(str::trim),
+            Ok("0" | "off" | "no" | "false")
+        ),
+        max_seconds_per_solve: env_seconds(
+            OUTSIDE_MAX_SECONDS_PER_SOLVE_ENV,
+            OUTSIDE_MAX_SECONDS_PER_SOLVE,
+        ),
+        max_seconds_per_key: env_seconds(
+            OUTSIDE_MAX_SECONDS_PER_KEY_ENV,
+            OUTSIDE_MAX_SECONDS_PER_KEY,
+        ),
+    }
+}
+
+/// `off` / `0`: certified-only use, no table rules outside the set.
+pub const OUTSIDE_RULES_ENV: &str = "RUSTRED_P_OUTSIDE_RULES";
+/// Seconds (or `unbounded`) of one outside recipe solve / of all at one key.
+pub const OUTSIDE_MAX_SECONDS_PER_SOLVE_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_SECONDS_PER_SOLVE";
+pub const OUTSIDE_MAX_SECONDS_PER_KEY_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_SECONDS_PER_KEY";
+
+fn env_seconds(name: &str, default: f64) -> Option<f64> {
+    match std::env::var(name).as_deref().map(str::trim) {
+        Ok(text) if text.eq_ignore_ascii_case("unbounded") => None,
+        Ok(text) => text
+            .parse::<f64>()
+            .ok()
+            .filter(|s| *s > 0.0)
+            .or(Some(default)),
+        Err(_) => Some(default),
     }
 }
 
@@ -781,9 +970,51 @@ pub trait PRecipeSolver: Send + Sync {
         record: &RecipeRecord,
         key_table: &[i64],
     ) -> Result<Value, String>;
+
+    /// [`Self::solve`] within a wall bound: `Err` starting with
+    /// [`BUDGET_WALL_PREFIX`] when it passed (default: no bound).
+    fn solve_within(
+        &self,
+        bundle: &RecipeBundle,
+        record: &RecipeRecord,
+        key_table: &[i64],
+        _budget: Option<std::time::Duration>,
+    ) -> Result<Value, String> {
+        self.solve(bundle, record, key_table)
+    }
 }
 
-type Job = (String, Vec<i64>, mpsc::Sender<Result<Value, String>>);
+/// The error text of a solve stopped by its wall bound.
+pub const BUDGET_WALL_PREFIX: &str = "budget_wall:";
+
+type Job = (
+    String,
+    Vec<i64>,
+    mpsc::Sender<Result<Value, String>>,
+    Arc<std::sync::atomic::AtomicU8>,
+);
+
+/// Job states: the waiter and the worker agree on who owns a solve that
+/// passed its wall bound (exactly one of them wins the transition).
+const JOB_PENDING: u8 = 0;
+const JOB_DONE: u8 = 1;
+const JOB_ABANDONED: u8 = 2;
+
+/// Lifts abandoned at their wall bound and still running (a lift cannot be
+/// interrupted: its thread ends when the lift does).
+static ABANDONED_RUNNING: AtomicU64 = AtomicU64::new(0);
+
+/// At most this many abandoned lifts may run at once (default: the solver's
+/// worker count, at least 1): while the cap is reached a bounded solve is
+/// refused at once (typed BUDGET), so abandoned lifts never pile up on the
+/// CPUs and memory of a request. (The former default 1 refused every later
+/// bounded solve of the process once one solve had passed its time bound.)
+pub const OUTSIDE_MAX_ABANDONED_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_ABANDONED";
+
+/// Abandoned lifts still running in this process.
+pub fn abandoned_solves_running() -> u64 {
+    ABANDONED_RUNNING.load(Ordering::Relaxed)
+}
 
 /// One (chart, symmetry rows, work limit) group: engine sessions in worker
 /// threads, each prepared once, fed by one queue.
@@ -867,14 +1098,28 @@ impl EngineRecipeSolver {
                         symmetry,
                         &opts,
                         |solve| {
-                            while let Some((recipe, key, reply)) = next() {
-                                let _ = reply.send(Ok(solve(&recipe, &key)));
+                            while let Some((recipe, key, reply, state)) = next() {
+                                let result = solve(&recipe, &key);
+                                let mine = state
+                                    .compare_exchange(
+                                        JOB_PENDING,
+                                        JOB_DONE,
+                                        Ordering::AcqRel,
+                                        Ordering::Acquire,
+                                    )
+                                    .is_ok();
+                                if mine {
+                                    let _ = reply.send(Ok(result));
+                                } else {
+                                    // abandoned at its wall bound: this lift is over
+                                    ABANDONED_RUNNING.fetch_sub(1, Ordering::Relaxed);
+                                }
                             }
                         },
                     );
                     // A preparation failure answers every job with it.
                     if let Err(error) = served {
-                        while let Some((_, _, reply)) = next() {
+                        while let Some((_, _, reply, _)) = next() {
                             let _ = reply.send(Err(format!("engine preparation: {error}")));
                         }
                     }
@@ -889,6 +1134,13 @@ impl EngineRecipeSolver {
     }
 }
 
+impl EngineRecipeSolver {
+    /// The cap on abandoned lifts running at once ([`OUTSIDE_MAX_ABANDONED_ENV`]; default the worker count).
+    fn abandoned_cap(&self) -> u64 {
+        env_cap(OUTSIDE_MAX_ABANDONED_ENV, self.workers.max(1)) as u64
+    }
+}
+
 impl PRecipeSolver for EngineRecipeSolver {
     fn solve(
         &self,
@@ -896,17 +1148,84 @@ impl PRecipeSolver for EngineRecipeSolver {
         record: &RecipeRecord,
         key_table: &[i64],
     ) -> Result<Value, String> {
+        self.solve_within(bundle, record, key_table, None)
+    }
+
+    /// A lift cannot be interrupted: past the bound the wait stops, the
+    /// group is retired (its busy worker ends after its lift, the next solve
+    /// of that group prepares a fresh one) and the solve is typed BUDGET.
+    fn solve_within(
+        &self,
+        bundle: &RecipeBundle,
+        record: &RecipeRecord,
+        key_table: &[i64],
+        budget: Option<std::time::Duration>,
+    ) -> Result<Value, String> {
+        if budget.is_some() {
+            let cap = self.abandoned_cap();
+            let running = ABANDONED_RUNNING.load(Ordering::Relaxed);
+            if running >= cap {
+                return Err(format!(
+                    "{BUDGET_WALL_PREFIX} {running} earlier solve(s) over their wall bound still running (cap {cap}); \
+                     no new solve started"
+                ));
+            }
+        }
         let group = self.group(bundle, record)?;
         let (reply, answer) = mpsc::channel();
+        let state = Arc::new(std::sync::atomic::AtomicU8::new(JOB_PENDING));
         group
             .queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .send((record.recipe.to_string(), key_table.to_vec(), reply))
+            .send((
+                record.recipe.to_string(),
+                key_table.to_vec(),
+                reply,
+                Arc::clone(&state),
+            ))
             .map_err(|_| "the recipe worker stopped".to_owned())?;
-        answer
-            .recv()
-            .map_err(|_| "the recipe worker stopped without an answer".to_owned())?
+        let Some(budget) = budget else {
+            return answer
+                .recv()
+                .map_err(|_| "the recipe worker stopped without an answer".to_owned())?;
+        };
+        match answer.recv_timeout(budget) {
+            Ok(result) => result,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                if state
+                    .compare_exchange(
+                        JOB_PENDING,
+                        JOB_ABANDONED,
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
+                    .is_err()
+                {
+                    // the lift ended just now: its answer is on its way
+                    return answer
+                        .recv()
+                        .map_err(|_| "the recipe worker stopped without an answer".to_owned())?;
+                }
+                ABANDONED_RUNNING.fetch_add(1, Ordering::Relaxed);
+                let key = (
+                    record.chart().to_owned(),
+                    record.symmetry_rows(),
+                    record.max_trace_rows,
+                );
+                self.groups
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(&key);
+                Err(format!(
+                    "{BUDGET_WALL_PREFIX} the solve exceeded its wall bound of {:.0} s",
+                    budget.as_secs_f64()
+                ))
+            }
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                Err("the recipe worker stopped without an answer".to_owned())
+            }
+        }
     }
 }
 
@@ -947,6 +1266,12 @@ fn solver_for(node: &str) -> Arc<dyn PRecipeSolver> {
 pub struct RecipeCacheRoots {
     pub user: Option<PathBuf>,
     pub prefilled: Vec<PathBuf>,
+    /// Size cap of the user root's relation entries (bytes); `None`: the
+    /// environment ([`super::relation_entries::MAX_BYTES_ENV`]), else none.
+    pub max_bytes: Option<u64>,
+    /// Whether relation entries of evidence level `none` are used; `None`:
+    /// the environment ([`super::relation_entries::ALLOW_FIELD_ENV`]), else yes.
+    pub allow_field: Option<bool>,
 }
 
 static CACHE_ROOTS: RwLock<Option<RecipeCacheRoots>> = RwLock::new(None);
@@ -1007,7 +1332,56 @@ pub fn recipe_cache_roots() -> RecipeCacheRoots {
                     .collect()
             })
             .unwrap_or_default(),
+        max_bytes: None,
+        allow_field: None,
     }
+}
+
+/// The bytes of relation entries on disk under the user (writable) root in
+/// force for this process (all nodes; 0 without a root).
+pub fn relation_cache_bytes_on_disk() -> u64 {
+    recipe_cache_roots()
+        .user
+        .as_deref()
+        .map_or(0, super::relation_entries::bytes_on_disk)
+}
+
+/// vk5l WP2 producer: the CHECKER recipe family at `key_table` (the family
+/// that solved 969 of the 1,000 heaviest T266 rules at their keys,
+/// artefacts/size/recipe_vs_table_T266.json): one centre one step DOWN the
+/// first dotted line (else one step UP the first negative numerator, else the
+/// key), `min_offset` -1 on every dotted line, sector filter, symmetry rows,
+/// relation rule `m1_first`, shells S0..S2 (depth 2) or S0..S3 (depth >= 3);
+/// `symmetry_rows: false` gives the `-nosym` variant.
+pub fn checker_family(node: &str, key_table: &[i64], depth: u8, symmetry_rows: bool) -> Value {
+    let mut centre = vec![0_i64; key_table.len()];
+    let dotted: Vec<usize> = (0..key_table.len())
+        .filter(|&slot| key_table[slot] > 1)
+        .collect();
+    if let Some(&slot) = dotted.first() {
+        centre[slot] = -1;
+    } else if let Some(slot) = key_table.iter().position(|&power| power < 0) {
+        centre[slot] = 1;
+    }
+    let chart: String = key_table
+        .iter()
+        .map(|&power| if power > 0 { '1' } else { '0' })
+        .collect();
+    let shells: &[&str] = if depth >= 3 {
+        &["S0", "S1", "Sm1", "S1m1", "S2", "S3"]
+    } else {
+        &["S0", "S1", "Sm1", "S1m1", "S2"]
+    };
+    let min_offset: serde_json::Map<String, Value> = dotted
+        .iter()
+        .map(|slot| (slot.to_string(), json!(-1)))
+        .collect();
+    let variant = if symmetry_rows { "" } else { "-nosym" };
+    json!({"schema": "rustred.recipe.v1", "id": format!("{node}/checker-d{depth}{variant}"),
+        "arity": key_table.len(), "chart": chart, "domain": {"keys": [key_table]},
+        "seeds": {"centres": [centre], "generator": {"shells": shells}, "min_offset": min_offset,
+                  "sector_filter": true},
+        "symmetry_rows": symmetry_rows, "relation_rule": "m1_first"})
 }
 
 /// The node identity of a bundle (relation entries; family text + node
@@ -1090,6 +1464,14 @@ pub struct RecipeStatistics {
     /// the outside keys no recipe family solved.
     pub outside_solves: u64,
     pub outside_failures: u64,
+    /// Outside keys taken by a table rule / served by a relation entry, and
+    /// outside solves stopped by a wall bound.
+    pub outside_rule_steps: u64,
+    pub outside_entry_hits: u64,
+    pub outside_budget_hits: u64,
+    /// Keys outside a certified set left unsolved in list-only mode
+    /// (`max_recipes` 0): no rule or entry took them.
+    pub outside_listed: u64,
 }
 
 static SOLVES: AtomicU64 = AtomicU64::new(0);
@@ -1100,6 +1482,20 @@ static USER_HITS: AtomicU64 = AtomicU64::new(0);
 static FAILURES: AtomicU64 = AtomicU64::new(0);
 static OUTSIDE_SOLVES: AtomicU64 = AtomicU64::new(0);
 static OUTSIDE_FAILURES: AtomicU64 = AtomicU64::new(0);
+static OUTSIDE_RULE_STEPS: AtomicU64 = AtomicU64::new(0);
+static OUTSIDE_ENTRY_HITS: AtomicU64 = AtomicU64::new(0);
+static OUTSIDE_LISTED: AtomicU64 = AtomicU64::new(0);
+static OUTSIDE_BUDGET_HITS: AtomicU64 = AtomicU64::new(0);
+
+/// vk5l WP2: an outside key taken by a table rule (counted by the step).
+pub fn count_outside_rule_step() {
+    OUTSIDE_RULE_STEPS.fetch_add(1, Ordering::Relaxed);
+}
+
+/// vk5l WP2: an outside key served by a shipped entry before the table.
+pub fn count_outside_entry_hit() {
+    OUTSIDE_ENTRY_HITS.fetch_add(1, Ordering::Relaxed);
+}
 
 /// The counters since the start of the process.
 pub fn recipe_statistics() -> RecipeStatistics {
@@ -1112,6 +1508,10 @@ pub fn recipe_statistics() -> RecipeStatistics {
         failures: FAILURES.load(Ordering::Relaxed),
         outside_solves: OUTSIDE_SOLVES.load(Ordering::Relaxed),
         outside_failures: OUTSIDE_FAILURES.load(Ordering::Relaxed),
+        outside_rule_steps: OUTSIDE_RULE_STEPS.load(Ordering::Relaxed),
+        outside_entry_hits: OUTSIDE_ENTRY_HITS.load(Ordering::Relaxed),
+        outside_budget_hits: OUTSIDE_BUDGET_HITS.load(Ordering::Relaxed),
+        outside_listed: OUTSIDE_LISTED.load(Ordering::Relaxed),
     }
 }
 
@@ -1172,11 +1572,15 @@ impl RecipeDispatch {
         let _ = (family_fingerprint, support);
         let roots = recipe_cache_roots_of(&bundle.node);
         let node_identity = bundle_node_identity(&bundle);
-        let cache = super::relation_entries::RelationStore::new(
+        let cache = super::relation_entries::RelationStore::with_options(
             &bundle.node,
             &node_identity,
             &roots.prefilled,
             roots.user.as_deref(),
+            super::relation_entries::StoreOptions {
+                max_bytes: roots.max_bytes,
+                allow_field: roots.allow_field,
+            },
         );
         Ok(Self {
             node_identity,
@@ -1305,6 +1709,18 @@ impl RecipeDispatch {
         let Some((entry, source)) = self.cache.get(key_table) else {
             return Ok(None);
         };
+        Ok(self.checked_entry(record, key, key_table, &entry, source))
+    }
+
+    /// An entry read from the store, checked as a fresh solve ([`Self::verified`]).
+    fn checked_entry(
+        &self,
+        record: &RecipeRecord,
+        key: &[i64],
+        key_table: &[i64],
+        entry: &Value,
+        source: super::relation_entries::StoreSource,
+    ) -> Option<(Relation, RelationSource)> {
         match self.verified(record, key, key_table, &entry["body"]) {
             Ok(relation) => {
                 let source = match source {
@@ -1317,14 +1733,14 @@ impl RecipeDispatch {
                         RelationSource::UserCache
                     }
                 };
-                Ok(Some((relation, source)))
+                Some((relation, source))
             }
             Err(error) => {
                 eprintln!(
                     "rustred: relation entry {} of {} at {key_table:?} not used: {error}",
                     entry["entry_digest"], self.bundle.node
                 );
-                Ok(None)
+                None
             }
         }
     }
@@ -1383,52 +1799,150 @@ impl RecipeDispatch {
     /// the persistent cache. No family solves:
     /// [`PRecipeFailureKind::OutsideNoRelation`] with every attempt.
     /// Returns the relation and the id of the family that solved it.
-    pub fn solve_outside(&self, key: &[i64]) -> Result<(Arc<Relation>, String), PError> {
-        if let Some((relation, id)) = self
-            .outside
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(key)
-            .cloned()
-        {
-            MEMO_HITS.fetch_add(1, Ordering::Relaxed);
-            return Ok((relation, id));
+    pub fn solve_outside(&self, key: &[i64]) -> Result<Option<(Arc<Relation>, String)>, PError> {
+        // shipped entries and the persistent cache first (with or without
+        // recipe families)
+        if let Some(found) = self.served_entry(key)? {
+            OUTSIDE_ENTRY_HITS.fetch_add(1, Ordering::Relaxed);
+            return Ok(Some(found));
         }
+        if outside_settings_of(&self.bundle.node).max_recipes == 0 {
+            // list-only: the caller's typed refusal (retained under Retain)
+            OUTSIDE_LISTED.fetch_add(1, Ordering::Relaxed);
+            return Ok(None);
+        }
+        self.solve_at_key(key, Vec::new(), true, None)
+    }
+
+    /// vk5l WP2 producer (plan/ARTIFACT_MANIFEST.md): an EXPLICIT relation at
+    /// `key` (presentation slots; any key of the node, inside or outside the
+    /// certified set, whatever rule serves it): an entry already in the
+    /// stores is returned (resumable), else the checker families of
+    /// `depths` ([`checker_family`]) re-centred on the key, then the outside
+    /// families, under the node's [`POutsideSettings`] (bounds, d = 4
+    /// preference); the winner is written to the writable cache root with
+    /// `outside_certified_set = outside`. `Ok(None)`: no family at all.
+    /// With `closure` (the certified set, TABLE frame) a relation counts only
+    /// when every top-sector key of its right-hand side is in the set (else
+    /// the attempt is `RHS_OUTSIDE_CERTIFIED` and the next family is tried;
+    /// each checker depth then also has a variant without symmetry rows,
+    /// whose relations do not trade a key for its mirror image).
+    pub fn produce(
+        &self,
+        key: &[i64],
+        depths: &[u8],
+        outside: bool,
+        closure: Option<&super::certified_keys::CertifiedKeySet>,
+    ) -> Result<Option<(Arc<Relation>, String)>, PError> {
+        if let Some(found) = self.served_entry(key)? {
+            return Ok(Some(found));
+        }
+        let key_table = self.bundle.to_table(key);
+        let settings = outside_settings_of(&self.bundle.node);
+        let mut first = Vec::new();
+        for &depth in depths {
+            let variants: &[bool] = if closure.is_some() {
+                &[true, false]
+            } else {
+                &[true]
+            };
+            for &symmetry_rows in variants {
+                let recipe = checker_family(&self.bundle.node, &key_table, depth, symmetry_rows);
+                let id = recipe["id"].as_str().unwrap_or("").to_owned();
+                let mut record = RecipeBundle::record_of(&recipe.to_string())?;
+                record.max_trace_rows = Some(settings.max_trace_rows.max(1));
+                first.push((id, record));
+            }
+        }
+        self.solve_at_key(key, first, outside, closure)
+    }
+
+    /// The top-sector keys of `relation` (TABLE frame) that `closure` does not
+    /// hold (`key` in presentation slots).
+    fn rhs_outside(
+        &self,
+        key: &[i64],
+        relation: &Relation,
+        closure: &super::certified_keys::CertifiedKeySet,
+    ) -> Vec<Vec<i64>> {
+        let sector = |powers: &[i64]| powers.iter().map(|&p| p > 0).collect::<Vec<bool>>();
+        let top = sector(key);
+        relation
+            .children
+            .iter()
+            .filter(|(child, _)| sector(child) == top)
+            .map(|(child, _)| self.bundle.to_table(child))
+            .filter(|child| !closure.contains(child))
+            .collect()
+    }
+
+    /// The bounded family loop of [`Self::solve_outside`] /
+    /// [`Self::produce`]: `first` families, then the outside families.
+    fn solve_at_key(
+        &self,
+        key: &[i64],
+        first: Vec<(String, RecipeRecord)>,
+        outside: bool,
+        closure: Option<&super::certified_keys::CertifiedKeySet>,
+    ) -> Result<Option<(Arc<Relation>, String)>, PError> {
         let key_table = self.bundle.to_table(key);
         let chart: String = key_table
             .iter()
             .map(|&p| if p > 0 { '1' } else { '0' })
             .collect();
-        let max_recipes = env_cap(OUTSIDE_MAX_RECIPES_ENV, OUTSIDE_MAX_RECIPES);
-        let max_rows = env_cap(OUTSIDE_MAX_TRACE_ROWS_ENV, OUTSIDE_MAX_TRACE_ROWS);
-        let families = self.outside_families(&key_table, &chart, max_rows)?;
-        if let Some((_, first)) = families.first()
-            && let Some((relation, _)) = self.stored(first, key, &key_table)?
-        {
-            let id = self
-                .cache
-                .get(&key_table)
-                .and_then(|(entry, _)| entry["recipe"]["id"].as_str().map(str::to_owned))
-                .unwrap_or_default();
-            let relation = Arc::new(relation);
-            self.remember_outside(key, &relation, &id);
-            return Ok((relation, id));
+        let settings = outside_settings_of(&self.bundle.node);
+        let max_recipes = settings.max_recipes.max(1);
+        let max_rows = settings.max_trace_rows.max(1);
+        let mut families = first;
+        families.extend(self.outside_families(&key_table, &chart, max_rows)?);
+        if families.is_empty() {
+            // no entry and no recipe family: the caller's typed refusal
+            return Ok(None);
         }
-        let prefer_regular = !matches!(
-            std::env::var(PREFER_REGULAR_ENV).as_deref().map(str::trim),
-            Ok("0" | "off" | "no" | "false")
-        );
+        let prefer_regular = settings.prefer_regular_at_4;
         let tried = families.len().min(max_recipes);
         let mut attempts = Vec::new();
         let mut first_failure: Option<PRecipeFailure> = None;
         let mut fallback: Option<(Arc<Relation>, String, RecipeRecord, Value)> = None;
+        let mut too_large = false;
+        let key_started = Instant::now();
         for (id, at_key) in families.iter().take(max_recipes) {
+            let left = settings
+                .max_seconds_per_key
+                .map(|limit| limit - key_started.elapsed().as_secs_f64());
+            if left.is_some_and(|left| left <= 0.0) {
+                attempts.push(
+                    json!({"recipe": id, "kind": "BUDGET", "class": "budget_key",
+                    "message": "the wall bound of this key was used up before this family"}),
+                );
+                OUTSIDE_BUDGET_HITS.fetch_add(1, Ordering::Relaxed);
+                break;
+            }
+            let bound = match (settings.max_seconds_per_solve, left) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            }
+            .map(|seconds| std::time::Duration::from_secs_f64(seconds.max(0.001)));
             let started = Instant::now();
-            let solved = self.solver.solve(&self.bundle, at_key, &key_table);
+            let solved = self
+                .solver
+                .solve_within(&self.bundle, at_key, &key_table, bound);
             OUTSIDE_SOLVES.fetch_add(1, Ordering::Relaxed);
             SOLVE_MICROS.fetch_add(started.elapsed().as_micros() as u64, Ordering::Relaxed);
             let verified = match &solved {
                 Ok(value) => self.verified(at_key, key, &key_table, value),
+                Err(error) if error.starts_with(BUDGET_WALL_PREFIX) => {
+                    OUTSIDE_BUDGET_HITS.fetch_add(1, Ordering::Relaxed);
+                    Err(self.failure(
+                        at_key,
+                        key,
+                        &key_table,
+                        PRecipeFailureKind::Budget,
+                        "budget_wall",
+                        error,
+                        json!({"message": error, "bound_s": bound.map(|b| b.as_secs_f64())}),
+                    ))
+                }
                 Err(error) => Err(self.failure(
                     at_key,
                     key,
@@ -1441,14 +1955,35 @@ impl RecipeDispatch {
             };
             match verified {
                 Ok(relation) => {
+                    if let Some(closure) = closure {
+                        let leaving = self.rhs_outside(key, &relation, closure);
+                        if !leaving.is_empty() {
+                            attempts.push(json!({"recipe": id, "kind": "RHS_OUTSIDE_CERTIFIED",
+                                "keys": leaving.len(), "first": leaving[0]}));
+                            continue;
+                        }
+                    }
                     let relation = Arc::new(relation);
                     let value = solved.unwrap_or(Value::Null);
                     let regular = relation.pole_order_at_4 == Some(0);
                     attempts.push(json!({"recipe": id, "kind": "SOLVED",
                         "pole_order_at_4": relation.pole_order_at_4}));
+                    let terms = relation.children.len() as u128;
+                    // a regular relation wins unless a size ratio is set and it
+                    // is more than p/q times the smallest pole relation found
+                    let within_ratio = match (&fallback, settings.max_size_ratio) {
+                        (Some((pole, ..)), Some((p, q))) => {
+                            terms * u128::from(q) <= u128::from(p) * pole.children.len() as u128
+                        }
+                        _ => true,
+                    };
+                    if regular && !within_ratio {
+                        too_large = true;
+                        continue;
+                    }
                     if regular || !prefer_regular {
                         let alternative = if regular { "yes" } else { "not_tried" };
-                        return Ok(self.keep_outside(
+                        return Ok(Some(self.keep_outside(
                             key,
                             &key_table,
                             id,
@@ -1456,9 +1991,13 @@ impl RecipeDispatch {
                             &value,
                             relation,
                             alternative,
-                        ));
+                            outside,
+                        )));
                     }
-                    if fallback.is_none() {
+                    let smaller = fallback
+                        .as_ref()
+                        .is_none_or(|(pole, ..)| relation.children.len() < pole.children.len());
+                    if smaller {
                         fallback = Some((relation, id.clone(), at_key.clone(), value));
                     }
                 }
@@ -1471,18 +2010,38 @@ impl RecipeDispatch {
             }
         }
         if let Some((relation, id, at_key, value)) = fallback {
-            return Ok(self.keep_outside(key, &key_table, &id, &at_key, &value, relation, "no"));
+            let alternative = if too_large { "too_large" } else { "no" };
+            return Ok(Some(self.keep_outside(
+                key,
+                &key_table,
+                &id,
+                &at_key,
+                &value,
+                relation,
+                alternative,
+                outside,
+            )));
         }
         OUTSIDE_FAILURES.fetch_add(1, Ordering::Relaxed);
         FAILURES.fetch_add(1, Ordering::Relaxed);
-        let message = format!(
-            "the key is outside the certified set of {}; no rule takes it and {} of {} recipe families of chart {chart} \
-             (at most {max_recipes}, {max_rows} trace rows each) gave no verified relation at it",
-            self.bundle.node,
-            tried,
-            families.len()
-        );
-        let detail = json!({"outside_certified_set": true, "chart": chart, "families": families.len(),
+        let message = if outside {
+            format!(
+                "the key is outside the certified set of {}; no rule takes it and {} of {} recipe families of chart {chart} \
+                 (at most {max_recipes}, {max_rows} trace rows each) gave no verified relation at it",
+                self.bundle.node,
+                tried,
+                families.len()
+            )
+        } else {
+            format!(
+                "producer: {} of {} recipe families of chart {chart} (at most {max_recipes}, {max_rows} trace rows each) \
+                 gave no verified relation at this key of {}",
+                tried,
+                families.len(),
+                self.bundle.node
+            )
+        };
+        let detail = json!({"outside_certified_set": outside, "chart": chart, "families": families.len(),
             "tried": tried, "max_recipes": max_recipes, "max_trace_rows": max_rows, "attempts": attempts});
         let error = match first_failure {
             Some(mut failed) => {
@@ -1519,6 +2078,70 @@ impl RecipeDispatch {
         Err(error)
     }
 
+    /// vk5l WP2: the relation of `key` (presentation slots) from the
+    /// in-process memo of served keys, the shipped relation entries or the
+    /// persistent cache, with no solve and no recipe record needed (a boxed
+    /// node without recipes is served by its entries alone). The entry is
+    /// checked as a fresh solve is ([`Self::verified`]; an entry that fails is
+    /// ignored with one stderr line). Returns the relation and the id of the
+    /// recipe (or relation source) the entry names.
+    /// vk5l WP2 (manifest): the relation of `key` from a shipped entry whose
+    /// node manifest says `over_table` (used BEFORE the table's first match);
+    /// `None` for every other key, with nothing read. Checked as
+    /// [`Self::served_entry`].
+    pub fn entry_over_table(&self, key: &[i64]) -> Result<Option<(Arc<Relation>, String)>, PError> {
+        if !self.cache.over_table() {
+            return Ok(None);
+        }
+        if !self.cache.is_over_table(&self.bundle.to_table(key)) {
+            return Ok(None);
+        }
+        let found = self.served_entry(key)?;
+        if found.is_some() {
+            super::relation_entries::count_over_table_hit();
+        }
+        Ok(found)
+    }
+
+    pub fn served_entry(&self, key: &[i64]) -> Result<Option<(Arc<Relation>, String)>, PError> {
+        if let Some((relation, id)) = self
+            .outside
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(key)
+            .cloned()
+        {
+            MEMO_HITS.fetch_add(1, Ordering::Relaxed);
+            return Ok(Some((relation, id)));
+        }
+        let key_table = self.bundle.to_table(key);
+        let Some((entry, source)) = self.cache.get(&key_table) else {
+            return Ok(None);
+        };
+        let id = entry["recipe"]["id"]
+            .as_str()
+            .map_or_else(|| format!("{}/entry", self.bundle.node), str::to_owned);
+        let named = RecipeRecord {
+            id: id.clone(),
+            recipe: Value::Null,
+            recipe_digest: entry["recipe"]["engine_digest"]
+                .as_str()
+                .unwrap_or("")
+                .to_owned(),
+            domain: RecipeDomain::Keys(Vec::new()),
+            relation_digests: BTreeMap::new(),
+            max_trace_rows: None,
+        };
+        match self.checked_entry(&named, key, &key_table, &entry, source) {
+            Some((relation, _)) => {
+                let relation = Arc::new(relation);
+                self.remember_outside(key, &relation, &id);
+                Ok(Some((relation, id)))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// The winner of an outside solve: memo + persistent cache.
     #[allow(clippy::too_many_arguments)]
     fn keep_outside(
@@ -1530,6 +2153,7 @@ impl RecipeDispatch {
         value: &Value,
         relation: Arc<Relation>,
         alternative: &'static str,
+        outside: bool,
     ) -> (Arc<Relation>, String) {
         let mut named = at_key.clone();
         named.id = id.to_owned();
@@ -1539,7 +2163,7 @@ impl RecipeDispatch {
             key_table,
             value,
             &relation,
-            true,
+            outside,
             alternative,
         );
         self.remember_outside(key, &relation, id);
@@ -1948,6 +2572,9 @@ mod kite_tests {
         answers: Mutex<HashMap<Vec<i64>, Value>>,
         /// Answers for one recipe id (checked first).
         by_recipe: Mutex<HashMap<(String, Vec<i64>), Value>>,
+        /// Declared cost of every solve (seconds): a bounded solve with a
+        /// smaller bound is stopped, as the engine solver's wait is.
+        delay_s: Mutex<f64>,
     }
 
     impl PRecipeSolver for Fake {
@@ -1973,9 +2600,36 @@ mod kite_tests {
                 .cloned()
                 .ok_or_else(|| format!("no answer for {key:?}"))
         }
+
+        fn solve_within(
+            &self,
+            bundle: &RecipeBundle,
+            record: &RecipeRecord,
+            key: &[i64],
+            budget: Option<std::time::Duration>,
+        ) -> Result<Value, String> {
+            self.bounded(bundle, record, key, budget)
+        }
     }
 
     impl Fake {
+        fn bounded(
+            &self,
+            bundle: &RecipeBundle,
+            record: &RecipeRecord,
+            key: &[i64],
+            budget: Option<std::time::Duration>,
+        ) -> Result<Value, String> {
+            let delay = *self.delay_s.lock().unwrap();
+            if budget.is_some_and(|budget| budget.as_secs_f64() < delay) {
+                self.calls.fetch_add(1, Ordering::SeqCst);
+                return Err(format!(
+                    "{BUDGET_WALL_PREFIX} the solve exceeded its wall bound"
+                ));
+            }
+            self.solve(bundle, record, key)
+        }
+
         fn calls(&self) -> u64 {
             self.calls.load(Ordering::SeqCst)
         }
@@ -2155,6 +2809,7 @@ mod kite_tests {
             RecipeCacheRoots {
                 user: Some(user.clone()),
                 prefilled: vec![],
+                ..Default::default()
             },
         );
         let records = vec![record("kite/d0", &[dot(0)], &SHELLS)];
@@ -2189,6 +2844,7 @@ mod kite_tests {
             RecipeCacheRoots {
                 user: Some(user2.clone()),
                 prefilled: vec![user.clone()],
+                ..Default::default()
             },
         );
         let overlay = library(node, &[dot(0)], Some(records));
@@ -2538,6 +3194,7 @@ mod kite_tests {
             RecipeCacheRoots {
                 user: Some(root.clone()),
                 prefilled: vec![],
+                ..Default::default()
             },
         );
         let records = vec![record("kite/d0", &[dot(0)], &SHELLS)];
@@ -2623,7 +3280,8 @@ mod kite_tests {
             &imported.meta,
             &presented(three),
         )
-        .unwrap();
+        .unwrap()
+        .expect("a relation");
         assert_eq!(id, "kite/d1", "the regular relation wins");
         assert_eq!(solved.pole_order_at_4, Some(0));
         // the numerator family: a key with a negative slot (another chart: no record family)
@@ -2639,8 +3297,336 @@ mod kite_tests {
             &imported.meta,
             &presented(numerator),
         )
-        .unwrap();
+        .unwrap()
+        .expect("a relation");
         assert_eq!(id, family);
+    }
+
+    /// User ruling 2026-11-15: by default a regular relation ALWAYS wins,
+    /// whatever its size (max_size_ratio unbounded); with max_size_ratio 2 a
+    /// regular relation of 3 terms loses against a 1-term pole relation (the
+    /// pole one is taken, regular_alternative "too_large").
+    #[test]
+    fn a_regular_relation_wins_whatever_its_size_unless_a_size_ratio_is_set() {
+        let three = [2, 2, 2, 1, 1];
+        let relation = |rhs: Value| {
+            json!({"verdict": "SOLVED", "proof": {"ok": true, "kind": "exact-weights"}, "all_lower": true,
+                   "relation_digest": rhs.to_string(), "rhs": rhs})
+        };
+        let pole = relation(json!([["I(1,1,1,1,1)", "1/(d-4)", "top"]]));
+        let big = relation(json!([
+            ["I(1,1,1,1,1)", "1/(d-3)", "top"],
+            ["I(2,1,1,1,1)", "1", "top"],
+            ["I(1,2,1,1,1)", "1", "top"]
+        ]));
+        for (node, ratio, winner) in [
+            ("KITE-ratio-unbounded", None, "kite/d1"),
+            ("KITE-ratio-2", Some((2, 1)), "kite/d0"),
+            ("KITE-ratio-3", Some((3, 1)), "kite/d1"),
+        ] {
+            let fake = install(node, vec![toy(dot(0)), toy(dot(1))]);
+            fake.by_recipe.lock().unwrap().extend([
+                (("kite/d0@outside".to_owned(), three.to_vec()), pole.clone()),
+                (("kite/d1@outside".to_owned(), three.to_vec()), big.clone()),
+            ]);
+            set_outside_settings_for(
+                node,
+                POutsideSettings {
+                    max_size_ratio: ratio,
+                    ..POutsideSettings::default()
+                },
+            );
+            let records = vec![
+                record("kite/d0", &[dot(0)], &SHELLS),
+                record("kite/d1", &[dot(1)], &["S0", "S1"]),
+            ];
+            let imported = import(node, &[dot(0), dot(1)], Some(records)).unwrap();
+            let (solved, id) = crate::propagator::custom::custom_payload_solve_outside(
+                &imported.presentation,
+                &imported.payload,
+                &imported.meta,
+                &presented(three),
+            )
+            .unwrap()
+            .expect("a relation");
+            assert_eq!(id, winner, "{node}");
+            assert_eq!(
+                solved.pole_order_at_4,
+                Some(u32::from(winner == "kite/d0")),
+                "{node}"
+            );
+        }
+        assert_eq!(parse_size_ratio("unbounded"), Ok(None));
+        assert_eq!(parse_size_ratio("3/2"), Ok(Some((3, 2))));
+        assert_eq!(parse_size_ratio("2"), Ok(Some((2, 1))));
+        assert!(parse_size_ratio("1/2").is_err() && parse_size_ratio("x").is_err());
+    }
+
+    /// Coordinator 2026-11-15 (T266): a boxed node WITHOUT recipe records is
+    /// served by its relation entries: the import embeds the relation binding
+    /// (an empty bundle), a key the rules do not take comes from the shipped
+    /// root (an imported symmetry relation, determinism line
+    /// `rustred.relation-import.v1/`), is reported outside the certified set
+    /// and needs no solver; a key with neither entry nor recipe is the typed
+    /// OutsideCertifiedSet.
+    #[test]
+    fn a_boxed_node_without_recipes_is_served_by_its_relation_entries() {
+        let node = "KITE-entries";
+        let fake = install(node, vec![]);
+        let three = [2, 2, 2, 1, 1];
+        let imported = import(node, &[], None).unwrap();
+        let bundle = recipes_of_source(
+            &crate::propagator::custom::custom_payload_family_source(&imported.payload).unwrap(),
+        )
+        .unwrap()
+        .expect("the relation binding of a boxed import");
+        assert!(bundle.records.is_empty());
+        assert_eq!(
+            bundle.revision,
+            crate::propagator::table_import::RELATION_BINDING_REVISION
+        );
+        let root = std::env::temp_dir().join(format!("rr-entries-only-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let identity = bundle_node_identity(&bundle);
+        let body = json!({"type": "relation", "key": three, "verdict": "SOLVED", "all_lower": true,
+            "proof": {"ok": true, "kind": "symverify"}, "relation_digest": null,
+            "determinism_id": "rustred.relation-import.v1/kind=symmetry_at_key/statement=test",
+            "rhs": [["I(1,1,1,1,1)", "(d-4)/(d-3)", "top"]]});
+        let meta = super::super::relation_entries::EntryMeta {
+            node: node.to_owned(),
+            node_identity: identity.clone(),
+            package_revision: None,
+            recipe_id: format!("{node}/symmetry_at_key"),
+            recipe: json!({}),
+            recipe_digest: String::new(),
+            relation_rule: "symmetry".to_owned(),
+            evidence_level: "per-key",
+            pole_order_at_4: Some(0),
+            regular_alternative: "not_tried",
+            outside_certified_set: true,
+            written_by: "test".to_owned(),
+        };
+        let entry = super::super::relation_entries::build_entry(&meta, &three, body);
+        super::super::relation_entries::RelationStore::new(node, &identity, &[], Some(&root))
+            .put(&entry)
+            .unwrap();
+        set_recipe_cache_roots_for(
+            node,
+            RecipeCacheRoots {
+                user: None,
+                prefilled: vec![root.clone()],
+                ..Default::default()
+            },
+        );
+        let served = certified_library_without_recipes(node);
+        let before = super::super::relation_entries::relation_cache_statistics();
+        let reduced = reduce(&served, three, None, PUncoveredPolicy::Reject).unwrap();
+        let stats = super::super::relation_entries::relation_cache_statistics().since(&before);
+        assert_eq!(outside_of(&reduced), vec![presented(three)]);
+        assert_eq!(reduced.terms.len(), 1, "{:?}", reduced.terms);
+        assert!(stats.shipped_hits >= 1, "{stats:?}");
+        assert_eq!(fake.calls(), 0, "entries, no solve");
+        // neither entry nor recipe: the typed refusal
+        match reduce(&served, [3, 2, 1, 1, 1], None, PUncoveredPolicy::Reject) {
+            Err(PError::OutsideCertifiedSet { node: named, .. }) => assert_eq!(named, node),
+            other => panic!("expected OutsideCertifiedSet, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// vk5l WP2 (manifest, plan/ARTIFACT_MANIFEST.md): a shipped node
+    /// directory written by `write_node_service` with precedence `over_table`
+    /// serves its keys BEFORE the table's first match (counted
+    /// `over_table_hits`); the same entries with `after_table` leave a key the
+    /// rules take to the rules.
+    #[test]
+    fn manifest_precedence_over_table_puts_entries_before_the_rules() {
+        use super::super::relation_entries::{
+            EntryMeta, EntryPrecedence, RelationStore, build_entry, write_node_service,
+        };
+        let node = "KITE-manifest";
+        let _fake = install(node, vec![]);
+        let imported = import(node, &[], None).unwrap();
+        let bundle = recipes_of_source(
+            &crate::propagator::custom::custom_payload_family_source(&imported.payload).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let identity = bundle_node_identity(&bundle);
+        let base =
+            std::env::temp_dir().join(format!("rr-manifest-dispatch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let key = dot(0); // a certified key the table's rules take
+        let body = json!({"type": "relation", "key": key, "verdict": "SOLVED", "all_lower": true,
+            "proof": {"ok": true, "kind": "symverify"}, "relation_digest": null,
+            "determinism_id": "rustred.relation-import.v1/kind=test/statement=manifest",
+            "rhs": [["I(1,1,1,1,1)", "7", "top"]]});
+        let meta = EntryMeta {
+            node: node.to_owned(),
+            node_identity: identity.clone(),
+            package_revision: None,
+            recipe_id: format!("{node}/manifest-test"),
+            recipe: json!({}),
+            recipe_digest: String::new(),
+            relation_rule: "test".to_owned(),
+            evidence_level: "per-key",
+            pole_order_at_4: Some(0),
+            regular_alternative: "not_tried",
+            outside_certified_set: false,
+            written_by: "test".to_owned(),
+        };
+        let cache = base.join("cache");
+        RelationStore::new(node, &identity, &[], Some(&cache))
+            .put(&build_entry(&meta, &key, body))
+            .unwrap();
+        let reduce_with = |precedence: EntryPrecedence| {
+            let ship = base.join(precedence.name());
+            write_node_service(
+                node,
+                &identity,
+                std::slice::from_ref(&cache),
+                &ship,
+                "t",
+                precedence,
+                &Value::Null,
+            )
+            .unwrap();
+            set_recipe_cache_roots_for(
+                node,
+                RecipeCacheRoots {
+                    user: None,
+                    prefilled: vec![ship],
+                    ..Default::default()
+                },
+            );
+            let served = certified_library_without_recipes(node);
+            let before = super::super::relation_entries::relation_cache_statistics();
+            let reduced = reduce(&served, key, None, PUncoveredPolicy::Reject).unwrap();
+            let stats = super::super::relation_entries::relation_cache_statistics().since(&before);
+            (format!("{:?}", reduced.terms), stats.over_table_hits)
+        };
+        let (over, over_hits) = reduce_with(EntryPrecedence::OverTable);
+        let (after, after_hits) = reduce_with(EntryPrecedence::AfterTable);
+        assert!(
+            over_hits >= 1 && after_hits == 0,
+            "{over_hits} {after_hits}"
+        );
+        assert_ne!(over, after, "the entry, not the rule, served the key");
+        assert!(over.contains('7'), "{over}");
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    fn certified_library_without_recipes(node: &str) -> Arc<PLibrary> {
+        boxed_kite_library_with_recipes(
+            &boxed_kite_table_d2(node, &[]),
+            Some(certified(node)),
+            None,
+        )
+        .unwrap()
+    }
+
+    /// Coordinator 2026-11-15 (T178 hand-down stall): an outside recipe solve
+    /// is bounded in wall time and fails typed (BUDGET) instead of running for
+    /// hours; the key then is OUTSIDE_NO_RELATION with that attempt.
+    #[test]
+    fn the_abandoned_solve_cap_defaults_to_the_worker_count() {
+        // the former default 1 refused every later bounded solve of a process after one solve passed its bound
+        if std::env::var(OUTSIDE_MAX_ABANDONED_ENV).is_err() {
+            assert_eq!(EngineRecipeSolver::new(3).abandoned_cap(), 3);
+            assert_eq!(EngineRecipeSolver::new(1).abandoned_cap(), 1);
+            assert_eq!(EngineRecipeSolver::new(0).abandoned_cap(), 1);
+        }
+    }
+
+    #[test]
+    fn an_outside_solve_past_its_wall_bound_fails_typed() {
+        let node = "KITE-out-budget";
+        let three = [2, 2, 2, 1, 1];
+        let (_, solved) = toy(three);
+        let fake = install(node, vec![toy(dot(0)), (three.to_vec(), solved)]);
+        *fake.delay_s.lock().unwrap() = 10.0;
+        set_outside_settings_for(
+            node,
+            POutsideSettings {
+                max_seconds_per_solve: Some(0.5),
+                ..POutsideSettings::default()
+            },
+        );
+        let records = vec![record("kite/d0", &[dot(0)], &SHELLS)];
+        let imported = import(node, &[dot(0)], Some(records)).unwrap();
+        let before = recipe_statistics().outside_budget_hits;
+        let error = crate::propagator::custom::custom_payload_solve_outside(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+            &presented(three),
+        )
+        .unwrap_err();
+        let PError::RecipeFailed(failed) = &error else {
+            panic!("expected RecipeFailed, got {error:?}");
+        };
+        assert_eq!(failed.kind, PRecipeFailureKind::OutsideNoRelation);
+        assert_eq!(failed.failure["outside"]["attempts"][0]["kind"], "BUDGET");
+        assert!(recipe_statistics().outside_budget_hits > before);
+        // without the bound the same solve succeeds
+        set_outside_settings_for(
+            node,
+            POutsideSettings {
+                max_seconds_per_solve: None,
+                max_seconds_per_key: None,
+                ..POutsideSettings::default()
+            },
+        );
+        let again = import(
+            node,
+            &[dot(0)],
+            Some(vec![record("kite/d0", &[dot(0)], &SHELLS)]),
+        )
+        .unwrap();
+        assert!(
+            crate::propagator::custom::custom_payload_solve_outside(
+                &again.presentation,
+                &again.payload,
+                &again.meta,
+                &presented(three),
+            )
+            .unwrap()
+            .is_some()
+        );
+    }
+
+    /// batch 11 (vk5l-physrun 630 coverage): max_recipes 0 is list-only: an
+    /// outside key no rule or entry takes is refused at once, no recipe solved.
+    #[test]
+    fn list_only_outside_settings_solve_nothing() {
+        let node = "KITE-out-list";
+        let three = [2, 2, 2, 1, 1];
+        let (_, solved) = toy(three);
+        let fake = install(node, vec![toy(dot(0)), (three.to_vec(), solved)]);
+        set_outside_settings_for(
+            node,
+            POutsideSettings {
+                max_recipes: 0,
+                ..POutsideSettings::default()
+            },
+        );
+        let imported = import(
+            node,
+            &[dot(0)],
+            Some(vec![record("kite/d0", &[dot(0)], &SHELLS)]),
+        )
+        .unwrap();
+        let (calls, listed) = (fake.calls(), recipe_statistics().outside_listed);
+        let found = crate::propagator::custom::custom_payload_solve_outside(
+            &imported.presentation,
+            &imported.payload,
+            &imported.meta,
+            &presented(three),
+        )
+        .unwrap();
+        assert!(found.is_none());
+        assert_eq!(fake.calls(), calls, "no recipe solved");
+        assert!(recipe_statistics().outside_listed > listed);
     }
 
     #[test]
@@ -2682,7 +3668,8 @@ mod kite_tests {
             &imported.meta,
             &presented(three),
         )
-        .unwrap();
+        .unwrap()
+        .expect("a relation");
         assert_eq!(id, "kite/d0");
         assert!(!relation.children.is_empty());
         assert!(relation.relation_digest.is_some(), "a fresh engine solve");
@@ -2729,6 +3716,132 @@ mod kite_tests {
             }
             other => panic!("expected RecipeFailed, got {other:?}"),
         }
+    }
+
+    /// The explicit-expression producer with the REAL engine: a boxed node
+    /// with no recipe records (relation binding only) gets an explicit
+    /// relation at a key from the checker families, written to the cache
+    /// root; a rerun is served by the stored entry (resumable, no solve); the
+    /// cache turns into the shipped manifest form.
+    #[test]
+    fn the_producer_writes_explicit_relations_and_resumes() {
+        if !crate::compiled_runtime_arities().contains(&5) {
+            eprintln!("skipped: arity 5 is not compiled");
+            return;
+        }
+        use crate::propagator::custom::custom_payload_relation_produce;
+        let node = "KITE-produce";
+        let root = std::env::temp_dir().join(format!("rr-produce-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        set_recipe_cache_roots_for(
+            node,
+            RecipeCacheRoots {
+                user: Some(root.clone()),
+                prefilled: vec![],
+                ..Default::default()
+            },
+        );
+        let imported = import(node, &[], None).unwrap();
+        let three = vec![2_i64, 2, 2, 1, 1];
+        let run = || {
+            custom_payload_relation_produce(
+                &imported.presentation,
+                &imported.payload,
+                std::slice::from_ref(&three),
+                &[false],
+                &[2, 3],
+                None,
+                1,
+                &|_| {},
+            )
+            .unwrap()
+        };
+        let first = run();
+        assert_eq!(first.len(), 1);
+        let id = match &first[0].source {
+            Ok(Some(id)) => id.clone(),
+            other => panic!("expected a produced relation, got {other:?}"),
+        };
+        assert!(id.starts_with("KITE-produce/checker-d"), "{id}");
+        assert!(first[0].children > 0);
+        let bundle = recipes_of_source(
+            &crate::propagator::custom::custom_payload_family_source(&imported.payload).unwrap(),
+        )
+        .unwrap()
+        .unwrap();
+        let identity = bundle_node_identity(&bundle);
+        let stored =
+            super::super::relation_entries::RelationStore::new(node, &identity, &[], Some(&root));
+        let (entry, _) = stored.get(&three).expect("the entry is in the cache root");
+        assert_eq!(entry["recipe"]["id"], json!(id));
+        // a rerun (new payload program, same cache root): the stored entry
+        let directory = super::super::relation_entries::node_directory(&root, node, &identity);
+        let segments = || std::fs::read_dir(&directory).unwrap().count();
+        let before = segments();
+        let second = run();
+        assert!(matches!(&second[0].source, Ok(Some(again)) if *again == id));
+        assert_eq!(
+            segments(),
+            before,
+            "resumed from the cache: nothing written"
+        );
+        let summary = super::super::relation_entries::write_node_service(
+            node,
+            &identity,
+            std::slice::from_ref(&root),
+            &root.join("ship"),
+            "t",
+            super::super::relation_entries::EntryPrecedence::OverTable,
+            &Value::Null,
+        )
+        .unwrap();
+        assert_eq!(summary.entries, 1);
+        // a closure holding only the key itself: every relation's top-sector
+        // right-hand side leaves it, so every family is refused, typed
+        let node_c = "KITE-produce-closure";
+        set_recipe_cache_roots_for(
+            node_c,
+            RecipeCacheRoots {
+                user: Some(root.join("closure")),
+                prefilled: vec![],
+                ..Default::default()
+            },
+        );
+        let imported_c = import(node_c, &[], None).unwrap();
+        let closure = super::super::certified_keys::CertifiedKeySet::new(
+            node_c,
+            5,
+            "table",
+            vec![three.clone()],
+        )
+        .unwrap();
+        let refused = custom_payload_relation_produce(
+            &imported_c.presentation,
+            &imported_c.payload,
+            std::slice::from_ref(&three),
+            &[false],
+            &[2],
+            Some(&closure),
+            1,
+            &|_| {},
+        )
+        .unwrap();
+        match &refused[0].source {
+            Err(PError::RecipeFailed(failed)) => {
+                let attempts = &failed.failure["outside"]["attempts"];
+                assert_eq!(
+                    attempts[0]["kind"],
+                    json!("RHS_OUTSIDE_CERTIFIED"),
+                    "{attempts}"
+                );
+                assert_eq!(
+                    attempts[1]["recipe"],
+                    json!("KITE-produce-closure/checker-d2-nosym")
+                );
+            }
+            other => panic!("expected a typed refusal, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// (b, c) with the REAL engine solve at the key (owner level, no fake):

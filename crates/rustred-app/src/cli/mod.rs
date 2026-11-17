@@ -11,6 +11,7 @@ mod owner_domains;
 mod owner_guarded;
 mod owner_match;
 mod p;
+mod sector_box;
 #[cfg(test)]
 pub(crate) use owner_match::walk_request_from_argv;
 mod artifact_inspect;
@@ -106,6 +107,7 @@ fn run(arguments: impl IntoIterator<Item = OsString>) -> Result<(), CliError> {
         Command::FamilyCandidatesBatch(arguments) => candidates_batch::run(arguments),
         Command::P(subcommand, arguments) => p::run(subcommand, arguments),
         Command::LiteRedReduce(arguments) => litered::run(arguments),
+        Command::SectorBoxReduce(arguments) => sector_box::run(arguments),
         Command::CandidateInspect(arguments) => candidate_inspect::run(arguments),
         Command::CertifyCandidates(arguments) => candidates::certify(arguments),
         Command::CampaignPlan(arguments) => plan_campaign(arguments),

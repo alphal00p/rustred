@@ -3,6 +3,8 @@
 //! linear-form extraction and a conservative syntactic degree. Mirrors `Expr` of p5l-replay.v1.
 
 use super::arith::{self, Q};
+use symbolica::domains::integer::Integer;
+use symbolica::domains::rational::Rational;
 
 #[derive(Clone, Debug)]
 pub enum Node {
@@ -331,9 +333,233 @@ impl Expr {
         self.at_mod(p, &pt, dv)
     }
 
-    /// Exact zero test at an integer point and rational d (two independent 61-bit primes).
+    /// EXACT zero test at an integer point and rational d. A nonzero residue modulo either 61-bit prime proves the
+    /// value nonzero; when both residues are zero the value is evaluated exactly in big rationals (a nonzero value
+    /// divisible by both primes, |value| >= P * P2 ~ 2^122, was read as zero before: the two-prime test alone was
+    /// exact only for values below that bound, i.e. for keys up to a radius).
     pub fn is_zero_at(&self, point: &[i64], d: Q) -> Result<bool, Unknown> {
-        Ok(self.at_point(arith::P, point, d)? == 0 && self.at_point(arith::P2, point, d)? == 0)
+        if self.at_point(arith::P, point, d)? != 0 || self.at_point(arith::P2, point, d)? != 0 {
+            return Ok(false);
+        }
+        Ok(self.exact_at(point, d)?.is_zero())
+    }
+
+    /// Whether the expression VANISHES IDENTICALLY IN d at an integer point (exact). A nonzero residue modulo P at a
+    /// regular sample d proves it does not; otherwise it is evaluated exactly as a rational function of d (numerator
+    /// and denominator polynomials over Q) and its numerator tested. A sample d at a pole of the expression never
+    /// decides anything (it was read as "nonzero" by `is_zero_at(..).unwrap_or(false)` at two fixed d values, and a
+    /// function vanishing at exactly those two values was read as zero). Err only when the expression itself is
+    /// undefined at the point (a denominator vanishing identically in d).
+    pub fn vanishes_in_d(&self, point: &[i64]) -> Result<bool, Unknown> {
+        for d in [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }, Q { n: 53, d: 11 }] {
+            if let Ok(value) = self.at_point(arith::P, point, d)
+                && value != 0
+            {
+                return Ok(false);
+            }
+        }
+        let (numerator, _) = self.in_d(&self.root, point)?;
+        Ok(numerator.iter().all(Rational::is_zero))
+    }
+
+    /// The exact value at an integer point as (numerator, denominator) polynomials in d, coefficients low to high.
+    fn in_d(&self, node: &Node, point: &[i64]) -> Result<(Vec<Rational>, Vec<Rational>), Unknown> {
+        fn trim(mut p: Vec<Rational>) -> Vec<Rational> {
+            while p.len() > 1 && p.last().is_some_and(Rational::is_zero) {
+                p.pop();
+            }
+            p
+        }
+        fn mul(a: &[Rational], b: &[Rational]) -> Vec<Rational> {
+            let mut out = vec![Rational::zero(); a.len() + b.len() - 1];
+            for (i, x) in a.iter().enumerate() {
+                if x.is_zero() {
+                    continue;
+                }
+                for (j, y) in b.iter().enumerate() {
+                    out[i + j] = &out[i + j] + &(x * y);
+                }
+            }
+            trim(out)
+        }
+        fn add(a: &[Rational], b: &[Rational]) -> Vec<Rational> {
+            let mut out = vec![Rational::zero(); a.len().max(b.len())];
+            for (i, x) in a.iter().enumerate() {
+                out[i] = &out[i] + x;
+            }
+            for (i, x) in b.iter().enumerate() {
+                out[i] = &out[i] + x;
+            }
+            trim(out)
+        }
+        fn neg(a: &[Rational]) -> Vec<Rational> {
+            a.iter().map(|x| -x.clone()).collect()
+        }
+        let constant = |value: Rational| (vec![value], vec![Rational::one()]);
+        let is_zero = |p: &[Rational]| p.iter().all(Rational::is_zero);
+        let pole = || format!("undefined at the point: {}", short(&self.text));
+        let sum =
+            |a: (Vec<Rational>, Vec<Rational>), b: (Vec<Rational>, Vec<Rational>), negate: bool| {
+                let bn = if negate { neg(&b.0) } else { b.0 };
+                if a.1 == b.1 {
+                    (add(&a.0, &bn), a.1)
+                } else {
+                    (add(&mul(&a.0, &b.1), &mul(&bn, &a.1)), mul(&a.1, &b.1))
+                }
+            };
+        let product =
+            |a: (Vec<Rational>, Vec<Rational>), b: (Vec<Rational>, Vec<Rational>), divide: bool| {
+                if divide {
+                    if is_zero(&b.0) {
+                        return Err(pole());
+                    }
+                    Ok((mul(&a.0, &b.1), mul(&a.1, &b.0)))
+                } else {
+                    Ok((mul(&a.0, &b.0), mul(&a.1, &b.1)))
+                }
+            };
+        Ok(match node {
+            Node::Num(digits) => {
+                let mut value = Integer::zero();
+                for c in digits.bytes() {
+                    value = &(&value * &Integer::from(10)) + &Integer::from(i64::from(c - b'0'));
+                }
+                constant(Rational::from(value))
+            }
+            Node::Var(k) => {
+                if *k == self.n {
+                    (
+                        vec![Rational::zero(), Rational::one()],
+                        vec![Rational::one()],
+                    )
+                } else {
+                    constant(Rational::from(Integer::from(point[*k])))
+                }
+            }
+            Node::Neg(a) => {
+                let (n, d) = self.in_d(a, point)?;
+                (neg(&n), d)
+            }
+            Node::Sum(terms) => {
+                let mut acc = constant(Rational::zero());
+                for (negated, term) in terms {
+                    acc = sum(acc, self.in_d(term, point)?, *negated);
+                }
+                acc
+            }
+            Node::Prod(factors) => {
+                let mut acc = constant(Rational::one());
+                for (op, factor) in factors {
+                    acc = product(acc, self.in_d(factor, point)?, *op == '/')?;
+                }
+                acc
+            }
+            Node::Bin(op, a, b) => {
+                if *op == '^' {
+                    let base = self.in_d(a, point)?;
+                    let exponent = const_int(b)?.n;
+                    let mut power = constant(Rational::one());
+                    for _ in 0..exponent.unsigned_abs() {
+                        power = product(power, base.clone(), false)?;
+                    }
+                    if exponent < 0 {
+                        product(constant(Rational::one()), power, true)?
+                    } else {
+                        power
+                    }
+                } else {
+                    let (x, y) = (self.in_d(a, point)?, self.in_d(b, point)?);
+                    match op {
+                        '+' => sum(x, y, false),
+                        '-' => sum(x, y, true),
+                        '*' => product(x, y, false)?,
+                        '/' => product(x, y, true)?,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        })
+    }
+
+    /// The exact value at an integer point and rational d (Err at a pole).
+    pub fn exact_at(&self, point: &[i64], d: Q) -> Result<Rational, Unknown> {
+        let d = Rational::from((Integer::from(d.n), Integer::from(d.d)));
+        self.exact(&self.root, point, &d)
+    }
+
+    fn exact(&self, node: &Node, point: &[i64], d: &Rational) -> Result<Rational, Unknown> {
+        let pole = || format!("pole: {}", short(&self.text));
+        let divide = |x: &Rational, y: &Rational| -> Result<Rational, Unknown> {
+            if y.is_zero() {
+                return Err(pole());
+            }
+            Ok(x / y)
+        };
+        Ok(match node {
+            Node::Num(digits) => {
+                let mut value = Integer::zero();
+                for c in digits.bytes() {
+                    value = &(&value * &Integer::from(10)) + &Integer::from(i64::from(c - b'0'));
+                }
+                Rational::from(value)
+            }
+            Node::Var(k) => {
+                if *k == self.n {
+                    d.clone()
+                } else {
+                    Rational::from(Integer::from(point[*k]))
+                }
+            }
+            Node::Neg(a) => -self.exact(a, point, d)?,
+            Node::Sum(terms) => {
+                let mut acc = Rational::zero();
+                for (negated, term) in terms {
+                    let value = self.exact(term, point, d)?;
+                    acc = if *negated {
+                        &acc - &value
+                    } else {
+                        &acc + &value
+                    };
+                }
+                acc
+            }
+            Node::Prod(factors) => {
+                let mut acc = Rational::one();
+                for (op, factor) in factors {
+                    let value = self.exact(factor, point, d)?;
+                    acc = if *op == '/' {
+                        divide(&acc, &value)?
+                    } else {
+                        &acc * &value
+                    };
+                }
+                acc
+            }
+            Node::Bin(op, a, b) => {
+                if *op == '^' {
+                    let base = self.exact(a, point, d)?;
+                    let exponent = const_int(b)?.n;
+                    let mut power = Rational::one();
+                    for _ in 0..exponent.unsigned_abs() {
+                        power = &power * &base;
+                    }
+                    if exponent < 0 {
+                        divide(&Rational::one(), &power)?
+                    } else {
+                        power
+                    }
+                } else {
+                    let (x, y) = (self.exact(a, point, d)?, self.exact(b, point, d)?);
+                    match op {
+                        '+' => &x + &y,
+                        '-' => &x - &y,
+                        '*' => &x * &y,
+                        '/' => divide(&x, &y)?,
+                        _ => unreachable!(),
+                    }
+                }
+            }
+        })
     }
 
     /// Exact linear form `[const, n0.., n{n-1}, d]` (Err if not affine).
@@ -512,6 +738,51 @@ fn short(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::node::replay::arith::P;
+
+    /// Vanishing in d is decided exactly: a pole at a sample d (5d + 11 at d = -11/5) decides nothing, and a function
+    /// vanishing at both former sample points (7d - 37)(5d + 11) is not zero.
+    #[test]
+    fn vanishing_in_d_is_exact_and_ignores_singular_sample_points() {
+        // zero at the key n0 = 2, with the denominator (5d + 11): was "nonzero" (pole at d = -11/5)
+        let e = Expr::parse("(n0-2)*d/(5*d+11)", 1).unwrap();
+        assert!(e.vanishes_in_d(&[2]).unwrap());
+        assert!(!e.vanishes_in_d(&[3]).unwrap());
+        // nonzero, but zero at both d = 37/7 and d = -11/5: was "zero"
+        let f = Expr::parse("(7*d-37)*(5*d+11)*n0", 1).unwrap();
+        assert!(
+            f.is_zero_at(&[1], Q { n: 37, d: 7 }).unwrap()
+                && f.is_zero_at(&[1], Q { n: -11, d: 5 }).unwrap()
+        );
+        assert!(!f.vanishes_in_d(&[1]).unwrap());
+        assert!(f.vanishes_in_d(&[0]).unwrap());
+        // a sum over different denominators that cancels exactly
+        let g = Expr::parse("1/(d-2) - 1/(d-3) + 1/((d-2)*(d-3))", 1).unwrap();
+        assert!(g.vanishes_in_d(&[0]).unwrap());
+        // undefined at the point: a denominator vanishing identically
+        assert!(
+            Expr::parse("1/(n0-1)", 1)
+                .unwrap()
+                .vanishes_in_d(&[1])
+                .is_err()
+        );
+    }
+
+    /// The zero test is exact beyond the two primes: P * P2 is zero modulo both but not zero.
+    #[test]
+    fn zero_test_is_exact_beyond_the_two_primes() {
+        let e = Expr::parse("5316911983139663417828251946283171871*n0", 1).unwrap();
+        assert_eq!(e.at_point(P, &[1], Q::int(3)).unwrap(), 0);
+        assert!(!e.is_zero_at(&[1], Q::int(3)).unwrap());
+        assert!(e.is_zero_at(&[0], Q::int(3)).unwrap());
+        let f = Expr::parse("(n0-2)*(d-3)/n0", 1).unwrap();
+        assert!(f.is_zero_at(&[2], Q::int(5)).unwrap());
+        assert!(f.is_zero_at(&[7], Q::int(3)).unwrap());
+        assert!(!f.is_zero_at(&[7], Q::int(5)).unwrap());
+        assert_eq!(
+            f.exact_at(&[4], Q { n: 7, d: 2 }).unwrap(),
+            Rational::from((Integer::from(1), Integer::from(4)))
+        );
+    }
 
     #[test]
     fn parse_eval_precedence() {

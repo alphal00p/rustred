@@ -7,7 +7,9 @@
 //! p5l_library assemble <families.json> <max_loops> <provided package dir> <imports.tsv> <out dir> <threads>
 //!     assemble with CustomPayloads::Imported (provided payloads by class label from the package,
 //!     imported nodes by graph key from p-import-table records), write the package (no basis layer).
-//!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>.  P5L_VERIFY=0 skips the descent certificate.
+//!     imports.tsv: <TID> \t <record .json> \t <payload .rrbin>, or (vk5l WP6) <TID> \t OPEN \t <graph key hex> \t
+//!     <status> for a node declared not closed.  P5L_VERIFY=0 skips the descent certificate.
+//!     RUSTRED_P_ASSEMBLE_CENSUS_SEED=<package dir> starts the census from an earlier package's (vk5l WP6).
 //! p5l_library load <package dir> <verify 0|1>
 //!     load time and peak RSS.
 //! p5l_library encoding <sample> <payload .rrbin>...
@@ -17,6 +19,15 @@
 //!     vk5l WP1: the reproduction line of a typed refusal (OutsideBox, OutsideCertifiedSet, NodeNotClosed):
 //!     the inputs at weight one reduced onto the terminals (Exact arithmetic, one thread); prints the terms, or the
 //!     error and exits 3. P_RETAIN=1 uses PUncoveredPolicy::Retain.
+//! p5l_library reduce-file <package dir> <inputs.tsv> <exact|modular> <threads>
+//!     needs-compose: ONE request = the weighted sum of the file's inputs, one per line
+//!     `p<presentation>:<powers,...> TAB <numerator> TAB <denominator>` (polynomials in d as space-separated
+//!     `power:integer` monomials, integers of any size; empty = 1). Prints the terms like `reduce` (P_RETAIN=1 as there).
+//! p5l_library reduce-files <package dir> <list.tsv> <exact|modular> <threads>
+//!     needs-compose: one process, the package loaded once, the list's chunks `<inputs.tsv> TAB <output.txt>` reduced in order
+//!     (each one request, as reduce-file), one shared step cache (P_STEP_CACHE=<dir>: opened, populated and saved after each
+//!     chunk; unset = in memory). A chunk's output is written when it finishes (`.tmp` then renamed); a refusal is written as
+//!     `error: ...` into its output and the loop continues. Chunks whose output exists are skipped (restartable).
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -25,6 +36,10 @@
 //!     the library; (C) random combinations of the top family's IBP rows at <ibp seeds> seeds reduce to zero
 //!     exactly (modular_polynomial = exact in Q(d) by reconstruction).
 //! ```
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc; // as the rustred binary (mimalloc, also the C allocator)
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::path::PathBuf;
@@ -91,7 +106,18 @@ fn main() {
         }
         Some("check") => check(&args[2..]),
         Some("reduce") => reduce_cli(&args[2..]),
+        Some("reduce-file") => reduce_file_cli(&args[2..]),
+        Some("reduce-files") => reduce_files_cli(&args[2..]),
         Some("encoding") => encoding(&args[2..]),
+        // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
+        Some("seed-fingerprints") => {
+            let count = rustred_app::propagator::seed::write_seed_fingerprints(
+                std::path::Path::new(&args[2]),
+                std::path::Path::new(&args[3]),
+            )
+            .unwrap();
+            println!("{count} family fingerprints written to {}", args[3]);
+        }
         Some("edges") => edges(
             &args[2],
             args[3].parse().unwrap(),
@@ -248,11 +274,26 @@ fn assemble(args: &[String]) {
     let mut imported = BTreeMap::new();
     let mut bytes_total = 0usize;
     let mut labels = BTreeMap::new();
+    let mut open = BTreeMap::new();
     for line in imports
         .lines()
         .filter(|line| !line.trim().is_empty() && !line.starts_with('#'))
     {
         let fields: Vec<&str> = line.split('\t').collect();
+        // vk5l WP6: `<TID> \t OPEN \t <graph key hex> \t <status>` declares the
+        // node not closed (no payload; library.json `open_nodes`).
+        if fields.get(1) == Some(&"OPEN") {
+            let key = unhex(fields[2].trim());
+            labels.insert(key.clone(), fields[0].to_owned());
+            open.insert(
+                key,
+                (
+                    fields[0].to_owned(),
+                    fields.get(3).map_or("not closed", |s| s.trim()).to_owned(),
+                ),
+            );
+            continue;
+        }
         let record: Value =
             serde_json::from_str(&std::fs::read_to_string(fields[1]).unwrap()).unwrap();
         // Session 2: the payload stays on disk (read once by assembly for its
@@ -290,7 +331,11 @@ fn assemble(args: &[String]) {
     let assembled = assemble_library(
         &families,
         max_loops,
-        CustomPayloads::Imported { provided, imported },
+        CustomPayloads::Imported {
+            provided,
+            imported,
+            open,
+        },
         &AssembleOptions {
             threads,
             verify_descent: verify,
@@ -348,6 +393,7 @@ fn assemble(args: &[String]) {
         "owners": library.owners().len(), "lanes": lanes, "terminals": library.terminals().len(),
         "census_sectors": library.census().sectors.len(), "classes": library.census().classes.len(),
         "dag_nodes": assembled.dag.nodes.len(), "imported_owners": used,
+        "open_nodes": library.open_nodes().values().map(|o| o.node.clone()).collect::<Vec<_>>(),
         "assemble_seconds": assemble_seconds, "write_seconds": write_seconds,
         "timings": assembled.timings.iter().map(|(k, v)| json!([k, v])).collect::<Vec<_>>(),
         "verify_descent": verify, "peak_rss_gb": rss().1,
@@ -397,8 +443,36 @@ fn reduce_cli(args: &[String]) {
         limits: ReductionLimits::default(),
         inspector: None,
     });
+    print_reduction(&library, result);
+}
+
+fn print_reduction(
+    library: &PLibrary,
+    result: Result<PReduction, rustred::propagator::error::PError>,
+) {
     match result {
         Ok(reduction) => {
+            // vk5l WP2: the recipe / relation-cache counters of this request
+            let stats = reduction.relation_cache;
+            let recipes = rustred::propagator::recipes::recipe_statistics();
+            eprintln!(
+                "p-reduce counters: outside_certified {} | outside_rule_steps {} outside_entry_hits {} outside_budget_hits {} \
+                 outside_failures {} | relation_cache shipped_hits {} cache_hits {} misses {} inserts {} \
+                 bytes_written {} | recipe solves {} outside_solves {} | bytes_on_disk {}",
+                reduction.outside_certified.len(),
+                recipes.outside_rule_steps,
+                recipes.outside_entry_hits,
+                recipes.outside_budget_hits,
+                recipes.outside_failures,
+                stats.shipped_hits,
+                stats.cache_hits,
+                stats.misses,
+                stats.inserts,
+                stats.bytes_written,
+                recipes.solves,
+                recipes.outside_solves,
+                rustred::propagator::recipes::relation_cache_bytes_on_disk()
+            );
             for term in &reduction.terms {
                 let basis = match &term.basis {
                     PBasis::Residual(id) => match library.residual_terminal(*id) {
@@ -420,10 +494,279 @@ fn reduce_cli(args: &[String]) {
             }
         }
         Err(error) => {
+            let recipes = rustred::propagator::recipes::recipe_statistics();
+            let stats = rustred::propagator::relation_entries::relation_cache_statistics();
+            eprintln!(
+                "p-reduce counters (refused): outside_rule_steps {} outside_entry_hits {} outside_budget_hits {} \
+                 outside_failures {} | relation_cache shipped_hits {} cache_hits {} inserts {} | recipe solves {} outside_solves {}",
+                recipes.outside_rule_steps,
+                recipes.outside_entry_hits,
+                recipes.outside_budget_hits,
+                recipes.outside_failures,
+                stats.shipped_hits,
+                stats.cache_hits,
+                stats.inserts,
+                recipes.solves,
+                recipes.outside_solves
+            );
             eprintln!("error: {error}");
             std::process::exit(3);
         }
     }
+}
+
+fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
+    let mut out = String::new();
+    for term in &reduction.terms {
+        let basis = match &term.basis {
+            PBasis::Residual(id) => match library.residual_terminal(*id) {
+                Ok(Some(named)) => format!(
+                    "PResidual({}, {:?}){}",
+                    named.node,
+                    named.key.powers(),
+                    if named.retained.is_some() {
+                        " [retained]"
+                    } else {
+                        ""
+                    }
+                ),
+                _ => format!("{:?}", term.basis),
+            },
+            other => format!("{other:?}"),
+        };
+        out.push_str(&format!("{basis} {:?} : {}\n", term.tag, term.coefficient));
+    }
+    out
+}
+
+fn reduce_files_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let pruning = target_keep_from_env();
+    let context = library.coefficient_context();
+    let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
+    let modular = args.get(2).map(String::as_str) == Some("modular");
+    let binding = library.step_cache_binding().expect("step cache binding");
+    let options = rustred::reduction::OrderedStepCacheOptions {
+        populate: true,
+        max_resident_bytes: std::env::var("P_STEP_CACHE_MAX_GB")
+            .ok()
+            .map(|g| (g.parse::<f64>().unwrap() * 1e9) as usize),
+        ..Default::default()
+    };
+    let cache = match std::env::var("P_STEP_CACHE") {
+        Ok(dir) => rustred::reduction::OrderedStepCache::open(&dir, binding, options)
+            .expect("open the step cache"),
+        Err(_) => rustred::reduction::OrderedStepCache::in_memory(binding, options),
+    };
+    let list = std::fs::read_to_string(&args[1]).expect("list file");
+    for line in list.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let (input, output) = line.split_once('\t').expect("<inputs> TAB <output>");
+        if std::path::Path::new(output).exists() {
+            continue;
+        }
+        let started = Instant::now();
+        let inputs = read_inputs(context, input);
+        let n = inputs.len();
+        let arithmetic = if modular {
+            modular_polynomial(threads)
+        } else {
+            OrderedWeightArithmetic::Exact
+        };
+        let result = library.reduce(PReductionRequest {
+            inputs,
+            arithmetic,
+            scheduler: OrderedSchedulerOptions::default(),
+            step_cache: if pruning {
+                None
+            } else {
+                Some(Arc::clone(&cache))
+            },
+            uncovered: PUncoveredPolicy::Reject,
+            onto_masters: false,
+            limits: ReductionLimits::default(),
+            inspector: None,
+        });
+        let text = match &result {
+            Ok(reduction) => format_reduction(&library, reduction),
+            Err(error) => format!("error: {error}\n"),
+        };
+        let tmp = format!("{output}.tmp");
+        std::fs::write(&tmp, text).expect("write output");
+        std::fs::rename(&tmp, output).expect("rename output");
+        let saved = if std::env::var("P_STEP_CACHE").is_ok() {
+            format!("{:?}", cache.save().map(|_| "saved"))
+        } else {
+            "mem".into()
+        };
+        let st = cache.statistics();
+        eprintln!(
+            "chunk {input}: {n} inputs, {} in {:.1} s {} pruned {} cache {saved} {st:?}",
+            if result.is_ok() { "ok" } else { "ERROR" },
+            started.elapsed().as_secs_f64(),
+            stamp(),
+            rustred::propagator::engine::target_pruned_count()
+        );
+    }
+}
+
+/// needs-compose: P_TARGET_KEEP=<file of owner class names, one per line> turns on target-master descent pruning
+/// (rustred::propagator::engine::set_target_keep_classes); returns whether it is on.
+fn target_keep_from_env() -> bool {
+    let Ok(path) = std::env::var("P_TARGET_KEEP") else {
+        return false;
+    };
+    let mut set = std::collections::HashSet::new();
+    for line in std::fs::read_to_string(&path)
+        .expect("P_TARGET_KEEP file")
+        .lines()
+    {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let hex = line.rsplit('-').next().unwrap();
+        set.insert(u64::from_str_radix(hex, 16).expect("a class name ending in -<16 hex>"));
+    }
+    eprintln!(
+        "target pruning ON: {} kept owner classes from {path}",
+        set.len()
+    );
+    assert!(
+        rustred::propagator::engine::set_target_keep_classes(set),
+        "target set twice"
+    );
+    true
+}
+
+/// needs-compose: an exact integer (any size) as a coefficient, by base-10^9 chunks.
+fn big_integer(context: &CoefficientContext, text: &str) -> Coefficient {
+    let limits = exact();
+    let (negative, digits) = match text.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, text.strip_prefix('+').unwrap_or(text)),
+    };
+    assert!(
+        !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()),
+        "integer {text:?}"
+    );
+    let base = context.integer(1_000_000_000);
+    let mut value = context.zero();
+    let head = digits.len() % 9;
+    let mut chunks: Vec<&str> = Vec::new();
+    if head > 0 {
+        chunks.push(&digits[..head]);
+    }
+    let mut i = head;
+    while i < digits.len() {
+        chunks.push(&digits[i..i + 9]);
+        i += 9;
+    }
+    for chunk in chunks {
+        let part = context.integer(chunk.parse::<i64>().unwrap());
+        value = context.try_mul(&value, &base, limits).unwrap();
+        value = context.try_add(&value, &part, limits).unwrap();
+    }
+    if negative {
+        context.try_neg(&value, limits).unwrap()
+    } else {
+        value
+    }
+}
+
+/// needs-compose: `power:integer power:integer ...` -> polynomial in d (empty = 1).
+fn poly_in_d(context: &CoefficientContext, text: &str) -> Coefficient {
+    let limits = exact();
+    let text = text.trim();
+    if text.is_empty() {
+        return context.one();
+    }
+    let d = context.parameter("d").expect("the library's parameter d");
+    let mut value = context.zero();
+    for mono in text.split_whitespace() {
+        let (power, integer) = mono
+            .split_once(':')
+            .unwrap_or_else(|| panic!("monomial {mono:?}: power:integer"));
+        let mut term = big_integer(context, integer);
+        for _ in 0..power.parse::<u32>().expect("a power") {
+            term = context.try_mul(&term, &d, limits).unwrap();
+        }
+        value = context.try_add(&value, &term, limits).unwrap();
+    }
+    value
+}
+
+fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
+    let mut inputs: Vec<Input> = Vec::new();
+    for line in std::fs::read_to_string(path).expect("inputs file").lines() {
+        let line = line.trim_end();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let mut cols = line.split('\t');
+        let spec = cols.next().unwrap();
+        let num = poly_in_d(context, cols.next().unwrap_or(""));
+        let den = poly_in_d(context, cols.next().unwrap_or(""));
+        let weight = context.try_div(&num, &den, exact()).unwrap();
+        let (id, powers) = spec
+            .strip_prefix('p')
+            .and_then(|rest| rest.split_once(':'))
+            .unwrap_or_else(|| panic!("input {spec:?}: p<presentation>:<powers,...>"));
+        let powers: Vec<i64> = powers
+            .split(',')
+            .map(|p| p.trim().parse().expect("an integer power"))
+            .collect();
+        inputs.push((
+            PresentationId(id.parse().expect("a presentation id")),
+            IntegralKey::try_new(powers).expect("a key"),
+            weight,
+        ));
+    }
+    inputs
+}
+
+fn reduce_file_cli(args: &[String]) {
+    let (library, _) = load(&args[0], false);
+    let pruning = target_keep_from_env();
+    let context = library.coefficient_context();
+    let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
+    let arithmetic = match args.get(2).map(String::as_str) {
+        Some("modular") => modular_polynomial(threads),
+        _ => OrderedWeightArithmetic::Exact,
+    };
+    let started = Instant::now();
+    let inputs = read_inputs(context, &args[1]);
+    eprintln!(
+        "reduce-file: {} inputs parsed in {:.2} s {}",
+        inputs.len(),
+        started.elapsed().as_secs_f64(),
+        stamp()
+    );
+    let uncovered = if std::env::var("P_RETAIN").as_deref() == Ok("1") {
+        PUncoveredPolicy::Retain
+    } else {
+        PUncoveredPolicy::Reject
+    };
+    let result = library.reduce(PReductionRequest {
+        inputs,
+        arithmetic,
+        scheduler: OrderedSchedulerOptions::default(),
+        step_cache: None,
+        uncovered,
+        onto_masters: false,
+        limits: ReductionLimits::default(),
+        inspector: None,
+    });
+    eprintln!(
+        "reduce-file: reduced in {:.2} s {} (target pruning {pruning}: {} keys dropped)",
+        started.elapsed().as_secs_f64(),
+        stamp(),
+        rustred::propagator::engine::target_pruned_count()
+    );
+    print_reduction(&library, result);
 }
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
@@ -526,19 +869,105 @@ fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
     )
 }
 
+/// P5L_STEP_CACHE=1: one in-memory Ordered step cache shared by every check request of this
+/// process (as vakint keeps one per library), so warm repeats reuse the steps.
+fn process_step_cache(
+    library: &PLibrary,
+) -> Option<std::sync::Arc<rustred::reduction::OrderedStepCache>> {
+    static CACHE: std::sync::OnceLock<
+        Option<std::sync::Arc<rustred::reduction::OrderedStepCache>>,
+    > = std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            (std::env::var("P5L_STEP_CACHE").as_deref() == Ok("1")).then(|| {
+                rustred::reduction::OrderedStepCache::in_memory(
+                    library.step_cache_binding().unwrap(),
+                    Default::default(),
+                )
+            })
+        })
+        .clone()
+}
+
 fn reduce(library: &PLibrary, inputs: Vec<Input>) -> PReduction {
-    library
+    // P5L_REDUCE_THREADS (default 1) and P5L_REDUCE_ARITH=sampled: threads and arithmetic of the check reductions
+    let threads: usize = std::env::var("P5L_REDUCE_THREADS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(1);
+    let reduction = library
         .reduce(PReductionRequest {
             inputs,
-            arithmetic: modular_polynomial(1),
-            scheduler: OrderedSchedulerOptions::default(),
-            step_cache: None,
+            arithmetic: if std::env::var("P5L_REDUCE_ARITH").as_deref() == Ok("sampled") {
+                OrderedWeightArithmetic::ModularSampled(
+                    ModularCommon {
+                        threads,
+                        ..Default::default()
+                    },
+                    Default::default(),
+                )
+            } else {
+                modular_polynomial(threads)
+            },
+            scheduler: OrderedSchedulerOptions::with_threads(threads),
+            step_cache: process_step_cache(library),
             uncovered: PUncoveredPolicy::Reject,
             onto_masters: false,
             limits: ReductionLimits::default(),
             inspector: None,
         })
-        .unwrap()
+        .unwrap();
+    // P5L_STEP_CACHE_MEASURE=1: the in-memory step cache's estimated vs allocator-measured resident bytes
+    if std::env::var("P5L_STEP_CACHE_MEASURE").as_deref() == Ok("1")
+        && let Some(cache) = process_step_cache(library)
+    {
+        let (estimated, structural) = cache.measure_resident_bytes();
+        let s = cache.statistics();
+        let tail = cache.tail_statistics();
+        let rss = std::fs::read_to_string("/proc/self/statm")
+            .ok()
+            .and_then(|statm| statm.split_whitespace().nth(1)?.parse::<u64>().ok())
+            .map_or(0, |pages| pages * 4096);
+        eprintln!(
+            "step-cache-measure records {} estimated {estimated} structural {structural} ratio {:.2} evicted {} \
+             tail {:?} rss {rss}",
+            s.records,
+            structural as f64 / estimated.max(1) as f64,
+            s.evicted_shards,
+            tail.map(|t| (
+                t.entries,
+                t.edges,
+                t.values + t.coefficients + t.guards,
+                t.added_bytes,
+                t.full
+            )),
+        );
+    }
+    reduction
+}
+
+/// User + system CPU seconds of this process so far (/proc/self/stat, clock ticks of 1/100 s).
+fn process_cpu_seconds() -> f64 {
+    let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
+    let fields: Vec<&str> = stat
+        .rsplit_once(')')
+        .map_or(vec![], |(_, rest)| rest.split_whitespace().collect());
+    let ticks = |i: usize| {
+        fields
+            .get(i)
+            .and_then(|x| x.parse::<f64>().ok())
+            .unwrap_or(0.0)
+    };
+    (ticks(11) + ticks(12)) / 100.0
+}
+
+fn terms_digest(value: &PReduction) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut t: Vec<String> = value.terms.iter().map(|x| format!("{x:?}")).collect();
+    t.sort();
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    t.hash(&mut h);
+    format!("{:016x}", h.finish())
 }
 
 fn mul(a: u64, b: u64) -> u64 {
@@ -963,14 +1392,40 @@ fn check(args: &[String]) {
     };
     let inputs = cell_inputs(&library, top, &powers, &numerator);
     let t = Instant::now();
+    let cpu0 = process_cpu_seconds();
     let value = reduce(&library, inputs.clone());
     let reduce_seconds = t.elapsed().as_secs_f64();
+    let reduce_cpu = process_cpu_seconds() - cpu0;
     eprintln!(
-        "(A) {} inputs reduced in {reduce_seconds:.2} s: {} terms {}",
+        "(A) {} inputs reduced in {reduce_seconds:.2} s: {} terms, cpu {reduce_cpu:.2} s, busy {:.2} threads, digest {} {}",
         inputs.len(),
         value.terms.len(),
+        reduce_cpu / reduce_seconds.max(1e-9),
+        terms_digest(&value),
         stamp()
     );
+    // P5L_REDUCE_REPEAT=n: n warm repeats of the cell request in this process (timing, digest)
+    let repeats: usize = std::env::var("P5L_REDUCE_REPEAT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+    for r in 0..repeats {
+        let t = Instant::now();
+        let cpu0 = process_cpu_seconds();
+        let again = reduce(&library, inputs.clone());
+        let cpu = process_cpu_seconds() - cpu0;
+        let wall = t.elapsed().as_secs_f64();
+        eprintln!(
+            "(A{}) warm repeat in {:.2} s: {} terms, cpu {:.2} s, busy {:.2} threads, digest {} (first {})",
+            r + 1,
+            wall,
+            again.terms.len(),
+            cpu,
+            cpu / wall.max(1e-9),
+            terms_digest(&again),
+            terms_digest(&value)
+        );
+    }
 
     // (B) top sector vs Laporta modulo subsectors at three d.
     let ds = [(37, 7), (-11, 5), (9, 13)];
@@ -1148,7 +1603,7 @@ fn check(args: &[String]) {
         c_rows.push(json!({"seed": seed, "rows": at.len(), "keys": keys, "nonzero_terms": nonzero, "seconds": t.elapsed().as_secs_f64()}));
     }
     let summary = json!({
-        "top": top_name, "dots": dots, "rank": rank, "inputs": inputs.len(), "terms": value.terms.len(),
+        "top": top_name, "dots": dots, "rank": rank, "inputs": inputs.len(), "terms": value.terms.len(), "terms_text_digest": terms_digest(&value),
         "load_seconds": load_seconds, "reduce_seconds": reduce_seconds, "owner_lane": format!("{:?}", owner.spec.lane),
         "laporta": b_report, "laporta_equal": b_ok, "ibp_seeds": c_rows, "ibp_zero": c_ok,
         "peak_rss_gb": rss().1,

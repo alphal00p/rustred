@@ -40,6 +40,61 @@ pub type FitPart = (Vec<BTreeMap<Key, RatFun>>, Vec<(Key, String)>);
 /// one source, no copy).
 pub(crate) const EXCEPTION_D: [Q; 2] = [Q { n: 37, d: 7 }, Q { n: -11, d: 5 }];
 
+/// Sample values of `d` used in place of a requested one at which a used coefficient has a pole (`reduce_mod`).
+const FALLBACK_D: [Q; 8] = [
+    Q { n: 53, d: 11 },
+    Q { n: -29, d: 3 },
+    Q { n: 71, d: 17 },
+    Q { n: 89, d: 19 },
+    Q { n: -103, d: 23 },
+    Q { n: 113, d: 29 },
+    Q { n: 131, d: 31 },
+    Q { n: -149, d: 37 },
+];
+
+/// At most this many sample values of `d` are replaced in one reduction.
+const MAX_DIM_REPLACEMENTS: usize = 16;
+
+/// masters, nonzero lower keys (values per seed, per sample), count of nonzero lower keys.
+type ValuePass = (Vec<(Key, Vec<Vec<u64>>)>, Vec<(Key, Vec<Vec<u64>>)>, usize);
+
+/// The first fallback value of `d` not in `dims` (an integer above every integer of `dims` when `integer`).
+fn fallback_d(dims: &[Q], integer: bool) -> Q {
+    if integer {
+        let top = dims
+            .iter()
+            .filter(|d| d.d == 1)
+            .map(|d| d.n)
+            .max()
+            .unwrap_or(0);
+        return Q { n: top + 1, d: 1 };
+    }
+    FALLBACK_D
+        .into_iter()
+        .chain((1..).map(|k| Q {
+            n: 1000 * k + 7,
+            d: 997,
+        }))
+        .find(|f| !dims.contains(f))
+        .expect("infinite")
+}
+
+/// A reduction compared with values at the requested `dims` must have used them (no replaced sample d).
+fn same_dims(red: ModReduction, dims: &[Q]) -> Result<ModReduction, String> {
+    if red.dims == dims {
+        Ok(red)
+    } else {
+        Err(format!(
+            "a used coefficient has a pole at a requested d (replaced: {}); choose other --dims",
+            red.stats["dims_replaced"]
+        ))
+    }
+}
+
+fn q_text(d: &Q) -> String {
+    format!("{}/{}", d.n, d.d)
+}
+
 /// Ten 61-bit primes (the first two are the replay's `P` and `P2`).
 pub const PRIMES: [u64; 10] = [
     2_305_843_009_213_693_951,
@@ -481,7 +536,6 @@ impl Table {
 
     /// First applicable rule (table order) and the rule point of key `k`.
     pub(crate) fn find_rule(&self, k: &[i64]) -> Option<(usize, Vec<i64>)> {
-        let gen_d = EXCEPTION_D;
         let n = self.n;
         'r: for (ri, r) in self.rules.iter().enumerate() {
             if r.skip {
@@ -516,10 +570,8 @@ impl Table {
                 }
             }
             for br in &r.exceptions {
-                if br
-                    .iter()
-                    .all(|e| gen_d.iter().all(|d| e.is_zero_at(&pt, *d).unwrap_or(false)))
-                {
+                // exact in d (a sample d at a pole of the literal decides nothing)
+                if br.iter().all(|e| e.vanishes_in_d(&pt).unwrap_or(false)) {
                     continue 'r;
                 }
             }
@@ -603,7 +655,6 @@ impl Table {
         }
         let mut uncovered: Vec<Key> = vec![];
         let mut vanishing = 0usize;
-        let gen_d = EXCEPTION_D;
         for &r in &roots {
             let mut stack: Vec<(u32, usize)> = vec![(r, 0)];
             while let Some((u, ci)) = stack.pop() {
@@ -636,10 +687,9 @@ impl Table {
                                         // outside the family support: allowed only with a coefficient vanishing here
                                         let e =
                                             &self.rules[ri].rhs_expr.as_ref().expect("parsed")[ti];
-                                        if !gen_d
-                                            .iter()
-                                            .all(|d| e.is_zero_at(&pt, *d).unwrap_or(false))
-                                        {
+                                        // exact in d: a coefficient with a pole at a sample d (e.g.
+                                        // 1/(5d+11) at d = -11/5) that vanishes here is a vanishing term
+                                        if !e.vanishes_in_d(&pt).unwrap_or(false) {
                                             return Err(format!(
                                                 "ISP in a denominator with a nonzero coefficient: {} from {} (rule {ri})",
                                                 key_text(&k),
@@ -707,6 +757,59 @@ impl Table {
         }
         let inner = kind.iter().filter(|&&k| k == 0).count();
         let edges: usize = kids.iter().map(Vec::len).sum();
+        // A sample d at which a used coefficient has a pole (over Q, or modulo one of the primes) decides nothing: it is
+        // replaced by the next unused fallback value (integers stay integers, for the symbolic fits) and the value pass
+        // is repeated. The values of `d` actually used are returned in `ModReduction::dims` and the replacements in
+        // `stats.dims_replaced`.
+        let mut dims: Vec<Q> = dims.to_vec();
+        let mut replaced: Vec<(String, String)> = vec![];
+        let (out_m, out_l, lower_nonzero) = loop {
+            match self.reduce_values(
+                primes, &dims, n, &roots, &nodes, &kind, &rule_of, &kids, &post, keep_lower,
+            )? {
+                Ok(values) => break values,
+                Err((poles, at)) => {
+                    if replaced.len() + poles.len() > MAX_DIM_REPLACEMENTS {
+                        return Err(format!(
+                            "coefficient pole at {at}: too many sample d replaced ({replaced:?})"
+                        ));
+                    }
+                    for di in poles {
+                        let fresh = fallback_d(&dims, dims[di].d == 1);
+                        replaced.push((q_text(&dims[di]), q_text(&fresh)));
+                        dims[di] = fresh;
+                    }
+                }
+            }
+        };
+        Ok(ModReduction {
+            seeds: seeds.to_vec(),
+            primes: primes.to_vec(),
+            dims,
+            masters: out_m,
+            lower: out_l,
+            stats: json!({"keys": nodes.len(), "inner": inner, "edges": edges, "lower_nonzero": lower_nonzero,
+                "vanishing_support_terms": vanishing, "rules_used": self.rules.iter().filter(|r| r.rhs_expr.is_some()).count(),
+                "dims_replaced": replaced, "seconds": t0.elapsed().as_secs_f64()}),
+        })
+    }
+
+    /// The value pass of `reduce_mod` at the sample values `dims`: Ok(Ok(masters, lower, nonzero lower count)), or
+    /// Ok(Err(indices of `dims` at which a used coefficient has a pole, where)).
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
+    fn reduce_values(
+        &self,
+        primes: &[u64],
+        dims: &[Q],
+        n: usize,
+        roots: &[u32],
+        nodes: &[Key],
+        kind: &[u8],
+        rule_of: &[(u32, Vec<i64>)],
+        kids: &[Vec<u32>],
+        post: &[u32],
+        keep_lower: bool,
+    ) -> Result<Result<ValuePass, (Vec<usize>, String)>, String> {
         // samples, prime-major
         let mut ps = vec![];
         let mut dm = vec![];
@@ -747,8 +850,28 @@ impl Table {
                 if c == u32::MAX {
                     continue;
                 }
-                let cv = veval(&ex[ti].root, n, &ps, &ptm, &dm)
-                    .map_err(|e| format!("{e} at {} (rule {ri})", key_text(&nodes[ui])))?;
+                let cv = match veval(&ex[ti].root, n, &ps, &ptm, &dm) {
+                    Ok(cv) => cv,
+                    Err(e) => {
+                        let at = format!("{} (rule {ri})", key_text(&nodes[ui]));
+                        if !e.starts_with("coefficient pole") {
+                            return Err(format!("{e} at {at}"));
+                        }
+                        // the sample columns with the pole, and their values of d
+                        let poles: Vec<usize> = (0..s)
+                            .filter(|&k| {
+                                veval(&ex[ti].root, n, &ps[k..=k], &ptm[k..=k], &dm[k..=k]).is_err()
+                            })
+                            .map(|k| k % dims.len())
+                            .collect::<std::collections::BTreeSet<_>>()
+                            .into_iter()
+                            .collect();
+                        if poles.is_empty() {
+                            return Err(format!("{e} at {at}"));
+                        }
+                        return Ok(Err((poles, at)));
+                    }
+                };
                 let dst = acc[c as usize].get_or_insert_with(|| vec![0; w]);
                 for j in 0..nseed {
                     for k in 0..s {
@@ -778,16 +901,7 @@ impl Table {
         }
         out_m.sort();
         out_l.sort();
-        Ok(ModReduction {
-            seeds: seeds.to_vec(),
-            primes: primes.to_vec(),
-            dims: dims.to_vec(),
-            masters: out_m,
-            lower: out_l,
-            stats: json!({"keys": nodes.len(), "inner": inner, "edges": edges, "lower_nonzero": lower_nonzero,
-                "vanishing_support_terms": vanishing, "rules_used": self.rules.iter().filter(|r| r.rhs_expr.is_some()).count(),
-                "seconds": t0.elapsed().as_secs_f64()}),
-        })
+        Ok(Ok((out_m, out_l, lower_nonzero)))
     }
 
     /// Top-sector keys reached from `seeds` that no rule covers and that are not declared masters (for a table
@@ -1462,12 +1576,16 @@ pub fn few_check(
     new_in_old: &Matrix,
     opt: &MapOptions,
 ) -> Result<Value, String> {
-    let ro = old
-        .reduce_mod(keys, &opt.primes, &opt.dims, false)?
-        .exact_masters()?;
-    let rn = new
-        .reduce_mod(keys, &opt.primes, &opt.dims, false)?
-        .exact_masters()?;
+    let ro = same_dims(
+        old.reduce_mod(keys, &opt.primes, &opt.dims, false)?,
+        &opt.dims,
+    )?
+    .exact_masters()?;
+    let rn = same_dims(
+        new.reduce_mod(keys, &opt.primes, &opt.dims, false)?,
+        &opt.dims,
+    )?
+    .exact_masters()?;
     let mut all = true;
     let mut detail = vec![];
     for (j, k) in keys.iter().enumerate() {
@@ -1540,12 +1658,18 @@ pub fn build_map(old: &mut Table, new: &mut Table, opt: &MapOptions) -> Result<V
     let a_red = if new_only.is_empty() {
         None
     } else {
-        Some(old.reduce_mod(&new_only, &opt.primes, &opt.dims, false)?)
+        Some(same_dims(
+            old.reduce_mod(&new_only, &opt.primes, &opt.dims, false)?,
+            &opt.dims,
+        )?)
     };
     let b_red = if old_only.is_empty() {
         None
     } else {
-        Some(new.reduce_mod(&old_only, &opt.primes, &opt.dims, false)?)
+        Some(same_dims(
+            new.reduce_mod(&old_only, &opt.primes, &opt.dims, false)?,
+            &opt.dims,
+        )?)
     };
     let a_ex = a_red
         .as_ref()
@@ -1854,7 +1978,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("rr-mastermap-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join(name);
-        std::fs::write(&p, lines.join("\n") + "\n").unwrap();
+        // atomic: tests running in parallel rewrite the same tables (same content) while others read them
+        let staged = dir.join(format!("{name}.{:?}.tmp", std::thread::current().id()));
+        std::fs::write(&staged, lines.join("\n") + "\n").unwrap();
+        std::fs::rename(&staged, &p).unwrap();
         p.to_string_lossy().into_owned()
     }
 
@@ -1969,6 +2096,51 @@ mod tests {
             .unwrap();
         assert!(e.contains("I(2,1)"), "{e}");
         assert_eq!(t2.uncovered(&[vec![1, 2]]).unwrap(), vec![vec![2, 1]]);
+    }
+
+    /// A sample d at which a used coefficient has a pole (here 37/7, the first check value) decides nothing: it is
+    /// replaced (53/11; an integer sample by the next free integer) and the values at the other d are unchanged.
+    #[test]
+    fn a_sample_d_at_a_coefficient_pole_is_replaced() {
+        let lines = vec![
+            header(FAM2),
+            rule(
+                json!([1, 2]),
+                "I(1,2)",
+                json!([["I(2,1)", "(d-4)/(7*d-37)"], ["I(1,1)", "1/(d-1002)"]]),
+                json!([]),
+            ),
+            json!({"type": "residual", "chart": "11", "key": "I(1,1)"}).to_string(),
+            json!({"type": "residual", "chart": "11", "key": "I(2,1)"}).to_string(),
+        ];
+        let path = write("pole.jsonl", &lines);
+        let mut t = Table::load(&path).unwrap();
+        let r = t
+            .reduce_mod(&[vec![1, 2]], &PRIMES[..2], &check_dims(), false)
+            .unwrap();
+        assert_eq!(
+            r.dims,
+            vec![Q { n: 53, d: 11 }, Q { n: -11, d: 5 }, Q { n: 9, d: 13 }]
+        );
+        assert_eq!(r.stats["dims_replaced"], json!([["37/7", "53/11"]]));
+        let ex = r.exact_masters().unwrap();
+        for (di, d) in r.dims.iter().enumerate() {
+            let d = rat_of_q(d);
+            let want =
+                &(&d - &Rational::from(4)) / &(&(&Rational::from(7) * &d) - &Rational::from(37));
+            assert_eq!(ex[0][&vec![2, 1]][di], want);
+        }
+        // integer samples (symbolic fits): 1002 is replaced by 1005 (above every sample)
+        let dims: Vec<Q> = (0..4).map(|k| Q::int(1001 + k)).collect();
+        let r = t
+            .reduce_mod(&[vec![1, 2]], &PRIMES[..2], &dims, false)
+            .unwrap();
+        assert_eq!(
+            r.dims.iter().map(|d| d.n).collect::<Vec<_>>(),
+            vec![1001, 1005, 1003, 1004]
+        );
+        // a comparison at the requested d refuses a replaced sample
+        assert!(same_dims(r, &dims).is_err());
     }
 
     #[test]

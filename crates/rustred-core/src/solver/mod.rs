@@ -26,6 +26,7 @@ pub mod region_probe;
 mod row;
 mod search;
 mod sector;
+pub mod sector_box;
 mod seed;
 mod source;
 mod table_export;

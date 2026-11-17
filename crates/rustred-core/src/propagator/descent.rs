@@ -83,6 +83,11 @@ pub struct DescentReport {
     pub witnesses: BTreeMap<DescentWitness, usize>,
     /// Overlay rules (none in M2).
     pub overlays: usize,
+    /// vk5l WP6: owners of nodes the library declares not closed
+    /// (`PLibrary::open_node`): no program, not certified; any key reaching
+    /// one is `PError::NodeNotClosed` at run time, and a witness of another
+    /// owner that reaches one still fails this check.
+    pub open_nodes: usize,
 }
 
 /// Why a child of a Custom step is below its key (AD section 5.5 item 2).
@@ -338,6 +343,10 @@ pub fn check(library: &PLibrary) -> Result<DescentReport, PError> {
     // Items 1, 2, 4, 6, 7: owners and their programs.
     for owner in library.owners() {
         let spec = &owner.spec;
+        if library.open_node(spec.class).is_some() {
+            report.open_nodes += 1;
+            continue;
+        }
         let (id, support) = owner_sector(library, spec)?;
         let parent = presentation(id)?;
         let forced = parent.forced_axes();

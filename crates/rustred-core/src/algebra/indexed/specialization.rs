@@ -191,9 +191,16 @@ impl IndexedCoefficientContext {
         // `value^exponent` can allocate an integer linear in `exponent` bits
         // even when the source polynomial contains only one term.
         let mut largest_term_bits = 0usize;
+        // the bit length of every assigned index value, once per call (not once per term)
+        let value_bits: Vec<IndexValueBits> =
+            assignment.iter().copied().map(IndexValueBits::of).collect();
         for (coefficient, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
-            let requested =
-                specialization_integer_bit_bound(coefficient, exponents, base_count, assignment)?;
+            let requested = specialization_integer_bit_bound_with(
+                coefficient,
+                exponents,
+                base_count,
+                &value_bits,
+            )?;
             check_limit(
                 "coefficient specialization integer bits",
                 requested,
@@ -243,13 +250,24 @@ impl IndexedCoefficientContext {
             source.nterms(),
         );
         for (coefficient, exponents) in source.coefficients.iter().zip(source.exponents_iter()) {
-            let mut specialized = coefficient.clone();
-            for (position, value) in assignment.iter().copied().enumerate() {
-                let exponent = exponents[base_count + position];
-                if exponent != 0 {
-                    specialized = specialized * Integer::from(value).pow(u64::from(exponent));
+            // engine-specialize: the index powers of a term are multiplied as i128 when the product fits (the usual
+            // case: small indices), so the coefficient takes ONE big-integer multiplication instead of one per
+            // index; otherwise the previous exact per-index products. The value is the same integer either way.
+            let specialized = match small_index_power_product(exponents, base_count, assignment) {
+                Some(1) => coefficient.clone(),
+                Some(product) => coefficient.clone() * Integer::from(product),
+                None => {
+                    let mut specialized = coefficient.clone();
+                    for (position, value) in assignment.iter().copied().enumerate() {
+                        let exponent = exponents[base_count + position];
+                        if exponent != 0 {
+                            specialized =
+                                specialized * Integer::from(value).pow(u64::from(exponent));
+                        }
+                    }
+                    specialized
                 }
-            }
+            };
             result.append_monomial(specialized, &exponents[..base_count]);
         }
         if result.variables().as_ref() != self.base.variables().as_ref() {
@@ -687,6 +705,81 @@ fn normalized_factor_envelope_from_source(
     Ok((term_bound, integer_bit_bound))
 }
 
+/// The product of `assignment[p]^exponent[p]` over the index positions of one term, as `i128` when every power
+/// and the product fit (exact, checked arithmetic); `None` when they do not (the caller then multiplies exactly).
+fn small_index_power_product(
+    exponents: &[u16],
+    base_count: usize,
+    assignment: &[i64],
+) -> Option<i128> {
+    let mut product: i128 = 1;
+    for (position, &value) in assignment.iter().enumerate() {
+        let exponent = exponents[base_count + position];
+        if exponent == 0 {
+            continue;
+        }
+        let power = i128::from(value).checked_pow(u32::from(exponent))?;
+        product = product.checked_mul(power)?;
+    }
+    Some(product)
+}
+
+/// What [`specialization_integer_bit_bound`] needs of one assigned index value.
+#[derive(Clone, Copy)]
+enum IndexValueBits {
+    Zero,
+    Unit,
+    Bits(u64),
+}
+
+impl IndexValueBits {
+    fn of(value: i64) -> Self {
+        match value.unsigned_abs() {
+            0 => Self::Zero,
+            1 => Self::Unit,
+            magnitude => Self::Bits(u64::from(u64::BITS - magnitude.leading_zeros())),
+        }
+    }
+}
+
+/// [`specialization_integer_bit_bound`] with the index value bit lengths computed once per call (same result).
+fn specialization_integer_bit_bound_with(
+    coefficient: &Integer,
+    exponents: &[u16],
+    base_count: usize,
+    value_bits: &[IndexValueBits],
+) -> Result<usize, IndexedAlgebraError> {
+    let mut requested = integer_magnitude_bits(coefficient);
+    if requested == 0 {
+        return Ok(0);
+    }
+    for (position, bits) in value_bits.iter().enumerate() {
+        let exponent = exponents[base_count + position];
+        if exponent == 0 {
+            continue;
+        }
+        match *bits {
+            IndexValueBits::Zero => return Ok(0),
+            IndexValueBits::Unit => {}
+            IndexValueBits::Bits(value_bits) => {
+                let power_bits = value_bits.checked_mul(u64::from(exponent)).ok_or(
+                    IndexedAlgebraError::ResourceCountOverflow {
+                        resource: "coefficient specialization integer bits",
+                    },
+                )?;
+                requested = requested.checked_add(power_bits).ok_or(
+                    IndexedAlgebraError::ResourceCountOverflow {
+                        resource: "coefficient specialization integer bits",
+                    },
+                )?;
+            }
+        }
+    }
+    usize::try_from(requested).map_err(|_| IndexedAlgebraError::ResourceCountOverflow {
+        resource: "coefficient specialization integer bits",
+    })
+}
+
 fn specialization_integer_bit_bound(
     coefficient: &Integer,
     exponents: &[u16],
@@ -726,4 +819,67 @@ fn specialization_integer_bit_bound(
     usize::try_from(requested).map_err(|_| IndexedAlgebraError::ResourceCountOverflow {
         resource: "coefficient specialization integer bits",
     })
+}
+
+#[cfg(test)]
+mod engine_specialize_tests {
+    use super::*;
+
+    /// The i128 product and the per-call bit table give exactly the previous per-index results.
+    #[test]
+    fn small_products_and_bit_bounds_equal_the_previous_loops() {
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |m: u64| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (state >> 33) % m
+        };
+        let values = [
+            0_i64,
+            1,
+            -1,
+            2,
+            -3,
+            7,
+            40,
+            -1_000,
+            1 << 20,
+            -(1 << 40),
+            i64::MAX,
+            i64::MIN,
+        ];
+        let base_count = 2;
+        for _ in 0..20_000 {
+            let indices = 1 + next(20) as usize;
+            let exponents: Vec<u16> = (0..base_count + indices).map(|_| next(6) as u16).collect();
+            let assignment: Vec<i64> = (0..indices)
+                .map(|_| values[next(values.len() as u64) as usize])
+                .collect();
+            let mut exact = Integer::one();
+            for (position, &value) in assignment.iter().enumerate() {
+                let exponent = exponents[base_count + position];
+                if exponent != 0 {
+                    exact *= Integer::from(value).pow(u64::from(exponent));
+                }
+            }
+            if let Some(product) = small_index_power_product(&exponents, base_count, &assignment) {
+                assert_eq!(
+                    Integer::from(product),
+                    exact,
+                    "{exponents:?} {assignment:?}"
+                );
+            }
+            let coefficient =
+                Integer::from(values[next(values.len() as u64) as usize]) * Integer::from(3_i64);
+            let bits: Vec<IndexValueBits> =
+                assignment.iter().copied().map(IndexValueBits::of).collect();
+            assert_eq!(
+                specialization_integer_bit_bound_with(&coefficient, &exponents, base_count, &bits)
+                    .ok(),
+                specialization_integer_bit_bound(&coefficient, &exponents, base_count, &assignment)
+                    .ok()
+            );
+        }
+    }
 }

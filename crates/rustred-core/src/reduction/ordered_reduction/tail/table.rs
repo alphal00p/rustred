@@ -29,7 +29,7 @@
 //! (children refer to entry positions).
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{PoisonError, RwLock, RwLockReadGuard};
 
 use super::Interner;
@@ -99,6 +99,68 @@ pub(crate) struct TailData {
     /// Every entry, parents before children (phases ascending; within a
     /// phase, a topological order of its same-phase steps).
     pub order: Vec<u32>,
+}
+
+/// Lengths of a table's parts, to estimate the bytes an update added (only
+/// appended: every part grows at its end).
+struct TailSizes {
+    keys: usize,
+    entries: usize,
+    edges: usize,
+    own_guards: usize,
+    terminals: usize,
+    values: usize,
+    coefficients: usize,
+    guards: usize,
+    sets: usize,
+    order: usize,
+}
+
+impl TailSizes {
+    fn of(data: &TailData) -> Self {
+        Self {
+            keys: data.keys.len(),
+            entries: data.entries.len(),
+            edges: data.edges.len(),
+            own_guards: data.own_guards.len(),
+            terminals: data.terminals.len(),
+            values: data.values.len(),
+            coefficients: data.coefficients.len(),
+            guards: data.guards.len(),
+            sets: data.sets.len(),
+            order: data.order.len(),
+        }
+    }
+
+    /// Estimated heap bytes appended to `data` since `self` (the step
+    /// cache's coefficient estimate; a hash-map slot and a vector slot per
+    /// interned or indexed value).
+    fn added_bytes(&self, data: &TailData) -> usize {
+        use crate::reduction::ordered_reduction::step_cache::coefficient_bytes;
+        const SLOT: usize = 32;
+        let coefficients = |interner: &Interner<Coefficient>, from: usize| {
+            interner.values()[from..]
+                .iter()
+                .map(|value| coefficient_bytes(value) + SLOT)
+                .sum::<usize>()
+        };
+        data.keys[self.keys..]
+            .iter()
+            .map(|key| 2 * (key.len() + SLOT))
+            .sum::<usize>()
+            + (data.entries.len() - self.entries) * (std::mem::size_of::<TailEntry>() + 4)
+            + (data.edges.len() - self.edges) * 8
+            + (data.own_guards.len() - self.own_guards) * 4
+            + (data.terminals.len() - self.terminals) * (std::mem::size_of::<IntegralKey>() + SLOT)
+            + coefficients(&data.values, self.values)
+            + coefficients(&data.coefficients, self.coefficients)
+            + coefficients(&data.guards, self.guards)
+            + data.sets.values()[self.sets..]
+                .iter()
+                .map(|set| 4 * set.len() + 2 * SLOT)
+                .sum::<usize>()
+            + data.order.len().saturating_sub(self.order) * 4
+    }
 }
 
 /// An entry to add (see [`TailData::fill`]): terminal, guard set,
@@ -238,6 +300,10 @@ pub struct OrderedTailTableStatistics {
     pub dirty: bool,
     /// Why the file found at opening was not used (the table started cold).
     pub rejected: Option<String>,
+    /// Estimated bytes of the entries added in this process; `full`: the
+    /// ceiling was reached and the table no longer grows.
+    pub added_bytes: usize,
+    pub full: bool,
 }
 
 /// Complete reductions and steps of tail identities (see the module docs),
@@ -249,6 +315,13 @@ pub struct OrderedTailTable {
     rejected: Option<String>,
     path: Option<PathBuf>,
     populate: bool,
+    /// Estimated resident bytes of the entries added in this process, and the
+    /// ceiling beyond which no entry is added (the step cache's
+    /// `max_resident_bytes`): the table stops growing (entries already used by
+    /// a request stay valid; nothing is dropped).
+    added_bytes: AtomicUsize,
+    max_added_bytes: Option<usize>,
+    full: AtomicBool,
     dirty: AtomicBool,
     loaded_entries: usize,
     file_bytes: AtomicU64,
@@ -273,6 +346,7 @@ impl OrderedTailTable {
         path: Option<PathBuf>,
         identity: String,
         populate: bool,
+        max_added_bytes: Option<usize>,
         context: &CoefficientContext,
     ) -> Result<Self, ReductionError> {
         let mut table = Self {
@@ -281,6 +355,9 @@ impl OrderedTailTable {
             rejected: None,
             path,
             populate,
+            added_bytes: AtomicUsize::new(0),
+            max_added_bytes,
+            full: AtomicBool::new(false),
             dirty: AtomicBool::new(false),
             loaded_entries: 0,
             file_bytes: AtomicU64::new(0),
@@ -320,7 +397,7 @@ impl OrderedTailTable {
 
     /// Whether requests add the entries they compute.
     pub(crate) fn populates(&self) -> bool {
-        self.populate
+        self.populate && !self.full.load(Ordering::Relaxed)
     }
 
     /// Add entries under the write lock: `update` returns how many it added
@@ -330,14 +407,20 @@ impl OrderedTailTable {
         &self,
         update: impl FnOnce(&mut TailData) -> usize,
     ) -> Result<usize, ReductionError> {
-        if !self.populate {
+        if !self.populates() {
             return Ok(0);
         }
         let mut data = self.data.write().unwrap_or_else(PoisonError::into_inner);
+        let before = TailSizes::of(&data);
         let added = update(&mut data);
         if added > 0 {
             data.sort().map_err(failure)?;
             self.dirty.store(true, Ordering::Relaxed);
+            let bytes = before.added_bytes(&data);
+            let total = self.added_bytes.fetch_add(bytes, Ordering::Relaxed) + bytes;
+            if self.max_added_bytes.is_some_and(|limit| total > limit) {
+                self.full.store(true, Ordering::Relaxed);
+            }
         }
         Ok(added)
     }
@@ -357,6 +440,8 @@ impl OrderedTailTable {
             load_seconds: self.load_seconds,
             dirty: self.dirty.load(Ordering::Relaxed),
             rejected: self.rejected.clone(),
+            added_bytes: self.added_bytes.load(Ordering::Relaxed),
+            full: self.full.load(Ordering::Relaxed),
         }
     }
 

@@ -215,6 +215,6 @@ impl<'context> CheckedCoefficientField<'context> {
     }
 
     pub(super) fn contextual_integer(&self, value: Integer) -> Coefficient {
-        self.finish_raw(self.context.template().numerator.constant(value).into())
+        self.finish_raw(self.context.thread_template().constant(value).into())
     }
 }

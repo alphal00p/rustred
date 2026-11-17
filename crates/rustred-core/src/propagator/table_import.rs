@@ -55,7 +55,7 @@ use crate::algebra::{
 };
 use crate::persistence::{
     BinaryIoLimits, BinaryProgramKind, BinarySection, CoefficientTableBuilder, NativeFamilyRecord,
-    SectionTag, encode_program,
+    SectionTag, encode_program, encode_program_streamed,
 };
 use crate::sector::OrderingPolicy;
 
@@ -166,6 +166,39 @@ pub struct ImportedOwner {
     pub boxed: Option<BoxedNodeRecord>,
     /// vk5l WP2: the recipe bundle the payload carries.
     pub recipes: Option<super::recipes::RecipeBundle>,
+    /// vk5l WP6: [`import_table_streamed`] wrote the payload to its sink
+    /// (`payload` is then empty): its length in bytes.
+    pub streamed_payload_bytes: Option<u64>,
+}
+
+impl ImportedOwner {
+    /// The payload's length, held or streamed.
+    pub fn payload_len(&self) -> u64 {
+        self.streamed_payload_bytes
+            .unwrap_or(self.payload.len() as u64)
+    }
+}
+
+/// vk5l WP6: `RUSTRED_P_IMPORT_TRACE=1` prints the process RSS (VmRSS, VmHWM)
+/// at the import's phases on stderr.
+fn trace_rss(phase: &str) {
+    if std::env::var_os("RUSTRED_P_IMPORT_TRACE").is_none() {
+        return;
+    }
+    let status = std::fs::read_to_string("/proc/self/status").unwrap_or_default();
+    let field = |name: &str| {
+        status
+            .lines()
+            .find(|line| line.starts_with(name))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|kb| kb.parse::<f64>().ok())
+            .map_or(-1.0, |kb| kb / 1e6)
+    };
+    eprintln!(
+        "[import-rss] {phase}: rss {:.2} GB, peak {:.2} GB",
+        field("VmRSS:"),
+        field("VmHWM:")
+    );
 }
 
 // ----- the family -----
@@ -516,6 +549,277 @@ fn parse_key(text: &str, arity: usize) -> Result<Vec<(bool, i64)>, PError> {
         .collect()
 }
 
+/// One slot of a slot-permuted alias key: an integer, or the index of ANOTHER (or the same) slot plus an offset.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AliasSlot {
+    Fixed(i64),
+    Index { slot: usize, offset: i64 },
+}
+
+/// [`parse_key`] without the slot-index restriction: slot `i` may read `n<j>+k` for any `j`.
+fn parse_key_any(text: &str, arity: usize) -> Result<Vec<AliasSlot>, PError> {
+    let inner = text
+        .strip_prefix("I(")
+        .and_then(|rest| rest.strip_suffix(')'))
+        .ok_or_else(|| malformed(format!("key {text:?}")))?;
+    let parts: Vec<&str> = inner.split(',').map(str::trim).collect();
+    if parts.len() != arity {
+        return Err(malformed(format!(
+            "key {text:?} has {} slots, not {arity}",
+            parts.len()
+        )));
+    }
+    parts
+        .iter()
+        .map(|part| match part.strip_prefix('n') {
+            Some(rest) => {
+                let digits = rest.bytes().take_while(u8::is_ascii_digit).count();
+                let slot: usize = rest[..digits]
+                    .parse()
+                    .map_err(|_| malformed(format!("key {text:?}")))?;
+                if slot >= arity {
+                    return Err(malformed(format!("key {text:?} names n{slot}")));
+                }
+                let offset = match &rest[digits..] {
+                    "" => 0,
+                    other => other
+                        .strip_prefix('+')
+                        .unwrap_or(other)
+                        .parse::<i64>()
+                        .map_err(|_| malformed(format!("key {text:?}")))?,
+                };
+                Ok(AliasSlot::Index { slot, offset })
+            }
+            None => Ok(AliasSlot::Fixed(
+                part.parse::<i64>()
+                    .map_err(|_| malformed(format!("key {text:?}")))?,
+            )),
+        })
+        .collect()
+}
+
+/// A SLOT-PERMUTED ALIAS rule (T178 unboxed F3 / F4: `I(key) = c * I(image)`, the image's slots read the key's
+/// indices in another order, a pure slot permutation of the face): kept beside the payload's rules (the shift-based
+/// rule format cannot hold a permuted right-hand side) and dispatched by the Custom owner AFTER its ordinary rules,
+/// which is exactly the table's first match because the import proves every LATER rule of the chart disjoint from
+/// the alias's domain. Everything in presentation slots; `fixed` / `min` / `max` bound the key's powers (the target is
+/// canonical), `child[s]` gives slot `s` of the image; `coefficient` carries the import's sign convention.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SlotAliasRecord {
+    /// The rule's index in the table (its first-match position).
+    pub index: usize,
+    /// The number of ordinary rules of its chart before it in the table: a rule of the chart at a position at or
+    /// beyond this one comes AFTER the alias in first match (the alias wins where both apply).
+    pub rules_before: usize,
+    pub chart: Vec<bool>,
+    pub fixed: Vec<Option<i64>>,
+    pub min: Vec<Option<i64>>,
+    pub max: Vec<Option<i64>>,
+    pub child: Vec<AliasSlot>,
+    pub coefficient: i64,
+}
+
+impl SlotAliasRecord {
+    /// The image of `powers` (presentation slots) when the alias applies to it (chart, fixed values, bounds), else
+    /// `None`.
+    pub fn image(&self, powers: &[i64]) -> Option<Vec<i64>> {
+        if powers.len() != self.chart.len() {
+            return None;
+        }
+        for (slot, &power) in powers.iter().enumerate() {
+            if (power > 0) != self.chart[slot]
+                || self.fixed[slot].is_some_and(|value| value != power)
+                || self.min[slot].is_some_and(|value| power < value)
+                || self.max[slot].is_some_and(|value| power > value)
+            {
+                return None;
+            }
+        }
+        Some(
+            self.child
+                .iter()
+                .map(|slot| match *slot {
+                    AliasSlot::Fixed(value) => value,
+                    AliasSlot::Index { slot, offset } => powers[slot] + offset,
+                })
+                .collect(),
+        )
+    }
+}
+
+/// The slot-permuted alias records of a payload are one provenance line after this marker (JSON array of
+/// [`SlotAliasRecord`]), before the slot order.
+pub const SLOT_ALIASES_MARKER: &str = "\nslot_aliases ";
+
+/// The slot-permuted alias records of a payload's provenance text (empty if none).
+pub fn slot_aliases_of_source(family_source: &str) -> Result<Vec<SlotAliasRecord>, PError> {
+    let Some(at) = family_source.find(SLOT_ALIASES_MARKER) else {
+        return Ok(Vec::new());
+    };
+    let text = &family_source[at + SLOT_ALIASES_MARKER.len()..];
+    let text = text.split('\n').next().unwrap_or("");
+    serde_json::from_str(text).map_err(|error| malformed(format!("slot alias records: {error}")))
+}
+
+/// The [`SlotAliasRecord`] of a rule record whose right-hand side permutes the key's slots (table slots in,
+/// presentation slots out); typed `slot_alias` gap for anything but the alias form.
+#[allow(clippy::too_many_arguments)]
+fn slot_alias_record(
+    record: &Value,
+    index: usize,
+    chart: &[bool],
+    fixed: &[Option<i64>],
+    min: &[Option<i64>],
+    max: &[Option<i64>],
+    arity: usize,
+    slot_map: &[usize],
+) -> Result<SlotAliasRecord, PError> {
+    let refuse = |detail: &str| gap("slot_alias", format!("rule {index}: {detail}"));
+    let rhs = record["rhs"]
+        .as_array()
+        .ok_or_else(|| malformed("rule rhs"))?;
+    if rhs.len() != 1 {
+        return Err(refuse(
+            "a slot-permuted rule must have exactly one right-hand-side term",
+        ));
+    }
+    if !case_text(record)?.starts_with("Coordinate(")
+        || !record["equations"].as_array().is_some_and(Vec::is_empty)
+        || !record["exceptions"].as_array().is_some_and(Vec::is_empty)
+        || !matches!(record["dispatch"].as_str(), None | Some("Partition"))
+    {
+        return Err(refuse(
+            "a slot-permuted rule must be a coordinate case without equations or exceptions, Partition",
+        ));
+    }
+    let target = parse_key(str_field(record, "target")?, arity)?;
+    if target
+        .iter()
+        .any(|&(symbolic, offset)| symbolic && offset != 0)
+    {
+        return Err(refuse(
+            "the target of a slot-permuted rule must be canonical (n<i> in slot i)",
+        ));
+    }
+    for (slot, &(symbolic, value)) in target.iter().enumerate() {
+        if symbolic == fixed[slot].is_some() || fixed[slot].is_some_and(|f| f != value) {
+            return Err(refuse("fixed values and target disagree"));
+        }
+    }
+    let pair = rhs[0]
+        .as_array()
+        .filter(|pair| pair.len() == 2)
+        .ok_or_else(|| malformed("rhs term"))?;
+    let child = parse_key_any(pair[0].as_str().ok_or_else(|| malformed("rhs key"))?, arity)?;
+    let mut used = vec![0usize; arity];
+    for part in &child {
+        if let AliasSlot::Index { slot, .. } = *part {
+            if !target[slot].0 {
+                return Err(refuse("the image names the index of a fixed slot"));
+            }
+            used[slot] += 1;
+        }
+    }
+    if (0..arity).any(|slot| target[slot].0 && used[slot] != 1) {
+        return Err(refuse(
+            "every index of the target must occur exactly once in the image",
+        ));
+    }
+    // a declared slot map (`rhs_slot_maps`, top level or in `symmetry_origin`: per rhs term, per term slot j the
+    // target slot whose index the term carries there, null for a constant) must be the one read from the symbols
+    let declared = record
+        .get("rhs_slot_maps")
+        .or_else(|| record["symmetry_origin"].get("rhs_slot_maps"));
+    if let Some(declared) = declared {
+        let map = declared
+            .as_array()
+            .filter(|maps| maps.len() == 1)
+            .and_then(|maps| maps[0].as_array())
+            .filter(|map| map.len() == arity)
+            .ok_or_else(|| malformed("rhs_slot_maps: one array of the arity per rhs term"))?;
+        for (j, part) in child.iter().enumerate() {
+            let agrees = match (*part, &map[j]) {
+                (AliasSlot::Fixed(_), Value::Null) => true,
+                (AliasSlot::Index { slot, .. }, entry) => entry.as_u64() == Some(slot as u64),
+                _ => false,
+            };
+            if !agrees {
+                return Err(refuse(
+                    "rhs_slot_maps disagrees with the symbols of the image",
+                ));
+            }
+        }
+    }
+    let coefficient_text = pair[1]
+        .as_str()
+        .ok_or_else(|| malformed("rhs coefficient"))?
+        .trim();
+    let mut coefficient: i64 = coefficient_text
+        .parse()
+        .map_err(|_| refuse("a slot-permuted rule needs an integer coefficient"))?;
+    // the import's sign convention (as for every term): the weights' parity; the indices cancel (each once)
+    let target_weight: i64 = target.iter().map(|&(_, value)| value).sum();
+    let child_weight: i64 = child
+        .iter()
+        .map(|part| match *part {
+            AliasSlot::Fixed(value) => value,
+            AliasSlot::Index { offset, .. } => offset,
+        })
+        .sum();
+    if (target_weight - child_weight).rem_euclid(2) == 1 {
+        coefficient = -coefficient;
+    }
+    let mut child_presented = vec![AliasSlot::Fixed(0); arity];
+    for (slot, part) in child.iter().enumerate() {
+        child_presented[slot_map[slot]] = match *part {
+            AliasSlot::Fixed(value) => AliasSlot::Fixed(value),
+            AliasSlot::Index { slot: from, offset } => AliasSlot::Index {
+                slot: slot_map[from],
+                offset,
+            },
+        };
+    }
+    Ok(SlotAliasRecord {
+        index,
+        rules_before: 0,
+        chart: permuted(chart, slot_map),
+        fixed: permuted(fixed, slot_map),
+        min: permuted(min, slot_map),
+        max: permuted(max, slot_map),
+        child: child_presented,
+        coefficient,
+    })
+}
+
+/// Per-slot optional bounds.
+type OptionalBounds = Vec<Option<i64>>;
+
+/// `domain_bounds` of a rule record as (min, max) per table slot (absent = unbounded).
+fn bounds_of_record(
+    record: &Value,
+    arity: usize,
+) -> Result<(OptionalBounds, OptionalBounds), PError> {
+    let side = |name: &str| -> Result<Vec<Option<i64>>, PError> {
+        match record.get("domain_bounds").and_then(|b| b.get(name)) {
+            None | Some(Value::Null) => Ok(vec![None; arity]),
+            Some(Value::Array(values)) if values.len() == arity => values
+                .iter()
+                .map(|v| {
+                    if v.is_null() {
+                        Ok(None)
+                    } else {
+                        v.as_i64()
+                            .map(Some)
+                            .ok_or_else(|| malformed("domain_bounds value"))
+                    }
+                })
+                .collect(),
+            Some(_) => Err(malformed("domain_bounds arity")),
+        }
+    };
+    Ok((side("min")?, side("max")?))
+}
+
 fn small(value: i64, what: &str) -> Result<i16, PError> {
     i16::try_from(value).map_err(|_| gap("range", format!("{what} {value} outside i16")))
 }
@@ -603,6 +907,20 @@ fn str_field<'a>(record: &'a Value, field: &str) -> Result<&'a str, PError> {
     record[field]
         .as_str()
         .ok_or_else(|| malformed(format!("{} record without {field}", record["type"])))
+}
+
+/// A rule record's case text. Records written without `case` (hand-made or appended rules, e.g. T178-unboxed
+/// 5232-5241) are read by their equations: none -> a coordinate case, some -> an affine case (the importer uses only
+/// this kind; the fixed values come from `fixed`).
+fn case_text(record: &Value) -> Result<&str, PError> {
+    match record["case"].as_str() {
+        Some(text) => Ok(text),
+        None => match record["equations"].as_array() {
+            Some(equations) if equations.is_empty() => Ok("Coordinate(inferred)"),
+            Some(_) => Ok("Affine(inferred)"),
+            None => Err(malformed("rule record without case or equations")),
+        },
+    }
 }
 
 fn mask_bits(text: &str) -> Result<Vec<bool>, PError> {
@@ -756,6 +1074,10 @@ pub fn permute_descriptor(
 }
 
 // ----- the slot order -----
+
+/// vk5l WP2: the revision name of the relation binding (an empty recipe
+/// bundle) of a boxed table imported without recipe records.
+pub const RELATION_BINDING_REVISION: &str = "relations";
 
 /// Schema of the slot-order record of an imported payload.
 pub const SLOT_ORDER_SCHEMA: &str = "rustred.p-table-slot-order.v1";
@@ -1718,7 +2040,7 @@ impl BoxChecker {
         match record["type"].as_str() {
             Some("rule") => {
                 let target_text = str_field(record, "target")?;
-                let point = str_field(record, "case")?.starts_with("Coordinate(")
+                let point = case_text(record)?.starts_with("Coordinate(")
                     && record["equations"].as_array().is_some_and(Vec::is_empty)
                     && record["exceptions"].as_array().is_some_and(Vec::is_empty)
                     && matches!(record["dispatch"].as_str(), None | Some("Partition"));
@@ -2074,6 +2396,38 @@ pub fn import_table_from<R: std::io::BufRead>(
     graph: &PTopo,
     options: &TableImportOptions,
 ) -> Result<ImportedOwner, PError> {
+    import_table_impl::<R, std::io::Sink>(reader, graph, options, None)
+}
+
+/// vk5l WP6: [`import_table_from`] with bounded memory for a large table: the
+/// unique coefficients are kept in `scratch` (an empty read-write file the
+/// caller removes afterwards) instead of memory, and the payload is written
+/// to `payload` section by section instead of being returned
+/// (`ImportedOwner::payload` is empty, `streamed_payload_bytes` its length).
+/// The payload bytes are those of [`import_table_from`]; the summary and the
+/// meta are read from the payload's structure (program and family sections),
+/// which never decodes a coefficient.
+pub fn import_table_streamed<R: std::io::BufRead, W: std::io::Write>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+    scratch: std::fs::File,
+    payload: &mut W,
+) -> Result<ImportedOwner, PError> {
+    import_table_impl(reader, graph, options, Some((scratch, payload)))
+}
+
+fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+    stream: Option<(std::fs::File, &mut W)>,
+) -> Result<ImportedOwner, PError> {
+    trace_rss("start");
+    let (scratch, mut sink) = match stream {
+        Some((scratch, sink)) => (Some(scratch), Some(sink)),
+        None => (None, None),
+    };
     let mut records = TableRecords {
         reader,
         line: String::new(),
@@ -2257,7 +2611,12 @@ pub fn import_table_from<R: std::io::BufRead>(
         .map_err(|error| malformed(error))?;
     let mut coefficients = Coefficients {
         context: &indexed,
-        table: CoefficientTableBuilder::new(BinaryIoLimits::default()),
+        table: match scratch {
+            Some(scratch) => {
+                CoefficientTableBuilder::with_spill(BinaryIoLimits::default(), scratch)
+            }
+            None => CoefficientTableBuilder::new(BinaryIoLimits::default()),
+        },
         slot_map: &slot_map,
     };
     let mut sectors: Vec<EncodedSectorRecord> = charts
@@ -2278,6 +2637,8 @@ pub fn import_table_from<R: std::io::BufRead>(
     };
     let mut dispatch = Vec::new();
     let (mut rules, mut rhs_terms, mut negated, mut affine_rules, mut excepted) = (0, 0, 0, 0, 0);
+    // slot-permuted alias rules (SlotAliasRecord): per chart, kept in table order beside the payload's rules
+    let mut slot_aliases: Vec<Vec<SlotAliasRecord>> = vec![Vec::new(); charts.len()];
     let mut end: Option<Value> = None;
     while let Some(record) = records.next()? {
         let record = &record;
@@ -2304,13 +2665,53 @@ pub fn import_table_from<R: std::io::BufRead>(
                 let index = record["index"]
                     .as_u64()
                     .ok_or_else(|| malformed("rule index"))? as usize;
-                if index != sectors[sector].rules {
+                if index != sectors[sector].rules + slot_aliases[sector].len() {
                     return Err(malformed(format!(
                         "rule {index} of chart {} out of order",
                         charts[sector]
                     )));
                 }
-                let case_text = str_field(record, "case")?;
+                // a slot-permuted alias rule (rhs key slots naming other slots' indices) is kept as a SlotAliasRecord
+                let rhs_values = record["rhs"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule rhs"))?;
+                let permuted_rhs = rhs_values.iter().any(|term| {
+                    term.get(0).and_then(Value::as_str).is_some_and(|text| {
+                        parse_key_any(text, arity).is_ok_and(|key| {
+                            key.iter().enumerate().any(|(slot, part)| {
+                                matches!(part, AliasSlot::Index { slot: other, .. } if *other != slot)
+                            })
+                        })
+                    })
+                });
+                let (rule_min, rule_max) = bounds_of_record(record, arity)?;
+                let rule_fixed: Vec<Option<i64>> = record["fixed"]
+                    .as_array()
+                    .ok_or_else(|| malformed("rule fixed"))?
+                    .iter()
+                    .map(Value::as_i64)
+                    .collect();
+                if rule_fixed.len() != arity {
+                    return Err(malformed("rule fixed arity"));
+                }
+                if permuted_rhs {
+                    let alias = slot_alias_record(
+                        record,
+                        index,
+                        &mask_bits(&charts[sector])?,
+                        &rule_fixed,
+                        &rule_min,
+                        &rule_max,
+                        arity,
+                        &slot_map,
+                    )?;
+                    slot_aliases[sector].push(SlotAliasRecord {
+                        rules_before: sectors[sector].rules,
+                        ..alias
+                    });
+                    continue;
+                }
+                let case_text = case_text(record)?;
                 let equations = record["equations"]
                     .as_array()
                     .ok_or_else(|| malformed("rule equations"))?;
@@ -2448,6 +2849,7 @@ pub fn import_table_from<R: std::io::BufRead>(
             _ => {}
         }
     }
+    trace_rss("records read");
     let end = end.ok_or_else(|| gap("partial", "no end record: a partial run"))?;
     if end["chart_errors"].as_u64().unwrap_or(0) != 0 {
         return Err(gap(
@@ -2498,6 +2900,28 @@ pub fn import_table_from<R: std::io::BufRead>(
                 recipes.records.clone(),
             )?)
         }
+        // vk5l WP2: a boxed table without recipe records still carries its
+        // RELATION BINDING (node, family text and node order of the header,
+        // slot map): an empty bundle, so shipped relation entries and the
+        // persistent cache serve the keys its rules do not take. A header
+        // without a node order keeps the old payload.
+        (None, Some(record)) => match (
+            header["original_family_source"]
+                .as_str()
+                .or_else(|| header["family_source"].as_str()),
+            header.get("node_order").filter(|order| !order.is_null()),
+        ) {
+            (Some(family_text), Some(order)) => Some(super::recipes::RecipeBundle::new(
+                record.node.clone(),
+                RELATION_BINDING_REVISION,
+                family_text,
+                order.clone(),
+                slot_map.clone(),
+                super::recipes::RecipeDispatchOrder::RulesFirst,
+                Vec::new(),
+            )?),
+            _ => None,
+        },
         _ => None,
     };
     let boxed_provenance = match &boxed {
@@ -2517,6 +2941,15 @@ pub fn import_table_from<R: std::io::BufRead>(
     };
     dispatch.sort_by_key(|entry| (entry.sector, entry.rule));
     let dispatched_rules = dispatch.len();
+    let alias_records: Vec<SlotAliasRecord> = slot_aliases.into_iter().flatten().collect();
+    let alias_provenance = if alias_records.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{SLOT_ALIASES_MARKER}{}",
+            serde_json::to_string(&alias_records).map_err(|error| malformed(error))?
+        )
+    };
     let root_sector: Vec<bool> = (0..arity)
         .map(|slot| matches!(presentation.slots[slot], Slot::Line(_)))
         .collect();
@@ -2538,7 +2971,7 @@ pub fn import_table_from<R: std::io::BufRead>(
             IMPORT_SOLVER_POLICY.to_owned()
         },
         family_source: format!(
-            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
+            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{alias_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
             schema,
             family.name
@@ -2554,9 +2987,108 @@ pub fn import_table_from<R: std::io::BufRead>(
     let mut table_builder = coefficients.table;
     let family_record = NativeFamilyRecord::from_family(&presentation.family, &mut table_builder)
         .map_err(|error| malformed(format!("family record: {error}")))?;
+    if let Some(sink) = sink.as_mut() {
+        // Streamed: state, then the atoms copied from the scratch file, then
+        // the family and program records; the summary from a skeleton
+        // payload (same sections, empty coefficient table).
+        let state = table_builder
+            .encoded_state()
+            .map_err(|error| malformed(format!("coefficient table: {error}")))?;
+        let atom_bytes = table_builder.encoded_atom_bytes();
+        let program_bytes = encode_program_record_with_sectors(&program, &sectors)
+            .map_err(|error| malformed(error))?;
+        drop(sectors);
+        let family_bytes = bincode::encode_to_vec(&family_record, bincode::config::standard())
+            .map_err(|error| malformed(error))?;
+        let empty_atoms = CoefficientTableBuilder::new(BinaryIoLimits::default())
+            .finish()
+            .map_err(|error| malformed(format!("coefficient table: {error}")))?
+            .atoms;
+        let skeleton = encode_program(
+            BinaryProgramKind::Candidates,
+            &[
+                BinarySection {
+                    tag: SectionTag::SYMBOLICA_STATE,
+                    bytes: &state,
+                },
+                BinarySection {
+                    tag: SectionTag::COEFFICIENTS,
+                    bytes: &empty_atoms,
+                },
+                BinarySection {
+                    tag: SectionTag::FAMILY,
+                    bytes: &family_bytes,
+                },
+                BinarySection {
+                    tag: SectionTag::PROGRAM,
+                    bytes: &program_bytes,
+                },
+            ],
+            BinaryIoLimits::default(),
+        )
+        .map_err(|error| malformed(format!("payload: {error}")))?;
+        let summary = inspect_custom_payload(&skeleton)?;
+        let meta = summary.meta(options.lp_count)?;
+        drop(skeleton);
+        trace_rss("before streaming the payload");
+        let mut builder = Some(table_builder);
+        let written = encode_program_streamed(
+            &mut **sink,
+            BinaryProgramKind::Candidates,
+            &[
+                (SectionTag::SYMBOLICA_STATE, state.len()),
+                (SectionTag::COEFFICIENTS, atom_bytes),
+                (SectionTag::FAMILY, family_bytes.len()),
+                (SectionTag::PROGRAM, program_bytes.len()),
+            ],
+            BinaryIoLimits::default(),
+            |index, writer| {
+                let io = |result: std::io::Result<()>| {
+                    result.map_err(|error| {
+                        crate::persistence::BinaryIoError::Native(error.to_string())
+                    })
+                };
+                use std::io::Write as _;
+                match index {
+                    0 => io(writer.write_all(&state)),
+                    1 => builder
+                        .take()
+                        .expect("the coefficient section is written once")
+                        .write_atoms(writer),
+                    2 => io(writer.write_all(&family_bytes)),
+                    _ => io(writer.write_all(&program_bytes)),
+                }
+            },
+        )
+        .map_err(|error| malformed(format!("payload: {error}")))?;
+        trace_rss("payload streamed");
+        return Ok(ImportedOwner {
+            presentation,
+            payload: Vec::new(),
+            meta,
+            summary,
+            slot_map,
+            q_flipped,
+            line_signs: matched.signs,
+            graph_key,
+            table_family: family,
+            rules,
+            rhs_terms,
+            negated_terms: negated,
+            dispatched_rules,
+            affine_rules,
+            rules_with_exceptions: excepted,
+            order_name,
+            slot_order,
+            boxed,
+            recipes: recipe_bundle,
+            streamed_payload_bytes: Some(written),
+        });
+    }
     let encoded = table_builder
         .finish()
         .map_err(|error| malformed(format!("coefficient table: {error}")))?;
+    trace_rss("coefficient table encoded");
     let program_bytes =
         encode_program_record_with_sectors(&program, &sectors).map_err(|error| malformed(error))?;
     drop(sectors);
@@ -2585,6 +3117,7 @@ pub fn import_table_from<R: std::io::BufRead>(
         BinaryIoLimits::default(),
     )
     .map_err(|error| malformed(format!("payload: {error}")))?;
+    trace_rss("payload encoded");
     let summary = inspect_custom_payload(&payload)?;
     let meta = summary.meta(options.lp_count)?;
     Ok(ImportedOwner {
@@ -2607,6 +3140,7 @@ pub fn import_table_from<R: std::io::BufRead>(
         slot_order,
         boxed,
         recipes: recipe_bundle,
+        streamed_payload_bytes: None,
     })
 }
 
@@ -2624,6 +3158,104 @@ pub fn slot_map_text(imported: &ImportedOwner) -> BTreeMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// T178 unboxed F3 (table index 5240): a slot-permuted alias rule becomes a SlotAliasRecord; its image, sign and
+    /// domain; a later rule overlapping its domain is detected, a disjoint one is not.
+    #[test]
+    fn a_rule_without_case_is_read_by_its_equations() {
+        let coordinate = serde_json::json!({"type": "rule", "equations": []});
+        let affine = serde_json::json!({"type": "rule", "equations": ["n0-n1"]});
+        assert!(case_text(&coordinate).unwrap().starts_with("Coordinate("));
+        assert!(case_text(&affine).unwrap().starts_with("Affine("));
+        assert!(case_text(&serde_json::json!({"type": "rule"})).is_err());
+        let given = serde_json::json!({"type": "rule", "case": "Affine(x)", "equations": []});
+        assert_eq!(case_text(&given).unwrap(), "Affine(x)");
+    }
+
+    #[test]
+    fn slot_permuted_alias_rule_f3_of_t178() {
+        let record: Value = serde_json::from_str(r#"{"type":"rule","chart":"11111111110000000000","index":5240,
+            "case":"Coordinate(CoordinateCase { fixed: [] })",
+            "fixed":[1,1,null,1,1,null,1,1,1,null,0,0,0,0,0,0,0,0,0,0],"equations":[],
+            "target":"I(1,1,n2,1,1,n5,1,1,1,n9,0,0,0,0,0,0,0,0,0,0)",
+            "rhs":[["I(1,n2,1,1,n5,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)","1"]],"exceptions":[],
+            "domain_bounds":{"min":[null,null,2,null,null,2,null,null,null,2,null,null,null,null,null,null,null,null,null,null],
+                             "max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]},
+            "dispatch":"Partition"}"#).unwrap();
+        let arity = 20;
+        let identity: Vec<usize> = (0..arity).collect();
+        let fixed: Vec<Option<i64>> = record["fixed"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(Value::as_i64)
+            .collect();
+        let (min, max) = bounds_of_record(&record, arity).unwrap();
+        let chart = mask_bits("11111111110000000000").unwrap();
+        let alias =
+            slot_alias_record(&record, 5240, &chart, &fixed, &min, &max, arity, &identity).unwrap();
+        assert_eq!(alias.coefficient, 1);
+        let key = [1, 1, 3, 1, 1, 2, 1, 1, 1, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        assert_eq!(
+            alias.image(&key).unwrap(),
+            vec![1, 3, 1, 1, 2, 1, 1, 1, 4, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        );
+        // outside the domain: n2 = 1 (bound), a fixed slot differs, a numerator
+        let mut low = key;
+        low[2] = 1;
+        assert!(alias.image(&low).is_none());
+        let mut other = key;
+        other[0] = 2;
+        assert!(alias.image(&other).is_none());
+        let mut numerator = key;
+        numerator[12] = -1;
+        assert!(alias.image(&numerator).is_none());
+        // the provenance line round-trips
+        let line = format!(
+            "imported{SLOT_ALIASES_MARKER}{}{SLOT_ORDER_MARKER}{{}}",
+            serde_json::to_string(&vec![alias.clone()]).unwrap()
+        );
+        assert_eq!(slot_aliases_of_source(&line).unwrap(), vec![alias]);
+        assert!(slot_aliases_of_source("imported").unwrap().is_empty());
+        // a declared rhs_slot_maps (implementer's form, in symmetry_origin or top level) is checked, and a record
+        // without "case" is read by its equations
+        let mut declared = record.clone();
+        declared.as_object_mut().unwrap().remove("case");
+        let mut map = vec![serde_json::Value::Null; arity];
+        map[1] = 2.into();
+        map[4] = 5.into();
+        map[8] = 9.into();
+        declared["symmetry_origin"] = serde_json::json!({"rhs_slot_maps": [map.clone()]});
+        assert!(
+            slot_alias_record(
+                &declared, 5240, &chart, &fixed, &min, &max, arity, &identity
+            )
+            .is_ok()
+        );
+        map[4] = 2.into();
+        declared["symmetry_origin"] = serde_json::json!({});
+        declared["rhs_slot_maps"] = serde_json::json!([map]);
+        assert!(
+            slot_alias_record(
+                &declared, 5240, &chart, &fixed, &min, &max, arity, &identity
+            )
+            .is_err()
+        );
+        // not the alias form: two terms, or an index used twice
+        let mut two = record.clone();
+        two["rhs"] = serde_json::json!([
+            ["I(1,n2,1,1,n5,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"],
+            ["I(1,n2,1,1,n5,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"]
+        ]);
+        assert!(
+            slot_alias_record(&two, 5240, &chart, &fixed, &min, &max, arity, &identity).is_err()
+        );
+        let mut twice = record.clone();
+        twice["rhs"] = serde_json::json!([["I(1,n2,1,1,n2,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"]]);
+        assert!(
+            slot_alias_record(&twice, 5240, &chart, &fixed, &min, &max, arity, &identity).is_err()
+        );
+    }
 
     #[test]
     fn momenta_and_keys_parse() {
@@ -3467,6 +4099,45 @@ mod tests {
                 matches!(&refused, Err(PError::Unsupported(text)) if text.contains("partial")),
                 "{refused:?}"
             );
+        }
+    }
+
+    /// vk5l WP6: the bounded-memory import (coefficients spilled to a scratch
+    /// file, payload streamed to a writer) writes the payload bytes of the
+    /// in-memory import, boxed or not, with the same summary and meta.
+    #[test]
+    fn the_spilled_streamed_import_writes_the_same_payload() {
+        for boxed in [false, true] {
+            let text = kite_table(boxed, None, &[]);
+            let whole = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+            let path = std::env::temp_dir().join(format!(
+                "rustred-spill-test-{}-{boxed}.scratch",
+                std::process::id()
+            ));
+            let scratch = std::fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .open(&path)
+                .unwrap();
+            let mut payload = Vec::new();
+            let streamed = import_table_streamed(
+                std::io::BufReader::with_capacity(7, text.as_bytes()),
+                &kite_graph(),
+                &kite_options(false),
+                scratch,
+                &mut payload,
+            )
+            .unwrap();
+            std::fs::remove_file(&path).unwrap();
+            assert!(streamed.payload.is_empty());
+            assert_eq!(streamed.streamed_payload_bytes, Some(payload.len() as u64));
+            assert_eq!(payload, whole.payload);
+            assert_eq!(streamed.summary, whole.summary);
+            assert_eq!(streamed.meta, whole.meta);
+            assert_eq!(streamed.boxed, whole.boxed);
+            assert_eq!(streamed.payload_len(), whole.payload_len());
         }
     }
 

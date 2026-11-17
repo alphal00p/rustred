@@ -78,6 +78,12 @@ pub(crate) trait OrderedStepCacheKernel: OrderedKernel {
     ) -> Result<OrderedStep<Self::Key>, Self::Error> {
         Ok(step)
     }
+    /// Whether [`Self::step_cache_refresh`] returns every replayed step
+    /// unchanged right now (light replay hands the children of a hit over by
+    /// handle and skips the refresh). Default: yes, as the default refresh.
+    fn step_cache_refresh_is_identity(&self) -> bool {
+        true
+    }
 }
 
 /// The cache hooks of a concurrent adapter, evaluated on the scheduler's
@@ -134,12 +140,74 @@ pub(crate) struct StepCacheCounters {
     pub misses: usize,
 }
 
-struct CachedKernel<'k, 'c, K> {
+struct CachedKernel<'k, 'c, K: OrderedKernel> {
     inner: &'k mut K,
     cache: &'c OrderedStepCache,
     counters: StepCacheCounters,
     key: Vec<u8>,
     nodes: Vec<u8>,
+    light: Light<K::Key>,
+}
+
+/// vk5l-physrun light replay (one-thread recorded arithmetics, see
+/// `OrderedKernel::set_light`): the children of a cache hit go to the
+/// scheduler as (key, handle) pairs, a handle naming a shard coefficient held
+/// here, so the arithmetic maps each distinct coefficient once per request
+/// instead of receiving (cloning, hashing) it on every hit. The adapter's own
+/// light children of a computed step pass through unchanged (their values are
+/// materialised only for the record). Value-neutral: the same children with
+/// the same coefficients.
+struct Light<Key> {
+    on: bool,
+    out: Vec<(Key, u64)>,
+    values: Vec<std::sync::Arc<Coefficient>>,
+    index: std::collections::HashMap<usize, u32>,
+}
+
+impl<Key> Default for Light<Key> {
+    fn default() -> Self {
+        Self {
+            on: false,
+            out: Vec::new(),
+            values: Vec::new(),
+            index: std::collections::HashMap::new(),
+        }
+    }
+}
+
+/// Tag of a cache handle (adapter handles never set bit 60).
+const CACHE_HANDLE: u64 = (1 << 63) | (1 << 60);
+
+fn light_replay_allowed() -> bool {
+    static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ALLOWED.get_or_init(|| {
+        !matches!(
+            std::env::var("RUSTRED_STEP_CACHE_LIGHT").as_deref(),
+            Ok("0" | "off" | "false")
+        )
+    })
+}
+
+impl<Key> Light<Key> {
+    fn handle(&mut self, value: &std::sync::Arc<Coefficient>) -> u64 {
+        let at = std::sync::Arc::as_ptr(value) as usize;
+        let index = *self.index.entry(at).or_insert_with(|| {
+            self.values.push(std::sync::Arc::clone(value));
+            (self.values.len() - 1) as u32
+        });
+        CACHE_HANDLE | u64::from(index)
+    }
+
+    fn value(&self, handle: u64) -> Option<Option<Coefficient>> {
+        if handle & CACHE_HANDLE != CACHE_HANDLE {
+            return None;
+        }
+        Some(
+            self.values
+                .get((handle & 0xFFFF_FFFF) as usize)
+                .map(|value| (**value).clone()),
+        )
+    }
 }
 
 /// Rebuild a recorded step; `decode` turns a stored identity back into a
@@ -218,7 +286,60 @@ fn record_input<'a>(
     }
 }
 
+/// A replayed record: the whole step, or (light replay) the step without
+/// its children and the children with their shared coefficients.
+enum Replayed<Key> {
+    Full(OrderedStep<Key>),
+    Light((OrderedStep<Key>, Vec<(Key, std::sync::Arc<Coefficient>)>)),
+}
+
+/// [`rebuild`] for light replay: terminals and guards as there, the children
+/// (in key order, a later duplicate replacing an earlier one as in
+/// [`rebuild`]) with the shard's coefficient handles.
+#[allow(clippy::type_complexity)]
+fn rebuild_light<Key: Ord, E: From<ReductionError>>(
+    record: RecordView<'_>,
+    decode: impl Fn(NodeStage, IntegralKey) -> Result<Key, E>,
+) -> Result<(OrderedStep<Key>, Vec<(Key, std::sync::Arc<Coefficient>)>), E> {
+    let mut children = BTreeMap::new();
+    for (node, coefficient) in record.shared_terms() {
+        let (stage, integral) = decode_node(node).map_err(failure)?;
+        children.insert(decode(stage, integral)?, std::sync::Arc::clone(coefficient));
+    }
+    let mut terminals = Vec::with_capacity(record.terminals().len());
+    for (node, coefficient) in record.terminals() {
+        let (stage, integral) = decode_node(node).map_err(failure)?;
+        if stage != NodeStage::Integral {
+            return Err(failure("a recorded terminal is not a plain integral").into());
+        }
+        terminals.push((integral, coefficient.clone()));
+    }
+    Ok((
+        OrderedStep {
+            terms: BTreeMap::new(),
+            terminals: BTreeMap::from_iter(terminals),
+            nonzero_conditions: record.guards().cloned().collect(),
+        },
+        children.into_iter().collect(),
+    ))
+}
+
 impl<'k, 'c, K: OrderedStepCacheKernel> CachedKernel<'k, 'c, K> {
+    /// The adapter's step; its light children (if any) are kept for
+    /// `take_light`.
+    fn inner_step(
+        &mut self,
+        key: &K::Key,
+        request: &mut ReductionRequest,
+        work: &mut ReductionStatistics,
+    ) -> Result<OrderedStep<K::Key>, K::Error> {
+        let step = self.inner.step(key, request, work)?;
+        if self.light.on {
+            self.light.out = self.inner.take_light();
+        }
+        Ok(step)
+    }
+
     fn new(inner: &'k mut K, cache: &'c OrderedStepCache) -> Self {
         Self {
             inner,
@@ -226,6 +347,7 @@ impl<'k, 'c, K: OrderedStepCacheKernel> CachedKernel<'k, 'c, K> {
             counters: StepCacheCounters::default(),
             key: Vec::new(),
             nodes: Vec::new(),
+            light: Light::default(),
         }
     }
 
@@ -302,27 +424,45 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
         request: &mut ReductionRequest,
         work: &mut ReductionStatistics,
     ) -> Result<OrderedStep<Self::Key>, Self::Error> {
+        self.light.out.clear();
         let Some(shard) = self.inner.step_cache_shard(key) else {
-            return self.inner.step(key, request, work);
+            return self.inner_step(key, request, work);
         };
         self.key.clear();
         let encoded = K::key_view(key)
             .is_some_and(|(stage, integral)| encode_node(stage, integral, &mut self.key));
         if !encoded {
             self.cache.skip_insert(shard);
-            return self.inner.step(key, request, work);
+            return self.inner_step(key, request, work);
         }
         let inner = &*self.inner;
+        let light = self.light.on && inner.step_cache_refresh_is_identity();
         let lookup = self
             .cache
             .lookup(shard, &self.key, inner.context(), |record| {
+                if light {
+                    return rebuild_light(record, |stage, integral| {
+                        inner.step_cache_key(stage, integral)
+                    })
+                    .map(Replayed::Light);
+                }
                 rebuild(record, |stage, integral| {
                     inner.step_cache_key(stage, integral)
                 })
+                .map(Replayed::Full)
             })?;
         let record = match lookup {
-            Lookup::Hit(step) => {
-                let step = self.inner.step_cache_refresh(step?)?;
+            Lookup::Hit(replayed) => {
+                let step = match replayed? {
+                    Replayed::Full(step) => self.inner.step_cache_refresh(step)?,
+                    Replayed::Light((step, children)) => {
+                        for (child, value) in children {
+                            let handle = self.light.handle(&value);
+                            self.light.out.push((child, handle));
+                        }
+                        step
+                    }
+                };
                 self.counters.hits += 1;
                 self.inner.step_cache_hit(key)?;
                 return Ok(step);
@@ -331,12 +471,62 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
             Lookup::Miss => true,
         };
         self.counters.misses += 1;
-        let step = self.inner.step(key, request, work)?;
+        let step = self.inner_step(key, request, work)?;
         if record && self.inner.step_may_record(key) {
             let opaque = !self.inner.step_was_reproducible();
-            self.record(shard, &step, opaque)?;
+            if self.light.out.is_empty() || opaque {
+                self.record(shard, &step, opaque)?;
+            } else {
+                // The record holds the whole step: the adapter's light
+                // children materialised beside its terms (for the record
+                // only; they leave the step again before it is returned).
+                let mut step = step;
+                if self
+                    .light
+                    .out
+                    .iter()
+                    .any(|(child, _)| step.terms.contains_key(child))
+                {
+                    self.cache.skip_insert(shard);
+                    return Ok(step);
+                }
+                for (child, handle) in &self.light.out {
+                    let value = self.inner.light_value(*handle).ok_or_else(|| {
+                        Self::Error::from(failure("a light handle names no coefficient"))
+                    })?;
+                    step.terms.insert(child.clone(), value);
+                }
+                let recorded = self.record(shard, &step, opaque);
+                for (child, _) in &self.light.out {
+                    step.terms.remove(child);
+                }
+                recorded?;
+                return Ok(step);
+            }
         }
         Ok(step)
+    }
+
+    fn set_light(&mut self, on: bool) {
+        // Off (`RUSTRED_STEP_CACHE_LIGHT=off`): the adapter takes no light
+        // steps either, as before light replay.
+        let on = on && light_replay_allowed();
+        self.light.on = on;
+        self.inner.set_light(on);
+        if !on {
+            self.light = Light::default();
+        }
+    }
+
+    fn take_light(&mut self) -> Vec<(Self::Key, u64)> {
+        std::mem::take(&mut self.light.out)
+    }
+
+    fn light_value(&self, handle: u64) -> Option<Coefficient> {
+        match self.light.value(handle) {
+            Some(value) => value,
+            None => self.inner.light_value(handle),
+        }
     }
 
     fn observe(
