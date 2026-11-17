@@ -464,6 +464,11 @@ impl Fp {
         })
     }
 
+    /// The seeded value of pi^2 (tests and records).
+    pub fn pi2(&self) -> u64 {
+        self.f.from_element(&self.pi2)
+    }
+
     fn rat(&self, r: &Rational) -> Result<Elem, String> {
         let d = int_mod(&self.f, &r.denominator());
         if self.f.is_zero(&d) {
