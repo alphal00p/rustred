@@ -4115,6 +4115,76 @@ mod tests {
     /// a key, else the first parametric rule that applies (also outside the
     /// box), else OutsideBox. The box keys left to the parametric rules are
     /// stepped at load; a parametric rule leaving the box is refused there.
+    /// The payload with its coefficient section in the SHARED form
+    /// (`p-import-table --coef-form shared`), other sections unchanged.
+    fn shared_form(payload: &[u8]) -> Vec<u8> {
+        use crate::persistence::{
+            BinarySection, DecodedCoefficientTable, SectionTag, encode_program,
+            encode_shared_table, inspect_program,
+        };
+        let limits = crate::persistence::BinaryIoLimits::default();
+        let envelope = inspect_program(payload, limits).unwrap();
+        let table = DecodedCoefficientTable::import_generated(
+            envelope.section(SectionTag::SYMBOLICA_STATE).unwrap(),
+            envelope.section(SectionTag::COEFFICIENTS).unwrap(),
+            limits,
+        )
+        .unwrap();
+        let shared = encode_shared_table(&table.into_coefficients().unwrap()).unwrap();
+        let sections: Vec<BinarySection<'_>> = (envelope.sections().iter())
+            .map(|section| BinarySection {
+                tag: section.tag,
+                bytes: if section.tag == SectionTag::COEFFICIENTS {
+                    &shared
+                } else {
+                    section.bytes
+                },
+            })
+            .collect();
+        encode_program(envelope.kind(), &sections, limits).unwrap()
+    }
+
+    /// batch 12c (on-demand step 3): lazy rule bodies (restored and prepared
+    /// at a rule's first selection) reduce every key exactly as the eager
+    /// preparation of the whole chart, point and parametric rules, expanded
+    /// and shared coefficient forms; bodies are loaded only for selected rules.
+    #[test]
+    fn lazy_rule_bodies_reduce_like_the_eager_preparation() {
+        use super::super::custom::{RULE_BODIES_OVERRIDE, replay_custom_payload};
+        let cases: [(String, &[[i64; 5]]); 2] = [
+            (
+                kite_table(false, None, &[]),
+                &[[2, 1, 1, 1, 1], [1, 2, 1, 1, 1], [1, 1, 2, 1, 1], [1, 1, 1, 1, 2], [1, 1, 1, 1, 1]],
+            ),
+            (
+                mixed_kite_table("I(n0-1,1,1,1,1)", false),
+                &[[2, 1, 1, 1, 1], [3, 1, 1, 1, 1], [1, 2, 1, 1, 1]],
+            ),
+        ];
+        for (text, keys) in cases {
+            let imported = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+            for payload in [imported.payload.clone(), shared_form(&imported.payload)] {
+                for key in keys {
+                    let seed = [permuted(key, &imported.slot_map)];
+                    let run = |lazy: bool| {
+                        RULE_BODIES_OVERRIDE.with(|cell| cell.set(Some(lazy)));
+                        let out = replay_custom_payload(
+                            &imported.presentation,
+                            &payload,
+                            &imported.meta,
+                            &seed,
+                        );
+                        RULE_BODIES_OVERRIDE.with(|cell| cell.set(None));
+                        format!("{out:?}")
+                    };
+                    let eager = run(false);
+                    assert!(!eager.contains("Err"), "{eager}");
+                    assert_eq!(run(true), eager, "key {key:?}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn a_boxed_node_may_carry_point_rules_and_parametric_rules() {
         let text = mixed_kite_table("I(n0-1,1,1,1,1)", false);

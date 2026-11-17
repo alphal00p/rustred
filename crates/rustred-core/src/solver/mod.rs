@@ -42,6 +42,7 @@ pub(crate) use instantiate::{
 };
 
 pub(crate) use candidate_reduction::owner_step;
+pub(crate) use candidate_reduction::{LazyRhs, PreparedTerm, RuleBodyLoader, StreamedRule};
 pub use candidate_reduction::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateCacheRepresentation, CandidateDecomposition,
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,

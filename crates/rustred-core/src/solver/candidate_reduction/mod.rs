@@ -30,6 +30,8 @@ mod unmemoized;
 pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
 pub(crate) use litered_view::CandidateProgramView;
 pub(crate) use model::PreparedRule;
+pub(crate) use model::{PreparedTerm, RuleBodyLoader};
+pub(crate) use preparation::shared::{LazyRhs, StreamedRule};
 pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateFamilyAdmission,
     CandidateReachabilityReport, CandidateReductionError, CandidateStatistics, UnresolvedPolicy,

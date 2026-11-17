@@ -585,11 +585,80 @@ fn restore_error(error: BundleWireError) -> CandidateReductionError {
     }
 }
 
+/// batch 12c (on-demand step 3): whether p library payload rules keep their
+/// right-hand sides lazy (restored and prepared at a rule's first use);
+/// `RUSTRED_P_RULE_BODIES=eager` prepares every rule of a chart at its first
+/// use, as before.
+fn rule_bodies_lazy() -> bool {
+    #[cfg(test)]
+    if let Some(lazy) = RULE_BODIES_OVERRIDE.with(std::cell::Cell::get) {
+        return lazy;
+    }
+    static LAZY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *LAZY.get_or_init(|| std::env::var("RUSTRED_P_RULE_BODIES").map_or(true, |v| v != "eager"))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Tests: lazy (`Some(true)`) or eager rule bodies on this thread.
+    pub(crate) static RULE_BODIES_OVERRIDE: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Lazy rule bodies loaded in this process (diagnostic and tests).
+pub(crate) static RULE_BODY_LOADS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// batch 12c: the lazy rule bodies of one chart of a decoded payload (keeps
+/// the decoded payload: rule records + on-demand coefficient table).
+struct ChartBodies<const N: usize> {
+    decoded: Arc<Decoded>,
+    ordinal: usize,
+    context: Arc<CandidateOwnerContext<N>>,
+    variables: Vec<symbolica::poly::PolyVariable>,
+}
+
+impl<const N: usize> crate::solver::RuleBodyLoader<N> for ChartBodies<N> {
+    fn load(
+        &self,
+        rule: usize,
+        denominators: &[Arc<crate::algebra::IndexedPolynomial>],
+    ) -> Result<Vec<crate::solver::PreparedTerm<N>>, CandidateReductionError> {
+        let record = (self.decoded.program.sectors.get(self.ordinal))
+            .and_then(|sector| sector.rules.get(rule))
+            .ok_or_else(|| invalid("lazy rule body outside its chart"))?;
+        let restore = Restore {
+            table: &self.decoded.table,
+            variables: &self.variables,
+            indices: self.context.index_variables(),
+        };
+        let target = super::bundle_wire::integral::<N>(&record.target).map_err(restore_error)?;
+        let terms = restore.rhs(record).map_err(restore_error)?;
+        RULE_BODY_LOADS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.context.prepare_rule_body(&target, terms, denominators)
+    }
+}
+
+/// `len` minus the number of distinct term shifts of `record` (the prepared
+/// terms' `duplicate_shifts`, from the records alone).
+fn duplicate_shifts(record: &RuleRecord) -> usize {
+    let target = &record.target.values;
+    let shifts: BTreeSet<Vec<i32>> = (record.rhs.iter())
+        .map(|term| {
+            (term.integral.values.iter())
+                .zip(target)
+                .map(|(&child, &target)| i32::from(child) - i32::from(target))
+                .collect()
+        })
+        .collect();
+    record.rhs.len() - shifts.len()
+}
+
 impl Decoded {
     /// The prepared programs of `chart`, in `context`'s variables; the rules
-    /// are restored and prepared one at a time (t162-export).
+    /// are restored and prepared one at a time (t162-export); with lazy rule
+    /// bodies (batch 12c) only their dispatch parts.
     fn programs<const N: usize>(
-        &self,
+        self: &Arc<Self>,
         chart: [bool; N],
         context: Arc<CandidateOwnerContext<N>>,
     ) -> Result<CandidateOwnerPrograms<N>, CandidateReductionError> {
@@ -634,22 +703,57 @@ impl Decoded {
             .iter()
             .map(|rule| rule.rhs.len())
             .sum::<usize>();
-        let mut rules = rules;
-        let timed = std::iter::from_fn(|| {
-            let at = std::time::Instant::now();
-            let next = rules.next();
-            restore_seconds.set(restore_seconds.get() + at.elapsed().as_secs_f64());
-            next
-        });
-        let prepared = CandidateOwnerPrograms::try_new_streamed(
-            context,
-            input,
-            timed.map(|rule| rule.map_err(restore_error)),
-        );
+        let lazy = rule_bodies_lazy();
+        let prepared = if lazy {
+            drop(rules);
+            let loader: Arc<dyn crate::solver::RuleBodyLoader<N>> = Arc::new(ChartBodies {
+                decoded: Arc::clone(self),
+                ordinal,
+                context: Arc::clone(&context),
+                variables: variables.clone(),
+            });
+            let mut heads = (program.sectors[ordinal].rules.iter().enumerate()).map(
+                |(index, record)| -> Result<crate::solver::StreamedRule<N>, CandidateReductionError> {
+                    let mut head = restore.rule_head(record, &chart).map_err(restore_error)?;
+                    head.dispatch_policy = program.dispatch_policy(ordinal, index);
+                    let denominators = restore.rhs_denominators(record).map_err(restore_error)?;
+                    Ok(crate::solver::StreamedRule::Lazy(
+                        head,
+                        crate::solver::LazyRhs {
+                            loader: Arc::clone(&loader),
+                            index,
+                            len: record.rhs.len(),
+                            duplicate_shifts: duplicate_shifts(record),
+                            denominators,
+                        },
+                    ))
+                },
+            );
+            let timed = std::iter::from_fn(|| {
+                let at = std::time::Instant::now();
+                let next = heads.next();
+                restore_seconds.set(restore_seconds.get() + at.elapsed().as_secs_f64());
+                next
+            });
+            CandidateOwnerPrograms::try_new_streamed(context, input, timed)
+        } else {
+            let mut rules = rules;
+            let timed = std::iter::from_fn(|| {
+                let at = std::time::Instant::now();
+                let next = rules.next();
+                restore_seconds.set(restore_seconds.get() + at.elapsed().as_secs_f64());
+                next
+            });
+            CandidateOwnerPrograms::try_new_streamed(
+                context,
+                input,
+                timed.map(|rule| rule.map_err(restore_error)),
+            )
+        };
         if profile {
             let total = started.elapsed().as_secs_f64();
             eprintln!(
-                "payload-profile chart {ordinal}: rules {}, rhs terms {terms}, restore (decode coefficients + rule) {:.2} s, \
+                "payload-profile chart {ordinal}: rules {}, rhs terms {terms}, lazy bodies {lazy}, restore (decode coefficients + rule) {:.2} s, \
                  prepare (admit/specialisation programs) {:.2} s, rss {rss0:.2} -> {:.2} GB",
                 program.sectors[ordinal].rules.len(),
                 restore_seconds.get(),

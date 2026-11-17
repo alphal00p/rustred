@@ -362,7 +362,184 @@ pub(crate) struct PreparedRule<const N: usize> {
     pub fixed: [Option<i16>; N],
     pub equalities: Vec<IndexedPolynomial>,
     pub exceptions: Vec<Vec<IndexedPolynomial>>,
-    pub rhs: Vec<PreparedTerm<N>>,
+    pub rhs: RuleBody<N>,
+}
+
+/// batch 12c (on-demand step 3): restores and prepares the right-hand side of
+/// a lazily loaded rule at its first use. `load` must give the terms that the
+/// eager preparation gives for the same rule (same order, same values);
+/// `denominators` are the rule's prepared dispatch denominators, for sharing.
+pub(crate) trait RuleBodyLoader<const N: usize>: Send + Sync {
+    fn load(
+        &self,
+        rule: usize,
+        denominators: &[Arc<IndexedPolynomial>],
+    ) -> Result<Vec<PreparedTerm<N>>, CandidateReductionError>;
+}
+
+/// The lazy part of a [`RuleBody`]: where to load it and what dispatch needs
+/// before it is loaded.
+pub(crate) struct LazyRuleBody<const N: usize> {
+    pub loader: Arc<dyn RuleBodyLoader<N>>,
+    /// The rule's index for `loader`.
+    pub index: usize,
+    /// Number of right-hand-side terms.
+    pub len: usize,
+    /// `len` minus the number of distinct term shifts (the batch's coalescing
+    /// bound, [`super::owners::PreparedOwnerBatch`]).
+    pub duplicate_shifts: usize,
+    /// The distinct original denominators of the terms, first-appearance
+    /// order (each prepared like a term's denominator).
+    pub denominators: Vec<Arc<IndexedPolynomial>>,
+}
+
+/// The right-hand side of a prepared rule: prepared at load (eager), or
+/// restored and prepared at the rule's first use (batch 12c, lazy bodies of a
+/// p library payload; `RUSTRED_P_RULE_BODIES=eager` prepares every rule at
+/// load as before). Dispatch reads only [`Self::dispatch_denominators`], so a
+/// rule that is never selected is never restored. A loaded body is kept.
+pub(crate) struct RuleBody<const N: usize> {
+    terms: std::sync::OnceLock<Vec<PreparedTerm<N>>>,
+    lazy: Option<LazyRuleBody<N>>,
+}
+
+impl<const N: usize> fmt::Debug for RuleBody<N> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self.lazy, self.terms.get()) {
+            (_, Some(terms)) => f.debug_list().entries(terms).finish(),
+            (Some(lazy), None) => write!(f, "<lazy body: {} terms, not loaded>", lazy.len),
+            (None, None) => f.write_str("[]"),
+        }
+    }
+}
+
+impl<const N: usize> From<Vec<PreparedTerm<N>>> for RuleBody<N> {
+    fn from(terms: Vec<PreparedTerm<N>>) -> Self {
+        Self::eager(terms)
+    }
+}
+
+impl<const N: usize> RuleBody<N> {
+    pub fn eager(terms: Vec<PreparedTerm<N>>) -> Self {
+        let cell = std::sync::OnceLock::new();
+        let _ = cell.set(terms);
+        Self { terms: cell, lazy: None }
+    }
+
+    pub fn lazy(body: LazyRuleBody<N>) -> Self {
+        Self {
+            terms: std::sync::OnceLock::new(),
+            lazy: Some(body),
+        }
+    }
+
+    /// The terms, loaded on first use; a load failure is returned (and the
+    /// next call tries again).
+    pub fn terms(&self) -> Result<&[PreparedTerm<N>], CandidateReductionError> {
+        if let Some(terms) = self.terms.get() {
+            return Ok(terms);
+        }
+        let lazy = self.lazy.as_ref().expect("an eager body is always set");
+        let terms = lazy.loader.load(lazy.index, &lazy.denominators)?;
+        if terms.len() != lazy.len {
+            return Err(CandidateReductionError::InvalidInput(format!(
+                "lazy rule body {}: {} terms loaded, {} recorded",
+                lazy.index,
+                terms.len(),
+                lazy.len
+            )));
+        }
+        // Two threads may load the same body; the values are equal, the
+        // first one is kept.
+        let _ = self.terms.set(terms);
+        Ok(self.terms.get().expect("just set"))
+    }
+
+    /// Whether the terms are in memory (always for an eager body).
+    pub fn is_loaded(&self) -> bool {
+        self.terms.get().is_some()
+    }
+
+    pub fn is_lazy(&self) -> bool {
+        self.lazy.is_some()
+    }
+
+    /// Number of terms, without loading.
+    pub fn len(&self) -> usize {
+        match (self.terms.get(), &self.lazy) {
+            (Some(terms), _) => terms.len(),
+            (None, Some(lazy)) => lazy.len,
+            (None, None) => 0,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// `len` minus the number of distinct shifts, without loading.
+    pub fn duplicate_shifts(&self) -> usize {
+        match &self.lazy {
+            Some(lazy) => lazy.duplicate_shifts,
+            None => {
+                let terms = self.terms.get().map_or(&[][..], Vec::as_slice);
+                let unique: BTreeSet<_> = terms.iter().map(|term| &term.shift).collect();
+                terms.len() - unique.len()
+            }
+        }
+    }
+
+    /// The original denominators that dispatch tests at a key, without
+    /// loading: every term's (eager, as before) or the distinct ones in
+    /// first-appearance order (lazy). Both give the same applicability and
+    /// the same conditions in the same order (equal denominators specialise
+    /// equally and a condition is recorded once).
+    pub fn dispatch_denominators(&self) -> Box<dyn Iterator<Item = &IndexedPolynomial> + '_> {
+        match (&self.lazy, self.terms.get()) {
+            (Some(lazy), _) => Box::new(lazy.denominators.iter().map(|d| &**d)),
+            (None, Some(terms)) => Box::new(terms.iter().map(|term| &*term.denominator)),
+            (None, None) => Box::new(std::iter::empty()),
+        }
+    }
+
+    /// The loaded terms. Panics if a lazy body fails to load: for analysis
+    /// paths outside the step path (the step path calls [`Self::terms`]).
+    fn loaded(&self) -> &Vec<PreparedTerm<N>> {
+        if let Err(error) = self.terms() {
+            panic!("lazy rule body failed to load: {error}");
+        }
+        self.terms.get().expect("loaded")
+    }
+}
+
+impl<const N: usize> std::ops::Deref for RuleBody<N> {
+    type Target = Vec<PreparedTerm<N>>;
+    fn deref(&self) -> &Self::Target {
+        self.loaded()
+    }
+}
+
+impl<const N: usize> std::ops::DerefMut for RuleBody<N> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.loaded();
+        self.terms.get_mut().expect("loaded")
+    }
+}
+
+impl<'a, const N: usize> IntoIterator for &'a mut RuleBody<N> {
+    type Item = &'a mut PreparedTerm<N>;
+    type IntoIter = std::slice::IterMut<'a, PreparedTerm<N>>;
+    fn into_iter(self) -> Self::IntoIter {
+        std::ops::DerefMut::deref_mut(self).iter_mut()
+    }
+}
+
+impl<'a, const N: usize> IntoIterator for &'a RuleBody<N> {
+    type Item = &'a PreparedTerm<N>;
+    type IntoIter = std::slice::Iter<'a, PreparedTerm<N>>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.loaded().iter()
+    }
 }
 
 /// One RHS term of a prepared rule. t162-export (memory of the loaded form):

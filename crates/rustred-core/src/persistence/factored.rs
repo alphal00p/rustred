@@ -871,6 +871,57 @@ impl OnDemandFactoredSection {
         Ok(Arc::clone(cell.get_or_init(|| polynomial)))
     }
 
+    /// batch 12c (lazy rule bodies): the bytes that identify coefficient
+    /// `i`'s denominator (its variable map and its encoded denominator part),
+    /// without decoding anything. Two coefficients with equal keys have the
+    /// same denominator ([`Self::denominator`]).
+    pub(super) fn denominator_key(&self, i: usize) -> Result<Vec<u8>, BinaryIoError> {
+        let at = *self
+            .part_offsets
+            .get(i)
+            .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+        let mut src = Cursor {
+            bytes: &self.bytes,
+            at: at as usize,
+        };
+        let map = src.varint()?;
+        skip_part(&mut src, self.limits)?;
+        let start = src.at;
+        skip_part(&mut src, self.limits)?;
+        let mut key = Vec::with_capacity(10 + src.at - start);
+        varint(&mut key, map);
+        key.extend_from_slice(&self.bytes[start..src.at]);
+        Ok(key)
+    }
+
+    /// batch 12c: the denominator of coefficient `i` alone, the same
+    /// polynomial as `self.expand(i)?.denominator` (same part, same entries,
+    /// same multiplication) without multiplying the numerator back.
+    pub(super) fn denominator(&self, i: usize) -> Result<CoefficientPolynomial, BinaryIoError> {
+        let at = *self
+            .part_offsets
+            .get(i)
+            .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+        let mut src = Cursor {
+            bytes: &self.bytes,
+            at: at as usize,
+        };
+        let map = src.varint()? as usize;
+        skip_part(&mut src, self.limits)?;
+        let den = get_part(&mut src, self.entries.len(), self.limits)?;
+        let used: HashMap<u32, Arc<CoefficientPolynomial>> = den
+            .factors
+            .iter()
+            .map(|&(id, _)| Ok((id, self.entry(id)?)))
+            .collect::<Result<_, BinaryIoError>>()?;
+        let template = &self.templates[map];
+        let denominator = multiply(&den, |id| &*used[&id], &template.numerator);
+        if denominator.is_zero() {
+            return Err(BinaryIoError::Invalid("factored table zero denominator"));
+        }
+        Ok(denominator)
+    }
+
     pub(super) fn expand(&self, i: usize) -> Result<Coefficient, BinaryIoError> {
         let at = *self
             .part_offsets

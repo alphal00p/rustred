@@ -19,10 +19,7 @@ impl<const N: usize> PreparedOwnerBatch<N> {
     ) -> Self {
         let coalescing_bound = rules
             .iter()
-            .map(|rule| {
-                let unique: BTreeSet<_> = rule.rhs.iter().map(|term| &term.shift).collect();
-                rule.rhs.len() - unique.len()
-            })
+            .map(|rule| rule.rhs.duplicate_shifts())
             .max()
             .unwrap_or(0);
         Self {
