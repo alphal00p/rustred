@@ -321,12 +321,27 @@ say "campaign id $ID, service $SVC ended ($st), exit $EXIT ($HOW), end $(date -u
 # ---------------------------------------------------------------- P1-P8
 STEPMODE=$(cat "$OUT/step.mode")
 "$RC" verify "$OUT/c" > "$OUT/verify.txt" 2>&1; VERIFY=$?
-# A12 (lists only)
-MARKED=0
+# A12 (lists only). procfix7 round 10 (host step 2: thousands of "Permission denied" lines from bash itself, whose input
+# redirection failed before the 2>/dev/null applied): only processes whose REAL uid is ours are candidates (another
+# user's process is never ours: the ownership rule) and only their environ is read; the real uid comes from status
+# (readable for every process, also for our own non-dumpable ones, whose /proc entry is root's); an environ of OUR process
+# that cannot be read while the process still exists is LISTED as UNREADABLE in a12.txt, never silenced
+MARKED=0; UNREADABLE=0; ME=$(id -u)
 for p in /proc/[0-9]*; do
-  e=$(tr '\0' '\n' < "$p/environ" 2>/dev/null) || continue
-  echo "$e" | grep -q "^RR_CAMPAIGN_JOB=$ID:" && { MARKED=$((MARKED + 1)); echo "MARKED ${p#/proc/} $(tr '\0' ' ' < "$p/cmdline" | cut -c1-120)" >> "$OUT/a12.txt"; }
+  ruid=""
+  { while read -r k v _; do [ "$k" = Uid: ] && { ruid=$v; break; }; done < "$p/status"; } 2>/dev/null
+  [ "$ruid" = "$ME" ] || continue
+  if e=$( { tr '\0' '\n' < "$p/environ"; } 2>/dev/null ); then
+    if [[ $'\n'"$e" == *$'\n'"RR_CAMPAIGN_JOB=$ID:"* ]]; then
+      MARKED=$((MARKED + 1))
+      echo "MARKED ${p#/proc/} $( { tr '\0' ' ' < "$p/cmdline"; } 2>/dev/null | cut -c1-120)" >> "$OUT/a12.txt"
+    fi
+  elif [ -d "$p" ]; then
+    UNREADABLE=$((UNREADABLE + 1))
+    echo "UNREADABLE ${p#/proc/} (own real uid; environ not readable) $( { tr '\0' ' ' < "$p/cmdline"; } 2>/dev/null | cut -c1-120)" >> "$OUT/a12.txt"
+  fi
 done
+say "A12: MARKED $MARKED; own processes with an unreadable environ $UNREADABLE (listed in $OUT/a12.txt; RUNBOOK A12: none may descend from this campaign)"
 if [ "$STEPMODE" = --run ]; then
   # the step's own units end by themselves (--collect; the pre-flight's scope); give systemd a moment, never a signal
   for _ in $(seq 60); do
