@@ -32,6 +32,21 @@ def mask_of(x):
 def dr(k, mask):
     return sum((v - 1) if c == '1' else -v for v, c in zip(k, mask))
 
+def arrival_files(lab):
+    """(parent, file) pairs of the arrival files R/<P>/out/<P>-<lab>.arrivals.jsonl; a node with R/<P>/SHARDS (drill_race.sh: its
+    shards won the race, not merged) contributes its shard files instead. Directories with a '.' (shards, stopped runs) are skipped."""
+    res = []
+    for n in sorted(os.listdir(R)):
+        if '.' in n or not os.path.isdir(f'{R}/{n}'):
+            continue
+        sh = f'{R}/{n}/SHARDS'
+        dirs = json.load(open(sh))['shards'] if os.path.exists(sh) else [f'{R}/{n}']
+        for d in dirs:
+            f = f'{d}/out/{n}-{lab}.arrivals.jsonl'
+            if os.path.isfile(f):
+                res.append((n, f))
+    return res
+
 def arrival_lines(lab, keys=None):
     """{key tuple: [(parent, line dict)]} for the arrival files R/*/out/*-<lab>.arrivals.jsonl (keys: restrict to these)."""
     res = collections.defaultdict(list)
@@ -39,10 +54,7 @@ def arrival_lines(lab, keys=None):
     if keys is not None:
         pats = S + f'/physchain/.drillpat.{os.getpid()}'
         open(pats, 'w').write(''.join('"key":' + json.dumps(list(k), separators=(',', ':')) + ',\n' for k in keys))
-    for n in sorted(os.listdir(R)):
-        f = f'{R}/{n}/out/{n}-{lab}.arrivals.jsonl'
-        if not os.path.isfile(f):
-            continue
+    for n, f in arrival_files(lab):
         if pats:
             out = subprocess.run(['grep', '-F', '-f', pats, f], capture_output=True, text=True).stdout.splitlines()
         else:
@@ -92,9 +104,8 @@ kp = f'{OUT}/{target}.drill.keys.jsonl'
 by_depth, by_dr, by_parent = collections.Counter(), collections.Counter(), collections.Counter()
 # the target's frame: the arrival header's child lines (mask in the child frame) from any arrival file
 child_mask = None
-for n in sorted(os.listdir(R)):
-    f = f'{R}/{n}/out/{n}-{label}.arrivals.jsonl'
-    if os.path.isfile(f):
+for n, f in arrival_files(label):
+    if True:
         h = json.loads(open(f).readline())
         cl = set(h['child']['lines']); ar = None
         for l in open(f):
