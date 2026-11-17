@@ -139,6 +139,9 @@ pub struct ConeOptions {
     pub max_blocked_classes: Option<usize>,
     /// Engine model: the engine's zero test is exact (rustred slot-alias 4895ee68): no modular-zero-risk stop pieces.
     pub engine_exact_zero: bool,
+    /// Partition only these sources (positions in the dispatcher's priority order; `PartitionOptions::rule_subset`), e.g. the
+    /// records BEFORE a record whose liveness is decided.
+    pub rule_subset: Option<Vec<usize>>,
 }
 
 impl Default for ConeOptions {
@@ -156,6 +159,7 @@ impl Default for ConeOptions {
             describe: false,
             max_blocked_classes: None,
             engine_exact_zero: false,
+            rule_subset: None,
         }
     }
 }
@@ -1022,6 +1026,7 @@ pub fn partition_for_cones_traced(
     let mut po = partition_options(&opts.budget);
     po.factor_exceptions = opts.factor_exceptions;
     po.engine_exact_zero = opts.engine_exact_zero;
+    po.rule_subset = opts.rule_subset.clone();
     let report = if opts.describe {
         crate::partition::gap_partition(&src, frame, &po, progress)
     } else {

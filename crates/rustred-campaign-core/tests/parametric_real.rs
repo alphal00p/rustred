@@ -3520,3 +3520,220 @@ fn chain_walk() {
         open.len()
     );
 }
+
+/// PER-RECORD LIVENESS in a cone (delivery note / dead-record pruning): record r is LIVE iff some key of D + r <= R is first-
+/// matched by it. Exact: the dispatcher capped to r's face (one-slot caps from its fixed slots and one-slot bounds) is
+/// partitioned with ONLY the records before r (rule subset); every uncovered element inside the cone is enumerated (cap per
+/// element) and r tested at its keys: a key where r applies = live (witness); none with complete enumeration = dead; else
+/// undecided. Env: PARAMETRIC_SPEC (+ loci / bank loci / FALLTHROUGH reduced, ENGINE), PARAMETRIC_LIVENESS_DR (R),
+/// PARAMETRIC_LIVENESS_RANGE "a:b" (records by global dispatch position), PARAMETRIC_OUT (JSONL, one line per record).
+#[test]
+#[ignore]
+fn record_liveness() {
+    use rustred_campaign_core::parametric::cone::{
+        Cone, ConeOptions, capped_dispatcher, coverage_from_partition, partition_for_cones_with,
+    };
+    let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
+    let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
+    let rdr: i64 = std::env::var("PARAMETRIC_LIVENESS_DR")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(39);
+    let mut ld = load_any(
+        &spec,
+        std::env::var("PARAMETRIC_INDEX_DIR")
+            .ok()
+            .map(PathBuf::from),
+    );
+    if let Ok(f) = std::env::var("PARAMETRIC_SUPPLIED_LOCI") {
+        restore_loci(&mut ld, &f);
+    }
+    if let Ok(f) = std::env::var("PARAMETRIC_BANK_LOCI") {
+        restore_bank_loci(&mut ld, &f);
+    }
+    let (g5, _) = rustred_campaign_core::parametric::cone::fall_through_poles_reduced(
+        &ld.disp,
+        &ld.frame,
+        &ProofBudget::default(),
+    )
+    .unwrap();
+    let frame = ld.frame.clone();
+    let n = frame.arity();
+    let order: Vec<(usize, usize)> = g5
+        .priority()
+        .iter()
+        .flat_map(|&ti| (0..g5.tables()[ti].domains.len()).map(move |r| (ti, r)))
+        .collect();
+    let (a, b) = std::env::var("PARAMETRIC_LIVENESS_RANGE")
+        .ok()
+        .and_then(|x| {
+            x.split_once(':')
+                .map(|(p, q)| (p.parse().unwrap(), q.parse().unwrap()))
+        })
+        .unwrap_or((0usize, order.len()));
+    let mut base_opts = ConeOptions::default();
+    // per-record budget (a record that exceeds it is UNDECIDED, never live / dead)
+    base_opts.budget.max_nodes = Some(
+        std::env::var("PARAMETRIC_LIVENESS_UNITS")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(50_000_000),
+    );
+    base_opts.budget.wall = Some(std::time::Duration::from_secs(
+        std::env::var("PARAMETRIC_LIVENESS_WALL")
+            .ok()
+            .and_then(|x| x.parse().ok())
+            .unwrap_or(120),
+    ));
+    base_opts.engine_exact_zero = std::env::var("PARAMETRIC_ENGINE").as_deref() == Ok("4895ee68");
+    // the cone D + r <= R
+    let mut cone_a = vec![0i64; n];
+    let mut cone_b = rdr;
+    for (s, c) in cone_a.iter_mut().enumerate() {
+        if frame.is_line(s) {
+            *c = 1;
+            cone_b += 1;
+        } else {
+            *c = -1;
+        }
+    }
+    let mut w = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
+    for pos in a..b.min(order.len()) {
+        let (ti, ri) = order[pos];
+        let d = &g5.tables()[ti].domains[ri];
+        let label = g5.tables()[ti].labels[ri];
+        let t0 = std::time::Instant::now();
+        // caps: fixed slots (two one-slot caps each) + one-slot linear bounds  (c * n_s + e >= 0)
+        let mut caps = Cone {
+            label: format!("face of record {pos}"),
+            constraints: vec![],
+        };
+        for (s, fx) in d.fixed.iter().enumerate() {
+            if let Some(v) = fx {
+                let mut up = vec![0i64; n];
+                up[s] = 1;
+                let mut dn = vec![0i64; n];
+                dn[s] = -1;
+                caps.constraints.push((up, i64::from(*v)));
+                caps.constraints.push((dn, -i64::from(*v)));
+            }
+        }
+        for p in &d.bounds {
+            // linear one-slot bound c * n_s + e >= 0
+            let sup = p.support();
+            if sup.len() != 1 || p.degree() != 1 || p.has_d() {
+                continue;
+            }
+            let s = sup[0];
+            let Some(terms) = p.small_terms() else {
+                continue;
+            };
+            let (mut c, mut e) = (0i128, 0i128);
+            for (mo, k) in terms {
+                if mo.is_empty() {
+                    e = *k;
+                } else {
+                    c = *k;
+                }
+            }
+            if c == 1 {
+                let mut dn = vec![0i64; n];
+                dn[s] = -1;
+                caps.constraints.push((dn, e as i64)); // -n_s <= e
+            } else if c == -1 {
+                let mut up = vec![0i64; n];
+                up[s] = 1;
+                caps.constraints.push((up, e as i64)); // n_s <= e
+            }
+        }
+        let capped = match capped_dispatcher(&g5, &frame, &caps) {
+            Ok(c) => c,
+            Err(e) => {
+                writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": "undecided", "why": format!("caps: {e}")})).unwrap();
+                continue;
+            }
+        };
+        let ncaps = capped.tables()[0].domains.len();
+        let mut opts = base_opts.clone();
+        opts.rule_subset = Some((0..ncaps).chain((0..pos).map(|p| ncaps + p)).collect());
+        let cp = match partition_for_cones_with(&capped, &frame, &opts, None) {
+            Ok(c) => c,
+            Err(e) => {
+                writeln!(w, "{}", json!({"position": pos, "label": label, "live": "undecided", "why": format!("partition: {e}")})).unwrap();
+                continue;
+            }
+        };
+        let budget_hit = cp.report.budget_exhausted().map(str::to_string);
+        let mut cone = Cone {
+            label: format!("D + r <= {rdr}"),
+            constraints: vec![(cone_a.clone(), cone_b)],
+        };
+        cone = cone.and(&caps);
+        let cov = coverage_from_partition(&cp, &capped, &frame, &cone, &opts).unwrap();
+        let mut witness: Option<Vec<i32>> = None;
+        let mut exhausted = true;
+        'el: for l in &cov.listed {
+            let i = l["element"].as_u64().unwrap() as usize;
+            let el = &cp.elements[i];
+            // a CELL (box): exact emptiness of (r's domain AND the box AND the cone), with a witness
+            if let Some(cell) = &el.cell {
+                use rustred_campaign_core::parametric::descent::{EmptyState, emptiness};
+                use rustred_campaign_core::poly::Poly;
+                let mut bounds: Vec<Poly> = Vec::new();
+                for (sl, (lo, hi)) in cell.iter().enumerate() {
+                    if let Some(lo) = lo {
+                        bounds.push(Poly::var(sl).sub(&Poly::constant(i128::from(*lo))).unwrap());
+                    }
+                    if let Some(hi) = hi {
+                        bounds.push(Poly::constant(i128::from(*hi)).sub(&Poly::var(sl)).unwrap());
+                    }
+                }
+                let mut cb = Poly::constant(i128::from(cone_b));
+                for (sl, c) in cone_a.iter().enumerate() {
+                    cb = cb
+                        .sub(&Poly::var(sl).mul(&Poly::constant(i128::from(*c))).unwrap())
+                        .unwrap();
+                }
+                bounds.push(cb);
+                match emptiness(d, &frame, &ProofBudget::default(), &[], &bounds) {
+                    (EmptyState::Empty, _, _) => continue,
+                    (EmptyState::NonEmpty, Some(wk), _) => {
+                        witness = Some(wk);
+                        break 'el;
+                    }
+                    _ => {
+                        exhausted = false;
+                        continue;
+                    }
+                }
+            }
+            let mut found = None;
+            let mut push = |k: &[i32]| {
+                if found.is_none() && d.applies(k).applies() {
+                    found = Some(k.to_vec());
+                }
+            };
+            let sized = rustred_campaign_core::parametric::cone::region_keys_each(
+                &el.region(),
+                &cone,
+                200_000,
+                &mut push,
+            );
+            if let Some(k) = found {
+                witness = Some(k);
+                break 'el;
+            }
+            if sized.is_none() {
+                exhausted = false;
+            }
+        }
+        let live = match (&witness, exhausted && budget_hit.is_none()) {
+            (Some(_), _) => "live",
+            (None, true) => "dead",
+            (None, false) => "undecided",
+        };
+        writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
+            "uncovered_elements_in_cone": cov.listed.len(), "budget": budget_hit, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
+        w.flush().unwrap();
+    }
+}
