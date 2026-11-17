@@ -194,17 +194,20 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
             .position(|h| *h == n)
             .ok_or(format!("cell table: no column {n}"))
     };
-    let (cn, ce, cd, cr, ct, ch, cb, ck, cu) = (
+    let (cn, ce, cd, cr, ct, cb, ck, cu) = (
         col("node")?,
         col("E")?,
         col("D")?,
         col("r")?,
         col("top_r_at_D")?,
-        col("top_r_at_D_if_n4hint")?,
         col("box_r_max")?,
         col("keys_in_cell")?,
         col("qcd_units_reaching")?,
     );
+    // the main-line top: the n4 hint when numeric (coordinator ruling 2026-11-17), else the exact top (`top_r_exact`,
+    // the table regenerated with exact n4, TRICKS 49: the hint is then 'superseded'), else `top_r_at_D`
+    let ch = col("top_r_at_D_if_n4hint").ok();
+    let cx = col("top_r_exact").ok();
     let mut out = vec![];
     for (n, l) in lines.enumerate() {
         if l.trim().is_empty() {
@@ -218,12 +221,9 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
                 .parse::<i64>()
                 .map_err(|e| format!("cell table line {}: column {i}: {e}", n + 2))
         };
+        let opt = |c: Option<usize>| c.and_then(|i| get(i).trim().parse::<i64>().ok());
         let upper = int(ct)?;
-        let top = if get(ch).trim().is_empty() {
-            upper
-        } else {
-            int(ch)?
-        };
+        let top = opt(ch).or(opt(cx)).unwrap_or(upper);
         out.push(CellRow {
             node: get(cn).to_string(),
             e: int(ce)?,
@@ -1081,5 +1081,10 @@ mod tests {
         assert!(rows[0].r <= rows[0].top);
         assert!(rows[1].r > rows[1].top && rows[1].r <= rows[1].top_upper);
         assert_eq!(rows[2].top, 7, "an empty hint takes the upper bound");
+        // the exact-n4 table: the hint is 'superseded', the exact top decides
+        let t2 = "node\tE\tD\tr\ttop_r_at_D\ttop_r_at_D_if_n4hint\tkeys_in_cell\tbox_r_max\tqcd_units_reaching\ttop_r_exact\n\
+                  X\t12\t0\t3\t3\tsuperseded\t120\t5\t52\t3\n";
+        let rows = read_cell_tops(t2).unwrap();
+        assert_eq!((rows[0].top, rows[0].top_upper), (3, 3));
     }
 }
