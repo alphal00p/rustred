@@ -13,7 +13,7 @@ Inputs
   --results DIR       results/r<rule>.jsonl of the per-key prover (last line per id counts)
   --fm-dump TAG=PATH  first-match keys of the cone per rule (JSONL with key + served "<table>#<label>"), to decide
                       "every first-match key in cone" (repeatable)
-  --name-format F     how a rule index appears in "served", e.g. "T162.final [0,1905)#{i}" (repeatable: first match wins
+  --name-format F     how a rule index appears in "served", e.g. "<table name>#{i}" (repeatable: first match wins
                       by trying each format)
   --per-key-n RULE=N  key counts of evidence-only per-key rows (e.g. a helper's E-KEYS key counts) (repeatable)
   --whole-categories  categories counted as whole domain (default: whole)
