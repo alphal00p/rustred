@@ -36,6 +36,7 @@ mod polynomial;
 mod replay;
 mod sampled;
 mod simd;
+mod spill;
 
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, Hasher};
@@ -129,6 +130,7 @@ pub(crate) fn coefficient_hash(coefficient: &Coefficient) -> u64 {
 
 /// Interned coefficient reference; the top bit marks a constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
 pub(super) struct CoefRef(u32);
 
 const CONSTANT_FLAG: u32 = 1 << 31;
@@ -161,6 +163,7 @@ const SLOT_BITS: u32 = 29;
 const SLOT_MASK: u32 = (1 << SLOT_BITS) - 1;
 
 #[derive(Clone, Copy, Debug)]
+#[repr(C)]
 pub(super) struct Op {
     word: u32,
     pub coefficient: CoefRef,
@@ -297,7 +300,7 @@ impl Trace {
 
 /// The weight-independent numeric program of one Ordered request.
 pub(super) struct Trace {
-    ops: Vec<Op>,
+    ops: spill::OpStore,
     /// Rational constants `(numerator, denominator)`.
     constants: Vec<(Integer, Integer)>,
     /// Non-constant univariate rational functions.
@@ -602,6 +605,9 @@ pub(crate) struct ModularRecorder {
     /// vk5l-physrun channel replay: the entry index of every admitted input
     /// (each input its own unshared polynomial entry), in admission order.
     multi_inputs: Option<Vec<u32>>,
+    /// vk5l-physrun level 2: the spill file of this request's ops (see
+    /// `spill`); `None`: the ops stay in memory.
+    spill: Option<std::sync::Arc<std::sync::Mutex<spill::Spill>>>,
     /// Channel replay: the probe values of the k-th admitted input
     /// (Σ λ_c · probe(input of channel c)), in admission order.
     multi_probes: std::collections::VecDeque<[Fe; PROBES]>,
@@ -844,7 +850,30 @@ impl ModularRecorder {
             handles: Default::default(),
             multi_inputs: None,
             multi_probes: Default::default(),
+            spill: match spill::spill_dir() {
+                Some(dir) => Some(std::sync::Arc::new(std::sync::Mutex::new(spill::Spill::create(dir)?))),
+                None => None,
+            },
         })
+    }
+
+    /// Ops recorded so far (spilled and in memory).
+    fn op_count(&self) -> usize {
+        self.ops.len() + self.spill.as_ref().map_or(0, |s| s.lock().map_or(0, |s| s.flushed))
+    }
+
+    /// The whole trace as one store (spilled file mapped, or the Vec).
+    fn take_op_store(&mut self) -> Result<spill::OpStore, ReductionError> {
+        match self.spill.take() {
+            Some(spill) => {
+                let spill = std::sync::Arc::try_unwrap(spill)
+                    .map_err(|_| error("trace spill still shared"))?
+                    .into_inner()
+                    .map_err(|_| error("trace spill poisoned"))?;
+                spill.finish(&mut self.ops)
+            }
+            None => Ok(spill::OpStore::from(std::mem::take(&mut self.ops))),
+        }
     }
 
     /// Channel replay: the probes of `channels` mixed with `lambdas`, per
@@ -977,6 +1006,7 @@ impl ModularRecorder {
             handles: Default::default(),
             multi_inputs: None,
             multi_probes: Default::default(),
+            spill: None,
         }
     }
 
@@ -1005,13 +1035,14 @@ impl ModularRecorder {
         for (index, reference) in self.entry_refs.iter().enumerate() {
             entry_of.insert(reference.0, index as u32);
         }
+        let all = self.take_op_store()?;
         let mut out = Vec::with_capacity(patches.len());
         for patch in patches {
             if patch.len() != inputs.len() {
                 return Err(error("a channel patch of another length"));
             }
             let live: Vec<bool> = patch.iter().map(|c| !c.is_zero()).collect();
-            let sliced = slice_channel(&self.ops, &live, self.next_slot as usize, self.terminal_slots as usize)?;
+            let sliced = slice_channel(&all, &live, self.next_slot as usize, self.terminal_slots as usize)?;
             let ops = sliced.ops;
             let mut patched: std::collections::HashMap<u32, Coefficient> = std::collections::HashMap::new();
             for (&index, coefficient) in inputs.iter().zip(patch) {
@@ -1253,8 +1284,9 @@ impl ModularRecorder {
         drop(std::mem::take(&mut self.entries));
         drop(std::mem::take(&mut self.entry_refs));
         drop(std::mem::take(&mut self.entry_hashes));
+        let ops = self.take_op_store()?;
         let trace = Trace {
-            ops: self.ops,
+            ops,
             constants,
             polynomials,
             slots: self.next_slot as usize,
@@ -1551,6 +1583,7 @@ impl ModularRecorder {
 
     /// fwd-opt: `len` more ops (placeholders), to be written by the caller.
     pub(super) fn layered_append(&mut self, len: usize) -> &mut [Op] {
+        assert!(self.spill.is_none(), "layered mode does not spill its trace");
         let start = self.ops.len();
         self.ops.resize(start + len, Op::bare(OpTag::Pop, 0));
         &mut self.ops[start..]
@@ -1652,13 +1685,22 @@ impl OrderedWeights for ModularRecorder {
     }
 
     fn begin_step(&mut self, weight: &ModularWeight) -> Result<(), ReductionError> {
+        if self.ops.len() >= spill::block_ops()
+            && let Some(spill) = &self.spill
+        {
+            spill
+                .lock()
+                .map_err(|_| error("trace spill poisoned"))?
+                .flush(&mut self.ops)?;
+        }
         self.ops
             .push(Op::new(OpTag::Pop, weight.slot, CoefRef(CONSTANT_FLAG)));
         Ok(())
     }
 
     fn phase_started(&mut self, phase: usize) {
-        self.phase_starts.push((phase, self.ops.len()));
+        let count = self.op_count();
+        self.phase_starts.push((phase, count));
     }
 
     fn end_step(&mut self, weight: ModularWeight) {
@@ -1830,7 +1872,8 @@ impl OrderedWeights for ModularRecorder {
     }
 
     fn tail_checkpoint(&self) -> Option<usize> {
-        Some(self.ops.len())
+        // A spilled trace is not rewritten (tail rewrites refuse it below).
+        Some(self.op_count())
     }
 
     fn tail_probe(&self, weight: &ModularWeight) -> Option<[Fe; PROBES]> {
@@ -1893,10 +1936,15 @@ impl OrderedWeights for ModularRecorder {
         terminal: &mut Option<ModularWeight>,
         probe: Option<[Fe; PROBES]>,
     ) -> Result<super::TailRewriteReport, ReductionError> {
-        if rewrite.ops > self.ops.len() {
+        // A spilled trace is rewritten only after its last flushed op.
+        let flushed = self.op_count() - self.ops.len();
+        if rewrite.ops < flushed {
+            return Err(error("tail rewrites below the spilled part of a trace are not supported"));
+        }
+        if rewrite.ops > self.op_count() {
             return Err(error("tail checkpoint beyond the recorded trace"));
         }
-        self.ops.truncate(rewrite.ops);
+        self.ops.truncate(rewrite.ops - flushed);
         // Phase markers (replay diagnostics) of the replaced program go with
         // it: the rewritten products count for the phase the tail starts in.
         self.phase_starts.retain(|&(_, start)| start <= rewrite.ops);

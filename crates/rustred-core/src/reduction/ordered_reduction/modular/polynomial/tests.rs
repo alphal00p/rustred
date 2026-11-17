@@ -139,7 +139,7 @@ impl Program {
     /// The trace, its basis, and the exact terminal values.
     fn finish(self) -> (Trace, Basis, Vec<Coefficient>) {
         let trace = Trace {
-            ops: self.ops,
+            ops: self.ops.into(),
             constants: self.constants,
             polynomials: self.polynomials,
             slots: self.weights.len(),
