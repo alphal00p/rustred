@@ -54,7 +54,8 @@ pub const FEATURES_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates
 /// The provenance line naming the reader features a payload requires.
 pub const REQUIRED_FEATURES_MARKER: &str = "\nrequired_features ";
 /// Reader features this build implements.
-pub const KNOWN_PAYLOAD_FEATURES: [&str; 2] = ["slot_aliases", "positioned_recipes"];
+pub const KNOWN_PAYLOAD_FEATURES: [&str; 3] =
+    ["slot_aliases", "positioned_recipes", "alias_equations"];
 
 /// The features a payload's provenance text requires (none without the line).
 pub fn required_features(family_source: &str) -> Vec<String> {
