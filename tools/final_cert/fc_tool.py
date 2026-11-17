@@ -745,6 +745,69 @@ def cmd_onerun(a):
     return 0 if summ['pass'] else FAIL
 
 
+# ------------------------------------------------------------------------------------------------------------ candcheck
+def rule_facts(path):
+    """Rules of a table in FILE order: (index, target_rhs_sha256 'list', domain_sha256, dispatch_position); residual keys; end."""
+    rules, res, end = [], [], None
+    with open(path, 'rb') as f:
+        for raw in f:
+            if not raw.strip():
+                continue
+            v = json.loads(raw)
+            if is_rule(v):
+                rules.append((v.get('index'), target_rhs_hash(v, 'list'),
+                              hashlib.sha256(json.dumps([v.get('fixed'), v.get('equations'), v.get('exceptions'), v.get('domain_bounds')], separators=(',', ':')).encode()).hexdigest(),
+                              (v.get('origin') or {}).get('dispatch_position')))
+            elif v.get('type') == 'residual':
+                res.append(tuple(parse_key(v['key'])))
+            elif v.get('type') == 'end':
+                end = v
+    return rules, res, end
+
+
+def cmd_candcheck(a):
+    """A candidate table against its stated composition: the reference table's rules in file order, with the rule of index
+    `replace_index` replaced by the sub-table's rules (in their order). Checks: rule index = file position (the importer's
+    order); per position target + rhs hash and domain hash equal to the expected rule; origin.dispatch_position equal to the
+    reference's (sub-table rules: reported); residuals = terminal set; end.rules = rule count."""
+    ref, _, _ = rule_facts(a.reference)
+    sub, _, _ = rule_facts(a.sub) if a.sub else ([], None, None)
+    exp = []
+    for r in ref:
+        if a.replace_index is not None and r[0] == a.replace_index and sub:
+            exp += [('sub', k, x[1], x[2], None) for k, x in enumerate(sub)]
+        else:
+            exp.append(('ref', r[0], r[1], r[2], r[3]))
+    got, res, end = rule_facts(a.candidate)
+    probs, mism = [], []
+    if len(got) != len(exp):
+        probs.append('rules: candidate %d, expected %d' % (len(got), len(exp)))
+    bad_index = [i for i, g in enumerate(got) if g[0] != i]
+    if bad_index:
+        probs.append('%d rule(s) whose index != file position (first at %d: index %s)' % (len(bad_index), bad_index[0], got[bad_index[0]][0]))
+    sub_dp = []
+    for i, (g, e) in enumerate(zip(got, exp)):
+        if g[1] != e[2] or g[2] != e[3]:
+            mism.append({'position': i, 'expected': [e[0], e[1]], 'target_rhs_equal': g[1] == e[2], 'domain_equal': g[2] == e[3]})
+        if e[0] == 'ref' and g[3] != e[4]:
+            mism.append({'position': i, 'expected': [e[0], e[1]], 'dispatch_position': [g[3], e[4]]})
+        if e[0] == 'sub':
+            sub_dp.append([i, g[3]])
+    if mism:
+        probs.append('%d per-rule mismatch(es)' % len(mism))
+    terms = terminals_of(a.terminals)
+    if sorted(res) != terms:
+        probs.append('residuals %s != terminals' % [key_text(k) for k in res])
+    if not end or end.get('rules') != len(got):
+        probs.append('end record %s' % end)
+    out = {'candidate': a.candidate, 'candidate_sha256': sha256_file(a.candidate), 'reference': a.reference, 'reference_sha256': sha256_file(a.reference),
+           'sub': a.sub, 'sub_sha256': sha256_file(a.sub) if a.sub else None, 'replace_index': a.replace_index, 'rules': len(got), 'expected_rules': len(exp),
+           'sub_rules_at': [i for i, e in enumerate(exp) if e[0] == 'sub'], 'sub_rules_dispatch_position': sub_dp,
+           'mismatches': mism[:50], 'pass': not probs, 'problems': probs}
+    dump(out, a.out); print(json.dumps({k: v for k, v in out.items() if k not in ('mismatches',)})[:1500])
+    return 0 if not probs else FAIL
+
+
 # ------------------------------------------------------------------------------------------------------ summary / deliver
 STEPS = ['prep', 'cert', 'term', 'b1', 'exact', 'imp_plain', 'imp_shared', 'live', 'fm', 'one', 'deliver']
 
@@ -851,6 +914,9 @@ def cmd_deliver(a):
             refs['import/%s/out/%s' % (os.path.basename(d), os.path.basename(f))] = {'path': f, 'sha256': sha256_file(f), 'bytes': os.path.getsize(f)}
     for f in ('run.env', 'LABEL'):
         cp(os.path.join(run, f), os.path.join(a.out, 'run', f))
+    for f in (env.get('cfg_delivery_extra') or '').split(':'):
+        if f and os.path.isfile(f):
+            cp(f, os.path.join(a.out, 'extra', os.path.basename(f)))
     for f in glob.glob(os.path.join(run, 'log', '*')):
         cp(f, os.path.join(a.out, 'run', 'log', os.path.basename(f)))
     for f in glob.glob(os.path.join(run, 'steps', '*')):
@@ -997,6 +1063,8 @@ def main():
     p = sp.add_parser('onerun'); p.add_argument('--jobs', required=True); p.add_argument('--table', required=True); p.add_argument('--rr-node', required=True)
     p.add_argument('--terminals', required=True); p.add_argument('--parallel', type=int, default=3); p.add_argument('--wall', type=int, default=1800); p.add_argument('--as-gb', type=int, default=30)
     p.add_argument('--work', required=True); p.add_argument('--out', required=True)
+    p = sp.add_parser('candcheck'); p.add_argument('--candidate', required=True); p.add_argument('--reference', required=True); p.add_argument('--sub', default='')
+    p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('summary'); p.add_argument('--run', required=True); p.add_argument('--state', required=True)
     p = sp.add_parser('deliver'); p.add_argument('--run', required=True); p.add_argument('--out', required=True)

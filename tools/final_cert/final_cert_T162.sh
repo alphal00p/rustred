@@ -40,6 +40,7 @@ cfg_one_cap1=40; cfg_one_parallel=3
 cfg_live_shards=16; cfg_live_units=50000000; cfg_live_wall=120; cfg_live_max=0
 cfg_deliver_dir=$P/deliver/T162-final
 cfg_delivery_notes=$FC_SELF/T162.delivery-notes.md
+cfg_delivery_extra=${FC_DELIVERY_EXTRA:-$P/final/T162.candcheck.json:$P/final/T162.bind_check.txt}   # pre-launch candidate checks
 cfg_res_prep="16 3 1 1 3m"; cfg_res_cert="48 8 1 0 20m"; cfg_res_term="24 8 1 0 8m"; cfg_res_b1="24 8 2 0 8m"; cfg_res_exact="16 4 1 0 15m"
 cfg_res_imp_plain="48 28 4 9 25m"; cfg_res_imp_shared="48 28 4 1 25m"; cfg_res_live="48 16 16 0 40m"; cfg_res_fm="24 8 2 0 10m"; cfg_res_one="40 21 3 6 20m"
 cfg_res_deliver="8 2 1 0 10m"
