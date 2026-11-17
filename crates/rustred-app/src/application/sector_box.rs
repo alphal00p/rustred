@@ -90,8 +90,9 @@ pub struct SectorBoxReduceSpec {
     /// Further derivative slots (one mass on several lines): the demand is
     /// closed under `I[a] -> I[a + e_s]` for every listed `s` with `a_s > 0`,
     /// so `d/dm I[a] = sum_s a_s I[a + e_s]` is reduced. Merged with
-    /// `derivative_slot`.
-    #[serde(default)]
+    /// `derivative_slot`. Serialised (and so part of the checkpoint key)
+    /// only when non-empty, so specs without it keep their checkpoint key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub derivative_slots: Vec<usize>,
     /// Maximal closure rounds after the first modular phase (default 8); an
     /// unclosed demand after them is an error.

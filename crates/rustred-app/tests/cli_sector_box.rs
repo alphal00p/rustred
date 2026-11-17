@@ -513,3 +513,34 @@ fn derivative_slots_close_the_all_mass_kite() {
     assert_eq!(code2, 0);
     assert_eq!(report["modular"]["masters"], report2["modular"]["masters"]);
 }
+
+/// The checkpoint key of a spec without `derivative_slots` is the one the
+/// command used before that field existed (PINNED, measured with the
+/// pre-field binary on this spec), so existing checkpoints are still found;
+/// a non-empty `derivative_slots` changes the key.
+#[test]
+fn checkpoint_key_without_derivative_slots_is_unchanged() {
+    const PINNED: &str = "d6a5ee80df8daa08481000be9c3a4b4a191c6c39ef8514c0bea8face09fc131e";
+    let binding = |dir: &Path| -> String {
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("ckpt").join("modular.json")).unwrap(),
+        )
+        .unwrap();
+        saved["binding"].as_str().unwrap().to_string()
+    };
+    let dir = scratch("key-pin");
+    let mut spec = k6_spec(&dir);
+    spec["modular_only"] = json!(true);
+    let (code, report) = run(&dir, &spec);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(binding(&dir), PINNED);
+    let other = scratch("key-pin-slots");
+    let mut with_slots = k6_spec(&other);
+    with_slots["modular_only"] = json!(true);
+    with_slots["derivative_slots"] = json!([0]);
+    let (code, report) = run(&other, &with_slots);
+    assert_eq!(code, 0, "{report}");
+    assert_ne!(binding(&other), PINNED);
+    std::fs::remove_dir_all(&dir).unwrap();
+    std::fs::remove_dir_all(&other).unwrap();
+}
