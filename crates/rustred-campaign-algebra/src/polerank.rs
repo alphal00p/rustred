@@ -1493,6 +1493,12 @@ pub fn cell_rank(
                 .map(|q| json!({"master": m, "need": n, "q": q}))
         })
         .collect();
+    // TRICKS 57 (b): in the exchanged basis the count is an OBSERVATION, never a verdict (not an invariant)
+    let verdict = if data.exchange.is_some() {
+        format!("OBSERVATION (exchanged basis, not an invariant, TRICKS 57): {verdict}")
+    } else {
+        verdict
+    };
     json!({"version": POLERANK_VERSION, "rank_prefix": rank_prefix, "rank_requests": n_rank_requests,
         "verdict": verdict, "rank": rank, "pivots": pivots,
         "rank_kind": if data.dependences.is_some() {"rank of rho (dependences substituted)"} else {"NAIVE UPPER BOUND (no dependence table: every master order beyond its known depth is its own symbol)"},
