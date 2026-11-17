@@ -841,7 +841,7 @@ def cmd_classes(a):
     optional first-match counts; written into the run and the delivery (classes file, VERIFIER_SPEC section, summary metadata,
     MANIFEST re-issued)."""
     env = run_env(a.run); N = env['cfg_node']
-    cfgx = json.load(open(env['cfg_exact_config']))
+    cfgx = json.load(open(a.config or env['cfg_exact_config']))   # a merge passes the evidence configuration its `exact` binding used
     cone_bound = int(re.search(r'simplex:(\d+)', env['cfg_region']).group(1))
     # every evidence row's full text, by (form, hash) and by index
     blobs_h, blobs_i = {}, {}
@@ -958,7 +958,8 @@ def cmd_lanefile(a):
         r = json.loads(l); ex[(r['file'], r['table_index'])] = r
     ref = json.load(open(a.ref_counts)) if a.ref_counts else {}
     counted = {}
-    for f in sorted(glob.glob(a.counts)):
+    # ':'-separated patterns, read in order: a later pattern's verdict for a position replaces an earlier one (a re-count)
+    for f in [f for pat in a.counts.split(':') for f in sorted(glob.glob(pat))]:
         for l in open(f):
             try:
                 x = json.loads(l)
@@ -977,6 +978,7 @@ def cmd_lanefile(a):
                 continue
             runlive[x['position']] = x
     rows, tally = [], {}
+    corr = json.load(open(a.corrections)) if a.corrections else {}
     for p in sorted(sel):
         q = pos[p]; r = ex[(q['file'], q['table_index'])]; dp = r['dispatch_position']
         hc = ref.get(str(dp)) if dp is not None else None
@@ -996,6 +998,8 @@ def cmd_lanefile(a):
             row.update(liveness=runlive[p]['live'], basis='record_liveness (run step)', witness=runlive[p].get('witness'))
         else:
             row.update(liveness='pending', basis='counting running')
+        if str(p) in corr:
+            row['correction'] = corr[str(p)]
         rows.append(row); tally[row['liveness']] = tally.get(row['liveness'], 0) + 1
     with open(a.out + '.tmp', 'w') as g:
         for row in rows:
@@ -1007,7 +1011,8 @@ def cmd_lanefile(a):
             'candidate_sha256': env['FC_CAND_SHAS'], 'file': a.out, 'file_sha256': sha256_file(a.out),
             'reference_counts': a.ref_counts, 'reference_counts_sha256': sha256_file(a.ref_counts) if a.ref_counts else None,
             'counting': 'parametric::prune::record_first_match_counts (harness PARAMETRIC_LIVENESS_COUNTS=1), the same model as the certificate (engine 4895ee68, G5 reduced)',
-            'counts_unit': 'distinct keys of the region whose first match is the record, per shell D + r (fm_keys_by_shell)'}
+            'counts_unit': 'distinct keys of the region whose first match is the record, per shell D + r (fm_keys_by_shell)',
+            'corrections': corr}
     dump(summ, a.out + '.summary.json'); print(json.dumps(summ))
     return 0
 
@@ -1270,9 +1275,9 @@ def main():
     p = sp.add_parser('candcheck'); p.add_argument('--candidate', required=True); p.add_argument('--reference', required=True); p.add_argument('--sub', default='')
     p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('classes'); p.add_argument('--run', required=True); p.add_argument('--deliver', default=''); p.add_argument('--counts', default='')
-    p.add_argument('--open-lane', default='exact162'); p.add_argument('--note', default='')
+    p.add_argument('--open-lane', default='exact162'); p.add_argument('--note', default=''); p.add_argument('--config', default='')
     p = sp.add_parser('lanefile'); p.add_argument('--run', required=True); p.add_argument('--counts', required=True); p.add_argument('--ref-counts', default='')
-    p.add_argument('--first-changed', type=int, required=True); p.add_argument('--out', required=True)
+    p.add_argument('--first-changed', type=int, required=True); p.add_argument('--corrections', default=''); p.add_argument('--out', required=True)
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('summary'); p.add_argument('--run', required=True); p.add_argument('--state', required=True)
     p = sp.add_parser('deliver'); p.add_argument('--run', required=True); p.add_argument('--out', required=True)
