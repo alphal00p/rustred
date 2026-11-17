@@ -40,7 +40,7 @@ use crate::reduction::ReductionError;
 /// A scheduled key type and its packed form inside a `Packed` frontier.
 /// `pack` must be injective (equal packed forms exactly for equal keys) and
 /// `cmp_packed` must order packed forms as `Ord` orders the keys.
-pub(crate) trait FrontierKey: Clone + Ord + Hash {
+pub(crate) trait FrontierKey: Clone + Ord + Hash + 'static {
     type Packed: Clone + Eq + Hash + Send + Sync;
     fn pack(&self) -> Self::Packed;
     fn unpack(packed: &Self::Packed) -> Self;

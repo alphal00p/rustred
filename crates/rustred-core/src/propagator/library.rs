@@ -957,6 +957,153 @@ impl PLibrary {
         })
     }
 
+    /// vk5l-physrun channel replay: reduce several input sums ("channels") of
+    /// one loop count with the same options, recording the forward pass ONCE
+    /// over a random integer combination of the channels and replaying the
+    /// (input-linear) trace per channel with that channel's own inputs. Every
+    /// zero decision of the mixed recording is re-checked per channel by the
+    /// replay (`Cancel` checks at every point); on any failure the channels
+    /// are reduced one by one with [`Self::reduce`]. Only modular arithmetics;
+    /// otherwise, and with `RUSTRED_P_CHANNEL_REPLAY=off`, one by one.
+    #[allow(clippy::mutable_key_type)]
+    pub fn reduce_channels(
+        &self,
+        channels: Vec<Vec<(PresentationId, IntegralKey, Coefficient)>>,
+        template: PReductionRequest<'_>,
+    ) -> Result<Vec<PReduction>, PError> {
+        let PReductionRequest {
+            arithmetic,
+            scheduler,
+            step_cache,
+            uncovered,
+            onto_masters,
+            limits,
+            ..
+        } = template;
+        let one_by_one = |channels: Vec<Vec<(PresentationId, IntegralKey, Coefficient)>>| {
+            channels
+                .into_iter()
+                .map(|inputs| {
+                    self.reduce(PReductionRequest {
+                        inputs,
+                        arithmetic,
+                        scheduler,
+                        step_cache: step_cache.clone(),
+                        uncovered,
+                        onto_masters,
+                        limits,
+                        inspector: None,
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()
+        };
+        let enabled = !matches!(
+            std::env::var("RUSTRED_P_CHANNEL_REPLAY").as_deref(),
+            Ok("0" | "off" | "false")
+        );
+        if !enabled || channels.len() < 2 || arithmetic == OrderedWeightArithmetic::Exact {
+            return one_by_one(channels);
+        }
+        match self.reduce_channels_once(&channels, arithmetic, scheduler, uncovered, onto_masters, limits) {
+            Ok(reductions) => Ok(reductions),
+            Err(error) => {
+                eprintln!("rustred channel replay: falling back to one reduction per channel ({error})");
+                one_by_one(channels)
+            }
+        }
+    }
+
+    #[allow(clippy::mutable_key_type)]
+    fn reduce_channels_once(
+        &self,
+        channels: &[Vec<(PresentationId, IntegralKey, Coefficient)>],
+        arithmetic: OrderedWeightArithmetic,
+        scheduler: OrderedSchedulerOptions,
+        uncovered: PUncoveredPolicy,
+        onto_masters: bool,
+        limits: ReductionLimits,
+    ) -> Result<Vec<PReduction>, PError> {
+        let retain = uncovered == PUncoveredPolicy::Retain;
+        let union: Vec<_> = channels.iter().flatten().cloned().collect();
+        let loops = self.request_loops(&union)?;
+        let context = Arc::new(self.request_context(&union));
+        let with_request = |error: PError| error.with_request(&context);
+        let engine = self
+            .engine
+            .get_or_init(|| PEngine::new(self))
+            .as_ref()
+            .map_err(Clone::clone)?;
+        if !retain {
+            self.check_boxed_inputs(engine, &union).map_err(with_request)?;
+        }
+        // The mix only decides the recording's zero tests (probe values,
+        // formed by the recorder from the channels and these weights); the
+        // admitted values are placeholders, replaced per channel at replay.
+        let mut initials = Vec::with_capacity(channels.len());
+        let mut lambdas = Vec::with_capacity(channels.len());
+        let mut mixed = BTreeMap::<super::engine::PKey, Coefficient>::new();
+        let one = self.context.one();
+        // A fixed LCG: random-looking, reproducible integer weights.
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        for inputs in channels {
+            let initial = engine.initial(self, inputs.clone(), &limits)?;
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            lambdas.push((state >> 33) % 1_000_003 + 1);
+            for (key, value) in &initial {
+                if !value.is_zero() {
+                    mixed.entry(key.clone()).or_insert_with(|| one.clone());
+                }
+            }
+            initials.push(initial);
+        }
+        crate::reduction::ordered_reduction::modular_channels_set(initials, lambdas);
+        let cache_before = super::relation_entries::relation_cache_statistics();
+        let mut outside = BTreeSet::new();
+        let run = engine.run_reporting(
+            self, mixed, arithmetic, scheduler, None, limits, None, retain, &mut outside,
+        );
+        let per_channel = crate::reduction::ordered_reduction::modular_channels_take_out();
+        let output = run.map_err(with_request)?;
+        let per_channel = per_channel.ok_or_else(|| {
+            PError::MalformedLibrary("channel replay left no per-channel output".to_owned())
+        })?;
+        if per_channel.len() != channels.len() {
+            return Err(PError::MalformedLibrary("channel replay: wrong channel count".to_owned()));
+        }
+        let relation_cache = super::relation_entries::relation_cache_statistics().since(&cache_before);
+        let outside: Vec<_> = outside.into_iter().collect();
+        let mut reductions = Vec::with_capacity(per_channel.len());
+        for terms_c in per_channel {
+            let mut terms = PTermSum::default();
+            let raw = terms_c
+                .iter()
+                .map(|(key, coefficient)| {
+                    let (terminal, tag) = engine.decode_terminal(key, self.terminal_limit())?;
+                    Ok((terminal, tag, coefficient.clone()))
+                })
+                .collect::<Result<Vec<_>, PError>>()?;
+            if onto_masters {
+                self.onto_masters(loops, raw, &limits, &mut terms)?;
+            } else {
+                for (terminal, tag, coefficient) in raw {
+                    terms.add(self, Self::plain_basis(terminal), tag, coefficient, &limits)?;
+                }
+            }
+            reductions.push(PReduction {
+                dimension: i64::from(loops),
+                terms: terms.into_terms(),
+                nonzero_conditions: output.nonzero_conditions.clone(),
+                statistics: PStatistics {
+                    work: output.work.clone(),
+                    progress: output.progress.clone(),
+                },
+                outside_certified: outside.clone(),
+                relation_cache: relation_cache.clone(),
+            });
+        }
+        Ok(reductions)
+    }
+
     /// The one loop count of a request; `0` for no input.
     fn request_loops(
         &self,

@@ -1288,6 +1288,71 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         )
         .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
     } else {
+        // vk5l-physrun channel replay: record the (mixed) inputs once, replay
+        // the trace per channel with its own inputs.
+        if let Some((channels, lambdas)) = modular::channels::take::<K::Key>() {
+            let mut weights = recorder;
+            weights.set_multi();
+            let order: Vec<K::Key> = initial
+                .iter()
+                .filter(|(_, coefficient)| !coefficient.is_zero())
+                .map(|(key, _)| key.clone())
+                .collect();
+            for channel in &channels {
+                if channel
+                    .iter()
+                    .any(|(key, value)| !value.is_zero() && order.binary_search(key).is_err())
+                {
+                    kernel.set_light(false);
+                    return Err(modular::error("a channel input vanished in the mix").into());
+                }
+            }
+            if !weights.set_multi_probes(&order, &channels, &lambdas)? {
+                kernel.set_light(false);
+                return Err(modular::error("a mixed input vanishes at every probe point").into());
+            }
+            let output = run_inner(
+                kernel,
+                &mut weights,
+                request,
+                initial,
+                nonzero_conditions,
+                work,
+                source,
+                tail,
+            );
+            kernel.set_light(false);
+            let output = output?;
+            kernel.forward_finished();
+            let zero = kernel.context().zero();
+            let patches = channels
+                .iter()
+                .map(|channel| {
+                    order
+                        .iter()
+                        .map(|key| channel.get(key).cloned().unwrap_or_else(|| zero.clone()))
+                        .collect()
+                })
+                .collect();
+            let finished = weights.finish_channels(output.terms, patches)?;
+            let mut per_channel = Vec::with_capacity(finished.len());
+            for (finished, statistics) in finished {
+                modular::report_statistics(&statistics);
+                let modular::Finished::Terminals(terms) = finished else {
+                    return Err(modular::error("a channel replay composed its terminals").into());
+                };
+                per_channel.push(terms);
+            }
+            let first = per_channel.first().cloned().unwrap_or_default();
+            modular::channels::put_out(per_channel);
+            return Ok(OrderedOutput {
+                terms: first,
+                composed: None,
+                nonzero_conditions: output.nonzero_conditions,
+                work: output.work,
+                progress: output.progress,
+            });
+        }
         let mut weights = recorder;
         if tail.prestage
             && let Some(table) = weights.shared_intern()
@@ -3315,4 +3380,14 @@ mod tests {
             assert_eq!(statistics.primes, raw_statistics.primes);
         }
     }
+}
+
+/// vk5l-physrun channel replay (see `PLibrary::reduce_channels`).
+pub(crate) fn modular_channels_set<K: FrontierKey>(channels: Vec<BTreeMap<K, Coefficient>>, lambdas: Vec<u64>) {
+    modular::channels::set(channels, lambdas);
+}
+
+/// The per-channel terminals the last channel replay left on this thread.
+pub(crate) fn modular_channels_take_out() -> Option<Vec<BTreeMap<IntegralKey, Coefficient>>> {
+    modular::channels::take_out()
 }
