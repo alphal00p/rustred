@@ -184,7 +184,8 @@ fn both_owners_generate_all_rank_with_as_many_residuals_as_lp_masters() {
         CUSTOM_PAYLOAD_SCHEMAS,
         [
             bundle_wire::CANDIDATE_BUNDLE_SCHEMA,
-            bundle_wire::DISPATCH_CANDIDATE_BUNDLE_SCHEMA
+            bundle_wire::DISPATCH_CANDIDATE_BUNDLE_SCHEMA,
+            bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA
         ]
     );
 }
