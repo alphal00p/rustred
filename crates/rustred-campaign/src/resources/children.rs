@@ -32,6 +32,36 @@ fn getpid() -> u32 {
     unsafe { libc::getpid() as u32 }
 }
 
+/// TEST BUILDS ONLY (procfix7 round 10, gate13c G13c-M1): the pause of [`listing_hold`] and how many listings still get
+/// it. Release builds have no such pause.
+#[cfg(debug_assertions)]
+static HOLD_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(debug_assertions)]
+static HOLD_LEFT: AtomicU64 = AtomicU64::new(0);
+
+/// TEST BUILDS ONLY (procfix7 round 10): the next `n` listings of processes (our children lists, the strict /proc
+/// listing, the strict marker scan) are each followed by a pause of `ms` before their entries are read: a test makes the
+/// hand-off race of a re-forking job (G13c-M1) deterministic with it. Not compiled into release builds.
+#[cfg(debug_assertions)]
+pub fn set_listing_hold(ms: u64, n: u64) {
+    HOLD_MS.store(ms, Ordering::SeqCst);
+    HOLD_LEFT.store(n, Ordering::SeqCst);
+}
+
+/// The pause of [`set_listing_hold`] between a listing and the reads of its entries (test builds; a no-op otherwise).
+#[inline]
+pub(crate) fn listing_hold() {
+    #[cfg(debug_assertions)]
+    {
+        if HOLD_LEFT
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            std::thread::sleep(Duration::from_millis(HOLD_MS.load(Ordering::SeqCst)));
+        }
+    }
+}
+
 /// Children listed in `/proc/<pid>/task/*/children` (all threads), read until two consecutive reads agree. Gone: the
 /// process does not exist (procfix8: [`procfs`] rules).
 pub(crate) fn children_of(pid: u32) -> ProcResult<BTreeSet<u32>> {
@@ -74,10 +104,11 @@ pub(crate) fn strict_listing_counted() -> Result<(Vec<ProcStat>, usize), String>
     let mut out = Vec::new();
     let mut vanished = 0usize;
     // procfix7 round 6 (gate10 G10-B1): the job-end proofs decide absence from this listing: its completeness proof
-    for pid in root
+    let listed = root
         .pids_proven(&[])
-        .map_err(|e| format!("proc listing: {e}"))?
-    {
+        .map_err(|e| format!("proc listing: {e}"))?;
+    listing_hold();
+    for pid in listed {
         match root.stat(pid) {
             Ok(st) => out.push(st),
             Err(ProcError::Gone) => vanished += 1,

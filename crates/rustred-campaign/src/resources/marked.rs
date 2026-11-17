@@ -277,7 +277,9 @@ fn strict_scan(
     let me = std::process::id();
     let mut out = CampaignScan::default();
     // procfix7 round 6 (gate10 G10-B1): a listing that decides "no marked process" needs its completeness proof
-    for pid in root.pids_proven(&[])? {
+    let listed = root.pids_proven(&[])?;
+    super::children::listing_hold();
+    for pid in listed {
         if pid <= 1 || pid == me {
             continue;
         }

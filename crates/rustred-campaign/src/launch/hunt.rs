@@ -477,6 +477,7 @@ impl Hunt<'_> {
     /// zombie). Strict: a failed enumeration or stat read is an error; a child that vanished is left out.
     fn snapshot_tops(&self) -> Result<BTreeMap<u32, u64>, String> {
         let kids = own_children().map_err(|e| format!("own children: {e}"))?;
+        crate::resources::listing_hold();
         let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
         let mut out = BTreeMap::new();
         for pid in kids {
