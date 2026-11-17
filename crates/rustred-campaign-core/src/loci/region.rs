@@ -427,6 +427,44 @@ impl Region {
         p.compose(&self.x, self.k)
     }
 
+    /// IMPLICIT EQUALITIES made explicit (lane parametric 2026-11-17): while two constraints are exact opposites
+    /// (`a t + b >= 0` and `-a t - b >= 0`, `a != 0`), the region is restricted to `a t + b = 0` by the exact lattice
+    /// [`Region::cut`] (one parameter fewer per equation). Same integer points, fewer parameters, so a cut that was
+    /// "nonlinear in two or more parameters" on the thin region may become univariate. `Ok(None)` = no integer point.
+    pub fn reduce_equalities(&self) -> XResult<Option<Region>> {
+        let mut r = self.clone();
+        loop {
+            let mut pair = None;
+            'find: for (i, a) in r.cons.iter().enumerate() {
+                if a.coef.iter().all(|&x| x == 0) {
+                    continue;
+                }
+                for b in r.cons.iter().skip(i + 1) {
+                    if b.c == a.c.checked_neg().unwrap_or(i128::MIN)
+                        && b.coef.len() == a.coef.len()
+                        && b.coef.iter().zip(&a.coef).all(|(&x, &y)| y.checked_neg() == Some(x))
+                    {
+                        pair = Some((a.coef.clone(), a.c));
+                        break 'find;
+                    }
+                }
+            }
+            let Some((coef, c)) = pair else {
+                return Ok(Some(r));
+            };
+            match r.cut(&coef, c)? {
+                Some(nr) => {
+                    if nr.k >= r.k {
+                        // no progress (should not happen: a cut drops one parameter)
+                        return Ok(Some(nr));
+                    }
+                    r = nr;
+                }
+                None => return Ok(None),
+            }
+        }
+    }
+
     /// Restrict to the integer solutions of `f(t) = 0` (f linear in t). `Ok(None)` = no integer solution.
     pub fn cut(&self, coef: &[i128], c: i128) -> XResult<Option<Region>> {
         let k = self.k;

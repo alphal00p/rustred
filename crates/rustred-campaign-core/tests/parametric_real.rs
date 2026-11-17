@@ -1604,6 +1604,8 @@ fn b2_face_by_face() {
         }
         other => panic!("PARAMETRIC_ENGINE {other}: unknown engine id (line7d | 4895ee68)"),
     };
+    // affine pieces: the loci resolver makes the pieces' equations explicit (one parameter fewer per equation)
+    opts.reduce_equalities = std::env::var("PARAMETRIC_PIECE_EQS").is_ok();
     let dir = PathBuf::from(format!("{out}.pieces"));
     std::fs::create_dir_all(&dir).unwrap();
     let lines_path = format!("{out}.pieces.jsonl");
@@ -1719,6 +1721,23 @@ fn b2_face_by_face() {
                 }
             }
             piece.label = format!("{} [box {rb}]", piece.label);
+        }
+        // PARAMETRIC_PIECE_EQS="a_0,...,a_{n-1}=b;...": every piece is also cut to the AFFINE SUBSPACE sum_s a_s k_s = b
+        // (two opposite constraints per equation): an exact partition of a lattice line / plane of the face, e.g. a
+        // common-zero family of a fragile rule's exception branch found by elimination (lane parametric, 2026-11-17)
+        if let Ok(eqs) = std::env::var("PARAMETRIC_PIECE_EQS") {
+            for eq in eqs.split(';').filter(|x| !x.trim().is_empty()) {
+                let (lhs, rhs) = eq.split_once('=').expect("PARAMETRIC_PIECE_EQS: a,..=b");
+                let a: Vec<i64> = lhs.split(',').map(|x| x.trim().parse().unwrap()).collect();
+                assert_eq!(a.len(), frame.arity(), "PARAMETRIC_PIECE_EQS: arity");
+                let b: i64 = rhs.trim().parse().unwrap();
+                piece.constraints.push((a.clone(), b));
+                piece.constraints.push((a.iter().map(|x| -x).collect(), -b));
+            }
+            // short label (file names): the equations are hashed; the full text is in the run's log line below
+            let h = eqs.bytes().fold(0xcbf2_9ce4_8422_2325u64, |a, b| (a ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+            eprintln!("affine piece eqs {h:016x}: {eqs}");
+            piece.label = format!("{} [affine {h:016x}]", piece.label);
         }
         let id = piece.label.clone();
         let children = |q: &mut VecDeque<Vec<(usize, bool)>>| {
