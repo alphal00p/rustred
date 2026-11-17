@@ -731,10 +731,8 @@ impl ImproveSource {
         let mut pole_new: BTreeMap<i64, (ps::PoleScore, String)> = BTreeMap::new();
         if let Some(pol) = p.poles.as_ref().filter(|_| p.poles_on()) {
             let decisions = self.nodes[i].decisions.clone();
-            let mut best: BTreeMap<
-                i64,
-                (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule),
-            > = BTreeMap::new();
+            type Best = (Vec<u64>, u64, String, String, ps::PoleScore, im::TableRule);
+            let mut best: BTreeMap<i64, Best> = BTreeMap::new();
             for (pos, cand, line) in &decisions {
                 let old = self.nodes[i].rules[*pos].clone();
                 let own = self.nodes[i]

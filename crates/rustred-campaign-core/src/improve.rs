@@ -660,6 +660,8 @@ pub fn targets(
 
 /// What an IMPROVE POLES run does with one (rule, candidate).
 #[derive(Clone, Debug, PartialEq)]
+// int8: a planning value (a few per rule and run); boxing the score line would only move it to the heap
+#[allow(clippy::large_enum_variant)]
 pub enum PoleStep {
     /// Generate the candidate (not tried on this rule yet).
     Generate,
@@ -668,6 +670,9 @@ pub enum PoleStep {
     /// Generated earlier, no score supplied yet: nothing to do in this run (listed as untried).
     AwaitScore,
 }
+
+/// The result of [`pole_targets`]: (rule position, candidates with their step) per target, and the unscored rules.
+pub type PoleTargets = (Vec<(usize, Vec<(String, PoleStep)>)>, Vec<i64>);
 
 /// IMPROVE POLES targets: the rules whose own score (`original` line of `scores` at their index) is decided with a
 /// pole, worst first (max order, keys with a pole, monomials, index), at most `filter.largest`; per rule the candidates
@@ -678,7 +683,7 @@ pub fn pole_targets(
     rec: &ImproveRecord,
     p: &ImprovePolicy,
     scores: &[crate::economy::polescore::ScoreLine],
-) -> (Vec<(usize, Vec<(String, PoleStep)>)>, Vec<i64>) {
+) -> PoleTargets {
     let own = |idx: i64| {
         scores
             .iter()
