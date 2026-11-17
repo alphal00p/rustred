@@ -19,6 +19,7 @@ pub mod check;
 pub mod cone;
 pub mod descent;
 pub mod permuted;
+pub mod prune;
 pub mod symalias;
 
 /// Schema of a B1 evidence file (JSONL: header, one line per record, summary).

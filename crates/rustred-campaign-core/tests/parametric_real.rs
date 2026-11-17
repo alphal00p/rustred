@@ -3545,7 +3545,7 @@ fn chain_walk() {
     let res = json!({"start": start, "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
         "keys_reached_in_top_sector": seen.len(), "depth": depth, "complete": frontier.is_empty(), "terminal_hits": terminal_hits,
         "terms_leaving_the_sector": lower, "records_used": used.len(), "records_used_top": used_top,
-        "stub_steps": stub_steps, "stub_keys": stub_keys, "open_keys": open});
+        "stub_steps": stub_steps, "stub_keys": stub_keys, "records_used_all": used, "open_keys": open});
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!(
         "chain walk: {} keys, depth {depth}, {} records, stub steps {:?}, open {}",
@@ -3566,7 +3566,7 @@ fn chain_walk() {
 #[ignore]
 fn record_liveness() {
     use rustred_campaign_core::parametric::cone::{
-        Cone, ConeOptions, capped_dispatcher, coverage_from_partition, partition_for_cones_with,
+        ConeOptions,
     };
     let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
     let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
@@ -3632,157 +3632,28 @@ fn record_liveness() {
             *c = -1;
         }
     }
+    let region = parse_cone(
+        &frame,
+        &std::env::var("PARAMETRIC_LIVENESS_CONE").unwrap_or_else(|_| format!("simplex:{rdr}")),
+    );
+    let enum_cap: u64 = std::env::var("PARAMETRIC_LIVENESS_ENUM")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(20_000);
+    let _ = (&cone_a, cone_b);
     let mut w = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
     for (pos, &(ti, ri)) in order.iter().enumerate().take(b.min(order.len())).skip(a) {
-        let d = &g5.tables()[ti].domains[ri];
         let label = g5.tables()[ti].labels[ri];
         let t0 = std::time::Instant::now();
-        // caps: fixed slots (two one-slot caps each) + one-slot linear bounds  (c * n_s + e >= 0)
-        let mut caps = Cone {
-            label: format!("face of record {pos}"),
-            constraints: vec![],
-        };
-        for (s, fx) in d.fixed.iter().enumerate() {
-            if let Some(v) = fx {
-                let mut up = vec![0i64; n];
-                up[s] = 1;
-                let mut dn = vec![0i64; n];
-                dn[s] = -1;
-                caps.constraints.push((up, i64::from(*v)));
-                caps.constraints.push((dn, -i64::from(*v)));
-            }
-        }
-        for p in &d.bounds {
-            // linear one-slot bound c * n_s + e >= 0
-            let sup = p.support();
-            if sup.len() != 1 || p.degree() != 1 || p.has_d() {
-                continue;
-            }
-            let s = sup[0];
-            let Some(terms) = p.small_terms() else {
-                continue;
-            };
-            let (mut c, mut e) = (0i128, 0i128);
-            for (mo, k) in terms {
-                if mo.is_empty() {
-                    e = *k;
-                } else {
-                    c = *k;
-                }
-            }
-            if c == 1 {
-                let mut dn = vec![0i64; n];
-                dn[s] = -1;
-                caps.constraints.push((dn, e as i64)); // -n_s <= e
-            } else if c == -1 {
-                let mut up = vec![0i64; n];
-                up[s] = 1;
-                caps.constraints.push((up, e as i64)); // n_s <= e
-            }
-        }
-        let capped = match capped_dispatcher(&g5, &frame, &caps) {
-            Ok(c) => c,
-            Err(e) => {
-                writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": "undecided", "why": format!("caps: {e}")})).unwrap();
-                continue;
-            }
-        };
-        let ncaps = capped.tables()[0].domains.len();
-        let mut opts = base_opts.clone();
-        opts.rule_subset = Some((0..ncaps).chain((0..pos).map(|p| ncaps + p)).collect());
-        let cp = match partition_for_cones_with(&capped, &frame, &opts, None) {
-            Ok(c) => c,
-            Err(e) => {
-                writeln!(w, "{}", json!({"position": pos, "label": label, "live": "undecided", "why": format!("partition: {e}")})).unwrap();
-                continue;
-            }
-        };
-        let budget_hit = cp.report.budget_exhausted().map(str::to_string);
-        let mut cone = Cone {
-            label: format!("D + r <= {rdr}"),
-            constraints: vec![(cone_a.clone(), cone_b)],
-        };
-        cone = cone.and(&caps);
-        let cov = coverage_from_partition(&cp, &capped, &frame, &cone, &opts).unwrap();
-        let mut witness: Option<Vec<i32>> = None;
-        let mut exhausted = true;
-        // the record's WALL budget also bounds the element loop (exact cell emptiness / bounded enumeration): past it the
-        // remaining elements are not examined and the record is UNDECIDED (never reported dead without a full pass)
-        let deadline = t0
-            + base_opts
-                .budget
-                .wall
-                .unwrap_or(std::time::Duration::from_secs(120));
-        let enum_cap: u64 = std::env::var("PARAMETRIC_LIVENESS_ENUM")
-            .ok()
-            .and_then(|x| x.parse().ok())
-            .unwrap_or(200_000);
-        'el: for l in &cov.listed {
-            if std::time::Instant::now() > deadline {
-                exhausted = false;
-                break 'el;
-            }
-            let i = l["element"].as_u64().unwrap() as usize;
-            let el = &cp.elements[i];
-            // a CELL (box): exact emptiness of (r's domain AND the box AND the cone), with a witness
-            if let Some(cell) = &el.cell {
-                use rustred_campaign_core::parametric::descent::{EmptyState, emptiness};
-                use rustred_campaign_core::poly::Poly;
-                let mut bounds: Vec<Poly> = Vec::new();
-                for (sl, (lo, hi)) in cell.iter().enumerate() {
-                    if let Some(lo) = lo {
-                        bounds.push(Poly::var(sl).sub(&Poly::constant(i128::from(*lo))).unwrap());
-                    }
-                    if let Some(hi) = hi {
-                        bounds.push(Poly::constant(i128::from(*hi)).sub(&Poly::var(sl)).unwrap());
-                    }
-                }
-                let mut cb = Poly::constant(i128::from(cone_b));
-                for (sl, c) in cone_a.iter().enumerate() {
-                    cb = cb
-                        .sub(&Poly::var(sl).mul(&Poly::constant(i128::from(*c))).unwrap())
-                        .unwrap();
-                }
-                bounds.push(cb);
-                match emptiness(d, &frame, &ProofBudget::default(), &[], &bounds) {
-                    (EmptyState::Empty, _, _) => continue,
-                    (EmptyState::NonEmpty, Some(wk), _) => {
-                        witness = Some(wk);
-                        break 'el;
-                    }
-                    _ => {
-                        exhausted = false;
-                        continue;
-                    }
-                }
-            }
-            let mut found = None;
-            let mut push = |k: &[i32]| {
-                if found.is_none() && d.applies(k).applies() {
-                    found = Some(k.to_vec());
-                }
-            };
-            let sized = rustred_campaign_core::parametric::cone::region_keys_each(
-                &el.region(),
-                &cone,
-                enum_cap,
-                &mut push,
-            );
-            if let Some(k) = found {
-                witness = Some(k);
-                break 'el;
-            }
-            if sized.is_none() {
-                exhausted = false;
-            }
-        }
-        let live = match (&witness, exhausted && budget_hit.is_none()) {
-            (Some(_), _) => "live",
-            (None, true) => "dead",
-            (None, false) => "undecided",
+        // the library's exact first-match liveness (rustred_campaign_core::parametric::prune, commit 16e65d06)
+        let v = rustred_campaign_core::parametric::prune::record_liveness(&g5, &frame, &region, pos, &base_opts, enum_cap);
+        let (live, witness, why) = match v {
+            rustred_campaign_core::parametric::prune::Liveness::Live(k) => ("live", Some(k), None),
+            rustred_campaign_core::parametric::prune::Liveness::Dead => ("dead", None, None),
+            rustred_campaign_core::parametric::prune::Liveness::Undecided(y) => ("undecided", None, Some(y)),
         };
         writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
-            "uncovered_elements_in_cone": cov.listed.len(), "budget": budget_hit, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
+            "why": why, "region": region.label, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
         w.flush().unwrap();
     }
 }
