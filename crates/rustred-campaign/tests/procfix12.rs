@@ -148,7 +148,8 @@ fn b_a_job_dead_before_its_check_is_recorded_from_the_evidence() {
     let old = format!("Running scope as unit: {UNIT}.scope");
     let other = format!("Running as unit: {UNIT}x.scope; invocation ID: {id}");
     // (case, stderr line, kernel failpoint, expected word, a phrase of the expected why)
-    let cases: [(&str, Option<&str>, Option<&str>, &str, &str); 7] = [
+    type Case<'a> = (&'a str, Option<&'a str>, Option<&'a str>, &'a str, &'a str);
+    let cases: [Case; 7] = [
         (
             "kernel-inside",
             None,
