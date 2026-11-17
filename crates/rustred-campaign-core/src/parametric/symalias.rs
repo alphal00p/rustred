@@ -60,6 +60,30 @@ pub struct Piece {
     /// The engine's `domain_bounds` object (`{"min": [..], "max": [..]}`), inclusive bounds on the case variables.
     #[serde(default)]
     pub domain_bounds: Option<Value>,
+    /// The engine's `case` text of this case, verbatim, when the caller has it (an engine-written record of the same
+    /// case; needed for affine cases, whose engine text this module does not reproduce). Default: [`case_text`].
+    #[serde(default)]
+    pub case: Option<String>,
+}
+
+/// The engine's `case` text of a coordinate case (no equations): `Coordinate(CoordinateCase { fixed: [Some(1), None,
+/// ..] })`. `None` for a case with equations (the engine's affine text carries its internal chart; the caller supplies
+/// it verbatim in [`Piece::case`]).
+pub fn case_text(fixed: &[Option<i64>], equations: &[String]) -> Option<String> {
+    if !equations.is_empty() {
+        return None;
+    }
+    let parts: Vec<String> = fixed
+        .iter()
+        .map(|f| match f {
+            Some(v) => format!("Some({v})"),
+            None => "None".to_string(),
+        })
+        .collect();
+    Some(format!(
+        "Coordinate(CoordinateCase {{ fixed: [{}] }})",
+        parts.join(", ")
+    ))
 }
 
 /// The canonical target pattern of a case: the fixed value, or `n<slot>` on a free slot.
@@ -168,6 +192,9 @@ pub fn alias_rule_record(
         "exceptions": [],
         "dispatch": "Partition",
         "numerical": false,
+        // a one-term identity with coefficient 1 has no witness pole: carried (empty), so a strict reader does not
+        // treat the record as NotCarried
+        "witness_loci": [],
         "kind": ALIAS_KIND,
         "symmetry_origin": {
             "schema": SYMALIAS_SCHEMA,
@@ -176,13 +203,56 @@ pub fn alias_rule_record(
             "element": element,
             "action": action_json(el),
             "matrix": el.matrix,
+            // explicit slot-permutation marker of the right-hand side (importers check it): `perm_lines[i]` = image
+            // line slot of line slot i (a permutation of the line slots); `rhs_slot_map[i]` = image slot of slot i
+            // for every slot that can be non-zero on the case, null for slots fixed at 0
+            "rhs_permuted": true,
+            "perm_lines": perm_lines(el, chart_text.chars().filter(|c| *c == '1').count()),
+            "rhs_slot_map": slot_map_json(el, &piece.fixed),
             "identity": "I(key) = I(image): verified automorphism, pure on every slot that can be non-zero on the case",
         },
     });
     if let Some(b) = &piece.domain_bounds {
         r["domain_bounds"] = b.clone();
     }
+    if let Some(c) = piece
+        .case
+        .clone()
+        .or_else(|| case_text(&piece.fixed, &piece.equations))
+    {
+        r["case"] = Value::String(c);
+    }
     r
+}
+
+/// Image line slot of every line slot (lines map exactly under an automorphism of the chart); entries of slots whose
+/// image is not exact are null (never on a pure element).
+fn perm_lines(el: &SymElement, lines: usize) -> Value {
+    Value::Array(
+        el.action
+            .iter()
+            .take(lines)
+            .map(|a| match a {
+                SlotImage::Exact { target, .. } => json!(target),
+                _ => Value::Null,
+            })
+            .collect(),
+    )
+}
+
+/// Image slot of every slot that can be non-zero on the case (non-null action), null where the slot is fixed at 0.
+fn slot_map_json(el: &SymElement, fixed: &[Option<i64>]) -> Value {
+    Value::Array(
+        el.action
+            .iter()
+            .enumerate()
+            .map(|(i, a)| match (a, fixed.get(i).copied().flatten()) {
+                (_, Some(0)) => Value::Null,
+                (SlotImage::Exact { target, .. }, _) => json!(target),
+                _ => Value::Null,
+            })
+            .collect(),
+    )
 }
 
 /// The equivalent engine `sym` record (interfaces/coord-sym-records.md section 1; no bounds: the engine kind has none),

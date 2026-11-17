@@ -78,6 +78,7 @@ fn piece() -> Piece {
         domain_bounds: Some(
             json!({"min": [null, 2, null, null, null, null, null, null], "max": null}),
         ),
+        case: None,
     }
 }
 
@@ -247,6 +248,7 @@ fn fixed_point_on_the_line_is_refused() {
         ],
         equations: vec!["n2-2*n1+1".into()],
         domain_bounds: None,
+        case: None,
     };
     let c = candidates(&g, &base, &f, &cmp, &ProofBudget::default(), 0).unwrap();
     assert_eq!(c.len(), 1);
@@ -276,4 +278,48 @@ fn fixed_point_on_the_line_is_refused() {
     assert_eq!(c[0].fixed_points, FixedPoints::None);
     // shippable iff also strictly lower under this order; the fixed-point verdict alone never ships a record
     assert_eq!(c[0].shippable(), c[0].lower());
+}
+
+/// The shipped record carries what a strict import and the native importer need: `witness_loci: []` (no pole), the
+/// engine `case` text for a coordinate case (none is invented for an affine case unless supplied), and the explicit
+/// right-hand-side slot map.
+#[test]
+fn shipped_record_carries_case_text_witness_and_slot_map() {
+    use rustred_campaign_core::parametric::symalias::case_text;
+    let g = group();
+    let f = NodeFrame::without_header_lines_first(N, LINES);
+    let cmp = NodeComparator::from_descriptor(OrderDescriptor::spired_uncut(N)).unwrap();
+    let face = Piece {
+        name: "toy face".into(),
+        fixed: vec![Some(1), None, None, Some(1), None, None, Some(0), Some(0)],
+        equations: vec![],
+        domain_bounds: Some(json!({"min": [null, 2, 2, null, 2, null, null, null], "max": null})),
+        case: None,
+    };
+    let c = candidates(&g, &face, &f, &cmp, &ProofBudget::default(), 0).unwrap();
+    let r = &c[0].rule;
+    assert_eq!(r["witness_loci"], json!([]));
+    assert_eq!(
+        r["case"],
+        "Coordinate(CoordinateCase { fixed: [Some(1), None, None, Some(1), None, None, Some(0), Some(0)] })"
+    );
+    assert_eq!(r["symmetry_origin"]["perm_lines"], json!([0, 2, 1, 4, 3]));
+    assert_eq!(
+        r["symmetry_origin"]["rhs_slot_map"],
+        json!([0, 2, 1, 4, 3, 5, null, null])
+    );
+    assert!(
+        record_domain(r, &f).is_ok(),
+        "the reader accepts the record"
+    );
+    // affine case: no invented text; a supplied engine text is copied verbatim
+    assert!(case_text(&piece().fixed, &piece().equations).is_none());
+    let c = candidates(&g, &piece(), &f, &cmp, &ProofBudget::default(), 0).unwrap();
+    assert!(c[0].rule.get("case").is_none());
+    let supplied = Piece {
+        case: Some("Affine(AffineCase { .. })".into()),
+        ..piece()
+    };
+    let c = candidates(&g, &supplied, &f, &cmp, &ProofBudget::default(), 0).unwrap();
+    assert_eq!(c[0].rule["case"], "Affine(AffineCase { .. })");
 }

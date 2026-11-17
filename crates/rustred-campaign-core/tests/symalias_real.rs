@@ -108,18 +108,18 @@ fn symalias_on_real_pieces() {
                 Ok(s) => verify_sym_record(&s, &family, &vg, &chart),
                 Err(e) => Err(format!("{e:?}")),
             };
-            let ok = exact.is_ok() && c.lower();
+            let ok = exact.is_ok() && c.shippable();
             if ok && pick.is_none() {
                 pick = Some(ci);
             }
             let row = json!({"kind": "candidate", "piece": p.name, "element": c.element, "target": c.target,
-                "image": c.image, "descent": c.descent, "exact": match &exact { Ok(e) => json!({"ok": true, "group_element": e}),
+                "image": c.image, "descent": c.descent, "fixed_points": c.fixed_points, "exact": match &exact { Ok(e) => json!({"ok": true, "group_element": e}),
                 Err(m) => json!({"ok": false, "reason": m}) }, "accepted": ok});
             writeln!(cf, "{row}").unwrap();
             rows.push(row);
         }
         per_piece.push(json!({"piece": p.name, "pure_elements": cs.len(),
-            "lower": cs.iter().filter(|c| c.lower()).count(), "chosen_element": pick.map(|i| cs[i].element)}));
+            "lower": cs.iter().filter(|c| c.lower()).count(), "shippable": cs.iter().filter(|c| c.shippable()).count(), "chosen_element": pick.map(|i| cs[i].element)}));
         if let Some(i) = pick {
             chosen.push(cs[i].clone());
         }
