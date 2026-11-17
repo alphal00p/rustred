@@ -1315,6 +1315,7 @@ impl RealChild {
                             .and_then(|n| n.to_str())
                             .unwrap_or("?")
                             .to_string(),
+                        s.dir.clone(),
                     ),
                     None => Containment::Pending,
                 }
@@ -2172,8 +2173,9 @@ pub(super) fn raw(f: &fs::File) -> RawFd {
 /// procfix6 (gate5 m5): the containment of a job's marker-dropping descendants actually in force.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Containment {
-    /// The job's transient systemd scope (unit name, e.g. `rr-<id>-<label>-<hex>.scope`), verified from the leader's cgroup.
-    Scope(String),
+    /// The job's transient systemd scope (unit name, e.g. `rr-<id>-<label>-<hex>.scope`), verified from the leader's cgroup,
+    /// and (procfix7 round 7, gate11 m11-rec-path) its verified cgroup directory, recorded for the restart backstop.
+    Scope(String, PathBuf),
     /// A delegated job cgroup this supervisor created.
     Cgroup(PathBuf),
     /// A scope was requested and is not verified (yet).
@@ -2186,7 +2188,7 @@ impl Containment {
     /// The ledger / log word: `scope:<unit>`, `cgroup:<path>`, `pending`, `marker_only`.
     pub fn word(&self) -> String {
         match self {
-            Containment::Scope(u) => format!("scope:{u}"),
+            Containment::Scope(u, _) => format!("scope:{u}"),
             Containment::Cgroup(p) => format!("cgroup:{}", p.display()),
             Containment::Pending => "pending".into(),
             Containment::MarkerOnly(_) => "marker_only".into(),

@@ -409,8 +409,33 @@ fn marked_refork_chains_orphaned_by_a_crash_do_not_survive_the_restart() {
         "chains survive the crash: {:?}",
         marked(&t.campaign)
     );
-    let codes = run_to_end(&spec_p, &d, &[]);
-    assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d));
+    // procfix7 round 7 (gate11 m11-flaky): round 6's vanished rule (RUNBOOK 2.10): a recovery or final sweep that sees a
+    // hop of these 0.2 s relay chains alive and gone before its stop cannot prove the chain's successors gone without a
+    // job scope (a namespace): exit 8 naming them (note final_sweep_vanished) is the RIGHT answer of such a session; the
+    // same command again then ends the campaign. Any other exit 8 still needs an unknown attempt (as run_to_end).
+    let mut codes = Vec::new();
+    let mut vanish_ends = 0;
+    for _ in 0..6 {
+        let before = notes(&d, "final_sweep_vanished").len();
+        let mut s2 = start(&spec_p, &d, &[], &[]);
+        let code = wait(&mut s2, Duration::from_secs(900));
+        codes.push(code);
+        if matches!(code, 0 | 10 | 11) {
+            break;
+        }
+        assert_eq!(code, ATTENTION, "{codes:?}: {}", log_tail(&d));
+        if notes(&d, "final_sweep_vanished").len() > before {
+            vanish_ends += 1;
+            continue;
+        }
+        assert!(
+            !resolve_unknown(&d).is_empty(),
+            "exit 8 without an unknown attempt or a recorded vanish: {}",
+            log_tail(&d)
+        );
+    }
+    eprintln!("PF3 chains: exit codes {codes:?} ({vanish_ends} exit 8 by the vanished rule)");
+    assert_eq!(codes.last(), Some(&0), "{codes:?}: {}", log_tail(&d));
     let left: Vec<u32> = marked(&t.campaign);
     assert!(
         left.is_empty(),

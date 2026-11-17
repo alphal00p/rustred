@@ -189,8 +189,10 @@ pub fn list(site: &'static str, dir: &Path) -> Listing {
     }
 }
 
-/// A test-build listing fault (this thread or the process's failpoint value).
+/// A test-build listing fault (this thread or the process's failpoint value). procfix7 round 7 (gate11 m11-rel): never
+/// constructed in a release build (the release `truncation` answers None): no dead-code warning there.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 enum ListFault {
     /// Keep only the first n entries (no error).
     Keep(usize),

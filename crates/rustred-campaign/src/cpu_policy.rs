@@ -106,6 +106,23 @@ pub trait CpuPolicy {
     fn launch_blockers(&self) -> Vec<String>;
     /// Take a /proc/stat sample for the idleness window (cheap; call once per control-loop tick).
     fn refresh(&mut self) -> io::Result<()>;
+    /// procfix7 round 7 (gate11 M11-2): does this policy exclude CPUs pinned by foreign processes? Then the supervisor
+    /// collects them with its sampler and hands them over with [`CpuPolicy::set_foreign_pinned`] on its cadence.
+    fn wants_foreign_pinning(&self) -> bool {
+        false
+    }
+    /// The largest restricted affinity that counts as a pin (see `SiteConfig::foreign_pin_max_cpus`).
+    fn foreign_pin_max_cpus(&self) -> usize {
+        usize::MAX
+    }
+    /// The CPUs pinned by foreign processes now: Some(set) from a COMPLETE scan, None when the latest scan could not read
+    /// every affinity (unknown: nothing is granted until a complete scan).
+    fn update_foreign_pinned(&mut self, _cpus: Option<BTreeSet<usize>>) {}
+    /// procfix7 round 7 (gate11 M11-2, like lane wireflow's admission refusal): a configuration under which this policy
+    /// can NEVER grant a CPU (Some(why)): the supervisor refuses to start (typed), instead of waiting forever.
+    fn never_admits(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Default)]
@@ -679,6 +696,12 @@ pub struct SiteConfig {
     /// them from the sampler (`set_foreign_pinned`). Until it has, nothing is granted.
     #[serde(default)]
     pub respect_foreign_pinning: bool,
+    /// procfix7 round 7 (gate11 M11-2): the largest restricted affinity (CPU count) that counts as a PIN. pick.py counts
+    /// every affinity narrower than the machine; on this host the ops rule-15 units run under masks of ~270-344 CPUs (all
+    /// allowed CPUs minus the reserved ones: an exclusion, not a claim), which under that reading pin EVERY CPU
+    /// (measured 2026-11-17: the union of such masks covered the whole allowed set). Default 64.
+    #[serde(default = "default_pin_max")]
+    pub foreign_pin_max_cpus: usize,
     /// Ledger claims under our own tag are not exclusions (pick_free.py ignores its own tag; the flock decides).
     #[serde(default = "default_true")]
     pub ignore_own_tag_claims: bool,
@@ -695,6 +718,9 @@ fn default_idle_min() -> f64 {
 }
 fn default_true() -> bool {
     true
+}
+fn default_pin_max() -> usize {
+    64
 }
 
 impl SiteConfig {
@@ -1421,6 +1447,60 @@ impl CpuPolicy for SitePolicy {
 
     fn refresh(&mut self) -> io::Result<()> {
         self.idle.refresh(Duration::from_millis(900))
+    }
+
+    fn wants_foreign_pinning(&self) -> bool {
+        self.config.respect_foreign_pinning
+    }
+
+    fn foreign_pin_max_cpus(&self) -> usize {
+        self.config.foreign_pin_max_cpus
+    }
+
+    fn update_foreign_pinned(&mut self, cpus: Option<BTreeSet<usize>>) {
+        self.foreign_pinned = cpus;
+    }
+
+    /// procfix7 round 7 (gate11 M11-2): never a grant when no candidate CPU outside the static exclusions has its lock
+    /// file (the campaign never creates one: such a CPU is never available), or when the idle bar cannot be met (an
+    /// idleness of 1.0 is never measured over a window).
+    fn never_admits(&self) -> Option<String> {
+        let usable: Vec<usize> = self
+            .candidates
+            .iter()
+            .copied()
+            .filter(|c| !self.exclude.contains(c))
+            .collect();
+        if usable.is_empty() {
+            return Some(format!(
+                "no candidate CPU outside the site's exclude lists (candidates {})",
+                format_cpu_list(&self.candidates)
+            ));
+        }
+        let mut with_lock = 0usize;
+        for &c in &usable {
+            let path = self
+                .config
+                .lock_dir
+                .join(self.config.lock_name.replace("{n}", &c.to_string()));
+            match crate::fsx::presence("cpu_policy", &path) {
+                crate::fsx::Presence::Present(m) if m.is_file() => with_lock += 1,
+                crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {}
+                // cannot be checked: possibly usable (the acquire decides; never a refusal from an unread file)
+                crate::fsx::Presence::Unknown(_) => with_lock += 1,
+            }
+        }
+        if with_lock == 0 {
+            return Some(format!(
+                "none of the {} candidate CPUs outside the exclude lists has its lock file in {} (the campaign never creates one)",
+                usable.len(),
+                self.config.lock_dir.display()
+            ));
+        }
+        if self.config.idle_min >= 1.0 {
+            return Some("idle_min 1.0: an idleness of 1.0 over a window is never measured".into());
+        }
+        None
     }
 }
 

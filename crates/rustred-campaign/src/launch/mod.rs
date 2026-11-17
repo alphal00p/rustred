@@ -30,7 +30,8 @@ mod real;
 pub mod sweep;
 
 pub use cgroup::{
-    CgroupRoot, JobCgroup, kill_recorded_scope, recorded_scope_emptied, scope_unit_name,
+    CgroupRoot, JobCgroup, kill_recorded_scope, kill_recorded_scope_at, recorded_scope_emptied,
+    recorded_scope_removed, scope_unit_name,
 };
 
 /// Run `f` with a signalling context: every delivery `f` makes on this thread is logged with it (gate3 M2).

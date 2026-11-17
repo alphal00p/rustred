@@ -436,8 +436,29 @@ impl Sweep<'_> {
                         ));
                     }
                     self.note_suspects(&scan.hidden);
-                    self.hidden = scan.hidden;
+                    // procfix7 round 7 (gate11 m11-mut M6): the suspects (the seeds: pids the ledger recorded; earlier
+                    // unreadable candidates) this scan did not list are checked BY THEIR OWN PID; a marked one is a
+                    // candidate like any other (stopped and killed through the guard), never only a reason to stay
+                    // unproven
+                    let reported: std::collections::BTreeSet<u32> = scan
+                        .processes
+                        .iter()
+                        .map(|p| p.pid)
+                        .chain(scan.hidden.iter().map(|h| h.pid))
+                        .collect();
+                    let (marked, hidden) = self.check_suspects(&reported);
+                    if !hidden.is_empty() {
+                        inconclusive = Some(format!(
+                            "{} suspect(s) with an unreadable environ that may descend from the campaign: {}",
+                            hidden.len(),
+                            describe_hidden(&hidden)
+                        ));
+                    }
+                    let mut all_hidden = scan.hidden;
+                    all_hidden.extend(hidden);
+                    self.hidden = all_hidden;
                     queue.extend(scan.processes);
+                    queue.extend(marked);
                 }
                 Err(e) => inconclusive = Some(format!("proc scan: {e}")),
             }
@@ -675,6 +696,45 @@ impl Sweep<'_> {
         }
     }
 
+    /// The suspects (seeds and earlier unreadable candidates) that `reported` (a scan's listing) lacks, each checked by
+    /// its OWN pid: (marked ones: candidates; unreadable ones: still possibly ours). Not candidates / not ours: dropped.
+    fn check_suspects(
+        &mut self,
+        reported: &std::collections::BTreeSet<u32>,
+    ) -> (Vec<MarkedProcess>, Vec<HiddenProcess>) {
+        let root = crate::resources::procfs::sys();
+        let only = self.s.only_attempt.clone();
+        let wanted = |a: &str| only.as_deref().is_none_or(|o| o == a);
+        let pending: Vec<(u32, Option<u64>)> = self
+            .suspects
+            .iter()
+            .filter(|(p, _)| !reported.contains(p))
+            .map(|(p, s)| (*p, *s))
+            .collect();
+        let (mut marked, mut hidden) = (Vec::new(), Vec::new());
+        for (pid, start) in pending {
+            match check_candidate(
+                &root,
+                pid,
+                start,
+                &self.s.campaign_id,
+                self.s.not_before_ticks,
+                &wanted,
+                STRICT_ENVIRON_TIMEOUT,
+            ) {
+                CandidateCheck::NotCandidate | CandidateCheck::NotOurs => {
+                    self.suspects.remove(&pid);
+                }
+                CandidateCheck::Marked(m) => marked.push(m),
+                CandidateCheck::Hidden(mut h) => {
+                    h.why = format!("{} (a suspect of an earlier scan of this sweep)", h.why);
+                    hidden.push(h);
+                }
+            }
+        }
+        (marked, hidden)
+    }
+
     /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive. procfix8 (item 4): the
     /// suspects of earlier scans that this scan did not report are checked directly; one that is still possibly ours
     /// keeps the pass inconclusive, one that is marked is a survivor.
@@ -693,36 +753,10 @@ impl Sweep<'_> {
             .map(|p| p.pid)
             .chain(scan.hidden.iter().map(|h| h.pid))
             .collect();
-        let root = crate::resources::procfs::sys();
-        let only = self.s.only_attempt.clone();
-        let wanted = |a: &str| only.as_deref().is_none_or(|o| o == a);
-        let pending: Vec<(u32, Option<u64>)> = self
-            .suspects
-            .iter()
-            .filter(|(p, _)| !reported.contains(p))
-            .map(|(p, s)| (*p, *s))
-            .collect();
-        for (pid, start) in pending {
-            match check_candidate(
-                &root,
-                pid,
-                start,
-                &self.s.campaign_id,
-                self.s.not_before_ticks,
-                &wanted,
-                STRICT_ENVIRON_TIMEOUT,
-            ) {
-                CandidateCheck::NotCandidate | CandidateCheck::NotOurs => {
-                    self.suspects.remove(&pid);
-                }
-                CandidateCheck::Marked(m) => scan.processes.push(m),
-                CandidateCheck::Hidden(mut h) => {
-                    h.why = format!("{} (a suspect of an earlier scan of this sweep)", h.why);
-                    scan.unreadable += 1;
-                    scan.hidden.push(h);
-                }
-            }
-        }
+        let (marked, hidden) = self.check_suspects(&reported);
+        scan.processes.extend(marked);
+        scan.unreadable += hidden.len();
+        scan.hidden.extend(hidden);
         // Left entries that are no longer alive and marked drop out of the report.
         let alive: BTreeMap<Key, ()> = scan.processes.iter().map(|p| (key(p), ())).collect();
         self.left.retain(|k, _| alive.contains_key(k));

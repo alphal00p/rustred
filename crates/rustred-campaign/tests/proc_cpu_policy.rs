@@ -60,6 +60,7 @@ fn site_raw(root: &Path, cpus: &[usize]) -> SiteConfig {
         idle_min: 0.0,
         max_cores: 16,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     }
 }

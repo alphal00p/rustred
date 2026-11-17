@@ -224,74 +224,76 @@ D	src/closeloop/termmin.rs	1067	prod		auto: error propagated (? / map_err)	crate
 R	src/closeloop/termmin.rs	1086	prod		auto: error propagated (? / map_err)	let rb = std::fs::read(&path).map_err(|e| format!("{path}: {e}"))?;
 F	src/closeloop/termmin.rs	1142	prod	closeloop.input	the fake oracle (test double, set only by test specs): unreadable = no fake script	crate::fsx::read_to_string("closeloop.input", &f.oracle)
 R	src/closeloop/termmin/direct.rs	140	prod		auto: error propagated (? / map_err)	let prog_bytes = std::fs::read(&cfg.program.path)
-D	src/closeloop/termmin/direct.rs	266	prod		D-D: create-over of a regenerated output in the pass's / attempt's own directory (deterministic, registered by blake3 after)	std::fs::write(
-D	src/closeloop/termmin/direct.rs	276	prod		auto: error propagated (? / map_err)	std::fs::write(cfg.out_dir.join("answers.jsonl"), al).map_err(|e| e.to_string())?;
-D	src/closeloop/termmin/direct.rs	333	prod		auto: error propagated (? / map_err)	std::fs::write(&p, recipe.text.as_bytes()).map_err(|e| e.to_string())?;
-R	src/closeloop/termmin/direct.rs	352	prod		auto: error propagated (? / map_err)	let rb = std::fs::read(&rpath).map_err(|e| format!("{}: {e}", rpath.display()))?;
-R	src/closeloop/termmin/direct.rs	512	prod		auto: error propagated (? / map_err)	let rb = std::fs::read(recipe).map_err(|e| format!("{}: {e}", recipe.display()))?;
+D	src/closeloop/termmin/direct.rs	267	prod		D-D: create-over of a regenerated output in the pass's / attempt's own directory (deterministic, registered by blake3 after)	std::fs::write(
+D	src/closeloop/termmin/direct.rs	277	prod		auto: error propagated (? / map_err)	std::fs::write(cfg.out_dir.join("answers.jsonl"), al).map_err(|e| e.to_string())?;
+D	src/closeloop/termmin/direct.rs	334	prod		auto: error propagated (? / map_err)	std::fs::write(&p, recipe.text.as_bytes()).map_err(|e| e.to_string())?;
+R	src/closeloop/termmin/direct.rs	353	prod		auto: error propagated (? / map_err)	let rb = std::fs::read(&rpath).map_err(|e| format!("{}: {e}", rpath.display()))?;
+R	src/closeloop/termmin/direct.rs	513	prod		auto: error propagated (? / map_err)	let rb = std::fs::read(recipe).map_err(|e| format!("{}: {e}", recipe.display()))?;
 R	src/closeloop/zeros.rs	117	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&st.path).map_err(|e| format!("{}: {e}", st.path))?;
 R	src/closeloop/zeros.rs	397	prod		auto: error propagated (? / map_err)	let t = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-E	src/cpu_policy.rs	162	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	match crate::fsx::presence("cpu_policy", &c.lock_dir).metadata() {
-F	src/cpu_policy.rs	162	prod	cpu_policy	auto: Unknown / Absent / Failed -> Err (propagated)	match crate::fsx::presence("cpu_policy", &c.lock_dir).metadata() {
-E	src/cpu_policy.rs	163	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok(m) if m.is_dir() => {}
-E	src/cpu_policy.rs	177	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	match crate::fsx::presence("cpu_policy", &c.ledger_file).metadata() {
-F	src/cpu_policy.rs	177	prod	cpu_policy	auto: Unknown / Absent / Failed -> Err (propagated)	match crate::fsx::presence("cpu_policy", &c.ledger_file).metadata() {
-E	src/cpu_policy.rs	178	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok(m) if m.file_type().is_file() => {}
-F	src/cpu_policy.rs	193	prod	cpu_policy	auto: error propagated (? / map_err)	let ledger = crate::fsx::canonicalize("cpu_policy", &c.ledger_file)
-F	src/cpu_policy.rs	195	prod	cpu_policy	auto: error propagated (? / map_err)	let locks = crate::fsx::canonicalize("cpu_policy", &c.lock_dir)
-E	src/cpu_policy.rs	212	prod		auto: fstat of a descriptor this code holds (no path probe)	if !f.metadata()?.file_type().is_file() {
-O	src/cpu_policy.rs	234	prod		auto: error propagated (? / map_err)	let mut f = open_existing_regular(path, OpenOptions::new().append(true))?;
-F	src/cpu_policy.rs	288	prod	cpu_policy	diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none	let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {
-X	src/cpu_policy.rs	288	prod		diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none	let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {
-O	src/cpu_policy.rs	365	prod		lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded	OpenOptions::new().read(true).write(true).truncate(false),
-X	src/cpu_policy.rs	366	prod		release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed	)
-X	src/cpu_policy.rs	367	prod		release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed	.is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
-F	src/cpu_policy.rs	462	prod	cpu_policy	auto: explicit Unknown / Failed arm	.filter_map(|p| match crate::fsx::presence("cpu_policy", p) {
-R	src/cpu_policy.rs	702	prod		auto: error propagated (? / map_err)	let text = fs::read_to_string(path).map_err(io_err(format!("read {}", path.display())))?;
-O	src/cpu_policy.rs	993	prod		tail_lines: NotFound = an empty tail (no ledger yet), any other error returned (the caller fails closed)	let mut f = match open_existing_regular(path, OpenOptions::new().read(true)) {
-E	src/cpu_policy.rs	998	prod		auto: fstat of a descriptor this code holds (no path probe)	let len = f.metadata()?.len();
-O	src/cpu_policy.rs	1160	prod		lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded	OpenOptions::new().read(true).write(true).truncate(false),
-R	src/cpu_policy.rs	1226	prod		typed match: NotFound only for an optional held file, other errors refuse	match fs::read_to_string(&h.path) {
-O	src/cpu_policy.rs	1333	prod		lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded	OpenOptions::new().read(true).write(true).truncate(false),
-F	src/cpu_policy.rs	1467	prod	cpu_policy	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cpu_policy", &p) {
-D	src/cpu_policy.rs	1503	test			let _ = std::fs::remove_dir_all(&d);
-X	src/cpu_policy.rs	1503	test			let _ = std::fs::remove_dir_all(&d);
-D	src/cpu_policy.rs	1505	test			std::fs::write(d.join("file"), b"x").unwrap();
-D	src/cpu_policy.rs	1513	test			let _ = std::fs::remove_dir_all(&d);
-X	src/cpu_policy.rs	1513	test			let _ = std::fs::remove_dir_all(&d);
-D	src/cpu_policy.rs	1593	test			let _ = fs::remove_dir_all(&root);
-X	src/cpu_policy.rs	1593	test			let _ = fs::remove_dir_all(&root);
-D	src/cpu_policy.rs	1596	test			fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
-D	src/cpu_policy.rs	1598	test			fs::write(root.join("locks").join(format!("cpu.{n}")), b"").unwrap();
-D	src/cpu_policy.rs	1621	test			let _ = fs::remove_dir_all(&root);
-X	src/cpu_policy.rs	1621	test			let _ = fs::remove_dir_all(&root);
+E	src/cpu_policy.rs	179	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	match crate::fsx::presence("cpu_policy", &c.lock_dir).metadata() {
+F	src/cpu_policy.rs	179	prod	cpu_policy	auto: Unknown / Absent / Failed -> Err (propagated)	match crate::fsx::presence("cpu_policy", &c.lock_dir).metadata() {
+E	src/cpu_policy.rs	180	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok(m) if m.is_dir() => {}
+E	src/cpu_policy.rs	194	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	match crate::fsx::presence("cpu_policy", &c.ledger_file).metadata() {
+F	src/cpu_policy.rs	194	prod	cpu_policy	auto: Unknown / Absent / Failed -> Err (propagated)	match crate::fsx::presence("cpu_policy", &c.ledger_file).metadata() {
+E	src/cpu_policy.rs	195	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok(m) if m.file_type().is_file() => {}
+F	src/cpu_policy.rs	210	prod	cpu_policy	auto: error propagated (? / map_err)	let ledger = crate::fsx::canonicalize("cpu_policy", &c.ledger_file)
+F	src/cpu_policy.rs	212	prod	cpu_policy	auto: error propagated (? / map_err)	let locks = crate::fsx::canonicalize("cpu_policy", &c.lock_dir)
+E	src/cpu_policy.rs	229	prod		auto: fstat of a descriptor this code holds (no path probe)	if !f.metadata()?.file_type().is_file() {
+O	src/cpu_policy.rs	251	prod		auto: error propagated (? / map_err)	let mut f = open_existing_regular(path, OpenOptions::new().append(true))?;
+F	src/cpu_policy.rs	305	prod	cpu_policy	diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none	let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {
+X	src/cpu_policy.rs	305	prod		diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none	let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {
+O	src/cpu_policy.rs	382	prod		lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded	OpenOptions::new().read(true).write(true).truncate(false),
+X	src/cpu_policy.rs	383	prod		release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed	)
+X	src/cpu_policy.rs	384	prod		release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed	.is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));
+F	src/cpu_policy.rs	479	prod	cpu_policy	auto: explicit Unknown / Failed arm	.filter_map(|p| match crate::fsx::presence("cpu_policy", p) {
+R	src/cpu_policy.rs	728	prod		auto: error propagated (? / map_err)	let text = fs::read_to_string(path).map_err(io_err(format!("read {}", path.display())))?;
+O	src/cpu_policy.rs	1019	prod		tail_lines: NotFound = an empty tail (no ledger yet), any other error returned (the caller fails closed)	let mut f = match open_existing_regular(path, OpenOptions::new().read(true)) {
+E	src/cpu_policy.rs	1024	prod		auto: fstat of a descriptor this code holds (no path probe)	let len = f.metadata()?.len();
+O	src/cpu_policy.rs	1186	prod		lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded	OpenOptions::new().read(true).write(true).truncate(false),
+R	src/cpu_policy.rs	1252	prod		typed match: NotFound only for an optional held file, other errors refuse	match fs::read_to_string(&h.path) {
+O	src/cpu_policy.rs	1359	prod		lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded	OpenOptions::new().read(true).write(true).truncate(false),
+F	src/cpu_policy.rs	1486	prod	cpu_policy	auto: explicit Unknown / Failed arm	match crate::fsx::presence("cpu_policy", &path) {
+E	src/cpu_policy.rs	1487	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(m) if m.is_file() => with_lock += 1,
+F	src/cpu_policy.rs	1547	prod	cpu_policy	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cpu_policy", &p) {
+D	src/cpu_policy.rs	1583	test			let _ = std::fs::remove_dir_all(&d);
+X	src/cpu_policy.rs	1583	test			let _ = std::fs::remove_dir_all(&d);
+D	src/cpu_policy.rs	1585	test			std::fs::write(d.join("file"), b"x").unwrap();
+D	src/cpu_policy.rs	1593	test			let _ = std::fs::remove_dir_all(&d);
+X	src/cpu_policy.rs	1593	test			let _ = std::fs::remove_dir_all(&d);
+D	src/cpu_policy.rs	1673	test			let _ = fs::remove_dir_all(&root);
+X	src/cpu_policy.rs	1673	test			let _ = fs::remove_dir_all(&root);
+D	src/cpu_policy.rs	1676	test			fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
+D	src/cpu_policy.rs	1678	test			fs::write(root.join("locks").join(format!("cpu.{n}")), b"").unwrap();
+D	src/cpu_policy.rs	1701	test			let _ = fs::remove_dir_all(&root);
+X	src/cpu_policy.rs	1701	test			let _ = fs::remove_dir_all(&root);
 E	src/fsx.rs	49	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	matches!(self, Presence::Present(m) if m.is_dir())
 E	src/fsx.rs	52	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	matches!(self, Presence::Present(m) if m.is_file())
 X	src/fsx.rs	52	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	matches!(self, Presence::Present(m) if m.is_file())
 E	src/fsx.rs	155	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::metadata(p) {
 E	src/fsx.rs	168	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::symlink_metadata(p) {
-L	src/fsx.rs	255	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = match std::fs::read_dir(dir) {
-R	src/fsx.rs	305	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::read(p) {
-R	src/fsx.rs	317	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::File::open(p) {
-V	src/fsx.rs	418	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
-X	src/fsx.rs	418	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
-D	src/fsx.rs	530	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	530	test			let _ = std::fs::remove_dir_all(&d);
-D	src/fsx.rs	533	test			std::fs::write(d.join(n), b"x").unwrap();
-X	src/fsx.rs	541	test			}
-D	src/fsx.rs	542	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	542	test			let _ = std::fs::remove_dir_all(&d);
-D	src/fsx.rs	548	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	548	test			let _ = std::fs::remove_dir_all(&d);
-D	src/fsx.rs	553	test			std::fs::write(d.join("f"), b"x").unwrap();
-E	src/fsx.rs	554	test			assert!(presence("cli", &d).is_dir());
-E	src/fsx.rs	555	test			assert!(presence("cli", &d.join("f")).is_file());
-D	src/fsx.rs	568	test			std::fs::write(d.join("g"), b"y").unwrap();
-D	src/fsx.rs	569	test			assert!(rename_noreplace(&d.join("f"), &d.join("g")).is_err());
-R	src/fsx.rs	570	test			assert_eq!(std::fs::read(d.join("g")).unwrap(), b"y");
-D	src/fsx.rs	571	test			rename_noreplace(&d.join("f"), &d.join("h")).unwrap();
-D	src/fsx.rs	572	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	572	test			let _ = std::fs::remove_dir_all(&d);
+L	src/fsx.rs	257	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = match std::fs::read_dir(dir) {
+R	src/fsx.rs	307	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::read(p) {
+R	src/fsx.rs	319	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::File::open(p) {
+V	src/fsx.rs	420	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+X	src/fsx.rs	420	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+D	src/fsx.rs	532	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	532	test			let _ = std::fs::remove_dir_all(&d);
+D	src/fsx.rs	535	test			std::fs::write(d.join(n), b"x").unwrap();
+X	src/fsx.rs	543	test			}
+D	src/fsx.rs	544	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	544	test			let _ = std::fs::remove_dir_all(&d);
+D	src/fsx.rs	550	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	550	test			let _ = std::fs::remove_dir_all(&d);
+D	src/fsx.rs	555	test			std::fs::write(d.join("f"), b"x").unwrap();
+E	src/fsx.rs	556	test			assert!(presence("cli", &d).is_dir());
+E	src/fsx.rs	557	test			assert!(presence("cli", &d.join("f")).is_file());
+D	src/fsx.rs	570	test			std::fs::write(d.join("g"), b"y").unwrap();
+D	src/fsx.rs	571	test			assert!(rename_noreplace(&d.join("f"), &d.join("g")).is_err());
+R	src/fsx.rs	572	test			assert_eq!(std::fs::read(d.join("g")).unwrap(), b"y");
+D	src/fsx.rs	573	test			rename_noreplace(&d.join("f"), &d.join("h")).unwrap();
+D	src/fsx.rs	574	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	574	test			let _ = std::fs::remove_dir_all(&d);
 R	src/launch/cgroup.rs	27	prod		io::Result returned (every caller propagates or matches it)	fs::read_to_string(p)
 O	src/launch/cgroup.rs	31	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	OpenOptions::new()
 F	src/launch/cgroup.rs	61	prod	cgroup	probe: only a proven memory.max makes the root usable; Unknown = not usable (sampling)	let ok = crate::fsx::presence("cgroup", &probe.join("memory.max")).is_present()
@@ -329,11 +331,34 @@ K	src/launch/cgroup.rs	443	prod		cgroup.kill of a cgroup this supervisor created
 F	src/launch/cgroup.rs	519	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", dir) {
 E	src/launch/cgroup.rs	521	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok((md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino())))
 K	src/launch/cgroup.rs	595	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	kill_path(&self.dir)
-F	src/launch/cgroup.rs	644	prod	cgroup	auto: explicit Unknown / Failed arm	let md = match crate::fsx::presence_lstat("cgroup", &dir) {
-E	src/launch/cgroup.rs	651	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if !md.file_type().is_dir() || md.uid() != uid {
-K	src/launch/cgroup.rs	661	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	write_file(&dir.join("cgroup.kill"), "1")
-F	src/launch/cgroup.rs	677	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", &dir) {
-E	src/launch/cgroup.rs	680	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(md) if md.file_type().is_dir() && md.uid() == uid => {
+F	src/launch/cgroup.rs	675	prod	cgroup	auto: explicit Unknown / Failed arm	let md = match crate::fsx::presence_lstat("cgroup", &dir) {
+E	src/launch/cgroup.rs	682	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if !md.file_type().is_dir() || md.uid() != uid {
+K	src/launch/cgroup.rs	692	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	write_file(&dir.join("cgroup.kill"), "1")
+F	src/launch/cgroup.rs	713	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", &dir) {
+E	src/launch/cgroup.rs	716	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(md) if md.file_type().is_dir() && md.uid() == uid => {
+X	src/launch/cgroup.rs	754	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	matches!(
+F	src/launch/cgroup.rs	755	prod	cgroup	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::presence_lstat("cgroup", recorded),
+X	src/launch/cgroup.rs	756	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::Presence::Absent
+X	src/launch/cgroup.rs	757	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	) && matches!(
+F	src/launch/cgroup.rs	758	prod	cgroup	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::presence_lstat("cgroup", parent),
+E	src/launch/cgroup.rs	759	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(m) if m.is_dir()
+D	src/launch/cgroup.rs	776	test			let _ = std::fs::remove_dir_all(&root);
+X	src/launch/cgroup.rs	776	test			let _ = std::fs::remove_dir_all(&root);
+D	src/launch/cgroup.rs	783	test			std::fs::write(deep.join("cgroup.procs"), "").unwrap();
+D	src/launch/cgroup.rs	784	test			std::fs::write(deep.join("child").join("cgroup.procs"), "").unwrap();
+D	src/launch/cgroup.rs	785	test			std::fs::write(deep.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+D	src/launch/cgroup.rs	786	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+K	src/launch/cgroup.rs	786	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+R	src/launch/cgroup.rs	796	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+K	src/launch/cgroup.rs	796	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+D	src/launch/cgroup.rs	800	test			std::fs::write(deep.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+D	src/launch/cgroup.rs	801	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+K	src/launch/cgroup.rs	801	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+R	src/launch/cgroup.rs	807	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+K	src/launch/cgroup.rs	807	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+D	src/launch/cgroup.rs	812	test			std::fs::remove_dir_all(&deep).unwrap();
+D	src/launch/cgroup.rs	821	test			let _ = std::fs::remove_dir_all(&root);
+X	src/launch/cgroup.rs	821	test			let _ = std::fs::remove_dir_all(&root);
 O	src/launch/guard.rs	320	prod		the intent log: create(true) + append, never truncated (O_APPEND)	let file = std::fs::OpenOptions::new()
 O	src/launch/guard.rs	321	prod		the intent log: create(true) + append, never truncated (O_APPEND)	.create(true)
 F	src/launch/guard.rs	417	prod	guard.fallback	decides only an extra directory sync: Unknown counts as new (synced)	let new = !crate::fsx::presence_lstat("guard.fallback", &path).is_present();
@@ -460,16 +485,17 @@ E	src/launch/idlock.rs	69	prod		auto: fstat of a descriptor this code holds (no 
 F	src/launch/idlock.rs	70	prod	idlock	removal proof (dev + inode of the held descriptor): Unknown = not removed	crate::fsx::presence_lstat("idlock", &self.path),
 D	src/launch/idlock.rs	78	prod		D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)	let _ = fs::remove_file(&self.path);
 X	src/launch/idlock.rs	78	prod		D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)	let _ = fs::remove_file(&self.path);
-F	src/launch/idlock.rs	103	prod	idlock	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("idlock", dir) {
-F	src/launch/idlock.rs	120	prod	idlock	auto: Unknown / Absent / Failed -> Err (propagated)	let m = crate::fsx::presence_lstat("idlock", dir)
-E	src/launch/idlock.rs	121	prod		auto: error propagated (? / map_err)	.metadata()
-E	src/launch/idlock.rs	123	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if !m.file_type().is_dir() {
-O	src/launch/idlock.rs	153	prod		the id lock file: create(true), truncate(false), O_NOFOLLOW, mode 0600, in a private 0700 directory	let mut file = OpenOptions::new()
-O	src/launch/idlock.rs	156	prod		auto: error propagated (? / map_err)	.create(true)
-R	src/launch/idlock.rs	171	prod		the holder pid for the refusal message only (the refusal does not depend on it)	let _ = file.read_to_string(&mut s);
-D	src/launch/idlock.rs	185	prod		D-E: set_len(0) of the id lock file whose flock this process holds (diagnostic content)	let _ = file.set_len(0);
-V	src/launch/mod.rs	410	prod		the launch environment passed to a child (copied variables; an unset one is not passed)	if let Some(v) = std::env::var_os(k) {
-X	src/launch/mod.rs	511	prod		no I/O call: a match on an enum value (the statement window reaches an I/O name below)	matches!(self, UsageReading::Fresh { .. })
+V	src/launch/idlock.rs	100	prod		the id-lock directory inside a private pid namespace only (a private TMPDIR keeps test lock files out of the host /tmp); unset / relative / /tmp = the fixed host path	&& let Some(t) = std::env::var_os("TMPDIR").map(PathBuf::from)
+F	src/launch/idlock.rs	115	prod	idlock	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("idlock", dir) {
+F	src/launch/idlock.rs	132	prod	idlock	auto: Unknown / Absent / Failed -> Err (propagated)	let m = crate::fsx::presence_lstat("idlock", dir)
+E	src/launch/idlock.rs	133	prod		auto: error propagated (? / map_err)	.metadata()
+E	src/launch/idlock.rs	135	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if !m.file_type().is_dir() {
+O	src/launch/idlock.rs	165	prod		the id lock file: create(true), truncate(false), O_NOFOLLOW, mode 0600, in a private 0700 directory	let mut file = OpenOptions::new()
+O	src/launch/idlock.rs	168	prod		auto: error propagated (? / map_err)	.create(true)
+R	src/launch/idlock.rs	183	prod		the holder pid for the refusal message only (the refusal does not depend on it)	let _ = file.read_to_string(&mut s);
+D	src/launch/idlock.rs	197	prod		D-E: set_len(0) of the id lock file whose flock this process holds (diagnostic content)	let _ = file.set_len(0);
+V	src/launch/mod.rs	411	prod		the launch environment passed to a child (copied variables; an unset one is not passed)	if let Some(v) = std::env::var_os(k) {
+X	src/launch/mod.rs	512	prod		no I/O call: a match on an enum value (the statement window reaches an I/O name below)	matches!(self, UsageReading::Fresh { .. })
 K	src/launch/real.rs	27	prod		signals through the guard (pinned group / pidfd with the identity checklist)	self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
 V	src/launch/real.rs	219	prod		PATH search for systemd-run / true (execvp semantics)	let path = std::env::var_os("PATH")?;
 E	src/launch/real.rs	224	prod		PATH search: an entry that cannot be checked is skipped (execvp semantics); only a proven regular file is taken	.find(|p| crate::fsx::presence("real.program", p).is_file())
@@ -484,24 +510,24 @@ V	src/launch/real.rs	915	prod		the job environment (contract variables; an unset
 O	src/launch/real.rs	931	prod		auto: error propagated (? / map_err)	OpenOptions::new()
 O	src/launch/real.rs	932	prod		auto: error propagated (? / map_err)	.create(true)
 K	src/launch/real.rs	1045	prod		signals through the guard (pinned group / pidfd with the identity checklist)	signal_pinned_group(&leaders, pid, libc::SIGKILL)
-K	src/launch/real.rs	1476	prod		signals through the guard (pinned group / pidfd with the identity checklist)	&& signal_pinned_group(&self.leaders, self.sid, sig).delivered()
-W	src/launch/real.rs	1602	prod		waitid / try_wait of an own child (peek_exit typed; a zombie probe child)	let _ = c.try_wait(); // a zombie: immediate
-X	src/launch/real.rs	1695	prod		procfix8-ok: an unreadable cgroup text leaves the scope unknown for now (read again at the next sample)	if let Ok(text) =
-F	src/launch/real.rs	1728	prod	cgroup	auto: explicit Unknown / Failed arm	crate::fsx::read_to_string("cgroup", &dir.join("memory.current"))
-F	src/launch/real.rs	1733	prod	cgroup	auto: explicit Unknown / Failed arm	let oom = match crate::fsx::read_to_string("cgroup", &dir.join("memory.events")) {
-K	src/launch/real.rs	2151	prod		signals through the guard (pinned group / pidfd with the identity checklist)	let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);
-C	src/launch/real.rs	2326	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let e = std::process::Command::new(prog)
+K	src/launch/real.rs	1477	prod		signals through the guard (pinned group / pidfd with the identity checklist)	&& signal_pinned_group(&self.leaders, self.sid, sig).delivered()
+W	src/launch/real.rs	1603	prod		waitid / try_wait of an own child (peek_exit typed; a zombie probe child)	let _ = c.try_wait(); // a zombie: immediate
+X	src/launch/real.rs	1696	prod		procfix8-ok: an unreadable cgroup text leaves the scope unknown for now (read again at the next sample)	if let Ok(text) =
+F	src/launch/real.rs	1729	prod	cgroup	auto: explicit Unknown / Failed arm	crate::fsx::read_to_string("cgroup", &dir.join("memory.current"))
+F	src/launch/real.rs	1734	prod	cgroup	auto: explicit Unknown / Failed arm	let oom = match crate::fsx::read_to_string("cgroup", &dir.join("memory.events")) {
+K	src/launch/real.rs	2152	prod		signals through the guard (pinned group / pidfd with the identity checklist)	let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);
+C	src/launch/real.rs	2328	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let e = std::process::Command::new(prog)
 V	src/launch/sweep.rs	135	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
 X	src/launch/sweep.rs	135	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-K	src/launch/sweep.rs	474	prod		signals through the guard (pidfd + identity checklist)	match guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None) {
-V	src/launch/sweep.rs	663	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {
-X	src/launch/sweep.rs	663	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {
-C	src/launch/sweep.rs	913	test			let mut c = std::process::Command::new("sleep")
-C	src/launch/sweep.rs	920	test			let st = std::process::Command::new("sh")
-X	src/launch/sweep.rs	921	test			.args(["-c", &format!("kill -STOP {pid}")])
-V	src/launch/sweep.rs	922	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/launch/sweep.rs	922	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-W	src/launch/sweep.rs	997	test			let _ = c.wait();
+K	src/launch/sweep.rs	495	prod		signals through the guard (pidfd + identity checklist)	match guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None) {
+V	src/launch/sweep.rs	684	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {
+X	src/launch/sweep.rs	684	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {
+C	src/launch/sweep.rs	947	test			let mut c = std::process::Command::new("sleep")
+C	src/launch/sweep.rs	954	test			let st = std::process::Command::new("sh")
+X	src/launch/sweep.rs	955	test			.args(["-c", &format!("kill -STOP {pid}")])
+V	src/launch/sweep.rs	956	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/launch/sweep.rs	956	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+W	src/launch/sweep.rs	1031	test			let _ = c.wait();
 R	src/ledger.rs	883	prod		typed match (NotFound named; other errors -> LedgerError)	match fs::read(&p) {
 R	src/ledger.rs	927	prod		io::Result returned through the FileOps seam (callers propagate)	RealFile::open(path)
 R	src/ledger.rs	931	prod		io::Result returned through the FileOps seam (callers propagate)	RealFile::open(path)
@@ -584,35 +610,35 @@ X	src/resources/marked.rs	595	test			let _ = std::fs::remove_dir_all(&root);
 F	src/resources/mod.rs	356	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cgroup", p) {
 C	src/resources/mod.rs	618	test			let mut child = std::process::Command::new("sleep")
 W	src/resources/mod.rs	635	test			child.wait().unwrap();
-R	src/resources/procfs.rs	255	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let mut f = std::fs::File::open(self.path(rel)).map_err(|e| classify(&e, &what))?;
-E	src/resources/procfs.rs	328	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::metadata(self.path(rel)).map_err(|e| classify(&e, &what))
-L	src/resources/procfs.rs	341	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
-O	src/resources/procfs.rs	371	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	libc::open(
-R	src/resources/procfs.rs	775	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::File::open(self.path(&rel))
-L	src/resources/procfs.rs	917	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel))
-L	src/resources/procfs.rs	949	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
-V	src/resources/procfs.rs	1377	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-X	src/resources/procfs.rs	1377	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-C	src/resources/procfs.rs	1410	test			let out = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1411	test			.args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
-V	src/resources/procfs.rs	1412	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1412	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-C	src/resources/procfs.rs	1457	test			let _ = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1457	test			let _ = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1458	test			.args(["-c", &format!("kill -KILL {daemon}")])
-V	src/resources/procfs.rs	1459	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1459	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-C	src/resources/procfs.rs	1473	test			let mut child = std::process::Command::new("python3")
-X	src/resources/procfs.rs	1478	test			])
-V	src/resources/procfs.rs	1479	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1479	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-W	src/resources/procfs.rs	1513	test			let _ = child.wait();
-D	src/resources/procfs.rs	1610	test			std::fs::write(
-D	src/resources/procfs.rs	1618	test			std::fs::write(d.join("5/stat"), "5 (x) S 1 5 5 0 -1 0 0 0").unwrap();
-D	src/resources/procfs.rs	1626	test			let _ = std::fs::remove_dir_all(&d);
-X	src/resources/procfs.rs	1626	test			let _ = std::fs::remove_dir_all(&d);
-C	src/resources/scan.rs	831	test			let mut child = std::process::Command::new("setsid")
-W	src/resources/scan.rs	876	test			child.wait().unwrap();
+R	src/resources/procfs.rs	260	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let mut f = std::fs::File::open(self.path(rel)).map_err(|e| classify(&e, &what))?;
+E	src/resources/procfs.rs	333	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::metadata(self.path(rel)).map_err(|e| classify(&e, &what))
+L	src/resources/procfs.rs	346	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
+O	src/resources/procfs.rs	376	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	libc::open(
+R	src/resources/procfs.rs	791	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::File::open(self.path(&rel))
+L	src/resources/procfs.rs	987	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel))
+L	src/resources/procfs.rs	1019	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
+V	src/resources/procfs.rs	1471	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+X	src/resources/procfs.rs	1471	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+C	src/resources/procfs.rs	1504	test			let out = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1505	test			.args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+V	src/resources/procfs.rs	1506	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1506	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+C	src/resources/procfs.rs	1551	test			let _ = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1551	test			let _ = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1552	test			.args(["-c", &format!("kill -KILL {daemon}")])
+V	src/resources/procfs.rs	1553	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1553	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+C	src/resources/procfs.rs	1567	test			let mut child = std::process::Command::new("python3")
+X	src/resources/procfs.rs	1572	test			])
+V	src/resources/procfs.rs	1573	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1573	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+W	src/resources/procfs.rs	1607	test			let _ = child.wait();
+D	src/resources/procfs.rs	1704	test			std::fs::write(
+D	src/resources/procfs.rs	1712	test			std::fs::write(d.join("5/stat"), "5 (x) S 1 5 5 0 -1 0 0 0").unwrap();
+D	src/resources/procfs.rs	1720	test			let _ = std::fs::remove_dir_all(&d);
+X	src/resources/procfs.rs	1720	test			let _ = std::fs::remove_dir_all(&d);
+C	src/resources/scan.rs	848	test			let mut child = std::process::Command::new("setsid")
+W	src/resources/scan.rs	894	test			child.wait().unwrap();
 V	src/supervisor/failpoint.rs	35	prod		test builds only (failpoints; release builds refuse the variable)	match std::env::var(FAILPOINT_ENV) {
 V	src/supervisor/failpoint.rs	67	prod		test builds only (failpoints; release builds refuse the variable)	match std::env::var(FAILPOINT_ENV) {
 R	src/supervisor/failpoint.rs	256	prod		auto: error propagated (? / map_err)	inner: RealFile::open(path)?,
@@ -625,66 +651,66 @@ X	src/supervisor/mod.rs	229	prod		the log directory; the open below reports its 
 O	src/supervisor/mod.rs	230	prod		the supervisor log: create(true) + append (diagnostics)	let file = std::fs::OpenOptions::new()
 O	src/supervisor/mod.rs	231	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
 X	src/supervisor/mod.rs	233	prod		the log file (diagnostics); a failure shows as a missing log, the ledger records the run	.open(dir.join("supervisor.log"))
-F	src/supervisor/mod.rs	633	prod	supervisor.dirs	auto: explicit Unknown / Failed arm	match crate::fsx::presence("supervisor.dirs", p) {
-E	src/supervisor/mod.rs	634	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(m) if m.is_dir() => Ok(Some((m.dev(), m.ino()))),
-F	src/supervisor/mod.rs	1841	prod	guard.fallback	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("guard.fallback", &p) {
-R	src/supervisor/mod.rs	1917	prod		typed match (RecoveryRead::Data / Absent / Other)	match std::fs::read(p) {
-X	src/supervisor/mod.rs	2619	prod		an OUTCOME counts as present unless PROVEN absent (Presence::Absent only): never "not spawned" from an unread file	let outcome_absent = matches!(
-F	src/supervisor/mod.rs	2620	prod	supervisor.outcome	only a PROVEN absent OUTCOME is "not spawned"; Unknown counts as present (execution unknown)	crate::fsx::presence_lstat("supervisor.outcome", &layout.outcome()),
-F	src/supervisor/mod.rs	2656	prod	supervisor.sentinel	explicit Absent arm only; other arms read further (Unknown -> recovery_read_failed)	match crate::fsx::presence_lstat("supervisor.sentinel", &sentinel) {
-F	src/supervisor/mod.rs	3345	prod	real.program	auto: explicit Unknown / Failed arm	let bytes = match crate::fsx::presence("real.program", path) {
-X	src/supervisor/mod.rs	3772	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	3774	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-D	src/supervisor/mod.rs	3920	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
-D	src/supervisor/mod.rs	3956	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
-F	src/supervisor/mod.rs	5216	prod	supervisor.control	auto: explicit Unknown / Failed arm	let entries = match crate::fsx::list("supervisor.control", &dir) {
-E	src/supervisor/mod.rs	5232	prod		auto: on a Metadata / FileType / Presence (not a path probe)	.filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
-X	src/supervisor/mod.rs	5248	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(&done);
-F	src/supervisor/mod.rs	5251	prod	supervisor.control	auto: explicit Unknown / Failed arm	let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
-X	src/supervisor/mod.rs	5252	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
-D	src/supervisor/mod.rs	5273	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-D	src/supervisor/mod.rs	5283	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-D	src/supervisor/mod.rs	5301	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-X	src/supervisor/mod.rs	5330	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	5332	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-F	src/supervisor/mod.rs	5614	prod	workdir	auto: explicit Unknown / Failed arm	let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
-X	src/supervisor/mod.rs	5822	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	5824	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-D	src/supervisor/mod.rs	6585	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::fsx::rename_noreplace(p, &target) {
-F	src/supervisor/mod.rs	6613	prod	supervisor.control	auto: Unknown / Absent / Failed -> Err (propagated)	let mut n = crate::fsx::list_required("supervisor.control", &dir)
-O	src/supervisor/mod.rs	6621	prod		auto: no-clobber create (O_EXCL)	match std::fs::OpenOptions::new()
-O	src/supervisor/mod.rs	6623	prod		auto: no-clobber create (O_EXCL)	.create_new(true)
-R	src/supervisor/mod.rs	6666	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
-X	src/supervisor/mod.rs	6666	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
-R	src/supervisor/mod.rs	6840	prod		auto: error propagated (? / map_err)	f.read_to_end(&mut b)
-O	src/supervisor/mod.rs	6853	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
-O	src/supervisor/mod.rs	6855	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
-D	src/supervisor/mod.rs	6856	prod		auto: error propagated (? / map_err)	.truncate(true)
-R	src/supervisor/mod.rs	6864	prod		auto: error propagated (? / map_err)	std::fs::File::open(&dir)?.sync_all()
-O	src/supervisor/mod.rs	7200	test			let mut f = std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7208	test			let _ = std::fs::remove_dir_all(&l.root);
-X	src/supervisor/mod.rs	7208	test			let _ = std::fs::remove_dir_all(&l.root);
-D	src/supervisor/mod.rs	7250	test			std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
-D	src/supervisor/mod.rs	7255	test			std::fs::copy(l2.root.join(&rel), &copy).unwrap();
-D	src/supervisor/mod.rs	7256	test			std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
-D	src/supervisor/mod.rs	7263	test			std::fs::remove_file(l3.root.join(&rel)).unwrap();
-O	src/supervisor/mod.rs	7267	test			std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7271	test			.set_len(10)
-D	src/supervisor/mod.rs	7284	test			let _ = std::fs::remove_dir_all(&d.root);
-X	src/supervisor/mod.rs	7284	test			let _ = std::fs::remove_dir_all(&d.root);
-O	src/supervisor/mod.rs	7306	test			let mut f = std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7317	test			std::fs::rename(other.table(), l.table()).unwrap();
-D	src/supervisor/mod.rs	7322	test			let _ = std::fs::remove_dir_all(&l.root);
-X	src/supervisor/mod.rs	7322	test			let _ = std::fs::remove_dir_all(&l.root);
-D	src/supervisor/mod.rs	7323	test			let _ = std::fs::remove_dir_all(&other.root);
-X	src/supervisor/mod.rs	7323	test			let _ = std::fs::remove_dir_all(&other.root);
-D	src/supervisor/mod.rs	7486	test			let _ = std::fs::remove_dir_all(&d);
-X	src/supervisor/mod.rs	7486	test			let _ = std::fs::remove_dir_all(&d);
-X	src/supervisor/mod.rs	7526	test			}
-D	src/supervisor/mod.rs	7527	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
-X	src/supervisor/mod.rs	7527	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
-D	src/supervisor/mod.rs	7633	test			let _ = std::fs::remove_dir_all(&full);
-X	src/supervisor/mod.rs	7633	test			let _ = std::fs::remove_dir_all(&full);
+F	src/supervisor/mod.rs	638	prod	supervisor.dirs	auto: explicit Unknown / Failed arm	match crate::fsx::presence("supervisor.dirs", p) {
+E	src/supervisor/mod.rs	639	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(m) if m.is_dir() => Ok(Some((m.dev(), m.ino()))),
+F	src/supervisor/mod.rs	1892	prod	guard.fallback	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("guard.fallback", &p) {
+R	src/supervisor/mod.rs	1968	prod		typed match (RecoveryRead::Data / Absent / Other)	match std::fs::read(p) {
+X	src/supervisor/mod.rs	2687	prod		an OUTCOME counts as present unless PROVEN absent (Presence::Absent only): never "not spawned" from an unread file	let outcome_absent = matches!(
+F	src/supervisor/mod.rs	2688	prod	supervisor.outcome	only a PROVEN absent OUTCOME is "not spawned"; Unknown counts as present (execution unknown)	crate::fsx::presence_lstat("supervisor.outcome", &layout.outcome()),
+F	src/supervisor/mod.rs	2724	prod	supervisor.sentinel	explicit Absent arm only; other arms read further (Unknown -> recovery_read_failed)	match crate::fsx::presence_lstat("supervisor.sentinel", &sentinel) {
+F	src/supervisor/mod.rs	3419	prod	real.program	auto: explicit Unknown / Failed arm	let bytes = match crate::fsx::presence("real.program", path) {
+X	src/supervisor/mod.rs	3846	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	3848	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+D	src/supervisor/mod.rs	3994	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
+D	src/supervisor/mod.rs	4030	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
+F	src/supervisor/mod.rs	5290	prod	supervisor.control	auto: explicit Unknown / Failed arm	let entries = match crate::fsx::list("supervisor.control", &dir) {
+E	src/supervisor/mod.rs	5306	prod		auto: on a Metadata / FileType / Presence (not a path probe)	.filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
+X	src/supervisor/mod.rs	5322	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(&done);
+F	src/supervisor/mod.rs	5325	prod	supervisor.control	auto: explicit Unknown / Failed arm	let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
+X	src/supervisor/mod.rs	5326	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
+D	src/supervisor/mod.rs	5347	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+D	src/supervisor/mod.rs	5357	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+D	src/supervisor/mod.rs	5375	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+X	src/supervisor/mod.rs	5404	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	5406	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+F	src/supervisor/mod.rs	5688	prod	workdir	auto: explicit Unknown / Failed arm	let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
+X	src/supervisor/mod.rs	5896	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	5898	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+D	src/supervisor/mod.rs	6687	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::fsx::rename_noreplace(p, &target) {
+F	src/supervisor/mod.rs	6715	prod	supervisor.control	auto: Unknown / Absent / Failed -> Err (propagated)	let mut n = crate::fsx::list_required("supervisor.control", &dir)
+O	src/supervisor/mod.rs	6723	prod		auto: no-clobber create (O_EXCL)	match std::fs::OpenOptions::new()
+O	src/supervisor/mod.rs	6725	prod		auto: no-clobber create (O_EXCL)	.create_new(true)
+R	src/supervisor/mod.rs	6768	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
+X	src/supervisor/mod.rs	6768	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
+R	src/supervisor/mod.rs	6942	prod		auto: error propagated (? / map_err)	f.read_to_end(&mut b)
+O	src/supervisor/mod.rs	6955	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
+O	src/supervisor/mod.rs	6957	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
+D	src/supervisor/mod.rs	6958	prod		auto: error propagated (? / map_err)	.truncate(true)
+R	src/supervisor/mod.rs	6966	prod		auto: error propagated (? / map_err)	std::fs::File::open(&dir)?.sync_all()
+O	src/supervisor/mod.rs	7302	test			let mut f = std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7310	test			let _ = std::fs::remove_dir_all(&l.root);
+X	src/supervisor/mod.rs	7310	test			let _ = std::fs::remove_dir_all(&l.root);
+D	src/supervisor/mod.rs	7352	test			std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
+D	src/supervisor/mod.rs	7357	test			std::fs::copy(l2.root.join(&rel), &copy).unwrap();
+D	src/supervisor/mod.rs	7358	test			std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
+D	src/supervisor/mod.rs	7365	test			std::fs::remove_file(l3.root.join(&rel)).unwrap();
+O	src/supervisor/mod.rs	7369	test			std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7373	test			.set_len(10)
+D	src/supervisor/mod.rs	7386	test			let _ = std::fs::remove_dir_all(&d.root);
+X	src/supervisor/mod.rs	7386	test			let _ = std::fs::remove_dir_all(&d.root);
+O	src/supervisor/mod.rs	7408	test			let mut f = std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7419	test			std::fs::rename(other.table(), l.table()).unwrap();
+D	src/supervisor/mod.rs	7424	test			let _ = std::fs::remove_dir_all(&l.root);
+X	src/supervisor/mod.rs	7424	test			let _ = std::fs::remove_dir_all(&l.root);
+D	src/supervisor/mod.rs	7425	test			let _ = std::fs::remove_dir_all(&other.root);
+X	src/supervisor/mod.rs	7425	test			let _ = std::fs::remove_dir_all(&other.root);
+D	src/supervisor/mod.rs	7588	test			let _ = std::fs::remove_dir_all(&d);
+X	src/supervisor/mod.rs	7588	test			let _ = std::fs::remove_dir_all(&d);
+X	src/supervisor/mod.rs	7628	test			}
+D	src/supervisor/mod.rs	7629	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
+X	src/supervisor/mod.rs	7629	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
+D	src/supervisor/mod.rs	7735	test			let _ = std::fs::remove_dir_all(&full);
+X	src/supervisor/mod.rs	7735	test			let _ = std::fs::remove_dir_all(&full);
 F	src/supervisor/orphans.rs	109	prod	supervisor.dirs	canonical_root: a log annotation only (the raw path when unresolvable); nothing decided	crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())
 X	src/supervisor/orphans.rs	109	prod		canonical_root: a log annotation only (the raw path when unresolvable); nothing decided	crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())
 R	src/supervisor/spec.rs	398	prod		auto: error propagated (? / map_err)	let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
@@ -1387,6 +1413,38 @@ V	tests/gate10_sites.rs	452	test			let injected = std::env::var("RR_CAMPAIGN_FAI
 X	tests/gate10_sites.rs	452	test			let injected = std::env::var("RR_CAMPAIGN_FAILPOINT").is_ok();
 D	tests/gate10_sites.rs	467	test			std::fs::write(run.join("sup/wrapper-refusal.txt"), "refused: test\n").unwrap();
 D	tests/gate10_sites.rs	512	test			std::fs::write(
+V	tests/gate11_cost.rs	17	test			std::env::var(k)
+X	tests/gate11_cost.rs	17	test			std::env::var(k)
+V	tests/gate11_cost.rs	44	test			let path = std::env::var_os("PATH").unwrap_or_default();
+X	tests/gate11_cost.rs	44	test			let path = std::env::var_os("PATH").unwrap_or_default();
+C	tests/gate11_cost.rs	51	test			let c = Command::new("sh")
+R	tests/gate11_cost.rs	122	test			if let Ok(s) = std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")) {
+X	tests/gate11_cost.rs	122	test			if let Ok(s) = std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")) {
+W	tests/gate11_cost.rs	137	test			let _ = c.wait();
+D	tests/gate11_site.rs	50	test			std::fs::write(locks.join(format!("cpu.{c}")), "").unwrap();
+D	tests/gate11_site.rs	53	test			std::fs::write(&ledger, "").unwrap();
+D	tests/gate11_site.rs	55	test			std::fs::write(
+E	tests/gate11_site.rs	83	test			if d.join("ledger").join("MANIFEST.json").exists()
+V	tests/gate11_walk.rs	42	test			std::env::var_os("PATH").unwrap_or_default()
+X	tests/gate11_walk.rs	42	test			std::env::var_os("PATH").unwrap_or_default()
+R	tests/gate11_walk.rs	46	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
+X	tests/gate11_walk.rs	46	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
+C	tests/gate11_walk.rs	54	test			let _ = Command::new("sh")
+X	tests/gate11_walk.rs	54	test			let _ = Command::new("sh")
+C	tests/gate11_walk.rs	71	test			let mut c = Command::new("cc");
+C	tests/gate11_walk.rs	101	test			let Ok(mut py) = Command::new("python3")
+X	tests/gate11_walk.rs	101	test			let Ok(mut py) = Command::new("python3")
+R	tests/gate11_walk.rs	117	test			let leader_list = std::fs::read_to_string(format!("/proc/{pp}/task/{pp}/children")).unwrap();
+W	tests/gate11_walk.rs	132	test			let _ = py.wait();
+D	tests/gate11_walk.rs	157	test			std::fs::write(
+E	tests/gate11_walk.rs	183	test			wait_until("the helper", Duration::from_secs(60), || rec.exists());
+W	tests/gate11_walk.rs	186	test			let _ = s1.wait();
+R	tests/gate11_walk.rs	187	test			let f = std::fs::read_to_string(&rec).unwrap();
+D	tests/gate11_walk.rs	198	test			std::fs::write(&drop, format!("{m}\n")).unwrap();
+R	tests/gate11_walk.rs	212	test			std::fs::read_to_string(&log)
+X	tests/gate11_walk.rs	231	test			let leader =
+R	tests/gate11_walk.rs	232	test			std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")).unwrap_or_default();
+X	tests/gate11_walk.rs	232	test			std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")).unwrap_or_default();
 D	tests/gate7_lineage.rs	30	test			std::fs::write(
 D	tests/gate7_lineage.rs	37	test			std::fs::write(
 D	tests/gate7_lineage.rs	47	test			let _ = std::fs::remove_dir_all(&self.0);
@@ -1509,19 +1567,19 @@ C	tests/int5_gate3.rs	354	test			let mut cmd = Command::new(SUP);
 W	tests/int5_gate3.rs	377	test			if let Some(s) = c.try_wait().unwrap() {
 E	tests/int5_gate3.rs	391	test			let minted = if d.join("ledger").join("MANIFEST.json").exists() {
 E	tests/int5_gate3.rs	417	test			if d.join("ledger").join("MANIFEST.json").exists() {
-E	tests/int5_gate3.rs	487	test			assert!(!ledger.exists());
-D	tests/int5_gate3.rs	489	test			std::fs::write(&ledger, b"").unwrap();
-E	tests/int5_gate3.rs	492	test			assert!(!nolocks.exists());
-E	tests/int5_gate3.rs	497	test			assert!(!root.join(format!("escape.{cpu}")).exists());
-D	tests/int5_gate3.rs	507	test			std::fs::write(&inside, b"").unwrap();
-D	tests/int5_gate3.rs	509	test			std::fs::remove_file(&inside).unwrap();
-E	tests/int5_gate3.rs	516	test			!locks.join(format!("cpu.{cpu}")).exists(),
-L	tests/int5_gate3.rs	519	test			assert!(std::fs::read_dir(&locks).unwrap().next().is_none());
-D	tests/int5_gate3.rs	521	test			std::fs::write(locks.join(format!("cpu.{cpu}")), b"").unwrap();
-O	tests/int5_gate3.rs	553	test			let log = std::fs::OpenOptions::new()
-O	tests/int5_gate3.rs	554	test			.create(true)
-C	tests/int5_gate3.rs	558	test			let mut cmd = Command::new(SUP);
-E	tests/int5_gate3.rs	593	test			if d.join("ledger").join("MANIFEST.json").exists() {
+E	tests/int5_gate3.rs	488	test			assert!(!ledger.exists());
+D	tests/int5_gate3.rs	490	test			std::fs::write(&ledger, b"").unwrap();
+E	tests/int5_gate3.rs	493	test			assert!(!nolocks.exists());
+E	tests/int5_gate3.rs	498	test			assert!(!root.join(format!("escape.{cpu}")).exists());
+D	tests/int5_gate3.rs	508	test			std::fs::write(&inside, b"").unwrap();
+D	tests/int5_gate3.rs	510	test			std::fs::remove_file(&inside).unwrap();
+E	tests/int5_gate3.rs	517	test			!locks.join(format!("cpu.{cpu}")).exists(),
+L	tests/int5_gate3.rs	520	test			assert!(std::fs::read_dir(&locks).unwrap().next().is_none());
+D	tests/int5_gate3.rs	522	test			std::fs::write(locks.join(format!("cpu.{cpu}")), b"").unwrap();
+O	tests/int5_gate3.rs	554	test			let log = std::fs::OpenOptions::new()
+O	tests/int5_gate3.rs	555	test			.create(true)
+C	tests/int5_gate3.rs	559	test			let mut cmd = Command::new(SUP);
+E	tests/int5_gate3.rs	594	test			if d.join("ledger").join("MANIFEST.json").exists() {
 R	tests/int5_unconfirmed.rs	97	test			std::fs::read_to_string(run.join("sup").join("SPAWN")).unwrap(),
 E	tests/int5_unconfirmed.rs	101	test			!run.join("EVENTS.jsonl").exists(),
 E	tests/int5_unconfirmed.rs	106	test			&& !run.join("OUTCOME.json").exists()
@@ -1754,76 +1812,76 @@ W	tests/proc_audit_regressions.rs	289	test			lead.wait().unwrap();
 W	tests/proc_audit_regressions.rs	375	test			d.wait().unwrap();
 X	tests/proc_audit_regressions.rs	402	test			read_stat(g).ok().is_none()
 W	tests/proc_audit_regressions.rs	408	test			dl.wait().unwrap();
-C	tests/proc_audit_regressions.rs	576	test			let mut c = Command::new(exe);
-R	tests/proc_audit_regressions.rs	591	test			let out = fs::read_to_string(dir.path().join("sigchld.txt")).unwrap();
-O	tests/proc_audit_regressions.rs	614	test			let _w = fs::OpenOptions::new().write(true).open(&fifo).unwrap(); // releases the stuck reader
-O	tests/proc_audit_regressions.rs	680	test			let lockf = fs::OpenOptions::new()
-O	tests/proc_audit_regressions.rs	698	test			let held = fs::OpenOptions::new()
-O	tests/proc_audit_regressions.rs	701	test			.create(true)
-R	tests/proc_audit_regressions.rs	706	test			let mut text = fs::read_to_string(&cfg.ledger_file).unwrap_or_default();
-X	tests/proc_audit_regressions.rs	706	test			let mut text = fs::read_to_string(&cfg.ledger_file).unwrap_or_default();
-D	tests/proc_audit_regressions.rs	711	test			fs::write(&cfg.ledger_file, text).unwrap();
-R	tests/proc_audit_regressions.rs	716	test			let text = fs::read_to_string(&cfg.ledger_file).unwrap();
-X	tests/proc_audit_regressions.rs	792	test			read_stat(d)
-X	tests/proc_audit_regressions.rs	878	test			read_stat(z).ok().is_none_or(|s| s.is_dead())
-X	tests/proc_audit_regressions.rs	880	test			if let Ok(st) = read_stat(z) {
-E	tests/proc_audit_regressions.rs	923	test			assert!(!p.exists());
-D	tests/proc_audit_regressions.rs	924	test			fs::write(&p, b"").unwrap();
-R	tests/proc_audit_regressions.rs	928	test			assert_eq!(fs::read_to_string(&p).unwrap(), "ok\n");
-D	tests/proc_audit_regressions.rs	946	test			fs::write(&cfg.ledger_file, text).unwrap();
-W	tests/proc_audit_regressions.rs	1016	test			lead.wait().unwrap();
-X	tests/proc_audit_regressions.rs	1063	test			read_stat(d)
-E	tests/proc_audit_regressions.rs	1090	test			wait_until("helper supervisor ready", LONG, || cfile.exists());
-R	tests/proc_audit_regressions.rs	1092	test			let camp = fs::read_to_string(&cfile).unwrap();
-X	tests/proc_audit_regressions.rs	1124	test			read_stat(id.pid).ok().is_some_and(|s| s.is_dead())
-X	tests/proc_audit_regressions.rs	1147	test			read_stat(tl).ok().is_none_or(|s| s.start_ticks != tstart)
-W	tests/proc_audit_regressions.rs	1182	test			d.wait().unwrap();
-D	tests/proc_audit_regressions.rs	1198	test			fs::write(dir.path().join("held.json"), r#"{"held":"0-60000000"}"#).unwrap();
-E	tests/proc_audit_regressions.rs	1351	test			assert!(mark.exists(), "the member got SIGTERM before any SIGKILL");
-L	tests/proc_audit_regressions.rs	1424	test			for e in fs::read_dir(&d).unwrap() {
-E	tests/proc_audit_regressions.rs	1426	test			if p.is_dir() {
-R	tests/proc_audit_regressions.rs	1445	test			let text = fs::read_to_string(f).unwrap();
-K	tests/proc_audit_regressions.rs	1448	test			for pat in forbidden.iter().chain(["libc::kill("].iter()) {
-K	tests/proc_audit_regressions.rs	1467	test			!(f == "bin/rr_fake_child.rs" && pat == "libc::kill(")
-K	tests/proc_audit_regressions.rs	1484	test			guard.iter().filter(|x| x.2 == "libc::kill(").count(),
-E	tests/proc_audit_regressions.rs	1500	test			if !cfg.ledger_file.exists() {
-D	tests/proc_audit_regressions.rs	1501	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
-E	tests/proc_audit_regressions.rs	1507	test			if !p.exists() {
-D	tests/proc_audit_regressions.rs	1508	test			std::fs::write(&p, b"").unwrap();
+C	tests/proc_audit_regressions.rs	577	test			let mut c = Command::new(exe);
+R	tests/proc_audit_regressions.rs	592	test			let out = fs::read_to_string(dir.path().join("sigchld.txt")).unwrap();
+O	tests/proc_audit_regressions.rs	615	test			let _w = fs::OpenOptions::new().write(true).open(&fifo).unwrap(); // releases the stuck reader
+O	tests/proc_audit_regressions.rs	682	test			let lockf = fs::OpenOptions::new()
+O	tests/proc_audit_regressions.rs	700	test			let held = fs::OpenOptions::new()
+O	tests/proc_audit_regressions.rs	703	test			.create(true)
+R	tests/proc_audit_regressions.rs	708	test			let mut text = fs::read_to_string(&cfg.ledger_file).unwrap_or_default();
+X	tests/proc_audit_regressions.rs	708	test			let mut text = fs::read_to_string(&cfg.ledger_file).unwrap_or_default();
+D	tests/proc_audit_regressions.rs	713	test			fs::write(&cfg.ledger_file, text).unwrap();
+R	tests/proc_audit_regressions.rs	718	test			let text = fs::read_to_string(&cfg.ledger_file).unwrap();
+X	tests/proc_audit_regressions.rs	794	test			read_stat(d)
+X	tests/proc_audit_regressions.rs	880	test			read_stat(z).ok().is_none_or(|s| s.is_dead())
+X	tests/proc_audit_regressions.rs	882	test			if let Ok(st) = read_stat(z) {
+E	tests/proc_audit_regressions.rs	925	test			assert!(!p.exists());
+D	tests/proc_audit_regressions.rs	926	test			fs::write(&p, b"").unwrap();
+R	tests/proc_audit_regressions.rs	930	test			assert_eq!(fs::read_to_string(&p).unwrap(), "ok\n");
+D	tests/proc_audit_regressions.rs	948	test			fs::write(&cfg.ledger_file, text).unwrap();
+W	tests/proc_audit_regressions.rs	1018	test			lead.wait().unwrap();
+X	tests/proc_audit_regressions.rs	1065	test			read_stat(d)
+E	tests/proc_audit_regressions.rs	1092	test			wait_until("helper supervisor ready", LONG, || cfile.exists());
+R	tests/proc_audit_regressions.rs	1094	test			let camp = fs::read_to_string(&cfile).unwrap();
+X	tests/proc_audit_regressions.rs	1126	test			read_stat(id.pid).ok().is_some_and(|s| s.is_dead())
+X	tests/proc_audit_regressions.rs	1149	test			read_stat(tl).ok().is_none_or(|s| s.start_ticks != tstart)
+W	tests/proc_audit_regressions.rs	1184	test			d.wait().unwrap();
+D	tests/proc_audit_regressions.rs	1200	test			fs::write(dir.path().join("held.json"), r#"{"held":"0-60000000"}"#).unwrap();
+E	tests/proc_audit_regressions.rs	1353	test			assert!(mark.exists(), "the member got SIGTERM before any SIGKILL");
+L	tests/proc_audit_regressions.rs	1426	test			for e in fs::read_dir(&d).unwrap() {
+E	tests/proc_audit_regressions.rs	1428	test			if p.is_dir() {
+R	tests/proc_audit_regressions.rs	1447	test			let text = fs::read_to_string(f).unwrap();
+K	tests/proc_audit_regressions.rs	1450	test			for pat in forbidden.iter().chain(["libc::kill("].iter()) {
+K	tests/proc_audit_regressions.rs	1469	test			!(f == "bin/rr_fake_child.rs" && pat == "libc::kill(")
+K	tests/proc_audit_regressions.rs	1486	test			guard.iter().filter(|x| x.2 == "libc::kill(").count(),
+E	tests/proc_audit_regressions.rs	1502	test			if !cfg.ledger_file.exists() {
+D	tests/proc_audit_regressions.rs	1503	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
+E	tests/proc_audit_regressions.rs	1509	test			if !p.exists() {
+D	tests/proc_audit_regressions.rs	1510	test			std::fs::write(&p, b"").unwrap();
 R	tests/proc_common/mod.rs	33	test			let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
 X	tests/proc_common/mod.rs	33	test			let stat = std::fs::read_to_string("/proc/self/stat").unwrap_or_default();
 X	tests/proc_common/mod.rs	43	test			std::fs::create_dir(&p).unwrap_or_else(|e| panic!("{}: {e} (not unique?)", p.display()));
 D	tests/proc_common/mod.rs	53	test			let _ = std::fs::remove_dir_all(&self.0);
 X	tests/proc_common/mod.rs	53	test			let _ = std::fs::remove_dir_all(&self.0);
-V	tests/proc_common/mod.rs	74	test			if let Some(p) = std::env::var_os("PATH") {
-V	tests/proc_common/mod.rs	135	test			if let Some(p) = std::env::var_os("PATH") {
-D	tests/proc_cpu_policy.rs	77	test			fs::write(root.join("CPU_LEDGER.md"), ledger).unwrap();
-D	tests/proc_cpu_policy.rs	78	test			fs::write(
-D	tests/proc_cpu_policy.rs	83	test			fs::write(
-V	tests/proc_cpu_policy.rs	95	test			if std::env::var("RR_PROC_HELPER").as_deref() != Ok("compete") {
-V	tests/proc_cpu_policy.rs	98	test			let root = std::path::PathBuf::from(std::env::var("RR_PROC_OUT").unwrap());
-R	tests/proc_cpu_policy.rs	100	test			serde_json::from_str(&fs::read_to_string(root.join("site.json")).unwrap()).unwrap();
-D	tests/proc_cpu_policy.rs	109	test			fs::write(root.join("helper.tmp"), got.join(",")).unwrap();
-D	tests/proc_cpu_policy.rs	110	test			fs::rename(root.join("helper.tmp"), root.join("helper.done")).unwrap();
-E	tests/proc_cpu_policy.rs	113	test			while !root.join("release").exists() && t0.elapsed() < Duration::from_secs(300) {
-O	tests/proc_cpu_policy.rs	137	test			let f = fs::OpenOptions::new()
-R	tests/proc_cpu_policy.rs	144	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
-R	tests/proc_cpu_policy.rs	173	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
-D	tests/proc_cpu_policy.rs	178	test			fs::write(dir.path().join("PAUSE"), "").unwrap();
-D	tests/proc_cpu_policy.rs	181	test			fs::remove_file(dir.path().join("PAUSE")).unwrap();
-D	tests/proc_cpu_policy.rs	184	test			fs::write(dir.path().join("CAMPAIGN_PAUSE"), "").unwrap();
-D	tests/proc_cpu_policy.rs	186	test			fs::remove_file(dir.path().join("CAMPAIGN_PAUSE")).unwrap();
-D	tests/proc_cpu_policy.rs	188	test			fs::write(dir.path().join("FOREIGN.held"), "{not json").unwrap();
-D	tests/proc_cpu_policy.rs	213	test			fs::write(
-E	tests/proc_cpu_policy.rs	232	test			dir.path().join("helper.done").exists()
-R	tests/proc_cpu_policy.rs	238	test			let theirs: BTreeSet<usize> = fs::read_to_string(dir.path().join("helper.done"))
-R	tests/proc_cpu_policy.rs	260	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
-D	tests/proc_cpu_policy.rs	262	test			fs::write(dir.path().join("release"), "").unwrap();
-R	tests/proc_cpu_policy.rs	266	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
-E	tests/proc_cpu_policy.rs	278	test			if !cfg.ledger_file.exists() {
-D	tests/proc_cpu_policy.rs	279	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
-E	tests/proc_cpu_policy.rs	285	test			if !p.exists() {
-D	tests/proc_cpu_policy.rs	286	test			std::fs::write(&p, b"").unwrap();
+V	tests/proc_common/mod.rs	75	test			if let Some(p) = std::env::var_os("PATH") {
+V	tests/proc_common/mod.rs	136	test			if let Some(p) = std::env::var_os("PATH") {
+D	tests/proc_cpu_policy.rs	78	test			fs::write(root.join("CPU_LEDGER.md"), ledger).unwrap();
+D	tests/proc_cpu_policy.rs	79	test			fs::write(
+D	tests/proc_cpu_policy.rs	84	test			fs::write(
+V	tests/proc_cpu_policy.rs	96	test			if std::env::var("RR_PROC_HELPER").as_deref() != Ok("compete") {
+V	tests/proc_cpu_policy.rs	99	test			let root = std::path::PathBuf::from(std::env::var("RR_PROC_OUT").unwrap());
+R	tests/proc_cpu_policy.rs	101	test			serde_json::from_str(&fs::read_to_string(root.join("site.json")).unwrap()).unwrap();
+D	tests/proc_cpu_policy.rs	110	test			fs::write(root.join("helper.tmp"), got.join(",")).unwrap();
+D	tests/proc_cpu_policy.rs	111	test			fs::rename(root.join("helper.tmp"), root.join("helper.done")).unwrap();
+E	tests/proc_cpu_policy.rs	114	test			while !root.join("release").exists() && t0.elapsed() < Duration::from_secs(300) {
+O	tests/proc_cpu_policy.rs	138	test			let f = fs::OpenOptions::new()
+R	tests/proc_cpu_policy.rs	145	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
+R	tests/proc_cpu_policy.rs	174	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
+D	tests/proc_cpu_policy.rs	179	test			fs::write(dir.path().join("PAUSE"), "").unwrap();
+D	tests/proc_cpu_policy.rs	182	test			fs::remove_file(dir.path().join("PAUSE")).unwrap();
+D	tests/proc_cpu_policy.rs	185	test			fs::write(dir.path().join("CAMPAIGN_PAUSE"), "").unwrap();
+D	tests/proc_cpu_policy.rs	187	test			fs::remove_file(dir.path().join("CAMPAIGN_PAUSE")).unwrap();
+D	tests/proc_cpu_policy.rs	189	test			fs::write(dir.path().join("FOREIGN.held"), "{not json").unwrap();
+D	tests/proc_cpu_policy.rs	214	test			fs::write(
+E	tests/proc_cpu_policy.rs	233	test			dir.path().join("helper.done").exists()
+R	tests/proc_cpu_policy.rs	239	test			let theirs: BTreeSet<usize> = fs::read_to_string(dir.path().join("helper.done"))
+R	tests/proc_cpu_policy.rs	261	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
+D	tests/proc_cpu_policy.rs	263	test			fs::write(dir.path().join("release"), "").unwrap();
+R	tests/proc_cpu_policy.rs	267	test			let text = fs::read_to_string(dir.path().join("CPU_LEDGER.md")).unwrap();
+E	tests/proc_cpu_policy.rs	279	test			if !cfg.ledger_file.exists() {
+D	tests/proc_cpu_policy.rs	280	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
+E	tests/proc_cpu_policy.rs	286	test			if !p.exists() {
+D	tests/proc_cpu_policy.rs	287	test			std::fs::write(&p, b"").unwrap();
 R	tests/proc_launch.rs	209	test			let f = std::fs::File::open("/proc/self/stat").unwrap();
 R	tests/proc_launch.rs	224	test			let out = std::fs::read_to_string(dir.path().join("stdout.log")).unwrap();
 R	tests/proc_launch.rs	234	test			let out2 = std::fs::read_to_string(dir2.path().join("stdout.log")).unwrap();
@@ -1909,40 +1967,40 @@ X	tests/proc_reaudit_b/helper.rs	143	test			let _ = std::fs::write(f, i.to_strin
 D	tests/proc_reaudit_b/sup.rs	67	test			write_atomic(&self.run.join("req").join(&name), &v.to_string());
 R	tests/proc_reaudit_b/sup.rs	71	test			if let Ok(t) = std::fs::read_to_string(&rep)
 X	tests/proc_reaudit_b/sup.rs	71	test			if let Ok(t) = std::fs::read_to_string(&rep)
-V	tests/proc_reaudit_b/sup.rs	130	test			.push(("PATH".into(), std::env::var_os("PATH").unwrap()));
-V	tests/proc_reaudit_b/sup.rs	150	test			.push(("PATH".into(), std::env::var_os("PATH").unwrap()));
-L	tests/proc_reaudit_b/sup.rs	252	test			let n = std::fs::read_dir("/proc/self/fd")
-R	tests/proc_reaudit_b/sup.rs	257	test			while let Ok(f) = std::fs::File::open("/dev/null") {
-X	tests/proc_reaudit_b/sup.rs	257	test			while let Ok(f) = std::fs::File::open("/dev/null") {
-R	tests/proc_reaudit_b/sup.rs	271	test			let env1 = std::fs::read("/proc/1/environ").unwrap_or_default();
-X	tests/proc_reaudit_b/sup.rs	271	test			let env1 = std::fs::read("/proc/1/environ").unwrap_or_default();
-D	tests/proc_reaudit_b/sup.rs	1113	test			write_atomic(&c.run.join("records.json"), &Value::Array(recs).to_string());
-D	tests/proc_reaudit_b/sup.rs	1114	test			write_atomic(
-D	tests/proc_reaudit_b/sup.rs	1118	test			write_atomic(&c.run.join("ready"), "1");
-R	tests/proc_reaudit_b/sup.rs	1126	test			serde_json::from_str(&std::fs::read_to_string(c.run.join("records.json")).unwrap())
-D	tests/proc_reaudit_b/sup.rs	1285	test			std::fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
-D	tests/proc_reaudit_b/sup.rs	1286	test			std::fs::write(root.join("locks").join(format!("cpu.{cpu}")), b"").unwrap();
-D	tests/proc_reaudit_b/sup.rs	1325	test			std::fs::write(&hf, content).unwrap();
-D	tests/proc_reaudit_b/sup.rs	1934	test			write_atomic(&c.run.join("A.ready"), "1");
-E	tests/proc_reaudit_b/sup.rs	1935	test			crate::wait_for(Duration::from_secs(60), || c.run.join("B.done").exists());
-E	tests/proc_reaudit_b/sup.rs	1974	test			crate::wait_for(Duration::from_secs(60), || c.run.join("A.ready").exists());
-D	tests/proc_reaudit_b/sup.rs	1992	test			write_atomic(&c.run.join("B.done"), "1");
-D	tests/proc_reaudit_b/sup.rs	1998	test			std::fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
-D	tests/proc_reaudit_b/sup.rs	1999	test			std::fs::write(root.join("locks").join(format!("cpu.{cpu}")), b"").unwrap();
-L	tests/proc_reaudit_b/sup.rs	2047	test			let fds: Vec<String> = std::fs::read_dir(format!("/proc/{u}/fd"))
-L	tests/proc_reaudit_b/sup.rs	2049	test			d.flatten()
-X	tests/proc_reaudit_b/sup.rs	2049	test			d.flatten()
-X	tests/proc_reaudit_b/sup.rs	2050	test			.filter_map(|e| std::fs::read_link(e.path()).ok())
-V	tests/proc_reaudit_b/sup.rs	2370	test			let fdstorm = std::env::var("RB_FDSTORM").is_ok();
-X	tests/proc_reaudit_b/sup.rs	2370	test			let fdstorm = std::env::var("RB_FDSTORM").is_ok();
-O	tests/proc_reaudit_b/sup.rs	2480	test			let mut f = std::fs::OpenOptions::new()
-O	tests/proc_reaudit_b/sup.rs	2481	test			.create(true)
-R	tests/proc_reaudit_b/sup.rs	2559	test			std::fs::read_to_string(f)
-X	tests/proc_reaudit_b/sup.rs	2559	test			std::fs::read_to_string(f)
-V	tests/proc_reaudit_b/sup.rs	2795	test			let seed: u64 = std::env::var("RB_SEED")
-X	tests/proc_reaudit_b/sup.rs	2795	test			let seed: u64 = std::env::var("RB_SEED")
-V	tests/proc_reaudit_b/sup.rs	2799	test			let cycles: u64 = std::env::var("RB_CYCLES")
-X	tests/proc_reaudit_b/sup.rs	2799	test			let cycles: u64 = std::env::var("RB_CYCLES")
+V	tests/proc_reaudit_b/sup.rs	131	test			.push(("PATH".into(), std::env::var_os("PATH").unwrap()));
+V	tests/proc_reaudit_b/sup.rs	151	test			.push(("PATH".into(), std::env::var_os("PATH").unwrap()));
+L	tests/proc_reaudit_b/sup.rs	253	test			let n = std::fs::read_dir("/proc/self/fd")
+R	tests/proc_reaudit_b/sup.rs	258	test			while let Ok(f) = std::fs::File::open("/dev/null") {
+X	tests/proc_reaudit_b/sup.rs	258	test			while let Ok(f) = std::fs::File::open("/dev/null") {
+R	tests/proc_reaudit_b/sup.rs	272	test			let env1 = std::fs::read("/proc/1/environ").unwrap_or_default();
+X	tests/proc_reaudit_b/sup.rs	272	test			let env1 = std::fs::read("/proc/1/environ").unwrap_or_default();
+D	tests/proc_reaudit_b/sup.rs	1114	test			write_atomic(&c.run.join("records.json"), &Value::Array(recs).to_string());
+D	tests/proc_reaudit_b/sup.rs	1115	test			write_atomic(
+D	tests/proc_reaudit_b/sup.rs	1119	test			write_atomic(&c.run.join("ready"), "1");
+R	tests/proc_reaudit_b/sup.rs	1127	test			serde_json::from_str(&std::fs::read_to_string(c.run.join("records.json")).unwrap())
+D	tests/proc_reaudit_b/sup.rs	1286	test			std::fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
+D	tests/proc_reaudit_b/sup.rs	1287	test			std::fs::write(root.join("locks").join(format!("cpu.{cpu}")), b"").unwrap();
+D	tests/proc_reaudit_b/sup.rs	1327	test			std::fs::write(&hf, content).unwrap();
+D	tests/proc_reaudit_b/sup.rs	1936	test			write_atomic(&c.run.join("A.ready"), "1");
+E	tests/proc_reaudit_b/sup.rs	1937	test			crate::wait_for(Duration::from_secs(60), || c.run.join("B.done").exists());
+E	tests/proc_reaudit_b/sup.rs	1976	test			crate::wait_for(Duration::from_secs(60), || c.run.join("A.ready").exists());
+D	tests/proc_reaudit_b/sup.rs	1994	test			write_atomic(&c.run.join("B.done"), "1");
+D	tests/proc_reaudit_b/sup.rs	2000	test			std::fs::write(root.join("CPU_LEDGER.md"), b"").unwrap();
+D	tests/proc_reaudit_b/sup.rs	2001	test			std::fs::write(root.join("locks").join(format!("cpu.{cpu}")), b"").unwrap();
+L	tests/proc_reaudit_b/sup.rs	2050	test			let fds: Vec<String> = std::fs::read_dir(format!("/proc/{u}/fd"))
+L	tests/proc_reaudit_b/sup.rs	2052	test			d.flatten()
+X	tests/proc_reaudit_b/sup.rs	2052	test			d.flatten()
+X	tests/proc_reaudit_b/sup.rs	2053	test			.filter_map(|e| std::fs::read_link(e.path()).ok())
+V	tests/proc_reaudit_b/sup.rs	2373	test			let fdstorm = std::env::var("RB_FDSTORM").is_ok();
+X	tests/proc_reaudit_b/sup.rs	2373	test			let fdstorm = std::env::var("RB_FDSTORM").is_ok();
+O	tests/proc_reaudit_b/sup.rs	2483	test			let mut f = std::fs::OpenOptions::new()
+O	tests/proc_reaudit_b/sup.rs	2484	test			.create(true)
+R	tests/proc_reaudit_b/sup.rs	2562	test			std::fs::read_to_string(f)
+X	tests/proc_reaudit_b/sup.rs	2562	test			std::fs::read_to_string(f)
+V	tests/proc_reaudit_b/sup.rs	2798	test			let seed: u64 = std::env::var("RB_SEED")
+X	tests/proc_reaudit_b/sup.rs	2798	test			let seed: u64 = std::env::var("RB_SEED")
+V	tests/proc_reaudit_b/sup.rs	2802	test			let cycles: u64 = std::env::var("RB_CYCLES")
+X	tests/proc_reaudit_b/sup.rs	2802	test			let cycles: u64 = std::env::var("RB_CYCLES")
 X	tests/proc_reaudit_regressions.rs	62	test			read_stat(pid).ok().is_some_and(|s| {
 R	tests/proc_reaudit_regressions.rs	74	test			fs::read_to_string(p).is_ok_and(|s| s.trim().parse::<u32>().is_ok())
 X	tests/proc_reaudit_regressions.rs	74	test			fs::read_to_string(p).is_ok_and(|s| s.trim().parse::<u32>().is_ok())
@@ -1956,45 +2014,45 @@ E	tests/proc_reaudit_regressions.rs	114	test			.find(|p| p.is_file())
 L	tests/proc_reaudit_regressions.rs	145	test			let n = fs::read_dir("/proc/self/fd")
 R	tests/proc_reaudit_regressions.rs	150	test			while let Ok(f) = fs::File::open("/dev/null") {
 X	tests/proc_reaudit_regressions.rs	150	test			while let Ok(f) = fs::File::open("/dev/null") {
-V	tests/proc_reaudit_regressions.rs	223	test			match std::env::var("RR_PROC_HELPER").as_deref() {
-V	tests/proc_reaudit_regressions.rs	235	test			let pause: u32 = std::env::var("RR_RELAY_PAUSE_US")
-X	tests/proc_reaudit_regressions.rs	235	test			let pause: u32 = std::env::var("RR_RELAY_PAUSE_US")
-V	tests/proc_reaudit_regressions.rs	239	test			let counter = std::env::var("RR_RELAY_COUNTER").unwrap();
-O	tests/proc_reaudit_regressions.rs	242	test			let fd = unsafe { libc::open(c.as_ptr(), libc::O_WRONLY | libc::O_CREAT, 0o600) };
-R	tests/proc_reaudit_regressions.rs	265	test			fs::read(p)
-X	tests/proc_reaudit_regressions.rs	265	test			fs::read(p)
-V	tests/proc_reaudit_regressions.rs	274	test			let out = PathBuf::from(std::env::var("RR_PROC_OUT").unwrap());
-V	tests/proc_reaudit_regressions.rs	275	test			let id = std::env::var("RR_ID").unwrap();
-V	tests/proc_reaudit_regressions.rs	276	test			let dir = PathBuf::from(std::env::var("RR_LOCKDIR").unwrap());
-D	tests/proc_reaudit_regressions.rs	294	test			fs::write(out.join("idlock.tmp"), line).unwrap();
-D	tests/proc_reaudit_regressions.rs	295	test			fs::rename(out.join("idlock.tmp"), out.join("idlock.txt")).unwrap();
-C	tests/proc_reaudit_regressions.rs	529	test			let mut cmd = Command::new(std::env::current_exe().unwrap());
-R	tests/proc_reaudit_regressions.rs	543	test			fs::read_to_string(out.join("idlock.txt")).unwrap()
-C	tests/proc_reaudit_regressions.rs	579	test			let mut d = Command::new("/bin/sh");
-W	tests/proc_reaudit_regressions.rs	615	test			d.try_wait().map(|s| s.is_none()).unwrap_or(false),
-W	tests/proc_reaudit_regressions.rs	627	test			let _ = d.wait();
-C	tests/proc_reaudit_regressions.rs	733	test			("adapters/x.rs", "Command::new(\"pkill\").arg(\"-f\")"),
-C	tests/proc_reaudit_regressions.rs	734	test			("bin/x.rs", "Command::new(\"kill\").arg(\"-9\")"),
-D	tests/proc_reaudit_regressions.rs	743	test			"fs::write(dir.join(\"cgroup.kill\"), \"1\")",
-K	tests/proc_reaudit_regressions.rs	743	test			"fs::write(dir.join(\"cgroup.kill\"), \"1\")",
-C	tests/proc_reaudit_regressions.rs	747	test			"Command::new(\"systemctl\").args([\"kill\"])",
-C	tests/proc_reaudit_regressions.rs	749	test			("resources/x.rs", "Command::new(\"timeout\").arg(\"-k\")"),
-L	tests/proc_reaudit_regressions.rs	761	test			for e in fs::read_dir(&d).unwrap() {
-E	tests/proc_reaudit_regressions.rs	763	test			if p.is_dir() {
-R	tests/proc_reaudit_regressions.rs	793	test			hits.extend(tripwire(&rel, &fs::read_to_string(f).unwrap()));
-K	tests/proc_reaudit_regressions.rs	815	test			"cgroup.kill",
-C	tests/proc_reaudit_regressions.rs	816	test			"Command::new(\"kill\"",
-C	tests/proc_reaudit_regressions.rs	817	test			"Command::new(\"pkill\"",
-C	tests/proc_reaudit_regressions.rs	818	test			"Command::new(\"killall\"",
-C	tests/proc_reaudit_regressions.rs	819	test			"Command::new(\"systemctl\"",
-C	tests/proc_reaudit_regressions.rs	820	test			"Command::new(\"timeout\"",
-C	tests/proc_reaudit_regressions.rs	821	test			"Command::new(\"fuser\"",
-K	tests/proc_reaudit_regressions.rs	864	test			"launch/cgroup.rs" => pat == "cgroup.kill",
-K	tests/proc_reaudit_regressions.rs	867	test			"bin/rr_fake_child.rs" => pat == "kill(" && code.contains("libc::kill("),
-E	tests/proc_reaudit_regressions.rs	928	test			if !cfg.ledger_file.exists() {
-D	tests/proc_reaudit_regressions.rs	929	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
-E	tests/proc_reaudit_regressions.rs	935	test			if !p.exists() {
-D	tests/proc_reaudit_regressions.rs	936	test			std::fs::write(&p, b"").unwrap();
+V	tests/proc_reaudit_regressions.rs	224	test			match std::env::var("RR_PROC_HELPER").as_deref() {
+V	tests/proc_reaudit_regressions.rs	236	test			let pause: u32 = std::env::var("RR_RELAY_PAUSE_US")
+X	tests/proc_reaudit_regressions.rs	236	test			let pause: u32 = std::env::var("RR_RELAY_PAUSE_US")
+V	tests/proc_reaudit_regressions.rs	240	test			let counter = std::env::var("RR_RELAY_COUNTER").unwrap();
+O	tests/proc_reaudit_regressions.rs	243	test			let fd = unsafe { libc::open(c.as_ptr(), libc::O_WRONLY | libc::O_CREAT, 0o600) };
+R	tests/proc_reaudit_regressions.rs	266	test			fs::read(p)
+X	tests/proc_reaudit_regressions.rs	266	test			fs::read(p)
+V	tests/proc_reaudit_regressions.rs	275	test			let out = PathBuf::from(std::env::var("RR_PROC_OUT").unwrap());
+V	tests/proc_reaudit_regressions.rs	276	test			let id = std::env::var("RR_ID").unwrap();
+V	tests/proc_reaudit_regressions.rs	277	test			let dir = PathBuf::from(std::env::var("RR_LOCKDIR").unwrap());
+D	tests/proc_reaudit_regressions.rs	295	test			fs::write(out.join("idlock.tmp"), line).unwrap();
+D	tests/proc_reaudit_regressions.rs	296	test			fs::rename(out.join("idlock.tmp"), out.join("idlock.txt")).unwrap();
+C	tests/proc_reaudit_regressions.rs	530	test			let mut cmd = Command::new(std::env::current_exe().unwrap());
+R	tests/proc_reaudit_regressions.rs	544	test			fs::read_to_string(out.join("idlock.txt")).unwrap()
+C	tests/proc_reaudit_regressions.rs	580	test			let mut d = Command::new("/bin/sh");
+W	tests/proc_reaudit_regressions.rs	616	test			d.try_wait().map(|s| s.is_none()).unwrap_or(false),
+W	tests/proc_reaudit_regressions.rs	628	test			let _ = d.wait();
+C	tests/proc_reaudit_regressions.rs	734	test			("adapters/x.rs", "Command::new(\"pkill\").arg(\"-f\")"),
+C	tests/proc_reaudit_regressions.rs	735	test			("bin/x.rs", "Command::new(\"kill\").arg(\"-9\")"),
+D	tests/proc_reaudit_regressions.rs	744	test			"fs::write(dir.join(\"cgroup.kill\"), \"1\")",
+K	tests/proc_reaudit_regressions.rs	744	test			"fs::write(dir.join(\"cgroup.kill\"), \"1\")",
+C	tests/proc_reaudit_regressions.rs	748	test			"Command::new(\"systemctl\").args([\"kill\"])",
+C	tests/proc_reaudit_regressions.rs	750	test			("resources/x.rs", "Command::new(\"timeout\").arg(\"-k\")"),
+L	tests/proc_reaudit_regressions.rs	762	test			for e in fs::read_dir(&d).unwrap() {
+E	tests/proc_reaudit_regressions.rs	764	test			if p.is_dir() {
+R	tests/proc_reaudit_regressions.rs	794	test			hits.extend(tripwire(&rel, &fs::read_to_string(f).unwrap()));
+K	tests/proc_reaudit_regressions.rs	816	test			"cgroup.kill",
+C	tests/proc_reaudit_regressions.rs	817	test			"Command::new(\"kill\"",
+C	tests/proc_reaudit_regressions.rs	818	test			"Command::new(\"pkill\"",
+C	tests/proc_reaudit_regressions.rs	819	test			"Command::new(\"killall\"",
+C	tests/proc_reaudit_regressions.rs	820	test			"Command::new(\"systemctl\"",
+C	tests/proc_reaudit_regressions.rs	821	test			"Command::new(\"timeout\"",
+C	tests/proc_reaudit_regressions.rs	822	test			"Command::new(\"fuser\"",
+K	tests/proc_reaudit_regressions.rs	865	test			"launch/cgroup.rs" => pat == "cgroup.kill",
+K	tests/proc_reaudit_regressions.rs	868	test			"bin/rr_fake_child.rs" => pat == "kill(" && code.contains("libc::kill("),
+E	tests/proc_reaudit_regressions.rs	929	test			if !cfg.ledger_file.exists() {
+D	tests/proc_reaudit_regressions.rs	930	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
+E	tests/proc_reaudit_regressions.rs	936	test			if !p.exists() {
+D	tests/proc_reaudit_regressions.rs	937	test			std::fs::write(&p, b"").unwrap();
 K	tests/proc_signals.rs	13	test			assert_eq!(unsafe { libc::kill(libc::getpid(), sig) }, 0);
 V	tests/procfix10.rs	38	test			std::env::var_os("PATH").unwrap_or_default()
 X	tests/procfix10.rs	38	test			std::env::var_os("PATH").unwrap_or_default()
@@ -2045,6 +2103,58 @@ D	tests/procfix10_dirs.rs	57	test			fs::remove_file(ldir.join(ledger::MANIFEST_F
 D	tests/procfix10_dirs.rs	86	test			fs::remove_file(ldir.join(ledger::MANIFEST_FILE)).unwrap();
 D	tests/procfix10_dirs.rs	106	test			fs::remove_file(ldir.join(ledger::MANIFEST_FILE)).unwrap();
 D	tests/procfix10_dirs.rs	125	test			fs::write(ldir.join("notes.txt"), b"not a ledger file").unwrap();
+V	tests/procfix11.rs	32	test			std::env::var_os("PATH").unwrap_or_default()
+X	tests/procfix11.rs	32	test			std::env::var_os("PATH").unwrap_or_default()
+R	tests/procfix11.rs	36	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
+X	tests/procfix11.rs	36	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
+R	tests/procfix11.rs	43	test			let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+X	tests/procfix11.rs	43	test			let s = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+C	tests/procfix11.rs	53	test			let _ = Command::new("sh")
+X	tests/procfix11.rs	53	test			let _ = Command::new("sh")
+W	tests/procfix11.rs	62	test			unsafe { libc::waitpid(pid as i32, std::ptr::null_mut(), libc::WNOHANG) };
+C	tests/procfix11.rs	71	test			let mut c = Command::new("cc");
+D	tests/procfix11.rs	87	test			std::fs::write(
+E	tests/procfix11.rs	143	test			wait_until("the helper", Duration::from_secs(300), || rec.exists());
+W	tests/procfix11.rs	146	test			let _ = s1.wait();
+R	tests/procfix11.rs	147	test			let f = std::fs::read_to_string(&rec).unwrap();
+X	tests/procfix11.rs	152	test			let leader =
+R	tests/procfix11.rs	153	test			std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")).unwrap_or_default();
+X	tests/procfix11.rs	153	test			std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")).unwrap_or_default();
+L	tests/procfix11.rs	158	test			let on_thread = std::fs::read_dir(format!("/proc/{p}/task"))
+L	tests/procfix11.rs	160	test			.flatten()
+R	tests/procfix11.rs	162	test			std::fs::read_to_string(e.path().join("children"))
+X	tests/procfix11.rs	162	test			std::fs::read_to_string(e.path().join("children"))
+E	tests/procfix11.rs	216	test			if Path::new(&p).exists() {
+D	tests/procfix11.rs	227	test			std::fs::write(locks.join(format!("cpu.{c}")), "").unwrap();
+D	tests/procfix11.rs	230	test			std::fs::write(&ledger, "").unwrap();
+D	tests/procfix11.rs	232	test			std::fs::write(
+R	tests/procfix11.rs	272	test			let text = std::fs::read_to_string(&ledger).unwrap();
+D	tests/procfix11.rs	330	test			std::fs::write(&ledger, "").unwrap();
+D	tests/procfix11.rs	332	test			std::fs::write(
+D	tests/procfix11.rs	447	test			std::fs::write(&src, PIDFD_DELAY_C).unwrap();
+C	tests/procfix11.rs	450	test			match Command::new("cc")
+E	tests/procfix11.rs	482	test			wait_until("the daemon", Duration::from_secs(300), || dpf.exists());
+W	tests/procfix11.rs	485	test			let _ = s1.wait();
+R	tests/procfix11.rs	486	test			let dp: u32 = std::fs::read_to_string(&dpf)
+E	tests/procfix11.rs	507	test			while !hit.exists() && t0.elapsed() < Duration::from_secs(300) {
+E	tests/procfix11.rs	511	test			hit.exists(),
+E	tests/procfix11.rs	517	test			while std::path::Path::new(&format!("/proc/{dp}")).exists()
+X	tests/procfix11.rs	522	test			}
+D	tests/procfix11.rs	523	test			let _ = std::fs::write("/proc/sys/kernel/ns_last_pid", format!("{}", dp - 1));
+X	tests/procfix11.rs	523	test			let _ = std::fs::write("/proc/sys/kernel/ns_last_pid", format!("{}", dp - 1));
+C	tests/procfix11.rs	524	test			let decoy = Command::new("sleep")
+W	tests/procfix11.rs	546	test			let _ = decoy.wait();
+R	tests/procfix11_seed.rs	18	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
+X	tests/procfix11_seed.rs	18	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
+C	tests/procfix11_seed.rs	33	test			let mut child = Command::new("sleep")
+X	tests/procfix11_seed.rs	35	test			.env_clear()
+V	tests/procfix11_seed.rs	36	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	tests/procfix11_seed.rs	36	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+R	tests/procfix11_seed.rs	45	test			while !std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|b| {
+X	tests/procfix11_seed.rs	45	test			while !std::fs::read(format!("/proc/{pid}/environ")).is_ok_and(|b| {
+R	tests/procfix11_seed.rs	56	test			let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+W	tests/procfix11_seed.rs	94	test			if let Some(st) = child.try_wait().unwrap() {
+W	tests/procfix11_seed.rs	99	test			let _ = child.wait();
 R	tests/procfix3_item0.rs	48	test			let log_bytes = std::fs::read(cdir.with_extension("log"))
 W	tests/procfix3_item0.rs	68	test			if c.try_wait().unwrap().is_none() {
 D	tests/procfix3_item0.rs	75	test			let _ = std::fs::remove_dir_all(&dir);
@@ -2106,26 +2216,26 @@ W	tests/procfix3_proc.rs	373	test			refused.try_wait().unwrap().is_none(),
 W	tests/procfix3_proc.rs	389	test			let _ = c.wait();
 W	tests/procfix3_proc.rs	392	test			let _ = old.wait();
 W	tests/procfix3_proc.rs	394	test			let _ = refused.wait();
-E	tests/procfix3_site_ledger.rs	60	test			let md = fs::metadata(p).unwrap();
-R	tests/procfix3_site_ledger.rs	61	test			(md.dev(), md.ino(), fs::read(p).unwrap())
-D	tests/procfix3_site_ledger.rs	100	test			fs::write(&ledger, other.as_bytes()).unwrap();
-O	tests/procfix3_site_ledger.rs	130	test			let holder = fs::OpenOptions::new().read(true).open(&held).unwrap();
-L	tests/procfix3_site_ledger.rs	161	test			let names: Vec<String> = fs::read_dir(&root)
-L	tests/procfix3_site_ledger.rs	163	test			.flatten()
-L	tests/procfix3_site_ledger.rs	173	test			for e in fs::read_dir(root.join("locks")).unwrap().flatten() {
-E	tests/procfix3_site_ledger.rs	177	test			e.metadata().unwrap().len(),
-L	tests/procfix3_site_ledger.rs	206	test			for e in fs::read_dir(&d).unwrap().flatten() {
-E	tests/procfix3_site_ledger.rs	208	test			if p.is_dir() {
-R	tests/procfix3_site_ledger.rs	227	test			let text = fs::read_to_string(&f).unwrap();
-D	tests/procfix3_site_ledger.rs	241	test			"fs::write(",
-D	tests/procfix3_site_ledger.rs	242	test			".truncate(true)",
-O	tests/procfix3_site_ledger.rs	255	test			if !c.contains("OpenOptions::new()") {
-R	tests/procfix3_site_ledger.rs	296	test			let text = fs::read_to_string(&f).unwrap();
-R	tests/procfix3_site_ledger.rs	306	test			let text = fs::read_to_string(root.join("src/cpu_policy.rs")).unwrap();
-E	tests/procfix3_site_ledger.rs	325	test			if !cfg.ledger_file.exists() {
-D	tests/procfix3_site_ledger.rs	326	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
-E	tests/procfix3_site_ledger.rs	332	test			if !p.exists() {
-D	tests/procfix3_site_ledger.rs	333	test			std::fs::write(&p, b"").unwrap();
+E	tests/procfix3_site_ledger.rs	61	test			let md = fs::metadata(p).unwrap();
+R	tests/procfix3_site_ledger.rs	62	test			(md.dev(), md.ino(), fs::read(p).unwrap())
+D	tests/procfix3_site_ledger.rs	101	test			fs::write(&ledger, other.as_bytes()).unwrap();
+O	tests/procfix3_site_ledger.rs	131	test			let holder = fs::OpenOptions::new().read(true).open(&held).unwrap();
+L	tests/procfix3_site_ledger.rs	162	test			let names: Vec<String> = fs::read_dir(&root)
+L	tests/procfix3_site_ledger.rs	164	test			.flatten()
+L	tests/procfix3_site_ledger.rs	174	test			for e in fs::read_dir(root.join("locks")).unwrap().flatten() {
+E	tests/procfix3_site_ledger.rs	178	test			e.metadata().unwrap().len(),
+L	tests/procfix3_site_ledger.rs	207	test			for e in fs::read_dir(&d).unwrap().flatten() {
+E	tests/procfix3_site_ledger.rs	209	test			if p.is_dir() {
+R	tests/procfix3_site_ledger.rs	228	test			let text = fs::read_to_string(&f).unwrap();
+D	tests/procfix3_site_ledger.rs	242	test			"fs::write(",
+D	tests/procfix3_site_ledger.rs	243	test			".truncate(true)",
+O	tests/procfix3_site_ledger.rs	256	test			if !c.contains("OpenOptions::new()") {
+R	tests/procfix3_site_ledger.rs	297	test			let text = fs::read_to_string(&f).unwrap();
+R	tests/procfix3_site_ledger.rs	307	test			let text = fs::read_to_string(root.join("src/cpu_policy.rs")).unwrap();
+E	tests/procfix3_site_ledger.rs	326	test			if !cfg.ledger_file.exists() {
+D	tests/procfix3_site_ledger.rs	327	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
+E	tests/procfix3_site_ledger.rs	333	test			if !p.exists() {
+D	tests/procfix3_site_ledger.rs	334	test			std::fs::write(&p, b"").unwrap();
 D	tests/procfix3_sup.rs	86	test			let _ = std::fs::remove_file(run.join(f));
 X	tests/procfix3_sup.rs	86	test			let _ = std::fs::remove_file(run.join(f));
 X	tests/procfix3_sup.rs	88	test			}
@@ -2144,8 +2254,8 @@ X	tests/procfix3_sup.rs	383	test			.env_clear()
 V	tests/procfix3_sup.rs	384	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
 X	tests/procfix3_sup.rs	384	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
 C	tests/procfix3_sup.rs	391	test			let mut outside = std::process::Command::new(sleep_bin())
-W	tests/procfix3_sup.rs	421	test			let st = outside.wait().unwrap();
-W	tests/procfix3_sup.rs	451	test			let _ = s.wait();
+W	tests/procfix3_sup.rs	446	test			let st = outside.wait().unwrap();
+W	tests/procfix3_sup.rs	476	test			let _ = s.wait();
 D	tests/procfix5.rs	27	test			std::fs::write(
 R	tests/procfix5.rs	44	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
 X	tests/procfix5.rs	44	test			std::fs::read_to_string(format!("/proc/{pid}/stat"))
@@ -2625,13 +2735,13 @@ C	tests/sup_identity.rs	285	test			Command::new(sleep_bin())
 C	tests/sup_identity.rs	295	test			let st = Command::new("cp")
 W	tests/sup_identity.rs	319	test			c.try_wait().unwrap().is_none(),
 W	tests/sup_identity.rs	327	test			let _ = c.wait();
-L	tests/sup_identity.rs	384	test			for e in std::fs::read_dir(src.join(d)).unwrap() {
-K	tests/sup_identity.rs	401	test			"cgroup.kill",
-R	tests/sup_identity.rs	414	test			let text = std::fs::read_to_string(f).unwrap();
-V	tests/sup_identity.rs	445	test			if std::env::var("RR_SUP_HELPER").as_deref() == Ok("nofile") {
-C	tests/sup_identity.rs	450	test			let out = Command::new(exe)
-R	tests/sup_identity.rs	479	test			while let Ok(f) = std::fs::File::open("/dev/null") {
-X	tests/sup_identity.rs	479	test			while let Ok(f) = std::fs::File::open("/dev/null") {
+L	tests/sup_identity.rs	385	test			for e in std::fs::read_dir(src.join(d)).unwrap() {
+K	tests/sup_identity.rs	402	test			"cgroup.kill",
+R	tests/sup_identity.rs	415	test			let text = std::fs::read_to_string(f).unwrap();
+V	tests/sup_identity.rs	446	test			if std::env::var("RR_SUP_HELPER").as_deref() == Ok("nofile") {
+C	tests/sup_identity.rs	451	test			let out = Command::new(exe)
+R	tests/sup_identity.rs	480	test			while let Ok(f) = std::fs::File::open("/dev/null") {
+X	tests/sup_identity.rs	480	test			while let Ok(f) = std::fs::File::open("/dev/null") {
 D	tests/sup_ops.rs	32	test			std::fs::write(&flag, "").unwrap();
 E	tests/sup_ops.rs	39	test			d.join("ledger").exists()
 R	tests/sup_ops.rs	47	test			serde_json::from_slice(&std::fs::read(d.join("progress/heartbeat.json")).unwrap())
@@ -2678,7 +2788,7 @@ V	tests/termmin_kstar_real.rs	38	test			None => std::env::var("HELD_CPUS")
 D	tests/termmin_kstar_real.rs	53	test			std::fs::write(&mp, &mr.text).unwrap();
 D	tests/termmin_kstar_real.rs	74	test			std::fs::write(&rp, text).unwrap();
 V	tests/termmin_kstar_real.rs	108	test			licence_env: std::env::var_os("SYMBOLICA_LICENSE").map(|_| "SYMBOLICA_LICENSE".to_string()),
-D	tests/termmin_kstar_real.rs	143	test			std::fs::write(
+D	tests/termmin_kstar_real.rs	144	test			std::fs::write(
 V	tests/termmin_real.rs	22	test			let p = std::env::var("TERMMIN_REAL_CONFIG").expect("TERMMIN_REAL_CONFIG");
 R	tests/termmin_real.rs	23	test			let c: Value = serde_json::from_slice(&std::fs::read(&p).unwrap()).unwrap();
 V	tests/termmin_real.rs	27	test			None => std::env::var("HELD_CPUS")

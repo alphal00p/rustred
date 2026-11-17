@@ -157,6 +157,7 @@ pub fn run_direct(cfg: &DirectConfig) -> Result<Value, String> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .map_err(|e| format!("sampler: {e}"))?,
     );

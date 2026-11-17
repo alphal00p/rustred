@@ -88,7 +88,7 @@ fn cc(t: &Tmp, name: &str, so: bool) -> Option<PathBuf> {
 /// The unit-level proof: a live process older than the listing, forked by a NON-LEADER thread, missing from a listing
 /// truncated in agreement, must make `pids_proven` Unreadable.
 #[test]
-#[ignore = "gate11 G11-M1: FAILS on fdec15da (the walk reads leader children lists only)"]
+// procfix7 round 7: un-ignored as FIXED (the walk reads every thread's children list); FAILS on fdec15da (G11-M1)
 fn g11_walk_unit_child_of_a_non_leader_thread_is_never_proven_absent() {
     if !in_ns() {
         return;
@@ -217,7 +217,7 @@ fn filtered_session2(t: &Tmp, sp: &Path, d: &Path, m: u32, so: &Path) -> (i32, b
 }
 
 #[test]
-#[ignore = "gate11 G11-M1: FAILS on fdec15da (exit 0 with the walk-blind marked process alive)"]
+// procfix7 round 7: un-ignored as FIXED (the walk reads every thread's children list); FAILS on fdec15da (G11-M1)
 fn g11_walk_e2e_walk_blind_marked_survivor() {
     if !in_ns() {
         return;

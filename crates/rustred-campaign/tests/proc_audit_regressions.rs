@@ -428,6 +428,7 @@ fn a_m2_stale_sampler_is_reported_and_verify_is_unverified() {
     let s = Sampler::spawn(SamplerConfig {
         interval: Duration::from_secs(3600),
         collect_foreign_pinning: false,
+        foreign_pin_max_cpus: usize::MAX,
     })
     .unwrap();
     s.request_now();
@@ -649,6 +650,7 @@ fn site_raw(root: &Path, cpus: &[usize], tag: &str) -> SiteConfig {
         idle_min: 0.0,
         max_cores: 16,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     }
 }

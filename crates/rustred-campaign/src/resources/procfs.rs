@@ -189,6 +189,11 @@ impl fmt::Debug for ProcRoot {
     }
 }
 
+/// procfix7 round 7 (gate11 G11-M1): tries for a proven task list of a multi-threaded process in the completeness walk
+/// (measured on this host, 2026-11-17: 814 of 815 multi-threaded processes proven at the first try, 1 at the second,
+/// none failed 16).
+pub const WALK_TRIES: usize = 16;
+
 /// The production proc root (with the test build's injected faults, if any).
 pub fn sys() -> ProcRoot {
     ProcRoot::system()
@@ -450,6 +455,13 @@ impl ProcRoot {
             a.truncate(keep);
             b.truncate(keep);
         }
+        // test builds: one pid missing from both enumerations of the root listing (gate11 m11-mut M6)
+        if root && let Some(f) = self.faults.as_ref() {
+            for h in [f.hide, f.drop_root].into_iter().flatten() {
+                a.retain(|&e| e != h);
+                b.retain(|&e| e != h);
+            }
+        }
         let sa: BTreeSet<u32> = a.iter().copied().collect();
         let sb: BTreeSet<u32> = b.iter().copied().collect();
         // An entry one enumeration lacks: fine if its process started after that enumeration began or is gone now;
@@ -513,9 +525,12 @@ impl ProcRoot {
     /// from waitid / pidfds) that is still alive; (2) an INDEPENDENT second source that does not go through getdents64:
     /// the children-list walk from pid 1 through `/proc/<p>/task/<p>/children` (a read of the kernel's children lists,
     /// a separate structure): every process it reaches that is alive and started before the listing began must be in
-    /// the listing. A missing one makes the listing Unreadable ("listing incomplete"), never a smaller set. (The walk
-    /// reads the leaders' lists only, from pid 1 and from this process: a child of a non-leader thread is not reached;
-    /// the walk is a lower bound, the listing must contain it.)
+    /// the listing. A missing one makes the listing Unreadable ("listing incomplete"), never a smaller set. procfix7 round
+    /// 7 (gate11 G11-M1): the walk reads the children of EVERY thread ([`ProcRoot::children_all_threads_proven`]), from
+    /// pid 1 and from this process. It still cannot see: processes outside this pid namespace's view (a parent or sibling
+    /// namespace: never descendants of this process), the subtree of pid 2 (kernel threads, never ours), a process
+    /// re-parented while the walk passes (missed by the walk only: the walk is a lower bound the listing must contain),
+    /// and, under a hidepid /proc, processes of other users.
     pub fn pids_proven(&self, known_alive: &[u32]) -> ProcResult<Vec<u32>> {
         // procfix7 round 6 (gate10 batch_rv): the walk runs BEFORE the listing, so that the caller's reads follow the
         // listing as closely as before (a walk between the listing and the reads widened the window in which a short-
@@ -526,7 +541,8 @@ impl ProcRoot {
         // spawning the supervisor, is not on its parent's leader list; this process's own children are)
         let mut stack: Vec<u32> = vec![1, std::process::id()];
         while let Some(p) = stack.pop() {
-            match self.children(p, p) {
+            // gate11 G11-M1: the children of EVERY thread (a process forked by a non-leader thread is on that list only)
+            match self.children_all_threads_proven(p) {
                 Ok(kids) => {
                     for c in kids {
                         if reached.insert(c) {
@@ -797,13 +813,67 @@ impl ProcRoot {
         }
         let t = std::str::from_utf8(&b)
             .map_err(|_| ProcError::Unreadable(format!("{}: not UTF-8", self.what(&rel))))?;
+        let hide = self.faults.as_ref().and_then(|f| f.hide);
         t.split_whitespace()
             .map(|w| {
                 w.parse::<u32>().map_err(|_| {
                     ProcError::Unreadable(format!("{}: unparsable {w:?}", self.what(&rel)))
                 })
             })
+            // test builds: the hidden pid is on no children list either (gate11 m11-mut M6)
+            .filter(|c| c.as_ref().map_or(true, |&c| Some(c) != hide))
             .collect()
+    }
+
+    /// procfix7 round 7 (gate11 G11-M1): the children of EVERY thread of `pid`, for the completeness walk. A process
+    /// forked by a NON-leader thread (or an orphan re-parented onto the live non-leader thread of a subreaper) is on that
+    /// thread's list only. Single-threaded (status `Threads:` <= 1): the leader's list. Otherwise the task list is
+    /// trusted only with its completeness proof: the leader listed ([`ProcRoot::tasks`]), the kernel's `Threads:` the same
+    /// before and after the listing and equal to the number listed, and the SAME task list after the children lists were
+    /// read (a thread that exits hands its children to another thread of the group). Up to [`WALK_TRIES`] tries, else
+    /// Unreadable (never a partial answer). Gone: the process is gone.
+    pub fn children_all_threads_proven(&self, pid: u32) -> ProcResult<Vec<u32>> {
+        let first = self.status(pid)?.threads()?;
+        if first <= 1 {
+            return self.children(pid, pid);
+        }
+        let mut why = String::new();
+        for _ in 0..WALK_TRIES {
+            let before = self.status(pid)?.threads()?;
+            let mut ts = self.tasks(pid)?;
+            let after = self.status(pid)?.threads()?;
+            ts.sort_unstable();
+            if before != after || ts.len() != after as usize {
+                why = format!(
+                    "{} listed, the kernel counted {before} then {after} threads",
+                    ts.len()
+                );
+                continue;
+            }
+            let mut out = Vec::new();
+            let mut thread_gone = false;
+            for &t in &ts {
+                match self.children(pid, t) {
+                    Ok(k) => out.extend(k),
+                    Err(ProcError::Gone) => {
+                        thread_gone = true;
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
+            let mut again = self.tasks(pid)?;
+            again.sort_unstable();
+            if thread_gone || again != ts {
+                why = "its threads changed while their children lists were read".to_string();
+                continue;
+            }
+            return Ok(out);
+        }
+        unreadable(format!(
+            "{}: the children of every thread cannot be proven complete after {WALK_TRIES} tries ({why})",
+            self.what(&format!("{pid}/task"))
+        ))
     }
 
     /// The children of every thread of `pid`, read until two consecutive reads agree (at most 4; the kernel documents
@@ -1249,6 +1319,13 @@ pub struct Faults {
     trunc_root: Option<usize>,
     /// The same for task listings (`proc_trunc_tasks_at:<n>`).
     trunc_tasks: Option<usize>,
+    /// procfix7 round 7 (gate11 m11-mut M6): `proc_hide_pid:<pid>`: that pid is missing from BOTH enumerations of the
+    /// proc root listing AND from every children list (a process no listing and no walk shows: only a direct read of
+    /// its own pid, the sweeps' seeds, can find it).
+    hide: Option<u32>,
+    /// procfix7 round 7 (gate11 G11-M1 tests): `proc_drop_root_pid:<pid>`: that pid is missing from BOTH enumerations of
+    /// the proc root listing only (the completeness walk may still reach it).
+    drop_root: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -1305,6 +1382,8 @@ impl Faults {
         let mut pid = None;
         let mut rules = Vec::new();
         let (mut trunc_root, mut trunc_tasks) = (None, None);
+        let mut hide = None;
+        let mut drop_root = None;
         for p in v.split(',').map(str::trim) {
             let Some((site, n)) = p.rsplit_once(':') else {
                 continue;
@@ -1324,6 +1403,14 @@ impl Faults {
                 trunc_tasks = usize::try_from(n.saturating_sub(1)).ok();
                 continue;
             }
+            if site == "proc_hide_pid" {
+                hide = u32::try_from(n).ok();
+                continue;
+            }
+            if site == "proc_drop_root_pid" {
+                drop_root = u32::try_from(n).ok();
+                continue;
+            }
             let Some(rest) = site.strip_prefix("proc_") else {
                 continue;
             };
@@ -1334,7 +1421,12 @@ impl Faults {
                 rules.push((k, m, n));
             }
         }
-        if rules.is_empty() && trunc_root.is_none() && trunc_tasks.is_none() {
+        if rules.is_empty()
+            && trunc_root.is_none()
+            && trunc_tasks.is_none()
+            && hide.is_none()
+            && drop_root.is_none()
+        {
             return None;
         }
         let mut f = Faults::new();
@@ -1343,6 +1435,8 @@ impl Faults {
         }
         f.trunc_root = trunc_root;
         f.trunc_tasks = trunc_tasks;
+        f.hide = hide;
+        f.drop_root = drop_root;
         Some(f)
     }
 
@@ -1630,11 +1724,31 @@ mod tests {
     /// process lacks from it -> Unreadable.
     #[test]
     fn a_silently_truncated_listing_is_unreadable() {
+        // procfix7 round 7: the property, not one message text (the old expectation passed or failed with the tests
+        // running beside it): a listing whose readdir enumeration is halved is Unreadable, or it lacks only processes
+        // started too recently to be required (2 ticks before the listing; the rule excuses those). Never an OLD process
+        // silently missing.
+        let full = ProcRoot::system().pids().unwrap();
+        let t0 = now_ticks();
         let r =
             ProcRoot::system().with_faults(Faults::new().rule(Kind::Listing, Mode::Short, 1, None));
-        assert!(
-            matches!(r.pids(), Err(ProcError::Unreadable(w)) if w.contains("listing incomplete"))
-        );
+        match r.pids() {
+            Err(ProcError::Unreadable(_)) => {}
+            Ok(v) => {
+                for p in full.iter().filter(|p| !v.contains(p)) {
+                    match ProcRoot::system().stat(*p) {
+                        Err(ProcError::Gone) => {}
+                        Ok(st) => assert!(
+                            st.start_ticks.saturating_add(2) > t0,
+                            "the old process {p} (start {}) is silently missing from {v:?}",
+                            st.start_ticks
+                        ),
+                        Err(e) => panic!("{p}: {e:?}"),
+                    }
+                }
+            }
+            Err(e) => panic!("{e:?}"),
+        }
         let r = ProcRoot::system();
         assert!(r.pids().unwrap().contains(&me()));
     }

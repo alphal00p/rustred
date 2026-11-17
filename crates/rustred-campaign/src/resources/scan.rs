@@ -200,6 +200,9 @@ pub struct SamplerConfig {
     pub interval: Duration,
     /// Also read /proc/<pid>/status of every non-root process to find CPUs pinned by others (pick.py's rule).
     pub collect_foreign_pinning: bool,
+    /// procfix7 round 7 (gate11 M11-2): the largest restricted affinity that counts as a PIN (pick_free.py counts any
+    /// affinity narrower than the machine: on this host the ops rule-15 masks of ~300 CPUs then pin every CPU).
+    pub foreign_pin_max_cpus: usize,
 }
 
 impl Default for SamplerConfig {
@@ -207,6 +210,7 @@ impl Default for SamplerConfig {
         Self {
             interval: Duration::from_secs(2),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         }
     }
 }
@@ -397,7 +401,13 @@ fn run(shared: Arc<Shared>) {
         let campaign = lock(&shared.campaign).clone();
         let started_at = Instant::now();
         let host_before = host_memory().ok();
-        let mut raw = scan_raw(&sids, shared.config.collect_foreign_pinning);
+        let mut raw = scan_raw(
+            &sids,
+            shared
+                .config
+                .collect_foreign_pinning
+                .then_some(shared.config.foreign_pin_max_cpus),
+        );
         refine_rss(&mut raw, &sids);
         let (mut marked, marked_unreadable) = match &campaign {
             Some(c) => marked_of(&raw, c, &mut cache),
@@ -464,10 +474,13 @@ struct RawScan {
     read_errors: u64,
 }
 
-fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
+/// `pinning`: Some(largest affinity that counts as a pin) to collect foreign pinning. procfix7 round 7 (gate11 M11-2): the
+/// pinned set is published only when EVERY process's affinity was read (a failed listing, or an affinity that cannot be
+/// read, leaves it unknown: None, so the site policy grants nothing rather than a CPU that may be pinned).
+fn scan_raw(tracked: &BTreeSet<u32>, pinning: Option<usize>) -> RawScan {
     let mut all = Vec::new();
     let mut read_errors = 0u64;
-    let mut pinned: Option<BTreeSet<usize>> = if pinning { Some(BTreeSet::new()) } else { None };
+    let mut pinned: Option<BTreeSet<usize>> = pinning.map(|_| BTreeSet::new());
     // Audit A m7: the machine's CPU count (as pick.py's os.cpu_count()), not this process's (possibly restricted) mask.
     // SAFETY: sysconf has no preconditions.
     let configured = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_CONF) };
@@ -483,11 +496,12 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         Err(_) => {
             return RawScan {
                 all,
-                foreign_pinned: pinned,
+                foreign_pinned: None,
                 read_errors: 1,
             };
         }
     };
+    let mut pinning_complete = true;
     for pid in pids {
         let st = match root.stat(pid) {
             Ok(st) => st,
@@ -511,21 +525,24 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         } else {
             st
         };
-        if let Some(p) = pinned.as_mut()
+        if let (Some(p), Some(max)) = (pinned.as_mut(), pinning)
             && !tracked.contains(&st.session)
             && pid != std::process::id()
         {
             match restricted_affinity(pid, ncpu) {
-                Ok(Some(set)) => p.extend(set),
-                Ok(None) | Err(ProcError::Gone) => {}
-                Err(ProcError::Unreadable(_)) => read_errors += 1,
+                Ok(Some(set)) if set.len() <= max => p.extend(set),
+                Ok(Some(_)) | Ok(None) | Err(ProcError::Gone) => {}
+                Err(ProcError::Unreadable(_)) => {
+                    read_errors += 1;
+                    pinning_complete = false;
+                }
             }
         }
         all.push(st);
     }
     RawScan {
         all,
-        foreign_pinned: pinned,
+        foreign_pinned: pinned.filter(|_| pinning_complete),
         read_errors,
     }
 }
@@ -739,7 +756,7 @@ fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u
 
 /// Synchronous scan of the given sessions (blocks the caller; for tests and one-off checks, never the control loop).
 pub fn scan_sessions_now(sids: &BTreeSet<u32>) -> BTreeMap<u32, SessionUsage> {
-    let mut raw = scan_raw(sids, false);
+    let mut raw = scan_raw(sids, None);
     refine_rss(&mut raw, sids);
     let mut tracked: BTreeMap<u32, Track> = sids.iter().map(|&s| (s, Track::default())).collect();
     fold(&raw, &mut tracked)
@@ -837,6 +854,7 @@ mod tests {
         let s = Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
+            ..SamplerConfig::default()
         })
         .unwrap();
         s.track(sid);

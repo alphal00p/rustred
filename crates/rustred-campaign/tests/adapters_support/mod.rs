@@ -71,6 +71,7 @@ pub fn launcher() -> RealLauncher {
     let s = Sampler::spawn(SamplerConfig {
         interval: Duration::from_millis(200),
         collect_foreign_pinning: false,
+        foreign_pin_max_cpus: usize::MAX,
     })
     .unwrap();
     RealLauncher::new(Arc::new(s))

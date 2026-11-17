@@ -349,6 +349,9 @@ struct RecoveryFacts {
     /// with their start time; pids named by survivor / unproven / vanished / descendants notes; lock-takeover orphans):
     /// the recovery sweep proves each dead or not ours BY ITS OWN PID, never by its absence from a listing.
     recorded_pids: BTreeMap<u32, Option<u64>>,
+    /// procfix7 round 7 (gate11 m11-rec-path / m11-gone): the cgroup directory of each attempt's VERIFIED job scope
+    /// (`job_containment` notes with a `path`).
+    scope_path_of: BTreeMap<(String, u32), String>,
 }
 
 /// procfix7 (gate7 B1): the signal intent logs of earlier sessions (campaign directory + tmpfs fallbacks), read before
@@ -547,6 +550,8 @@ pub struct Supervisor {
     /// marker's attempt label). Each keeps the end unproven until an ATOMIC proof covers every successor it may have
     /// started (`resolve_vanished`): a /proc sweep never does (a chain faster than a scan is invisible to every scan).
     vanished_open: BTreeMap<u32, (Option<u64>, String, String)>,
+    /// procfix7 round 7 (gate11 M11-2): when a failed CPU-policy refresh was last logged (rate limit).
+    cpu_refresh_warned: Option<Instant>,
     /// procfix7 round 6 (M10-1): the attempt labels (`job:a<k>`) launched by THIS session: their processes and every
     /// successor stay in this child subreaper's tree, so the kernel's wait answer (ECHILD) covers them.
     launched_here: BTreeSet<String>,
@@ -1050,10 +1055,23 @@ impl Supervisor {
                 "this kernel offers no pidfd (verified signals impossible); refused unless resources.allow_no_pidfd".into(),
             ));
         }
+        // procfix7 round 7 (gate11 M11-2): the site policy's foreign-pinning rule is fed by the sampler (it collects the
+        // affinities only when the policy asks for them); before, nothing collected them and admission waited forever
+        let site_cfg: Option<SiteConfig> = if opts.spec.resources.policy == "site" {
+            let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
+            Some(SiteConfig::read(&path).map_err(|e| RunExit::Refused(e.to_string()))?)
+        } else {
+            None
+        };
         let sampler = Arc::new(
             Sampler::spawn(SamplerConfig {
                 interval: Duration::from_millis(opts.spec.resources.sampler_ms.max(100)),
-                collect_foreign_pinning: false,
+                collect_foreign_pinning: site_cfg
+                    .as_ref()
+                    .is_some_and(|c| c.respect_foreign_pinning),
+                foreign_pin_max_cpus: site_cfg
+                    .as_ref()
+                    .map_or(usize::MAX, |c| c.foreign_pin_max_cpus),
             })
             .map_err(|e| RunExit::Internal(format!("sampler: {e}")))?,
         );
@@ -1061,6 +1079,9 @@ impl Supervisor {
             Arc::clone(&sampler),
             crate::launch::RealConfig {
                 campaign_id: key.clone(),
+                // procfix7 round 7 (gate11 m11-mut M9): test builds: `no_subreaper:1` = this supervisor is NOT a child
+                // subreaper (pins m10-9: the end is then never claimed). Release: never.
+                child_subreaper: !fp.armed("no_subreaper"),
                 ..crate::launch::RealConfig::default()
             },
         )
@@ -1070,9 +1091,9 @@ impl Supervisor {
         let mut session_cpus: Option<String> = None;
         let policy: Box<dyn CpuPolicy> = match opts.spec.resources.policy.as_str() {
             "site" => {
-                let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
-                let mut cfg =
-                    SiteConfig::read(&path).map_err(|e| RunExit::Refused(e.to_string()))?;
+                let mut cfg = site_cfg
+                    .clone()
+                    .ok_or_else(|| RunExit::Internal("site policy config not read".into()))?;
                 if let Some(c) = opts.cores.or(opts.spec.resources.max_cores) {
                     cfg.max_cores = c;
                 }
@@ -1138,6 +1159,14 @@ impl Supervisor {
                 Box::new(p)
             }
         };
+        // procfix7 round 7 (gate11 M11-2, like lane wireflow's admission refusal): a CPU policy that can NEVER grant a CPU
+        // is a typed refusal at start, not a silent wait
+        if let Some(why) = policy.never_admits() {
+            log.line("ERROR", &format!("cpu policy: {why}"));
+            return Err(RunExit::Refused(format!(
+                "cpu policy: nothing can ever be granted under this configuration: {why}"
+            )));
+        }
         // lane closeloop4 (closeloop.md 20): the session's CPUs in the ledger (they may differ between sessions)
         let session_note = session_cpus.unwrap_or_else(|| {
             format!(
@@ -1355,6 +1384,7 @@ impl Supervisor {
             recorded_pids: Vec::new(),
             vanished_open: BTreeMap::new(),
             launched_here: BTreeSet::new(),
+            cpu_refresh_warned: None,
             scope_proven_empty: BTreeSet::new(),
             opts,
         })
@@ -1563,6 +1593,7 @@ impl Supervisor {
             lineages,
             recorded_intents: _,
             recorded_pids,
+            scope_path_of,
         } = facts;
         let me = std::process::id();
         self.recorded_pids = recorded_pids
@@ -1628,7 +1659,14 @@ impl Supervisor {
                 ..Default::default()
             }
         };
-        self.recover_after_sweep(unsettled, scope_of, started_this_boot, scan_allowed, report);
+        self.recover_after_sweep(
+            unsettled,
+            scope_of,
+            scope_path_of,
+            started_this_boot,
+            scan_allowed,
+            report,
+        );
     }
 
     /// procfix7 (gate7 B1): the ONE ledger pass of recovery (streamed: ledgerfix2 m10, never every record of a long
@@ -1650,6 +1688,7 @@ impl Supervisor {
             lineages,
             recorded_intents,
             recorded_pids,
+            scope_path_of,
         } = &mut f;
         // the boot of the session whose records are being read (notes carry no boot id: they belong to the session
         // started last)
@@ -1714,6 +1753,18 @@ impl Supervisor {
                 && let Some(l) = crate::resources::lineage::SessionLineage::parse_note(text)
             {
                 lineages.push(l);
+            }
+            // procfix7 round 7 (gate11 m11-rec-path): the verified scope directory of an attempt
+            if let Event::Note { text } = &r.event
+                && let Some(js) = text.strip_prefix("job_containment ")
+                && let Ok(v) = serde_json::from_str::<serde_json::Value>(js)
+                && let (Some(job), Some(attempt), Some(path)) = (
+                    v["job"].as_str(),
+                    v["attempt"].as_u64().and_then(|a| u32::try_from(a).ok()),
+                    v["path"].as_str(),
+                )
+            {
+                scope_path_of.insert((job.to_string(), attempt), path.to_string());
             }
             match &r.event {
                 Event::SupervisorStarted { identity, .. } if identity.boot_id == boot_id => {
@@ -1929,6 +1980,7 @@ impl Supervisor {
         &mut self,
         unsettled: Vec<(String, u32, AttemptState)>,
         scope_of: BTreeMap<(String, u32), String>,
+        scope_path_of: BTreeMap<(String, u32), String>,
         started_this_boot: BTreeSet<(String, u32)>,
         scan_allowed: bool,
         report: SweepReport,
@@ -1954,7 +2006,7 @@ impl Supervisor {
                         String::new()
                     } else {
                         format!(
-                            "; WARNING: marked process(es) {:?} seen alive exited before they could be stopped (a successor may run unseen: the end stays unproven until a later sweep seeded with them is proven)",
+                            "; WARNING: marked process(es) {:?} seen alive exited before they could be stopped (a successor may run unseen: the end stays unproven unless an atomic proof covers their successors, RUNBOOK 2.10)",
                             report.vanished.iter().map(|p| p.pid).collect::<Vec<_>>()
                         )
                     }
@@ -1963,7 +2015,7 @@ impl Supervisor {
             if !report.vanished.is_empty() {
                 let pids: Vec<u32> = report.vanished.iter().map(|p| p.pid).collect();
                 self.note(format!("recovery_sweep_vanished {{\"pids\":{pids:?}}}"));
-                // procfix7 round 6 (gate10 M10-1): the end is unproven until a later seeded sweep is proven
+                // procfix7 round 6 (gate10 M10-1): the end is unproven unless an atomic proof covers their successors
                 self.note_vanished(&report, "recovery sweep");
             }
         }
@@ -1983,19 +2035,21 @@ impl Supervisor {
         } else {
             crate::launch::namespace_state()
         };
+        // procfix7 round 7 (gate11 m11-settled-scope): EVERY attempt of this boot that ran in a recorded scope, settled
+        // or not (a job that ended before its scope was verified live was checked without the scope belt; whatever is
+        // left in its scope now is a leftover of this campaign)
+        let scoped: Vec<(String, u32)> = scope_of
+            .keys()
+            .filter(|k| started_this_boot.contains(*k))
+            .cloned()
+            .collect();
         if scan_allowed && let Err(e) = &ns {
-            let units: Vec<String> = unsettled
+            let units: Vec<String> = scoped
                 .iter()
-                .filter_map(|(job, attempt, _)| {
-                    let key = (job.clone(), *attempt);
-                    started_this_boot
-                        .contains(&key)
-                        .then(|| {
-                            scope_of
-                                .get(&key)
-                                .map(|u| format!("{u} ({job} a{attempt})"))
-                        })
-                        .flatten()
+                .filter_map(|(job, attempt)| {
+                    scope_of
+                        .get(&(job.clone(), *attempt))
+                        .map(|u| format!("{u} ({job} a{attempt})"))
                 })
                 .collect();
             if !units.is_empty() {
@@ -2009,29 +2063,43 @@ impl Supervisor {
             }
         }
         if scan_allowed && ns == Ok(false) {
-            for (job, attempt, _) in &unsettled {
+            for (job, attempt) in &scoped {
                 let key = (job.clone(), *attempt);
-                let (Some(unit), true) = (scope_of.get(&key), started_this_boot.contains(&key))
-                else {
+                let Some(unit) = scope_of.get(&key) else {
                     continue;
                 };
                 let label = format!("{job}:a{attempt}");
+                // gate11 m11-rec-path: the scope's verified cgroup directory first
+                let recorded = scope_path_of.get(&key).map(PathBuf::from);
                 match crate::launch::guard_context(
                     "restart: recorded job scope",
                     Some(&label),
-                    || crate::launch::kill_recorded_scope(unit),
+                    || crate::launch::kill_recorded_scope_at(unit, recorded.as_deref()),
                 ) {
                     // M10-1 (b): found EMPTY by the kernel's recursive populated flag
                     Ok(Some(0)) => {
                         self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
                     }
-                    Ok(None) => {}
+                    // gate11 m11-gone: no such scope. Emptied only by a POSITIVE answer: verified at the job's start
+                    // and its recorded directory now proven absent (a cgroup with members cannot be removed)
+                    Ok(None) => {
+                        if recorded
+                            .as_deref()
+                            .is_some_and(|r| crate::launch::recorded_scope_removed(unit, r))
+                        {
+                            self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
+                        }
+                    }
                     Ok(Some(n)) => {
                         self.note(format!(
                             "scope_killed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"processes\":{n}}}"
                         ));
                         // M10-1 (b): after the (recursive) cgroup.kill, empty once the kernel says so (bounded wait)
-                        if crate::launch::recorded_scope_emptied(unit, Duration::from_secs(5)) {
+                        if crate::launch::recorded_scope_emptied(
+                            unit,
+                            recorded.as_deref(),
+                            Duration::from_secs(5),
+                        ) {
                             self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
                         }
                     }
@@ -3161,8 +3229,13 @@ impl Supervisor {
         requested: Option<&str>,
     ) {
         use crate::launch::Containment;
+        // procfix7 round 7 (gate11 m11-rec-path): the verified scope's cgroup directory, for the restart backstop
+        let path = match c {
+            Containment::Scope(_, p) => Some(p.display().to_string()),
+            _ => None,
+        };
         let (word, why) = match c {
-            Containment::Scope(_) => (
+            Containment::Scope(..) => (
                 c.word(),
                 "verified: the job leader's cgroup is this scope".to_string(),
             ),
@@ -3185,9 +3258,10 @@ impl Supervisor {
             level,
             &format!("{job} a{attempt}: containment {word} ({why})"),
         );
+        let path_field = path.map(|p| format!(",\"path\":{p:?}")).unwrap_or_default();
         self.commit(vec![Event::Note {
             text: format!(
-                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{word:?},\"why\":{why:?}}}"
+                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{word:?},\"why\":{why:?}{path_field}}}"
             ),
         }]);
     }
@@ -6124,6 +6198,32 @@ impl Supervisor {
         }
     }
 
+    /// procfix7 round 7 (gate11 M11-2): every tick, the CPU policy takes its /proc/stat sample (the idleness window
+    /// `idle_min` is judged on; before, nothing called it and no CPU ever had an idleness) and, when it respects foreign
+    /// pinning, gets the latest scan's foreign-pinning set from the sampler: an incomplete scan publishes None (unknown),
+    /// and the policy then grants nothing until a complete scan (fail closed, never a stale set).
+    fn feed_cpu_policy(&mut self) {
+        if let Err(e) = self.policy.refresh() {
+            let now = Instant::now();
+            if self
+                .cpu_refresh_warned
+                .is_none_or(|t| now.duration_since(t) > Duration::from_secs(60))
+            {
+                self.cpu_refresh_warned = Some(now);
+                self.log.line(
+                    "WARN",
+                    &format!("cpu policy: /proc/stat sample failed ({e}): idleness not measured (no CPU counts as idle)"),
+                );
+            }
+        }
+        if self.policy.wants_foreign_pinning()
+            && let Some(snap) = self.sampler.latest()
+        {
+            self.policy
+                .update_foreign_pinned(snap.foreign_pinned.clone());
+        }
+    }
+
     fn main_loop(&mut self) -> RunExit {
         self.recover();
         if let Some(e) = self.ledger_dead.clone() {
@@ -6252,6 +6352,8 @@ impl Supervisor {
                 std::thread::sleep(self.opts.tick);
                 continue;
             }
+            // gate11 M11-2: the CPU policy's idleness window and the foreign pinning, on the sampler's cadence
+            self.feed_cpu_policy();
             // 4-5. schedule
             if level == StopLevel::Running {
                 // lane closeloop (closeloop.md 6.1): results of the source's own in-process passes

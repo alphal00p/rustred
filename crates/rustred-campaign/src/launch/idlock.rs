@@ -88,11 +88,23 @@ impl Drop for IdLock {
 /// `/run/user/<uid>` disappears at a full logout). The directory checks of `prepare_dir` (a real directory, owned by us,
 /// not group / other writable; a foreign pre-created one is refused) are unchanged; the sticky /tmp keeps others from
 /// replacing our entry. The CDIR flock remains the second, independent guard against two supervisors of one directory.
+///
+/// procfix7 round 7 (gate11 m11-tmp): INSIDE A PRIVATE PID NAMESPACE (the test suites; the host refuses to start there
+/// without the test override) the host's /tmp is shared by every namespace of every lane: the namespaced runs had left
+/// ~25,000 lock files in /tmp/rustred-campaign-0. There the directory is `$TMPDIR/rustred-campaign-<uid>` when TMPDIR names
+/// a private directory (absolute, not /tmp itself): every supervisor that can be a copy of another in such a run shares
+/// that TMPDIR (one test, one namespace). On the host: unchanged.
 pub fn default_lock_dir() -> PathBuf {
-    PathBuf::from(format!(
-        "/tmp/rustred-campaign-{}",
-        crate::resources::our_uid()
-    ))
+    let uid = crate::resources::our_uid();
+    if crate::launch::namespace_state() == Ok(true)
+        && let Some(t) = std::env::var_os("TMPDIR").map(PathBuf::from)
+        && t.is_absolute()
+        && t.as_os_str() != "/tmp"
+        && t.as_os_str() != "/tmp/"
+    {
+        return t.join(format!("rustred-campaign-{uid}"));
+    }
+    PathBuf::from(format!("/tmp/rustred-campaign-{uid}"))
 }
 
 fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {

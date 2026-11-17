@@ -336,6 +336,7 @@ fn bad_campaign_id_is_refused_at_start() {
         rustred_campaign::resources::Sampler::spawn(rustred_campaign::resources::SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );

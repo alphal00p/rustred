@@ -113,6 +113,7 @@ fn real_explicit_and_mixed_shell_solves_at_one_key() {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );

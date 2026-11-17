@@ -105,6 +105,7 @@ fn sampler(ms: u64) -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(ms),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )
@@ -1298,6 +1299,7 @@ fn s_cpurange(c: &mut Ctx) {
         idle_min: 0.0,
         max_cores: 1,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     };
     let mut ex = base.clone();
@@ -2011,6 +2013,7 @@ fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
         idle_min: 0.0,
         max_cores: 1,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     }
 }

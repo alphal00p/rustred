@@ -102,7 +102,7 @@ fn site_campaign_starts_a_job(
 }
 
 #[test]
-#[ignore = "gate11 M11-2: FAILS on fdec15da (CpuPolicy::refresh is never called: no CPU ever has an idleness)"]
+// procfix7 round 7: un-ignored as FIXED (the policy is refreshed and fed every tick); FAILS on fdec15da (M11-2)
 fn g11_site_policy_with_an_idle_bar_launches_a_job() {
     if !in_ns() {
         return;
@@ -114,7 +114,7 @@ fn g11_site_policy_with_an_idle_bar_launches_a_job() {
 }
 
 #[test]
-#[ignore = "gate11 M11-2: FAILS on fdec15da (foreign pinning is never collected nor handed to the site policy)"]
+// procfix7 round 7: un-ignored as FIXED (the policy is refreshed and fed every tick); FAILS on fdec15da (M11-2)
 fn g11_site_policy_respecting_foreign_pinning_launches_a_job() {
     if !in_ns() {
         return;

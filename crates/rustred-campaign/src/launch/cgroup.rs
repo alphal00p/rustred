@@ -623,12 +623,27 @@ pub fn scope_unit_name(campaign_id: &str, label: &str) -> String {
 
 /// The cgroup directories where systemd may have put the user scope `<unit>.scope` (exact names only, never a
 /// pattern): under our user manager, in `app.slice` (systemd >= 247) or at its root.
-fn scope_candidates(unit: &str, uid: u32) -> Vec<PathBuf> {
-    let root = user_manager_root(uid);
-    vec![
-        root.join("app.slice").join(format!("{unit}.scope")),
-        root.join(format!("{unit}.scope")),
-    ]
+/// procfix7 round 7 (gate11 m11-rec-path): where a recorded scope may be: FIRST the cgroup directory verified at the
+/// job's start (`job_containment` note), accepted only under `root` (our user manager) with the exact name
+/// `<unit>.scope`; then the two places systemd puts a user scope by default.
+fn scope_candidates_in(root: &Path, unit: &str, recorded: Option<&Path>) -> Vec<PathBuf> {
+    let name = format!("{unit}.scope");
+    let mut v = Vec::new();
+    if let Some(r) = recorded
+        && r.starts_with(root)
+        && r.file_name().and_then(|n| n.to_str()) == Some(name.as_str())
+        && !r
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        v.push(r.to_path_buf());
+    }
+    for d in [root.join("app.slice").join(&name), root.join(&name)] {
+        if !v.contains(&d) {
+            v.push(d);
+        }
+    }
+    v
 }
 
 /// RESTART BACKSTOP (gate3 M5): kill every process left in the job scope `<unit>.scope` whose NAME and leader pid the
@@ -638,8 +653,24 @@ fn scope_candidates(unit: &str, uid: u32) -> Vec<PathBuf> {
 /// `cgroup.kill` written for a scope with `n` live processes (logged as a delivery, proof "job scope"); `Ok(Some(0))`:
 /// the scope exists but is empty (nothing signalled).
 pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
+    kill_recorded_scope_at(unit, None)
+}
+
+/// procfix7 round 7 (gate11 m11-rec-path): [`kill_recorded_scope`] that looks FIRST in the scope's recorded (verified)
+/// cgroup directory.
+pub fn kill_recorded_scope_at(unit: &str, recorded: Option<&Path>) -> io::Result<Option<usize>> {
     let uid = crate::resources::our_uid();
-    for dir in scope_candidates(unit, uid) {
+    kill_recorded_scope_in(&user_manager_root(uid), unit, recorded, uid)
+}
+
+/// The backstop under a given user-manager root (tests: an emulated cgroup tree).
+fn kill_recorded_scope_in(
+    root: &Path,
+    unit: &str,
+    recorded: Option<&Path>,
+    uid: u32,
+) -> io::Result<Option<usize>> {
+    for dir in scope_candidates_in(root, unit, recorded) {
         // procfix7 (gate7 B1, the class): only an ABSENT scope is "no such scope"; another failed read is an error
         let md = match crate::fsx::presence_lstat("cgroup", &dir) {
             crate::fsx::Presence::Present(md) => md,
@@ -668,12 +699,17 @@ pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
 /// procfix7 round 6 (gate10 M10-1 (b)): after a cgroup.kill of the recorded scope `unit`, true once the kernel reports
 /// it EMPTY (its recursive `cgroup.events` populated 0), or the scope directory is gone (systemd removes a transient scope
 /// once it is empty; it existed a moment ago: we just killed it), within `limit`. Any failed read: false (not proven).
-pub fn recorded_scope_emptied(unit: &str, limit: std::time::Duration) -> bool {
+pub fn recorded_scope_emptied(
+    unit: &str,
+    recorded: Option<&Path>,
+    limit: std::time::Duration,
+) -> bool {
     let uid = crate::resources::our_uid();
+    let root = user_manager_root(uid);
     let t0 = std::time::Instant::now();
     loop {
         let mut present = false;
-        for dir in scope_candidates(unit, uid) {
+        for dir in scope_candidates_in(&root, unit, recorded) {
             match crate::fsx::presence_lstat("cgroup", &dir) {
                 crate::fsx::Presence::Absent => continue,
                 crate::fsx::Presence::Unknown(_) => return false,
@@ -698,11 +734,92 @@ pub fn recorded_scope_emptied(unit: &str, limit: std::time::Duration) -> bool {
     }
 }
 
+/// procfix7 round 7 (gate11 m11-gone): a scope VERIFIED at its job's start whose recorded cgroup directory is now PROVEN
+/// ABSENT (ENOENT; its parent directory present, so the cgroup tree is there and the path is right) was emptied: on
+/// cgroup v2 a cgroup with a live member, or with a child cgroup, cannot be removed, and a cgroup cannot be renamed, so
+/// every process that stayed in it is gone. (systemd's "unit not found" would add nothing: systemd removes the unit
+/// from the same kernel answer.) Any other answer, or a path not under our user manager with the exact unit name: false.
+pub fn recorded_scope_removed(unit: &str, recorded: &Path) -> bool {
+    let root = user_manager_root(crate::resources::our_uid());
+    recorded_scope_removed_in(&root, unit, recorded)
+}
+
+fn recorded_scope_removed_in(root: &Path, unit: &str, recorded: &Path) -> bool {
+    if scope_candidates_in(root, unit, Some(recorded)).first() != Some(&recorded.to_path_buf()) {
+        return false;
+    }
+    let Some(parent) = recorded.parent() else {
+        return false;
+    };
+    matches!(
+        crate::fsx::presence_lstat("cgroup", recorded),
+        crate::fsx::Presence::Absent
+    ) && matches!(
+        crate::fsx::presence_lstat("cgroup", parent),
+        crate::fsx::Presence::Present(m) if m.is_dir()
+    )
+}
+
 #[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 #[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// procfix7 round 7 (gate11 m11-mut M8): the restart backstop on an EMULATED scope tree: a scope whose cgroup.procs
+    /// lists nobody (the processes sit in a child cgroup) but whose recursive `populated` is 1 is NOT empty: cgroup.kill
+    /// is written. Truly empty (populated 0): nothing written, Some(0). The recorded path is looked at first (m11-rec-path);
+    /// a recorded path that is gone with its parent present is "removed" (m11-gone); a path outside the root never is.
+    #[test]
+    fn the_recorded_scope_backstop_judges_emptiness_by_the_recursive_flag() {
+        let root = std::env::temp_dir().join(format!("pf11-cg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let unit = "rr-test-0123456789abcdef";
+        let deep = root
+            .join("app.slice")
+            .join("custom.slice")
+            .join(format!("{unit}.scope"));
+        std::fs::create_dir_all(deep.join("child")).unwrap();
+        std::fs::write(deep.join("cgroup.procs"), "").unwrap();
+        std::fs::write(deep.join("child").join("cgroup.procs"), "").unwrap();
+        std::fs::write(deep.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+        std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+        let uid = crate::resources::our_uid();
+        // not at a default place: found only through the recorded path
+        assert_eq!(
+            kill_recorded_scope_in(&root, unit, None, uid).unwrap(),
+            None
+        );
+        let r = kill_recorded_scope_in(&root, unit, Some(&deep), uid).unwrap();
+        assert_eq!(r, Some(1), "populated without a listed member is not empty");
+        assert_eq!(
+            std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+            "1"
+        );
+        // truly empty
+        std::fs::write(deep.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+        std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+        assert_eq!(
+            kill_recorded_scope_in(&root, unit, Some(&deep), uid).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+            ""
+        );
+        // removed (m11-gone): absent with its parent present; never for a path outside the root or another name
+        assert!(!recorded_scope_removed_in(&root, unit, &deep));
+        std::fs::remove_dir_all(&deep).unwrap();
+        assert!(recorded_scope_removed_in(&root, unit, &deep));
+        assert!(!recorded_scope_removed_in(
+            &root,
+            "rr-other-0123456789abcdef",
+            &deep
+        ));
+        let outside = std::env::temp_dir().join(format!("{unit}.scope"));
+        assert!(!recorded_scope_removed_in(&root, unit, &outside));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// procfix3: the scope belt accepts only the leader's own transient scope under our user manager.
     #[test]
