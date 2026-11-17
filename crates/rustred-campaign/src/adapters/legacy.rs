@@ -223,6 +223,8 @@ pub fn argv(spec: &JobSpec) -> Result<Vec<String>, String> {
         JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::argv(spec),
         // lane symcert: rr_proof --symrows, argv from the pinned request (interfaces/proof-symrows-job.md 1)
         JobKind::ProofSymrows => rustred_campaign_contract::classify::symcert::argv(spec),
+        // lane tadicjob: python3 -I <driver> run <job> <result> (interfaces/tadic-job.md 2)
+        JobKind::TadicReplay => rustred_campaign_contract::tadicjob::argv(spec),
         k => Err(format!("kind {k:?} is not legacy-wrapped")),
     }
 }
@@ -508,6 +510,7 @@ pub fn child_out(kind: JobKind) -> &'static str {
         JobKind::ProofInstanceSpan => SPAN_OUT,
         JobKind::CoefficientFacts => COEF_OUT,
         JobKind::PoleRegularAt => rustred_campaign_contract::classify::poleat::CHILD_OUT,
+        JobKind::TadicReplay => rustred_campaign_contract::tadicjob::CHILD_OUT,
         _ => INSTANTIATE_OUT,
     }
 }
@@ -526,6 +529,10 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
     // lane coreseed: kind pole-regular-at has its own wrapper (answers checked against the pinned requests)
     if spec.kind == JobKind::PoleRegularAt {
         return super::poleat::wrap(layout, spec, spec_blake3, wait);
+    }
+    // lane tadicjob: kind tadic-replay has its own wrapper (result bound to the pinned job, driver exits mapped)
+    if spec.kind == JobKind::TadicReplay {
+        return super::tadicjob::wrap(layout, spec, spec_blake3, wait);
     }
     // lane symcert: kind proof-symrows has its own wrapper (one certificate checked against the pinned request)
     if spec.kind == JobKind::ProofSymrows {

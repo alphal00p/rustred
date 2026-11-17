@@ -115,6 +115,27 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        // lane tadicjob: the certificate checks of one t-adic result; the node pole report (interfaces/tadic-job.md)
+        "tadic-check" => match crate::polereport::check_cmd(rest) {
+            Ok(t) => {
+                outln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("tadic-check: {e}");
+                exit::USAGE
+            }
+        },
+        "pole-report" => match crate::polereport::report_cmd(rest) {
+            Ok(t) => {
+                outln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("pole-report: {e}");
+                exit::USAGE
+            }
+        },
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK

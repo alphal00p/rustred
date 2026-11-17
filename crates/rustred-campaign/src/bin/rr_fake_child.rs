@@ -152,6 +152,9 @@ mod symcomp;
 // lane coreseed: kind pole-regular-at emulated (src/bin/rr_fake_child/poleat.rs)
 #[path = "rr_fake_child/poleat.rs"]
 mod poleat;
+// lane tadicjob: kind tadic-replay emulated (src/bin/rr_fake_child/tadicjob.rs)
+#[path = "rr_fake_child/tadicjob.rs"]
+mod tadicjob;
 // lane symcert: kind proof-symrows emulated (src/bin/rr_fake_child/symrows.rs)
 #[path = "rr_fake_child/symrows.rs"]
 mod symrows;
@@ -1638,6 +1641,14 @@ fn run_job(spec_path: &Path) -> ! {
         .is_some_and(|v| v["kind"] == "symmetry-composite")
     {
         symcomp::run(spec_path)
+    }
+    // lane tadicjob: kind tadic-replay (helper VH 2's driver emulated with a linear test rule)
+    if std::fs::read(spec_path)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+        .is_some_and(|v| v["kind"] == "tadic-replay")
+    {
+        tadicjob::run(spec_path)
     }
     // lane coreseed: kind pole-regular-at (rr_poles regular-at emulated with a test rule)
     if std::fs::read(spec_path)

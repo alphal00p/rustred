@@ -44,6 +44,8 @@ pub mod stop;
 pub mod symcomp;
 // lane symcert's request (granted by int7): kind proof-symrows' request, certificates and S check
 pub mod symcert;
+// lane tadicjob's request (REQUEST TO I-INT, notes/implementer.tadicjob.md): kind tadic-replay's job, result binding and certificate checks
+pub mod tadicjob;
 pub mod time;
 
 pub use canon::{CanonError, canonical_line};

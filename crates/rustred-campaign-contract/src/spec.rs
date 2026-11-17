@@ -60,6 +60,12 @@ pub enum JobKind {
     /// supervisor-side wrapper checks the kernel's answer against the pinned request and seals ONE certificate. Accept
     /// mode `certificates` (row 40): evidence of the per-key level of exactly the asked relation.
     ProofSymrows,
+    /// helper VH 2's frozen t-adic replay driver `tadic_job.py run JOB RESULT` (lane tadicjob; interfaces/tadic-job.md):
+    /// truncated Laurent series at d0 mod primes for keys or weighted groups (package or node level), as a LEGACY
+    /// DIAGNOSTIC child; the supervisor-side wrapper binds the result to the pinned job, re-derives every answer, maps
+    /// the driver's exits and seals one line per request. Accept mode `diagnostic_records` (rows 50-52): never rule or
+    /// relation evidence.
+    TadicReplay,
 }
 
 /// Compliance level (1.1).
@@ -75,7 +81,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 19] = [
+    pub const ALL: [JobKind; 20] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -95,6 +101,7 @@ impl JobKind {
         JobKind::SymmetryComposite,
         JobKind::PoleRegularAt,
         JobKind::ProofSymrows,
+        JobKind::TadicReplay,
     ];
 
     pub const fn level(self) -> Level {
@@ -106,7 +113,8 @@ impl JobKind {
             | JobKind::CoefficientFacts
             | JobKind::SymmetryComposite
             | JobKind::PoleRegularAt
-            | JobKind::ProofSymrows => Level::Legacy,
+            | JobKind::ProofSymrows
+            | JobKind::TadicReplay => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -133,6 +141,7 @@ impl JobKind {
             JobKind::CoefficientFacts => "rr_coef_facts",
             JobKind::SymmetryComposite => "rr_rf_symflow",
             JobKind::PoleRegularAt => "rr_poles",
+            JobKind::TadicReplay => "tadic_job",
         }
     }
 
@@ -167,7 +176,8 @@ impl JobKind {
             | JobKind::NodeBasis
             | JobKind::SymmetryComposite
             | JobKind::PoleRegularAt
-            | JobKind::ProofSymrows => Some(&RESULT_OUTPUTS),
+            | JobKind::ProofSymrows
+            | JobKind::TadicReplay => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -196,6 +206,8 @@ impl JobKind {
             JobKind::PoleRegularAt => &POLE_REGULAR_AT_ARGS,
             // lane symcert: every parameter is in the pinned request (the wrapper builds the argv from it)
             JobKind::ProofSymrows => &[],
+            // lane tadicjob: every parameter is in the pinned driver job file
+            JobKind::TadicReplay => &[],
         }
     }
 
@@ -237,6 +249,12 @@ impl JobKind {
                 required: &["request", "table", "keys", "symrows"],
                 optional: &["family"],
             }),
+            // lane tadicjob: the driver job file and the frozen driver; the terminal / master set, the dependence and
+            // known-depth tables and the node table are explicit inputs of the record (interfaces/tadic-job.md 2)
+            JobKind::TadicReplay => Some(InputRoles {
+                required: &["tadic_job", "driver"],
+                optional: &["terminals", "dependences", "depths", "table"],
+            }),
             // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
             JobKind::ProofInstanceSpan => Some(InputRoles {
                 required: &["request", "table", "keys"],
@@ -257,6 +275,7 @@ impl JobKind {
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
+                | JobKind::TadicReplay
         )
     }
 
@@ -271,6 +290,7 @@ impl JobKind {
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
+                | JobKind::TadicReplay
         )
     }
 
@@ -1237,6 +1257,7 @@ impl JobSpec {
                 | JobKind::SymmetryComposite
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
+                | JobKind::TadicReplay
         ) {
             return Ok(());
         }

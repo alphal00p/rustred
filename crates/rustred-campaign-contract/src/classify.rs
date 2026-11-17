@@ -276,9 +276,10 @@ const fn rs(
 /// 22), then the c rows in this order: 26, the kind's exit-code set (22), S (22), 25, then for kind solve-recipe 1 /
 /// 28 / 29 / 22 (a probe job, line 7: 31 / 32 / 22), for kind node-basis 30 / 22, for kind symmetry-composite 33 / 34 / 35 / 22 (lane symjob), for kind pole-regular-at 37 / 38 (38
 /// also for its unverified outputs, before 22; lane coreseed), for kind proof-symrows 43 / 40 (43 also for its unverified
-/// outputs, before 22; lane symcert; its exit 41 / 70: 41 / 42 before 13b / 13), and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 36, 39 and 13b before 13, 15b, 16, 17); then
+/// outputs, before 22; lane symcert; its exit 41 / 70: 41 / 42 before 13b / 13), for kind tadic-replay 51 / 50 (51 also
+/// for its unverified outputs, before 22; its exit 41: 52 before 13; lane tadicjob), and for every other kind 1-8 with 24 and 27 after their siblings, 9-17 (11b / 11c before 11: the supervisor's kill reason K decides over an `interrupted` OUTCOME; 36, 39 and 13b before 13, 15b, 16, 17); then
 /// the signal rows 18-21; then 22; then 23.
-pub const ROWS: [RowSpec; 50] = {
+pub const ROWS: [RowSpec; 53] = {
     use Accept::*;
     use Action::*;
     use OutcomeKind::*;
@@ -437,6 +438,22 @@ pub const ROWS: [RowSpec; 50] = {
             Attention,
         ),
         rs(
+            50,
+            "",
+            "c=0, O, S, kind tadic-replay (diagnostic, legacy-wrapped: the driver's result bound to the pinned job by sha256, labels, binary and driver digests; one sealed line per request: SERIES or NOT_DECIDED with a typed reason; never evidence)",
+            Complete,
+            DiagnosticRecords,
+            ItemDone,
+        ),
+        rs(
+            51,
+            "",
+            "kind tadic-replay, c in {0, 10, 20} with O but the result not sealed / not bound to the pinned job, or c in {10, 20}: nothing is read, every request stays not decided (evaluated before 22 for this kind)",
+            Undecided,
+            Nothing,
+            DiagnosticsUndecided,
+        ),
+        rs(
             7,
             "",
             "c=11, O, checker kind",
@@ -549,6 +566,14 @@ pub const ROWS: [RowSpec; 50] = {
             Refused,
             Nothing,
             TableUnreadableByTool,
+        ),
+        rs(
+            52,
+            "",
+            "c=41, kind tadic-replay (the driver refused the job or an input: JOB_INVALID, UNSUPPORTED, INPUT_MISSING, INPUT_HASH_MISMATCH, BINARY_MISSING, BINARY_HASH_MISMATCH, or a pinned input not the spec's: TADIC_INPUT_MISMATCH): nothing is read, every request stays not decided",
+            Refused,
+            Nothing,
+            DiagnosticsUndecided,
         ),
         rs(13, "", "c=41", Refused, Nothing, ItemAttentionNoRetry),
         rs(14, "", "c=42", Refused, Nothing, Attention),
@@ -843,6 +868,17 @@ fn decide(
                         ),
                     );
                 }
+                // lane tadicjob: a result that is not sealed / not bound to the pinned job gives nothing, never attention (51)
+                if e.kind == JobKind::TadicReplay && (e.verified.is_none() || c != 0) {
+                    return row(
+                        51,
+                        "",
+                        format!(
+                            "tadic-replay: exit {c}, result not read: {}",
+                            e.unsealed_why.as_deref().unwrap_or("not verified")
+                        ),
+                    );
+                }
                 // lane symcert: a certificate that is not sealed or not bound to the pinned request is never read (43)
                 if e.kind == JobKind::ProofSymrows && (e.verified.is_none() || c != 0) {
                     return row(
@@ -882,6 +918,14 @@ fn decide(
                             37,
                             "",
                             "pole-regular-at: exit 0, OUTCOME, answers sealed and checked (diagnostic records)",
+                        );
+                    }
+                    // lane tadicjob: exit 0 with the result sealed and bound (everything else is row 51 above)
+                    JobKind::TadicReplay => {
+                        return row(
+                            50,
+                            "",
+                            "tadic-replay: exit 0, OUTCOME, result bound to the job and sealed (diagnostic records)",
                         );
                     }
                     // lane symcert: exit 0 with the certificate sealed and bound (everything else is row 43 above)
@@ -1025,6 +1069,14 @@ fn decide(
                 36,
                 "",
                 "the child's sealed result is bound to other inputs than the job's",
+            );
+        }
+        // lane tadicjob: the driver's refusal of the job or an input (row 52), before 13: nothing read, never attention
+        if c == 41 && e.kind == JobKind::TadicReplay {
+            return row(
+                52,
+                "",
+                "tadic-replay: job or input refused; every request stays not decided",
             );
         }
         // lane coreseed: the diagnostic's pinned input refused (row 39), before 13: nothing read, never attention
@@ -1241,6 +1293,38 @@ pub fn symmetry_composite_tally(
     let (r, t) = symcomp::tally(&lines, spec)?;
     check_tally_against_outcome(o, &t)?;
     Ok((r, t))
+}
+
+/// S of kind tadic-replay (lane tadicjob): the verified results stream (through its handle) checked against the pinned
+/// job input (raw BLAKE3 = the spec's, labels in order) and the driver's result file (raw BLAKE3 = the end record's)
+/// ([`crate::tadicjob::check_sealed`]). Returns the request lines.
+pub fn tadic_replay_lines(
+    layout: &RunLayout,
+    spec: &JobSpec,
+    v: &VerifiedOutputs,
+) -> Result<Vec<serde_json::Value>, String> {
+    let rel = RunLayout::out_rel(crate::layout::RESULTS);
+    let s = v
+        .streams
+        .iter()
+        .find(|s| s.rel == rel)
+        .ok_or("no verified results stream")?;
+    let lines = crate::seal::VerifiedHandle::reopen(&layout.root, s)
+        .and_then(|h| h.canonical_lines())
+        .map_err(|e| format!("results: {e}"))?;
+    let jr = spec
+        .inputs
+        .iter()
+        .find(|i| i.role == crate::tadicjob::ROLE_JOB)
+        .ok_or("no tadic_job input")?;
+    let jb = std::fs::read(spec.input_path(jr)).map_err(|e| format!("job input: {e}"))?;
+    if crate::blake3_hex(&jb) != jr.blake3 {
+        return Err(format!("{}: job input digest differs", crate::tadicjob::INPUT_MISMATCH));
+    }
+    let job: serde_json::Value = serde_json::from_slice(&jb).map_err(|e| format!("job input: {e}"))?;
+    let rb = std::fs::read(layout.out_dir().join(crate::tadicjob::CHILD_OUT))
+        .map_err(|e| format!("result file: {e}"))?;
+    crate::tadicjob::check_sealed(&lines, &job, &jr.blake3, &crate::blake3_hex(&rb))
 }
 
 /// S of kind pole-regular-at (lane coreseed): the verified results stream (through its handle) checked against the
@@ -1587,6 +1671,12 @@ pub fn assess(
                     && let Err(why) = pole_regular_at_answers(layout, spec, &v)
                 {
                     unsealed_why = Some(format!("pole-regular-at answers: {why}"));
+                }
+                // lane tadicjob: kind tadic-replay: the sealed lines against the pinned job and the result file digest
+                if spec.kind == JobKind::TadicReplay
+                    && let Err(why) = tadic_replay_lines(layout, spec, &v)
+                {
+                    unsealed_why = Some(format!("tadic-replay results: {why}"));
                 }
                 // lane symcert: kind proof-symrows: the sealed certificate re-checked against the pinned request,
                 // table and symrows input (a valid seal on another relation's certificate is refused: row 43)
