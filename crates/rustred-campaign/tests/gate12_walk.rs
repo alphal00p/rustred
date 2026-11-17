@@ -9,6 +9,10 @@
 //!   call started and is still the same live child of the helper after it.
 //!   IGNORED: FAILS on 4435f6db (G12-M1): at 1 ms (~700-900 live children, a children file of 4.8-6 KB > one seq_file
 //!   page) 40-60 of ~100-130 Ok answers lack a live child; at 10 ms (one page) none. Run with `--include-ignored`.
+//!   procfix7 round 8: UN-IGNORED: `ProcRoot::children` reads every non-empty list until two consecutive reads agree
+//!   (bounded, else Unreadable "children list unstable", which the walk retries with its back-off; the kernel's by-index
+//!   continuation also skips inside ONE buffer: 1 violation in ~1,000 Ok at 10 ms with a single-buffer rule), and
+//!   `children_all_threads_proven` refuses a pass during which a thread entered its exit state (its children moved).
 //! - `g12_walk_permanent_churn_is_bounded`: scripts/gate12/src/g12thr.c `churn 0` (4 threads created back to back for
 //!   ever; the child's parent thread lives): each call ends within a bound, Ok containing the child or Unreadable.
 //!
@@ -174,7 +178,7 @@ fn stream_case(bin: &Path, ms: u32, z: bool, secs: u64) -> (u64, u64, Vec<String
 }
 
 #[test]
-#[ignore = "FAILS on 4435f6db (gate12 G12-M1: a children file longer than one 4 KB page is read by index across read() calls)"]
+// procfix7 round 8: un-ignored (G12-M1 fixed: every non-empty children list read until two reads agree; exits during a pass refused)
 fn g12_walk_reparent_stream_never_answers_ok_with_a_child_missing() {
     if !in_ns() {
         return;

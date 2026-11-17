@@ -194,6 +194,12 @@ impl fmt::Debug for ProcRoot {
 /// none failed 16).
 pub const WALK_TRIES: usize = 16;
 
+/// procfix7 round 8 (gate12 G12-M1): reads of a non-empty children file until two consecutive ones agree.
+pub const CHILDREN_READS: usize = 8;
+
+/// The words of the Unreadable answer of [`ProcRoot::children`] for a list that kept changing (a retry may still prove it).
+pub const CHILDREN_UNSTABLE: &str = "children list unstable";
+
 /// The production proc root (with the test build's injected faults, if any).
 pub fn sys() -> ProcRoot {
     ProcRoot::system()
@@ -800,24 +806,54 @@ impl ProcRoot {
             .uid())
     }
 
-    /// `/proc/<pid>/task/<tid>/children`, complete (Gone: that thread is gone).
+    /// `/proc/<pid>/task/<tid>/children`, complete (Gone: that thread is gone). procfix7 round 8 (gate12 G12-M1): the
+    /// kernel builds the file element by element, re-taking its lock for each; the next element is found from the
+    /// previous one while that one is still a child, otherwise BY INDEX (fs/proc/array.c `get_children_pid`), also when a
+    /// longer file is continued in a new seq_file buffer: children that left the list (reaped, or moved away because the
+    /// thread exits) ahead of that index shift it and the read SKIPS live children. So an empty read is taken as it is
+    /// (its first step found no child), and any other read only when the next read agrees with it (at most
+    /// [`CHILDREN_READS`] reads), else Unreadable ([`CHILDREN_UNSTABLE`]). Why two agreeing reads are complete: a skip
+    /// needs an entry the read ALREADY returned to leave the list, and such an entry cannot be in the following read, so
+    /// the two differ. Entries added meanwhile go to the tail and shift nothing.
     pub fn children(&self, pid: u32, tid: u32) -> ProcResult<Vec<u32>> {
         let rel = format!("{pid}/task/{tid}/children");
-        let b = self.read_file(Kind::Children, Some(pid), &rel)?;
+        let mut prev = self.children_once(pid, &rel)?;
+        if prev.is_empty() {
+            return Ok(prev);
+        }
+        prev.sort_unstable();
+        for _ in 1..CHILDREN_READS {
+            let mut next = self.children_once(pid, &rel)?;
+            next.sort_unstable();
+            if next == prev {
+                return Ok(next);
+            }
+            prev = next;
+        }
+        unreadable(format!(
+            "{}: {CHILDREN_UNSTABLE}: no two consecutive of {CHILDREN_READS} reads agreed (the kernel builds the list by \
+             index when entries leave it, which skips live children)",
+            self.what(&rel)
+        ))
+    }
+
+    /// One read of a children file.
+    fn children_once(&self, pid: u32, rel: &str) -> ProcResult<Vec<u32>> {
+        let b = self.read_file(Kind::Children, Some(pid), rel)?;
         if !b.is_empty() && b.last() != Some(&b' ') {
             return unreadable(format!(
                 "{}: torn read ({} bytes, no trailing space)",
-                self.what(&rel),
+                self.what(rel),
                 b.len()
             ));
         }
         let t = std::str::from_utf8(&b)
-            .map_err(|_| ProcError::Unreadable(format!("{}: not UTF-8", self.what(&rel))))?;
+            .map_err(|_| ProcError::Unreadable(format!("{}: not UTF-8", self.what(rel))))?;
         let hide = self.faults.as_ref().and_then(|f| f.hide);
         t.split_whitespace()
             .map(|w| {
                 w.parse::<u32>().map_err(|_| {
-                    ProcError::Unreadable(format!("{}: unparsable {w:?}", self.what(&rel)))
+                    ProcError::Unreadable(format!("{}: unparsable {w:?}", self.what(rel)))
                 })
             })
             // test builds: the hidden pid is on no children list either (gate11 m11-mut M6)
@@ -835,10 +871,23 @@ impl ProcRoot {
     /// the kernel's wait answer at the end: the children it could read). Gone: the process is gone.
     pub fn children_all_threads_proven(&self, pid: u32) -> ProcResult<Vec<u32>> {
         let first = self.status(pid)?.threads()?;
-        if first <= 1 {
-            return self.children(pid, pid);
-        }
         let mut why = String::new();
+        if first <= 1 {
+            // procfix7 round 8 (gate12 G12-M1): a children list that keeps changing is "not proven yet" (try again)
+            for attempt in 0..WALK_TRIES {
+                if attempt > 0 {
+                    std::thread::sleep(Duration::from_micros(250u64 << attempt.min(5)));
+                }
+                match self.children(pid, pid) {
+                    Err(ProcError::Unreadable(w)) if w.contains(CHILDREN_UNSTABLE) => why = w,
+                    r => return r,
+                }
+            }
+            return unreadable(format!(
+                "{}: the children list cannot be proven complete after {WALK_TRIES} tries ({why})",
+                self.what(&format!("{pid}/task/{pid}"))
+            ));
+        }
         let mut partial: Vec<u32> = Vec::new();
         for attempt in 0..WALK_TRIES {
             // threads that come and go (helper threads) leave no quiet moment at once: back off (0.25 ms .. 8 ms)
@@ -858,8 +907,31 @@ impl ProcRoot {
             };
             let after = self.status(pid)?.threads()?;
             ts.sort_unstable();
+            let listed = ts.clone();
+            // procfix7 round 8 (gate12 stream, 10 ms): a thread that EXITS during the reads hands its children to the first
+            // thread of the group not exiting (forget_original_parent -> find_alive_thread, under the tasklist lock, its
+            // exit state set in the same step) but stays listed and counted until it is released: a pass that read the
+            // receiver before the move and the exiting thread after it lacks those children while the task list and
+            // Threads: still agree. That receiver is the LEADER while the leader is not exiting (it heads the group's thread
+            // list): the leader's list is read LAST and its PF_EXITING (never cleared) must still be clear after the reads.
+            // A leader exiting or a zombie: each thread's exit state is read before and after the reads instead; one that
+            // ENTERED an exit state (Z / X) or is gone after them = not proven yet.
+            let lead = self.stat_full(pid, Some(pid))?;
+            let leader_holds = !lead.st.is_dead() && lead.flags & PF_EXITING == 0;
+            if leader_holds && let Some(i) = ts.iter().position(|&t| t == pid) {
+                let l = ts.remove(i);
+                ts.push(l);
+            }
+            let dead_before: Vec<bool> = if leader_holds {
+                Vec::new()
+            } else {
+                ts.iter()
+                    .map(|&t| matches!(self.task_stat(pid, t), Ok(st) if st.is_dead()))
+                    .collect()
+            };
             let mut out = Vec::new();
             let mut thread_gone = false;
+            let mut unstable = None;
             for &t in &ts {
                 match self.children(pid, t) {
                     Ok(k) => out.extend(k),
@@ -867,8 +939,33 @@ impl ProcRoot {
                         thread_gone = true;
                         break;
                     }
+                    // procfix7 round 8 (gate12 G12-M1): a children list that kept changing: not proven yet
+                    Err(ProcError::Unreadable(w)) if w.contains(CHILDREN_UNSTABLE) => {
+                        unstable = Some(w);
+                        break;
+                    }
                     Err(e) => return Err(e),
                 }
+            }
+            if let Some(w) = unstable {
+                why = w;
+                partial = out;
+                continue;
+            }
+            let entered_exit = !thread_gone
+                && if leader_holds {
+                    self.stat_full(pid, Some(pid))
+                        .map_or(true, |l| l.st.is_dead() || l.flags & PF_EXITING != 0)
+                } else {
+                    ts.iter().zip(&dead_before).any(|(&t, &d0)| {
+                        !d0 && self.task_stat(pid, t).map_or(true, |st| st.is_dead())
+                    })
+                };
+            if entered_exit {
+                why = "a thread exited while the children lists were read (its children moved to another thread)"
+                    .to_string();
+                partial = out;
+                continue;
             }
             if before != after || ts.len() != after as usize {
                 why = format!(
@@ -880,7 +977,7 @@ impl ProcRoot {
             }
             let mut again = self.tasks(pid).unwrap_or_default();
             again.sort_unstable();
-            if thread_gone || again != ts {
+            if thread_gone || again != listed {
                 why = "its threads changed while their children lists were read".to_string();
                 partial = out;
                 continue;
@@ -1158,6 +1255,9 @@ struct StatFull {
 
 /// `PF_KTHREAD` of the stat flags: a kernel thread (no environment, never a window).
 const PF_KTHREAD: u64 = 0x0020_0000;
+
+/// `PF_EXITING` of the stat flags: the task has begun to exit (set at the start of do_exit, never cleared).
+const PF_EXITING: u64 = 0x0000_0004;
 
 /// The longest exec window waited for (gate8 measured up to 1.8 ms; under a CPU quota it stretches).
 pub const EXEC_WINDOW_BOUND: Duration = Duration::from_millis(100);
