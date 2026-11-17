@@ -37,12 +37,22 @@ use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 
 use super::error::PError;
 
-/// Entries of one thread's memo beyond which it is cleared.
-pub(crate) const MEMO_ENTRIES: usize = 1 << 20;
+/// Default capacity of a memo (entries; per thread, or of the shared memo).
+/// 2^24 since vk5l-physrun (was 2^20): a 1237 five-loop unit fills 2^20
+/// entries after ~25 min, and a full memo computes every later step
+/// directly (route steps re-expand their numerators): unit 2 3,084.6 s with
+/// 2^24 against 4,128.5 s with 2^20, byte-identical, peak RSS +1.3 GB.
+/// Memory: one entry is its boxed key (8 B per key element, ~10-25
+/// elements), its `Rc` value (an insertion table handle and indices, or a
+/// route expansion: offsets + coefficient indices) and its hash-table slot,
+/// about 0.2-0.5 KB; distinct coefficients are stored once beside the
+/// entries. A full 2^24 memo is thus a few GB (bounded, never cleared
+/// within a request).
+pub(crate) const MEMO_ENTRIES: usize = 1 << 24;
 
 /// vk5l-physrun: the memo capacity, `RUSTRED_P_STEP_MEMO_ENTRIES` (default
 /// [`MEMO_ENTRIES`]); a full memo keeps its entries and its steps compute
-/// directly (one stderr line when a thread's memo fills).
+/// directly (one stderr line when a memo fills).
 pub(crate) fn memo_entries() -> usize {
     static ENTRIES: OnceLock<usize> = OnceLock::new();
     *ENTRIES.get_or_init(|| {
@@ -742,7 +752,14 @@ impl SharedMemo {
         map: impl Fn(&mut Shard) -> &mut HashMap<Box<[i64]>, std::sync::Arc<V>>,
         value: &std::sync::Arc<V>,
     ) {
-        if !self.admits(limits) || self.entries.load(Ordering::Relaxed) >= memo_entries() as u64 {
+        if !self.admits(limits) {
+            return;
+        }
+        if self.entries.load(Ordering::Relaxed) >= memo_entries() as u64 {
+            static REPORTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+            if !REPORTED.swap(true, Ordering::Relaxed) {
+                eprintln!("rustred step memo: shared memo full at {} entries", memo_entries());
+            }
             return;
         }
         let mut shard = self.shard(key).write().unwrap_or_else(|e| e.into_inner());
@@ -1173,7 +1190,8 @@ mod tests {
     /// per-thread memo keeps its entries and stops memoising instead of
     /// resetting itself, so a local index keeps naming the same coefficient
     /// for the whole request (per-request handle caches rely on it), and new
-    /// keys are computed directly (`None`). Slow: 2^20 memo entries.
+    /// keys are computed directly (`None`). Slow: fills the whole memo (run it
+    /// with `RUSTRED_P_STEP_MEMO_ENTRIES=1048576`).
     #[test]
     #[ignore]
     fn memo_audit_a_full_local_memo_keeps_its_indices_within_a_request() {
@@ -1189,7 +1207,7 @@ mod tests {
         let index = first.coefficients[0];
         assert_eq!(local_value(index), Some(c1.clone()));
         drop(first);
-        for k in 0..MEMO_ENTRIES as i64 {
+        for k in 0..memo_entries() as i64 {
             route(&[owner, k], limits, || Ok((0, vec![], vec![]))).unwrap();
         }
         let c2 = context.integer(77);
