@@ -30,8 +30,8 @@ mod real;
 pub mod sweep;
 
 pub use cgroup::{
-    CgroupRoot, JobCgroup, kill_recorded_scope, kill_recorded_scope_at, recorded_scope_emptied,
-    recorded_scope_removed, scope_unit_name,
+    CgroupRoot, ExitScope, JobCgroup, kill_recorded_scope, kill_recorded_scope_at,
+    recorded_scope_emptied, recorded_scope_removed, scope_unit_name,
 };
 
 /// Run `f` with a signalling context: every delivery `f` makes on this thread is logged with it (gate3 M2).
@@ -57,9 +57,10 @@ pub use guard::{
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
     CapPreference, Containment, LauncherError, LauncherSetup, REATTACH_UNDECIDED, RealChild,
-    RealConfig, RealLauncher, RetireEvent, SCOPE_ACK_PREFIX, TrackingPreference, adhoc_campaign_id,
-    audit_inheritable_fds, barrier_shim, in_private_namespace, namespace_state, peek_exit,
-    scope_reset_failed, scope_unit_result, set_not_dumpable,
+    RealConfig, RealLauncher, RetireEvent, ScopeCheck, ScopeUnitState, TrackingPreference,
+    adhoc_campaign_id, audit_inheritable_fds, barrier_shim, in_private_namespace, namespace_state,
+    peek_exit, scope_acknowledgment, scope_evidence_check, scope_reset_failed, scope_unit_state,
+    set_not_dumpable,
 };
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 

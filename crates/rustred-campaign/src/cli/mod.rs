@@ -22,7 +22,9 @@ pub const USAGE: &str = "usage:
       (terminal proposals of the closing loop: the listed keys are accepted as terminals, the other proposals rejected)
   rr_campaign verify CDIR
   rr_campaign result CDIR
-  rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)";
+  rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)
+  rr_campaign scope-check [--unit NAME]     (host only: ONE transient systemd scope around `true`, as a job's; checks the evidence
+                                             a job that ends before its first check is recorded from; exit 0 = PASS; signals nothing)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
 macro_rules! outln {
@@ -91,6 +93,7 @@ pub fn main_with(args: &[String]) -> i32 {
         "watch" | "dashboard" => cmd_watch(rest),
         "result" => cmd_result(rest),
         "rebuild-manifest" => cmd_rebuild_manifest(rest),
+        "scope-check" => cmd_scope_check(rest),
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK
@@ -412,6 +415,24 @@ fn campaign_present(cdir: &Path) -> Result<bool, (i32, String)> {
 
 fn pf(out: &mut impl Write, status: &str, what: &str) {
     let _ = writeln!(out, "{status:<7} {what}");
+}
+
+/// procfix7 round 9 (gate13 G13-M1): `scope-check [--unit NAME]`: [`crate::launch::scope_evidence_check`] (the host
+/// step's pre-flight against the REAL systemd-run). Exit 0 = PASS, 1 = FAIL, 2 = usage.
+fn cmd_scope_check(rest: &[String]) -> i32 {
+    let unit = match rest {
+        [] => None,
+        [flag, name] if flag == "--unit" => Some(name.as_str()),
+        _ => {
+            errln!("scope-check takes at most --unit NAME\n{USAGE}");
+            return exit::USAGE;
+        }
+    };
+    let c = crate::launch::scope_evidence_check(unit);
+    for l in &c.lines {
+        outln!("scope-check {}: {l}", c.unit);
+    }
+    if c.pass { exit::OK } else { 1 }
 }
 
 fn cmd_preflight(rest: &[String]) -> i32 {

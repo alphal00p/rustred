@@ -22,7 +22,7 @@
 //!
 //! Every signal goes through `guard` (identity checklist, pidfd delivery, leader-registry group fast path).
 
-use super::cgroup::ScopeRef;
+use super::cgroup::{ExitScope, ScopeRef};
 use super::guard::{
     self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
 };
@@ -240,11 +240,12 @@ fn systemd_env() -> Vec<(String, std::ffi::OsString)> {
     v
 }
 
-/// procfix7 round 8b (host step 1): NO `--quiet`: systemd-run then writes `Running scope as unit: <unit>.scope` to the
-/// job's stderr after systemd ACKNOWLEDGED the scope's start and before it execs the job (the positive evidence for a
-/// job that dies before its cgroup is checked, [`SCOPE_ACK_PREFIX`]); NO `--collect`: a scope that FAILED (e.g. result
-/// `oom-kill`) stays loaded until the supervisor has read its result ([`scope_unit_result`]) and reset it
-/// ([`scope_reset_failed`]); a scope that ends without failure is unloaded by systemd as before.
+/// procfix7 round 8b (host step 1): NO `--quiet`: systemd-run then writes its start acknowledgment to the job's stderr
+/// after systemd started the scope and before it execs the job (round 9: the SECOND source of evidence for a job that
+/// dies before its cgroup is checked, [`scope_acknowledgment`]; the first is the kernel's record of the leader's cgroup at
+/// its exit, [`ExitScope`]); NO `--collect`: a scope that FAILED (e.g. result `oom-kill`) stays loaded until the
+/// supervisor has read and RECORDED its state ([`scope_unit_state`]) and reset it ([`scope_reset_failed`]), whatever
+/// ended the job (round 9, gate13 G13-M2); a scope that ends without failure is unloaded by systemd as before.
 fn systemd_args(cap: u64, unit: Option<&str>) -> Vec<String> {
     let mut v: Vec<String> = vec!["--user".into(), "--scope".into()];
     // gate3 M5: a deterministic unit name (campaign id + label) instead of systemd-run's anonymous run-p<pid>-i<n>
@@ -263,64 +264,152 @@ fn systemd_args(cap: u64, unit: Option<&str>) -> Vec<String> {
     v
 }
 
-/// The line systemd-run writes to the job's stderr once systemd has started the scope (before it execs the job).
-pub const SCOPE_ACK_PREFIX: &str = "Running scope as unit: ";
+/// procfix7 round 9 (gate13 G13-M1): systemd-run's start acknowledgment of the scope `unit` in `text` (the job's
+/// stderr), in one of its DOCUMENTED forms, each a whole line naming EXACTLY `<unit>.scope`:
+/// - `Running scope as unit: <unit>.scope` (systemd-run of older systemd releases; the round-8b form);
+/// - `Running as unit: <unit>.scope` and `Running as unit: <unit>.scope; invocation ID: <32 hex>` (systemd 261 on this
+///   host: the only two forms its binary holds, gate13).
+///
+/// Some(the form's name) or None. A SECOND source only: the first is the kernel's record of the leader's cgroup at its
+/// exit ([`ExitScope`]), which does not depend on any message text. The job's own program writes to the same file, so a
+/// line can only ever be counted for that job's own scope (classification, never a signal).
+pub fn scope_acknowledgment(text: &str, unit: &str) -> Option<&'static str> {
+    let scope = format!("{unit}.scope");
+    text.lines().find_map(|l| {
+        let l = l.trim_end_matches(['\r', ' ']);
+        if l.strip_prefix("Running scope as unit: ") == Some(scope.as_str()) {
+            return Some("Running scope as unit: <unit>.scope");
+        }
+        let rest = l
+            .strip_prefix("Running as unit: ")?
+            .strip_prefix(scope.as_str())?;
+        if rest.is_empty() {
+            return Some("Running as unit: <unit>.scope");
+        }
+        let id = rest.strip_prefix("; invocation ID: ")?;
+        (id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then_some("Running as unit: <unit>.scope; invocation ID: <id>")
+    })
+}
 
-/// procfix7 round 8b: the `LoadState` and `Result` of a scope unit (`systemctl --user show`, bounded 10 s). Ok((load,
-/// result)); Err when it cannot be read (never a guessed result). Never inside a private namespace.
-pub fn scope_unit_result(unit: &str) -> Result<(String, String), String> {
+/// procfix7 round 9: the state of a scope unit as systemd reports it (`systemctl --user show`), read by its exact name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScopeUnitState {
+    /// `loaded`, `not-found`, ...
+    pub load: String,
+    /// `active`, `deactivating`, `inactive`, `failed`, ...
+    pub active: String,
+    /// `success`, `oom-kill`, `resources`, `timeout`, ...
+    pub result: String,
+}
+
+impl ScopeUnitState {
+    /// Still loaded by the user manager (a failed unit stays loaded until it is reset).
+    pub fn loaded(&self) -> bool {
+        self.load == "loaded"
+    }
+    /// A final state: not loaded, or loaded and `inactive` / `failed` (nothing will change it any more by itself
+    /// except systemd's garbage collection of an inactive unit).
+    pub fn settled(&self) -> bool {
+        !self.loaded() || self.active == "inactive" || self.active == "failed"
+    }
+}
+
+/// procfix7 round 8b / 9: the `LoadState`, `ActiveState` and `Result` of a scope unit (`systemctl --user show`, bounded
+/// 10 s), by its exact name. Err when it cannot be read (never a guessed state). Never inside a private namespace.
+pub fn scope_unit_state(unit: &str) -> Result<ScopeUnitState, String> {
     if in_private_namespace() {
         return Err("inside a private namespace: no systemd unit".into());
     }
+    exact_unit_name(unit)?;
     let exe = which("systemctl").ok_or("systemctl not on PATH")?;
     let name = format!("{unit}.scope");
-    // `.status()` with stdout on a pipe (the process-form tripwire allows no `.output()`): the answer is a few bytes,
-    // far below the pipe's capacity, read after the exit
-    let (mut rd, wr) = std::io::pipe().map_err(|e| format!("systemctl show: pipe: {e}"))?;
-    let r = run_bounded(Duration::from_secs(10), move || {
-        let mut c = Command::new(&exe);
-        c.args(["--user", "show", "--property=LoadState,Result", "--", &name])
-            .env_clear()
-            .stdin(Stdio::null())
-            .stdout(wr)
-            .stderr(Stdio::null());
-        for (k, v) in systemd_env() {
-            c.env(k, v);
-        }
-        let st = c.status()?;
-        let mut out = Vec::new();
-        std::io::Read::read_to_end(&mut rd, &mut out)?;
-        Ok::<_, std::io::Error>((st, out))
-    });
-    let out = match r {
-        crate::resources::Bounded::Done(Ok((st, out))) if st.success() => out,
-        crate::resources::Bounded::Done(Ok((st, _))) => {
-            return Err(format!("systemctl show: {st}"));
-        }
-        crate::resources::Bounded::Done(Err(e)) => return Err(format!("systemctl show: {e}")),
-        crate::resources::Bounded::TimedOut => {
-            return Err("systemctl show: no answer within 10 s".into());
-        }
-        crate::resources::Bounded::SpawnFailed(e) => return Err(format!("systemctl show: {e}")),
-    };
+    let args = [
+        "--user",
+        "show",
+        "--property=LoadState,ActiveState,Result",
+        "--",
+        name.as_str(),
+    ]
+    .map(String::from)
+    .to_vec();
+    let out = stdout_bounded(exe, args, Duration::from_secs(10))
+        .map_err(|e| format!("systemctl show: {e}"))?;
     let t = String::from_utf8_lossy(&out);
     let get = |k: &str| {
         t.lines()
             .find_map(|l| l.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
             .map(str::to_string)
     };
-    match (get("LoadState"), get("Result")) {
-        (Some(l), Some(r)) => Ok((l, r)),
+    match (get("LoadState"), get("ActiveState"), get("Result")) {
+        (Some(load), Some(active), Some(result)) => Ok(ScopeUnitState {
+            load,
+            active,
+            result,
+        }),
         _ => Err(format!("systemctl show: unparsable answer {t:?}")),
     }
 }
 
-/// procfix7 round 8b: unload a FAILED scope of this campaign by its exact name (`systemctl --user reset-failed`), after
-/// its result was read. Best effort (a unit left loaded is listed by P8 / the operator); never inside a namespace.
+/// procfix7 round 9: the standard output of `exe args` (the systemd environment only, stdin / stderr null), bounded by
+/// `timeout` (helper thread). `.status()` with stdout on a pipe (the process-form tripwire allows no `.output()`): the
+/// answer is a few bytes, far below the pipe's capacity, read after the exit. The `Command` is DROPPED before the read:
+/// it holds the pipe's write end, and while it lives the read never sees EOF (the round-8b `scope_unit_result` kept it
+/// and timed out on every call, leaving its helper thread blocked: found by the real-systemd check of round 9).
+fn stdout_bounded(exe: PathBuf, args: Vec<String>, timeout: Duration) -> Result<Vec<u8>, String> {
+    let (mut rd, wr) = std::io::pipe().map_err(|e| format!("pipe: {e}"))?;
+    let r = run_bounded(timeout, move || {
+        let st = {
+            let mut c = Command::new(&exe);
+            c.args(&args)
+                .env_clear()
+                .stdin(Stdio::null())
+                .stdout(wr)
+                .stderr(Stdio::null());
+            for (k, v) in systemd_env() {
+                c.env(k, v);
+            }
+            c.status()?
+            // `c` and its copy of the write end are dropped here
+        };
+        let mut out = Vec::new();
+        std::io::Read::read_to_end(&mut rd, &mut out)?;
+        Ok::<_, std::io::Error>((st, out))
+    });
+    match r {
+        crate::resources::Bounded::Done(Ok((st, out))) if st.success() => Ok(out),
+        crate::resources::Bounded::Done(Ok((st, _))) => Err(format!("{st}")),
+        crate::resources::Bounded::Done(Err(e)) => Err(e.to_string()),
+        crate::resources::Bounded::TimedOut => {
+            Err(format!("no answer within {} s", timeout.as_secs_f64()))
+        }
+        crate::resources::Bounded::SpawnFailed(e) => Err(e.to_string()),
+    }
+}
+
+/// procfix7 round 9: a unit name we pass to systemctl must be ONE literal name: only [A-Za-z0-9_.-] (our scope names are
+/// sanitized to exactly that, cgroup.rs `scope_unit_name`): no glob character can reach `reset-failed`'s pattern match.
+fn exact_unit_name(unit: &str) -> Result<(), String> {
+    if !unit.is_empty()
+        && unit.len() <= 240
+        && unit
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b'-'))
+    {
+        Ok(())
+    } else {
+        Err(format!("not a literal unit name of ours: {unit:?}"))
+    }
+}
+
+/// procfix7 round 8b / 9: unload a FAILED scope of this campaign by its exact name (`systemctl --user reset-failed --
+/// <unit>.scope`: one literal unit name, never a pattern), after its state was read and recorded. A unit left loaded is
+/// listed by P8 / the operator; never inside a namespace. Sends no signal (it only clears systemd's failed state).
 pub fn scope_reset_failed(unit: &str) -> Result<(), String> {
     if in_private_namespace() {
         return Err("inside a private namespace: no systemd unit".into());
     }
+    exact_unit_name(unit)?;
     let exe = which("systemctl").ok_or("systemctl not on PATH")?;
     let name = format!("{unit}.scope");
     match run_bounded(Duration::from_secs(10), move || {
@@ -345,6 +434,232 @@ pub fn scope_reset_failed(unit: &str) -> Result<(), String> {
     }
 }
 
+/// procfix7 round 9 (gate13 G13-M1): the outcome of [`scope_evidence_check`].
+#[derive(Clone, Debug)]
+pub struct ScopeCheck {
+    /// The unit started (`<unit>.scope`).
+    pub unit: String,
+    /// What was seen, one line each (printed by `rr_campaign scope-check`).
+    pub lines: Vec<String>,
+    /// Both sources of evidence named the exact unit and nothing was left loaded.
+    pub pass: bool,
+}
+
+/// procfix7 round 9 (gate13 G13-M1): the REAL-systemd check of the evidence a job that dies before its first check is
+/// recorded from (`rr_campaign scope-check`, the host step's pre-flight). It starts ONE transient scope exactly as a job's
+/// (`systemd-run --user --scope --unit=<unit> -p MemoryMax=64M -p MemorySwapMax=0 -p OOMPolicy=kill -- true`, no
+/// `--quiet`, stderr on a pipe), observes the exit WITHOUT reaping (waitid WNOWAIT: the pid stays ours), reads the
+/// kernel's record of the leader's cgroup at the exit ([`ExitScope`]) once at once and once after systemd removed the
+/// unit (it must then read ` (deleted)`), parses systemd-run's start acknowledgment ([`scope_acknowledgment`]), reaps,
+/// and checks that nothing named `<unit>.scope` stays loaded (a failed one is recorded here and reset by its exact name).
+/// It starts no supervisor, launcher, sampler or sweep and SENDS NO SIGNAL (none is in this code path): if the scope
+/// does not end within 30 s the check fails and the child is left to end by itself. Never inside a private namespace.
+pub fn scope_evidence_check(unit: Option<&str>) -> ScopeCheck {
+    let unit = match unit {
+        Some(u) => u.to_string(),
+        None => {
+            let h = release_token()
+                .map(|t| blake3::hash(&t).to_hex()[..16].to_string())
+                .unwrap_or_else(|_| format!("{:016x}", Instant::now().elapsed().as_nanos()));
+            format!("rr-scope-check-{}-{h}", std::process::id())
+        }
+    };
+    let mut c = ScopeCheck {
+        unit: format!("{unit}.scope"),
+        lines: Vec::new(),
+        pass: false,
+    };
+    fn fail(c: &mut ScopeCheck, m: String) {
+        c.lines.push(format!("FAIL: {m}"));
+    }
+    if let Err(e) = exact_unit_name(&unit) {
+        fail(&mut c, e);
+        return c;
+    }
+    match namespace_state() {
+        Ok(false) => {}
+        Ok(true) => {
+            fail(&mut c, "inside a private user / pid namespace: systemd would see foreign pids (run it on the host)".into());
+            return c;
+        }
+        Err(e) => {
+            fail(&mut c, format!("the namespace cannot be determined ({e})"));
+            return c;
+        }
+    }
+    let (Some(exe), Some(truth)) = (which("systemd-run"), which("true")) else {
+        fail(&mut c, "systemd-run or true not on PATH".into());
+        return c;
+    };
+    c.lines.push(format!("systemd-run: {}", exe.display()));
+    match scope_unit_state(&unit) {
+        Ok(st) if st.loaded() => {
+            fail(
+                &mut c,
+                format!(
+                    "{}.scope is already loaded ({st:?}): choose another name",
+                    unit
+                ),
+            );
+            return c;
+        }
+        Ok(_) => {}
+        Err(e) => {
+            fail(&mut c, format!("the user manager cannot be asked ({e})"));
+            return c;
+        }
+    }
+    let (mut rd, wr) = match std::io::pipe() {
+        Ok(p) => p,
+        Err(e) => {
+            fail(&mut c, format!("pipe: {e}"));
+            return c;
+        }
+    };
+    let args = systemd_args(64 << 20, Some(&unit));
+    c.lines.push(format!(
+        "started: {} {} {}",
+        exe.display(),
+        args.join(" "),
+        truth.display()
+    ));
+    let spawned = {
+        let mut cmd = Command::new(&exe);
+        cmd.args(&args)
+            .arg(&truth)
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(wr);
+        for (k, v) in systemd_env() {
+            cmd.env(k, v);
+        }
+        cmd.spawn()
+        // `cmd` (and its copy of the pipe's write end) is dropped here: EOF once the scope's process exits
+    };
+    let mut child = match spawned {
+        Ok(ch) => ch,
+        Err(e) => {
+            fail(&mut c, format!("systemd-run could not be started: {e}"));
+            return c;
+        }
+    };
+    let pid = child.id();
+    let until = Instant::now() + Duration::from_secs(30);
+    let exit = loop {
+        match peek_exit(pid) {
+            Ok(Some(e)) => break Some(e),
+            Ok(None) if Instant::now() < until => std::thread::sleep(Duration::from_millis(20)),
+            Ok(None) => break None,
+            Err(e) => {
+                fail(&mut c, format!("waitid of our child {pid}: {e}"));
+                return c;
+            }
+        }
+    };
+    let Some(exit) = exit else {
+        fail(
+            &mut c,
+            format!(
+                "the scope's process {pid} did not end within 30 s (left to end by itself; nothing was signalled)"
+            ),
+        );
+        return c;
+    };
+    let uid = crate::resources::our_uid();
+    let read = |what: &str| match crate::resources::procfs::sys()
+        .cgroup_text(pid, Duration::from_secs(1))
+    {
+        Ok(t) => (
+            t.trim_end().to_string(),
+            ExitScope::from_cgroup_text(&t, uid, &unit),
+            what.to_string(),
+        ),
+        Err(e) => (
+            String::new(),
+            ExitScope::Unknown(e.to_string()),
+            what.to_string(),
+        ),
+    };
+    let first = read("at the exit");
+    // systemd stops the empty scope and removes its cgroup; a scope that ended without failure is then unloaded
+    let until = Instant::now() + Duration::from_secs(15);
+    let mut st = scope_unit_state(&unit);
+    while matches!(&st, Ok(s) if s.loaded() && s.active != "failed") && Instant::now() < until {
+        std::thread::sleep(Duration::from_millis(50));
+        st = scope_unit_state(&unit);
+    }
+    match &st {
+        Ok(s) if s.loaded() && s.active == "failed" => {
+            c.lines.push(format!(
+                "the unit FAILED: {s:?} (recorded here); reset by its exact name"
+            ));
+            match scope_reset_failed(&unit) {
+                Ok(()) => {}
+                Err(e) => c.lines.push(format!("reset-failed: {e}")),
+            }
+        }
+        Ok(s) if s.loaded() => c
+            .lines
+            .push(format!("the unit is still loaded after 15 s: {s:?}")),
+        Ok(_) => c.lines.push("the unit was unloaded by systemd".into()),
+        Err(e) => c
+            .lines
+            .push(format!("the unit's state could not be read: {e}")),
+    }
+    let second = read("after systemd removed the unit");
+    let reaped = child.try_wait();
+    c.lines.push(format!(
+        "exit of the scope's process {pid}: {exit:?}; reaped: {reaped:?}"
+    ));
+    let mut text = Vec::new();
+    if let Err(e) = std::io::Read::read_to_end(&mut rd, &mut text) {
+        c.lines.push(format!("stderr of systemd-run: {e}"));
+    }
+    let text = String::from_utf8_lossy(&text).into_owned();
+    for l in text.lines() {
+        c.lines.push(format!("systemd-run stderr: {l}"));
+    }
+    let form = scope_acknowledgment(&text, &unit);
+    c.lines.push(format!(
+        "start acknowledgment naming exactly {unit}.scope: {}",
+        form.map_or("NONE RECOGNIZED".to_string(), |f| format!("form {f:?}"))
+    ));
+    for (line, ev, what) in [&first, &second] {
+        c.lines
+            .push(format!("kernel record {what}: {line:?} -> {ev:?}"));
+    }
+    let after = scope_unit_state(&unit);
+    c.lines
+        .push(format!("{unit}.scope after the check: {after:?}"));
+    let inside = |e: &ExitScope| matches!(e, ExitScope::Inside { .. });
+    let mut why = Vec::new();
+    if form.is_none() {
+        why.push("no start acknowledgment in a documented form names the exact unit");
+    }
+    if !inside(&first.1) {
+        why.push("the kernel's record at the exit does not name the exact unit");
+    }
+    if !matches!(second.1, ExitScope::Inside { deleted: true, .. }) {
+        why.push(
+            "the kernel's record after the unit was gone is not the exact unit marked (deleted)",
+        );
+    }
+    if !matches!(&after, Ok(s) if !s.loaded()) {
+        why.push("the unit is still loaded (or its state is unknown) after the check");
+    }
+    if !matches!(exit, ExitState::Exited(0)) {
+        why.push("the scope's process did not exit 0");
+    }
+    if why.is_empty() {
+        c.pass = true;
+        c.lines.push("PASS".into());
+    } else {
+        fail(&mut c, why.join("; "));
+    }
+    c
+}
+
 /// TEST BUILDS ONLY (procfix7 round 8b): `scope_pending:1` in RR_CAMPAIGN_FAILPOINT makes every job's containment
 /// `Pending` with the requested unit [`TEST_PENDING_UNIT`] ("the cgroup does not name the scope"), also inside a
 /// namespace.
@@ -357,6 +672,28 @@ fn test_scope_pending() -> Option<&'static str> {
                 .is_ok_and(|v| v.split(',').any(|p| p.trim() == "scope_pending:1"))
         });
         on.then_some(TEST_PENDING_UNIT)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
+/// TEST BUILDS ONLY (procfix7 round 9): `scope_exit:1` in RR_CAMPAIGN_FAILPOINT makes the kernel's record of a leader's
+/// cgroup at its exit read as the requested scope, removed (` (deleted)`); `scope_exit:2` makes it unknown (as when
+/// the read fails); also inside a namespace. None: no override.
+fn test_exit_override() -> Option<u8> {
+    #[cfg(debug_assertions)]
+    {
+        static ON: std::sync::OnceLock<Option<u8>> = std::sync::OnceLock::new();
+        *ON.get_or_init(|| {
+            let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+            v.split(',').find_map(|p| match p.trim() {
+                "scope_exit:1" => Some(1),
+                "scope_exit:2" => Some(2),
+                _ => None,
+            })
+        })
     }
     #[cfg(not(debug_assertions))]
     {
@@ -1320,6 +1657,9 @@ pub struct RealChild {
     scope: Option<ScopeRef>,
     /// The deterministic unit name the scope was created with (gate3 M5), if any.
     scope_unit: Option<String>,
+    /// procfix7 round 9 (gate13 G13-M1): the kernel's record of the cgroup the leader exited in, read once when its exit
+    /// is first observed (still unreaped), if a scope was requested and not verified before.
+    exit_scope: Option<ExitScope>,
     peak_rss: u64,
     cpu_ticks: u64,
     finished: Option<FinalReport>,
@@ -1387,6 +1727,7 @@ impl RealChild {
             scope_dir: None,
             scope: None,
             scope_unit: None,
+            exit_scope: None,
             peak_rss: 0,
             cpu_ticks: 0,
             finished: None,
@@ -1449,6 +1790,49 @@ impl RealChild {
     /// procfix7 round 8b: has the job's leader exited (its exit observed; the zombie may still be pinned)?
     pub fn leader_exited(&self) -> bool {
         self.exit.is_some()
+    }
+
+    /// procfix7 round 9 (gate13 G13-M1): the kernel's record of the cgroup the leader EXITED in (read once, from the
+    /// unreaped zombie, when its exit was first observed), for a requested scope that was not verified before. None:
+    /// no scope requested, the scope was verified, or the exit not observed yet.
+    pub fn scope_at_exit(&self) -> Option<&ExitScope> {
+        self.exit_scope.as_ref()
+    }
+
+    /// procfix7 round 9: read the kernel's record of the leader's cgroup now that its exit was observed (the leader is
+    /// still our UNREAPED child: its pid cannot be reused). Reads only; signals nothing.
+    fn record_exit_scope(&mut self) {
+        if self.exit_scope.is_some() || self.scope.is_some() {
+            return;
+        }
+        let Some(unit) = self.requested_scope_unit().map(str::to_string) else {
+            return;
+        };
+        let uid = crate::resources::our_uid();
+        match test_exit_override() {
+            Some(1) => {
+                // TEST BUILDS ONLY (`scope_exit:1`): the kernel's line as it reads for a scope removed after the exit
+                let text = format!(
+                    "0::/user.slice/user-{uid}.slice/user@{uid}.service/app.slice/{unit}.scope (deleted)\n"
+                );
+                self.exit_scope = Some(ExitScope::from_cgroup_text(&text, uid, &unit));
+                return;
+            }
+            Some(_) => {
+                self.exit_scope = Some(ExitScope::Unknown("test failpoint scope_exit:2".into()));
+                return;
+            }
+            None => {}
+        }
+        self.exit_scope = Some(if !self.pinned() {
+            ExitScope::Unknown("the leader is not pinned any more".into())
+        } else {
+            match crate::resources::procfs::sys().cgroup_text(self.sid, Duration::from_millis(200))
+            {
+                Ok(text) => ExitScope::from_cgroup_text(&text, uid, &unit),
+                Err(e) => ExitScope::Unknown(format!("the leader's cgroup file: {e}")),
+            }
+        });
     }
 
     /// Is the child still waiting behind its spawn barrier (procfix5 m1)?
@@ -1935,6 +2319,7 @@ impl ChildHandle for RealChild {
             self.exit = e;
             self.exit_seen_at = Some(Instant::now());
             self.sampler.request_now();
+            self.record_exit_scope();
         }
         Ok(e)
     }
@@ -2452,4 +2837,101 @@ pub fn barrier_shim(args: &[String]) -> i32 {
         super::BARRIER_VERB
     );
     127
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// procfix7 round 9 (gate13 G13-M1): systemd-run's start acknowledgment in its documented forms, each a whole line
+    /// naming EXACTLY the requested unit; every near miss is no acknowledgment.
+    #[test]
+    fn the_start_acknowledgment_is_recognised_in_its_documented_forms_for_the_exact_unit_only() {
+        let u = "rr-camp.0123456789abcdef-N0.i0001.L0-t0_a1-00112233aabbccdd";
+        let id = "645e842e0123456789abcdef01234567";
+        let yes = [
+            (
+                format!("Running as unit: {u}.scope; invocation ID: {id}\n"),
+                "Running as unit: <unit>.scope; invocation ID: <id>",
+            ),
+            (
+                format!("Running as unit: {u}.scope\n"),
+                "Running as unit: <unit>.scope",
+            ),
+            (
+                format!("Running scope as unit: {u}.scope\r\n"),
+                "Running scope as unit: <unit>.scope",
+            ),
+            (
+                format!("job output\nRunning as unit: {u}.scope; invocation ID: {id}\nmore\n"),
+                "Running as unit: <unit>.scope; invocation ID: <id>",
+            ),
+        ];
+        for (t, form) in &yes {
+            assert_eq!(scope_acknowledgment(t, u), Some(*form), "{t:?}");
+        }
+        let no = [
+            format!("Running as unit: {u}x.scope; invocation ID: {id}\n"),
+            format!("Running as unit: x{u}.scope\n"),
+            format!("Running as unit: {u}\n"),
+            format!("Running as unit: {u}.service\n"),
+            format!("Running as unit: {u}.scope; invocation ID: {}\n", &id[..31]),
+            format!("Running as unit: {u}.scope; invocation ID: {id}0\n"),
+            format!(
+                "Running as unit: {u}.scope; invocation ID: {}zz\n",
+                &id[..30]
+            ),
+            format!("Running as unit: {u}.scope; extra\n"),
+            format!("x Running as unit: {u}.scope\n"),
+            format!("Running timer as unit: {u}.scope\n"),
+            format!("Will run service as unit: {u}.scope\n"),
+            String::new(),
+        ];
+        for t in &no {
+            assert_eq!(scope_acknowledgment(t, u), None, "{t:?}");
+        }
+    }
+
+    /// procfix7 round 9: the bounded stdout read ends with the command's output (the round-8b form never saw EOF and
+    /// timed out). Spawns `printf`: run with LIGHT_PIDNS=1 (rule L10).
+    #[test]
+    fn the_bounded_stdout_read_sees_the_end_of_the_output() {
+        if !in_private_namespace() {
+            eprintln!("SKIPPED: spawns a process: only inside a private pid namespace (rule L10)");
+            return;
+        }
+        let Some(exe) = which("printf") else {
+            eprintln!("SKIPPED: no printf on PATH");
+            return;
+        };
+        let t0 = Instant::now();
+        let out = stdout_bounded(
+            exe,
+            vec!["LoadState=loaded\\nActiveState=failed\\nResult=oom-kill\\n".into()],
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(out).unwrap(),
+            "LoadState=loaded\nActiveState=failed\nResult=oom-kill\n"
+        );
+        assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+    }
+
+    /// procfix7 round 9: only one literal unit name of ours reaches systemctl (no glob, no option, no path).
+    #[test]
+    fn only_literal_unit_names_reach_systemctl() {
+        assert!(exact_unit_name("rr-camp.0123-N0.i0001.L0-t0_a1-00112233aabbccdd").is_ok());
+        for bad in [
+            "", "rr-*", "rr-?x", "rr-[ab]", "-rr", "rr x", "rr/x", "rr\\x", "rr@x", "rr:x",
+        ] {
+            if bad == "-rr" {
+                // a leading '-' is a valid character of ours, but systemctl gets `--` before the name
+                assert!(exact_unit_name(bad).is_ok());
+                continue;
+            }
+            assert!(exact_unit_name(bad).is_err(), "{bad:?}");
+        }
+        assert!(exact_unit_name(&"a".repeat(241)).is_err());
+    }
 }

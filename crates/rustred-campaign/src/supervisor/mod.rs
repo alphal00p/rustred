@@ -676,10 +676,22 @@ struct ScopeEnd {
 }
 
 /// procfix7 round 8b (host step 1): the evidence for a requested scope that was not verified. `alive`: the job still
-/// runs (it is ended now: `scope_unverified_ended`). Dead before its check: systemd-run's start acknowledgment
-/// ([`crate::launch::SCOPE_ACK_PREFIX`] + the exact unit, written to the job's stderr before the exec) is POSITIVE
-/// evidence that the scope existed (`scope_acknowledged_ended`); without it the attempt is `scope_unverified_ended`.
-fn scope_end(stderr: &Path, unit: Option<&str>, alive: bool) -> ScopeEnd {
+/// runs (it is ended now: `scope_unverified_ended`). Dead before its check (procfix7 round 9, gate13 G13-M1), in this
+/// order:
+/// 1. the KERNEL's record of the cgroup the leader exited in ([`crate::launch::ExitScope`], read from the unreaped zombie
+///    when its exit was first observed): `Inside` the exact requested unit under our user manager = POSITIVE evidence
+///    (`scope_acknowledged_ended`); `Elsewhere` = the leader did NOT end inside its scope (`scope_unverified_ended`,
+///    whatever its stderr says);
+/// 2. only when the kernel's record is unknown: systemd-run's start acknowledgment in one of its documented forms naming
+///    the exact unit ([`crate::launch::scope_acknowledgment`], written to the job's stderr before the exec);
+/// 3. otherwise `scope_unverified_ended`.
+fn scope_end(
+    stderr: &Path,
+    unit: Option<&str>,
+    alive: bool,
+    at_exit: Option<&crate::launch::ExitScope>,
+) -> ScopeEnd {
+    use crate::launch::ExitScope;
     let unit = unit.unwrap_or("?");
     if alive {
         return ScopeEnd {
@@ -691,21 +703,53 @@ fn scope_end(stderr: &Path, unit: Option<&str>, alive: bool) -> ScopeEnd {
             unverified: true,
         };
     }
-    let ack = format!("{}{unit}.scope", crate::launch::SCOPE_ACK_PREFIX);
+    let kernel = match at_exit {
+        Some(ExitScope::Inside { path, deleted }) => {
+            return ScopeEnd {
+                word: "scope_acknowledged_ended",
+                why: format!(
+                    "scope {unit} existed: the kernel's record of the job's leader at its exit names it ({}{}); the job ended before its cgroup was checked",
+                    path.display(),
+                    if *deleted { ", removed since" } else { "" }
+                ),
+                unverified: false,
+            };
+        }
+        Some(ExitScope::Elsewhere(other)) => {
+            return ScopeEnd {
+                word: "scope_unverified_ended",
+                why: format!(
+                    "scope {unit} requested; the job ended before its cgroup was checked and the kernel's record of its leader at its exit names another cgroup ({other:?})"
+                ),
+                unverified: true,
+            };
+        }
+        Some(ExitScope::Unknown(r)) => r.clone(),
+        None => "not read".to_string(),
+    };
     match crate::fsx::read_to_string("job.stderr", stderr) {
-        crate::fsx::Read::Content(t) if t.lines().any(|l| l.trim_end() == ack) => ScopeEnd {
-            word: "scope_acknowledged_ended",
-            why: format!(
-                "scope {unit} existed per systemd-run's start acknowledgment ({:?} in {}); the job ended before its cgroup was checked",
-                ack,
-                stderr.display()
-            ),
-            unverified: false,
+        crate::fsx::Read::Content(t) => match crate::launch::scope_acknowledgment(&t, unit) {
+            Some(form) => ScopeEnd {
+                word: "scope_acknowledged_ended",
+                why: format!(
+                    "scope {unit} existed per systemd-run's start acknowledgment ({form:?} in {}; the kernel's record at the exit: {kernel}); the job ended before its cgroup was checked",
+                    stderr.display()
+                ),
+                unverified: false,
+            },
+            None => ScopeEnd {
+                word: "scope_unverified_ended",
+                why: format!(
+                    "scope {unit} requested; the job ended before its cgroup was checked, the kernel's record at the exit is unknown ({kernel}) and {} holds no start acknowledgment",
+                    stderr.display()
+                ),
+                unverified: true,
+            },
         },
-        crate::fsx::Read::Content(_) | crate::fsx::Read::Absent => ScopeEnd {
+        crate::fsx::Read::Absent => ScopeEnd {
             word: "scope_unverified_ended",
             why: format!(
-                "scope {unit} requested; the job ended before its cgroup was checked and {} holds no start acknowledgment",
+                "scope {unit} requested; the job ended before its cgroup was checked, the kernel's record at the exit is unknown ({kernel}) and {} holds no start acknowledgment",
                 stderr.display()
             ),
             unverified: true,
@@ -713,7 +757,7 @@ fn scope_end(stderr: &Path, unit: Option<&str>, alive: bool) -> ScopeEnd {
         crate::fsx::Read::Failed(e) => ScopeEnd {
             word: "scope_unverified_ended",
             why: format!(
-                "scope {unit} requested; the job ended before its cgroup was checked and {} cannot be read ({e})",
+                "scope {unit} requested; the job ended before its cgroup was checked, the kernel's record at the exit is unknown ({kernel}) and {} cannot be read ({e})",
                 stderr.display()
             ),
             unverified: true,
@@ -3330,9 +3374,9 @@ impl Supervisor {
         if !sigkill || report.kill_reason.is_some() || crate::launch::in_private_namespace() {
             return report;
         }
-        match crate::launch::scope_unit_result(&unit) {
-            Ok((load, result)) if load == "loaded" => {
-                if result == "oom-kill" {
+        match crate::launch::scope_unit_state(&unit) {
+            Ok(st) if st.loaded() => {
+                if st.result == "oom-kill" {
                     report.kill_reason = Some(KillReason::MemoryCap {
                         rss_bytes: report.peak_rss_bytes.max(ch.peak),
                         cap_bytes: ch.cap,
@@ -3342,7 +3386,7 @@ impl Supervisor {
                         ch.job, ch.attempt
                     ));
                 }
-                if result != "success" {
+                if st.result != "success" {
                     #[allow(clippy::let_underscore_must_use)]
                     // ignored-ok (procfix7 round 8b): a unit left loaded is listed by the operator's checks (P8)
                     let _ = crate::launch::scope_reset_failed(&unit);
@@ -4631,8 +4675,18 @@ impl Supervisor {
                     );
                 }
             }
+            // test builds: `poll_fails:1` makes every poll fail (EIO) (gate10 m10-5's every-waitid-failing cell)
+            let polled = if self.fp.armed("poll_fails") {
+                Err(std::io::Error::from_raw_os_error(libc::EIO))
+            } else {
+                ch.handle.poll()
+            };
             // procfix6 (gate5 m5): the containment actually in force, once verified (or after 10 s / at the end).
-            if !ch.containment_noted {
+            // procfix7 round 9 (gate13 m13-alive-order): checked AFTER this tick's poll, so that a leader that exited
+            // before the tick is seen as exited (its end is recorded from the evidence, never as "alive"); an attempt
+            // that finished in this poll is noted by the finished path below.
+            let finished_now = matches!(polled, Ok(ChildProgress::Finished(_)));
+            if !ch.containment_noted && !finished_now {
                 let c = ch.handle.containment();
                 if c != crate::launch::Containment::Pending {
                     ch.containment_noted = true;
@@ -4645,7 +4699,12 @@ impl Supervisor {
                     ch.containment_noted = true;
                     let req = ch.handle.requested_scope_unit().map(str::to_string);
                     let alive = !ch.handle.leader_exited();
-                    let end = scope_end(&ch.layout.stderr_log(), req.as_deref(), alive);
+                    let end = scope_end(
+                        &ch.layout.stderr_log(),
+                        req.as_deref(),
+                        alive,
+                        ch.handle.scope_at_exit(),
+                    );
                     if alive {
                         ch.stopping = true;
                         ch.handle
@@ -4654,12 +4713,6 @@ impl Supervisor {
                     scope_words.push((ch.job.clone(), ch.attempt, end));
                 }
             }
-            // test builds: `poll_fails:1` makes every poll fail (EIO) (gate10 m10-5's every-waitid-failing cell)
-            let polled = if self.fp.armed("poll_fails") {
-                Err(std::io::Error::from_raw_os_error(libc::EIO))
-            } else {
-                ch.handle.poll()
-            };
             match polled {
                 Ok(ChildProgress::Finished(r)) => {
                     ch.poll_failures = 0;
@@ -4705,7 +4758,12 @@ impl Supervisor {
                 if c == crate::launch::Containment::Pending {
                     // procfix7 round 8b: ended before its scope was verified: recorded from the evidence, never
                     // marker_only
-                    let end = scope_end(&ch.layout.stderr_log(), req.as_deref(), false);
+                    let end = scope_end(
+                        &ch.layout.stderr_log(),
+                        req.as_deref(),
+                        false,
+                        ch.handle.scope_at_exit(),
+                    );
                     self.note_scope_end(&ch.job, ch.attempt, &end);
                 } else {
                     self.note_containment(&ch.job, ch.attempt, &c, req.as_deref());

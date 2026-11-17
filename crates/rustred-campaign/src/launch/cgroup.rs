@@ -464,6 +464,53 @@ fn user_manager_root(uid: u32) -> PathBuf {
     ))
 }
 
+/// procfix7 round 9 (gate13 G13-M1): the KERNEL's record of the cgroup in which a job's leader EXITED, read from its own
+/// `/proc/<pid>/cgroup` while it is our UNREAPED zombie (its pid cannot be reused). A zombie cannot be moved between
+/// cgroups and keeps its last cgroup until it is reaped; when systemd has already stopped the scope and removed its
+/// directory, the kernel still names the path and appends ` (deleted)` (cgroup v2, `proc_cgroup_show`). This evidence
+/// does not depend on any message text of systemd-run; it names the EXACT unit. Classification only: nothing is ever
+/// signalled, killed or reset on its basis.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExitScope {
+    /// The leader exited inside exactly the requested scope under our user manager (`deleted`: the kernel reports the
+    /// scope's cgroup as removed since).
+    Inside { path: PathBuf, deleted: bool },
+    /// The kernel names another cgroup (the leader ended before systemd moved it into its scope, or it left the scope).
+    Elsewhere(String),
+    /// Not known (not read, not pinned any more, no cgroup-v2 line, read failed): the reason.
+    Unknown(String),
+}
+
+impl ExitScope {
+    /// From the text of the zombie leader's `/proc/<pid>/cgroup`: `Inside` only for a cgroup-v2 line `0::<path>` (an
+    /// optional ` (deleted)` suffix) whose path lies under OUR user manager, has no empty / `.` / `..` component and
+    /// whose last component is exactly `<unit>.scope`.
+    pub fn from_cgroup_text(text: &str, uid: u32, unit: &str) -> ExitScope {
+        let Some(line) = text.lines().find_map(|l| l.strip_prefix("0::")) else {
+            return ExitScope::Unknown("no cgroup-v2 line in the leader's cgroup file".into());
+        };
+        let line = line.trim_end_matches(['\n', '\r']);
+        let (rel, deleted) = match line.strip_suffix(" (deleted)") {
+            Some(r) => (r, true),
+            None => (line, false),
+        };
+        let inside = rel.strip_prefix('/').and_then(|r| {
+            if r.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+                return None;
+            }
+            let dir = Path::new("/sys/fs/cgroup").join(r);
+            let want = format!("{unit}.scope");
+            (dir.starts_with(user_manager_root(uid))
+                && dir.file_name().and_then(|n| n.to_str()) == Some(want.as_str()))
+            .then_some(dir)
+        });
+        match inside {
+            Some(path) => ExitScope::Inside { path, deleted },
+            None => ExitScope::Elsewhere(line.to_string()),
+        }
+    }
+}
+
 impl ScopeRef {
     /// From the text of the pinned leader's `/proc/<sid>/cgroup`. Every condition must hold, else `None` (the belt is
     /// then simply not used): a cgroup-v2 line `0::<path>`; the path lies under OUR user manager
@@ -765,6 +812,60 @@ fn recorded_scope_removed_in(root: &Path, unit: &str, recorded: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// procfix7 round 9 (gate13 G13-M1): the kernel's record of the cgroup a zombie leader exited in. `Inside` only for
+    /// EXACTLY the requested unit under OUR user manager (live or ` (deleted)`); every near miss is `Elsewhere`.
+    #[test]
+    fn the_exit_scope_names_exactly_the_requested_unit_under_our_user_manager() {
+        let unit = "rr-camp.0123456789abcdef-N0.i0001.L0-t0_a1-00112233aabbccdd";
+        let base = "/user.slice/user-1002.slice/user@1002.service/app.slice";
+        let dir = PathBuf::from(format!("/sys/fs/cgroup{base}/{unit}.scope"));
+        let t = |s: &str| ExitScope::from_cgroup_text(s, 1002, unit);
+        assert_eq!(
+            t(&format!("0::{base}/{unit}.scope (deleted)\n")),
+            ExitScope::Inside {
+                path: dir.clone(),
+                deleted: true
+            }
+        );
+        assert_eq!(
+            t(&format!("0::{base}/{unit}.scope\n")),
+            ExitScope::Inside {
+                path: dir.clone(),
+                deleted: false
+            }
+        );
+        // hybrid hierarchy: v1 lines first
+        assert_eq!(
+            t(&format!(
+                "12:pids:/x\n1:name=systemd:/y\n0::{base}/{unit}.scope (deleted)\n"
+            )),
+            ExitScope::Inside {
+                path: dir,
+                deleted: true
+            }
+        );
+        for other in [
+            format!("0::{base}/{unit}x.scope (deleted)\n"),
+            format!("0::{base}/x{unit}.scope\n"),
+            format!("0::{base}/{unit}.scope/sub\n"),
+            format!("0::{base}/{unit}\n"),
+            format!("0::/user.slice/user-1003.slice/user@1003.service/app.slice/{unit}.scope\n"),
+            format!("0::/system.slice/{unit}.scope\n"),
+            format!("0::{base}/../app.slice/{unit}.scope\n"),
+            format!("0::{base}//{unit}.scope\n"),
+            format!("0::{base}/{unit}.scope (deleted) (deleted)\n"),
+            "0::/user.slice/user-1002.slice/user@1002.service/app.slice/run-p77-i78.scope\n".into(),
+        ] {
+            assert!(
+                matches!(t(&other), ExitScope::Elsewhere(_)),
+                "{other:?}: {:?}",
+                t(&other)
+            );
+        }
+        assert!(matches!(t("12:pids:/x\n"), ExitScope::Unknown(_)));
+        assert!(matches!(t(""), ExitScope::Unknown(_)));
+    }
 
     /// procfix7 round 7 (gate11 m11-mut M8): the restart backstop on an EMULATED scope tree: a scope whose cgroup.procs
     /// lists nobody (the processes sit in a child cgroup) but whose recursive `populated` is 1 is NOT empty: cgroup.kill
