@@ -1735,7 +1735,9 @@ fn b2_face_by_face() {
                 piece.constraints.push((a.iter().map(|x| -x).collect(), -b));
             }
             // short label (file names): the equations are hashed; the full text is in the run's log line below
-            let h = eqs.bytes().fold(0xcbf2_9ce4_8422_2325u64, |a, b| (a ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+            let h = eqs.bytes().fold(0xcbf2_9ce4_8422_2325u64, |a, b| {
+                (a ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+            });
             eprintln!("affine piece eqs {h:016x}: {eqs}");
             piece.label = format!("{} [affine {h:016x}]", piece.label);
         }
@@ -2953,14 +2955,26 @@ fn drill_core_first_match() {
         }
         let k: Vec<i32> = serde_json::from_str(&line).unwrap();
         let d = disp.first_match(&k);
-        let (label, why) = match &d {
-            Ok(Dispatch::Covered(r)) => (json!(r.label), "covered".to_string()),
+        // the serving TABLE (source id) beside the label (2026-11-17, final certification: a recipe source's labels
+        // repeat table labels, so the label alone does not name the record)
+        let (label, table, why) = match &d {
+            Ok(Dispatch::Covered(r)) => (
+                json!(r.label),
+                json!(disp.tables()[r.table].name),
+                "covered".to_string(),
+            ),
             other => (
+                json!(null),
                 json!(null),
                 format!("{other:?}").chars().take(600).collect(),
             ),
         };
-        writeln!(f, "{}", json!({"key": k, "label": label, "dispatch": why})).unwrap();
+        writeln!(
+            f,
+            "{}",
+            json!({"key": k, "label": label, "table": table, "dispatch": why})
+        )
+        .unwrap();
         n += 1;
     }
     f.flush().unwrap();
@@ -3474,7 +3488,10 @@ fn chain_walk() {
                     match ent {
                         None => {
                             *stub_steps.entry(format!("{tname}#{lab}")).or_default() += 1;
-                            stub_keys.entry(format!("{tname}#{lab}")).or_default().push(k.clone());
+                            stub_keys
+                                .entry(format!("{tname}#{lab}"))
+                                .or_default()
+                                .push(k.clone());
                         }
                         Some((tg, pats)) => {
                             *used.entry(format!("{tname}#{lab}")).or_default() += 1;
@@ -3560,9 +3577,7 @@ fn chain_walk() {
 #[test]
 #[ignore]
 fn record_liveness() {
-    use rustred_campaign_core::parametric::cone::{
-        ConeOptions,
-    };
+    use rustred_campaign_core::parametric::cone::ConeOptions;
     let spec = PathBuf::from(std::env::var("PARAMETRIC_SPEC").expect("PARAMETRIC_SPEC"));
     let out = std::env::var("PARAMETRIC_OUT").expect("PARAMETRIC_OUT");
     let rdr: i64 = std::env::var("PARAMETRIC_LIVENESS_DR")
@@ -3636,17 +3651,70 @@ fn record_liveness() {
         .and_then(|x| x.parse().ok())
         .unwrap_or(20_000);
     let _ = (&cone_a, cone_b);
-    let mut w = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
-    for pos in a..b.min(order.len()) {
+    // final-certification tool step (2026-11-17): PARAMETRIC_LIVENESS_POSITIONS = a file or a list of positions (JSON array
+    // or "a,b,c:d") restricting the range (second pass on undecided records); PARAMETRIC_LIVENESS_RESUME=1 keeps the complete
+    // lines of an existing PARAMETRIC_OUT, cuts a torn tail and decides only the positions not yet written
+    use rustred_campaign_core::parametric::prune::{
+        decided_positions, parse_positions, positions_to_decide,
+    };
+    let selected = std::env::var("PARAMETRIC_LIVENESS_POSITIONS")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| {
+            let txt = if Path::new(&s).is_file() {
+                std::fs::read_to_string(&s).unwrap()
+            } else {
+                s
+            };
+            parse_positions(&txt).unwrap()
+        });
+    let resume = std::env::var("PARAMETRIC_LIVENESS_RESUME").as_deref() == Ok("1");
+    let (done, keep) = if resume {
+        std::fs::read_to_string(&out)
+            .map(|t| decided_positions(&t))
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+    let file = if resume {
+        use std::io::{Seek, SeekFrom};
+        let mut f = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(&out)
+            .unwrap();
+        f.set_len(keep as u64).unwrap();
+        f.seek(SeekFrom::End(0)).unwrap();
+        f
+    } else {
+        std::fs::File::create(&out).unwrap()
+    };
+    let todo = positions_to_decide((a, b), order.len(), selected.as_ref(), &done);
+    eprintln!(
+        "record_liveness: {} position(s) to decide in [{a}, {b}) of {} ({} already written; selection {})",
+        todo.len(),
+        order.len(),
+        done.len(),
+        selected
+            .as_ref()
+            .map_or("none".to_string(), |s| s.len().to_string())
+    );
+    let mut w = std::io::BufWriter::new(file);
+    for pos in todo {
         let (ti, ri) = order[pos];
         let label = g5.tables()[ti].labels[ri];
         let t0 = std::time::Instant::now();
         // the library's exact first-match liveness (rustred_campaign_core::parametric::prune, commit 16e65d06)
-        let v = rustred_campaign_core::parametric::prune::record_liveness(&g5, &frame, &region, pos, &base_opts, enum_cap);
+        let v = rustred_campaign_core::parametric::prune::record_liveness(
+            &g5, &frame, &region, pos, &base_opts, enum_cap,
+        );
         let (live, witness, why) = match v {
             rustred_campaign_core::parametric::prune::Liveness::Live(k) => ("live", Some(k), None),
             rustred_campaign_core::parametric::prune::Liveness::Dead => ("dead", None, None),
-            rustred_campaign_core::parametric::prune::Liveness::Undecided(y) => ("undecided", None, Some(y)),
+            rustred_campaign_core::parametric::prune::Liveness::Undecided(y) => {
+                ("undecided", None, Some(y))
+            }
         };
         writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
             "why": why, "region": region.label, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
