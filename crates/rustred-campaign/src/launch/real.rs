@@ -358,6 +358,7 @@ fn test_scope_pending() -> Option<&'static str> {
 }
 
 /// The requested unit name under the test failpoint `scope_pending:1`.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub const TEST_PENDING_UNIT: &str = "rr-fp-pending";
 
 /// Are we inside a non-initial user or pid namespace? Then the host's user manager would interpret the pids that
