@@ -104,6 +104,9 @@ fn ranks_known_by_construction() {
         .map(|b| b["master"].as_str().unwrap())
         .collect();
     assert_eq!(beyond, vec!["I(1,0,1)", "I(1,1,0)"]);
+    // the known depth of every needed master is in the record (the report's tripwires read it)
+    assert_eq!(r["cell_depths"]["I(1,1,0)"], 0, "{r}");
+    assert_eq!(r["cell_depths"]["I(1,0,1)"], 1, "{r}");
     // a dependence that cancels that row: (A,1) -> S, (B,2) -> (2 a / b) S with eps entries -a/2 and b/4 -> rank 0
     let deps = Dependences::from_json(
         &json!({"schema": "rustred.campaign.dependences.v1", "label": "toy",
