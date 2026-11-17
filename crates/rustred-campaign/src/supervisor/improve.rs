@@ -130,11 +130,14 @@ struct TableSink {
     sha: rustred_campaign_core::closure::sha256::Sha256,
     bytes: u64,
     rules: Vec<im::TableRule>,
+    /// The native importer's order rule, enforced on every written rule (index = position in its chart).
+    order: im::Positions,
 }
 
 impl TableSink {
     fn line(&mut self, l: &str) -> Result<(), String> {
         if let Some(r) = im::TableRule::from_line(l)? {
+            self.order.take(&r.chart, r.index)?;
             self.rules.push(r);
         }
         self.sha.update(l.as_bytes());
@@ -851,6 +854,7 @@ impl ImproveSource {
             }
             _ => None,
         };
+        let mut positions_map: Option<Vec<Value>> = None;
         let (out_sha, out_path, out_bytes, new_rules) = if repl.is_empty() {
             (
                 tin.clone(),
@@ -876,6 +880,7 @@ impl ImproveSource {
                 sha: rustred_campaign_core::closure::sha256::Sha256::new(),
                 bytes: 0,
                 rules: Vec::new(),
+                order: im::Positions::default(),
             };
             let mut old_lines = Vec::new();
             // the new rule counts (completion markers): old rules - replaced + the replacement lines, per chart
@@ -893,27 +898,40 @@ impl ImproveSource {
                 }
             }
             let total: u64 = per_chart.values().sum();
-            let mut next_free = self.nodes[i]
-                .rules
-                .iter()
-                .map(|r| r.index)
-                .max()
-                .unwrap_or(-1)
-                + 1;
+            // POSITIONED (native importer order rule): every rule record's index = its position among its chart's rules
+            // in file order; a sub-table takes consecutive positions at the replaced rule's place, the rules after it
+            // move (only their index number changes); the map old -> new is written beside the table
+            let mut pos = im::Positions::default();
+            let mut moved: Vec<Value> = Vec::new();
             let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
             for l in std::io::BufReader::new(f).lines() {
                 let l = l.map_err(|e| e.to_string())?;
                 match im::TableRule::from_line(&l)? {
                     Some(r) if repl.contains_key(&r.index) => {
-                        for n in im::subtree_lines(&repl[&r.index], r.index, &mut next_free)? {
-                            sink.line(&n)?;
+                        let first = pos.peek(&r.chart);
+                        let lines =
+                            im::replacement_lines(&repl[&r.index], &l, r.index, first, run)?;
+                        for n in &lines {
+                            let nr = im::TableRule::from_line(n)?
+                                .ok_or("replacement line is not a rule")?;
+                            pos.take(&nr.chart, nr.index)?;
+                            sink.line(n)?;
                         }
+                        moved.push(json!({"chart": r.chart, "old": r.index, "new": (first..first + lines.len() as i64).collect::<Vec<_>>(), "replaced": true}));
                         old_lines.push(l);
                     }
-                    Some(_) => sink.line(&l)?,
+                    Some(r) => {
+                        let at = pos.peek(&r.chart);
+                        pos.take(&r.chart, at)?;
+                        if at != r.index {
+                            moved.push(json!({"chart": r.chart, "old": r.index, "new": [at]}));
+                        }
+                        sink.line(&im::set_index(&l, at)?)?;
+                    }
                     None => sink.line(&im::restate_marker(&l, total, &per_chart))?,
                 }
             }
+            positions_map = Some(moved);
             let written = sink.file.is_some();
             if let Some(mut w) = sink.file.take() {
                 w.flush().map_err(|e| e.to_string())?;
@@ -933,6 +951,17 @@ impl ImproveSource {
             };
             (sink.sha.finish_hex(), path, sink.bytes, sink.rules)
         };
+        // the positions map (consumers that address rules by position, e.g. positioned recipe entries, re-point by it)
+        let positions_rel = positions_map.map(|m| {
+            let rel = format!("{base}/positions.r{run}{sfx}.json");
+            rt.accepts.push(AcceptedRecord {
+                path: rel.clone(),
+                bytes: json_bytes(&json!({"schema": "rustred.campaign.improve-positions.v1",
+                    "rule": "every rule record's index = its position among its chart's rules in file order (native importer); listed: the input rules whose index changed (old -> new) and the replaced rules (old -> the positions of their replacement lines); every other rule kept its index",
+                    "table_in_sha256": self.nodes[i].e.table.sha256, "table_out_sha256": out_sha, "entries": m})),
+            });
+            rel
+        });
         // the appended record
         let mut rec = self.nodes[i].record.clone();
         let old_by_index: BTreeMap<i64, im::TableRule> = self.nodes[i]
@@ -940,9 +969,18 @@ impl ImproveSource {
             .iter()
             .map(|r| (r.index, r.clone()))
             .collect();
+        // the run's decisions are keyed by the rule's index in the INPUT table; the improved table renumbers (positions):
+        // an entry finds its input rule by key (target | case; a sub-table's case rule has the replaced rule's key)
+        let old_by_key: BTreeMap<String, i64> = self.nodes[i]
+            .rules
+            .iter()
+            .rev()
+            .map(|r| (r.key(), r.index))
+            .collect();
         rec.align(&new_rules);
         for e in rec.rules.iter_mut() {
-            if let Some(v) = per_rule.get(&e.index) {
+            let ix = old_by_key.get(&e.key).copied().unwrap_or(i64::MIN);
+            if let Some(v) = per_rule.get(&ix) {
                 for a in v {
                     let j = st.jobs.get(&a.job);
                     e.tried.push(im::Tried {
@@ -961,7 +999,7 @@ impl ImproveSource {
                         monomials: a.sub_monomials.or(a.new_rule.as_ref().map(|r| r.monomials)),
                         bytes: a.sub_bytes.or(a.new_rule.as_ref().map(|r| r.bytes)),
                         cpu_ms: j.map(|j| j.cpu_ms),
-                        verdict: if chosen.get(&e.index) == Some(&a.cand) && !p.poles_on() {
+                        verdict: if chosen.get(&ix) == Some(&a.cand) && !p.poles_on() {
                             "replaced".into()
                         } else {
                             a.verdict.clone()
@@ -976,30 +1014,26 @@ impl ImproveSource {
             let own_score = self.nodes[i]
                 .pole_scores
                 .iter()
-                .find(|s| {
-                    s.scope == "rule" && s.cand == "original" && s.rule_index == Some(e.index)
-                })
+                .find(|s| s.scope == "rule" && s.cand == "original" && s.rule_index == Some(ix))
                 .map(|s| s.score.clone());
-            if let Some(v) = pole_tried.remove(&e.index) {
+            if let Some(v) = pole_tried.remove(&ix) {
                 e.tried.extend(v);
             }
             if p.poles_on() {
-                e.pole = match pole_new.get(&e.index) {
+                e.pole = match pole_new.get(&ix) {
                     Some((sc, _)) => Some(sc.clone()),
                     None => own_score.or(e.pole.take()),
                 };
             }
-            if let Some(c) = chosen.get(&e.index) {
-                let old = &old_by_index[&e.index];
+            if let Some(c) = chosen.get(&ix) {
+                let old = &old_by_index[&ix];
                 e.chosen = format!("rule:{c}");
                 e.why = if p.poles_on() {
                     let own = self.nodes[i]
                         .pole_scores
                         .iter()
                         .find(|s| {
-                            s.scope == "rule"
-                                && s.cand == "original"
-                                && s.rule_index == Some(e.index)
+                            s.scope == "rule" && s.cand == "original" && s.rule_index == Some(ix)
                         })
                         .map(|s| s.score.clone());
                     let tag = |s: Option<&ps::PoleScore>| {
@@ -1015,7 +1049,7 @@ impl ImproveSource {
                     format!(
                         "improve run {run} (pole objective): route poles {} -> {}; {} -> {} monomials; exceptions a subset of the old rule's; same dispatch position",
                         tag(own.as_ref()),
-                        tag(pole_new.get(&e.index).map(|x| &x.0)),
+                        tag(pole_new.get(&ix).map(|x| &x.0)),
                         old.monomials,
                         e.monomials
                     )
@@ -1024,7 +1058,7 @@ impl ImproveSource {
                         "improve run {run}: rule of {} monomials / {} bytes replaced at its dispatch position by a COMPLETE sub-table of {} rule(s) (first: {} monomials); the sub-table covers the whole case domain",
                         old.monomials,
                         old.bytes,
-                        repl.get(&e.index).map_or(0, |v| v.len()),
+                        repl.get(&ix).map_or(0, |v| v.len()),
                         e.monomials
                     )
                 } else {
@@ -1034,7 +1068,7 @@ impl ImproveSource {
                     )
                 };
             }
-            if let Some(u) = untried.get(&e.index) {
+            if let Some(u) = untried.get(&ix) {
                 e.untried.extend(u.iter().cloned());
             }
         }
@@ -1050,9 +1084,10 @@ impl ImproveSource {
             .rules
             .iter()
             .filter(|e| {
+                let ix = old_by_key.get(&e.key).copied().unwrap_or(i64::MIN);
                 targets
                     .iter()
-                    .any(|(p, _)| self.nodes[i].rules[*p].index == e.index)
+                    .any(|(p, _)| self.nodes[i].rules[*p].index == ix)
             })
             .collect();
         // the yield: CUMULATIVE over the run (bytes_saved / cpu_h / bytes_per_cpu_h); `judged_*` = what the stop judges
@@ -1105,6 +1140,7 @@ impl ImproveSource {
                 },
                 "decided_from_scores": self.nodes[i].decisions.len(), "unscored_rules": self.nodes[i].unscored.len(),
                 "partial": partial.is_some(), "partial_why": partial, "pending": pending.len(), "not_run": not_run,
+                "positions": positions_rel.as_ref().map(|r| self.cdir.join(r).display().to_string()),
                 "stopped_by": stopped_by,
                 "replaced": repl.len(), "table_bytes_before": self.nodes[i].table_bytes, "table_bytes_after": out_bytes,
                 "targets_bytes_before": tb, "targets_bytes_after": after.iter().map(|e| e.bytes).sum::<u64>(),
@@ -1143,6 +1179,7 @@ impl ImproveSource {
             "import_spec": import.as_ref().map(|_| self.cdir.join(&import_rel).display().to_string()),
             "skipped_by_record": self.nodes[i].skipped, "yield": yield_json,
             "not_run": not_run, "stopped_by": stopped_by,
+            "positions": positions_rel.as_ref().map(|r| self.cdir.join(r).display().to_string()),
             "nothing_to_try": targets.is_empty() && self.nodes[i].decisions.is_empty()});
         let res_rel = format!("{base}/result.r{run}{sfx}.json");
         match partial {

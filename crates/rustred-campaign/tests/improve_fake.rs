@@ -309,8 +309,39 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
         rules[1]["index"], 1,
         "the sub-table's case rule keeps the old index"
     );
-    assert_eq!(rules[2]["index"], 3, "its child takes a fresh index");
+    // POSITIONED (native importer order rule): the child takes the next position, the rule after it moves by one
+    assert_eq!(rules[2]["index"], 2, "its child takes the next position");
     assert_eq!(rules[2]["monomials"], 50);
+    assert_eq!(
+        (rules[3]["index"].as_i64(), rules[3]["monomials"].as_u64()),
+        (Some(3), Some(10)),
+        "old rule 2 moved to 3"
+    );
+    for (k, r) in rules.iter().enumerate() {
+        assert_eq!(r["index"], k as i64, "index = position in file order");
+    }
+    assert_eq!(rules[2]["origin"]["replaces"]["index"], 1, "{:#}", rules[2]);
+    // strict read of the written table (every member known to the reader) + the positions map
+    let tf = rustred_campaign_core::record::read_table_file(&out, Default::default()).unwrap();
+    assert_eq!(tf.rules.len(), 4);
+    assert!(
+        tf.rules.iter().all(|r| r.unknown_members.is_empty()),
+        "no member unknown to the reader (origin is a known member)"
+    );
+    let pm = read_json(Path::new(res["positions"].as_str().unwrap()));
+    let entries = pm["entries"].as_array().unwrap();
+    assert!(
+        entries
+            .iter()
+            .any(|e| e["old"] == 1 && e["new"] == json!([1, 2]) && e["replaced"] == true),
+        "{pm:#}"
+    );
+    assert!(
+        entries
+            .iter()
+            .any(|e| e["old"] == 2 && e["new"] == json!([3])),
+        "{pm:#}"
+    );
     assert_eq!(
         lines.last().unwrap()["rules"],
         4,

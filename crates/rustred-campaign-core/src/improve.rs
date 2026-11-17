@@ -904,7 +904,136 @@ pub fn subtree_verdict(old: &TableRule, new: &[TableRule], min_gain: f64) -> Res
     Ok(())
 }
 
-/// The lines replacing one rule by its sub-table: the first keeps the old `index` (same dispatch position), the others
+/// The native importer's ORDER RULE of a `table_dump.v1` table: a rule record's `index` equals the number of rule records of
+/// its chart before it in file order (rustred-core propagator/table_import.rs; slot-alias rules are rule records too).
+/// Per-chart counter of the next position.
+#[derive(Clone, Debug, Default)]
+pub struct Positions {
+    next: BTreeMap<String, i64>,
+}
+
+impl Positions {
+    /// The position the next rule record of `chart` must carry (does not advance).
+    pub fn peek(&self, chart: &str) -> i64 {
+        self.next.get(chart).copied().unwrap_or(0)
+    }
+    /// Advance `chart` by one rule record carrying `index`; refused when `index` is not the chart's next position.
+    pub fn take(&mut self, chart: &str, index: i64) -> Result<(), String> {
+        let want = self.peek(chart);
+        if index != want {
+            return Err(format!(
+                "rule {index} of chart {chart} out of order: its position is {want} (index = position among the chart's rules)"
+            ));
+        }
+        self.next.insert(chart.to_string(), want + 1);
+        Ok(())
+    }
+}
+
+/// The byte offset of the TOP-LEVEL `"index":` member of a JSON object line (depth 1, outside strings), if any.
+fn top_level_index_member(line: &str) -> Option<usize> {
+    let b = line.as_bytes();
+    let (mut depth, mut in_str, mut esc) = (0i32, false, false);
+    let pat = b"\"index\":";
+    for (k, &c) in b.iter().enumerate() {
+        if in_str {
+            if esc {
+                esc = false;
+            } else if c == b'\\' {
+                esc = true;
+            } else if c == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match c {
+            b'"' => {
+                if depth == 1 && b[k..].starts_with(pat) {
+                    return Some(k);
+                }
+                in_str = true;
+            }
+            b'{' | b'[' => depth += 1,
+            b'}' | b']' => depth -= 1,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// A rule line with its top-level `index` set to `index`: ONLY that number changes (byte substitution at the top-level
+/// member, found by a syntactic scan); the line itself when already right; re-serialised only when the line has no
+/// integer `index` member to substitute.
+pub fn set_index(line: &str, index: i64) -> Result<String, String> {
+    if let Some(k) = top_level_index_member(line) {
+        let start = k + "\"index\":".len();
+        let ws = line[start..].len() - line[start..].trim_start().len();
+        let num = start + ws;
+        let len = line[num..]
+            .bytes()
+            .enumerate()
+            .take_while(|&(j, c)| c.is_ascii_digit() || (j == 0 && c == b'-'))
+            .count();
+        if len > 0 && line[num..num + len].parse::<i64>().is_ok() {
+            if line[num..num + len].parse::<i64>() == Ok(index) {
+                return Ok(line.to_string());
+            }
+            return Ok(format!("{}{index}{}", &line[..num], &line[num + len..]));
+        }
+    }
+    let mut v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
+    v["index"] = Value::from(index);
+    Ok(v.to_string())
+}
+
+/// The lines replacing the rule `old_line` (index `old_index`) by its regeneration `sub` (target case first, then the
+/// sub-table's other rules in engine order), POSITIONED: consecutive indices from `first_index` (the old rule's position;
+/// the rules after them move by `sub.len() - 1`). Each line's `origin` keeps the replaced record's
+/// `origin.dispatch_position` (when it has one) and names what it replaces (index, record sha256, its place in the
+/// sub-table) and the improve run.
+pub fn replacement_lines(
+    sub: &[String],
+    old_line: &str,
+    old_index: i64,
+    first_index: i64,
+    run: u32,
+) -> Result<Vec<String>, String> {
+    let old: Value = serde_json::from_str(old_line).map_err(|e| e.to_string())?;
+    let dispatch = old
+        .get("origin")
+        .and_then(|o| o.get("dispatch_position"))
+        .cloned();
+    let old_sha = {
+        let mut h = crate::closure::sha256::Sha256::new();
+        h.update(old_line.as_bytes());
+        h.finish_hex()
+    };
+    let mut out = Vec::with_capacity(sub.len());
+    for (k, n) in sub.iter().enumerate() {
+        let mut v: Value = serde_json::from_str(n).map_err(|e| e.to_string())?;
+        v["type"] = Value::from("rule");
+        v["index"] = Value::from(first_index + k as i64);
+        let mut o = v
+            .get("origin")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        if let Some(d) = &dispatch {
+            o.insert("dispatch_position".into(), d.clone());
+        }
+        o.insert(
+            "replaces".into(),
+            serde_json::json!({"index": old_index, "record_sha256": old_sha, "subtable_rule": k, "subtable_rules": sub.len()}),
+        );
+        o.insert("improve_run".into(), Value::from(run));
+        v["origin"] = Value::Object(o);
+        out.push(v.to_string());
+    }
+    Ok(out)
+}
+
+/// (Superseded in the improve writer by [`replacement_lines`] + [`set_index`]: fresh indices break the native importer's
+/// order rule, see [`Positions`].) The lines replacing one rule by its sub-table: the first keeps the old `index` (same dispatch position), the others
 /// take fresh indices from `next_free` (unique labels; first match follows the file order, not the index).
 pub fn subtree_lines(
     sub: &[String],

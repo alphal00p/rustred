@@ -1,6 +1,7 @@
 //! Lane sizegen: the improvement record and improve mode's pure decisions (interfaces/genchoice.md 5).
 
 use rustred_campaign_core::economy::improve::*;
+use serde_json::Value;
 use std::collections::BTreeMap;
 
 fn line(index: i64, fixed: &str, target: &str, exc: &str, monomials: u64) -> String {
@@ -507,4 +508,87 @@ fn explicit_lists_and_equal_size_regeneration_for_exactness() {
     let mut bigger = b.clone();
     bigger.bytes = 101;
     assert!(replacement_verdict_eq(&b, &bigger, 0.9, RankBy::Bytes, &c, true).is_err());
+}
+
+/// Third defect (lane parametric, 2026-11-17): the improved table must satisfy the native importer's ORDER RULE (index =
+/// position among the chart's rules in file order). `set_index` changes only the top-level index number (never a nested
+/// "index" member, never a string); `replacement_lines` positions a sub-table and keeps origin.dispatch_position.
+#[test]
+fn improved_tables_are_positioned_for_the_native_importer() {
+    let mut p = Positions::default();
+    assert!(p.take("a", 0).is_ok() && p.take("a", 1).is_ok() && p.take("b", 0).is_ok());
+    assert!(
+        p.take("a", 3).unwrap_err().contains("out of order"),
+        "a gap is refused"
+    );
+    assert_eq!(
+        (p.peek("a"), p.peek("b"), p.peek("c")),
+        (2, 1, 0),
+        "per chart"
+    );
+    // only the top-level number moves: nested "index" members and string contents stay
+    let l = r#"{"type":"rule","chart":"11","index":7,"origin":{"index":7,"note":"\"index\":7"},"rhs":[["I(1,1)","1"]]}"#;
+    let n = set_index(l, 3).unwrap();
+    assert_eq!(
+        n,
+        l.replacen(r#""index":7,"origin""#, r#""index":3,"origin""#, 1)
+    );
+    let v: Value = serde_json::from_str(&n).unwrap();
+    assert_eq!(
+        (v["index"].as_i64(), v["origin"]["index"].as_i64()),
+        (Some(3), Some(7))
+    );
+    assert_eq!(v["origin"]["note"], "\"index\":7");
+    assert_eq!(
+        set_index(&n, 3).unwrap(),
+        n,
+        "already right: unchanged bytes"
+    );
+    // a key order with the index late in the line, with a space
+    let late = r#"{"case":"x","chart":"11","index": 12,"type":"rule"}"#;
+    assert_eq!(
+        set_index(late, 4).unwrap(),
+        r#"{"case":"x","chart":"11","index": 4,"type":"rule"}"#
+    );
+    // replacement lines: consecutive positions from the old rule's place, provenance kept
+    let old = r#"{"type":"rule","chart":"11","index":5,"origin":{"dispatch_position":42,"source":"bank#1"},"rhs":[]}"#;
+    let sub = vec![
+        r#"{"chart":"11","target":"I(n0,1)","rhs":[]}"#.to_string(),
+        r#"{"chart":"11","target":"I(1,1)","rhs":[],"origin":{"engine":"x"}}"#.to_string(),
+    ];
+    let out = replacement_lines(&sub, old, 5, 5, 2).unwrap();
+    let vs: Vec<Value> = out
+        .iter()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        (vs[0]["index"].as_i64(), vs[1]["index"].as_i64()),
+        (Some(5), Some(6))
+    );
+    for (k, v) in vs.iter().enumerate() {
+        assert_eq!(v["type"], "rule");
+        assert_eq!(
+            v["origin"]["dispatch_position"], 42,
+            "kept from the replaced record"
+        );
+        assert_eq!(v["origin"]["replaces"]["index"], 5);
+        assert_eq!(v["origin"]["replaces"]["subtable_rule"], k);
+        assert_eq!(
+            v["origin"]["replaces"]["record_sha256"]
+                .as_str()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert_eq!(v["origin"]["improve_run"], 2);
+    }
+    assert_eq!(
+        vs[1]["origin"]["engine"], "x",
+        "the line's own origin members stay"
+    );
+    let no_origin = r#"{"type":"rule","chart":"11","index":5,"rhs":[]}"#;
+    let v: Value =
+        serde_json::from_str(&replacement_lines(&sub[..1], no_origin, 5, 9, 1).unwrap()[0])
+            .unwrap();
+    assert!(v["origin"].get("dispatch_position").is_none() && v["index"] == 9);
 }
