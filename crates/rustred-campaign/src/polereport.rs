@@ -380,6 +380,11 @@ pub struct PoleReportSpec {
     pub m_step: usize,
     pub m_max: usize,
     pub wall_seconds: u64,
+    /// Requests per driver job (one engine process per job and seed): the engine keeps state across the requests of
+    /// one process (T201 D0r2: 1 request 38.9 GB, the second request of the same process above 48 GB), so large
+    /// unions run one request per job. Absent = all new combinations of a round in one job.
+    #[serde(default)]
+    pub max_requests_per_job: Option<usize>,
     pub max_length: u64,
     pub threads: u32,
     pub memory_cap_bytes: u64,
@@ -537,6 +542,35 @@ struct Group {
 
 /// Run (or resume) one job of `g`'s new combinations; Err(reason) = not decided.
 fn group_round(
+    ctx: &CellCtx<'_>,
+    ns: &NodeSpec,
+    c: &CellRow,
+    g: &mut Group,
+    out: &mut CellOutcome,
+) -> Result<Result<(), String>, String> {
+    let per = ctx.spec.max_requests_per_job.unwrap_or(usize::MAX).max(1);
+    let (start, end) = (g.m_done, g.m);
+    let mut from = start;
+    while from < end {
+        let to = end.min(from.saturating_add(per));
+        g.m_done = from;
+        g.m = to;
+        match group_job(ctx, ns, c, g, out)? {
+            Ok(()) => {}
+            Err(why) => {
+                g.m = end;
+                return Ok(Err(why));
+            }
+        }
+        from = to;
+    }
+    g.m_done = end;
+    g.m = end;
+    Ok(Ok(()))
+}
+
+/// ONE driver job of `g`'s combinations `m_done .. m`.
+fn group_job(
     ctx: &CellCtx<'_>,
     ns: &NodeSpec,
     c: &CellRow,
