@@ -335,6 +335,10 @@ fn four() -> i64 {
     4
 }
 
+fn eight() -> u32 {
+    8
+}
+
 /// The report spec (interfaces/tadic-job.md 5).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PoleReportSpec {
@@ -367,6 +371,9 @@ pub struct PoleReportSpec {
     pub rows_route: Option<String>,
     pub seeds: Vec<u64>,
     pub primes: u32,
+    /// Primes a seed may consume (usable or not); the driver's default when absent.
+    #[serde(default = "eight")]
+    pub max_primes: u32,
     pub order: i64,
     pub combination_seed: u64,
     pub m_initial: usize,
@@ -562,7 +569,7 @@ fn group_round(
         d0: 4,
         order: spec.order,
         primes: spec.primes,
-        max_primes: 8,
+        max_primes: spec.max_primes,
         seeds: spec.seeds.clone(),
         limits: TadicLimits {
             wall_seconds: spec.wall_seconds,
