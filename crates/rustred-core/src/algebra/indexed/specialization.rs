@@ -860,7 +860,7 @@ mod engine_specialize_tests {
             for (position, &value) in assignment.iter().enumerate() {
                 let exponent = exponents[base_count + position];
                 if exponent != 0 {
-                    exact = exact * Integer::from(value).pow(u64::from(exponent));
+                    exact *= Integer::from(value).pow(u64::from(exponent));
                 }
             }
             if let Some(product) = small_index_power_product(&exponents, base_count, &assignment) {

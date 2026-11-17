@@ -2637,7 +2637,10 @@ mod tests {
         let first = statistics.points_first_prime;
         // Discovery starts with half a batch and grows by a quarter of the
         // points drawn (at least an eighth of a batch) until convergence.
-        assert!(first >= needed && first <= (needed * 5 / 4 + 16).max(64), "{first} {needed}");
+        assert!(
+            first >= needed && first <= (needed * 5 / 4 + 16).max(64),
+            "{first} {needed}"
+        );
         assert_eq!(
             statistics.points_replayed,
             first

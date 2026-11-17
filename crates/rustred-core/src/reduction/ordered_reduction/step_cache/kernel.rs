@@ -481,7 +481,12 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
                 // children materialised beside its terms (for the record
                 // only; they leave the step again before it is returned).
                 let mut step = step;
-                if self.light.out.iter().any(|(child, _)| step.terms.contains_key(child)) {
+                if self
+                    .light
+                    .out
+                    .iter()
+                    .any(|(child, _)| step.terms.contains_key(child))
+                {
                     self.cache.skip_insert(shard);
                     return Ok(step);
                 }

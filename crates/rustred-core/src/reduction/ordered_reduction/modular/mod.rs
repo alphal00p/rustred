@@ -34,8 +34,8 @@ mod field;
 mod lift;
 mod polynomial;
 mod replay;
-mod simd;
 mod sampled;
+mod simd;
 
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, Hasher};

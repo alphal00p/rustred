@@ -11,8 +11,8 @@
 //! for bit (checked by the tests). Primes must lie below 2⁶³ (the replay's
 //! primes lie near 2⁶²); larger primes and other targets take the scalar path.
 //! `RUSTRED_REPLAY_SIMD=off` forces the scalar path.
-use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 use symbolica::domains::RingOps;
+use symbolica::domains::finite_field::{FiniteFieldCore, Zp64};
 
 use super::field::Fe;
 
@@ -27,7 +27,10 @@ pub(super) struct Kernel {
 
 fn enabled() -> bool {
     static ON: std::sync::LazyLock<bool> = std::sync::LazyLock::new(|| {
-        if matches!(std::env::var("RUSTRED_REPLAY_SIMD").as_deref(), Ok("off" | "0")) {
+        if matches!(
+            std::env::var("RUSTRED_REPLAY_SIMD").as_deref(),
+            Ok("off" | "0")
+        ) {
             return false;
         }
         #[cfg(target_arch = "x86_64")]
@@ -75,7 +78,10 @@ impl Kernel {
             // in `new`), the slices do not alias (distinct rows of the replay)
             // and the CPU features were detected at run time.
             unsafe {
-                let d = std::slice::from_raw_parts_mut(destination.as_mut_ptr() as *mut u64, destination.len());
+                let d = std::slice::from_raw_parts_mut(
+                    destination.as_mut_ptr() as *mut u64,
+                    destination.len(),
+                );
                 let s = std::slice::from_raw_parts(source.as_ptr() as *const u64, source.len());
                 match coefficient {
                     Coefficient::Constant(c) => {
@@ -102,7 +108,13 @@ pub(super) enum Coefficient<'a> {
 }
 
 #[inline]
-pub(super) fn scalar(field: &Zp64, destination: &mut [Fe], source: &[Fe], coefficient: Coefficient<'_>, assign: bool) {
+pub(super) fn scalar(
+    field: &Zp64,
+    destination: &mut [Fe],
+    source: &[Fe],
+    coefficient: Coefficient<'_>,
+    assign: bool,
+) {
     match (coefficient, assign) {
         (Coefficient::Constant(c), true) => {
             for (d, s) in destination.iter_mut().zip(source) {
@@ -134,7 +146,13 @@ mod x86 {
     /// Montgomery product of eight lanes, reduced to `[0, p)`.
     #[inline]
     #[target_feature(enable = "avx512f,avx512dq")]
-    fn mont_mul(a: __m512i, b: __m512i, p: __m512i, p_hi: __m512i, neg_inverse: __m512i) -> __m512i {
+    fn mont_mul(
+        a: __m512i,
+        b: __m512i,
+        p: __m512i,
+        p_hi: __m512i,
+        neg_inverse: __m512i,
+    ) -> __m512i {
         let mask = _mm512_set1_epi64(0xffff_ffff);
         let a_hi = _mm512_srli_epi64::<32>(a);
         let b_hi = _mm512_srli_epi64::<32>(b);
@@ -194,7 +212,14 @@ mod x86 {
     }
 
     #[target_feature(enable = "avx512f,avx512dq")]
-    pub(super) unsafe fn apply_constant(p: u64, neg_inverse: u64, d: &mut [u64], s: &[u64], c: u64, assign: bool) {
+    pub(super) unsafe fn apply_constant(
+        p: u64,
+        neg_inverse: u64,
+        d: &mut [u64],
+        s: &[u64],
+        c: u64,
+        assign: bool,
+    ) {
         let n = d.len().min(s.len());
         let pv = _mm512_set1_epi64(p as i64);
         let p_hi = _mm512_set1_epi64((p >> 32) as i64);
@@ -208,7 +233,11 @@ mod x86 {
                 let out = if assign {
                     product
                 } else {
-                    add_mod(_mm512_loadu_si512(d.as_ptr().add(j) as *const __m512i), product, pv)
+                    add_mod(
+                        _mm512_loadu_si512(d.as_ptr().add(j) as *const __m512i),
+                        product,
+                        pv,
+                    )
                 };
                 _mm512_storeu_si512(d.as_mut_ptr().add(j) as *mut __m512i, out);
             }
@@ -216,13 +245,24 @@ mod x86 {
         }
         while j < n {
             let product = mont_mul_scalar(s[j], c, p, neg_inverse);
-            d[j] = if assign { product } else { add_scalar(d[j], product, p) };
+            d[j] = if assign {
+                product
+            } else {
+                add_scalar(d[j], product, p)
+            };
             j += 1;
         }
     }
 
     #[target_feature(enable = "avx512f,avx512dq")]
-    pub(super) unsafe fn apply_row(p: u64, neg_inverse: u64, d: &mut [u64], s: &[u64], c: &[u64], assign: bool) {
+    pub(super) unsafe fn apply_row(
+        p: u64,
+        neg_inverse: u64,
+        d: &mut [u64],
+        s: &[u64],
+        c: &[u64],
+        assign: bool,
+    ) {
         let n = d.len().min(s.len()).min(c.len());
         let pv = _mm512_set1_epi64(p as i64);
         let p_hi = _mm512_set1_epi64((p >> 32) as i64);
@@ -236,7 +276,11 @@ mod x86 {
                 let out = if assign {
                     product
                 } else {
-                    add_mod(_mm512_loadu_si512(d.as_ptr().add(j) as *const __m512i), product, pv)
+                    add_mod(
+                        _mm512_loadu_si512(d.as_ptr().add(j) as *const __m512i),
+                        product,
+                        pv,
+                    )
                 };
                 _mm512_storeu_si512(d.as_mut_ptr().add(j) as *mut __m512i, out);
             }
@@ -244,7 +288,11 @@ mod x86 {
         }
         while j < n {
             let product = mont_mul_scalar(s[j], c[j], p, neg_inverse);
-            d[j] = if assign { product } else { add_scalar(d[j], product, p) };
+            d[j] = if assign {
+                product
+            } else {
+                add_scalar(d[j], product, p)
+            };
             j += 1;
         }
     }
@@ -262,7 +310,11 @@ mod tests {
     #[test]
     fn the_vector_kernels_equal_the_scalar_field_arithmetic() {
         let mut rng = StdRng::seed_from_u64(7);
-        for prime in [4611686018427388039u64, 6917529027641081903, 9223372036854775783] {
+        for prime in [
+            4611686018427388039u64,
+            6917529027641081903,
+            9223372036854775783,
+        ] {
             let field = Zp64::new(prime);
             let kernel = Kernel::new(&field);
             for width in [1usize, 7, 8, 9, 31, 64, 67, 128] {

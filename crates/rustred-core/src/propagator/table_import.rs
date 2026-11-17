@@ -791,11 +791,14 @@ fn slot_alias_record(
     })
 }
 
+/// Per-slot optional bounds.
+type OptionalBounds = Vec<Option<i64>>;
+
 /// `domain_bounds` of a rule record as (min, max) per table slot (absent = unbounded).
 fn bounds_of_record(
     record: &Value,
     arity: usize,
-) -> Result<(Vec<Option<i64>>, Vec<Option<i64>>), PError> {
+) -> Result<(OptionalBounds, OptionalBounds), PError> {
     let side = |name: &str| -> Result<Vec<Option<i64>>, PError> {
         match record.get("domain_bounds").and_then(|b| b.get(name)) {
             None | Some(Value::Null) => Ok(vec![None; arity]),
