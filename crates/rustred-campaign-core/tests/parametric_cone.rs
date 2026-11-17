@@ -709,3 +709,31 @@ fn prune_drops_only_dead_records_and_fails_on_a_live_one() {
     let (_, rep) = prune(&d, &f, &region, &v, true, true, &o, 10_000).unwrap();
     assert_eq!(rep.kept, 3);
 }
+
+/// A DUPLICATE placed after its original is dead by first match (TRICKS 57: f19d / Lf19d0 duplicate catalogue records); the
+/// record after both is live exactly where the original's exception holds; every live witness is a first-match key.
+#[test]
+fn a_duplicate_after_its_original_is_dead() {
+    use rustred_campaign_core::parametric::prune::{Liveness, record_liveness};
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut r0 = rec(3);
+    r0.exceptions.push(vec!["-2+n0"]); // excepted at n0 = 2
+    let mut r1 = rec(3);
+    r1.exceptions.push(vec!["-2+n0"]); // identical copy of r0
+    let r2 = rec(3);
+    let d = disp(&f, &[r0, r1, r2]);
+    let region = Cone::excess_simplex(&f, 4);
+    let o = ConeOptions::default();
+    assert_eq!(record_liveness(&d, &f, &region, 1, &o, 10_000), Liveness::Dead);
+    match record_liveness(&d, &f, &region, 2, &o, 10_000) {
+        Liveness::Live(w) => {
+            assert_eq!(w[0], 2, "{w:?}");
+            assert!(matches!(d.first_match(&w), Ok(Dispatch::Covered(r)) if r.record == 2));
+        }
+        x => panic!("{x:?}"),
+    }
+    match record_liveness(&d, &f, &region, 0, &o, 10_000) {
+        Liveness::Live(w) => assert!(matches!(d.first_match(&w), Ok(Dispatch::Covered(r)) if r.record == 0)),
+        x => panic!("{x:?}"),
+    }
+}

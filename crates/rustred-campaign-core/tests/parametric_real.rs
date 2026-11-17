@@ -3540,7 +3540,7 @@ fn chain_walk() {
     let res = json!({"start": start, "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
         "keys_reached_in_top_sector": seen.len(), "depth": depth, "complete": frontier.is_empty(), "terminal_hits": terminal_hits,
         "terms_leaving_the_sector": lower, "records_used": used.len(), "records_used_top": used_top,
-        "stub_steps": stub_steps, "stub_keys": stub_keys, "open_keys": open});
+        "stub_steps": stub_steps, "stub_keys": stub_keys, "records_used_all": used, "open_keys": open});
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!(
         "chain walk: {} keys, depth {depth}, {} records, stub steps {:?}, open {}",

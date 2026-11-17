@@ -141,6 +141,9 @@ pub fn record_liveness(
             return Liveness::Undecided("wall budget reached in the element pass".into());
         }
         let Some(i) = l["element"].as_u64() else { continue };
+        // every listed gap element of the EARLIER records is examined (an "enumerated_covered" verdict is decided with the FULL
+        // dispatcher, the record itself included: never a reason to skip); a witness counts only if the full dispatcher's first
+        // match at it IS the record (2026-11-17 fix: a key of a nonlinear part where an earlier record applies gave a false live)
         let el = &cp.elements[i as usize];
         if let Some(cell) = &el.cell {
             use super::descent::{EmptyState, emptiness};
@@ -159,7 +162,10 @@ pub fn record_liveness(
             }
             match emptiness(d, frame, &ProofBudget::default(), &[], &bounds) {
                 (EmptyState::Empty, _, _) => continue,
-                (EmptyState::NonEmpty, Some(w), _) => return Liveness::Live(w),
+                (EmptyState::NonEmpty, Some(w), _) if is_first_match(disp, &w, ti, ri) => return Liveness::Live(w),
+                (EmptyState::NonEmpty, _, _) => {
+                    // a key of the element where the record applies but is not first match: enumerate the element instead
+                }
                 _ => {
                     exhausted = false;
                     continue;
@@ -168,7 +174,7 @@ pub fn record_liveness(
         }
         let mut found = None;
         let mut push = |k: &[i32]| {
-            if found.is_none() && d.applies(k).applies() {
+            if found.is_none() && d.applies(k).applies() && is_first_match(disp, k, ti, ri) {
                 found = Some(k.to_vec());
             }
         };
@@ -185,6 +191,11 @@ pub fn record_liveness(
     } else {
         Liveness::Undecided("an element was not decided (emptiness budget or enumeration cap)".into())
     }
+}
+
+/// Is the record (table `ti`, record `ri`) the FIRST MATCH of `disp` at `k` (the witness check of a live verdict)?
+fn is_first_match(disp: &Dispatcher, k: &[i32], ti: usize, ri: usize) -> bool {
+    matches!(disp.first_match(k), Ok(Dispatch::Covered(r)) if r.table == ti && r.record == ri)
 }
 
 /// The pruning outcome.
