@@ -849,10 +849,11 @@ def cmd_classes(a):
         lines = [l for l in open(e['path']) if not (e.get('comment') and l.startswith(e['comment']))]
         for r in csv.DictReader(lines, delimiter='\t'):
             text = ' | '.join('%s=%s' % (k, v) for k, v in r.items() if v)
+            item = (text, e['name'], (r.get(e['class_col']) or '').strip())
             if e.get('hash_col') and r.get(e['hash_col']):
-                blobs_h.setdefault((e.get('hash_form', 'list'), r[e['hash_col']]), []).append(text)
+                blobs_h.setdefault((e.get('hash_form', 'list'), r[e['hash_col']]), []).append(item)
             try:
-                blobs_i.setdefault(int(r[e['index_col']]), []).append(text)
+                blobs_i.setdefault(int(r[e['index_col']]), []).append(item)
             except (KeyError, ValueError):
                 pass
     live = {}
@@ -875,8 +876,16 @@ def cmd_classes(a):
         r = json.loads(l)
         key = (r['file'], r['table_index'])
         lv = live.get(key, {}).get('live')
-        blob = ' || '.join(sum((blobs_h.get((f, h), []) for f, h in r['target_rhs_sha256_forms'].items()), [])
-                           + (blobs_i.get(r['dispatch_position'], []) if r['dispatch_position'] is not None and r['bound_by'] == 'index' else []))
+        items = (sum((blobs_h.get((f, h), []) for f, h in r['target_rhs_sha256_forms'].items()), [])
+                 + (blobs_i.get(r['dispatch_position'], []) if r['dispatch_position'] is not None and r['bound_by'] == 'index' else []))
+        blob = ' || '.join(t for t, _, _ in items)
+        # the evidence row that decides a per-key class (every > sampled with the most keys): reported as the rule's evidence
+        decided = None
+        for t_, name_, cls_ in items:
+            pk_ = per_key_class(t_, cone_bound)
+            rank = 2 if pk_ == 'every first-match key in cone' else (1 + pk_[1] / 1e12 if isinstance(pk_, tuple) else 0)
+            if rank and (decided is None or rank > decided[0]):
+                decided = (rank, name_, cls_)
         if r['category'] == 'whole':
             cls, n = 'whole domain', None
         elif lv == 'dead':
@@ -892,8 +901,9 @@ def cmd_classes(a):
         words = cls.replace('N', str(n)) if cls == 'sampled N keys' else cls
         c = counts.get(key, {})
         row = {'file': r['file'], 'table_index': r['table_index'], 'dispatch_position': r['dispatch_position'], 'bytes': r['bytes'],
-               'target_rhs_sha256': r['target_rhs_sha256'], 'exactness_class': words, 'evidence_class': r['class'],
-               'evidence_source': r['class_source'], 'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
+               'target_rhs_sha256': r['target_rhs_sha256'], 'exactness_class': words,
+               'evidence_class': decided[2] if decided and cls in ('every first-match key in cone', 'sampled N keys') else r['class'],
+               'evidence_source': decided[1] if decided and cls in ('every first-match key in cone', 'sampled N keys') else r['class_source'], 'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
                'liveness_basis': live.get(key, {}).get('basis', 'run liveness step' if lv else None),
                'fm_keys_in_cone': c.get('fm_keys'), 'fm_keys_by_shell': c.get('fm_keys_by_shell'), 'fm_count_complete': c.get('fm_count_complete')}
         out.append(row); tally[cls] = tally.get(cls, 0) + 1
