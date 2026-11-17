@@ -3,8 +3,9 @@
 //!
 //! `Evidence` (evidence.rs) keeps every fact and proof in memory; a node with ~10^7 served keys cannot hold that next to
 //! its closure under the per-process memory rule. The store keeps the same information per (record_sha256, key):
-//! the strongest per-key proof status, the regularity, the usable flag, `n_terms` and the sorted term INDICES (record rhs
-//! order, fixed by the record text) whose coefficient is identically zero at the key / whose denominator vanishes.
+//! the strongest per-key proof status, the regularity, the usable flag, the PRODUCER of the fact (STORE_VERSION 3: the
+//! first route of its zeros, exactly the word the in-memory path keeps), `n_terms` and the sorted term INDICES (record
+//! rhs order, fixed by the record text) whose coefficient is identically zero at the key / whose denominator vanishes.
 //! Every term-key statement of an input is checked against OUR instantiation of the record at the key while building
 //! (instantiate lines: per term key; compact digest lines: digests -> indices; index-form lines: `terms_fnv64`).
 //!
@@ -25,7 +26,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::error::{ImportError, io_err};
-use super::evidence::{BANK_CONV_PROOF_SCHEMA, FACT_VERDICT_SCHEMA, is_per_key_status};
+use super::evidence::{
+    BANK_CONV_PROOF_SCHEMA, FACT_PRODUCERS, FACT_VERDICT_SCHEMA, UNKNOWN_PRODUCER,
+    fact_line_producer, first_producer, is_per_key_status, producer_rank,
+};
 use super::index::sample_digest;
 use super::lines::{parse_key_text, parse_named_key_text, parse_term_key_digest, term_key_digest};
 use super::load::ImportedSet;
@@ -36,7 +40,10 @@ use crate::closure::sha256::Sha256;
 pub const STORE_SCHEMA: &str = "rustred.campaign.evidence-store.v1";
 /// Format version (part of the cache name and of the reuse check).
 /// v2 (lane t266run, closeloop4 open item m1 in store mode): entries carry a proof-CONFLICT flag.
-pub const STORE_VERSION: u32 = 2;
+/// v3 (lane zerosfix3, audit-r2-zeros F6/F7): every fact carries its PRODUCER code (a varint after the flags byte:
+/// `index + 1` into evidence::FACT_PRODUCERS); a store of another version is never read (`open` refuses it, the cache
+/// name contains the version, `open_or_build` rebuilds).
+pub const STORE_VERSION: u32 = 3;
 /// Entries per block of `data.bin`.
 pub const BLOCK_ENTRIES: usize = 256;
 /// Default sort-buffer budget (bytes).
@@ -129,6 +136,39 @@ pub struct StoreFact {
     pub n_terms: u32,
     pub zero: Box<[u32]>,
     pub unknown: Box<[u32]>,
+    /// lane zerosfix3 (STORE_VERSION 3): who produced the fact (one of evidence::FACT_PRODUCERS; UNKNOWN_PRODUCER for a
+    /// code this build does not know): the FACT BASIS of the keys it decides, as in memory.
+    pub producer: &'static str,
+}
+
+impl StoreFact {
+    /// The same fact (everything but the producer): two producers may give it.
+    pub fn same_fact(&self, o: &StoreFact) -> bool {
+        (
+            self.regular,
+            self.usable,
+            self.n_terms,
+            &self.zero,
+            &self.unknown,
+        ) == (o.regular, o.usable, o.n_terms, &o.zero, &o.unknown)
+    }
+}
+
+/// lane zerosfix3: the store code of a producer word (`index + 1` into FACT_PRODUCERS; 0 = unknown).
+fn producer_code(w: &str) -> u64 {
+    let r = producer_rank(w);
+    if r < FACT_PRODUCERS.len() {
+        r as u64 + 1
+    } else {
+        0
+    }
+}
+
+/// lane zerosfix3: the producer word of a store code (fail closed: an unknown code is UNKNOWN_PRODUCER).
+fn producer_word(c: u64) -> &'static str {
+    c.checked_sub(1)
+        .and_then(|i| FACT_PRODUCERS.get(i as usize).copied())
+        .unwrap_or(UNKNOWN_PRODUCER)
 }
 
 /// One stored (record, key).
@@ -268,6 +308,7 @@ fn encode_payload(e: &StoreEntry, out: &mut Vec<u8>) {
         put_var(out, s as u64);
     }
     if let Some(f) = &e.fact {
+        put_var(out, producer_code(f.producer));
         put_var(out, f.n_terms as u64);
         put_list(out, &f.zero);
         put_list(out, &f.unknown);
@@ -283,6 +324,7 @@ fn decode_payload(b: &[u8], p: &mut usize) -> Option<StoreEntry> {
         None
     };
     let fact = if flags & F_FACT != 0 {
+        let producer = producer_word(get_var(b, p)?);
         let n_terms = u32::try_from(get_var(b, p)?).ok()?;
         let zero = get_list(b, p)?;
         let unknown = get_list(b, p)?;
@@ -292,6 +334,7 @@ fn decode_payload(b: &[u8], p: &mut usize) -> Option<StoreEntry> {
             n_terms,
             zero,
             unknown,
+            producer,
         })
     } else {
         None
@@ -332,7 +375,8 @@ fn cmp_rk(a: (u32, &[i32]), b: (u32, &[i32])) -> Ordering {
 // ---------------------------------------------------------------- merging of two answers for one (record, key)
 
 /// Merge `b` into `a` (deterministic, order-free): the proof with the stronger status (per-key first, then the smaller
-/// (word, file)); facts must be equal (else an error naming the pair).
+/// (word, file)); facts must be equal (else an error naming the pair); lane zerosfix3: two producers of the same fact
+/// keep the earlier one of FACT_PRODUCERS (the in-memory rule).
 fn merge(
     a: &mut StoreEntry,
     b: StoreEntry,
@@ -357,9 +401,9 @@ fn merge(
         });
     }
     if let Some(fb) = b.fact {
-        match &a.fact {
+        match &mut a.fact {
             None => a.fact = Some(fb),
-            Some(fa) if *fa == fb => {}
+            Some(fa) if fa.same_fact(&fb) => fa.producer = first_producer(fa.producer, fb.producer),
             Some(fa) => {
                 return Err(format!(
                     "conflicting facts: {fa:?} vs {fb:?} (n_terms / zero / unknown / regularity differ)"
@@ -413,7 +457,9 @@ struct Ctx<'a> {
     statuses: &'a StatusIntern,
 }
 
-fn fnv64(vals: &[i32]) -> u64 {
+/// FNV-1a over the i32 LE bytes of the instantiated term keys (the index form's `terms_fnv64`; lane zerosfix3: also
+/// the in-memory loader's check).
+pub(crate) fn fnv64(vals: &[i32]) -> u64 {
     let mut h: u64 = 0xcbf2_9ce4_8422_2325;
     for v in vals {
         for b in v.to_le_bytes() {
@@ -629,6 +675,7 @@ impl Ctx<'_> {
             .ok_or("key")?;
         self.complete(rec, &mut key)?;
         let n = self.arity;
+        let producer = fact_line_producer(v, compact);
         let (usable, regular) = if compact {
             match v.get("verdict").and_then(Value::as_str).unwrap_or("") {
                 "regular" => (true, RegFact::Regular),
@@ -662,6 +709,7 @@ impl Ctx<'_> {
                         n_terms: 0,
                         zero: Box::new([]),
                         unknown: Box::new([]),
+                        producer,
                     }),
                 },
             ));
@@ -787,6 +835,7 @@ impl Ctx<'_> {
                     n_terms: nt as u32,
                     zero: zero.into_boxed_slice(),
                     unknown: unknown.into_boxed_slice(),
+                    producer,
                 }),
             },
         ));
@@ -1015,6 +1064,18 @@ impl EvidenceStore {
             line: 1,
             msg: e.to_string(),
         })?;
+        // lane zerosfix3: a store of another schema / version is NEVER read as this one (its entry layout differs)
+        if meta.schema != STORE_SCHEMA || meta.version != STORE_VERSION {
+            return Err(ImportError::Evidence {
+                path: mp.display().to_string(),
+                line: 1,
+                msg: format!(
+                    "evidence store {} version {}: this build reads only {STORE_SCHEMA} version {STORE_VERSION} \
+                     (open_or_build rebuilds it; it is never read as the new version)",
+                    meta.schema, meta.version
+                ),
+            });
+        }
         let ip = dir.join("index.bin");
         let ib = std::fs::read(&ip).map_err(|e| io_err(&ip, e))?;
         let a = meta.arity;
@@ -1644,6 +1705,7 @@ mod tests {
                 n_terms: 1000,
                 zero: vec![1, 5, 999].into_boxed_slice(),
                 unknown: vec![7].into_boxed_slice(),
+                producer: "exact_eval",
             }),
         };
         let mut o = vec![];
@@ -1651,5 +1713,45 @@ mod tests {
         let mut p = 0;
         assert_eq!(decode_payload(&o, &mut p), Some(e));
         assert_eq!(p, o.len());
+    }
+
+    /// lane zerosfix3: every producer word round-trips; an unknown code decodes as UNKNOWN_PRODUCER (fail closed); two
+    /// producers of the same fact merge to the earlier one of FACT_PRODUCERS in either order; a different fact refuses.
+    #[test]
+    fn producer_codes_round_trip_and_merge_order_free() {
+        for w in FACT_PRODUCERS {
+            assert_eq!(producer_word(producer_code(w)), w);
+        }
+        assert_eq!(producer_code("store"), 0);
+        assert_eq!(producer_word(0), UNKNOWN_PRODUCER);
+        assert_eq!(producer_word(99), UNKNOWN_PRODUCER);
+        let f = |producer: &'static str, zero: Vec<u32>| StoreEntry {
+            proof_conflict: false,
+            proof: None,
+            fact: Some(StoreFact {
+                regular: RegFact::Regular,
+                usable: true,
+                n_terms: 3,
+                zero: zero.into_boxed_slice(),
+                unknown: Box::new([]),
+                producer,
+            }),
+        };
+        for (a, b) in [("compact", "exact_eval"), ("exact_eval", "compact")] {
+            let mut x = f(a, vec![1]);
+            merge(&mut x, f(b, vec![1]), &[]).unwrap();
+            assert_eq!(x.fact.unwrap().producer, "exact_eval");
+        }
+        let mut x = f("rr_proof", vec![1]);
+        assert!(merge(&mut x, f("rr_proof", vec![2]), &[]).is_err());
+        // an unknown code in an entry is read back as the unknown word (never as a known producer)
+        let mut o = vec![];
+        encode_payload(&f("exact_eval", vec![1]), &mut o);
+        o[1] = 9;
+        let mut p = 0;
+        assert_eq!(
+            decode_payload(&o, &mut p).unwrap().fact.unwrap().producer,
+            UNKNOWN_PRODUCER
+        );
     }
 }

@@ -33,6 +33,15 @@ enum Terms {
         unknown: Box<[u64]>,
         n_terms: Option<u32>,
     },
+    /// lane zerosfix3: compact INDEX form (`zero_idx` / `unknown_idx` / `terms_fnv64`, the evidence store's form): the
+    /// sorted term INDICES (record rhs order) whose coefficient is zero / unknown; every other index < n_terms is
+    /// non-zero. Bound only when `n_terms` and `terms_fnv64` equal OUR instantiation of the record at the key (as in the
+    /// store; before this lane the in-memory loader read such a line as "no non-zero term": every term zero).
+    Index {
+        zero: Box<[u32]>,
+        unknown: Box<[u32]>,
+        n_terms: u32,
+    },
 }
 
 /// A fact read from an attached evidence store (lane t266run, interfaces/evidence-store.md): term INDICES (record rhs
@@ -99,6 +108,15 @@ impl FactRef<'_> {
             }
         }
     }
+    /// lane zerosfix3: who produced the fact (memory and store keep the producer alike; both present: the basis rule
+    /// of two agreeing producers, [`first_producer`]).
+    fn producer(&self) -> &'static str {
+        match self {
+            FactRef::Mem(f) => f.producer,
+            FactRef::Store(e) => Self::sf(e).producer,
+            FactRef::Both(m, e) => first_producer(m.producer, Self::sf(e).producer),
+        }
+    }
     fn coefficient(&self, term: usize, term_key: &[i32]) -> CoefFact {
         match self {
             FactRef::Mem(f) => f.coefficient(term, term_key),
@@ -161,10 +179,37 @@ struct FactRec {
     producer: &'static str,
 }
 
+/// lane zerosfix3: the producer words of a fact line (the FIRST route of its zeros), in the fixed order that decides
+/// which one is the basis when two producers give the SAME fact for one (record, key): the earlier word in this list
+/// (order-free, identical in memory and in an evidence store; the store keeps the producer as `index + 1`).
+pub const FACT_PRODUCERS: [&str; 4] = ["rr_proof", "exact_eval", "rr_proof_elided", "compact"];
+
+/// lane zerosfix3: the fact basis word of a stored fact whose producer code is not one of [`FACT_PRODUCERS`] (fail
+/// closed: no second route is selected for it, the closing loop blocks every pair that relies on it).
+pub const UNKNOWN_PRODUCER: &str = "unknown_producer";
+
+/// lane zerosfix3: rank of a producer word in [`FACT_PRODUCERS`] (an unknown word ranks last).
+pub fn producer_rank(word: &str) -> usize {
+    FACT_PRODUCERS
+        .iter()
+        .position(|w| *w == word)
+        .unwrap_or(FACT_PRODUCERS.len())
+}
+
+/// lane zerosfix3: the basis of two producers that gave the same fact (the smaller rank; `a` on a tie).
+pub fn first_producer(a: &'static str, b: &'static str) -> &'static str {
+    if producer_rank(b) < producer_rank(a) {
+        b
+    } else {
+        a
+    }
+}
+
 /// lane closeloop3 (interfaces/closeloop.md 16): the fact basis word of a fact line: `rr_proof` (rr_proof instantiate
 /// answers, or compact lines stating `producer: rr_proof`), `exact_eval` (compact lines of the exact evaluation of the
 /// record's own coefficient text, `rr_coef_facts`), `compact` (a compact line that states no known producer).
-fn fact_producer(v: &Value, compact: bool) -> &'static str {
+/// lane zerosfix3: public, the evidence store records the same word per entry.
+pub fn fact_line_producer(v: &Value, compact: bool) -> &'static str {
     if !compact {
         return "rr_proof";
     }
@@ -202,6 +247,20 @@ impl FactRec {
                     CoefFact::NonZero
                 } else {
                     CoefFact::Zero
+                }
+            }
+            Terms::Index {
+                zero,
+                unknown,
+                n_terms,
+            } => {
+                let t = term as u32;
+                if t >= *n_terms || unknown.binary_search(&t).is_ok() {
+                    CoefFact::Unknown
+                } else if zero.binary_search(&t).is_ok() {
+                    CoefFact::Zero
+                } else {
+                    CoefFact::NonZero
                 }
             }
         }
@@ -270,6 +329,9 @@ pub struct EvidenceCounts {
     pub facts_foreign: usize,
     pub facts_unbound: usize,
     pub fact_other_lines: usize,
+    /// lane zerosfix3 (the store's rule, in memory too): usable COMPACT fact lines whose term statement disagrees with
+    /// OUR record (`n_terms`; index form: `terms_fnv64` of our instantiation): refused, not bound.
+    pub facts_terms_mismatch: usize,
     pub proof_entries: usize,
     pub proofs_bound: usize,
     pub proofs_per_key: usize,
@@ -318,6 +380,12 @@ pub struct Evidence {
     pub counts: EvidenceCounts,
     label: String,
     fact_files: Vec<String>,
+    /// lane zerosfix3: (rule, key) pairs whose fact a second, independent route CONFIRMED -> the confirmed basis word
+    /// (memory and store-backed facts alike; the producer itself is never overwritten: it selects the second route).
+    /// Keys packed by the set's codec when they fit two words (a big node confirms ~10^7 pairs per pass).
+    confirmed: HashMap<PairKey, &'static str>,
+    /// lane zerosfix3: the set's key codec (packs the keys of `confirmed`).
+    codec: Option<crate::closure::KeyCodec>,
     /// lane closeloop4 (closeloop.md 18): (rule, key) pairs whose coefficient facts are DISPUTED (the two independent
     /// routes disagree): every term is `Unknown` there (a term is an edge unless its zero is confirmed; the key's
     /// row is never certified).
@@ -334,6 +402,17 @@ pub struct Evidence {
     /// lane t266run: the conflicted (rule, key) pairs a check ASKED for a per-key level (each denied it): the
     /// node's verdict names them (`contradicting_proofs`).
     conflicts_used: std::sync::Mutex<BTreeSet<(u32, Vec<i32>)>>,
+    /// lane zerosfix3: (rule, key) pairs whose facts in two attached stores contradict each other (looked up: each was
+    /// answered as an unusable fact); the closing loop's verdict names them (`contradicting_facts`).
+    fact_conflicts: std::sync::Mutex<BTreeSet<(u32, Vec<i32>)>>,
+}
+
+/// lane zerosfix3: a (rule index, key) of [`Evidence`]'s confirmed map: the key packed into 128 bits by the set's codec
+/// when it fits (no allocation, ~5x smaller than a boxed key), else boxed.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum PairKey {
+    Packed(u32, u128),
+    Boxed(u32, Box<[i32]>),
 }
 
 /// How many foreign record digests are kept as examples (diagnosis only).
@@ -582,7 +661,21 @@ impl Evidence {
             }
         }
         ev.label = "import:none".into();
+        ev.codec = Some(set.codec);
         ev
+    }
+
+    /// lane zerosfix3: the confirmed map's key of (rule index, key).
+    fn pair_key(&self, ri: u32, key: &[i32]) -> PairKey {
+        if let Some(c) = self.codec
+            && c.words() <= 2
+        {
+            let mut w = [0u64; 2];
+            if c.encode(key, &mut w) {
+                return PairKey::Packed(ri, (u128::from(w[0]) << 64) | u128::from(w[1]));
+            }
+        }
+        PairKey::Boxed(ri, Box::from(key))
     }
 
     /// Load everything the spec names; with `opts.store` the facts and proofs files go into ONE disk-backed store
@@ -658,17 +751,74 @@ impl Evidence {
         });
     }
 
-    /// The store entries of (rule index, key): the first store with a fact, the strongest proof over all stores.
+    /// The store fact of (rule index, key) over ALL attached stores (lane zerosfix3, the in-memory rule across files):
+    /// the same fact in several stores is one fact whose producer is the earlier one of [`FACT_PRODUCERS`]; two
+    /// DIFFERENT facts (memory mode refuses such files at load) give an UNUSABLE fact (every answer unknown: fail
+    /// closed) and the pair is recorded ([`Self::fact_conflicts_used`], the closing loop's `contradicting_facts`).
+    /// (Was: the first store with a fact, a later contradicting one never seen.) The per-thread lookup cache of each
+    /// store is shared with [`Self::store_proof`], which scans every store for the same pair already.
     fn store_fact(&self, ri: u32, key: &[i32]) -> Option<std::sync::Arc<super::store::StoreEntry>> {
+        let mut found: Option<std::sync::Arc<super::store::StoreEntry>> = None;
         for a in &self.stores {
-            if let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten()
-                && let Some(e) = a.store.get_rec(rec, key)
-                && e.fact.is_some()
-            {
-                return Some(e);
-            }
+            let Some(rec) = a.rec_of_ri.get(ri as usize).copied().flatten() else {
+                continue;
+            };
+            let Some(e) = a.store.get_rec(rec, key) else {
+                continue;
+            };
+            let Some(fb) = e.fact.as_ref() else {
+                continue;
+            };
+            let Some(f) = found.take() else {
+                found = Some(e.clone());
+                continue;
+            };
+            let fa = f.fact.as_ref().expect("a found entry has a fact");
+            let merged = if fa.same_fact(fb) {
+                if producer_rank(fb.producer) < producer_rank(fa.producer) {
+                    let mut x = (*f).clone();
+                    if let Some(xf) = x.fact.as_mut() {
+                        xf.producer = fb.producer;
+                    }
+                    std::sync::Arc::new(x)
+                } else {
+                    f
+                }
+            } else {
+                self.fact_conflicts
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert((ri, key.to_vec()));
+                let mut x = (*f).clone();
+                x.fact = Some(super::store::StoreFact {
+                    regular: RegFact::Unknown,
+                    usable: false,
+                    n_terms: 0,
+                    zero: Box::new([]),
+                    unknown: Box::new([]),
+                    producer: first_producer(fa.producer, fb.producer),
+                });
+                std::sync::Arc::new(x)
+            };
+            found = Some(merged);
         }
-        None
+        found
+    }
+
+    /// lane zerosfix3: the (record_sha256, key) pairs whose facts in two attached stores CONTRADICT each other (each
+    /// was answered as an unusable fact), sorted. Memory mode refuses such files at load.
+    pub fn fact_conflicts_used(&self) -> Vec<(String, Vec<i32>)> {
+        self.fact_conflicts
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|(ri, k)| {
+                (
+                    self.rule_sha.get(*ri as usize).cloned().unwrap_or_default(),
+                    k.clone(),
+                )
+            })
+            .collect()
     }
 
     /// Our interned status of the strongest store proof of (rule index, key).
@@ -834,6 +984,89 @@ impl Evidence {
                     .and_then(|k| json_key(k, arity))
                     .ok_or_else(|| bad("key".into()))?;
                 self.complete_key(set, ri, &mut key).map_err(&bad)?;
+                // lane zerosfix3: OUR instantiation of the record at the key decides whether a usable line's term
+                // statement is about this record's term list (the evidence store's rule: memory = big-node mode)
+                let (rt, rr) = locate(set, ri);
+                let our_terms = || -> Option<(usize, Vec<i32>)> {
+                    let (mut ib, mut cm) = (vec![], vec![]);
+                    match set.bodies.instantiate(
+                        &set.disp,
+                        set.disp.rule_ref(rt, rr),
+                        &key,
+                        &mut ib,
+                        &mut cm,
+                    ) {
+                        Ok(Some(n)) => Some((n, ib)),
+                        _ => None,
+                    }
+                };
+                let line_usable = if compact {
+                    matches!(
+                        v.get("verdict").and_then(Value::as_str),
+                        Some("regular" | "irregular" | "hidden")
+                    )
+                } else {
+                    v["in_case"] == true
+                        && v["chart_ok"] == true
+                        && v.get("branch").is_none_or(Value::is_null)
+                        && v.get("error").is_none_or(Value::is_null)
+                };
+                let mut index_terms: Option<Terms> = None;
+                // (a usable fact of a record WITHOUT body, or at a key outside the record's case, is bound as before:
+                // no term statement can be checked and the closure never consults it; the store does not hold it)
+                // an INDEX-form line is always checked (read unchecked as a digest line it would say "every term zero")
+                if line_usable
+                    && (set.bodies.has(rt, rr) || (compact && v.get("zero_idx").is_some()))
+                {
+                    let nt = set.bodies.n_terms(rt, rr);
+                    let stated_n = v.get("n_terms").and_then(Value::as_u64);
+                    if compact && v.get("zero_idx").is_some() {
+                        if v.get("nonzero").is_some() {
+                            return Err(bad("index form with a nonzero list".into()));
+                        }
+                        let fnv = v
+                            .get("terms_fnv64")
+                            .and_then(Value::as_str)
+                            .and_then(|s| u64::from_str_radix(s, 16).ok());
+                        let ok = stated_n == Some(nt as u64)
+                            && our_terms()
+                                .is_some_and(|(_, ib)| fnv == Some(super::store::fnv64(&ib)));
+                        if !ok {
+                            self.counts.facts_terms_mismatch += 1;
+                            return Ok(());
+                        }
+                        let idx = |field: &str| -> Result<Box<[u32]>, ImportError> {
+                            let mut x: Vec<u32> = match v.get(field) {
+                                None | Some(Value::Null) => vec![],
+                                Some(Value::Array(a)) => a
+                                    .iter()
+                                    .map(|e| {
+                                        e.as_u64()
+                                            .and_then(|y| u32::try_from(y).ok())
+                                            .ok_or_else(|| bad(format!("{field}: {e}")))
+                                    })
+                                    .collect::<Result<_, _>>()?,
+                                Some(o) => return Err(bad(format!("{field}: {o}"))),
+                            };
+                            x.sort_unstable();
+                            x.dedup();
+                            if x.last().is_some_and(|&j| j as usize >= nt) {
+                                return Err(bad("a term index >= n_terms".into()));
+                            }
+                            Ok(x.into_boxed_slice())
+                        };
+                        index_terms = Some(Terms::Index {
+                            zero: idx("zero_idx")?,
+                            unknown: idx("unknown_idx")?,
+                            n_terms: nt as u32,
+                        });
+                    } else if compact && stated_n.is_some_and(|s| s != nt as u64) {
+                        // a digest line about another term list: an absent digest would read as a ZERO term
+                        self.counts.facts_terms_mismatch += 1;
+                        return Ok(());
+                    }
+                    // (instantiate lines: a term index beyond the record is never asked; their term keys are hash-checked)
+                }
                 let (usable, regular, terms) = if compact {
                     let verdict = v.get("verdict").and_then(Value::as_str).unwrap_or("");
                     let (usable, regular) = match verdict {
@@ -871,6 +1104,10 @@ impl Evidence {
                             Box::new([])
                         },
                         n_terms: v.get("n_terms").and_then(Value::as_u64).map(|n| n as u32),
+                    };
+                    let terms = match index_terms.take() {
+                        Some(ix) if usable => ix,
+                        _ => terms,
                     };
                     (
                         usable,
@@ -919,10 +1156,9 @@ impl Evidence {
                     regular,
                     lift: usable && regular == RegFact::Regular,
                     terms,
-                    producer: fact_producer(&v, compact),
+                    producer: fact_line_producer(&v, compact),
                 };
-                match self.facts.get(&(ri, key.clone())) {
-                    // two producers agreeing on the same fact are no conflict (the first one stays the basis)
+                match self.facts.get_mut(&(ri, key.clone())) {
                     Some(old)
                         if (old.regular, old.lift, &old.terms)
                             != (rec.regular, rec.lift, &rec.terms) =>
@@ -931,7 +1167,10 @@ impl Evidence {
                             "conflicting facts for record {sha} at {key:?}"
                         )));
                     }
-                    Some(_) => {}
+                    // two producers agreeing on the same fact are no conflict; lane zerosfix3: the basis is the
+                    // earlier producer of FACT_PRODUCERS (order-free; the store merges the same way), never "the first
+                    // file loaded" (= job completion order in the closing loop)
+                    Some(old) => old.producer = first_producer(old.producer, rec.producer),
                     None => {
                         self.facts.insert((ri, key), rec);
                         self.counts.facts_bound += 1;
@@ -1295,29 +1534,40 @@ impl Evidence {
         }
     }
 
-    /// lane closeloop4 (closeloop.md 18): the bound (in-memory) fact of (record `sha`, `key`) was CONFIRMED term by
-    /// term by a second, independent route: its fact basis becomes `basis` (e.g. `rr_proof + exact_eval`). False = no
-    /// in-memory fact.
+    /// lane closeloop4 (closeloop.md 18): the bound fact of (record `sha`, `key`) was CONFIRMED term by term by a
+    /// second, independent route: its fact basis becomes `basis` (e.g. `rr_proof + exact_eval`). False = no fact.
+    /// lane zerosfix3: in memory AND for a fact read from an evidence store (big-node mode); the producer stays.
     pub fn confirm_basis(&mut self, sha: &str, key: &[i32], basis: &'static str) -> bool {
         let Some(&ri) = self.sha_index.get(sha) else {
             return false;
         };
-        match self.facts.get_mut(&(ri, key.to_vec())) {
-            Some(f) => {
-                f.producer = basis;
-                true
-            }
-            None => false,
+        if self.fact_ref(ri, key).is_none() {
+            return false;
         }
+        let k = self.pair_key(ri, key);
+        self.confirmed.insert(k, basis);
+        true
     }
 
     /// lane closeloop3: the fact basis of (rule, key): the producer of the bound fact line (`rr_proof` | `exact_eval`
-    /// | `compact`; `store` for a fact read from an attached evidence store only), `None` without a fact.
+    /// | `rr_proof_elided` | `compact`), or the confirmed basis word after a second route agreed
+    /// ([`Self::confirm_basis`]); `None` without a fact. lane zerosfix3: the same word for a fact read from an
+    /// evidence store (the store keeps the producer; [`UNKNOWN_PRODUCER`] for a code this build does not know).
     pub fn fact_basis(&self, rule: &RuleId, key: &[i32]) -> Option<&'static str> {
-        self.rec(rule, key).map(|f| match f {
-            FactRef::Mem(m) | FactRef::Both(m, _) => m.producer,
-            FactRef::Store(_) => "store",
-        })
+        let ri = *self.rule_index2.get(rule.table)?.get(&rule.label)?;
+        let f = self.fact_ref(ri, key)?;
+        if !self.confirmed.is_empty()
+            && let Some(b) = self.confirmed.get(&self.pair_key(ri, key))
+        {
+            return Some(b);
+        }
+        Some(f.producer())
+    }
+
+    /// lane zerosfix3: the PRODUCER of the fact of (rule, key) (one of [`FACT_PRODUCERS`], or [`UNKNOWN_PRODUCER`]),
+    /// never a confirmed basis word: the first route, from which the second route is selected. `None` without a fact.
+    pub fn fact_producer(&self, rule: &RuleId, key: &[i32]) -> Option<&'static str> {
+        self.rec(rule, key).map(|f| f.producer())
     }
 
     fn rec(&self, rule: &RuleId, key: &[i32]) -> Option<FactRef<'_>> {

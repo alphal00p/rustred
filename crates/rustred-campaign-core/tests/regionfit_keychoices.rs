@@ -197,3 +197,59 @@ fn t178_keychoices_regions_per_face() {
         assert_eq!(unserv, none);
     }
 }
+
+/// planfix (audit r2-planners R1): under the ELEMENT label one region `e3` may stand for different composed relations
+/// (element + image rule) per key; the record names the image rules of every region (and of every residual key), and
+/// says whether the label fixes one. Under the FORM label (default) each region's image rule is its choice.
+#[test]
+fn an_element_label_region_names_the_image_rules_it_stands_for() {
+    let forms = [
+        ([2, 1, -1], "e3+T#1"),
+        ([3, 1, -1], "e3+T#2"),
+        ([4, 1, -1], "e3+T#2"),
+        ([2, 1, -2], "e3+T#1"),
+    ];
+    let rs: Vec<KeyChoices> = forms
+        .iter()
+        .map(|(k, f)| rec(k, "f", vec![choice(3, "composite", f, None)], Some(0)))
+        .collect();
+    let el = KeyChoicesOptions {
+        label: ChoiceLabel::Element,
+        ..Default::default()
+    };
+    let faces = faces_from_key_choices(&rs, &el).unwrap();
+    assert_eq!(faces.len(), 1);
+    assert_eq!(faces[0].keys[0].image_rules["e3"].len(), 1);
+    let rec_el = fit_regions(&faces[0], None, &RegionPolicy::default())
+        .unwrap()
+        .record();
+    let regions = rec_el["regions"].as_array().unwrap();
+    assert_eq!(regions.len(), 1, "{rec_el}");
+    assert_eq!(regions[0]["choice"], "e3");
+    assert_eq!(
+        regions[0]["image_rules"],
+        serde_json::json!(["e3+T#1", "e3+T#2"]),
+        "{rec_el}"
+    );
+    assert_eq!(regions[0]["image_rule_uniform"], false);
+    // the form label: one image rule per region, the choice itself
+    let faces = faces_from_key_choices(&rs, &KeyChoicesOptions::default()).unwrap();
+    let rec_f = fit_regions(&faces[0], None, &RegionPolicy::default())
+        .unwrap()
+        .record();
+    for r in rec_f["regions"].as_array().unwrap() {
+        assert_eq!(
+            r["image_rules"],
+            serde_json::json!([r["choice"].clone()]),
+            "{rec_f}"
+        );
+        assert_eq!(r["image_rule_uniform"], true);
+    }
+    for r in rec_f["residual"].as_array().unwrap() {
+        assert_eq!(
+            r["image_rules"],
+            serde_json::json!([r["choice"].clone()]),
+            "{rec_f}"
+        );
+    }
+}

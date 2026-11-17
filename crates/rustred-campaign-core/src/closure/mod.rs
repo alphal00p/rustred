@@ -52,8 +52,8 @@ pub use facts::{
 pub use fast::FastDispatch;
 pub use keyset::{KeyCodec, KeySet, KeySetBuilder, KeySetError, KeyTable};
 pub use leaves::{
-    LEAFSET_SCHEMA, LeafBinding, LeafEntry, LeafError, LeafHit, LeafSet, LeafSetBuilder,
-    LeafSummary,
+    LEAFSET_FORMAT_VERSION, LEAFSET_SCHEMA, LeafBinding, LeafEntry, LeafError, LeafHit,
+    LeafProducer, LeafRequirement, LeafSet, LeafSetBuilder, LeafShortfall, LeafSummary,
 };
 pub use relations::{
     DispatchSlot, RelationSet, RelationStore, RelationStoreBuilder, SolveResultsStats,
@@ -156,6 +156,12 @@ pub struct ClosureConfig {
     /// leaf set is neither dispatched nor expanded (the walk stops there); every part's walk binding is verified
     /// against this run before the walk (`ClosureError::Leaves` on a mismatch). Empty (default): unchanged behaviour.
     pub leaves: Vec<Arc<leaves::LeafSet>>,
+    /// audit r2-planners L1: what THIS run requires of the leaves it stops at (its required evidence level, tier,
+    /// strictness). A reached CERTIFIED leaf below it blocks (`leaf_below_required_evidence:N`,
+    /// `leaf_below_required_tier:N`, `leaf_basis_not_strict:N`; verdict never `closed`). `None` (default): the run
+    /// states no requirement, the walk demands the LOWEST level of the tier it runs at (a version-1 leaf set counts at
+    /// that level; tier K demands nothing more of a leaf than its certification).
+    pub leaf_requirement: Option<leaves::LeafRequirement>,
 }
 
 /// The per-key lift of records with elided / absent witness loci (closure.md section 16).
@@ -339,6 +345,7 @@ impl Default for ClosureConfig {
             table_presentation: None,
             per_key_lift: PerKeyLift::Off,
             leaves: vec![],
+            leaf_requirement: None,
         }
     }
 }
@@ -894,6 +901,8 @@ pub struct Closure {
     leaf_of: BTreeMap<u32, (u32, u32)>,
     leaf_parts: Vec<Arc<leaves::LeafSet>>,
     leaf_walk: BTreeMap<String, String>,
+    /// audit r2-planners L1: the requirement the reached certified leaves are judged against
+    leaf_req: leaves::LeafRequirement,
     /// lane layers: what the restricted walk components of any key set need (relation sets with ranks, terminals,
     /// exclusions of this run)
     walk_inputs: Arc<WalkInputs>,
@@ -2223,6 +2232,19 @@ fn run(
                 .collect::<Vec<_>>()
                 .join(","),
         );
+        // audit r2-planners L1: the requirement the leaves are judged against decides the verdict
+        if let Some(r) = &cfg.leaf_requirement {
+            identity.components.insert(
+                "leaf_requirement".into(),
+                format!(
+                    "{}|{}|strict={}|zero_route={}",
+                    r.required_level,
+                    leaves::tier_word(r.tier),
+                    r.strict,
+                    r.zero_route.join("+")
+                ),
+            );
+        }
     }
     if let Some(p) = resume {
         let diff = identity.differing(&p.identity, RECHECK_MAY_DIFFER);
@@ -2750,6 +2772,15 @@ fn run(
         leaf_of,
         leaf_parts,
         leaf_walk: BTreeMap::new(),
+        leaf_req: cfg
+            .leaf_requirement
+            .clone()
+            .unwrap_or_else(|| leaves::LeafRequirement {
+                required_level: leaves::LEAF_LEVEL_ORDER[0].to_string(),
+                tier: cfg.tier,
+                strict: false,
+                zero_route: vec![],
+            }),
         walk_inputs: Arc::new(WalkInputs {
             rsets: ctx.rsets.clone(),
             term_pref: ctx.term_pref.clone(),
@@ -3223,6 +3254,16 @@ impl Closure {
         }
         KeySet::from_codes(self.codec, d)
     }
+    /// audit r2-planners L1: reached CERTIFIED leaves that do not meet this run's leaf requirement, per shortfall.
+    pub fn leaf_shortfalls(&self) -> BTreeMap<leaves::LeafShortfall, u64> {
+        let mut m = BTreeMap::new();
+        for &(p, li) in self.leaf_of.values() {
+            if let Some(s) = self.leaf_parts[p as usize].shortfall(li as usize, &self.leaf_req) {
+                *m.entry(s).or_default() += 1;
+            }
+        }
+        m
+    }
     /// Reached leaves that are not certified (they block: `leaf_open:N`), in reach order.
     pub fn leaf_open_keys(&self) -> Vec<Vec<i32>> {
         self.leaf_of
@@ -3264,6 +3305,9 @@ impl Closure {
         let open = self.leaf_open_keys().len();
         if open > 0 {
             b.push(format!("leaf_open:{open}"));
+        }
+        for (s, n) in self.leaf_shortfalls() {
+            b.push(format!("{}:{n}", s.word()));
         }
         let mut reached = vec![0u64; self.leaf_parts.len()];
         for (p, _) in self.leaf_of.values() {

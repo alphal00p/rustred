@@ -85,7 +85,7 @@ pub fn record_line(set: &ImportedSet, table: usize, record: usize) -> Result<Vec
 
 /// One streaming pass over the record of `info` (module documentation), checked against its length and
 /// `record_sha256`.
-fn stream_record(
+pub(crate) fn stream_record(
     info: &RuleInfo,
     budget: u64,
     visit: Option<&mut TermVisitor>,

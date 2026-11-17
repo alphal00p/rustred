@@ -79,6 +79,13 @@ pub trait FactSource: Sync {
     fn per_key_proof(&self, _rule: &RuleId, _key: &[i32]) -> bool {
         false
     }
+    /// audit r2-planners G1: a STRUCTURAL zero proof (lane zeros2's zeros route) covers term `term` of `rule` applied
+    /// at `key` (numerator identically zero on a proved locus holding the key's rule point, denominator not vanishing
+    /// there). A SECOND route of a first-route zero only: consumers drop a term on a first-route zero confirmed by it
+    /// (`import::zero_proofs::zero_route_of`), never on the proof alone. Default: no proof.
+    fn zero_proof(&self, _rule: &RuleId, _key: &[i32], _term: usize) -> bool {
+        false
+    }
 }
 
 /// No facts (Tier K): `Unknown` everywhere.

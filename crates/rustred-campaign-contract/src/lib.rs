@@ -42,6 +42,8 @@ pub mod spec;
 pub mod stop;
 // lane symjob's request (granted by int7): kind symmetry-composite's child seal, sealed results and tally
 pub mod symcomp;
+// lane symcert's request (granted by int7): kind proof-symrows' request, certificates and S check
+pub mod symcert;
 pub mod time;
 
 pub use canon::{CanonError, canonical_line};

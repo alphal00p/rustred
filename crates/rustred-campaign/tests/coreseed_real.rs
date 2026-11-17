@@ -153,6 +153,7 @@ fn real_core_faces() {
                 wall_cap_s: c["poles"]["wall_cap_s"].as_u64().unwrap_or(3600),
                 fake: None,
             }),
+            site: Default::default(),
         };
         let judge = DriverJudge;
         let mut solver = ChildSolver::new(cfg, &mut set, Box::new(judge), sampler.clone()).unwrap();
@@ -442,6 +443,7 @@ fn export_face_relations() {
         order: order.clone(),
         max_trace_rows: None,
         key_budget_s: None,
+        pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
     };
     let kt = |k: &[i32]| {
         format!(

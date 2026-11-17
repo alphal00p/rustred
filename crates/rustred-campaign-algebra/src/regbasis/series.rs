@@ -1,14 +1,23 @@
-//! Exact truncated Laurent series in `t = d - d0` with rational coefficients (Symbolica `MultivariatePolynomial` over Q
-//! in one variable), the parser of the core's text exchange, and the exact expansion of a rational function of d.
+//! Exact truncated Laurent series in `t = d - d0` with rational coefficients, the parser of the core's text exchange,
+//! and the exact expansion of a rational function of d.
 //!
 //! Precision semantics (absolute, as lane epsdepth's composition): a [`Laurent`] knows every exponent `< prec`; the
 //! product of `a` and `b` knows every exponent `< min(v(a) + prec(b), v(b) + prec(a))` where `v` is the valuation, or
 //! the precision for a series that is zero to its precision; a sum knows `< min(prec(a), prec(b))`.
+//!
+//! SYMBOLICA FIRST (L11; lane polefix, audit r2-poles F6): the series arithmetic IS Symbolica's `Series<Q>`
+//! (src/poly/series.rs: `Add` keeps the minimum absolute order, `Mul` the minimum relative order of normalised series,
+//! `truncate` strips cancelled leading terms keeping the absolute order: exactly the rule above, as lane epsdepth uses
+//! it); a zero series is held normalised (shift = its precision, relative order 0), so a product with it keeps the
+//! absolute precision `prec(zero) + v(other)`. [`Laurent`] is a thin wrapper that keeps this crate's API (valuation,
+//! pole order, coefficient access, text form, scaled lattice entries). The expansion of a rational function uses
+//! Symbolica's univariate inverse modulo `t^r` (`inverse_univariate`). Nothing of the series arithmetic is own code.
 
 use std::str::FromStr;
 use std::sync::Arc;
 
 use symbolica::atom::{NamespacedSymbol, SymbolBuilder};
+use symbolica::domains::Ring;
 use symbolica::domains::integer::{Integer, IntegerRing, Z};
 use symbolica::domains::rational::{Q, Rational, RationalField};
 use symbolica::domains::rational_polynomial::RationalPolynomial;
@@ -120,53 +129,76 @@ pub fn unit_inverse(u: &QP, e: u32) -> QP {
     mod_t(&u.inverse_univariate(0, e as u16), e)
 }
 
-/// An exact truncated Laurent series: `t^start * poly(t)`, every exponent `< prec` known; `poly` holds only terms with
-/// `start + exponent < prec`; normalised so that a non-zero `poly` has a non-zero constant term (then `start` is the
-/// valuation), and a zero series has `start = prec`.
+/// Symbolica's truncated series over Q (the arithmetic of [`Laurent`]).
+pub type QSeries = symbolica::poly::series::Series<RationalField>;
+
+/// An exact truncated Laurent series in t (Symbolica `Series<Q>`), every exponent `< prec()` known.
 #[derive(Clone, Debug)]
 pub struct Laurent {
-    pub start: i64,
-    pub poly: QP,
-    pub prec: i64,
+    s: QSeries,
+    vars: Arc<Vec<PolyVariable>>,
+}
+
+fn var_of(vars: &Arc<Vec<PolyVariable>>) -> Arc<PolyVariable> {
+    Arc::new(vars[0].clone())
+}
+
+/// A zero series known below `prec` (any sign), NORMALISED (shift = prec, relative order 0).
+fn zero_series(prec: i64, vars: &Arc<Vec<PolyVariable>>) -> QSeries {
+    QSeries::new(&Q, None, var_of(vars), Rational::zero(), Rational::zero())
+        .mul_exp_units(prec as isize)
 }
 
 impl Laurent {
     pub fn zero(prec: i64, vars: &Arc<Vec<PolyVariable>>) -> Laurent {
         Laurent {
-            start: prec,
-            poly: QP::new(&Q, None, vars.clone()),
-            prec,
+            s: zero_series(prec, vars),
+            vars: vars.clone(),
         }
     }
 
-    /// Normalise: truncate to `prec`, shift the lowest term to exponent 0.
+    /// `t^start * poly(t)` known below `prec` (terms at or above `prec` are dropped).
     pub fn normalised(start: i64, poly: QP, prec: i64) -> Laurent {
-        let keep = prec - start;
-        let poly = if keep <= 0 {
-            poly.zero()
-        } else {
-            mod_t(&poly, keep.min(u16::MAX as i64) as u32)
-        };
-        match low(&poly) {
-            None => Laurent {
-                start: prec,
-                poly,
-                prec,
-            },
-            Some(l) => Laurent {
-                start: start + i64::from(l),
-                poly: div_t(&poly, l),
-                prec,
-            },
+        let vars = poly.get_vars();
+        let mut parts = vec![zero_series(prec, &vars)];
+        let rel = prec.saturating_sub(start);
+        if rel > 0 && !poly.is_zero() {
+            // each monomial known to (at least) `prec`: relative order `prec - start` >= `prec - its exponent`
+            let base = QSeries::new(
+                &Q,
+                Some(1),
+                var_of(&vars),
+                Rational::zero(),
+                Rational::from(rel),
+            );
+            for i in 0..poly.nterms() {
+                let e = start + i64::from(poly.exponents(i)[0]);
+                if e < prec {
+                    parts.push(base.monomial(poly.coefficients[i].clone(), Rational::from(e)));
+                }
+            }
         }
+        Laurent {
+            s: QSeries::sum(parts),
+            vars,
+        }
+    }
+
+    /// The absolute precision: every exponent `< prec()` is known.
+    pub fn prec(&self) -> i64 {
+        self.s
+            .absolute_order()
+            .numerator()
+            .to_i64()
+            .unwrap_or(i64::MAX)
     }
 
     /// The valuation (`None`: zero to its precision).
     pub fn valuation(&self) -> Option<i64> {
-        if self.poly.is_zero() {
+        if self.s.is_zero() {
             None
         } else {
-            Some(self.start)
+            self.s.get_trailing_exponent().numerator().to_i64()
         }
     }
 
@@ -181,100 +213,83 @@ impl Laurent {
 
     /// The precision decides the pole order (every negative exponent is known): `prec >= 0` or a non-zero term seen.
     pub fn decides_pole(&self) -> bool {
-        self.prec >= 0 || self.valuation().is_some()
-    }
-
-    /// Valuation, or the precision for a series zero to its precision (the "w" of the precision rule).
-    fn w(&self) -> i64 {
-        self.valuation().unwrap_or(self.prec)
+        self.prec() >= 0 || self.valuation().is_some()
     }
 
     pub fn mul(&self, o: &Laurent) -> Laurent {
-        let prec = (self.w() + o.prec).min(o.w() + self.prec);
-        if self.poly.is_zero() || o.poly.is_zero() {
-            return Laurent {
-                start: prec,
-                poly: self.poly.zero(),
-                prec,
-            };
+        Laurent {
+            s: &self.s * &o.s,
+            vars: self.vars.clone(),
         }
-        Laurent::normalised(self.start + o.start, &self.poly * &o.poly, prec)
     }
 
     pub fn add(&self, o: &Laurent) -> Laurent {
-        let prec = self.prec.min(o.prec);
-        if self.poly.is_zero() {
-            return Laurent::normalised(o.start, o.poly.clone(), prec);
+        Laurent {
+            s: &self.s + &o.s,
+            vars: self.vars.clone(),
         }
-        if o.poly.is_zero() {
-            return Laurent::normalised(self.start, self.poly.clone(), prec);
-        }
-        let s = self.start.min(o.start);
-        let a = mul_t(&self.poly, (self.start - s) as u32);
-        let b = mul_t(&o.poly, (o.start - s) as u32);
-        Laurent::normalised(s, &a + &b, prec)
     }
 
     /// The coefficient of t^e (exact; Err when e >= prec).
     pub fn coeff(&self, e: i64) -> Result<Rational, String> {
-        if e >= self.prec {
-            return Err(format!("exponent {e} beyond precision {}", self.prec));
+        if e >= self.prec() {
+            return Err(format!("exponent {e} beyond precision {}", self.prec()));
         }
-        let k = e - self.start;
-        if k < 0 {
-            return Ok(Rational::zero());
-        }
-        for i in 0..self.poly.nterms() {
-            if i64::from(self.poly.exponents(i)[0]) == k {
-                return Ok(self.poly.coefficients[i].clone());
-            }
-        }
-        Ok(Rational::zero())
+        Ok(self
+            .s
+            .coefficient(Rational::from(e))
+            .unwrap_or_else(Rational::zero))
     }
 
     /// The core's text form.
     pub fn to_text(&self) -> SeriesText {
+        let prec = self.prec();
         match self.valuation() {
-            None => SeriesText::zero(self.prec),
+            None => SeriesText::zero(prec),
             Some(v) => {
-                let hi = self.prec - v;
-                let coeffs = (0..hi)
+                let hi = prec - v;
+                let mut c = (0..hi)
                     .map(|k| rational_text(&self.coeff(v + k).expect("below precision")))
                     .collect::<Vec<_>>();
                 // drop trailing zeros (they are implied up to prec)
-                let mut c = coeffs;
                 while c.last().is_some_and(|x| x == "0") {
                     c.pop();
                 }
                 SeriesText {
                     start: v,
                     coeffs: c,
-                    prec: self.prec,
+                    prec,
                 }
             }
         }
     }
 
-    /// The pair of polynomials over Q in t: `t^shift * self` truncated below exponent `s` (requires the series known to
+    /// The polynomial over Q in t: `t^shift * self` truncated below exponent `s` (requires the series known to
     /// `s - shift`): the entry of a scaled lattice vector.
     pub fn scaled_entry(&self, shift: i64, s: u32) -> Result<QP, String> {
-        if self.prec < i64::from(s) - shift {
+        if self.prec() < i64::from(s) - shift {
             return Err(format!(
                 "precision {} below the {} needed (scaled exponent bound {s}, shift {shift})",
-                self.prec,
+                self.prec(),
                 i64::from(s) - shift
             ));
         }
-        if self.poly.is_zero() {
-            return Ok(self.poly.zero());
+        let mut out = QP::new(&Q, None, self.vars.clone());
+        for (e, c) in self.s.terms() {
+            if Q.is_zero(c) {
+                continue;
+            }
+            let e = e.numerator().to_i64().ok_or("exponent out of range")? + shift;
+            if e < 0 {
+                return Err(format!(
+                    "scaled entry has a negative exponent {e} (shift {shift} below the pole order)"
+                ));
+            }
+            if e < i64::from(s) {
+                out.append_monomial(c.clone(), &[e as u16]);
+            }
         }
-        let e = self.start + shift;
-        if e < 0 {
-            return Err(format!(
-                "scaled entry has a negative exponent {e} (shift {shift} below the pole order)"
-            ));
-        }
-        Ok(mod_t(&mul_t(&self.poly, e as u32), s))
+        Ok(out)
     }
 }
 

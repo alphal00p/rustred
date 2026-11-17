@@ -19,10 +19,13 @@ use super::config::{ClauseCfg, LayersCfg, LeafSetRef};
 use super::pass::{PassIn, row_certified};
 use super::zeros::{self, SecondRoute, ZeroScan};
 use rustred_campaign_core::closure::{
-    ClosureSummary, KeySet, KeySetBuilder, LeafBinding, LeafSet, LeafSetBuilder, Tier, Verdict,
+    ClosureSummary, KeySet, KeySetBuilder, LeafBinding, LeafProducer, LeafRequirement, LeafSet,
+    LeafSetBuilder, Tier, Verdict,
 };
 use rustred_campaign_core::import::check::RecordRequest;
-use rustred_campaign_core::import::check::{LeafHits, check_streamed_with_leaves};
+use rustred_campaign_core::import::check::{
+    LeafHits, check_streamed_with_leaves, check_streamed_with_leaves_required,
+};
 use rustred_campaign_core::import::load::read_start;
 use rustred_campaign_core::import::{
     CheckOptions, CheckResult, Evidence, ImportedSet, KeyRow, Level, RowStatus, TableSetSpec,
@@ -128,6 +131,43 @@ fn sha256_file(p: &Path) -> Result<String, String> {
 
 fn strip(d: &str) -> String {
     d.trim_start_matches("sha256:").to_ascii_lowercase()
+}
+
+/// audit r2-zeros F9: the ZERO-ROUTE guarantees of a run (the words a leaf set's producer records and a consuming run
+/// requires): `decisive_zeros` (closeloop4's second route of decisive zeros), `elided_zeros` (rr_proof on elided
+/// records), `all_zeros` (every zero term confirmed by a second route: `all_zeros` structural / per_key, not `off`).
+pub fn zero_route_words(decisive: bool, elided: bool, all_zeros: bool) -> Vec<String> {
+    let mut w = vec![];
+    if all_zeros {
+        w.push("all_zeros".to_string());
+    }
+    if decisive {
+        w.push("decisive_zeros".to_string());
+    }
+    if elided {
+        w.push("elided_zeros".to_string());
+    }
+    w
+}
+
+/// audit r2-planners L1 / r2-zeros F9: what THIS run requires of every leaf set it stops at (frozen layers and prior
+/// clauses): its required level, the exact tier, its dispatcher's strictness, its zero-route guarantees.
+pub fn run_leaf_requirement(inp: &PassIn, set: &ImportedSet) -> LeafRequirement {
+    let zeros_on = inp.second_route.all_zeros.unwrap_or_default() != super::config::AllZeros::Off;
+    LeafRequirement {
+        required_level: inp
+            .required
+            .unwrap_or(set.spec.required_evidence)
+            .word()
+            .to_string(),
+        tier: Tier::C,
+        strict: super::pass::strictness(set).0,
+        zero_route: zero_route_words(
+            inp.second_route.decisive_zeros,
+            inp.second_route.elided,
+            zeros_on,
+        ),
+    }
 }
 
 /// The coarse coordinate D + r of a key (support = line slots with power >= 1).
@@ -282,6 +322,7 @@ pub fn plan(inp: &PassIn, set: &ImportedSet) -> Result<Option<Plan>, String> {
         ),
     };
     let mut frozen = BTreeMap::new();
+    let leaf_req = run_leaf_requirement(inp, set);
     for (idx, body) in &inp.frozen_layers {
         let rec: LayerRecord =
             serde_json::from_slice(body).map_err(|e| format!("frozen layer {idx}: record: {e}"))?;
@@ -311,6 +352,18 @@ pub fn plan(inp: &PassIn, set: &ImportedSet) -> Result<Option<Plan>, String> {
         }
         let ls = LeafSet::read_path(Path::new(&rec.leaf_set.path))
             .map_err(|e| format!("frozen layer {idx}: {e}"))?;
+        // audit r2-planners L1 / r2-zeros F9: a layer frozen under a weaker basis (level, tier, strictness, zero route)
+        // than this run's is never reused (typed refusal; a leaf set of format 1 states no basis)
+        if let Some(sf) = ls.producer_shortfall(&leaf_req) {
+            return Err(format!(
+                "frozen layer {idx} ({}): {}: its leaf set was certified under a weaker basis than this run's \
+                 (producer {:?}, this run {:?}): refused",
+                rec.id,
+                sf.word(),
+                ls.producer(),
+                leaf_req
+            ));
+        }
         if Some(ls.digest().to_string()) != rec.leaf_set.digest
             || strip(&ls.binding().statement_digest) != rec.rows.sha256
             || !ls.is_closed()
@@ -475,7 +528,8 @@ fn row_json_certified(v: &Value, required: Level, basis_ok: bool) -> bool {
     }
 }
 
-/// The leaf set of a checked layer, from its statement rows (`rows_path`, canonical lines) and the check's binding.
+/// The leaf set of a checked layer, from its statement rows (`rows_path`, canonical lines) and the check's binding (no
+/// zero-route guarantee stated: [`leafset_of_with`]).
 #[allow(clippy::too_many_arguments)]
 pub fn leafset_of(
     set: &ImportedSet,
@@ -483,6 +537,34 @@ pub fn leafset_of(
     rows_path: &Path,
     required: Level,
     basis_ok: bool,
+    node: &str,
+    clause: &str,
+    verdict: &str,
+    start_digest: &str,
+) -> Result<LeafSet, String> {
+    leafset_of_with(
+        set,
+        res,
+        rows_path,
+        required,
+        basis_ok,
+        &[],
+        node,
+        clause,
+        verdict,
+        start_digest,
+    )
+}
+
+/// [`leafset_of`] with the zero-route guarantees the producing walk enforced (audit r2-zeros F9).
+#[allow(clippy::too_many_arguments)]
+pub fn leafset_of_with(
+    set: &ImportedSet,
+    res: &CheckResult,
+    rows_path: &Path,
+    required: Level,
+    basis_ok: bool,
+    zero_route: &[String],
     node: &str,
     clause: &str,
     verdict: &str,
@@ -526,6 +608,10 @@ pub fn leafset_of(
             .map(|h| h.summary.relative_to.clone())
             .unwrap_or_default(),
         provenance: BTreeMap::from([("spec_digest".to_string(), res.spec_digest.clone())]),
+        // audit r2-planners L1: the certification basis of the `certified` flags above
+        producer: Some(
+            LeafProducer::new(required.word(), res.tier, basis_ok).with_zero_route(zero_route),
+        ),
     })
     .map_err(|e| e.to_string())
 }
@@ -577,8 +663,28 @@ pub fn walk_c(
         }
         let t0 = std::time::Instant::now();
         let rows_path = dir.join(format!("{}.rows.jsonl", l.idx));
-        let res = check_streamed_with_leaves(set, ev, &opts, &rows_path, &l.start, &leaves)
-            .map_err(|e| format!("layer {} ({}): exact-tier check: {e}", l.idx, l.id))?;
+        // audit r2-planners L1: the leaves are judged against THIS loop's gates (required level, exact tier, strict)
+        let leaf_req = LeafRequirement {
+            required_level: gates.required.word().to_string(),
+            tier: Tier::C,
+            strict: gates.strict,
+            // audit r2-zeros F9: the leaves' producers must have enforced this run's zero-route guarantees
+            zero_route: zero_route_words(
+                gates.second_decisive,
+                gates.second_elided,
+                gates.zeros_on,
+            ),
+        };
+        let res = check_streamed_with_leaves_required(
+            set,
+            ev,
+            &opts,
+            &rows_path,
+            &l.start,
+            &leaves,
+            Some(&leaf_req),
+        )
+        .map_err(|e| format!("layer {} ({}): exact-tier check: {e}", l.idx, l.id))?;
         let diagnostic = res.summary.diagnostic || res.summary.verdict == Verdict::Diagnostic;
         let basis_ok = gates.strict && !diagnostic && res.tier == Tier::C;
         let (certified, keys) = certified_of(&res, gates.required, basis_ok);
@@ -634,9 +740,10 @@ pub fn walk_c(
                 }
             }
         }
+        // lane zerosfix3: confirmed = agreement of two INDEPENDENT producers (PairCompare::confirms)
         let unconfirmed = pairs
             .iter()
-            .filter(|p| !gates.second.compared.get(*p).is_some_and(|c| c.agree()))
+            .filter(|p| !gates.second.compared.get(*p).is_some_and(|c| c.confirms()))
             .count();
         if unconfirmed > 0 {
             why.push(format!("second_route_unconfirmed:{unconfirmed}"));
@@ -656,11 +763,19 @@ pub fn walk_c(
                 if pairs.contains(&id) || !seen.insert(id.clone()) {
                     continue;
                 }
-                let first = ev.fact_basis(&zeros::rule_id(set, zp.table, zp.record), &zp.applied);
-                let ok = if first == Some("exact_eval") {
-                    gates.second.compared.get(&id).is_some_and(|c| c.agree())
-                } else {
-                    gates.zeros.get(&id).is_some_and(|(_, c)| c.agree())
+                // lane zerosfix3: a pair closeloop4's route compared keeps that comparison; else routed by the fact's
+                // PRODUCER (memory and evidence stores alike); a word no route knows is never confirmed
+                let first = ev
+                    .fact_producer(&zeros::rule_id(set, zp.table, zp.record), &zp.applied)
+                    .unwrap_or("none");
+                let ok = match gates.second.compared.get(&id) {
+                    Some(c) => c.confirms(),
+                    None => match zeros::zero_route_of(first) {
+                        zeros::ZeroRoute::Compare | zeros::ZeroRoute::Unknown => false,
+                        zeros::ZeroRoute::Zeros => gates.zeros.get(&id).is_some_and(|(f, c)| {
+                            c.agree() && zeros::zero_route_of(f) == zeros::ZeroRoute::Zeros
+                        }),
+                    },
                 };
                 if !ok {
                     z_unconfirmed += 1;
@@ -694,12 +809,13 @@ pub fn walk_c(
         }
         let closed = why.is_empty();
         let verdict = if closed { "closed" } else { "open" };
-        let ls = Arc::new(leafset_of(
+        let ls = Arc::new(leafset_of_with(
             set,
             &res,
             &rows_path,
             gates.required,
             basis_ok,
+            &leaf_req.zero_route,
             &inp.node,
             &l.id,
             verdict,
@@ -1331,6 +1447,8 @@ pub fn node_leafset(
         walk,
         relative_to: relative,
         provenance: BTreeMap::from([("spec_digest".to_string(), set.report.spec_digest.clone())]),
+        // audit r2-planners L1: the composed set certifies no more than its weakest part
+        producer: LeafProducer::weakest(parts.iter().map(|p| p.producer())),
     })
     .map_err(|e| e.to_string())
 }

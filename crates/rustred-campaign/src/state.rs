@@ -188,8 +188,14 @@ pub fn contract_accepts(class: FinishClass) -> &'static [ContractAccept] {
     use ContractAccept as A;
     use FinishClass::*;
     match class {
-        // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import)
-        Complete => &[A::Canonical, A::SuppliedRelations, A::Nothing],
+        // rows 1, 3; 33 = kind symmetry-composite (lane symjob: candidates, accepted only through the import);
+        // 40 = kind proof-symrows (lane symcert: certificates bound to the asked relation)
+        Complete => &[
+            A::Canonical,
+            A::SuppliedRelations,
+            A::Certificates,
+            A::Nothing,
+        ],
         NoRule => &[A::CommittedRules, A::Nothing], // rows 4, 24
         Spill => &[A::CommittedRules],              // row 8
         DecidedNegative => &[A::Nothing],           // row 7 (c=11)
@@ -217,9 +223,14 @@ pub fn accept_permits_records(a: ContractAccept) -> bool {
         ContractAccept::SolvedRecords => true, // row 28 (lane adapters)
         // line 7 (rows 30-32): diagnostic records are never rule or relation evidence; no record is taken from them here
         ContractAccept::DiagnosticRecords => false,
-        // lane symjob (rows 33 / 34): the sealed results are read and handed to the work source, which accepts each
-        // supplied relation ONLY through the import's own verification (adapters::symcomp::verify_relations)
+        // lane symjob (rows 33 / 34): the sealed results are read (PRODUCE) and handed to the work source as
+        // CANDIDATES; lane symfix (audit r2-sym F5): an item ACCEPT (direct credit) from such an attempt is refused in
+        // `apply_item_event`: supplied relations become evidence only through the node import's load-time
+        // verification (interfaces/import.md 21)
         ContractAccept::SuppliedRelations => true,
+        // lane symcert (row 40): the sealed certificate is read and handed to the work source, which binds it to the
+        // relation it asked about (closeloop::symcert): evidence of that relation's per-key level only
+        ContractAccept::Certificates => true,
         ContractAccept::Nothing => false,
     }
 }
@@ -231,6 +242,7 @@ pub fn accept_word(a: ContractAccept) -> &'static str {
         ContractAccept::SolvedRecords => "solved_records", // lane adapters (row 28)
         ContractAccept::DiagnosticRecords => "diagnostic_records", // line 7 (rows 30-32)
         ContractAccept::SuppliedRelations => "supplied_relations", // lane symjob (rows 33 / 34)
+        ContractAccept::Certificates => "certificates",    // lane symcert (row 40)
         ContractAccept::Nothing => "nothing",
     }
 }
@@ -3234,8 +3246,18 @@ impl CampaignState {
                         "accept of {rule}: item {item} has no produced result"
                     ))
                 })?;
-                self.job_feeds(item, &p.job, p.attempt)
+                let pj = self
+                    .job_feeds(item, &p.job, p.attempt)
                     .map_err(|w| invalid(format!("accept of {rule}: {w}")))?;
+                // lane symfix (audit r2-sym F5): a supplied-relations attempt's records are CANDIDATES; they become
+                // evidence only through the node import's load-time verification (interfaces/import.md 21), never
+                // as a direct credit: refused here whatever the work source did (or did not) call.
+                if pj.accept == Some(ContractAccept::SuppliedRelations) {
+                    return Err(invalid(format!(
+                        "accept of {rule}: job {} attempt {} accepts supplied_relations: its relations enter only through the import's load-time verification, never as a direct credit",
+                        p.job, p.attempt
+                    )));
+                }
                 let from = match source {
                     AcceptSource::Job {
                         job,

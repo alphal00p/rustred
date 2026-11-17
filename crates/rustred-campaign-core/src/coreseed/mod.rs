@@ -21,7 +21,7 @@ use serde_json::Value;
 
 pub use machine::{CoreReport, solve_core};
 pub use seeds::Offset;
-pub use spec::CoreSeedPolicy;
+pub use spec::{CoreSeedPolicy, VariantSpec};
 
 pub type Key = Vec<i32>;
 
@@ -62,69 +62,19 @@ impl RegularityJudge for StubJudge {
     }
 }
 
-/// TEMPORARY judge (to be replaced by lane poles' exact valuation / lane tadic's system verdict): at a numeric key
-/// every coefficient is a rational function of d alone; if NO coefficient's denominator vanishes at d0 the relation is
-/// `Regular` (sound); otherwise `Undecided` (a vanishing denominator may cancel; the verdict "singular" needs the exact
-/// multiplicity of (d - d0), which this cheap test does not compute). Exact integer evaluation with the core's own
-/// polynomial reader ([`crate::poly::Poly`]): no new algebra. Never answers `Singular`.
+/// The in-process regularity test of the coreseed flow: THE core text judge ([`crate::poles::textjudge`], lane
+/// polefix, audit r2-poles F5; one implementation shared with seedmin's `LocalValuationJudge`): `Regular` iff every
+/// coefficient is in the ENGINE's printed form and its exact pole order at the integer d0 is 0 (sound); otherwise
+/// `Undecided` (a non-engine form, a pole, a non-integer d0): the ORDER of a singular relation is the `pole-regular-at`
+/// child job's (supervisor) or the algebra crate's `ExactJudge` where that crate is linked. Never answers `Singular`.
 pub struct DenominatorJudge;
-
-/// Value at `d0` of a polynomial text in `d` (exact), `None` if unreadable.
-fn eval_d_text(t: &str, d0: i64) -> Option<crate::poly::BigInt> {
-    use crate::poly::{BigInt, Poly};
-    let p = Poly::parse_exact(t.trim(), 0, true).ok()?;
-    let mut acc = BigInt::zero();
-    for (j, c) in p.d_coefficients() {
-        let mut v = c.eval_big(&[]).ok()?;
-        let b = BigInt::from_i128(d0 as i128);
-        for _ in 0..j {
-            v = v.mul(&b);
-        }
-        acc = acc.add(&v);
-    }
-    Some(acc)
-}
-
-/// Split a coefficient text at its single top-level `/` (none: denominator 1).
-fn split_fraction(c: &str) -> Option<(String, String)> {
-    let mut depth = 0i32;
-    let mut at: Vec<usize> = vec![];
-    for (i, ch) in c.char_indices() {
-        match ch {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            '/' if depth == 0 => at.push(i),
-            _ => {}
-        }
-    }
-    match at.as_slice() {
-        [] => Some((c.to_string(), "1".to_string())),
-        [i] => Some((c[..*i].to_string(), c[i + 1..].to_string())),
-        _ => None,
-    }
-}
 
 impl RegularityJudge for DenominatorJudge {
     fn is_regular_at(&self, record: &Value, _key: &[i32], d0: &str) -> D0Verdict {
-        let Ok(d0) = d0.parse::<i64>() else {
-            return D0Verdict::Undecided;
-        };
-        let Some(rhs) = record["rhs"].as_array() else {
-            return D0Verdict::Undecided;
-        };
-        for t in rhs {
-            let Some(c) = t.get(1).and_then(Value::as_str) else {
-                return D0Verdict::Undecided;
-            };
-            let Some((_, d)) = split_fraction(c) else {
-                return D0Verdict::Undecided;
-            };
-            match eval_d_text(&d, d0) {
-                Some(v) if !v.is_zero() => {}
-                _ => return D0Verdict::Undecided,
-            }
+        match crate::poles::textjudge::relation_pole_order(record, d0) {
+            Some(0) => D0Verdict::Regular,
+            _ => D0Verdict::Undecided,
         }
-        D0Verdict::Regular
     }
 }
 
@@ -216,6 +166,11 @@ pub trait CoreSolver {
     fn solve(&mut self, batch: &[SolveReq]) -> Result<Vec<Vec<KeyAnswer>>, String>;
     /// Progress hook (partial report after each phase); default: nothing.
     fn progress(&mut self, _phase: &str, _partial: &Value) {}
+    /// The CLOSE-FIRST report (stage `close_first`: after A + B, every key served or decided), handed over BEFORE any
+    /// request of the variant phase or the lists (POLES_OBJECTIVE.md 1: closing first; audit r2-poles F2). A caller
+    /// persists it at once: the later phases only add alternatives and pieces, and their failure, budget or a request
+    /// that never returns cannot hold it back. Default: nothing (the final report is returned as before).
+    fn publish(&mut self, _report: &CoreReport) {}
 }
 
 #[cfg(test)]

@@ -1005,17 +1005,23 @@ fn supplied_relations_and_terminals() {
                    {"id":"sym","kind":"supplied_relations","class":"symmetry","path":s.display().to_string(),
                     "verification":{"path": v.display().to_string()},"hand_name":{"template":"{source}#{index}"}},
                    {"id":"T","kind":"terminals","keys":[[1,1,0]]}]});
+    // lane symfix (audit r2-sym F1, import.md 21): the `verification` file is READ: it holds no composite
+    // verification line of the key and the frame header has no family to re-derive the relation from, so it is NOT
+    // verified at load (no EXACT bit): the key is open (it was served at `imported`, basis `supplied`, before the fix)
     let (set, _ev, r) = run(&spec, &d);
     let x = row(&r, [2, 1, 0]);
-    assert_eq!(
-        (x.status, x.evidence, x.basis),
-        (RowStatus::Served, Some(Level::Imported), Some("supplied"))
+    assert_eq!(x.status, RowStatus::Open, "{x:?}");
+    let rep = set.report.sources.iter().find(|s| s.id == "sym").unwrap();
+    assert_eq!(rep.relations_not_verified.len(), 1, "{rep:?}");
+    assert!(
+        rep.relations_not_verified[0]
+            .1
+            .starts_with("group_unavailable")
+            || rep.relations_not_verified[0]
+                .1
+                .starts_with("verification_line_missing"),
+        "{rep:?}"
     );
-    assert_eq!(
-        import::statement::server_hand_name(&set, x).as_deref(),
-        Some("sym#0")
-    );
-    assert_eq!(row(&r, [1, 1, 0]).status, RowStatus::Terminal);
     // without its verification record the supplied relation is unverified (open)
     spec["sources"][1]
         .as_object_mut()

@@ -17,15 +17,17 @@
 //! `[key text "I(..)", class, label | null, in_box, ..]` or `[key, in_box, class, label | null, ..]`; `catalogue.json` =
 //! `{"entries": [{name, table, offset}, ..]}` or a map `{label: {path | table, offset}}`
 //! (the record of `label` is the JSON line at byte `offset` of `table`). Per served key: the serving record's
-//! coefficients evaluated EXACTLY at the key (indices put in), its pole order at d0. Writes DIR/census.summary.json
+//! coefficients evaluated EXACTLY at the RULE POINT of the key (the record's target pattern and fixed slots, core
+//! `closure::bodies::rule_point`; = the key for a canonical target; a rule without a readable target, or whose pattern
+//! does not match the key, is undecided), its pole order at d0. Writes DIR/census.summary.json
 //! (`rustred.campaign.route-pole-census.v1`), DIR/rules.jsonl (one line per used rule: record sha256, keys, keys with a
 //! pole, max order), DIR/census.rows.jsonl (keys with a pole or undecided). Route poles only: never a statement about
 //! the eps need of terminals. `--box-dr DMAX,RMAX` replaces the statement's in_box flag by the clause "dots <= DMAX and
 //! rank <= RMAX" (data given by the caller; a stand-in until the BOXDEF reader is wired here).
 //! REQUEST (one JSON object per line, `rustred.campaign.pole-request.v1`):
 //! `{"id": "<caller's id>", "key": [..], "d0": "4"?, "record": {<relation record>}}` where the record is an engine
-//! solve-recipe `relation` record, a table `rule` record (the key's indices are put in; the caller ensures the rule
-//! applies at the key) or an unnormalised `{"target_coefficient", "rhs"}` relation (see `valuation::relation`). `d0`
+//! solve-recipe `relation` record, a table `rule` record (its coefficients are evaluated at the RULE POINT of the key
+//! under its `target` / `fixed`; the caller ensures the rule applies at the key) or an unnormalised `{"target_coefficient", "rhs"}` relation (see `valuation::relation`). `d0`
 //! defaults to `--d0`. `--results` reads an engine results file instead: every `"type":"relation"` record at its own key
 //! (`id` = its `ordinal`, else the line number).
 //! ANSWER (one line per request, in request order, `rustred.campaign.pole-answer.v1`):
@@ -462,7 +464,8 @@ fn census(a: &Args) {
                             }
                             let sha = rustred_campaign_core::replay_base::sha256::sha256_hex(line.as_ref().unwrap());
                             (json!({"label": label, "table": table, "offset": off, "record_sha256": sha,
-                                "type": rec["type"], "index": rec["index"], "chart": rec["chart"], "terms": pr.terms()}), rows)
+                                "type": rec["type"], "index": rec["index"], "chart": rec["chart"], "terms": pr.terms(),
+                                "target": rec["target"], "target_canonical": pr.point_map().is_identity()}), rows)
                         }
                         Err(e) => {
                             let rows = keys
@@ -487,6 +490,12 @@ fn census(a: &Args) {
     });
     let mut results = results.into_inner().expect("lock");
     results.sort_by(|x, y| x.0.cmp(&y.0));
+    // rules by target form (audit r2-poles F1: coefficients at the RULE POINT; canonical = the key itself)
+    let targets = json!({
+        "canonical": results.iter().filter(|r| r.1["target_canonical"] == json!(true)).count(),
+        "non_canonical": results.iter().filter(|r| r.1["target_canonical"] == json!(false)).count(),
+        "unreadable_or_error": results.iter().filter(|r| r.1.get("error").is_some()).count(),
+    });
     let mut all_rows: Vec<CensusRow> = terminals;
     std::fs::create_dir_all(&out).unwrap_or_else(|e| die(&format!("{}: {e}", out.display())));
     let mut rules_f = std::io::BufWriter::new(
@@ -537,7 +546,7 @@ fn census(a: &Args) {
         json!({"box_dr": a.box_dr.map(|(x, y)| json!([x, y])), "statement_keys": kp.display().to_string(), "statement_keys_sha256": file_sha256(&kp),
             "catalogue": cp.display().to_string(), "catalogue_sha256": file_sha256(&cp),
             "method": rustred_campaign_algebra::valuation::VALUATION_METHOD, "threads": a.threads,
-            "seconds": t0.elapsed().as_secs_f64(), "vmhwm_kb": vm_hwm_kb()}),
+            "seconds": t0.elapsed().as_secs_f64(), "vmhwm_kb": vm_hwm_kb(), "rules_by_target": targets}),
     );
     std::fs::write(out.join("census.summary.json.part"), format!("{s:#}\n"))
         .unwrap_or_else(|e| die(&e.to_string()));
@@ -547,7 +556,8 @@ fn census(a: &Args) {
     }
     println!(
         "{}",
-        json!({"verdict": "OK", "box": s["box"], "closure": s["closure"], "seconds": s["inputs"]["seconds"]})
+        json!({"verdict": "OK", "box": s["box"], "closure": s["closure"], "seconds": s["inputs"]["seconds"],
+            "rules_by_target": s["inputs"]["rules_by_target"]})
     );
 }
 

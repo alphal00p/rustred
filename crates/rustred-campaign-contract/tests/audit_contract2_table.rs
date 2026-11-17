@@ -23,6 +23,10 @@
 //! Extended by lane coreseed (2026-11-15; interfaces/coreseed.md 10): kind pole-regular-at (row 37 exit 0 with verified
 //! answers; row 38 for exit 10 / 20 or unverified answers, before 22; row 39 at exit 41, before 13) and the
 //! `diagnostic_records` accept mode for it (exit 0 only).
+//! Extended by lane symcert (2026-11-15; interfaces/proof-symrows-job.md 4): kind proof-symrows (row 40 exit 0 with a
+//! verified certificate; row 43 for exit 10 / 20 or an unverified certificate, before 22; row 41 at exit 41 naming
+//! SYMROW_REFUSED and row 42 at exit 41 / 70 naming a reader error, before 13b / 13) and the `certificates` accept mode
+//! (proof-symrows at exit 0 only).
 
 mod common;
 use common::*;
@@ -104,6 +108,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 if e.kind == JobKind::PoleRegularAt && (e.verified.is_none() || c != 0) {
                     return (38, "");
                 }
+                // lane symcert: a proof-symrows certificate is read only at exit 0 when verified (43, never 22)
+                if e.kind == JobKind::ProofSymrows && (e.verified.is_none() || c != 0) {
+                    return (43, "");
+                }
                 let Some(v) = &e.verified else {
                     return (22, "");
                 };
@@ -112,6 +120,9 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 }
                 if e.kind == JobKind::PoleRegularAt {
                     return (37, "");
+                }
+                if e.kind == JobKind::ProofSymrows {
+                    return (40, "");
                 }
                 // adapters.md 1.2: solve-recipe uses rows 1 / 28 / 29 and needs the results tally (S); proof-instantiate
                 // has exit 0 only; keys_unsolved belongs to solve-recipe only
@@ -248,6 +259,19 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
         {
             return (36, "");
         }
+        // lane symcert: proof-symrows' typed refusal of a symmetry row (41) and its reader errors (42)
+        if let O::Ok(j) = &o
+            && [41, 70].contains(&c)
+            && e.kind == JobKind::ProofSymrows
+        {
+            let m = j.error.as_ref().map(|x| x.message.as_str()).unwrap_or("");
+            if c == 41 && m.contains("SYMROW_REFUSED") {
+                return (41, "");
+            }
+            if m.contains("UNREADABLE_RECORD") || m.contains("UNKNOWN_RECORD_KIND") {
+                return (42, "");
+            }
+        }
         // line 7: a legacy proof tool's typed reader error (in OUTCOME's error message) is the input refusal 13b
         if let O::Ok(j) = &o
             && [41, 70].contains(&c)
@@ -342,6 +366,17 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     let diagnostic_kind = e.kind == JobKind::NodeBasis
         || e.kind == JobKind::PoleRegularAt
         || (e.kind == JobKind::SolveRecipe && probe);
+    // lane symcert: certificates only from proof-symrows, and only at exit 0
+    if (accept == Accept::Certificates) != (e.kind == JobKind::ProofSymrows) {
+        return Err(format!("accept {accept:?} for kind {:?}", e.kind));
+    }
+    if e.kind == JobKind::ProofSymrows {
+        return if c == 0 {
+            Ok(())
+        } else {
+            Err(format!("proof-symrows accepted on exit {c}"))
+        };
+    }
     if (accept == Accept::DiagnosticRecords) != diagnostic_kind {
         return Err(format!(
             "accept {accept:?} for kind {:?} (probe tally {probe})",
@@ -708,7 +743,25 @@ fn run(stride: u64) -> BTreeMap<String, u64> {
                 j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
             })
             .collect();
+        // lane symcert: OUTCOMEs naming the kernel's symmetry-row refusal at 41 / 70 (row 41 for proof-symrows at 41)
+        let symrow: Vec<OutcomeState> = valid_outcomes(kind)
+            .into_iter()
+            .filter(|j| [41, 70].contains(&j.exit_code.code()))
+            .filter_map(|mut j| {
+                let class = if j.exit_code.code() == 41 {
+                    ErrorClass::Input
+                } else {
+                    ErrorClass::Internal
+                };
+                j.error = Some(ErrorInfo::new(
+                    class,
+                    "SYMROW_REFUSED: loop part not unimodular (symrow e3 [1, 2])",
+                ));
+                j.check().is_ok().then(|| OutcomeState::Valid(Box::new(j)))
+            })
+            .collect();
         outcomes.extend(pinned);
+        outcomes.extend(symrow);
         let verified = if kind == JobKind::SolveRecipe || kind == JobKind::SymmetryComposite {
             &with_tally
         } else {
