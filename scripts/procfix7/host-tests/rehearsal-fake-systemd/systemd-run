@@ -20,6 +20,10 @@ set -u
 if [ "${1:-}" = --version ]; then echo "systemd-run REHEARSAL FAKE (procfix7 round 9b host-step rehearsal)"; exit 0; fi
 die() { echo "fake systemd-run: $*" >&2; exit 1; }
 [ "$(tr -s ' ' < /proc/self/uid_map | sed 's/^ //')" != "0 0 4294967295" ] || die "refused outside a private user namespace"
+# procfix7 round 10 (gate13c O-fake): and outside a private PID namespace (a user-only namespace would still see, and
+# could signal, the host's processes): pid 1 must be a process of our own uid that is not systemd
+[ "$(stat -c %u /proc/1 2>/dev/null)" = "$(id -u)" ] && [ "$(cat /proc/1/comm 2>/dev/null)" != systemd ] \
+  || die "refused outside a private pid namespace"
 [ -n "${FAKE_SYSTEMD_DIR:-}" ] || die "FAKE_SYSTEMD_DIR not set"
 [ "${1:-}" = --user ] || die "only --user is emulated"; shift
 NAME=""; WD=/; ENVS=(); PROPS=(); WAIT=no; COLLECT=no

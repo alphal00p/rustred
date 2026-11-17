@@ -233,7 +233,13 @@ def grade(out, cid, ex, ver, marked, scopes_after, mode, ledger, off, ws):
     end = " ".join(l.strip() for l in slurp(out + "/launcher.log").splitlines()
                    if l.startswith(("Finished with result", "Main processes terminated"))) \
         if os.path.exists(out + "/launcher.log") else ""
-    put("P1", ex == 0, f"exit {ex}" + (f" (service {sup}: {end or 'no end reported by systemd-run --wait'})" if sup else ""))
+    # procfix7 round 10 (gate13c m13c-p1-clean-signal): with the service form, exit 0 also needs systemd's report of a
+    # NORMAL exit with status 0: systemd-run --wait returns 0 for a death by SIGHUP / SIGINT / SIGTERM / SIGPIPE too
+    # (possible only before rr_campaign installs its handlers)
+    clean = not sup or "Main processes terminated with: code=exited, status=0" in (end + " ")
+    put("P1", ex == 0 and clean,
+        f"exit {ex}" + (f" (service {sup}: {end or 'no end reported by systemd-run --wait'})" if sup else "")
+        + ("" if clean else "; systemd does not report a normal exit with status 0"))
     jc = [n for n in notes if n.startswith("job_containment ")]
     if host:
         sc = sum('"containment":"scope:rr-' in n for n in jc)

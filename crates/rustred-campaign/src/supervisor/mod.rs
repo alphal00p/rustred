@@ -3496,8 +3496,10 @@ impl Supervisor {
     /// the live jobs, the scopes of this session whose final state was not seen yet (ended attempts kept by
     /// [`Self::scope_result_class`], and the attempts that were still listed, [`Self::note_exit_scopes`]) are read once
     /// more by their exact names, recorded, and reset if failed. A scope still active is left alone (its job may run on:
-    /// the restart adopts it). Bound: no read STARTS after [`SCOPE_EXIT_WAIT`]; each read is bounded by 10 s, so the pass
-    /// takes at most SCOPE_EXIT_WAIT + 10 s; units not read by then are named in the log and left as they are.
+    /// the restart adopts it). Bound (procfix7 round 10, gate13c m13c-exit-bound): no read STARTS after
+    /// [`SCOPE_EXIT_WAIT`] (10 s); the unit being read when it passes costs at most one more bounded read (10 s) and one
+    /// bounded reset-failed (10 s): the pass takes at most 30 s in the worst case (a user manager that answers nothing);
+    /// units not read by then are named in the log and left as they are.
     fn settle_scopes_at_exit(&mut self) {
         if crate::launch::systemd_units_unavailable() {
             return;

@@ -22,7 +22,11 @@
 #   the same unit by name and grades (P1 then uses the client's report in launcher.log if the client lived on).
 # STOP: `rr_campaign control OUT/c stop` (a request; the watcher's ABORT files exactly this), or
 #   `systemctl --user stop hoststep-fake1-<HHMMSS>.service` (SIGTERM to the supervisor = the same graceful stop; systemd
-#   never escalates: TimeoutStopSec=infinity; KillMode=mixed: nothing but the supervisor is signalled by systemd).
+#   never escalates against the supervisor: TimeoutStopSec=infinity). KillMode=mixed (round 10, gate13c m13c-mixed-doc):
+#   at a stop systemd sends SIGTERM to the supervisor only; once the supervisor has EXITED (a stop or a normal end) it
+#   sends SIGKILL to whatever is still in the SERVICE's own cgroup: only descendants of the supervisor that never moved
+#   into a job scope (its own systemctl helpers, a job's systemd-run client before its scope move); the jobs' scopes are
+#   separate units and are never touched; no foreign process can be in that cgroup.
 # --run      OUT=/common/build-cache/vhirschi/p_integral_dev/host-steps/fake1-<UTC> (override: OUT=...).
 # --rehearse-ns  the same files except: lock_dir / ledger_file are PRIVATE COPIES under OUT (an empty cpu.N for every
 #            WS/ops/locks/cpu.N; an empty ledger), the spec carries "containment":"marker_only" (no systemd scope inside a
@@ -40,14 +44,15 @@
 #   Read-only: WS/ops/locks (the supervisor takes flocks there on --run), the held files, the pause flags.
 set -u
 WS=/shared/vhirschi/t3code/vakint_dev/p_integral_dev
-usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; }
 # procfix7 round 8b: EVERYTHING runs from main(), which bash parses in full before it starts; install a new version only
 # as a new file (a frozen copy in a dated directory), never by editing a file that may be running.
 # alive PID: the process exists and is not a zombie
 alive() { local st; st=$(sed -E 's/^.*\) (.).*$/\1/' "/proc/$1/stat" 2>/dev/null) || return 1; [ -n "$st" ] && [ "$st" != Z ]; }
 # procfix7 round 9b: the supervisor's service unit, by its EXACT name ($SVC): running / ended / lingering / unknown
 #   ended: unloaded (--collect) or inactive / failed; lingering: deactivating with no main process (processes are left
-#   in the unit's own cgroup: systemd signals none of them, TimeoutStopSec=infinity; P8 then fails on it)
+#   in the unit's own cgroup; KillMode=mixed: systemd SIGKILLs them, round 10 m13c-mixed-doc; P8 fails on a unit that
+#   stays loaded)
 sup_state() {
   local s
   s=$(systemctl --user show --property=LoadState,ActiveState,MainPID -- "$SVC" 2>/dev/null) || { echo unknown; return; }
@@ -297,9 +302,17 @@ elif [ -n "$CLIENT" ]; then
     fi
   fi
 else
+  # procfix7 round 10 (gate13c m13c-grade-race): the client (if it lived on) prints its end lines right after the unit
+  # ended: wait for them (bounded, 30 s) before reading
+  for _ in $(seq 150); do grep -q '^Main processes terminated with: ' "$OUT/launcher.log" 2>/dev/null && break; sleep 0.2; done
   l=$(grep -m1 '^Main processes terminated with: code=exited, status=' "$OUT/launcher.log" 2>/dev/null)
   if [ -n "$l" ]; then EXIT=$(echo "$l" | sed -E 's/.*status=([0-9]+).*/\1/'); HOW="launcher.log (the client lived on)"; fi
 fi
+# procfix7 round 10 (gate13c m13c-p1-clean-signal): systemd-run --wait returns 0 also when the supervisor DIED of SIGTERM /
+# SIGHUP / SIGINT / SIGPIPE (clean signals for a service; possible only before its handlers are installed): systemd's
+# report then says code=killed: that is 128 + the signal, never 0
+k=$(grep -m1 -oE '^Main processes terminated with: code=(killed|dumped), status=[0-9]+' "$OUT/launcher.log" 2>/dev/null | sed -E 's/.*status=//')
+if [ -n "$k" ]; then EXIT=$((128 + k)); HOW="$HOW; systemd reports a death by signal $k"; fi
 echo "exit $EXIT" | tee -a "$OUT/run.log"
 { echo "ended $(date -u +%FT%TZ): state $st, exit $EXIT from $HOW"; systemctl --user show --property=LoadState,ActiveState,SubState,Result,MainPID -- "$SVC" 2>&1; } > "$OUT/supervisor.unit.end"
 ID=$(sed -n 's/.*INFO campaign id \([^ ]*\) .*/\1/p' "$OUT/run.log" | head -1)

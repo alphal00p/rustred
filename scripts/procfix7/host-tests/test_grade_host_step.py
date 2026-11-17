@@ -153,6 +153,22 @@ class Recorded(unittest.TestCase):
             self.assertIn(f"the step's own units {sorted([pre, sup])}: accounted", r["P8"][1])
             self.assertNotIn("1 foreign", r["P8"][1])
 
+    def test_p1_needs_systemds_report_of_a_normal_exit_with_status_0(self):
+        """procfix7 round 10 (gate13c m13c-p1-clean-signal): systemd-run --wait returns 0 for a SIGTERM death too."""
+        sup = "hoststep-fake1-120000.service"
+        for line, want in (("Main processes terminated with: code=exited, status=0/SUCCESS", "PASS"),
+                           ("Main processes terminated with: code=killed, status=15/TERM", "FAIL")):
+            d = out_dir(round9)
+            try:
+                with open(os.path.join(d, "supervisor.unit"), "w") as f:
+                    f.write(sup + "\n")
+                with open(os.path.join(d, "launcher.log"), "w") as f:
+                    f.write("Finished with result: success\n" + line + "\n")
+                r = run(d)
+            finally:
+                shutil.rmtree(d)
+            self.assertEqual(r["P1"][0], want, r["P1"])
+
     def test_with_the_round_9_notes_every_criterion_passes(self):
         r, abort = graded(round9)
         self.assertTrue(all(v == "PASS" for v, _ in r.values()), r)
