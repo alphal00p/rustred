@@ -1118,23 +1118,25 @@ impl WorkSource for ImproveSource {
                 "subtree_incomplete ({status}: not closed within improve.subtree_max_cases)"
             ),
             Some(_) if subtree => {
-                match im::subtree_verdict_by(
+                match im::subtree_verdict_eq(
                     &old,
                     &sub_rules,
                     self.cfg.improve.min_gain,
                     self.cfg.improve.filter.by,
                     &self.cfg.improve.cost,
+                    self.cfg.improve.accept_equal,
                 ) {
                     Ok(()) => "ok".to_string(),
                     Err(w) => w,
                 }
             }
-            Some(n) => match im::replacement_verdict_by(
+            Some(n) => match im::replacement_verdict_eq(
                 &old,
                 n,
                 self.cfg.improve.min_gain,
                 self.cfg.improve.filter.by,
                 &self.cfg.improve.cost,
+                self.cfg.improve.accept_equal,
             ) {
                 Ok(()) => "ok".to_string(),
                 Err(w) => w,

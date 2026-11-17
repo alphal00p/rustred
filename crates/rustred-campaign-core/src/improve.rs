@@ -347,6 +347,14 @@ pub struct RuleFilter {
     /// carry huge coefficients on few monomials: rule 7181, 210.7 MB on 3,195 monomials, regenerates as a complete
     /// 17.9 MB sub-table of 1.0 M monomials) or `use_cost` (the repair flow's cost model, `cost`).
     pub by: RankBy,
+    /// Rule indices never targeted (e.g. records known DEAD: never first match in the statement's region; they are
+    /// dropped at the final step instead of improved).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub exclude: Vec<i64>,
+    /// An explicit target list (rule indices, tried in this order; `largest` / `min_monomials` then do not apply), e.g.
+    /// records to regenerate for exactness evidence.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -385,6 +393,8 @@ impl Default for RuleFilter {
             largest: Some(20),
             min_monomials: None,
             by: RankBy::Monomials,
+            exclude: vec![],
+            include: vec![],
         }
     }
 }
@@ -412,6 +422,9 @@ pub struct ImprovePolicy {
     pub subtree_max_cases: u64,
     /// Cost model of `filter.by: use_cost` (genchoice's; repairflow.md 2).
     pub cost: crate::economy::genchoice::CostModel,
+    /// Accept a structurally valid replacement of EQUAL size too (not larger): regeneration for exactness evidence
+    /// (a derivation + certificate), not for bytes; min_gain does not apply then.
+    pub accept_equal: bool,
     /// TRANCHE YIELD STOP (implementer 2026-11-16): the run stops starting candidates once its yield (bytes saved per
     /// CPU-h, by the qualifying candidates so far) falls below `min_fraction` x the reference yield (the record's first
     /// improve run that saved bytes, unless given); None = no yield stop.
@@ -480,11 +493,8 @@ pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePo
     let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
     idx.into_iter()
-        .filter(|&i| {
-            p.filter
-                .min_monomials
-                .is_none_or(|m| rules[i].monomials >= m)
-        })
+        .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
+        .filter(|&i| p.filter.min_monomials.is_none_or(|m| rules[i].monomials >= m))
         .take(p.filter.largest.unwrap_or(usize::MAX))
         .filter(|&i| {
             let key = rules[i].key();
@@ -533,6 +543,7 @@ impl Default for ImprovePolicy {
             subtree: true,
             subtree_max_cases: 64,
             cost: crate::economy::genchoice::CostModel::default(),
+            accept_equal: false,
             yield_stop: Some(YieldStop::default()),
             poles: None,
         }
@@ -549,14 +560,20 @@ pub fn targets(
     let mut idx: Vec<usize> = (0..rules.len()).collect();
     let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
+    if !p.filter.include.is_empty() {
+        let pos: BTreeMap<i64, usize> = rules.iter().enumerate().map(|(i, r)| (r.index, i)).collect();
+        idx = p.filter.include.iter().filter_map(|x| pos.get(x).copied()).collect();
+    }
+    let explicit = !p.filter.include.is_empty();
     let idx: Vec<usize> = idx
         .into_iter()
-        .filter(|&i| {
+        .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
+        .filter(|&i| explicit || {
             p.filter
                 .min_monomials
                 .is_none_or(|m| rules[i].monomials >= m)
         })
-        .take(p.filter.largest.unwrap_or(usize::MAX))
+        .take(if explicit { usize::MAX } else { p.filter.largest.unwrap_or(usize::MAX) })
         .collect();
     idx.into_iter()
         .filter_map(|i| {
@@ -705,6 +722,23 @@ pub fn replacement_verdict_by(
     by: RankBy,
     cost: &crate::economy::genchoice::CostModel,
 ) -> Result<(), String> {
+    replacement_verdict_eq(old, new, min_gain, by, cost, false)
+}
+
+/// [`replacement_verdict_by`] with `accept_equal` (equal size accepted, never larger; min_gain ignored then).
+pub fn replacement_verdict_eq(
+    old: &TableRule,
+    new: &TableRule,
+    min_gain: f64,
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+    accept_equal: bool,
+) -> Result<(), String> {
+    if accept_equal {
+        structural_verdict(old, new)?;
+        let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
+        return if n > o { Err(format!("larger ({n} vs {o} {})", by_word(by))) } else { Ok(()) };
+    }
     if by == RankBy::Monomials {
         return replacement_verdict(old, new, min_gain);
     }
@@ -724,6 +758,29 @@ pub fn subtree_verdict_by(
     by: RankBy,
     cost: &crate::economy::genchoice::CostModel,
 ) -> Result<(), String> {
+    subtree_verdict_eq(old, new, min_gain, by, cost, false)
+}
+
+/// [`subtree_verdict_by`] with `accept_equal` (a complete sub-table of equal size accepted, never larger).
+pub fn subtree_verdict_eq(
+    old: &TableRule,
+    new: &[TableRule],
+    min_gain: f64,
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+    accept_equal: bool,
+) -> Result<(), String> {
+    if accept_equal {
+        let Some(first) = new.iter().find(|r| r.case == old.case) else {
+            return Err("no_rule_for_the_case".into());
+        };
+        if first.target != old.target {
+            return Err(format!("other_target ({} vs {})", first.target, old.target));
+        }
+        let nr: Vec<&TableRule> = new.iter().collect();
+        let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
+        return if n > o { Err(format!("larger (sub-table {n} vs {o} {})", by_word(by))) } else { Ok(()) };
+    }
     if by == RankBy::Monomials {
         return subtree_verdict(old, new, min_gain);
     }
@@ -809,13 +866,15 @@ pub fn restate_marker(line: &str, total: u64, per_chart: &BTreeMap<String, u64>)
         .and_then(|t| t.as_str())
         .unwrap_or_default()
         .to_string();
+    // any completion / assembly marker that states a rule count (end, assembly_end, chart_end, chart_partial, and
+    // assembled tables' own markers such as composite_assembly_complete): per chart when it names one, else the total
     let n = match kind.as_str() {
-        "end" | "assembly_end" => Some(total),
-        "chart_end" | "chart_partial" => v
-            .get("chart")
-            .and_then(|c| c.as_str())
-            .map(|c| per_chart.get(c).copied().unwrap_or(0)),
-        _ => None,
+        "rule" | "header" | "chart" | "residual" => None,
+        _ if v.get("rules").and_then(|r| r.as_u64()).is_none() => None,
+        _ => match v.get("chart").and_then(|c| c.as_str()) {
+            Some(c) => Some(per_chart.get(c).copied().unwrap_or(0)),
+            None => Some(total),
+        },
     };
     match n {
         Some(n) if v.get("rules").is_some() => {
