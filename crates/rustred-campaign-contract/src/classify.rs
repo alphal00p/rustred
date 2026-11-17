@@ -1319,9 +1319,13 @@ pub fn tadic_replay_lines(
         .ok_or("no tadic_job input")?;
     let jb = std::fs::read(spec.input_path(jr)).map_err(|e| format!("job input: {e}"))?;
     if crate::blake3_hex(&jb) != jr.blake3 {
-        return Err(format!("{}: job input digest differs", crate::tadicjob::INPUT_MISMATCH));
+        return Err(format!(
+            "{}: job input digest differs",
+            crate::tadicjob::INPUT_MISMATCH
+        ));
     }
-    let job: serde_json::Value = serde_json::from_slice(&jb).map_err(|e| format!("job input: {e}"))?;
+    let job: serde_json::Value =
+        serde_json::from_slice(&jb).map_err(|e| format!("job input: {e}"))?;
     let rb = std::fs::read(layout.out_dir().join(crate::tadicjob::CHILD_OUT))
         .map_err(|e| format!("result file: {e}"))?;
     crate::tadicjob::check_sealed(&lines, &job, &jr.blake3, &crate::blake3_hex(&rb))

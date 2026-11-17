@@ -214,7 +214,12 @@ pub fn job_labels(job: &Value) -> Result<Vec<String>, String> {
         .as_array()
         .ok_or("job: requests")?
         .iter()
-        .map(|r| r["label"].as_str().map(str::to_string).ok_or("job: label".to_string()))
+        .map(|r| {
+            r["label"]
+                .as_str()
+                .map(str::to_string)
+                .ok_or("job: label".to_string())
+        })
         .collect()
 }
 
@@ -227,7 +232,9 @@ fn parse_term(t: &Value, primes: &BTreeSet<u64>, order: i64) -> Result<Term, Str
     for pp in t["per_prime"].as_array().ok_or(at("per_prime"))? {
         let prime = dec_u64(&pp["prime"], "prime").map_err(|e| at(&e))?;
         if !primes.contains(&prime) {
-            return Err(at(&format!("prime {prime} is not among the result's primes")));
+            return Err(at(&format!(
+                "prime {prime} is not among the result's primes"
+            )));
         }
         let seed = pp["seed"].as_u64().ok_or(at("seed"))?;
         let valuation = match &pp["valuation"] {
@@ -298,7 +305,10 @@ fn parse_term(t: &Value, primes: &BTreeSet<u64>, order: i64) -> Result<Term, Str
 /// per-prime series. `Err` = the result is not this job's or not readable (nothing is read: row 51).
 pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedResult, String> {
     if result["schema"] != RESULT_SCHEMA {
-        return Err(format!("schema {} is not {RESULT_SCHEMA}", result["schema"]));
+        return Err(format!(
+            "schema {} is not {RESULT_SCHEMA}",
+            result["schema"]
+        ));
     }
     if job["schema"] != JOB_SCHEMA {
         return Err("job schema".into());
@@ -316,7 +326,9 @@ pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedR
     }
     let status = s(result, "status")?.to_string();
     let labels = job_labels(job)?;
-    let order = job["expansion"]["order"].as_i64().ok_or("job: expansion.order")?;
+    let order = job["expansion"]["order"]
+        .as_i64()
+        .ok_or("job: expansion.order")?;
     let d0 = job["expansion"]["d0"].as_i64().ok_or("job: expansion.d0")?;
     let seeds: Vec<u64> = job["primes"]["seeds"]
         .as_array()
@@ -332,13 +344,19 @@ pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedR
             .as_str()
             .ok_or("ERROR without error.code")?
             .to_string();
-        let message = result["error"]["message"].as_str().unwrap_or("").to_string();
+        let message = result["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
         // a binary the driver checked must be the pinned one (an ERROR before the binary check has none)
         if let Some(b) = &binary_sha256
             && *b != pins.binary_sha256
             && code != "BINARY_HASH_MISMATCH"
         {
-            return Err(format!("binary.sha256 {b} is not the pinned {}", pins.binary_sha256));
+            return Err(format!(
+                "binary.sha256 {b} is not the pinned {}",
+                pins.binary_sha256
+            ));
         }
         return Ok(CheckedResult {
             job_id,
@@ -391,7 +409,11 @@ pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedR
     let pset: BTreeSet<u64> = primes.iter().copied().collect();
     let reqs = result["requests"].as_array().ok_or("requests")?;
     if reqs.len() != labels.len() {
-        return Err(format!("{} requests for {} in the job", reqs.len(), labels.len()));
+        return Err(format!(
+            "{} requests for {} in the job",
+            reqs.len(),
+            labels.len()
+        ));
     }
     let mut requests = vec![];
     let mut any_error = false;
@@ -403,8 +425,13 @@ pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedR
         let outcome = match r["status"].as_str() {
             Some("OK") => {
                 let mut terms = vec![];
-                for t in r["terms"].as_array().ok_or(format!("request {label}: terms"))? {
-                    terms.push(parse_term(t, &pset, order).map_err(|e| format!("request {label}: {e}"))?);
+                for t in r["terms"]
+                    .as_array()
+                    .ok_or(format!("request {label}: terms"))?
+                {
+                    terms.push(
+                        parse_term(t, &pset, order).map_err(|e| format!("request {label}: {e}"))?,
+                    );
                 }
                 let precision = terms.iter().map(|t| t.precision).min().unwrap_or(order);
                 let max_pole = terms
@@ -434,7 +461,10 @@ pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedR
                     .as_str()
                     .ok_or(format!("request {label}: error.code"))?;
                 RequestOutcome::NotDecided {
-                    code: if code == "LENGTH_BUDGET" || code == "UNKNOWN_KEY" || code == "UNSUPPORTED" {
+                    code: if code == "LENGTH_BUDGET"
+                        || code == "UNKNOWN_KEY"
+                        || code == "UNSUPPORTED"
+                    {
                         code.to_string()
                     } else {
                         format!("PARTIAL:{code}")
@@ -551,9 +581,11 @@ pub fn request_line(r: &RequestResult, terms_sha256: Option<&str>) -> Value {
             terms,
             max_pole_order_lower_bound,
             precision,
-        } => json!({"type": REQUEST_LINE, "label": r.label, "status": "SERIES", "terms": terms.len(),
+        } => {
+            json!({"type": REQUEST_LINE, "label": r.label, "status": "SERIES", "terms": terms.len(),
             "terms_sha256": terms_sha256, "verdict": if *max_pole_order_lower_bound > 0 {"POLE"} else {"NO_POLE_MOD_P"},
-            "max_pole_order_lower_bound": max_pole_order_lower_bound, "precision": precision}),
+            "max_pole_order_lower_bound": max_pole_order_lower_bound, "precision": precision})
+        }
         RequestOutcome::NotDecided { code, .. } => {
             json!({"type": REQUEST_LINE, "label": r.label, "status": "NOT_DECIDED", "code": code})
         }
@@ -562,7 +594,12 @@ pub fn request_line(r: &RequestResult, terms_sha256: Option<&str>) -> Value {
 
 /// S of the kind: the sealed lines (requests then end) against the pinned job (labels in order, job digest) and the
 /// result file digest (BLAKE3, raw bytes). `Err` = not this job's.
-pub fn check_sealed(lines: &[Vec<u8>], job: &Value, job_blake3: &str, result_blake3: &str) -> Result<Vec<Value>, String> {
+pub fn check_sealed(
+    lines: &[Vec<u8>],
+    job: &Value,
+    job_blake3: &str,
+    result_blake3: &str,
+) -> Result<Vec<Value>, String> {
     let (end, body) = lines.split_last().ok_or("results without records")?;
     let end: Value = serde_json::from_slice(end).map_err(|e| format!("end record: {e}"))?;
     if end["type"] != "end" || end["records"].as_u64() != Some(body.len() as u64) {
@@ -576,7 +613,11 @@ pub fn check_sealed(lines: &[Vec<u8>], job: &Value, job_blake3: &str, result_bla
     }
     let labels = job_labels(job)?;
     if labels.len() != body.len() {
-        return Err(format!("{} lines for {} requests", body.len(), labels.len()));
+        return Err(format!(
+            "{} lines for {} requests",
+            body.len(),
+            labels.len()
+        ));
     }
     let mut out = vec![];
     for (l, label) in body.iter().zip(&labels) {
@@ -600,7 +641,11 @@ pub mod certificate {
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub enum Finding {
         /// C2: a request's certificate block for a seed lacks its digests.
-        MissingDigest { label: String, seed: u64, what: String },
+        MissingDigest {
+            label: String,
+            seed: u64,
+            what: String,
+        },
         /// C3: the primes of one seed disagree on a term's valuation.
         PrimeDisagreement {
             label: String,
@@ -653,15 +698,30 @@ pub mod certificate {
                 Finding::MissingDigest { label, seed, what } => {
                     json!({"label": label, "seed": seed, "what": what})
                 }
-                Finding::PrimeDisagreement { label, basis, tag, seed, valuations } => {
+                Finding::PrimeDisagreement {
+                    label,
+                    basis,
+                    tag,
+                    seed,
+                    valuations,
+                } => {
                     json!({"label": label, "basis": basis, "tag": tag, "seed": seed, "valuations": valuations})
                 }
-                Finding::SeedDisagreement { label, basis, tag, valuations } => {
+                Finding::SeedDisagreement {
+                    label,
+                    basis,
+                    tag,
+                    valuations,
+                } => {
                     json!({"label": label, "basis": basis, "tag": tag, "valuations": valuations})
                 }
                 Finding::SeedPrimesOverlap { prime } => json!({"prime": prime.to_string()}),
                 Finding::SingleSeed => json!({}),
-                Finding::PrecisionBelowOrder { label, basis, precision } => {
+                Finding::PrecisionBelowOrder {
+                    label,
+                    basis,
+                    precision,
+                } => {
                     json!({"label": label, "basis": basis, "precision": precision})
                 }
             };
@@ -728,14 +788,21 @@ pub mod certificate {
                 }
             }
         }
-        findings.extend(overlap.into_iter().map(|prime| Finding::SeedPrimesOverlap { prime }));
+        findings.extend(
+            overlap
+                .into_iter()
+                .map(|prime| Finding::SeedPrimesOverlap { prime }),
+        );
         for q in &r.requests {
             let RequestOutcome::Series { terms, .. } = &q.outcome else {
                 continue;
             };
             // C2
             for seed in &seeds {
-                let block = q.certificates.iter().find(|c| c["seed"].as_u64() == Some(*seed));
+                let block = q
+                    .certificates
+                    .iter()
+                    .find(|c| c["seed"].as_u64() == Some(*seed));
                 match block {
                     None => findings.push(Finding::MissingDigest {
                         label: q.label.clone(),
@@ -803,10 +870,16 @@ pub mod certificate {
             .iter()
             .map(|q| {
                 let own = findings.iter().any(|f| f.label() == Some(q.label.as_str()));
-                (q.label.clone(), q.outcome.is_decided() && !own && !job_level)
+                (
+                    q.label.clone(),
+                    q.outcome.is_decided() && !own && !job_level,
+                )
             })
             .collect();
-        CertReport { findings, certified }
+        CertReport {
+            findings,
+            certified,
+        }
     }
 
     fn strip_volatile(v: &Value) -> Value {
@@ -814,7 +887,10 @@ pub mod certificate {
             Value::Object(m) => Value::Object(
                 m.iter()
                     .filter(|(k, _)| {
-                        !(k.contains("seconds") || *k == "written_utc" || *k == "argv" || *k == "runs")
+                        !(k.contains("seconds")
+                            || *k == "written_utc"
+                            || *k == "argv"
+                            || *k == "runs")
                     })
                     .map(|(k, x)| (k.clone(), strip_volatile(x)))
                     .collect(),

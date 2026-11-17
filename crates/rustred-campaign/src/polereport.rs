@@ -71,7 +71,8 @@ pub fn check_report(
         Ok(c) => {
             let rep = certificate::check(&c);
             let rerun_diffs = rerun.map(|r| certificate::compare_rerun(result, r));
-            let certified = rep.job_certified() && rerun_diffs.as_ref().is_none_or(|d| d.is_empty());
+            let certified =
+                rep.job_certified() && rerun_diffs.as_ref().is_none_or(|d| d.is_empty());
             json!({"bound": true, "status": c.status, "error_code": c.error_code, "level": c.level,
                 "seeds": c.seeds, "primes": c.primes.iter().map(|p| p.to_string()).collect::<Vec<_>>(),
                 "requests": c.requests.iter().map(|q| json!({"label": q.label, "outcome": q.outcome.word(),
@@ -87,7 +88,12 @@ pub fn check_report(
 pub fn compare_seeds(a: &Value, b: &Value) -> Vec<String> {
     let mut out = vec![];
     let primes = |r: &Value| -> std::collections::BTreeSet<String> {
-        r["primes"].as_array().into_iter().flatten().filter_map(|p| p.as_str().map(str::to_string)).collect()
+        r["primes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| p.as_str().map(str::to_string))
+            .collect()
     };
     let common: Vec<String> = primes(a).intersection(&primes(b)).cloned().collect();
     if !common.is_empty() {
@@ -97,15 +103,30 @@ pub fn compare_seeds(a: &Value, b: &Value) -> Vec<String> {
         let mut m = BTreeMap::new();
         for q in r["requests"].as_array().into_iter().flatten() {
             for t in q["terms"].as_array().into_iter().flatten() {
-                let v = t["per_prime"].as_array().into_iter().flatten().filter_map(|p| p["valuation"].as_i64()).min();
-                m.insert((q["label"].as_str().unwrap_or("").into(), t["basis"].as_str().unwrap_or("").into(),
-                    t["tag"].as_str().unwrap_or("").into()), v);
+                let v = t["per_prime"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|p| p["valuation"].as_i64())
+                    .min();
+                m.insert(
+                    (
+                        q["label"].as_str().unwrap_or("").into(),
+                        t["basis"].as_str().unwrap_or("").into(),
+                        t["tag"].as_str().unwrap_or("").into(),
+                    ),
+                    v,
+                );
             }
         }
         m
     };
     let (va, vb) = (vals(a), vals(b));
-    for k in va.keys().chain(vb.keys()).collect::<std::collections::BTreeSet<_>>() {
+    for k in va
+        .keys()
+        .chain(vb.keys())
+        .collect::<std::collections::BTreeSet<_>>()
+    {
         let (x, y) = (va.get(k).copied().flatten(), vb.get(k).copied().flatten());
         if x != y {
             out.push(format!("{} {} {}: valuations {x:?} / {y:?}", k.0, k.1, k.2));
@@ -162,8 +183,17 @@ pub struct CellRow {
 /// Read a cell-tops TSV (columns by header name).
 pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
     let mut lines = text.lines();
-    let header: Vec<&str> = lines.next().ok_or("empty cell table")?.split('\t').collect();
-    let col = |n: &str| header.iter().position(|h| *h == n).ok_or(format!("cell table: no column {n}"));
+    let header: Vec<&str> = lines
+        .next()
+        .ok_or("empty cell table")?
+        .split('\t')
+        .collect();
+    let col = |n: &str| {
+        header
+            .iter()
+            .position(|h| *h == n)
+            .ok_or(format!("cell table: no column {n}"))
+    };
     let (cn, ce, cd, cr, ct, ch, cb, ck, cu) = (
         col("node")?,
         col("E")?,
@@ -183,10 +213,17 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
         let f: Vec<&str> = l.split('\t').collect();
         let get = |i: usize| f.get(i).copied().unwrap_or("");
         let int = |i: usize| -> Result<i64, String> {
-            get(i).trim().parse::<i64>().map_err(|e| format!("cell table line {}: column {i}: {e}", n + 2))
+            get(i)
+                .trim()
+                .parse::<i64>()
+                .map_err(|e| format!("cell table line {}: column {i}: {e}", n + 2))
         };
         let upper = int(ct)?;
-        let top = if get(ch).trim().is_empty() { upper } else { int(ch)? };
+        let top = if get(ch).trim().is_empty() {
+            upper
+        } else {
+            int(ch)?
+        };
         out.push(CellRow {
             node: get(cn).to_string(),
             e: int(ce)?,
@@ -195,7 +232,10 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
             top,
             top_upper: upper,
             box_r_max: int(cb)?,
-            keys_in_cell: get(ck).trim().parse().map_err(|e| format!("keys_in_cell: {e}"))?,
+            keys_in_cell: get(ck)
+                .trim()
+                .parse()
+                .map_err(|e| format!("keys_in_cell: {e}"))?,
             units_reaching: get(cu).to_string(),
         });
     }
@@ -203,7 +243,14 @@ pub fn read_cell_tops(text: &str) -> Result<Vec<CellRow>, String> {
 }
 
 /// The keys of cell (D, r): line slots at power 1 + dots (sum D, each <= `max_dots`), ISP slots at power <= 0 (sum -r).
-pub fn cell_keys(arity: usize, lines: &[usize], isps: &[usize], d: i64, r: i64, max_dots: i64) -> Vec<Vec<i64>> {
+pub fn cell_keys(
+    arity: usize,
+    lines: &[usize],
+    isps: &[usize],
+    d: i64,
+    r: i64,
+    max_dots: i64,
+) -> Vec<Vec<i64>> {
     fn comps(total: i64, n: usize, cap: i64, out: &mut Vec<Vec<i64>>, cur: &mut Vec<i64>) {
         if n == 0 {
             if total == 0 {
@@ -257,10 +304,15 @@ pub struct Bound {
 
 impl Bound {
     fn check(&self, what: &str) -> Result<Vec<u8>, String> {
-        let b = std::fs::read(&self.path).map_err(|e| format!("{what} {}: {e}", self.path.display()))?;
+        let b = std::fs::read(&self.path)
+            .map_err(|e| format!("{what} {}: {e}", self.path.display()))?;
         let h = sha256_hex(&b);
         if h != self.sha256 {
-            return Err(format!("{what} {}: sha256 {h} is not the spec's {}", self.path.display(), self.sha256));
+            return Err(format!(
+                "{what} {}: sha256 {h} is not the spec's {}",
+                self.path.display(),
+                self.sha256
+            ));
         }
         Ok(b)
     }
@@ -307,6 +359,12 @@ pub struct PoleReportSpec {
     pub depths: Bound,
     pub dependences: Option<Bound>,
     pub catalogue: Bound,
+    /// Helper VH 2's terminal map (`helper-vh2.terminal-map.v1`): when given, the rank step reads it instead of
+    /// library.json + catalogue; `rows_route` = "v3" (default) or "v2f".
+    #[serde(default)]
+    pub terminal_map: Option<Bound>,
+    #[serde(default)]
+    pub rows_route: Option<String>,
     pub seeds: Vec<u64>,
     pub primes: u32,
     pub order: i64,
@@ -354,8 +412,15 @@ impl Route {
     pub fn block_keys(&self, r: i64) -> Result<Option<usize>, String> {
         match self {
             Route::Union => Ok(None),
-            Route::Blocks { max_keys: Some(k), .. } => Ok(Some((*k).max(1))),
-            Route::Blocks { budget_gb: Some(b), base_gb: Some(a), per_key_gb, .. } => {
+            Route::Blocks {
+                max_keys: Some(k), ..
+            } => Ok(Some((*k).max(1))),
+            Route::Blocks {
+                budget_gb: Some(b),
+                base_gb: Some(a),
+                per_key_gb,
+                ..
+            } => {
                 let s = per_key_gb
                     .get(&r.to_string())
                     .ok_or(format!("route blocks: no per_key_gb for rank {r}"))?;
@@ -364,7 +429,9 @@ impl Route {
                 }
                 Ok(Some((((b - a) / s).floor() as i64).max(1) as usize))
             }
-            Route::Blocks { .. } => Err("route blocks: max_keys, or budget_gb + base_gb + per_key_gb".into()),
+            Route::Blocks { .. } => {
+                Err("route blocks: max_keys, or budget_gb + base_gb + per_key_gb".into())
+            }
         }
     }
 }
@@ -396,28 +463,44 @@ pub struct CellOutcome {
     pub requests: Vec<Value>,
 }
 
-fn rank_of(spec: &PoleReportSpec, dir: &Path, results: &[PathBuf], tag: &str, prefix: &str) -> Result<Value, String> {
+fn rank_of(
+    spec: &PoleReportSpec,
+    dir: &Path,
+    results: &[PathBuf],
+    tag: &str,
+    prefix: &str,
+) -> Result<Value, String> {
     let out = dir.join(format!("rank.{tag}.json"));
     let mut cmd = std::process::Command::new(&spec.rank_bin.path);
     for r in results {
         cmd.arg("--result").arg(r);
     }
-    cmd.arg("--depths")
-        .arg(&spec.depths.path)
-        .arg("--library")
-        .arg(&spec.library.path)
-        .arg("--catalogue")
-        .arg(&spec.catalogue.path)
-        .arg("--rank-prefix")
-        .arg(prefix)
-        .arg("--out")
-        .arg(&out);
+    cmd.arg("--depths").arg(&spec.depths.path);
+    match &spec.terminal_map {
+        Some(m) => {
+            cmd.arg("--terminal-map").arg(&m.path);
+            if let Some(r) = &spec.rows_route {
+                cmd.arg("--route").arg(r);
+            }
+        }
+        None => {
+            cmd.arg("--library")
+                .arg(&spec.library.path)
+                .arg("--catalogue")
+                .arg(&spec.catalogue.path);
+        }
+    }
+    cmd.arg("--rank-prefix").arg(prefix).arg("--out").arg(&out);
     if let Some(d) = &spec.dependences {
         cmd.arg("--dependences").arg(&d.path);
     }
     let o = cmd.output().map_err(|e| format!("rr_pole_rank: {e}"))?;
     if !o.status.success() {
-        return Err(format!("rr_pole_rank exit {}: {}", o.status, String::from_utf8_lossy(&o.stderr).trim()));
+        return Err(format!(
+            "rr_pole_rank exit {}: {}",
+            o.status,
+            String::from_utf8_lossy(&o.stderr).trim()
+        ));
     }
     read_json(&out.display().to_string()).map(|x| x.0)
 }
@@ -446,7 +529,13 @@ struct Group {
 }
 
 /// Run (or resume) one job of `g`'s new combinations; Err(reason) = not decided.
-fn group_round(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, g: &mut Group, out: &mut CellOutcome) -> Result<Result<(), String>, String> {
+fn group_round(
+    ctx: &CellCtx<'_>,
+    ns: &NodeSpec,
+    c: &CellRow,
+    g: &mut Group,
+    out: &mut CellOutcome,
+) -> Result<Result<(), String>, String> {
     let spec = ctx.spec;
     let reqs: Vec<TadicRequest> = (g.m_done..g.m)
         .map(|ci| TadicRequest {
@@ -489,7 +578,10 @@ fn group_round(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, g: &mut Group, out
     };
     let content = ctx.adapter.content_of(&jr);
     if ctx.store.get(ctx.adapter, &jr)?.is_none() {
-        let plans = ctx.adapter.plan(std::slice::from_ref(&jr)).map_err(|e| e.to_string())?;
+        let plans = ctx
+            .adapter
+            .plan(std::slice::from_ref(&jr))
+            .map_err(|e| e.to_string())?;
         let opts = RunOptions {
             cpus: vec![],
             memory_cap_bytes: Some(spec.memory_cap_bytes),
@@ -499,12 +591,22 @@ fn group_round(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, g: &mut Group, out
         };
         let work = ctx.dir.join("work");
         let mut attempt = 1u32;
-        while rustred_campaign_contract::layout::attempt_dir(&work, &plans[0].job_id, attempt).exists() {
+        while rustred_campaign_contract::layout::attempt_dir(&work, &plans[0].job_id, attempt)
+            .exists()
+        {
             attempt += 1;
         }
         let mut l = RealLauncher::new(ctx.sampler.clone());
-        let (b, rep) = run_attempt(&mut l, ctx.adapter, std::slice::from_ref(&jr), &plans[0], &work, attempt, &opts)
-            .map_err(|e| e.to_string())?;
+        let (b, rep) = run_attempt(
+            &mut l,
+            ctx.adapter,
+            std::slice::from_ref(&jr),
+            &plans[0],
+            &work,
+            attempt,
+            &opts,
+        )
+        .map_err(|e| e.to_string())?;
         if let Some(r) = &rep.report {
             out.cpu_seconds += r.cpu_seconds;
             out.peak_gb = out.peak_gb.max(r.peak_rss_bytes as f64 / 1e9);
@@ -514,7 +616,10 @@ fn group_round(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, g: &mut Group, out
         }
         ctx.store.put(&content, &rep.prepared)?;
     }
-    let (checked, _, _) = ctx.store.get(ctx.adapter, &jr)?.ok_or("stored result vanished")?;
+    let (checked, _, _) = ctx
+        .store
+        .get(ctx.adapter, &jr)?
+        .ok_or("stored result vanished")?;
     let cert = certificate::check(&checked);
     if let Some(f) = cert.findings.first() {
         return Ok(Err(format!("NOT_CERTIFIED: {}", f.to_json())));
@@ -523,16 +628,29 @@ fn group_round(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, g: &mut Group, out
         return Ok(Err(format!("{}: {}", q.label, q.outcome.word())));
     }
     out.jobs.push(content.clone());
-    g.results.push(ctx.store.root.join(&content).join(tadicjob::CHILD_OUT));
+    g.results
+        .push(ctx.store.root.join(&content).join(tadicjob::CHILD_OUT));
     g.m_done = g.m;
     Ok(Ok(()))
 }
 
 /// One cell: the union route (one group over all keys) or the block route (one group per block; the cell rank from
 /// the stacked rows of every block, each block stable on its own: combinations >= its rank + 3).
-fn run_cell(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, line: &'static str) -> Result<CellOutcome, String> {
+fn run_cell(
+    ctx: &CellCtx<'_>,
+    ns: &NodeSpec,
+    c: &CellRow,
+    line: &'static str,
+) -> Result<CellOutcome, String> {
     let spec = ctx.spec;
-    let keys = cell_keys(ns.arity, &ns.lines, &ns.isps, c.d, c.r, ns.max_dots_per_line);
+    let keys = cell_keys(
+        ns.arity,
+        &ns.lines,
+        &ns.isps,
+        c.d,
+        c.r,
+        ns.max_dots_per_line,
+    );
     let block = spec.route.block_keys(c.r)?;
     let mut out = CellOutcome {
         node: ns.node.clone(),
@@ -552,15 +670,26 @@ fn run_cell(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, line: &'static str) -
         max_plan_need: Value::Null,
         max_series_length: Value::Null,
         jobs: vec![],
-        route: if block.is_some() { "blocks".into() } else { "union".into() },
+        route: if block.is_some() {
+            "blocks".into()
+        } else {
+            "union".into()
+        },
         blocks: vec![],
         requests: vec![],
     };
     if keys.len() as u64 != c.keys_in_cell {
-        out.verdict = format!("not decided (KEY_COUNT: enumerator {} keys, cell table {})", keys.len(), c.keys_in_cell);
+        out.verdict = format!(
+            "not decided (KEY_COUNT: enumerator {} keys, cell table {})",
+            keys.len(),
+            c.keys_in_cell
+        );
         return Ok(out);
     }
-    let cdir = ctx.dir.join("cells").join(format!("{}_D{}r{}", ns.node, c.d, c.r));
+    let cdir = ctx
+        .dir
+        .join("cells")
+        .join(format!("{}_D{}r{}", ns.node, c.d, c.r));
     std::fs::create_dir_all(&cdir).map_err(|e| e.to_string())?;
     let mut groups: Vec<Group> = match block {
         None => vec![Group {
@@ -591,14 +720,17 @@ fn run_cell(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, line: &'static str) -
     let mut failed: Option<String> = None;
     for g in groups.iter_mut() {
         loop {
-            match group_round(ctx, ns, c, g, &mut out)? {
-                Err(why) => {
-                    failed = Some(why);
-                    break;
-                }
-                Ok(()) => {}
+            if let Err(why) = group_round(ctx, ns, c, g, &mut out)? {
+                failed = Some(why);
+                break;
             }
-            let r = rank_of(spec, &cdir, &g.results, &format!("{}m{}", g.prefix, g.m), &g.prefix)?;
+            let r = rank_of(
+                spec,
+                &cdir,
+                &g.results,
+                &format!("{}m{}", g.prefix, g.m),
+                &g.prefix,
+            )?;
             let v = r["verdict"].as_str().unwrap_or("").to_string();
             g.rank = r["rank"].clone();
             if v.contains("NEEDS_MORE_COMBINATIONS") && g.m < spec.m_max {
@@ -618,8 +750,10 @@ fn run_cell(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, line: &'static str) -
     out.combinations = groups.iter().map(|g| g.m_done).sum();
     out.blocks = groups
         .iter()
-        .map(|g| json!({"prefix": g.prefix, "weight_stream": g.weight_tag, "keys": g.keys.len(),
-            "combinations": g.m_done, "rank": g.rank, "stable": g.stable}))
+        .map(|g| {
+            json!({"prefix": g.prefix, "weight_stream": g.weight_tag, "keys": g.keys.len(),
+            "combinations": g.m_done, "rank": g.rank, "stable": g.stable})
+        })
         .collect();
     let all: Vec<PathBuf> = groups.iter().flat_map(|g| g.results.clone()).collect();
     if let Some(why) = failed {
@@ -632,7 +766,10 @@ fn run_cell(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, line: &'static str) -
         out.rank_kind = rank["rank_kind"].as_str().unwrap_or("").to_string();
         let v = rank["verdict"].as_str().unwrap_or("").to_string();
         out.verdict = if groups.iter().any(|g| !g.stable) {
-            format!("not decided (NEEDS_MORE_COMBINATIONS: a group did not stabilise within m_max {})", spec.m_max)
+            format!(
+                "not decided (NEEDS_MORE_COMBINATIONS: a group did not stabilise within m_max {})",
+                spec.m_max
+            )
         } else if v.starts_with("not decided") && !v.contains("NEEDS_MORE_COMBINATIONS") {
             v
         } else {
@@ -650,13 +787,18 @@ fn run_cell(ctx: &CellCtx<'_>, ns: &NodeSpec, c: &CellRow, line: &'static str) -
                 mpn = mpn.max(cc["plan_max_need"].as_i64());
                 msl = msl.max(cc["max_series_length"].as_i64());
             }
-            out.requests.push(json!({"label": label, "keys_in_union": g.map(|g| g.keys.len()), "r": c.r, "d": c.d,
-                "replay": q["replay"]}));
+            out.requests.push(
+                json!({"label": label, "keys_in_union": g.map(|g| g.keys.len()), "r": c.r, "d": c.d,
+                "replay": q["replay"]}),
+            );
         }
         out.max_plan_need = json!(mpn);
         out.max_series_length = json!(msl);
     }
-    let _ = std::fs::write(cdir.join("cell.json"), serde_json::to_vec_pretty(&out).expect("json"));
+    let _ = std::fs::write(
+        cdir.join("cell.json"),
+        serde_json::to_vec_pretty(&out).expect("json"),
+    );
     Ok(out)
 }
 
@@ -688,23 +830,43 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
     if let Some(d) = &spec.dependences {
         d.check("dependences")?;
     }
+    if let Some(m) = &spec.terminal_map {
+        m.check("terminal map")?;
+    }
     let dir = PathBuf::from(dir);
     std::fs::create_dir_all(dir.join("cells")).map_err(|e| e.to_string())?;
     let rows = read_cell_tops(std::str::from_utf8(&cells_bytes).map_err(|e| e.to_string())?)?;
     let program = match &spec.fake_program {
-        Some(p) => Program::from_file("rr_fake_child", p, crate::adapters::job::Invocation::Contract)
-            .map_err(|e| e.to_string())?,
-        None => Program::from_file("tadic_job", &spec.python, crate::adapters::job::Invocation::Legacy)
-            .map_err(|e| e.to_string())?,
+        Some(p) => Program::from_file(
+            "rr_fake_child",
+            p,
+            crate::adapters::job::Invocation::Contract,
+        )
+        .map_err(|e| e.to_string())?,
+        None => Program::from_file(
+            "tadic_job",
+            &spec.python,
+            crate::adapters::job::Invocation::Legacy,
+        )
+        .map_err(|e| e.to_string())?,
     };
     let driver = DataFile::from_file(&spec.driver.path).map_err(|e| e.to_string())?;
     let adapter = TadicAdapter {
         program,
         driver,
-        package_binary: (spec.package_binary.path.clone(), spec.package_binary.sha256.clone()),
-        node_binary: (spec.node_binary.path.clone(), spec.node_binary.sha256.clone()),
+        package_binary: (
+            spec.package_binary.path.clone(),
+            spec.package_binary.sha256.clone(),
+        ),
+        node_binary: (
+            spec.node_binary.path.clone(),
+            spec.node_binary.sha256.clone(),
+        ),
         licence_env: spec.licence_env.clone(),
-        fake: spec.fake_program.as_ref().map(|_| crate::adapters::default_emulation_script()),
+        fake: spec
+            .fake_program
+            .as_ref()
+            .map(|_| crate::adapters::default_emulation_script()),
     };
     let store = ResultStore {
         root: dir.join("store"),
@@ -735,7 +897,9 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                     None
                 }
             })
-            .filter(|(c, _)| spec.d_max.is_none_or(|x| c.d <= x) && spec.r_max.is_none_or(|x| c.r <= x))
+            .filter(|(c, _)| {
+                spec.d_max.is_none_or(|x| c.d <= x) && spec.r_max.is_none_or(|x| c.r <= x)
+            })
             .collect();
         cells.sort_by_key(|(c, _)| (c.keys_in_cell, c.d, c.r));
         for (c, line) in cells {
@@ -752,10 +916,66 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             outcomes.push(out);
         }
     }
+    // TRICKS 49: a cell computed earlier (same campaign directory) that the CURRENT cell table no longer lists is kept and
+    // shown as "outside the exact tops, computed anyway" (its results stay in the store and are reused by content)
+    let listed: std::collections::BTreeSet<(String, i64, i64)> = outcomes
+        .iter()
+        .map(|o| (o.node.clone(), o.d, o.r))
+        .collect();
+    if let Ok(rd) = std::fs::read_dir(dir.join("cells")) {
+        let mut extra = vec![];
+        for e in rd.flatten() {
+            let Ok(b) = std::fs::read(e.path().join("cell.json")) else {
+                continue;
+            };
+            let Ok(v) = serde_json::from_slice::<Value>(&b) else {
+                continue;
+            };
+            let key = (
+                v["node"].as_str().unwrap_or("").to_string(),
+                v["d"].as_i64().unwrap_or(-1),
+                v["r"].as_i64().unwrap_or(-1),
+            );
+            if !listed.contains(&key) && spec.nodes.iter().any(|n| n.node == key.0) {
+                extra.push(v);
+            }
+        }
+        extra.sort_by_key(|v| (v["d"].as_i64(), v["r"].as_i64()));
+        for v in extra {
+            outcomes.push(CellOutcome {
+                node: v["node"].as_str().unwrap_or("").to_string(),
+                d: v["d"].as_i64().unwrap_or(-1),
+                r: v["r"].as_i64().unwrap_or(-1),
+                keys: v["keys"].as_u64().unwrap_or(0) as usize,
+                line: "dropped",
+                outside_box: v["outside_box"].as_bool().unwrap_or(false),
+                units_reaching: v["units_reaching"].as_str().unwrap_or("").to_string(),
+                combinations: v["combinations"].as_u64().unwrap_or(0) as usize,
+                verdict: format!(
+                    "outside the exact tops, computed anyway: {}",
+                    v["verdict"].as_str().unwrap_or("")
+                ),
+                rank: v["rank"].clone(),
+                pivots: v["pivots"].clone(),
+                rank_kind: v["rank_kind"].as_str().unwrap_or("").to_string(),
+                cpu_seconds: v["cpu_seconds"].as_f64().unwrap_or(0.0),
+                peak_gb: v["peak_gb"].as_f64().unwrap_or(0.0),
+                max_plan_need: v["max_plan_need"].clone(),
+                max_series_length: v["max_series_length"].clone(),
+                jobs: vec![],
+                route: v["route"].as_str().unwrap_or("").to_string(),
+                blocks: v["blocks"].as_array().cloned().unwrap_or_default(),
+                requests: v["requests"].as_array().cloned().unwrap_or_default(),
+            });
+        }
+    }
     let upper = spec.dependences.is_none();
     let mut nodes = BTreeMap::new();
     for ns in &spec.nodes {
-        let mine: Vec<&CellOutcome> = outcomes.iter().filter(|o| o.node == ns.node && o.line == "main").collect();
+        let mine: Vec<&CellOutcome> = outcomes
+            .iter()
+            .filter(|o| o.node == ns.node && o.line == "main")
+            .collect();
         let all_zero = !mine.is_empty() && mine.iter().all(|o| o.verdict == "count zero: yes");
         let any_no = mine.iter().any(|o| o.verdict.starts_with("count zero: no"));
         let verdict = if all_zero {
@@ -765,7 +985,8 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         } else if any_no {
             "count zero on all cells up to top(D): not decided (naive upper bound > 0: no dependence table)".to_string()
         } else {
-            "count zero on all cells up to top(D): not decided (cells not decided or not run)".to_string()
+            "count zero on all cells up to top(D): not decided (cells not decided or not run)"
+                .to_string()
         };
         nodes.insert(ns.node.clone(), verdict);
     }
@@ -775,7 +996,8 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         "cell_definition": "cells (D, r) with r <= top(D); top(D) = top_r_at_D_if_n4hint of the cell table (top_r_at_D where empty), not clipped by box_r_max; margin = cells between the hint and top_r_at_D (TRICKS 45, coordinator ruling 2026-11-17)",
         "nodes": nodes, "cells": outcomes});
     let tmp = dir.join("pole_report.json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&report).expect("json")).map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&report).expect("json"))
+        .map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, dir.join("pole_report.json")).map_err(|e| e.to_string())?;
     let md = markdown(&report);
     std::fs::write(dir.join("pole_report.md"), &md).map_err(|e| e.to_string())?;
@@ -797,7 +1019,10 @@ pub fn markdown(report: &Value) -> String {
     for c in report["cells"].as_array().into_iter().flatten() {
         let mut line = c["line"].as_str().unwrap_or("").to_string();
         if c["outside_box"] == true {
-            line = format!("{line}; outside BOXDEF v3, reached by {} units", c["units_reaching"].as_str().unwrap_or("?"));
+            line = format!(
+                "{line}; outside BOXDEF v3, reached by {} units",
+                c["units_reaching"].as_str().unwrap_or("?")
+            );
         }
         s.push_str(&format!(
             "| {} | D{}r{} | {} | {} | {} | {} | {} | {} | {:.0} | {:.1} | {} | {} |\n",
@@ -841,7 +1066,7 @@ mod tests {
     fn weights_are_reproducible_and_in_range() {
         let w = weight(7, "N", 1, 2, 3, 4);
         assert_eq!(w, weight(7, "N", 1, 2, 3, 4));
-        assert!(w >= 1 && w < (1i64 << 62));
+        assert!((1..(1i64 << 62)).contains(&w));
         assert_ne!(w, weight(7, "N", 1, 2, 3, 5));
     }
 

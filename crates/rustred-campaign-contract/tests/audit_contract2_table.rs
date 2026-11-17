@@ -418,7 +418,10 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
             )),
         };
     }
-    if e.kind == JobKind::NodeBasis || e.kind == JobKind::PoleRegularAt || e.kind == JobKind::TadicReplay {
+    if e.kind == JobKind::NodeBasis
+        || e.kind == JobKind::PoleRegularAt
+        || e.kind == JobKind::TadicReplay
+    {
         return if c == 0 {
             Ok(())
         } else {

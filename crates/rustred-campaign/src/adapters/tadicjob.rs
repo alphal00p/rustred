@@ -384,7 +384,11 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
                     ExitCode::Input,
                     StopCode::InputError,
                     Some(ErrorClass::Input),
-                    format!("{}: input {} is not the spec's", tadicjob::INPUT_MISMATCH, i.role),
+                    format!(
+                        "{}: input {} is not the spec's",
+                        tadicjob::INPUT_MISMATCH,
+                        i.role
+                    ),
                 );
             }
             Err(e) => {
@@ -453,21 +457,23 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
                 let mut w = RecordWriter::create(&layout.results()).map_err(|e| e.to_string())?;
                 for q in &c.requests {
                     let ts = match &q.outcome {
-                        RequestOutcome::Series { terms, .. } => {
-                            Some(sha256_hex(tadicjob::terms_json(terms).to_string().as_bytes()))
-                        }
+                        RequestOutcome::Series { terms, .. } => Some(sha256_hex(
+                            tadicjob::terms_json(terms).to_string().as_bytes(),
+                        )),
                         RequestOutcome::NotDecided { .. } => None,
                     };
                     let line = tadicjob::request_line(q, ts.as_deref());
-                    let canon = rustred_campaign_contract::canonical_line(line.to_string().as_bytes())
-                        .map_err(|e| format!("{e:?}"))?;
+                    let canon =
+                        rustred_campaign_contract::canonical_line(line.to_string().as_bytes())
+                            .map_err(|e| format!("{e:?}"))?;
                     w.append(&canon).map_err(|e| e.to_string())?;
                 }
                 let end = json!({"type": "end", "records": c.requests.len(),
                     "job_blake3": rustred_campaign_contract::blake3_hex(&job_bytes), "job_sha256": pins.job_sha256,
                     "result_blake3": rustred_campaign_contract::blake3_hex(rb), "result_sha256": sha256_hex(rb),
                     "result_status": c.status, "error_code": c.error_code});
-                w.seal(end.to_string().as_bytes()).map_err(|e| e.to_string())
+                w.seal(end.to_string().as_bytes())
+                    .map_err(|e| e.to_string())
             })();
             match sealed {
                 Ok(s) => j.outputs.extra.push(ExtraOutput {
@@ -548,7 +554,10 @@ impl JobAdapter for TadicAdapter {
                     return Err(AdapterError::Request(format!("label {} twice", q.label)));
                 }
                 if q.inputs.is_empty() {
-                    return Err(AdapterError::Request(format!("request {}: no input", q.label)));
+                    return Err(AdapterError::Request(format!(
+                        "request {}: no input",
+                        q.label
+                    )));
                 }
                 for i in &q.inputs {
                     let w = match i {
@@ -590,7 +599,8 @@ impl JobAdapter for TadicAdapter {
         let root = std::path::absolute(work_root).map_err(|e| AdapterError::Io(e.to_string()))?;
         let layout = create_run(&root, &plan.job_id, attempt)?;
         let job = self.driver_job(req, &plan.job_id);
-        let mut job_bytes = serde_json::to_vec_pretty(&job).map_err(|e| AdapterError::Io(e.to_string()))?;
+        let mut job_bytes =
+            serde_json::to_vec_pretty(&job).map_err(|e| AdapterError::Io(e.to_string()))?;
         job_bytes.push(b'\n');
         let mut inputs = vec![write_input(
             &layout,
@@ -759,8 +769,11 @@ impl ResultStore {
             run_dir: prep.layout.root.display().to_string(),
         };
         let tmp = d.join("STORE.json.tmp");
-        std::fs::write(&tmp, serde_json::to_vec_pretty(&rec).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            &tmp,
+            serde_json::to_vec_pretty(&rec).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         std::fs::rename(&tmp, d.join("STORE.json")).map_err(|e| e.to_string())?;
         Ok(rec)
     }

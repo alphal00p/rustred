@@ -82,9 +82,13 @@ fn per_prime(series: &[u64], p: u64, seed: u64, order: i64, shift: i64) -> Value
         }
     }
     match start {
-        None => json!({"prime": p.to_string(), "seed": seed, "valuation": null, "precision": order, "coefficients": []}),
-        Some(j) => json!({"prime": p.to_string(), "seed": seed, "valuation": j as i64 - 1, "precision": order,
-            "coefficients": series[j..].iter().map(|c| c.to_string()).collect::<Vec<_>>()}),
+        None => {
+            json!({"prime": p.to_string(), "seed": seed, "valuation": null, "precision": order, "coefficients": []})
+        }
+        Some(j) => {
+            json!({"prime": p.to_string(), "seed": seed, "valuation": j as i64 - 1, "precision": order,
+            "coefficients": series[j..].iter().map(|c| c.to_string()).collect::<Vec<_>>()})
+        }
     }
 }
 
@@ -171,8 +175,10 @@ pub fn run(spec_path: &Path) -> ! {
         let label = r["label"].as_str().unwrap_or("").to_string();
         if budget.contains(&label) {
             partial = true;
-            requests.push(json!({"label": label, "inputs": r["inputs"], "status": "ERROR",
-                "error": {"code": "LENGTH_BUDGET", "message": "fake length budget"}}));
+            requests.push(
+                json!({"label": label, "inputs": r["inputs"], "status": "ERROR",
+                "error": {"code": "LENGTH_BUDGET", "message": "fake length budget"}}),
+            );
             continue;
         }
         let mut terms_a = vec![];
@@ -228,7 +234,8 @@ pub fn run(spec_path: &Path) -> ! {
         .map(|b| sha256_hex(&b))
         .unwrap_or_default();
     v["driver"] = json!({"path": "fake", "sha256": driver});
-    v["expansion"] = json!({"d0": job["expansion"]["d0"], "order": order, "variable": "t = d - d0"});
+    v["expansion"] =
+        json!({"d0": job["expansion"]["d0"], "order": order, "variable": "t = d - d0"});
     v["primes"] = json!(primes_all.iter().map(|p| p.to_string()).collect::<Vec<_>>());
     v["unusable_primes"] = json!([]);
     v["requests"] = json!(requests);

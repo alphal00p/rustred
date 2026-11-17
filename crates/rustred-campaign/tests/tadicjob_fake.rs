@@ -40,7 +40,11 @@ fn sampler() -> Arc<Sampler> {
 
 fn adapter(dir: &Path, directives: &[&str]) -> TadicAdapter {
     let drv = dir.join("tadic_job.py");
-    std::fs::write(&drv, b"# a stand-in for the frozen driver (the fake child emulates it)\n").unwrap();
+    std::fs::write(
+        &drv,
+        b"# a stand-in for the frozen driver (the fake child emulates it)\n",
+    )
+    .unwrap();
     let mut script = default_emulation_script();
     script.script = directives
         .iter()
@@ -53,7 +57,8 @@ fn adapter(dir: &Path, directives: &[&str]) -> TadicAdapter {
         script.script = vec![FakeOp::Prepare { ms: 1 }];
     }
     TadicAdapter {
-        program: Program::from_file("rr_fake_child", Path::new(FAKE), Invocation::Contract).unwrap(),
+        program: Program::from_file("rr_fake_child", Path::new(FAKE), Invocation::Contract)
+            .unwrap(),
         driver: DataFile::from_file(&drv).unwrap(),
         package_binary: (dir.join("p_key_batch_tadic"), BIN_SHA.into()),
         node_binary: (dir.join("rr_node_tadic"), BIN_SHA.into()),
@@ -109,7 +114,16 @@ fn request(dir: &Path, seeds: &[u64]) -> TadicJobRequest {
     }
 }
 
-fn run(tag: &str, directives: &[&str], seeds: &[u64]) -> (rustred_campaign::adapters::tadicjob::TadicBatch, TadicAdapter, TadicJobRequest, rustred_campaign::adapters::job::AttemptReport) {
+fn run(
+    tag: &str,
+    directives: &[&str],
+    seeds: &[u64],
+) -> (
+    rustred_campaign::adapters::tadicjob::TadicBatch,
+    TadicAdapter,
+    TadicJobRequest,
+    rustred_campaign::adapters::job::AttemptReport,
+) {
     let dir = tmp(tag);
     let ad = adapter(&dir, directives);
     let rq = request(&dir, seeds);
@@ -122,7 +136,16 @@ fn run(tag: &str, directives: &[&str], seeds: &[u64]) -> (rustred_campaign::adap
         grace: Some(Duration::from_secs(5)),
     };
     let mut l = RealLauncher::new(sampler());
-    let (b, rep) = run_attempt(&mut l, &ad, std::slice::from_ref(&rq), &plans[0], &dir.join("work"), 1, &opts).unwrap();
+    let (b, rep) = run_attempt(
+        &mut l,
+        &ad,
+        std::slice::from_ref(&rq),
+        &plans[0],
+        &dir.join("work"),
+        1,
+        &opts,
+    )
+    .unwrap();
     (b, ad, rq, rep)
 }
 
@@ -172,7 +195,11 @@ fn a_job_level_engine_answer_is_row_50_with_every_request_not_decided() {
     let (b, _, _, _) = run("jobbudget", &["LENGTH_BUDGET"], &[1, 2]);
     assert_eq!(b.classification.row, 50, "{:?}", b.unread);
     let r = b.result.as_ref().unwrap();
-    assert!(r.requests.iter().all(|q| q.outcome.word() == "not decided (LENGTH_BUDGET)"));
+    assert!(
+        r.requests
+            .iter()
+            .all(|q| q.outcome.word() == "not decided (LENGTH_BUDGET)")
+    );
 }
 
 #[test]
@@ -186,7 +213,11 @@ fn driver_exits_map_to_the_contract_rows() {
         ("NO_RESULT", 51),
     ] {
         let (b, _, rq, _) = run(&format!("exit-{dir}"), &[dir], &[1, 2]);
-        assert_eq!(b.classification.row, row, "{dir}: {:?} {:?}", b.classification, b.unread);
+        assert_eq!(
+            b.classification.row, row,
+            "{dir}: {:?} {:?}",
+            b.classification, b.unread
+        );
         assert!(b.result.is_none(), "{dir}");
         let labels: Vec<String> = rq.requests.iter().map(|q| q.label.clone()).collect();
         for (_, o) in b.outcomes(&labels) {
@@ -200,7 +231,11 @@ fn seeds_that_disagree_are_a_finding_and_one_seed_is_never_certified() {
     let (b, _, _, _) = run("disagree", &["SEED_DISAGREE:k0"], &[1, 2]);
     assert_eq!(b.classification.row, 50);
     let cert = certificate::check(b.result.as_ref().unwrap());
-    assert!(cert.findings.iter().any(|f| f.code() == "SEED_DISAGREEMENT" && f.label() == Some("k0")));
+    assert!(
+        cert.findings
+            .iter()
+            .any(|f| f.code() == "SEED_DISAGREEMENT" && f.label() == Some("k0"))
+    );
     assert!(!cert.certified["k0"]);
     assert!(cert.certified["k1"]);
     let (b, _, _, _) = run("oneseed", &[], &[1]);
@@ -236,7 +271,10 @@ fn plan_refuses_malformed_requests() {
     let ad = adapter(&dir, &[]);
     let mut rq = request(&dir, &[1, 2]);
     rq.requests[1].label = "k0".into();
-    assert!(ad.plan(std::slice::from_ref(&rq)).is_err(), "duplicate label");
+    assert!(
+        ad.plan(std::slice::from_ref(&rq)).is_err(),
+        "duplicate label"
+    );
     let mut rq = request(&dir, &[1, 2]);
     rq.seeds.clear();
     assert!(ad.plan(std::slice::from_ref(&rq)).is_err(), "no seed");
@@ -246,13 +284,19 @@ fn plan_refuses_malformed_requests() {
         powers: vec![1, 1, 1],
         weight: 1i64 << 62,
     }];
-    assert!(ad.plan(std::slice::from_ref(&rq)).is_err(), "weight out of range");
+    assert!(
+        ad.plan(std::slice::from_ref(&rq)).is_err(),
+        "weight out of range"
+    );
     let mut rq = request(&dir, &[1, 2]);
     rq.requests[0].inputs = vec![TadicInput::Node {
         key: "I(1,1,1)".into(),
         weight: 1,
     }];
-    assert!(ad.plan(std::slice::from_ref(&rq)).is_err(), "input of another level");
+    assert!(
+        ad.plan(std::slice::from_ref(&rq)).is_err(),
+        "input of another level"
+    );
     // the content id is deterministic and changes with the requests
     let a = ad.content_of(&request(&dir, &[1, 2]));
     assert_eq!(a, ad.content_of(&request(&dir, &[1, 2])));

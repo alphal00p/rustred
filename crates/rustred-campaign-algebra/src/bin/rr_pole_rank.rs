@@ -11,7 +11,7 @@
 use rustred_campaign_algebra::SymbolicaAlgebra;
 use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::polerank::{
-    DepthTable, Dependences, Exchange, RankData, TerminalMap, cell_rank,
+    Dependences, DepthTable, Exchange, RankData, TerminalMap, cell_rank,
 };
 use serde_json::{Value, json};
 
@@ -46,8 +46,11 @@ fn main() {
         .filter(|(_, a)| *a == "--result")
         .filter_map(|(i, _)| args.get(i + 1).cloned())
         .collect();
-    let (Some(rp), Some(dp), Some(out)) = (results.first().cloned(), get("--depths"), get("--out")) else {
-        die("usage: rr_pole_rank --result R.json --depths D.json [--dependences X.json] [--library L --catalogue C] [--rank-prefix c] [--tseed N] --out OUT.json")
+    let (Some(rp), Some(dp), Some(out)) = (results.first().cloned(), get("--depths"), get("--out"))
+    else {
+        die(
+            "usage: rr_pole_rank --result R.json --depths D.json [--dependences X.json] [--library L --catalogue C] [--rank-prefix c] [--tseed N] --out OUT.json",
+        )
     };
     let mut bound = vec![];
     // several results (rounds of combinations of one cell): their requests are merged (labels must differ)
@@ -72,7 +75,8 @@ fn main() {
         die("the result is an ERROR result (nothing to rank)");
     }
     let _ = rp;
-    let depths = DepthTable::from_json(&read(&dp, &mut bound, "depths")).unwrap_or_else(|e| die(&e));
+    let depths =
+        DepthTable::from_json(&read(&dp, &mut bound, "depths")).unwrap_or_else(|e| die(&e));
     let deps = get("--dependences").map(|p| {
         Dependences::from_json(&read(&p, &mut bound, "dependences")).unwrap_or_else(|e| die(&e))
     });
@@ -85,14 +89,22 @@ fn main() {
             let cat = read(&c, &mut bound, "catalogue");
             TerminalMap::from_package(&alg, &lau, &lib, &cat).unwrap_or_else(|e| die(&e))
         }
-        (None, None) => TerminalMap::default(),
+        (None, None) => match get("--terminal-map") {
+            Some(p) => {
+                let v = read(&p, &mut bound, "terminal_map");
+                let route = get("--route").unwrap_or_else(|| "v3".into());
+                TerminalMap::from_helper_json(&alg, &lau, &v, &route).unwrap_or_else(|e| die(&e))
+            }
+            None => TerminalMap::default(),
+        },
         _ => die("--library and --catalogue go together"),
     };
     // --basis old (default) | exchanged --exchange exchange_list.json
     let exchange = match get("--basis").as_deref() {
         None | Some("old") => None,
         Some("exchanged") => {
-            let p = get("--exchange").unwrap_or_else(|| die("--basis exchanged needs --exchange FILE"));
+            let p =
+                get("--exchange").unwrap_or_else(|| die("--basis exchanged needs --exchange FILE"));
             Some(Exchange::from_json(&read(&p, &mut bound, "exchange")).unwrap_or_else(|e| die(&e)))
         }
         Some(b) => die(&format!("--basis {b}: old | exchanged")),
@@ -112,7 +124,8 @@ fn main() {
     rec["job_id"] = result["job_id"].clone();
     rec["seconds"] = json!(t0.elapsed().as_secs_f64());
     let tmp = format!("{out}.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&rec).expect("json")).unwrap_or_else(|e| die(&e.to_string()));
+    std::fs::write(&tmp, serde_json::to_vec_pretty(&rec).expect("json"))
+        .unwrap_or_else(|e| die(&e.to_string()));
     std::fs::rename(&tmp, &out).unwrap_or_else(|e| die(&e.to_string()));
     println!("{}", rec["verdict"]);
 }

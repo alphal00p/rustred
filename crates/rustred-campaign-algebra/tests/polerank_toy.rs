@@ -6,12 +6,12 @@
 
 use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::polerank::{
-    DepthTable, Dependences, Fp, RankData, TerminalMap, cell_rank, row_products,
+    Dependences, DepthTable, Fp, RankData, TerminalMap, cell_rank, row_products,
 };
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use serde_json::{Value, json};
-use symbolica::domains::finite_field::FiniteFieldCore;
 use std::collections::BTreeMap;
+use symbolica::domains::finite_field::FiniteFieldCore;
 
 const P: [(u64, u64); 4] = [
     (2_305_843_009_213_693_951, 1),
@@ -56,14 +56,19 @@ fn result(reqs: Vec<Value>) -> Value {
 }
 
 fn depths() -> DepthTable {
-    DepthTable::from_json(&json!({"schema": "rustred.campaign.known-depth.v1", "label": "toy",
-        "masters": {"I(1,1,0)": {"known_through": 0}, "I(1,0,1)": {"known_through": 1}}})).unwrap()
+    DepthTable::from_json(
+        &json!({"schema": "rustred.campaign.known-depth.v1", "label": "toy",
+        "masters": {"I(1,1,0)": {"known_through": 0}, "I(1,0,1)": {"known_through": 1}}}),
+    )
+    .unwrap()
 }
 
 fn combos(keys: &[(i128, i128)], m: usize, seeds: &[u64]) -> Vec<Value> {
     (0..m)
         .map(|c| {
-            let w: Vec<i128> = (0..keys.len()).map(|k| (1 + 7 * c as i128 + 13 * k as i128 + (c * k) as i128 * 31) % 1009).collect();
+            let w: Vec<i128> = (0..keys.len())
+                .map(|k| (1 + 7 * c as i128 + 13 * k as i128 + (c * k) as i128 * 31) % 1009)
+                .collect();
             request(&format!("c{c}"), keys, &w, seeds)
         })
         .collect()
@@ -78,7 +83,13 @@ fn ranks_known_by_construction() {
     let lau = SymbolicaLaurent::new("4").unwrap();
     let map = TerminalMap::default();
     let dep = depths();
-    let data = RankData { map: &map, depths: &dep, dependences: None, lau: &lau, exchange: None };
+    let data = RankData {
+        map: &map,
+        depths: &dep,
+        dependences: None,
+        lau: &lau,
+        exchange: None,
+    };
     // two keys with the SAME polar row (proportional): rank 1, pivot on the first symbol
     let same = [(5, 7), (10, 14)];
     let r = cell_rank(&data, &result(combos(&same, 4, &[1, 2])), "c", 1);
@@ -86,13 +97,27 @@ fn ranks_known_by_construction() {
     assert_eq!(r["verdict"], "count zero: no (rank 1)");
     assert_eq!(r["per_prime"].as_array().unwrap().len(), 4);
     // needs: A pole order 1 > q 0, B pole order 2 > q 1
-    let beyond: Vec<&str> = r["cell_beyond"].as_array().unwrap().iter().map(|b| b["master"].as_str().unwrap()).collect();
+    let beyond: Vec<&str> = r["cell_beyond"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["master"].as_str().unwrap())
+        .collect();
     assert_eq!(beyond, vec!["I(1,0,1)", "I(1,1,0)"]);
     // a dependence that cancels that row: (A,1) -> S, (B,2) -> (2 a / b) S with eps entries -a/2 and b/4 -> rank 0
-    let deps = Dependences::from_json(&json!({"schema": "rustred.campaign.dependences.v1", "label": "toy",
+    let deps = Dependences::from_json(
+        &json!({"schema": "rustred.campaign.dependences.v1", "label": "toy",
         "entries": [{"master": "I(1,1,0)", "order": 1, "symbols": {"S": "1"}},
-                    {"master": "I(1,0,1)", "order": 2, "symbols": {"S": "10/7"}}]})).unwrap();
-    let data_d = RankData { map: &map, depths: &dep, dependences: Some(&deps), lau: &lau, exchange: None };
+                    {"master": "I(1,0,1)", "order": 2, "symbols": {"S": "10/7"}}]}),
+    )
+    .unwrap();
+    let data_d = RankData {
+        map: &map,
+        depths: &dep,
+        dependences: Some(&deps),
+        lau: &lau,
+        exchange: None,
+    };
     let r0 = cell_rank(&data_d, &result(combos(&same, 4, &[1, 2])), "c", 1);
     assert_eq!(r0["rank"], 0, "{r0}");
     assert_eq!(r0["verdict"], "count zero: yes");
@@ -102,7 +127,13 @@ fn ranks_known_by_construction() {
     let r2 = cell_rank(&data, &result(combos(&indep, 5, &[1, 2])), "c", 1);
     assert_eq!(r2["rank"], 2, "{r2}");
     let r2s = cell_rank(&data, &result(combos(&indep, 4, &[1, 2])), "c", 1);
-    assert!(r2s["verdict"].as_str().unwrap().contains("NEEDS_MORE_COMBINATIONS"), "{r2s}");
+    assert!(
+        r2s["verdict"]
+            .as_str()
+            .unwrap()
+            .contains("NEEDS_MORE_COMBINATIONS"),
+        "{r2s}"
+    );
 }
 
 #[test]
@@ -114,7 +145,13 @@ fn typed_not_decided_cases() {
     let lau = SymbolicaLaurent::new("4").unwrap();
     let map = TerminalMap::default();
     let dep = depths();
-    let data = RankData { map: &map, depths: &dep, dependences: None, lau: &lau, exchange: None };
+    let data = RankData {
+        map: &map,
+        depths: &dep,
+        dependences: None,
+        lau: &lau,
+        exchange: None,
+    };
     // one seed only
     let r = cell_rank(&data, &result(combos(&[(5, 7)], 4, &[1])), "c", 1);
     assert_eq!(r["verdict"], "not decided (SINGLE_SEED)");
@@ -122,17 +159,38 @@ fn typed_not_decided_cases() {
     let mut reqs = combos(&[(5, 7)], 4, &[1, 2]);
     reqs[2] = json!({"label": "c2", "status": "ERROR", "error": {"code": "LENGTH_BUDGET"}});
     let r = cell_rank(&data, &result(reqs), "c", 1);
-    assert!(r["verdict"].as_str().unwrap().contains("REQUEST:LENGTH_BUDGET"), "{r}");
+    assert!(
+        r["verdict"]
+            .as_str()
+            .unwrap()
+            .contains("REQUEST:LENGTH_BUDGET"),
+        "{r}"
+    );
     // a master without a known depth that has a pole
     let mut reqs = combos(&[(5, 7)], 4, &[1, 2]);
-    reqs[0]["terms"].as_array_mut().unwrap().push(term("I(0,1,1)", -1, 3, 1, &[1, 2]));
+    reqs[0]["terms"]
+        .as_array_mut()
+        .unwrap()
+        .push(term("I(0,1,1)", -1, 3, 1, &[1, 2]));
     let r = cell_rank(&data, &result(reqs), "c", 1);
-    assert!(r["verdict"].as_str().unwrap().contains("MISSING_DEPTH:I(0,1,1)"), "{r}");
+    assert!(
+        r["verdict"]
+            .as_str()
+            .unwrap()
+            .contains("MISSING_DEPTH:I(0,1,1)"),
+        "{r}"
+    );
     // precision not down to -q: B (q = 1) known only below t^-3
     let mut reqs = combos(&[(5, 7)], 4, &[1, 2]);
     reqs[1]["terms"][1] = term("I(1,0,1)", -4, 2, -3, &[1, 2]);
     let r = cell_rank(&data, &result(reqs), "c", 1);
-    assert!(r["verdict"].as_str().unwrap().contains("PRECISION:I(1,0,1)"), "{r}");
+    assert!(
+        r["verdict"]
+            .as_str()
+            .unwrap()
+            .contains("PRECISION:I(1,0,1)"),
+        "{r}"
+    );
 }
 
 #[test]
@@ -143,7 +201,9 @@ fn gamma_unit_is_pi_x_over_sin_pi_x() {
     }
     let p = P[0].0;
     let fp = Fp::new(p, 9).unwrap();
-    let u = fp.gamma_unit(&BTreeMap::from([(1, 1), (-1, 1)]), 6).unwrap();
+    let u = fp
+        .gamma_unit(&BTreeMap::from([(1, 1), (-1, 1)]), 6)
+        .unwrap();
     let pi2 = fp.pi2() as u128;
     let c = |k: i64| fp.f.from_element(&fp.coeff(&u, k).unwrap()) as u128;
     let inv = |x: u128| {

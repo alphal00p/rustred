@@ -43,8 +43,8 @@ use symbolica::domains::integer::Integer;
 use symbolica::domains::rational::{Q, Rational};
 use symbolica::domains::{Field, Ring, RingOps};
 use symbolica::poly::PolyVariable;
-use symbolica::prelude::AtomCore;
 use symbolica::poly::series::Series;
+use symbolica::prelude::AtomCore;
 use symbolica::tensors::matrix::Matrix;
 
 use crate::SymbolicaAlgebra;
@@ -56,6 +56,10 @@ pub const POLERANK_VERSION: &str = "rustred.campaign.polerank.v1";
 pub const DEPTH_SCHEMA: &str = "rustred.campaign.known-depth.v1";
 /// Schema of the dependence table this module reads.
 pub const DEPENDENCE_SCHEMA: &str = "rustred.campaign.dependences.v1";
+/// Helper VH 2's schemas (read as well): known depth, symbol dependences, terminal map.
+pub const HELPER_DEPTH_SCHEMA: &str = "helper-vh2.known-depth.v1";
+pub const HELPER_DEPENDENCE_SCHEMA: &str = "helper-vh2.symbol-dependence.v1";
+pub const HELPER_TERMINAL_MAP_SCHEMA: &str = "helper-vh2.terminal-map.v1";
 
 type Elem = FiniteFieldElement<u64>;
 type PSeries = Series<Zp64>;
@@ -75,8 +79,14 @@ pub struct DepthTable {
 
 impl DepthTable {
     pub fn from_json(v: &Value) -> Result<DepthTable, String> {
+        if v["schema"] == HELPER_DEPTH_SCHEMA {
+            return DepthTable::from_helper_json(v);
+        }
         if v["schema"] != DEPTH_SCHEMA {
-            return Err(format!("depth table schema {} is not {DEPTH_SCHEMA}", v["schema"]));
+            return Err(format!(
+                "depth table schema {} is not {DEPTH_SCHEMA}",
+                v["schema"]
+            ));
         }
         let mut t = DepthTable {
             label: v["label"].as_str().unwrap_or("").to_string(),
@@ -89,7 +99,38 @@ impl DepthTable {
             t.known_through.insert(m.clone(), q);
         }
         for m in v["fully_known"].as_array().into_iter().flatten() {
-            t.fully_known.insert(m.as_str().ok_or("fully_known")?.to_string());
+            t.fully_known
+                .insert(m.as_str().ok_or("fully_known")?.to_string());
+        }
+        Ok(t)
+    }
+}
+
+impl DepthTable {
+    /// Helper VH 2's `helper-vh2.known-depth.v1` (lists `ggppss`, `new`, `forcer` with `id` and `q` = fully known
+    /// through, null = unknown; `closed` = known to every order; `unmapped` terminals have no depth: their terms are
+    /// refused by the terminal map).
+    pub fn from_helper_json(v: &Value) -> Result<DepthTable, String> {
+        let mut t = DepthTable {
+            label: format!(
+                "{} {}",
+                v["schema"].as_str().unwrap_or(""),
+                v["data_version"].as_str().unwrap_or("")
+            ),
+            ..Default::default()
+        };
+        for sec in ["ggppss", "new", "forcer"] {
+            for e in v[sec].as_array().ok_or(format!("known depth: {sec}"))? {
+                let id = e["id"].as_str().ok_or("known depth: id")?.to_string();
+                if let Some(q) = e["q"].as_i64() {
+                    t.known_through.insert(id, q);
+                }
+            }
+        }
+        for e in v["closed"].as_array().into_iter().flatten() {
+            if let Some(id) = e["id"].as_str() {
+                t.fully_known.insert(id.to_string());
+            }
         }
         Ok(t)
     }
@@ -104,15 +145,24 @@ pub struct Dependences {
 
 impl Dependences {
     pub fn from_json(v: &Value) -> Result<Dependences, String> {
+        if v["schema"] == HELPER_DEPENDENCE_SCHEMA {
+            return Dependences::from_helper_json(v);
+        }
         if v["schema"] != DEPENDENCE_SCHEMA {
-            return Err(format!("dependence table schema {} is not {DEPENDENCE_SCHEMA}", v["schema"]));
+            return Err(format!(
+                "dependence table schema {} is not {DEPENDENCE_SCHEMA}",
+                v["schema"]
+            ));
         }
         let mut d = Dependences {
             label: v["label"].as_str().unwrap_or("").to_string(),
             ..Default::default()
         };
         for e in v["entries"].as_array().ok_or("dependences: entries")? {
-            let m = e["master"].as_str().ok_or("dependences: master")?.to_string();
+            let m = e["master"]
+                .as_str()
+                .ok_or("dependences: master")?
+                .to_string();
             let j = e["order"].as_i64().ok_or("dependences: order")?;
             let mut comb = vec![];
             for (s, c) in e["symbols"].as_object().ok_or("dependences: symbols")? {
@@ -125,18 +175,69 @@ impl Dependences {
     }
 }
 
+impl Dependences {
+    /// Helper VH 2's `helper-vh2.symbol-dependence.v1`: every printed coefficient with symbols (FREE = its own symbol,
+    /// DEPENDENT = known part + combination) and the new masters' symbol parts per order (`new_master_symbol_parts`).
+    pub fn from_helper_json(v: &Value) -> Result<Dependences, String> {
+        let mut d = Dependences {
+            label: format!(
+                "{} ({} printed coefficients)",
+                v["schema"].as_str().unwrap_or(""),
+                v["dependences"].as_array().map_or(0, |a| a.len())
+            ),
+            ..Default::default()
+        };
+        let comb = |o: &Value| -> Result<Vec<(String, Rational)>, String> {
+            o.as_object()
+                .ok_or("dependences: symbols")?
+                .iter()
+                .map(|(s, c)| {
+                    Ok((
+                        s.clone(),
+                        parse_rational(c.as_str().ok_or("coefficient text")?)?,
+                    ))
+                })
+                .collect()
+        };
+        for e in v["dependences"]
+            .as_array()
+            .ok_or("dependences: dependences")?
+        {
+            let m = e["master"]
+                .as_str()
+                .ok_or("dependences: master")?
+                .to_string();
+            let j = e["order"].as_i64().ok_or("dependences: order")?;
+            d.map.insert((m, j), comb(&e["symbols"])?);
+        }
+        for e in v["new_master_symbol_parts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let m = e["master"].as_str().ok_or("new master")?.to_string();
+            for (o, x) in e["orders"].as_object().into_iter().flatten() {
+                let j: i64 = o.parse().map_err(|e| format!("new master order: {e}"))?;
+                d.map.insert((m.clone(), j), comb(&x["symbols"])?);
+            }
+        }
+        Ok(d)
+    }
+}
+
 fn parse_rational(s: &str) -> Result<Rational, String> {
+    use std::str::FromStr;
     let s = s.trim();
     let (n, d) = match s.split_once('/') {
         Some((n, d)) => (n.trim(), d.trim()),
         None => (s, "1"),
     };
-    let n: i128 = n.parse().map_err(|e| format!("rational {s}: {e}"))?;
-    let d: i128 = d.parse().map_err(|e| format!("rational {s}: {e}"))?;
-    if d == 0 {
+    let n = Integer::from_str(n).map_err(|e| format!("rational {s}: {e}"))?;
+    let d = Integer::from_str(d).map_err(|e| format!("rational {s}: {e}"))?;
+    if d == Integer::from(0) {
         return Err(format!("rational {s}: zero denominator"));
     }
-    Ok(Rational::new(Integer::from(n), Integer::from(d)))
+    Ok(Rational::new(n, d))
 }
 
 /// The exchange basis (helper VH 2's `helper-vh2.exchange-list.v1`, TRICKS 28 / 30 / 47): per exchanged master m the
@@ -153,10 +254,21 @@ pub struct Exchange {
 impl Exchange {
     pub fn from_json(v: &Value) -> Result<Exchange, String> {
         let mut rules = BTreeMap::new();
-        for r in v["relation"]["rows"].as_array().ok_or("exchange: relation.rows")? {
-            let m = r["master_out"].as_str().ok_or("exchange: master_out")?.to_string();
+        for r in v["relation"]["rows"]
+            .as_array()
+            .ok_or("exchange: relation.rows")?
+        {
+            let m = r["master_out"]
+                .as_str()
+                .ok_or("exchange: master_out")?
+                .to_string();
             let mut ts = vec![];
-            for e in r["B"].as_array().into_iter().flatten().chain(r["A"].as_array().into_iter().flatten()) {
+            for e in r["B"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .chain(r["A"].as_array().into_iter().flatten())
+            {
                 let target = e["master"].as_str().ok_or("exchange: master")?.to_string();
                 let num = e["coefficient"]["num"].as_str().ok_or("exchange: num")?;
                 let den = e["coefficient"]["den"].as_str().ok_or("exchange: den")?;
@@ -165,9 +277,15 @@ impl Exchange {
             rules.insert(m, ts);
         }
         let mut new_q = BTreeMap::new();
-        for n in v["new_master_definitions"].as_array().ok_or("exchange: new_master_definitions")? {
+        for n in v["new_master_definitions"]
+            .as_array()
+            .ok_or("exchange: new_master_definitions")?
+        {
             new_q.insert(
-                n["master"].as_str().ok_or("exchange: new master")?.to_string(),
+                n["master"]
+                    .as_str()
+                    .ok_or("exchange: new master")?
+                    .to_string(),
                 n["q"].as_i64().ok_or("exchange: q")?,
             );
         }
@@ -175,7 +293,11 @@ impl Exchange {
             rules,
             new_q,
             parsed: Default::default(),
-            label: format!("{} {}", v["schema"].as_str().unwrap_or(""), v["data_version"].as_str().unwrap_or("")),
+            label: format!(
+                "{} {}",
+                v["schema"].as_str().unwrap_or(""),
+                v["data_version"].as_str().unwrap_or("")
+            ),
         })
     }
 
@@ -183,12 +305,21 @@ impl Exchange {
         self.rules.keys()
     }
 
-    fn rule(&self, alg: &SymbolicaAlgebra, lau: &SymbolicaLaurent, m: &str) -> Result<Vec<(String, TCoeff)>, String> {
+    fn rule(
+        &self,
+        alg: &SymbolicaAlgebra,
+        lau: &SymbolicaLaurent,
+        m: &str,
+    ) -> Result<Vec<(String, TCoeff)>, String> {
         if let Some(r) = self.parsed.borrow().get(m) {
             return Ok(r.clone());
         }
         let mut out = vec![];
-        for (target, text) in self.rules.get(m).ok_or(format!("exchange: no rule for {m}"))? {
+        for (target, text) in self
+            .rules
+            .get(m)
+            .ok_or(format!("exchange: no rule for {m}"))?
+        {
             let (n, d) = alg.parse_ratio(text, 0)?;
             out.push((target.clone(), lau.coeff_from_zpolys(&n, &d, 0)?));
         }
@@ -230,7 +361,10 @@ pub struct TerminalMap {
     pub rows: BTreeMap<String, TermRow>,
 }
 
-type ZPolyR = symbolica::poly::polynomial::MultivariatePolynomial<symbolica::domains::integer::IntegerRing, u16>;
+type ZPolyR = symbolica::poly::polynomial::MultivariatePolynomial<
+    symbolica::domains::integer::IntegerRing,
+    u16,
+>;
 
 /// A catalogue coefficient `sum rational(d) x prod PGamma(m)^e` as its products: Symbolica parses the whole text with
 /// every `PGamma(m)` replaced by its own polynomial variable (`rustred::pg<m>`), as ONE rational function in d and those
@@ -244,10 +378,21 @@ pub fn row_products(text: &str) -> Result<Vec<(ZPolyR, ZPolyR, BTreeMap<i64, i64
     while let Some(i) = rest.find("PGamma(") {
         let r = &rest[i + 7..];
         let close = r.find(')').ok_or("PGamma(")?;
-        ms.insert(r[..close].trim().parse().map_err(|e| format!("PGamma index: {e}"))?);
+        ms.insert(
+            r[..close]
+                .trim()
+                .parse()
+                .map_err(|e| format!("PGamma index: {e}"))?,
+        );
         rest = &r[close..];
     }
-    let name = |m: i64| if m < 0 { format!("pgm{}", -m) } else { format!("pgp{m}") };
+    let name = |m: i64| {
+        if m < 0 {
+            format!("pgm{}", -m)
+        } else {
+            format!("pgp{m}")
+        }
+    };
     let mut replaced = text.to_string();
     for &m in &ms {
         replaced = replaced.replace(&format!("PGamma({m})"), &name(m));
@@ -258,13 +403,20 @@ pub fn row_products(text: &str) -> Result<Vec<(ZPolyR, ZPolyR, BTreeMap<i64, i64
     for s in &syms {
         let q = format!("rustred::{s}");
         let ns = NamespacedSymbol::try_parse(&q).ok_or(format!("symbol {q}"))?;
-        vars.push(PolyVariable::Symbol(SymbolBuilder::new(ns).build().map_err(|e| e.to_string())?));
+        vars.push(PolyVariable::Symbol(
+            SymbolBuilder::new(ns).build().map_err(|e| e.to_string())?,
+        ));
     }
     let vars = Arc::new(vars);
-    let atom = symbolica::try_parse!(&replaced, default_namespace = "rustred").map_err(|e| e.to_string())?;
+    let atom = symbolica::try_parse!(&replaced, default_namespace = "rustred")
+        .map_err(|e| e.to_string())?;
     let rp = atom
         .as_view()
-        .try_to_rational_polynomial::<_, _, u16>(&Q, &symbolica::domains::integer::Z, Some(vars.clone()))
+        .try_to_rational_polynomial::<_, _, u16>(
+            &Q,
+            &symbolica::domains::integer::Z,
+            Some(vars.clone()),
+        )
         .map_err(|e| format!("row coefficient is not a rational function: {e}"))?;
     if rp.numerator.get_vars_ref().len() != vars.len() {
         return Err("row coefficient has symbols other than d and PGamma".into());
@@ -274,7 +426,12 @@ pub fn row_products(text: &str) -> Result<Vec<(ZPolyR, ZPolyR, BTreeMap<i64, i64
     // denominator: one Gamma monomial
     let mut dg: Option<Vec<u16>> = None;
     let mut den = ZPolyR::new(&symbolica::domains::integer::Z, None, vars.clone());
-    for (c, e) in rp.denominator.coefficients.iter().zip(rp.denominator.exponents_iter()) {
+    for (c, e) in rp
+        .denominator
+        .coefficients
+        .iter()
+        .zip(rp.denominator.exponents_iter())
+    {
         let g = gexp(e);
         if dg.as_ref().is_some_and(|x| *x != g) {
             return Err("row denominator is not a single Gamma monomial".into());
@@ -286,7 +443,12 @@ pub fn row_products(text: &str) -> Result<Vec<(ZPolyR, ZPolyR, BTreeMap<i64, i64
     }
     let dg = dg.unwrap_or_else(|| vec![0; nv - 1]);
     let mut groups: BTreeMap<Vec<u16>, ZPolyR> = BTreeMap::new();
-    for (c, e) in rp.numerator.coefficients.iter().zip(rp.numerator.exponents_iter()) {
+    for (c, e) in rp
+        .numerator
+        .coefficients
+        .iter()
+        .zip(rp.numerator.exponents_iter())
+    {
         let g = groups
             .entry(gexp(e))
             .or_insert_with(|| ZPolyR::new(&symbolica::domains::integer::Z, None, vars.clone()));
@@ -345,9 +507,14 @@ impl TerminalMap {
             .iter()
             .filter_map(|o| o["class"].as_str().map(|c| (c, o)))
             .collect();
-        let pres = library["presentations"].as_array().ok_or("library: presentations")?;
+        let pres = library["presentations"]
+            .as_array()
+            .ok_or("library: presentations")?;
         let mut cat: BTreeMap<(String, Vec<i64>), &Value> = BTreeMap::new();
-        for t in catalogue["terminals"].as_array().ok_or("catalogue: terminals")? {
+        for t in catalogue["terminals"]
+            .as_array()
+            .ok_or("catalogue: terminals")?
+        {
             let node = t["node"].as_str().ok_or("catalogue: node")?.to_string();
             let key: Vec<i64> = t["key"]
                 .as_array()
@@ -358,7 +525,12 @@ impl TerminalMap {
             cat.insert((node, key), t);
         }
         let mut rows = BTreeMap::new();
-        for (id, t) in library["terminals"].as_array().ok_or("library: terminals")?.iter().enumerate() {
+        for (id, t) in library["terminals"]
+            .as_array()
+            .ok_or("library: terminals")?
+            .iter()
+            .enumerate()
+        {
             let name = format!("R:{id}");
             if t == "unit" {
                 rows.insert(name, TermRow::Closed);
@@ -378,14 +550,25 @@ impl TerminalMap {
                 .unwrap_or(fam)
                 .trim_end_matches(".rrbin")
                 .to_string();
-            let key: Vec<i64> = r["key"].as_array().ok_or("residual key")?.iter().filter_map(Value::as_i64).collect();
+            let key: Vec<i64> = r["key"]
+                .as_array()
+                .ok_or("residual key")?
+                .iter()
+                .filter_map(Value::as_i64)
+                .collect();
             let Some(e) = cat.get(&(stem.clone(), key.clone())) else {
-                rows.insert(name, TermRow::Unmapped(format!("{stem} {key:?}: no catalogue entry")));
+                rows.insert(
+                    name,
+                    TermRow::Unmapped(format!("{stem} {key:?}: no catalogue entry")),
+                );
                 continue;
             };
             let comb = e["combination"].as_array();
             if comb.is_none() || e["status"] == "unmapped" {
-                rows.insert(name, TermRow::Unmapped(format!("{stem} {key:?}: {}", e["status"])));
+                rows.insert(
+                    name,
+                    TermRow::Unmapped(format!("{stem} {key:?}: {}", e["status"])),
+                );
                 continue;
             }
             let mut entries = vec![];
@@ -394,7 +577,10 @@ impl TerminalMap {
                 let text = c["coefficient"].as_str().ok_or("catalogue coefficient")?;
                 let mut parts = vec![];
                 if master.is_some() {
-                    alg.budget.max_text_bytes.checked_sub(text.len()).ok_or("row text above the parse budget")?;
+                    alg.budget
+                        .max_text_bytes
+                        .checked_sub(text.len())
+                        .ok_or("row text above the parse budget")?;
                     for (n, d, tag) in row_products(text)? {
                         parts.push(RowPart {
                             coeff: lau.coeff_from_zpolys(&n, &d, 0)?,
@@ -405,6 +591,74 @@ impl TerminalMap {
                 entries.push(RowEntry { master, parts });
             }
             rows.insert(name, TermRow::Rows(entries));
+        }
+        Ok(TerminalMap { rows })
+    }
+
+    /// From helper VH 2's `helper-vh2.terminal-map.v1` (per `R:<id>` / `U` the route-v3 row; `route` = "v3" or "v2f",
+    /// the v2f entry where it differs); master `CLOSED` = a closed form; a terminal without a row is unmapped.
+    pub fn from_helper_json(
+        alg: &SymbolicaAlgebra,
+        lau: &SymbolicaLaurent,
+        v: &Value,
+        route: &str,
+    ) -> Result<TerminalMap, String> {
+        if v["schema"] != HELPER_TERMINAL_MAP_SCHEMA {
+            return Err(format!(
+                "terminal map schema {} is not {HELPER_TERMINAL_MAP_SCHEMA}",
+                v["schema"]
+            ));
+        }
+        let mut rows = BTreeMap::new();
+        for (name, t) in v["terminals"]
+            .as_object()
+            .ok_or("terminal map: terminals")?
+        {
+            let entry = if route == "v2f" && t["v2f"].is_object() {
+                &t["v2f"]
+            } else {
+                &t["v3"]
+            };
+            let Some(comb) = entry["combination"].as_array() else {
+                rows.insert(
+                    name.clone(),
+                    TermRow::Unmapped(format!("{name}: {}", entry["source"])),
+                );
+                continue;
+            };
+            if name == "U"
+                || comb
+                    .iter()
+                    .all(|c| c["master"] == "CLOSED" || c["master"].is_null())
+            {
+                rows.insert(name.clone(), TermRow::Closed);
+                continue;
+            }
+            let mut entries = vec![];
+            for c in comb {
+                let master = c["master"]
+                    .as_str()
+                    .filter(|m| *m != "CLOSED")
+                    .map(str::to_string);
+                let text = c["coefficient"]
+                    .as_str()
+                    .ok_or("terminal map coefficient")?;
+                let mut parts = vec![];
+                if master.is_some() {
+                    alg.budget
+                        .max_text_bytes
+                        .checked_sub(text.len())
+                        .ok_or("row text above the parse budget")?;
+                    for (n, d, tag) in row_products(text)? {
+                        parts.push(RowPart {
+                            coeff: lau.coeff_from_zpolys(&n, &d, 0)?,
+                            tag,
+                        });
+                    }
+                }
+                entries.push(RowEntry { master, parts });
+            }
+            rows.insert(name.clone(), TermRow::Rows(entries));
         }
         Ok(TerminalMap { rows })
     }
@@ -532,11 +786,19 @@ impl Fp {
         if self.f.is_zero(&d) {
             return Err(format!("the prime {} divides a denominator", self.p));
         }
-        Ok(self.f.mul(&int_mod(&self.f, &r.numerator()), &self.f.inv(&d)))
+        Ok(self
+            .f
+            .mul(&int_mod(&self.f, &r.numerator()), &self.f.inv(&d)))
     }
 
     fn base(&self, n: usize) -> PSeries {
-        Series::new(&self.f, Some(n), self.var.clone(), self.f.zero(), Rational::from(n.max(1) as i64))
+        Series::new(
+            &self.f,
+            Some(n),
+            self.var.clone(),
+            self.f.zero(),
+            Rational::from(n.max(1) as i64),
+        )
     }
 
     /// The series of residues `c[i]` at orders `v + i` (eps), known below `prec`.
@@ -569,7 +831,11 @@ impl Fp {
         match &a.s {
             None => a.prec,
             Some(s) if s.is_zero() => a.prec,
-            Some(s) => s.get_trailing_exponent().numerator().to_i64().unwrap_or(a.prec),
+            Some(s) => s
+                .get_trailing_exponent()
+                .numerator()
+                .to_i64()
+                .unwrap_or(a.prec),
         }
     }
 
@@ -579,7 +845,9 @@ impl Fp {
         }
         Some(match &a.s {
             None => self.f.zero(),
-            Some(s) => s.coefficient(Rational::from(k)).unwrap_or_else(|| self.f.zero()),
+            Some(s) => s
+                .coefficient(Rational::from(k))
+                .unwrap_or_else(|| self.f.zero()),
         })
     }
 
@@ -607,7 +875,10 @@ impl Fp {
 
     pub fn scale(&self, a: &Lau, c: &Elem) -> Lau {
         if self.f.is_zero(c) {
-            return Lau { s: None, prec: a.prec };
+            return Lau {
+                s: None,
+                prec: a.prec,
+            };
         }
         Lau {
             s: a.s.clone().map(|s| s.mul_coeff(c)),
@@ -620,10 +891,16 @@ impl Fp {
         let Some(s) = &a.s else { return a };
         let v = self.val(&a);
         if s.is_zero() || v >= a.prec {
-            return Lau { s: None, prec: a.prec };
+            return Lau {
+                s: None,
+                prec: a.prec,
+            };
         }
         let coeffs: Vec<Elem> = (v..a.prec)
-            .map(|k| s.coefficient(Rational::from(k)).unwrap_or_else(|| self.f.zero()))
+            .map(|k| {
+                s.coefficient(Rational::from(k))
+                    .unwrap_or_else(|| self.f.zero())
+            })
             .collect();
         self.from_coeffs(v, &coeffs, a.prec)
     }
@@ -649,7 +926,10 @@ impl Fp {
             let z = if k == 1 {
                 self.f.neg(&self.gamma)
             } else if k % 2 == 1 {
-                let zk = *self.zeta_odd.get(&(k as i64)).ok_or("zeta index beyond the table")?;
+                let zk = *self
+                    .zeta_odd
+                    .get(&(k as i64))
+                    .ok_or("zeta index beyond the table")?;
                 self.f.neg(&zk)
             } else {
                 let r = self
@@ -671,7 +951,10 @@ impl Fp {
         for j in 1..n {
             let mut acc = self.f.zero();
             for k in 1..=j {
-                let t = self.f.mul(&self.f.mul(&self.f.to_element(k as u64), &l[k]), &ecoef[j - k]);
+                let t = self.f.mul(
+                    &self.f.mul(&self.f.to_element(k as u64), &l[k]),
+                    &ecoef[j - k],
+                );
                 acc = self.f.add(&acc, &t);
             }
             ecoef[j] = self.f.mul(&acc, &self.f.inv(&self.f.to_element(j as u64)));
@@ -680,7 +963,12 @@ impl Fp {
     }
 
     /// An exact rational function of t (at d0) expanded over Q and reduced mod p, as a series in eps known below `prec`.
-    pub fn rational_series(&self, lau: &SymbolicaLaurent, c: &TCoeff, prec: i64) -> Result<Lau, String> {
+    pub fn rational_series(
+        &self,
+        lau: &SymbolicaLaurent,
+        c: &TCoeff,
+        prec: i64,
+    ) -> Result<Lau, String> {
         let v = c.valuation();
         let Some(qs) = lau.expand_coeff(c, prec)? else {
             return Ok(Lau { s: None, prec });
@@ -777,7 +1065,11 @@ fn terms_at_prime(request: &Value, prime: u64) -> Result<Vec<TermAtPrime>, Strin
             .as_array()
             .ok_or("coefficients")?
             .iter()
-            .map(|c| c.as_str().and_then(|s| s.parse::<u64>().ok()).ok_or("coefficient".to_string()))
+            .map(|c| {
+                c.as_str()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .ok_or("coefficient".to_string())
+            })
             .collect::<Result<Vec<u64>, String>>()?;
         out.push(TermAtPrime {
             basis,
@@ -858,7 +1150,8 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
                         };
                         // enough of the row and of the unit for the target of this master
                         let need_row = tgt - fp.val(&r) + 1;
-                        let rs = fp.rational_series(data.lau, &part.coeff, need_row.max(vrow + 1))?;
+                        let rs =
+                            fp.rational_series(data.lau, &part.coeff, need_row.max(vrow + 1))?;
                         let mut tag = t.tag.clone();
                         for (&m2, &e2) in &part.tag {
                             *tag.entry(m2).or_insert(0) += e2;
@@ -888,7 +1181,11 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
     }
     // the exchanged basis: rotate every exchanged master's coefficient onto its rule's targets (exact in d)
     if let Some((x, alg)) = data.exchange {
-        let present: Vec<String> = x.exchanged().filter(|m| acc.contains_key(*m)).cloned().collect();
+        let present: Vec<String> = x
+            .exchanged()
+            .filter(|m| acc.contains_key(*m))
+            .cloned()
+            .collect();
         for m in present {
             let cm = acc.remove(&m).expect("present");
             for (target, coeff) in x.rule(alg, data.lau, &m)? {
@@ -939,7 +1236,10 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
                 continue;
             }
             let mut add = |sym: String, val: Elem| {
-                let cur = entries.get(&sym).map(|&y| fp.f.to_element(y)).unwrap_or_else(|| fp.f.zero());
+                let cur = entries
+                    .get(&sym)
+                    .map(|&y| fp.f.to_element(y))
+                    .unwrap_or_else(|| fp.f.zero());
                 let s = fp.f.add(&cur, &val);
                 if fp.f.is_zero(&s) {
                     entries.remove(&sym);
@@ -966,7 +1266,10 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
 
 /// Rank and pivots of rows at one prime (Symbolica `Matrix<Zp64>::row_reduce`): pivots = the symbols of the pivot
 /// columns of the reduced echelon form, columns in the sorted order of `symbols`.
-pub fn rank_at_prime(fp: &Fp, rows: &[&BTreeMap<String, u64>]) -> Result<(usize, Vec<String>), String> {
+pub fn rank_at_prime(
+    fp: &Fp,
+    rows: &[&BTreeMap<String, u64>],
+) -> Result<(usize, Vec<String>), String> {
     let symbols: Vec<String> = rows
         .iter()
         .flat_map(|r| r.keys().cloned())
@@ -977,7 +1280,11 @@ pub fn rank_at_prime(fp: &Fp, rows: &[&BTreeMap<String, u64>]) -> Result<(usize,
         return Ok((0, vec![]));
     }
     let (nr, nc) = (rows.len(), symbols.len());
-    let col: BTreeMap<&str, usize> = symbols.iter().enumerate().map(|(i, s)| (s.as_str(), i)).collect();
+    let col: BTreeMap<&str, usize> = symbols
+        .iter()
+        .enumerate()
+        .map(|(i, s)| (s.as_str(), i))
+        .collect();
     let mut data = vec![fp.f.zero(); nr * nc];
     for (i, r) in rows.iter().enumerate() {
         for (s, &v) in r.iter() {
@@ -998,14 +1305,22 @@ pub fn rank_at_prime(fp: &Fp, rows: &[&BTreeMap<String, u64>]) -> Result<(usize,
 
 /// The cell's rank record from ONE result (both seeds inside it): per prime the rows of the rank requests (labels
 /// with `rank_prefix`), the rank and pivots; per request needs and the polar part beyond the known depths.
-pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transcendental_seed: u64) -> Value {
+pub fn cell_rank(
+    data: &RankData<'_>,
+    result: &Value,
+    rank_prefix: &str,
+    transcendental_seed: u64,
+) -> Value {
     let primes: Vec<(u64, u64)> = {
         // (prime, seed) from the per-prime series of the first OK request
         let mut v = BTreeSet::new();
         for r in result["requests"].as_array().into_iter().flatten() {
             for t in r["terms"].as_array().into_iter().flatten() {
                 for pp in t["per_prime"].as_array().into_iter().flatten() {
-                    if let (Some(p), Some(s)) = (pp["prime"].as_str().and_then(|x| x.parse::<u64>().ok()), pp["seed"].as_u64()) {
+                    if let (Some(p), Some(s)) = (
+                        pp["prime"].as_str().and_then(|x| x.parse::<u64>().ok()),
+                        pp["seed"].as_u64(),
+                    ) {
                         v.insert((p, s));
                     }
                 }
@@ -1013,7 +1328,10 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
         }
         v.into_iter().collect()
     };
-    let requests: Vec<&Value> = result["requests"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let requests: Vec<&Value> = result["requests"]
+        .as_array()
+        .map(|a| a.iter().collect())
+        .unwrap_or_default();
     let mut per_prime = vec![];
     let mut per_request: BTreeMap<String, Value> = BTreeMap::new();
     let mut undecided: Vec<String> = vec![];
@@ -1032,8 +1350,14 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
             let label = r["label"].as_str().unwrap_or("?").to_string();
             let out = request_row(&fp, data, r);
             match &out {
-                RowOutcome::Row { entries, needs, beyond } => {
-                    let e = per_request.entry(label.clone()).or_insert_with(|| json!({"label": label, "per_prime": []}));
+                RowOutcome::Row {
+                    entries,
+                    needs,
+                    beyond,
+                } => {
+                    let e = per_request
+                        .entry(label.clone())
+                        .or_insert_with(|| json!({"label": label, "per_prime": []}));
                     e["per_prime"].as_array_mut().expect("array").push(json!({"prime": p.to_string(), "seed": seed,
                         "row_nonzero": entries.len(), "row": entries.iter().map(|(k, v)| (k.clone(), json!(v.to_string()))).collect::<serde_json::Map<String, Value>>(), "needs": needs,
                         "beyond": beyond.iter().map(|(m, n, q)| json!({"master": m, "need": n, "q": q})).collect::<Vec<_>>()}));
@@ -1042,8 +1366,13 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
                     }
                 }
                 RowOutcome::NotDecided(why) => {
-                    let e = per_request.entry(label.clone()).or_insert_with(|| json!({"label": label, "per_prime": []}));
-                    e["per_prime"].as_array_mut().expect("array").push(json!({"prime": p.to_string(), "seed": seed,
+                    let e = per_request
+                        .entry(label.clone())
+                        .or_insert_with(|| json!({"label": label, "per_prime": []}));
+                    e["per_prime"]
+                        .as_array_mut()
+                        .expect("array")
+                        .push(json!({"prime": p.to_string(), "seed": seed,
                         "not_decided": why}));
                     if label.starts_with(rank_prefix) {
                         undecided.push(format!("{label} at {p}: {why}"));
@@ -1055,8 +1384,10 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
             rows.push(k);
         }
         match rank_at_prime(&fp, &rows) {
-            Ok((rank, pivots)) => per_prime.push(json!({"prime": p.to_string(), "seed": seed, "rows": rows.len(),
-                "rank": rank, "pivots": pivots})),
+            Ok((rank, pivots)) => per_prime.push(
+                json!({"prime": p.to_string(), "seed": seed, "rows": rows.len(),
+                "rank": rank, "pivots": pivots}),
+            ),
             Err(e) => undecided.push(format!("rank at {p}: {e}")),
         }
         transcendental_used = true;
@@ -1086,22 +1417,42 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
                 x["rank"].as_u64().unwrap_or(0),
                 x["pivots"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|s| s.as_str().map(str::to_string))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             )
         })
         .collect();
     let n_rank_requests = requests
         .iter()
-        .filter(|r| r["label"].as_str().is_some_and(|l| l.starts_with(rank_prefix)))
+        .filter(|r| {
+            r["label"]
+                .as_str()
+                .is_some_and(|l| l.starts_with(rank_prefix))
+        })
         .count();
     let seeds: BTreeSet<u64> = primes.iter().map(|x| x.1).collect();
     let (verdict, rank, pivots) = if !undecided.is_empty() {
-        (format!("not decided ({})", undecided[0]), Value::Null, Value::Null)
+        (
+            format!("not decided ({})", undecided[0]),
+            Value::Null,
+            Value::Null,
+        )
     } else if seeds.len() < 2 {
-        ("not decided (SINGLE_SEED)".to_string(), Value::Null, Value::Null)
+        (
+            "not decided (SINGLE_SEED)".to_string(),
+            Value::Null,
+            Value::Null,
+        )
     } else if ranks.len() != 1 {
-        ("not decided (RANK_DISAGREEMENT between primes / seeds)".to_string(), Value::Null, Value::Null)
+        (
+            "not decided (RANK_DISAGREEMENT between primes / seeds)".to_string(),
+            Value::Null,
+            Value::Null,
+        )
     } else {
         let (r, p) = ranks.iter().next().cloned().expect("one");
         let stable = n_rank_requests as u64 >= r + 3;
@@ -1133,7 +1484,11 @@ pub fn cell_rank(data: &RankData<'_>, result: &Value, rank_prefix: &str, transce
     }
     let beyond: Vec<Value> = cell_needs
         .iter()
-        .filter_map(|(m, &n)| data.depth(m).filter(|&q| n > q).map(|q| json!({"master": m, "need": n, "q": q})))
+        .filter_map(|(m, &n)| {
+            data.depth(m)
+                .filter(|&q| n > q)
+                .map(|q| json!({"master": m, "need": n, "q": q}))
+        })
         .collect();
     json!({"version": POLERANK_VERSION, "rank_prefix": rank_prefix, "rank_requests": n_rank_requests,
         "verdict": verdict, "rank": rank, "pivots": pivots,
