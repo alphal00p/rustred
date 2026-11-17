@@ -13,6 +13,8 @@ pub mod export;
 pub mod launch;
 pub mod ledger;
 pub mod lock;
+// lane tadicjob's request (REQUEST TO I-INT): rr_campaign tadic-check / pole-report
+pub mod polereport;
 pub mod progress;
 pub mod publish;
 pub mod resources;

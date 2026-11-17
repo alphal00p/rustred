@@ -27,6 +27,8 @@ order of `ROWS`.
 | 38 | kind pole-regular-at or regular-basis, c in {0, 10, 20} with O but the answers / the record not sealed / not verified against the pinned inputs (the wrapper refused them), or c in {10, 20}: nothing is read, the relations stay undecided / the node gets no regular basis (evaluated before 22 for these kinds) | undecided | nothing | diagnostics_undecided |
 | 40 | c=0, O, S, kind proof-symrows (legacy-wrapped rr_proof --symrows: one certificate per requested key, each bound to the pinned request: relation digest, record digests, key, symrows digest, group, elements, catalogue records, kernel sha256) | complete | certificates | item_done |
 | 43 | kind proof-symrows, c in {0, 10, 20} with O but the certificate not sealed / not bound to the pinned request (another relation, record, key, symrows input or kernel: a forged or misattributed certificate), or c in {10, 20} (evaluated before 22 for this kind) | crashed | nothing | attention |
+| 50 | c=0, O, S, kind tadic-replay (diagnostic, legacy-wrapped: the driver's result bound to the pinned job by sha256, labels, binary and driver digests; one sealed line per request: SERIES or NOT_DECIDED with a typed reason; never evidence) | complete | diagnostic_records | item_done |
+| 51 | kind tadic-replay, c in {0, 10, 20} with O but the result not sealed / not bound to the pinned job, or c in {10, 20}: nothing is read, every request stays not decided (evaluated before 22 for this kind) | undecided | nothing | diagnostics_undecided |
 | 7 | c=11, O, checker kind | decided_negative | nothing | record_negative_verdict |
 | 7b | c=12, O, checker kind | undecided | nothing | other_tool_or_attention |
 | 8 | c=20, O, S (producing kind) | spill | committed_rules | next_rung_after_spill |
@@ -43,6 +45,7 @@ order of `ROWS`.
 | 39 | c=41, kind pole-regular-at (the pinned requests input unreadable or not the spec's: POLE_INPUT_MISMATCH) or regular-basis (a pinned input unreadable or not the spec's: REGBASIS_INPUT_MISMATCH): nothing is read, the relations stay undecided / no regular basis | refused | nothing | diagnostics_undecided |
 | 41 | c=41, kind proof-symrows, O whose error names SYMROW_REFUSED (the kernel refused a symmetry row of the request: a decided answer, never evidence) | refused | nothing | certificate_refused |
 | 42 | c in {41, 70}, kind proof-symrows, O whose error names a reader error (UNREADABLE_RECORD, UNKNOWN_RECORD_KIND) | refused | nothing | table_unreadable_by_tool |
+| 52 | c=41, kind tadic-replay (the driver refused the job or an input: JOB_INVALID, UNSUPPORTED, INPUT_MISSING, INPUT_HASH_MISMATCH, BINARY_MISSING, BINARY_HASH_MISMATCH, or a pinned input not the spec's: TADIC_INPUT_MISMATCH): nothing is read, every request stays not decided | refused | nothing | diagnostics_undecided |
 | 13 | c=41 | refused | nothing | item_attention_no_retry |
 | 14 | c=42 | refused | nothing | attention |
 | 15 | c=50 | lost | nothing | pause_all_launches |

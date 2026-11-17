@@ -111,6 +111,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 {
                     return (38, "");
                 }
+                // lane tadicjob: a tadic-replay result is read only at exit 0 when sealed and bound (51, never 22)
+                if e.kind == JobKind::TadicReplay && (e.verified.is_none() || c != 0) {
+                    return (51, "");
+                }
                 // lane symcert: a proof-symrows certificate is read only at exit 0 when verified (43, never 22)
                 if e.kind == JobKind::ProofSymrows && (e.verified.is_none() || c != 0) {
                     return (43, "");
@@ -126,6 +130,9 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
                 }
                 if e.kind == JobKind::ProofSymrows {
                     return (40, "");
+                }
+                if e.kind == JobKind::TadicReplay {
+                    return (50, "");
                 }
                 // adapters.md 1.2: solve-recipe uses rows 1 / 28 / 29 and needs the results tally (S); proof-instantiate
                 // has exit 0 only; keys_unsolved belongs to solve-recipe only
@@ -288,6 +295,10 @@ fn oracle(e: &Evidence) -> (u8, &'static str) {
         {
             return (13, "b");
         }
+        // lane tadicjob: tadic-replay's refused job / input is row 52 (nothing read, never attention)
+        if c == 41 && e.kind == JobKind::TadicReplay {
+            return (52, "");
+        }
         // lane coreseed: pole-regular-at's refused input is row 39 (nothing read, never attention)
         if c == 41 && matches!(e.kind, JobKind::PoleRegularAt | JobKind::RegularBasis) {
             return (39, "");
@@ -369,6 +380,7 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     let diagnostic_kind = e.kind == JobKind::NodeBasis
         || e.kind == JobKind::PoleRegularAt
         || e.kind == JobKind::RegularBasis
+        || e.kind == JobKind::TadicReplay
         || (e.kind == JobKind::SolveRecipe && probe);
     // lane symcert: certificates only from proof-symrows, and only at exit 0
     if (accept == Accept::Certificates) != (e.kind == JobKind::ProofSymrows) {
@@ -412,7 +424,7 @@ fn may_accept(e: &Evidence, accept: Accept) -> Result<(), String> {
     }
     if matches!(
         e.kind,
-        JobKind::NodeBasis | JobKind::PoleRegularAt | JobKind::RegularBasis
+        JobKind::NodeBasis | JobKind::PoleRegularAt | JobKind::RegularBasis | JobKind::TadicReplay
     ) {
         return if c == 0 {
             Ok(())

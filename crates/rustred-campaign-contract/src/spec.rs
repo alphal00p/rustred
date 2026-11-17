@@ -65,6 +65,12 @@ pub enum JobKind {
     /// supervisor-side wrapper checks the export object against the pinned statement and seals `out/results.jsonl`.
     /// Accept mode `diagnostic_records` (rows 37-39): never rule or relation evidence, never a verdict.
     RegularBasis,
+    /// helper VH 2's frozen t-adic replay driver `tadic_job.py run JOB RESULT` (lane tadicjob; interfaces/tadic-job.md):
+    /// truncated Laurent series at d0 mod primes for keys or weighted groups (package or node level), as a LEGACY
+    /// DIAGNOSTIC child; the supervisor-side wrapper binds the result to the pinned job, re-derives every answer, maps
+    /// the driver's exits and seals one line per request. Accept mode `diagnostic_records` (rows 50-52): never rule or
+    /// relation evidence.
+    TadicReplay,
 }
 
 /// Compliance level (1.1).
@@ -80,7 +86,7 @@ pub enum Level {
 }
 
 impl JobKind {
-    pub const ALL: [JobKind; 20] = [
+    pub const ALL: [JobKind; 21] = [
         JobKind::Generate,
         JobKind::GenerateAuto,
         JobKind::Descent,
@@ -101,6 +107,7 @@ impl JobKind {
         JobKind::PoleRegularAt,
         JobKind::ProofSymrows,
         JobKind::RegularBasis,
+        JobKind::TadicReplay,
     ];
 
     pub const fn level(self) -> Level {
@@ -114,6 +121,7 @@ impl JobKind {
             | JobKind::PoleRegularAt
             | JobKind::ProofSymrows
             | JobKind::RegularBasis => Level::Legacy,
+            | JobKind::TadicReplay => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -141,6 +149,7 @@ impl JobKind {
             JobKind::SymmetryComposite => "rr_rf_symflow",
             JobKind::PoleRegularAt => "rr_poles",
             JobKind::RegularBasis => "rr_regbasis",
+            JobKind::TadicReplay => "tadic_job",
         }
     }
 
@@ -177,6 +186,7 @@ impl JobKind {
             | JobKind::PoleRegularAt
             | JobKind::ProofSymrows
             | JobKind::RegularBasis => Some(&RESULT_OUTPUTS),
+            | JobKind::TadicReplay => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }
@@ -207,6 +217,8 @@ impl JobKind {
             JobKind::ProofSymrows => &[],
             // lane wireflow (g): the construction's bounds (rr_regbasis' own flags)
             JobKind::RegularBasis => &REGULAR_BASIS_ARGS,
+            // lane tadicjob: every parameter is in the pinned driver job file
+            JobKind::TadicReplay => &[],
         }
     }
 
@@ -253,6 +265,12 @@ impl JobKind {
                 required: &["request", "table", "keys", "symrows"],
                 optional: &["family"],
             }),
+            // lane tadicjob: the driver job file and the frozen driver; the terminal / master set, the dependence and
+            // known-depth tables and the node table are explicit inputs of the record (interfaces/tadic-job.md 2)
+            JobKind::TadicReplay => Some(InputRoles {
+                required: &["tadic_job", "driver"],
+                optional: &["terminals", "dependences", "depths", "table"],
+            }),
             // one rule record of one table at many keys; rows from the family (engine build) or a cert / ROWS file
             JobKind::ProofInstanceSpan => Some(InputRoles {
                 required: &["request", "table", "keys"],
@@ -274,6 +292,7 @@ impl JobKind {
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
                 | JobKind::RegularBasis
+                | JobKind::TadicReplay
         )
     }
 
@@ -289,6 +308,7 @@ impl JobKind {
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
                 | JobKind::RegularBasis
+                | JobKind::TadicReplay
         )
     }
 
@@ -1262,6 +1282,7 @@ impl JobSpec {
                 | JobKind::PoleRegularAt
                 | JobKind::ProofSymrows
                 | JobKind::RegularBasis
+                | JobKind::TadicReplay
         ) {
             return Ok(());
         }

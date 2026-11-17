@@ -34,6 +34,8 @@ pub mod coef_facts;
 // lane epsdepth (interfaces/epsdepth.md): REQUEST TO I-INT, one line
 pub mod epsdepth;
 pub mod modes;
+// lane tadicjob's request (REQUEST TO I-INT): rows of rho and their rank over F_p from t-adic replay results
+pub mod polerank;
 pub mod referee;
 // lane tadic (interfaces/tadic.md): REQUEST TO I-INT, one line
 pub mod tadic;

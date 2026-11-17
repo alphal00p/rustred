@@ -18,6 +18,8 @@ pub mod regbasis;
 pub mod solve_recipe;
 // lane symjob: kind symmetry-composite (rr_rf_symflow as a legacy child; import verification of its relations)
 pub mod symcomp;
+// lane tadicjob: kind tadic-replay (helper VH 2's frozen t-adic replay driver as a diagnostic legacy child)
+pub mod tadicjob;
 // lane symcert: kind proof-symrows (rr_proof --symrows: kernel certificates of multi-term symmetry relations)
 pub mod symrows;
 
