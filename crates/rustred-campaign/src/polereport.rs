@@ -389,6 +389,10 @@ pub struct PoleReportSpec {
     /// them and for both seeds); `release_every` = the engine's retained state released every n requests.
     #[serde(default)]
     pub vectors: bool,
+    /// Drop the engine's in-memory step cache (it only costs time and memory on a large single-request trace: T201 D0r2
+    /// recorded in 618 s without it, 1,245-1,984 s with it).
+    #[serde(default)]
+    pub no_step_cache: bool,
     #[serde(default)]
     pub release_every: Option<u32>,
     pub max_length: u64,
@@ -635,7 +639,7 @@ fn group_job(
             max_length: spec.max_length,
             threads: spec.threads,
             memory_gib: None,
-            no_step_cache: false,
+            no_step_cache: spec.no_step_cache,
         },
         crt: false,
         release_every: spec.release_every,
