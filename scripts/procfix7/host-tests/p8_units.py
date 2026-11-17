@@ -5,8 +5,12 @@ campaigns' rr-<other id>-*). P8 grades only this campaign's own units, by name: 
 job scope names, RUNBOOK A6) and the scope names the ledger recorded (job_containment notes). It FAILS when
   (a) a unit of this campaign seen during or after the run is not a scope the ledger recorded (a scope nothing accounts
       for), or
-  (b) a unit of this campaign is still loaded after the run (active, failed or inactive: list-units --all).
-Every other new unit is FOREIGN: listed (units.foreign.txt), never graded. Standard library only."""
+  (b) a unit of this campaign is still loaded after the run (active, failed or inactive: list-units --all), or
+  (c) [procfix7 round 9b] one of the step's OWN units (the supervisor's service hoststep-fake1-<stamp>.service, the
+      pre-flight's scope hoststep-scopecheck-<stamp>.scope; exact names recorded in OUT) is still loaded after the run
+      (both use --collect / end by themselves; a loaded one means processes are left in it).
+The own units are ACCOUNTED for by name (never foreign, never a unit of this campaign). Every other new unit is FOREIGN:
+listed (units.foreign.txt), never graded. Standard library only."""
 
 import json
 import re
@@ -33,7 +37,7 @@ def recorded_scopes(notes):
     return out
 
 
-def grade_p8(cid, before, after, seen, notes, own_unit_prefix="hoststep-fake1-", launched=()):
+def grade_p8(cid, before, after, seen, notes, own_unit_prefix="hoststep-fake1-", launched=(), own_units=()):
     """(ok, why, foreign): `before` / `after` the unit names of `systemctl --user list-units --all` before and after the
     run, `seen` the rr-<cid>-* names the watcher saw during the run, `notes` the ledger's note texts, `launched` the
     scope units the ledger's launch records name (`scope_unit`)."""
@@ -43,11 +47,16 @@ def grade_p8(cid, before, after, seen, notes, own_unit_prefix="hoststep-fake1-",
     recorded = recorded_scopes(notes) | {unit_name(u) for u in launched if u}
     unrecorded = sorted(ours - recorded)
     left = sorted(u for u in after if u.startswith(mine))
-    foreign = sorted(u for u in after - before if not u.startswith(mine) and not u.startswith(own_unit_prefix))
-    ok = bool(cid) and not unrecorded and not left
+    own = {u for u in own_units if u}
+    own_left = sorted(u for u in after if u in own)
+    foreign = sorted(u for u in after - before if not u.startswith(mine) and u not in own
+                     and not u.startswith(own_unit_prefix))
+    ok = bool(cid) and not unrecorded and not left and not own_left
     why = (f"units of this campaign (rr-{cid}-*): {len(ours)} seen, {len(recorded)} recorded scopes; "
            f"not recorded {unrecorded or 'none'}; still loaded after the run {left or 'none'}; "
-           f"{len(foreign)} foreign unit(s) of the shared uid listed in units.foreign.txt (not graded)")
+           f"{len(foreign)} foreign unit(s) of the shared uid listed in units.foreign.txt (not graded)"
+           + (f"; the step's own units {sorted(own)}: accounted, still loaded after the run {own_left or 'none'}"
+              if own else ""))
     if not cid:
         why = "no campaign id in run.log: nothing can be attributed; " + why
     return ok, why, foreign

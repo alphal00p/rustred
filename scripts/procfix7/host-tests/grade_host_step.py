@@ -12,7 +12,14 @@ process signal must carry the start time its identity check read and a marker of
 (attempt marker / campaign marker / stop hold), or for "pinned session" an attempt of that job that has started; a
 "stop hold" signal also needs an earlier SIGSTOP of ours to the same pid and start time; a cgroup kill must name a scope
 unit this campaign launched. A job label alone is no longer enough. The P5 criterion and the watcher's ABORT test use
-the same function."""
+the same function.
+
+procfix7 round 9b: (gate13b m13b-p5-slack) a group signal recorded AFTER its attempt's finished record is not accounted
+for (no tolerance; it never happened in 1,728 recorded group signals); (gate13b judgement) `unproven_end` notes are also
+reported as a NAMED CLASS, line "P5-unproven" (verdict INFO: it never changes the result), next to the strict P5: how many,
+whether each was cleared later (unverified_end_cleared of the same attempt), and whether they are the ONLY cause of a P5
+FAIL; (the supervisor as a service unit) P1 names the unit's end as systemd-run --wait reported it, P8 accounts for the
+step's OWN units (the supervisor's service, the pre-flight's scope) by their exact names."""
 
 import datetime
 import glob
@@ -51,10 +58,9 @@ def norm(r):
 
 ALLOWED_PROOFS = {"pinned group", "pinned session", "attempt marker", "campaign marker", "stop hold", "job scope",
                   "job cgroup"}
-# a delivery is recorded at the end of the supervisor's tick that made it or the next one, i.e. possibly AFTER the
-# attempt's `finished` record of the same tick (poll -> settle -> record deliveries): a grading tolerance, not product
-# behaviour
-FINISH_SLACK_S = 30
+# procfix7 round 9b (gate13b m13b-p5-slack): no tolerance after the attempt's finished record (the 30 s of round 9 were
+# never used: 0 of 1,728 group signals); each late record is named
+FINISH_SLACK_S = 0
 
 
 def slurp(path, mode="r"):
@@ -126,11 +132,17 @@ def signal_problems(raw, cid):
                 if later and seq > later[0]:
                     return False  # the job's next attempt was launched: this leader was reaped long before
                 if a.get("end") is not None and seq > a["end"]:
+                    if FINISH_SLACK_S <= 0:
+                        return False
                     te, ts = a.get("end_utc"), _t(utc)
                     return te is not None and ts is not None and (ts - te).total_seconds() <= FINISH_SLACK_S
                 return True
             if proof != "pinned group" or not any(fits(k, a) for k, a in att.items()):
-                why = "group signal: not the leader of a started attempt of that job"
+                late = [k for k, a in att.items() if k[0] == job and a.get("pid") == pid and a.get("end") is not None
+                        and seq > a["end"]]
+                why = ("group signal: recorded after its attempt's finished record (attempt "
+                       f"{late[0][0]}:a{late[0][1]})" if late else
+                       "group signal: not the leader of a started attempt of that job")
         elif target == "process":
             mine = marker.startswith(cid + ":")
             mjob = marker[len(cid) + 1:].rsplit(":a", 1)[0] if mine else None
@@ -165,6 +177,14 @@ def signal_problems(raw, cid):
         if why:
             bad.append(f"signal_sent seq {seq} pid {pid} proof {proof!r} target {target!r} job {job!r}: {why}")
     return bad
+
+
+def note_marker(text):
+    """The "marker" of a note body `<word> {json}` ("" when absent)."""
+    try:
+        return str(json.loads(text.split(" ", 1)[1]).get("marker", ""))
+    except (IndexError, ValueError, AttributeError):
+        return ""
 
 
 def abort_findings(cdir, cid):
@@ -207,9 +227,13 @@ def grade(out, cid, ex, ver, marked, scopes_after, mode, ledger, off, ws):
     res = []
 
     def put(k, ok, why):
-        res.append((k, "PASS" if ok is True else ("n.a." if ok is None else "FAIL"), why))
+        res.append((k, ok if ok == "INFO" else ("PASS" if ok is True else ("n.a." if ok is None else "FAIL")), why))
 
-    put("P1", ex == 0, f"exit {ex}")
+    sup = slurp(out + "/supervisor.unit").strip() if os.path.exists(out + "/supervisor.unit") else ""
+    end = " ".join(l.strip() for l in slurp(out + "/launcher.log").splitlines()
+                   if l.startswith(("Finished with result", "Main processes terminated"))) \
+        if os.path.exists(out + "/launcher.log") else ""
+    put("P1", ex == 0, f"exit {ex}" + (f" (service {sup}: {end or 'no end reported by systemd-run --wait'})" if sup else ""))
     jc = [n for n in notes if n.startswith("job_containment ")]
     if host:
         sc = sum('"containment":"scope:rr-' in n for n in jc)
@@ -234,6 +258,22 @@ def grade(out, cid, ex, ver, marked, scopes_after, mode, ledger, off, ws):
     badnotes = [n[:60] for n in notes if re.match(r"(scope_backstop_|final_sweep_vanished|final_sweep_unproven|end_unproven|unproven_end|unproven_at_exit|marked_survivor|descendants_alive|hidden_descendants|scope_unverified_limit)", n)]
     put("P5", not badsig and possibly == 0 and not badnotes,
         f"{len(sigs)} signal_sent ({len(badsig)} not accounted for by this campaign's records{': ' + '; '.join(badsig[:3]) if badsig else ''}), POSSIBLY SENT {possibly}, notes {badnotes or 'none'}")
+    # procfix7 round 9b (gate13b): the unproven_end notes as a NAMED CLASS (INFO: the strict P5 above is unchanged)
+    unproven, cleared_after = [], {}
+    for i, n in enumerate(notes):
+        if n.startswith("unproven_end "):
+            unproven.append((i, note_marker(n)))
+        elif n.startswith("unverified_end_cleared "):
+            cleared_after.setdefault(note_marker(n), []).append(i)
+    if unproven:
+        cleared = [m for i, m in unproven if any(j > i for j in cleared_after.get(m, []))]
+        others = [b for b in badnotes if not b.startswith("unproven_end")]
+        sole = not badsig and possibly == 0 and not others
+        put("P5-unproven", "INFO",
+            f"{len(unproven)} unproven_end note(s) ({', '.join(m for _, m in unproven)}): {len(cleared)} of {len(unproven)} "
+            f"cleared later (unverified_end_cleared of the same attempt); signals not accounted for {len(badsig)}, POSSIBLY "
+            f"SENT {possibly}, other P5 notes {others or 'none'}: "
+            + ("the strict P5 FAILs ONLY on these notes" if sole else "the strict P5 FAILs ALSO for other reasons"))
     with open(ledger, errors="replace") as f:
         f.seek(off)
         lines = f.read().splitlines()
@@ -267,8 +307,9 @@ def grade(out, cid, ex, ver, marked, scopes_after, mode, ledger, off, ws):
     put("P7", not ours_stopped, f"STOPPED processes of the user {len(stopped)} (of this campaign {ours_stopped or 'none'}; the uid is shared: others are listed in stopped.txt)")
     if host:
         rd = lambda n: slurp(out + "/" + n).split() if os.path.exists(out + "/" + n) else []
+        own = [x for x in (rd("supervisor.unit") + rd("preflight.unit")) if x]
         ok8, why8, foreign = p8_units.grade_p8(cid, rd("units.before"), rd("units.after"), rd("units.seen"), notes,
-                                               launched=launched)
+                                               launched=launched, own_units=own)
         with open(out + "/units.foreign.txt", "w") as f:
             f.write("".join(u + "\n" for u in foreign))
         put("P8", ok8, why8)

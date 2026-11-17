@@ -1,60 +1,97 @@
 #!/usr/bin/env bash
-# THE FIRST HOST STEP (fake children), RUNBOOK 1.7 as ONE script (lane procfix7 round 7; gate11 M11-2 and its command,
+# THE FIRST HOST STEP (fake children), RUNBOOK 1.7 as ONE script (lane procfix7 rounds 7-9b; gate11 M11-2 and its command,
 # WS/notes/implementer.gate11.md "(H)"). It writes RUNBOOK 1.7's site.json and spec.json AS SHIPPED, runs the campaign and
-# checks the pass criteria P1-P8 of RUNBOOK 1.7 (printed PASS / FAIL / n.a.; exit 0 only when every applicable one passes).
+# checks the pass criteria P1-P8 of RUNBOOK 1.7 (printed PASS / FAIL / n.a. / INFO; exit 0 only when none FAILs).
 #
-# Usage (from a clean shell; a zellij pane for --run):
+# Usage (from any clean shell: no pane or agent session has to stay open; round 9b):
 #   REL=<dir holding the RELEASE rr_campaign and rr_fake_child>  bash host_step_fake1.sh --dry-run
 #   REL=...  bash host_step_fake1.sh --run           THE HOST STEP (outside any namespace; the operator / coordinator)
 #   REL=...  bash host_step_fake1.sh --rehearse-ns   ONLY inside a private user+pid namespace (refused elsewhere)
+#   REL=...  OUT=<the step's OUT>  bash host_step_fake1.sh --grade   follow a started step by its unit's exact name, grade it
 # Any other argument list prints this text and exits 2 without starting anything.
 #
-# --run      OUT=/common/build-cache/vhirschi/p_integral_dev/host-steps/fake1-<UTC> (override: OUT=...); the campaign
-#            runs as `systemd-run --user --scope --quiet --unit=hoststep-fake1-<HHMMSS> -p MemoryMax=8G -p MemorySwapMax=0
-#            -- $REL/rr_campaign run --spec $OUT/spec.json --plain 2>>$OUT/run.log`.
+# THE SUPERVISOR IS A DETACHED SYSTEMD USER SERVICE (round 9b; WS/ops/LANE_RULES.md rule 5): exactly
+#   systemd-run --user --wait --collect --unit=hoststep-fake1-<HHMMSS> -p Type=exec -p KillMode=mixed
+#     -p TimeoutStopSec=infinity -p MemoryMax=8G -p MemorySwapMax=0 -p "UnsetEnvironment=RR_CAMPAIGN_JOB RR_CAMPAIGN_FAILPOINT"
+#     -p StandardError=append:OUT/run.log -p StandardOutput=append:OUT/supervisor.stdout --working-directory=OUT
+#     --setenv=PATH=<this shell's PATH> --setenv=HOME=<HOME> [--setenv=TMPDIR=<TMPDIR>] -- $REL/rr_campaign run
+#     --spec OUT/spec.json --plain
+#   The unit's main process IS the supervisor (its own session leader); its jobs start their own sessions and scopes as
+#   before. `systemd-run --wait` (a client in its own session, output OUT/launcher.log) only waits and reports systemd's
+#   exit status of the unit: the service runs on if this script, its terminal or its session ends; `--grade` then follows
+#   the same unit by name and grades (P1 then uses the client's report in launcher.log if the client lived on).
+# STOP: `rr_campaign control OUT/c stop` (a request; the watcher's ABORT files exactly this), or
+#   `systemctl --user stop hoststep-fake1-<HHMMSS>.service` (SIGTERM to the supervisor = the same graceful stop; systemd
+#   never escalates: TimeoutStopSec=infinity; KillMode=mixed: nothing but the supervisor is signalled by systemd).
+# --run      OUT=/common/build-cache/vhirschi/p_integral_dev/host-steps/fake1-<UTC> (override: OUT=...).
 # --rehearse-ns  the same files except: lock_dir / ledger_file are PRIVATE COPIES under OUT (an empty cpu.N for every
-#            WS/ops/locks/cpu.N; an empty ledger: a rehearsal never takes the host's CPU flocks nor writes the shared CPU
-#            ledger), the spec carries "containment":"marker_only" (no systemd scope inside a namespace) and there is no
-#            systemd-run. ITEMS / CASE_MS override the workload (default: the RUNBOOK's 240 items x 60-120 s, ~1 h).
-# --dry-run  prints the files and the command, checks the preconditions; starts, signals, stops and creates nothing.
-# PRE-FLIGHT (--run only; procfix7 round 9, gate13 G13-M1): `$REL/rr_campaign scope-check --unit hoststep-scopecheck-<HHMMSS>`
-#            (ONE transient scope around `true` with a job's properties; it signals nothing) must PASS, else nothing starts
-#            (exit 2; OUT/scope-check.txt): the evidence a job that ends before its first check is recorded from works
-#            with THIS host's systemd (the kernel's record of the cgroup at the exit, systemd-run's acknowledgment form).
+#            WS/ops/locks/cpu.N; an empty ledger), the spec carries "containment":"marker_only" (no systemd scope inside a
+#            namespace), and systemd-run / systemctl are the REHEARSAL FAKES beside this script (rehearsal-fake-systemd/:
+#            the same service form, emulated in the namespace; refused if the real ones would be used). ITEMS / CASE_MS
+#            override the workload (default: the RUNBOOK's 240 items x 60-120 s, ~1 h).
+# --dry-run  prints the files and the commands, checks the preconditions; starts, signals, stops and creates nothing.
+# PRE-FLIGHT (--run only; round 9): `$REL/rr_campaign scope-check --unit hoststep-scopecheck-<HHMMSS>` (ONE transient scope
+#            around `true`; it signals nothing) must PASS, else nothing starts (exit 2; OUT/scope-check.txt).
 #
-# WHAT IT STARTS: one rr_campaign supervisor (on the host inside the hoststep-fake1-* scope), which starts its fake jobs
-#   (each in its own rr-<campaign id>-* scope on the host). WHAT IT SIGNALS: nothing itself (the supervisor's guarded
-#   signals only). WHAT IT STOPS: nothing; on an ABORT condition (a signal_sent / scope_killed record naming something not
-#   of this campaign) it asks the campaign itself to stop (`rr_campaign control OUT/c stop`, a request file), never a kill.
+# WHAT IT STARTS: the pre-flight's scope, then one rr_campaign supervisor as the service above, which starts its fake jobs
+#   (each in its own rr-<campaign id>-* scope on the host). WHAT IT SIGNALS: nothing itself. WHAT IT STOPS: nothing; on an
+#   ABORT condition (a signal_sent / scope_killed record not accounted for by this campaign, a dead or silent watcher, a
+#   unit that cannot be observed for 5 min) it files `rr_campaign control OUT/c stop` (a request), never a kill.
 #   Read-only: WS/ops/locks (the supervisor takes flocks there on --run), the held files, the pause flags.
 set -u
 WS=/shared/vhirschi/t3code/vakint_dev/p_integral_dev
-usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
-# procfix7 round 8b (host step 1 ended without a verdict: this file was edited while a run was executing it and bash
-# read the edited text): EVERYTHING runs from main(), which bash parses in full before it starts; install a new version
-# only as a new file (a frozen copy in a dated directory), never by editing a file that may be running.
+usage() { sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'; }
+# procfix7 round 8b: EVERYTHING runs from main(), which bash parses in full before it starts; install a new version only
+# as a new file (a frozen copy in a dated directory), never by editing a file that may be running.
 # alive PID: the process exists and is not a zombie
 alive() { local st; st=$(sed -E 's/^.*\) (.).*$/\1/' "/proc/$1/stat" 2>/dev/null) || return 1; [ -n "$st" ] && [ "$st" != Z ]; }
+# procfix7 round 9b: the supervisor's service unit, by its EXACT name ($SVC): running / ended / lingering / unknown
+#   ended: unloaded (--collect) or inactive / failed; lingering: deactivating with no main process (processes are left
+#   in the unit's own cgroup: systemd signals none of them, TimeoutStopSec=infinity; P8 then fails on it)
+sup_state() {
+  local s
+  s=$(systemctl --user show --property=LoadState,ActiveState,MainPID -- "$SVC" 2>/dev/null) || { echo unknown; return; }
+  case "$s" in
+    *LoadState=not-found*) echo ended ;;
+    *ActiveState=deactivating*MainPID=0*|*MainPID=0*ActiveState=deactivating*) echo lingering ;;
+    *ActiveState=active*|*ActiveState=activating*|*ActiveState=deactivating*|*ActiveState=reloading*) echo running ;;
+    *LoadState=loaded*) echo ended ;;
+    *) echo unknown ;;
+  esac
+}
+sup_prop() { systemctl --user show --property="$1" --value -- "$SVC" 2>/dev/null; }
 main() {
 [ $# -eq 1 ] || { usage; exit 2; }
 MODE=$1
-case "$MODE" in --dry-run|--run|--rehearse-ns) ;; *) usage; exit 2;; esac
+case "$MODE" in --dry-run|--run|--rehearse-ns|--grade) ;; *) usage; exit 2;; esac
 : "${REL:?set REL to the directory holding the release rr_campaign and rr_fake_child}"
 RC=$REL/rr_campaign
 FC=$REL/rr_fake_child
 HT=$(dirname "$(readlink -f "$0")")
-TS=$(date -u +%Y%m%dT%H%M%SZ)
-OUT=${OUT:-/common/build-cache/vhirschi/p_integral_dev/host-steps/fake1-$TS}
-ITEMS=${ITEMS:-240}
-CASE_MS=${CASE_MS:-[60000,120000]}
 say() { echo "host_step_fake1: $*"; }
 identity_map() { [ "$(tr -s ' ' < /proc/self/uid_map | sed 's/^ //')" = "0 0 4294967295" ]; }
-
-# ---------------------------------------------------------------- preconditions
 [ -x "$RC" ] && [ -x "$FC" ] || { say "missing $RC or $FC"; exit 2; }
 for g in p8_units.py grade_host_step.py; do
   [ -r "$HT/$g" ] || { say "missing $HT/$g (the grading, beside this script)"; exit 2; }
 done
+if [ "$MODE" = --grade ]; then
+  : "${OUT:?set OUT to the directory of the step to grade}"
+  [ -r "$OUT/supervisor.unit" ] && [ -r "$OUT/step.mode" ] || { say "$OUT holds no started step (supervisor.unit, step.mode)"; exit 2; }
+  SVC=$(cat "$OUT/supervisor.unit"); STEPMODE=$(cat "$OUT/step.mode")
+  LEDGER=$(cat "$OUT/step.ledger"); LEDGER_OFF=$(cat "$OUT/step.ledger_offset")
+  if [ "$STEPMODE" = --rehearse-ns ]; then
+    export PATH="$HT/rehearsal-fake-systemd:$PATH" FAKE_SYSTEMD_DIR="$OUT/fake-systemd"
+  fi
+  CLIENT=""
+  say "grading the started step in $OUT: following $SVC by its exact name"
+  follow_and_grade
+fi
+TS=$(date -u +%Y%m%dT%H%M%SZ)
+OUT=${OUT:-/common/build-cache/vhirschi/p_integral_dev/host-steps/fake1-$TS}
+ITEMS=${ITEMS:-240}
+CASE_MS=${CASE_MS:-[60000,120000]}
+
+# ---------------------------------------------------------------- preconditions
 NFP=$(grep -a -c RR_CAMPAIGN_FAILPOINT "$RC" || true)
 [ "$NFP" = 0 ] || { say "$RC names RR_CAMPAIGN_FAILPOINT $NFP time(s): not a release build"; exit 2; }
 say "release check: RR_CAMPAIGN_FAILPOINT in $RC: 0"
@@ -65,7 +102,15 @@ case "$MODE" in
   --rehearse-ns)
     if identity_map || [ "$(cat /proc/1/comm)" = systemd ]; then
       say "--rehearse-ns outside a private user+pid namespace: refused"; exit 2
-    fi ;;
+    fi
+    # inside a namespace the REAL systemd-run would reach the HOST's user manager (/run/user/<uid>): only the fakes
+    export PATH="$HT/rehearsal-fake-systemd:$PATH" FAKE_SYSTEMD_DIR="$OUT/fake-systemd" ;;
+esac
+FAKES=no
+systemd-run --version 2>/dev/null | grep -q 'REHEARSAL FAKE' && systemctl --version 2>/dev/null | grep -q 'REHEARSAL FAKE' && FAKES=yes
+case "$MODE:$FAKES" in
+  --rehearse-ns:no) say "the rehearsal fakes of systemd-run / systemctl are not the ones on PATH: refused"; exit 2 ;;
+  --run:yes|--dry-run:yes) say "the systemd-run / systemctl on PATH are the REHEARSAL FAKES: refused"; exit 2 ;;
 esac
 for f in "$WS/ops/PAUSE" "$WS/plan/auto-campaign/implementer_ops/PAUSE"; do
   if [ -e "$f" ]; then
@@ -103,18 +148,25 @@ SPEC=$(cat <<J
               "p_crash":0.0,"deps":0.3,"mem_cap_mb":48}}
 J
 )
-UNIT=hoststep-fake1-$(date -u +%H%M%S)
-if [ "$MODE" = --run ]; then
-  CMD=(systemd-run --user --scope --quiet "--unit=$UNIT" -p MemoryMax=8G -p MemorySwapMax=0 -- "$RC" run --spec "$OUT/spec.json" --plain)
-else
-  CMD=("$RC" run --spec "$OUT/spec.json" --plain)
-fi
-PFUNIT=hoststep-scopecheck-$(date -u +%H%M%S)
+HMS=$(date -u +%H%M%S)
+UNIT=hoststep-fake1-$HMS
+SVC=$UNIT.service
+PFUNIT=hoststep-scopecheck-$HMS
+SVC_CMD=(systemd-run --user --wait --collect "--unit=$UNIT" "--description=host step fake1 supervisor ($OUT)"
+         -p Type=exec -p KillMode=mixed -p TimeoutStopSec=infinity -p MemoryMax=8G -p MemorySwapMax=0
+         -p "UnsetEnvironment=RR_CAMPAIGN_JOB RR_CAMPAIGN_FAILPOINT"
+         -p "StandardError=append:$OUT/run.log" -p "StandardOutput=append:$OUT/supervisor.stdout"
+         "--working-directory=$OUT" "--setenv=PATH=$PATH" "--setenv=HOME=$HOME" ${TMPDIR:+"--setenv=TMPDIR=$TMPDIR"}
+         -- "$RC" run --spec "$OUT/spec.json" --plain)
 if [ "$MODE" = --dry-run ]; then
   say "DRY-RUN: nothing is started, signalled, stopped or created. OUT would be $OUT"
   echo "--- pre-flight (--run): $RC scope-check --unit $PFUNIT > $OUT/scope-check.txt  (must exit 0)"
   echo "--- $OUT/site.json"; echo "$SITE"; echo "--- $OUT/spec.json"; echo "$SPEC"
-  echo "--- command (--run):"; echo "systemd-run --user --scope --quiet --unit=$UNIT -p MemoryMax=8G -p MemorySwapMax=0 -- $RC run --spec $OUT/spec.json --plain 2>>$OUT/run.log"
+  echo "--- the supervisor's service (--run; the client in its own session, output >> $OUT/launcher.log):"
+  printf 'setsid'; printf ' %q' "${SVC_CMD[@]}"; echo
+  echo "--- follow:  systemctl --user status $SVC     (exact name; the unit is unloaded when it ends: --collect)"
+  echo "--- stop:    $RC control $OUT/c stop     or     systemctl --user stop $SVC"
+  echo "--- grade a step whose launcher ended:  REL=$REL OUT=$OUT bash $0 --grade"
   exit 0
 fi
 
@@ -129,8 +181,12 @@ if [ "$MODE" = --run ]; then
     say "pre-flight scope-check FAILED: nothing was started; read $OUT/scope-check.txt"
     exit 2
   fi
+  echo "$PFUNIT.scope" > "$OUT/preflight.unit"
 else
   say "pre-flight scope-check: n.a. inside a namespace (no systemd)"
+fi
+if [ "$(systemctl --user show --property=LoadState --value -- "$SVC" 2>/dev/null)" != not-found ]; then
+  say "$SVC is loaded already (or the user manager cannot be asked): nothing started"; exit 2
 fi
 if [ "$MODE" = --rehearse-ns ]; then
   mkdir -p "$LOCKS"
@@ -139,31 +195,44 @@ if [ "$MODE" = --rehearse-ns ]; then
 fi
 echo "$SITE" > "$OUT/site.json"; echo "$SPEC" > "$OUT/spec.json"
 LEDGER_OFF=$(stat -c %s "$LEDGER")
+echo "$MODE" > "$OUT/step.mode"; echo "$LEDGER" > "$OUT/step.ledger"; echo "$LEDGER_OFF" > "$OUT/step.ledger_offset"
+echo "$SVC" > "$OUT/supervisor.unit"
 [ "$MODE" = --run ] && systemctl --user list-units --all --no-legend --plain 2>/dev/null | awk '{print $1}' | sort > "$OUT/units.before"
 : > "$OUT/units.seen"
-say "OUT=$OUT mode=$MODE items=$ITEMS case_ms=$CASE_MS start $(date -u +%FT%TZ)"
-"${CMD[@]}" 2>>"$OUT/run.log" &
-SUP=$!
+say "OUT=$OUT mode=$MODE items=$ITEMS case_ms=$CASE_MS start $(date -u +%FT%TZ): the supervisor is the service $SVC"
+printf '%q ' setsid "${SVC_CMD[@]}" > "$OUT/supervisor.command"; echo >> "$OUT/supervisor.command"
+setsid "${SVC_CMD[@]}" >> "$OUT/launcher.log" 2>&1 < /dev/null &
+CLIENT=$!
+# the unit appears (Type=exec: once the supervisor was exec'd) or the client ends (the start failed)
+for _ in $(seq 600); do
+  st=$(sup_state)
+  [ "$st" = running ] && break
+  alive "$CLIENT" || break
+  sleep 0.2
+done
+{ echo "started $(date -u +%FT%TZ)"; systemctl --user show --property=Id,InvocationID,MainPID,ControlGroup,ExecMainStartTimestamp -- "$SVC" 2>&1; } > "$OUT/supervisor.unit.start"
+say "service $SVC: $(tr '\n' ' ' < "$OUT/supervisor.unit.start")"
+follow_and_grade
+}
+
+# follow the supervisor's unit by its exact name ($SVC), supervise the watcher, then P1-P8 (all modes but --dry-run)
+follow_and_grade() {
 # watcher (LISTS only): the campaign id, the peak number of its scopes, the names of its units (units.seen, for P8),
-# the ABORT condition
-# the heartbeat is written ATOMICALLY (a reader never sees a truncated, empty file: the frozen 20261117T1030Z version
-# read one and took it for 0, a false ABORT in its rehearsal)
+# the ABORT condition; the heartbeat is written ATOMICALLY (a reader never sees a truncated, empty file)
 beat() { date +%s > "$OUT/watcher.alive.tmp" && mv -f "$OUT/watcher.alive.tmp" "$OUT/watcher.alive"; }
 beat
 ( ID=""; peak=0
-  while alive "$SUP"; do
+  while ws=$(sup_state); [ "$ws" != ended ] && [ "$ws" != lingering ]; do
     beat
     bad=""
-    [ -z "$ID" ] && ID=$(sed -n 's/.*INFO campaign id \([^ ]*\) .*/\1/p' "$OUT/run.log" | head -1)
-    if [ -n "$ID" ] && [ "$MODE" = --run ]; then
+    [ -z "$ID" ] && ID=$(sed -n 's/.*INFO campaign id \([^ ]*\) .*/\1/p' "$OUT/run.log" 2>/dev/null | head -1)
+    if [ -n "$ID" ] && [ "$(cat "$OUT/step.mode")" = --run ]; then
       n=$(systemctl --user list-units --no-legend --plain "rr-$ID-*" 2>/dev/null | grep -c . || true)
       [ "$n" -gt "$peak" ] && { peak=$n; echo "$peak" > "$OUT/scopes.peak"; }
       systemctl --user list-units --all --no-legend --plain "rr-$ID-*" 2>/dev/null | awk '{print $1}' >> "$OUT/units.seen"
     fi
     if [ -n "$ID" ] && ls "$OUT"/c/ledger/segment-*.jsonl >/dev/null 2>&1; then
-      # procfix7 round 9 (gate13 m13-p5-lenient): the SAME check as P5 (grade_host_step.signal_problems): a signal is
-      # accounted for only by this campaign's own records (a group signal: that job's leader pid; a process signal:
-      # its start time and this campaign's marker of that job; a scope kill: a scope unit this campaign launched)
+      # procfix7 round 9 (gate13 m13-p5-lenient): the SAME check as P5 (grade_host_step.signal_problems)
       bad=$(python3 -I -B "$HT/grade_host_step.py" --abort-check "$OUT/c" "$ID" 2>&1)
       if [ -n "$bad" ]; then
         echo "ABORT CONDITION $(date -u +%FT%TZ): $bad" | tee -a "$OUT/abort.txt"
@@ -174,29 +243,70 @@ beat
     sleep 10
   done ) &
 WATCH=$!
-# procfix7 round 8b: the watcher is supervised: dead, or silent for more than 120 s while the campaign runs = ABORT
-unknown=0
-while alive "$SUP"; do
+# the watcher is supervised: dead, or silent for more than 120 s while the supervisor runs = ABORT; a unit that cannot
+# be observed for 5 min (60 polls) = ABORT too (a stop request; the step then waits for the unit's end)
+unknown=0; unobs=0
+while :; do
+  st=$(sup_state)
+  case "$st" in
+    ended|lingering) break ;;
+    unknown) unobs=$((unobs + 1)) ;;
+    *) unobs=0 ;;
+  esac
   hb=$(cat "$OUT/watcher.alive" 2>/dev/null || true)
   silent=no
   case "$hb" in
     ''|*[!0-9]*) unknown=$((unknown + 1)); [ "$unknown" -gt 24 ] && silent=yes ;;
     *) unknown=0; [ $(( $(date +%s) - hb )) -gt 120 ] && silent=yes ;;
   esac
-  if ! alive "$WATCH" || [ "$silent" = yes ]; then
-    echo "ABORT CONDITION $(date -u +%FT%TZ): the watcher died or was silent for more than 120 s" | tee -a "$OUT/abort.txt"
-    "$RC" control "$OUT/c" stop --reason "host step ABORT condition: the watcher died" >/dev/null 2>&1 || true
+  why=""
+  { ! alive "$WATCH" || [ "$silent" = yes ]; } && why="the watcher died or was silent for more than 120 s"
+  [ "$unobs" -gt 60 ] && why="the supervisor's unit $SVC could not be observed for 5 min"
+  if [ -n "$why" ]; then
+    echo "ABORT CONDITION $(date -u +%FT%TZ): $why" | tee -a "$OUT/abort.txt"
+    "$RC" control "$OUT/c" stop --reason "host step ABORT condition: $why" >/dev/null 2>&1 || true
     break
   fi
   sleep 5
 done
-wait "$SUP"; EXIT=$?
+# after an ABORT: wait for the unit's end (or, if it cannot be observed, for the client's)
+while :; do
+  st=$(sup_state)
+  case "$st" in ended|lingering) break ;; esac
+  [ "$st" = unknown ] && [ -n "$CLIENT" ] && ! alive "$CLIENT" && break
+  sleep 5
+done
 wait "$WATCH" 2>/dev/null
+# EXIT: systemd's exit status of the unit: the systemd-run --wait client's return code (it propagates the service's),
+# or, for a lingering unit, its ExecMainCode / ExecMainStatus; --grade without the client: the client's report in
+# launcher.log if it lived on; else unknown (255)
+EXIT=255; HOW="unknown (no systemd report)"
+if [ "$st" = lingering ]; then
+  c=$(sup_prop ExecMainCode); s=$(sup_prop ExecMainStatus)
+  case "$c" in 1) EXIT=$s ;; 2|3) EXIT=$((128 + s)) ;; esac
+  HOW="the lingering unit's ExecMainCode $c ExecMainStatus $s"
+elif [ -n "$CLIENT" ]; then
+  for _ in $(seq 300); do alive "$CLIENT" || break; sleep 0.2; done
+  if ! alive "$CLIENT"; then
+    wait "$CLIENT"; rc=$?
+    # the client's code is systemd's report only if the client saw the end (its terse end lines are in launcher.log)
+    if grep -q '^Main processes terminated with: ' "$OUT/launcher.log" 2>/dev/null; then
+      EXIT=$rc; HOW="systemd-run --wait"
+    else
+      HOW="unknown: the systemd-run --wait client ended (rc $rc) without reporting the unit's end"
+    fi
+  fi
+else
+  l=$(grep -m1 '^Main processes terminated with: code=exited, status=' "$OUT/launcher.log" 2>/dev/null)
+  if [ -n "$l" ]; then EXIT=$(echo "$l" | sed -E 's/.*status=([0-9]+).*/\1/'); HOW="launcher.log (the client lived on)"; fi
+fi
 echo "exit $EXIT" | tee -a "$OUT/run.log"
+{ echo "ended $(date -u +%FT%TZ): state $st, exit $EXIT from $HOW"; systemctl --user show --property=LoadState,ActiveState,SubState,Result,MainPID -- "$SVC" 2>&1; } > "$OUT/supervisor.unit.end"
 ID=$(sed -n 's/.*INFO campaign id \([^ ]*\) .*/\1/p' "$OUT/run.log" | head -1)
-say "campaign id $ID, exit $EXIT, end $(date -u +%FT%TZ)"
+say "campaign id $ID, service $SVC ended ($st), exit $EXIT ($HOW), end $(date -u +%FT%TZ)"
 
 # ---------------------------------------------------------------- P1-P8
+STEPMODE=$(cat "$OUT/step.mode")
 "$RC" verify "$OUT/c" > "$OUT/verify.txt" 2>&1; VERIFY=$?
 # A12 (lists only)
 MARKED=0
@@ -204,14 +314,19 @@ for p in /proc/[0-9]*; do
   e=$(tr '\0' '\n' < "$p/environ" 2>/dev/null) || continue
   echo "$e" | grep -q "^RR_CAMPAIGN_JOB=$ID:" && { MARKED=$((MARKED + 1)); echo "MARKED ${p#/proc/} $(tr '\0' ' ' < "$p/cmdline" | cut -c1-120)" >> "$OUT/a12.txt"; }
 done
-if [ "$MODE" = --run ]; then
+if [ "$STEPMODE" = --run ]; then
+  # the step's own units end by themselves (--collect; the pre-flight's scope); give systemd a moment, never a signal
+  for _ in $(seq 60); do
+    [ "$(sup_prop LoadState)" = not-found ] && break
+    sleep 0.5
+  done
   SCOPES_AFTER=$(systemctl --user list-units --all --no-legend --plain "rr-$ID-*" 2>/dev/null | grep -c . || true)
   systemctl --user list-units --all --no-legend --plain 2>/dev/null | awk '{print $1}' | sort > "$OUT/units.after"
 else
   SCOPES_AFTER=0; : > "$OUT/units.before"; : > "$OUT/units.after"
 fi
 ps -o pid=,stat= -u "$(id -un)" | awk '$2 ~ /^T/ {print $1}' > "$OUT/stopped.txt"
-python3 -I -B "$HT/grade_host_step.py" "$OUT" "$ID" "$EXIT" "$VERIFY" "$MARKED" "$SCOPES_AFTER" "$MODE" "$LEDGER" "$LEDGER_OFF" "$WS"
+python3 -I -B "$HT/grade_host_step.py" "$OUT" "$ID" "$EXIT" "$VERIFY" "$MARKED" "$SCOPES_AFTER" "$STEPMODE" "$LEDGER" "$LEDGER_OFF" "$WS"
 P=$?
 say "criteria written to $OUT/pass.txt; result $([ $P = 0 ] && echo PASS || echo FAIL)"
 exit $P

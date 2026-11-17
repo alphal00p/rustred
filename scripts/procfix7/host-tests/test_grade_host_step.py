@@ -9,7 +9,9 @@ for 270 started: the 25 notes of that run say marker_only), P3 PASS, P4 PASS (th
 unproven_end notes; its 554 signals are all accounted for), P6 PASS, P7 PASS, P8 PASS; with the round-9 notes (the 25
 recorded as scope_acknowledged_ended from the kernel's record at the exit, the 39 failed scopes recorded and reset, no
 unproven_end) every criterion passes. Round 9 (gate13 m13-p5-lenient): a signal record that names a job of this
-campaign but not that job's leader fails P5 and the watcher's ABORT test."""
+campaign but not that job's leader fails P5 and the watcher's ABORT test. Round 9b: no tolerance after the attempt's
+finished record (gate13b m13b-p5-slack); the unproven_end notes as the named class "P5-unproven" (INFO, next to the
+strict P5); P1 names the supervisor's service unit and its end; P8 accounts for the step's own units."""
 
 import json
 import os
@@ -47,7 +49,8 @@ def out_dir(rewrite=None):
             os.chmod(os.path.join(base, x), stat.S_IRUSR | stat.S_IWUSR)
     if rewrite:
         seg = os.path.join(d, "c", "ledger", "segment-000001.jsonl")
-        lines = rewrite([json.loads(l) for l in open(seg)])
+        with open(seg) as f:
+            lines = rewrite([json.loads(l) for l in f])
         with open(seg, "w") as f:
             f.write("".join(json.dumps(r) + "\n" for r in lines))
     return d
@@ -97,15 +100,58 @@ def signals(recs):
 class Recorded(unittest.TestCase):
     def test_the_run_as_recorded(self):
         r, abort = graded()
-        want = {"P1": "PASS", "P2": "FAIL", "P3": "PASS", "P4": "PASS", "P5": "FAIL", "P6": "PASS", "P7": "PASS",
-                "P8": "PASS"}
+        want = {"P1": "PASS", "P2": "FAIL", "P3": "PASS", "P4": "PASS", "P5": "FAIL", "P5-unproven": "INFO",
+                "P6": "PASS", "P7": "PASS", "P8": "PASS"}
         self.assertEqual({k: v for k, (v, _) in r.items()}, want, r)
+        self.assertIn("3 unproven_end note(s)", r["P5-unproven"][1])
+        self.assertIn("3 of 3 cleared later", r["P5-unproven"][1])
+        self.assertIn("the strict P5 FAILs ONLY on these notes", r["P5-unproven"][1])
         self.assertIn("scope:rr- 245 + scope_acknowledged_ended 0 == started 270", r["P2"][1])
         self.assertIn("unproven_end", r["P5"][1])
         self.assertIn("554 signal_sent (0 not accounted for", r["P5"][1])
         self.assertIn("claims of this campaign 270, unreleased []", r["P6"][1])
         self.assertIn("270 seen, 270 recorded scopes", r["P8"][1])
         self.assertEqual(abort, [])
+
+    def test_an_unproven_end_never_cleared_is_named_and_the_strict_p5_still_fails(self):
+        def rw(recs):
+            out, dropped = [], False
+            for r in recs:
+                t = (r["event"].get("body") or {}).get("text", "")
+                if not dropped and t.startswith("unverified_end_cleared ") and "N0.i0210.L0-t0:a1" in t:
+                    dropped = True
+                    continue
+                out.append(r)
+            return out
+        r, _ = graded(rw)
+        self.assertEqual(r["P5"][0], "FAIL")
+        self.assertEqual(r["P5-unproven"][0], "INFO")
+        self.assertIn("2 of 3 cleared later", r["P5-unproven"][1])
+
+    def test_p1_names_the_supervisor_service_and_p8_accounts_for_the_steps_own_units(self):
+        sup, pre = "hoststep-fake1-120000.service", "hoststep-scopecheck-120000.scope"
+
+        def put(d, name, text):
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+
+        def extra(d, after):
+            put(d, "supervisor.unit", sup + "\n")
+            put(d, "preflight.unit", pre + "\n")
+            put(d, "launcher.log", f"Running as unit: {sup}; invocation ID: 0123456789abcdef0123456789abcdef\n"
+                "Finished with result: success\nMain processes terminated with: code=exited, status=0/SUCCESS\n")
+            put(d, "units.after", "".join(u + "\n" for u in after))
+        for after, want8 in (([], "PASS"), ([sup], "FAIL")):
+            d = out_dir(round9)
+            try:
+                extra(d, after)
+                r = run(d)
+            finally:
+                shutil.rmtree(d)
+            self.assertIn(f"service {sup}: Finished with result: success", r["P1"][1])
+            self.assertEqual(r["P8"][0], want8, r["P8"])
+            self.assertIn(f"the step's own units {sorted([pre, sup])}: accounted", r["P8"][1])
+            self.assertNotIn("1 foreign", r["P8"][1])
 
     def test_with_the_round_9_notes_every_criterion_passes(self):
         r, abort = graded(round9)
@@ -139,6 +185,21 @@ class P5Strict(unittest.TestCase):
             signals(recs)[5]["event"]["body"]["pid"] = 4194301
         r, abort = self.mutate(f)
         self.assertEqual(r["P5"][0], "FAIL", r["P5"])
+        self.assertEqual(len(abort), 1, abort)
+
+    def test_a_group_signal_recorded_after_its_attempts_finish_fails_with_no_tolerance(self):
+        def f(recs):
+            # the first attempt's SIGKILL moved just after its attempt's finished record (same second)
+            s = signals(recs)[1]
+            b = s["event"]["body"]
+            fin = next(r for r in recs if r["event"]["kind"] == "job" and r["event"]["body"]["job"] == b["job"]
+                       and r["event"]["body"]["ev"].get("ev") == "finished")
+            recs.remove(s)
+            s["seq"], s["utc"] = fin["seq"] + 0.5, fin["utc"]
+            recs.insert(recs.index(fin) + 1, s)
+        r, abort = self.mutate(f)
+        self.assertEqual(r["P5"][0], "FAIL", r["P5"])
+        self.assertIn("recorded after its attempt's finished record", r["P5"][1])
         self.assertEqual(len(abort), 1, abort)
 
     def test_a_group_signal_long_after_its_attempt_fails(self):

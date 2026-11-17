@@ -292,6 +292,20 @@ pub fn scope_acknowledgment(text: &str, unit: &str) -> Option<&'static str> {
     })
 }
 
+/// procfix7 round 9b (gate13b m13b-check-race): the invocation ID in systemd-run's acknowledgment of EXACTLY `<unit>.scope`
+/// (the form "Running as unit: <unit>.scope; invocation ID: <32 hex>"), if that form is present.
+pub fn acknowledged_invocation(text: &str, unit: &str) -> Option<String> {
+    let scope = format!("{unit}.scope");
+    text.lines().find_map(|l| {
+        let id = l
+            .trim_end_matches(['\r', ' '])
+            .strip_prefix("Running as unit: ")?
+            .strip_prefix(scope.as_str())?
+            .strip_prefix("; invocation ID: ")?;
+        (id.len() == 32 && id.bytes().all(|b| b.is_ascii_hexdigit())).then(|| id.to_string())
+    })
+}
+
 /// procfix7 round 9: the state of a scope unit as systemd reports it (`systemctl --user show`), read by its exact name.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ScopeUnitState {
@@ -301,6 +315,9 @@ pub struct ScopeUnitState {
     pub active: String,
     /// `success`, `oom-kill`, `resources`, `timeout`, ...
     pub result: String,
+    /// procfix7 round 9b (gate13b m13b-check-race): the unit's `InvocationID` (32 hex; empty when not loaded or not
+    /// reported): which INSTANCE of a unit of that name this is.
+    pub invocation: String,
 }
 
 impl ScopeUnitState {
@@ -327,7 +344,7 @@ pub fn scope_unit_state(unit: &str) -> Result<ScopeUnitState, String> {
     let args = [
         "--user",
         "show",
-        "--property=LoadState,ActiveState,Result",
+        "--property=LoadState,ActiveState,Result,InvocationID",
         "--",
         name.as_str(),
     ]
@@ -346,6 +363,7 @@ pub fn scope_unit_state(unit: &str) -> Result<ScopeUnitState, String> {
             load,
             active,
             result,
+            invocation: get("InvocationID").unwrap_or_default(),
         }),
         _ => Err(format!("systemctl show: unparsable answer {t:?}")),
     }
@@ -582,6 +600,14 @@ pub fn scope_evidence_check(unit: Option<&str>) -> ScopeCheck {
         ),
     };
     let first = read("at the exit");
+    // round 9b (m13b-check-race): systemd-run's stderr (closed with the scope's process) is read NOW: its acknowledgment
+    // carries the invocation ID of the unit instance THIS check created
+    let mut text = Vec::new();
+    if let Err(e) = std::io::Read::read_to_end(&mut rd, &mut text) {
+        c.lines.push(format!("stderr of systemd-run: {e}"));
+    }
+    let text = String::from_utf8_lossy(&text).into_owned();
+    let ours = acknowledged_invocation(&text, &unit);
     // systemd stops the empty scope and removes its cgroup; a scope that ended without failure is then unloaded
     let until = Instant::now() + Duration::from_secs(15);
     let mut st = scope_unit_state(&unit);
@@ -591,12 +617,23 @@ pub fn scope_evidence_check(unit: Option<&str>) -> ScopeCheck {
     }
     match &st {
         Ok(s) if s.loaded() && s.active == "failed" => {
-            c.lines.push(format!(
-                "the unit FAILED: {s:?} (recorded here); reset by its exact name"
-            ));
-            match scope_reset_failed(&unit) {
-                Ok(()) => {}
-                Err(e) => c.lines.push(format!("reset-failed: {e}")),
+            // round 9b (m13b-check-race): reset only the instance this check created (its invocation ID, as systemd-run
+            // reported it); a same-named unit of anyone else is listed, never reset
+            if ours
+                .as_deref()
+                .is_some_and(|i| !i.is_empty() && i == s.invocation)
+            {
+                c.lines.push(format!(
+                    "the unit FAILED: {s:?} (recorded here; the instance this check created); reset by its exact name"
+                ));
+                match scope_reset_failed(&unit) {
+                    Ok(()) => {}
+                    Err(e) => c.lines.push(format!("reset-failed: {e}")),
+                }
+            } else {
+                c.lines.push(format!(
+                    "a FAILED unit of this name whose invocation ID is not the one systemd-run reported to this check ({ours:?}): {s:?}; NOT reset"
+                ));
             }
         }
         Ok(s) if s.loaded() => c
@@ -612,11 +649,6 @@ pub fn scope_evidence_check(unit: Option<&str>) -> ScopeCheck {
     c.lines.push(format!(
         "exit of the scope's process {pid}: {exit:?}; reaped: {reaped:?}"
     ));
-    let mut text = Vec::new();
-    if let Err(e) = std::io::Read::read_to_end(&mut rd, &mut text) {
-        c.lines.push(format!("stderr of systemd-run: {e}"));
-    }
-    let text = String::from_utf8_lossy(&text).into_owned();
     for l in text.lines() {
         c.lines.push(format!("systemd-run stderr: {l}"));
     }
@@ -2940,6 +2972,29 @@ mod tests {
             "LoadState=loaded\nActiveState=failed\nResult=oom-kill\n"
         );
         assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+    }
+
+    /// procfix7 round 9b (gate13b m13b-check-race): the invocation ID of OUR instance, from the exact unit's
+    /// acknowledgment only.
+    #[test]
+    fn the_acknowledged_invocation_id_is_read_for_the_exact_unit_only() {
+        let u = "hoststep-scopecheck-120000";
+        let id = "91945cc8c2f148c8a2c095a81cf70306";
+        assert_eq!(
+            acknowledged_invocation(
+                &format!("Running as unit: {u}.scope; invocation ID: {id}\n"),
+                u
+            ),
+            Some(id.to_string())
+        );
+        for t in [
+            format!("Running as unit: {u}x.scope; invocation ID: {id}\n"),
+            format!("Running as unit: {u}.scope\n"),
+            format!("Running scope as unit: {u}.scope\n"),
+            format!("Running as unit: {u}.scope; invocation ID: {}\n", &id[..31]),
+        ] {
+            assert_eq!(acknowledged_invocation(&t, u), None, "{t:?}");
+        }
     }
 
     /// procfix7 round 9: only one literal unit name of ours reaches systemctl (no glob, no option, no path).

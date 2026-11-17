@@ -672,7 +672,7 @@ const SCOPE_UNVERIFIED_LIMIT: u32 = 3;
 /// procfix7 round 9 (gate13 G13-M2): how long an ended attempt's scope may take to reach a final state (systemd reacts
 /// to the empty cgroup within milliseconds; the end-of-job proof took seconds before) before it is left for the exit.
 const SCOPE_SETTLE_WAIT: Duration = Duration::from_secs(1);
-/// procfix7 round 9: the bound of the exit's last look at the scopes of this session that were not settled.
+/// procfix7 round 9 / 9b: no exit-time read of a scope of this session STARTS later than this after the pass began.
 const SCOPE_EXIT_WAIT: Duration = Duration::from_secs(10);
 
 /// procfix7 round 9: the state of `unit`, read again (every 50 ms) while it is loaded and not final, up to `wait`.
@@ -3480,23 +3480,37 @@ impl Supervisor {
         true
     }
 
-    /// procfix7 round 9 (gate13 G13-M2): at the exit, the scopes of this session whose final state was not seen yet (ended
-    /// attempts kept by [`Self::scope_result_class`], and the attempts still listed as children) are read once more by
-    /// their exact names (bounded in all by [`SCOPE_EXIT_WAIT`]), recorded, and reset if failed. A scope still active is
-    /// left alone (its job may run on: the restart adopts it).
+    /// procfix7 round 9b (gate13b m13b-exit): the scope units of the attempts still listed as children at the exit are
+    /// kept for [`Self::settle_scopes_at_exit`] (the children are dropped before it runs).
+    fn note_exit_scopes(&mut self) {
+        let mut more = Vec::new();
+        for ch in &self.children {
+            if let Some(u) = ch.handle.requested_scope_unit() {
+                more.push((ch.job.clone(), ch.attempt, u.to_string()));
+            }
+        }
+        self.scope_unsettled.extend(more);
+    }
+
+    /// procfix7 round 9 (gate13 G13-M2), round 9b (m13b-exit): at the exit, AFTER the launcher's shutdown and the drop of
+    /// the live jobs, the scopes of this session whose final state was not seen yet (ended attempts kept by
+    /// [`Self::scope_result_class`], and the attempts that were still listed, [`Self::note_exit_scopes`]) are read once
+    /// more by their exact names, recorded, and reset if failed. A scope still active is left alone (its job may run on:
+    /// the restart adopts it). Bound: no read STARTS after [`SCOPE_EXIT_WAIT`]; each read is bounded by 10 s, so the pass
+    /// takes at most SCOPE_EXIT_WAIT + 10 s; units not read by then are named in the log and left as they are.
     fn settle_scopes_at_exit(&mut self) {
         if crate::launch::systemd_units_unavailable() {
             return;
         }
-        let mut todo = std::mem::take(&mut self.scope_unsettled);
-        for ch in &self.children {
-            if let Some(u) = ch.handle.requested_scope_unit() {
-                todo.push((ch.job.clone(), ch.attempt, u.to_string()));
-            }
-        }
+        let todo = std::mem::take(&mut self.scope_unsettled);
         let deadline = Instant::now() + SCOPE_EXIT_WAIT;
+        let mut not_read = Vec::new();
         for (job, attempt, unit) in todo {
             let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                not_read.push(format!("{job} a{attempt} {unit}.scope"));
+                continue;
+            }
             match read_scope_settled(&unit, left) {
                 Ok(st) => {
                     if !self.record_scope_state(&job, attempt, &unit, &st, "at exit") {
@@ -3511,6 +3525,17 @@ impl Supervisor {
                     &format!("{job} a{attempt}: the state of scope {unit}.scope could not be read at the exit ({e}): left as it is"),
                 ),
             }
+        }
+        if !not_read.is_empty() {
+            self.log.line(
+                "WARN",
+                &format!(
+                    "{} scope(s) not read at the exit within {} s (left as they are): {}",
+                    not_read.len(),
+                    SCOPE_EXIT_WAIT.as_secs(),
+                    not_read.join(", ")
+                ),
+            );
         }
     }
 
@@ -6899,8 +6924,10 @@ impl Supervisor {
     fn finish_run(&mut self, r: &RunExit) {
         // procfix7 (gate6 m3-a): an unused tmpfs fallback intent log of this session is removed (a used one stays).
         crate::launch::retire_own_intent_fallback();
-        // procfix7 round 9 (gate13 G13-M2): no failed scope of this session is left loaded when it can be helped
-        self.settle_scopes_at_exit();
+        // procfix7 round 9b (gate13b m13b-exit): the scopes of the attempts still listed are noted NOW (the list is
+        // cleared below) and read only after the launcher's shutdown and the drop of the live jobs (the last pinned-group
+        // SIGKILLs of a fast exit), so that a scope failing in those last steps is read and reset too
+        self.note_exit_scopes();
         for ev in self.launcher.shutdown(Duration::from_secs(10)) {
             if let crate::launch::RetireEvent::Cleared { label, .. } = ev {
                 self.log
@@ -6965,6 +6992,9 @@ impl Supervisor {
         if let Some(m) = self.not_signalled_summary() {
             self.log.line("ERROR", &m);
         }
+        // procfix7 round 9 (gate13 G13-M2), round 9b (m13b-exit): no failed scope of this session is left loaded when it
+        // can be helped; after every job of this session was dropped, while the ledger and the locks are still held
+        self.settle_scopes_at_exit();
         // gate3 M2: the last deliveries (shutdown, abandoned quarantine) are recorded while the lock is still held.
         self.record_deliveries();
         #[allow(clippy::let_underscore_must_use)]

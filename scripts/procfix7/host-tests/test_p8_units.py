@@ -82,5 +82,26 @@ class P8(unittest.TestCase):
         self.assertEqual(foreign, [o])
 
 
+class OwnUnits(unittest.TestCase):
+    """procfix7 round 9b: the step's own units (the supervisor's service, the pre-flight's scope) are accounted for by
+    their exact names: never foreign, never units of this campaign; one still loaded after the run fails P8."""
+
+    OWN = ["hoststep-fake1-081500.service", "hoststep-scopecheck-081500.scope"]
+
+    def test_the_own_units_are_accounted_not_foreign(self):
+        after = BEFORE + FOREIGN_NEW
+        ok, why, foreign = P.grade_p8(CID, BEFORE, after, [S1, S2], [note("a", S1), note("b", S2)], own_units=self.OWN)
+        self.assertTrue(ok, why)
+        self.assertIn("accounted, still loaded after the run none", why)
+        self.assertFalse(set(self.OWN) & set(foreign))
+
+    def test_an_own_unit_still_loaded_after_the_run_fails(self):
+        after = BEFORE + FOREIGN_NEW + [self.OWN[0]]
+        ok, why, foreign = P.grade_p8(CID, BEFORE, after, [S1, S2], [note("a", S1), note("b", S2)], own_units=self.OWN)
+        self.assertFalse(ok, why)
+        self.assertIn(f"still loaded after the run ['{self.OWN[0]}']", why)
+        self.assertNotIn(self.OWN[0], foreign)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
