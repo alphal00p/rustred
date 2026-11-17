@@ -851,25 +851,36 @@ impl ProcRoot {
     }
 
     /// procfix7 round 8b (item c'): is `pid` an ancestor of THIS process (the re-parent targets of its descendants)? The
-    /// chain is read once per process (pid and start time of each ancestor) and compared with the start time now.
+    /// chain is read once per process AND PER PROC ROOT (pid and start time of each ancestor; procfix7 round 9, gate13
+    /// m13-chain: one process-wide chain was filled by the first caller's root, so a fake root of a test decided the
+    /// answer for the real one) and compared with the start time now.
     fn is_own_ancestor(&self, pid: u32) -> bool {
-        static CHAIN: std::sync::OnceLock<Vec<(u32, u64)>> = std::sync::OnceLock::new();
-        let chain = CHAIN.get_or_init(|| {
-            let mut v = Vec::new();
-            let mut p = std::process::id();
-            for _ in 0..64 {
-                let Ok(st) = self.stat(p) else { break };
-                if st.ppid == 0 {
-                    break;
-                }
-                p = st.ppid;
-                match self.stat(p) {
-                    Ok(a) => v.push((p, a.start_ticks)),
-                    Err(_) => break,
-                }
-            }
-            v
-        });
+        type Chains = std::sync::Mutex<std::collections::BTreeMap<PathBuf, Vec<(u32, u64)>>>;
+        static CHAINS: std::sync::OnceLock<Chains> = std::sync::OnceLock::new();
+        let chain = {
+            let mut m = CHAINS
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            m.entry(self.dir.clone())
+                .or_insert_with(|| {
+                    let mut v = Vec::new();
+                    let mut p = std::process::id();
+                    for _ in 0..64 {
+                        let Ok(st) = self.stat(p) else { break };
+                        if st.ppid == 0 {
+                            break;
+                        }
+                        p = st.ppid;
+                        match self.stat(p) {
+                            Ok(a) => v.push((p, a.start_ticks)),
+                            Err(_) => break,
+                        }
+                    }
+                    v
+                })
+                .clone()
+        };
         chain
             .iter()
             .any(|&(a, start)| a == pid && self.stat(pid).is_ok_and(|st| st.start_ticks == start))
