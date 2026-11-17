@@ -55,13 +55,13 @@ fn g14_liveness_honest_fork_heavy_jobs() {
         },
     );
     let pipe = format!(
-        "for i in $(seq {loops}); do echo $i | cat | tr 0-9 a-j | wc -c > /dev/null; done; exit 0"
+        "for i in $(seq {loops}); do echo $i | cat | tr 0-9 a-j | wc -c > /dev/null; done; date +%s.%N > \"$G14_END\"; exit 0"
     );
     let orphan = format!(
-        "for i in $(seq {loops}); do ( sh -c 'sleep 0.0$((i % 9 + 1))' & ); echo $i | cat > /dev/null; done; sleep 0.2; exit 0"
+        "for i in $(seq {loops}); do ( sh -c 'sleep 0.0$((i % 9 + 1))' & ); echo $i | cat > /dev/null; done; sleep 0.2; date +%s.%N > \"$G14_END\"; exit 0"
     );
     let t0 = Instant::now();
-    let mut running: Vec<(RealChild, Instant)> = Vec::new();
+    let mut running: Vec<(RealChild, std::path::PathBuf)> = Vec::new();
     let mut launched = 0usize;
     let mut lat: Vec<f64> = Vec::new();
     let mut verified = 0usize;
@@ -77,19 +77,27 @@ fn g14_liveness_honest_fork_heavy_jobs() {
                 _ if launched % 2 == 0 => &pipe,
                 _ => &orphan,
             };
-            let h = l
-                .launch(&sh(dir.path(), &format!("j{launched}"), script))
-                .unwrap();
-            running.push((h, Instant::now()));
+            let end = dir.path().join(format!("j{launched}.end"));
+            let mut spec = sh(dir.path(), &format!("j{launched}"), script);
+            spec.env.push(("G14_END".into(), end.clone().into()));
+            let h = l.launch(&spec).unwrap();
+            running.push((h, end));
             launched += 1;
         }
         let mut i = 0;
         while i < running.len() {
             match running[i].0.poll() {
                 Ok(ChildProgress::Finished(r)) => {
-                    let (h, ts) = running.swap_remove(i);
-                    let total = ts.elapsed().as_secs_f64();
-                    lat.push((total - r.wall_seconds).max(0.0));
+                    let (h, end) = running.swap_remove(i);
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs_f64();
+                    let e: f64 = std::fs::read_to_string(&end)
+                        .ok()
+                        .and_then(|t| t.trim().parse().ok())
+                        .unwrap_or(f64::NAN);
+                    lat.push(now - e);
                     if r.verification.is_verified() {
                         verified += 1;
                     } else {
