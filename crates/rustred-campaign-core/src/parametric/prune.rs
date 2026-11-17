@@ -387,12 +387,11 @@ pub fn decided_positions(text: &str) -> (std::collections::BTreeSet<usize>, usiz
             break;
         }
         keep += line.len();
-        if let Ok(v) = serde_json::from_str::<Value>(line.trim_end()) {
-            if let (Some(p), Some(_)) = (v["position"].as_u64(), v["live"].as_str()) {
-                if let Ok(p) = usize::try_from(p) {
-                    done.insert(p);
-                }
-            }
+        if let Ok(v) = serde_json::from_str::<Value>(line.trim_end())
+            && let (Some(p), Some(_)) = (v["position"].as_u64(), v["live"].as_str())
+            && let Ok(p) = usize::try_from(p)
+        {
+            done.insert(p);
         }
     }
     (done, keep)
