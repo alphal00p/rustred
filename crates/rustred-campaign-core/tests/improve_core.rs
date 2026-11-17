@@ -93,6 +93,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
             min_monomials: None,
             by: RankBy::Monomials,
             exclude: vec![],
+            include: vec![],
         },
         ..ImprovePolicy::default()
     };
@@ -128,6 +129,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
         min_monomials: Some(3000),
         by: RankBy::Monomials,
         exclude: vec![],
+        include: vec![],
     };
     assert_eq!(
         targets(&rules, &rec, &p)
@@ -340,4 +342,27 @@ fn assembly_markers_with_a_rule_count_are_restated() {
     assert!(c.contains("\"rules\":7"), "{c}");
     let r = restate_marker(r#"{"type":"residual","rules":1}"#, 2956, &per);
     assert!(r.contains("\"rules\":1"), "residual records are not markers");
+}
+
+#[test]
+fn explicit_lists_and_equal_size_regeneration_for_exactness() {
+    use rustred_campaign_core::economy::genchoice::CostModel;
+    let mut a = rule(&line(0, "[null,1,0]", "I(n0,1,0)", "[]", 5000));
+    let mut b = rule(&line(1, "[1,1,0]", "I(1,1,0)", "[]", 10));
+    a.bytes = 9000;
+    b.bytes = 100;
+    let rules = vec![a.clone(), b.clone()];
+    let rec = ImproveRecord::empty("T", &"0".repeat(64), &rules);
+    let mut p = ImprovePolicy::default();
+    p.filter.largest = Some(1);
+    p.filter.include = vec![1, 0];
+    let t = targets(&rules, &rec, &p);
+    assert_eq!(t.iter().map(|x| x.0).collect::<Vec<_>>(), vec![1, 0], "the explicit list, in its order, largest ignored");
+    let c = CostModel::default();
+    // equal size: refused normally, accepted for exactness; larger: always refused
+    assert!(replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, false).is_err());
+    assert_eq!(replacement_verdict_eq(&b, &b.clone(), 0.9, RankBy::Bytes, &c, true), Ok(()));
+    let mut bigger = b.clone();
+    bigger.bytes = 101;
+    assert!(replacement_verdict_eq(&b, &bigger, 0.9, RankBy::Bytes, &c, true).is_err());
 }

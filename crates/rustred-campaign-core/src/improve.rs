@@ -351,6 +351,10 @@ pub struct RuleFilter {
     /// dropped at the final step instead of improved).
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub exclude: Vec<i64>,
+    /// An explicit target list (rule indices, tried in this order; `largest` / `min_monomials` then do not apply), e.g.
+    /// records to regenerate for exactness evidence.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub include: Vec<i64>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -386,6 +390,7 @@ impl Default for RuleFilter {
             min_monomials: None,
             by: RankBy::Monomials,
             exclude: vec![],
+            include: vec![],
         }
     }
 }
@@ -413,6 +418,9 @@ pub struct ImprovePolicy {
     pub subtree_max_cases: u64,
     /// Cost model of `filter.by: use_cost` (genchoice's; repairflow.md 2).
     pub cost: crate::economy::genchoice::CostModel,
+    /// Accept a structurally valid replacement of EQUAL size too (not larger): regeneration for exactness evidence
+    /// (a derivation + certificate), not for bytes; min_gain does not apply then.
+    pub accept_equal: bool,
     /// TRANCHE YIELD STOP (implementer 2026-11-16): the run stops starting candidates once its yield (bytes saved per
     /// CPU-h, by the qualifying candidates so far) falls below `min_fraction` x the reference yield (the record's first
     /// improve run that saved bytes, unless given); None = no yield stop.
@@ -523,6 +531,7 @@ impl Default for ImprovePolicy {
             subtree: true,
             subtree_max_cases: 64,
             cost: crate::economy::genchoice::CostModel::default(),
+            accept_equal: false,
             yield_stop: Some(YieldStop::default()),
             poles: None,
         }
@@ -539,15 +548,20 @@ pub fn targets(
     let mut idx: Vec<usize> = (0..rules.len()).collect();
     let size = |i: usize| size_of(&[&rules[i]], p.filter.by, &p.cost);
     idx.sort_by(|&a, &b| size(b).cmp(&size(a)).then(a.cmp(&b)));
+    if !p.filter.include.is_empty() {
+        let pos: BTreeMap<i64, usize> = rules.iter().enumerate().map(|(i, r)| (r.index, i)).collect();
+        idx = p.filter.include.iter().filter_map(|x| pos.get(x).copied()).collect();
+    }
+    let explicit = !p.filter.include.is_empty();
     let idx: Vec<usize> = idx
         .into_iter()
         .filter(|&i| !p.filter.exclude.contains(&rules[i].index))
-        .filter(|&i| {
+        .filter(|&i| explicit || {
             p.filter
                 .min_monomials
                 .is_none_or(|m| rules[i].monomials >= m)
         })
-        .take(p.filter.largest.unwrap_or(usize::MAX))
+        .take(if explicit { usize::MAX } else { p.filter.largest.unwrap_or(usize::MAX) })
         .collect();
     idx.into_iter()
         .filter_map(|i| {
@@ -687,6 +701,23 @@ pub fn replacement_verdict_by(
     by: RankBy,
     cost: &crate::economy::genchoice::CostModel,
 ) -> Result<(), String> {
+    replacement_verdict_eq(old, new, min_gain, by, cost, false)
+}
+
+/// [`replacement_verdict_by`] with `accept_equal` (equal size accepted, never larger; min_gain ignored then).
+pub fn replacement_verdict_eq(
+    old: &TableRule,
+    new: &TableRule,
+    min_gain: f64,
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+    accept_equal: bool,
+) -> Result<(), String> {
+    if accept_equal {
+        structural_verdict(old, new)?;
+        let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
+        return if n > o { Err(format!("larger ({n} vs {o} {})", by_word(by))) } else { Ok(()) };
+    }
     if by == RankBy::Monomials {
         return replacement_verdict(old, new, min_gain);
     }
@@ -706,6 +737,29 @@ pub fn subtree_verdict_by(
     by: RankBy,
     cost: &crate::economy::genchoice::CostModel,
 ) -> Result<(), String> {
+    subtree_verdict_eq(old, new, min_gain, by, cost, false)
+}
+
+/// [`subtree_verdict_by`] with `accept_equal` (a complete sub-table of equal size accepted, never larger).
+pub fn subtree_verdict_eq(
+    old: &TableRule,
+    new: &[TableRule],
+    min_gain: f64,
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+    accept_equal: bool,
+) -> Result<(), String> {
+    if accept_equal {
+        let Some(first) = new.iter().find(|r| r.case == old.case) else {
+            return Err("no_rule_for_the_case".into());
+        };
+        if first.target != old.target {
+            return Err(format!("other_target ({} vs {})", first.target, old.target));
+        }
+        let nr: Vec<&TableRule> = new.iter().collect();
+        let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
+        return if n > o { Err(format!("larger (sub-table {n} vs {o} {})", by_word(by))) } else { Ok(()) };
+    }
     if by == RankBy::Monomials {
         return subtree_verdict(old, new, min_gain);
     }
