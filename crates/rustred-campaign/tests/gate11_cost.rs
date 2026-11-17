@@ -121,10 +121,10 @@ fn g11_cost_of_the_completeness_proof_at_scale() {
         while let Some(p) = stack.pop() {
             if let Ok(s) = std::fs::read_to_string(format!("/proc/{p}/task/{p}/children")) {
                 for w in s.split_whitespace() {
-                    if let Ok(c) = w.parse::<u32>() {
-                        if seen.insert(c) {
-                            stack.push(c);
-                        }
+                    if let Ok(c) = w.parse::<u32>()
+                        && seen.insert(c)
+                    {
+                        stack.push(c);
                     }
                 }
             }
