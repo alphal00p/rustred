@@ -40,6 +40,19 @@ use super::error::PError;
 /// Entries of one thread's memo beyond which it is cleared.
 pub(crate) const MEMO_ENTRIES: usize = 1 << 20;
 
+/// vk5l-physrun: the memo capacity, `RUSTRED_P_STEP_MEMO_ENTRIES` (default
+/// [`MEMO_ENTRIES`]); a full memo keeps its entries and its steps compute
+/// directly (one stderr line when a thread's memo fills).
+pub(crate) fn memo_entries() -> usize {
+    static ENTRIES: OnceLock<usize> = OnceLock::new();
+    *ENTRIES.get_or_init(|| {
+        std::env::var("RUSTRED_P_STEP_MEMO_ENTRIES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(MEMO_ENTRIES)
+    })
+}
+
 /// What `RUSTRED_P_STEP_MEMO` asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoMode {
@@ -154,6 +167,7 @@ struct State {
     insertion: Memo<InsertionWeights>,
     route: Memo<RouteExpansion>,
     coefficients: Coefficients,
+    full_reported: bool,
 }
 
 impl State {
@@ -170,7 +184,18 @@ impl State {
             self.coefficients = Coefficients::default();
             self.limits = Some(limits);
         }
-        self.insertion.entries.len() + self.route.entries.len() < MEMO_ENTRIES
+        let room = self.insertion.entries.len() + self.route.entries.len() < memo_entries();
+        if !room && !self.full_reported {
+            self.full_reported = true;
+            eprintln!(
+                "rustred step memo: full at {} entries (insertion {}, route {}, coefficients {})",
+                memo_entries(),
+                self.insertion.entries.len(),
+                self.route.entries.len(),
+                self.coefficients.values.len()
+            );
+        }
+        room
     }
 }
 
@@ -717,7 +742,7 @@ impl SharedMemo {
         map: impl Fn(&mut Shard) -> &mut HashMap<Box<[i64]>, std::sync::Arc<V>>,
         value: &std::sync::Arc<V>,
     ) {
-        if !self.admits(limits) || self.entries.load(Ordering::Relaxed) >= MEMO_ENTRIES as u64 {
+        if !self.admits(limits) || self.entries.load(Ordering::Relaxed) >= memo_entries() as u64 {
             return;
         }
         let mut shard = self.shard(key).write().unwrap_or_else(|e| e.into_inner());

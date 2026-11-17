@@ -539,6 +539,34 @@ impl ChildKeys<'_> {
             .collect()
     }
 
+    /// vk5l-physrun: [`Self::emit`] from the weights of
+    /// [`Self::weights_prepared`] (zero weights are `None`, signs applied):
+    /// the same children in the same order.
+    pub(crate) fn emit_owned(
+        &self,
+        table: &NumeratorTable,
+        weights: Vec<Option<Coefficient>>,
+        output: &mut PStepOut,
+    ) {
+        for (monomial, weight) in table.monomials.iter().zip(weights) {
+            let Some(weight) = weight else { continue };
+            let mut powers = super::step_memo::take_powers();
+            powers.extend(
+                self.base
+                    .iter()
+                    .zip(&monomial.exponents)
+                    .map(|(power, &exponent)| power - i64::from(exponent)),
+            );
+            output.children.push(PChild {
+                stage: PStage::Route,
+                presentation: self.child.id,
+                powers,
+                tag: self.tag.clone(),
+                coefficient: weight,
+            });
+        }
+    }
+
     /// fwd-opt light step: the children of [`Self::emit_weights`] as (powers,
     /// light handle of the memo index) pairs, same order.
     pub(crate) fn light_children(
