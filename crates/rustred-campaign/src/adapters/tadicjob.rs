@@ -55,11 +55,31 @@ pub enum TadicInput {
     },
 }
 
-/// One request = ONE weighted sum of inputs (a single key has one input of weight 1).
+/// One request = ONE weighted sum of inputs (a single key has one input of weight 1); with `weight_vectors` (job v2,
+/// frozen 083d2f6c) m weighted sums of the same inputs from ONE recording, result entries `<label>#<j>`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TadicRequest {
     pub label: String,
     pub inputs: Vec<TadicInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weight_vectors: Option<WeightVectors>,
+}
+
+/// Job v2 weight vectors of a request: explicit (one weight per input, integers, |w| < 2^62) or drawn by the driver.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WeightVectors {
+    Explicit { vectors: Vec<Vec<i64>> },
+    Drawn { count: u32, seed: u64 },
+}
+
+impl WeightVectors {
+    pub fn count(&self) -> usize {
+        match self {
+            WeightVectors::Explicit { vectors } => vectors.len(),
+            WeightVectors::Drawn { count, .. } => *count as usize,
+        }
+    }
 }
 
 /// The level of a job.
@@ -133,6 +153,12 @@ pub struct TadicJobRequest {
     pub seeds: Vec<u64>,
     pub limits: TadicLimits,
     pub crt: bool,
+    /// Job v2: release the engine's retained state every n requests (`limits.release_every`).
+    #[serde(default)]
+    pub release_every: Option<u32>,
+    /// Job v2: one recording per seed (the old behaviour); default one recording for all seeds.
+    #[serde(default)]
+    pub record_per_seed: bool,
     /// The terminal / master set (explicit input of the record, TRICKS 34).
     pub terminals: Option<DataFile>,
     /// The dependence table (bound by sha256 in the driver job too; NOT applied by the driver).
@@ -224,12 +250,24 @@ impl TadicAdapter {
         let requests: Vec<Value> = req
             .requests
             .iter()
-            .map(|r| json!({"label": r.label, "inputs": r.inputs.iter().map(|i| match i {
-                TadicInput::Package { top, powers, weight } => json!({"top": top, "powers": powers, "weight": weight}),
-                TadicInput::Node { key, weight } => json!({"key": key, "weight": weight}),
-            }).collect::<Vec<_>>()}))
+            .map(|r| {
+                let mut v = json!({"label": r.label, "inputs": r.inputs.iter().map(|i| match i {
+                    TadicInput::Package { top, powers, weight } => json!({"top": top, "powers": powers, "weight": weight}),
+                    TadicInput::Node { key, weight } => json!({"key": key, "weight": weight}),
+                }).collect::<Vec<_>>()});
+                if let Some(w) = &r.weight_vectors {
+                    v["weight_vectors"] = serde_json::to_value(w).expect("weight vectors");
+                }
+                v
+            })
             .collect();
-        let mut job = json!({"schema": tadicjob::JOB_SCHEMA, "job_id": job_id,
+        let v2 = req.release_every.is_some()
+            || req.record_per_seed
+            || req.requests.iter().any(|r| r.weight_vectors.is_some());
+        if let Some(n) = req.release_every {
+            limits["release_every"] = json!(n);
+        }
+        let mut job = json!({"schema": if v2 { tadicjob::JOB_SCHEMA_V2 } else { tadicjob::JOB_SCHEMA }, "job_id": job_id,
             "requests": requests, "expansion": {"d0": req.d0, "order": req.order},
             "primes": {"count": req.primes, "max_primes": req.max_primes, "seeds": req.seeds},
             "limits": limits, "crt": req.crt,
@@ -266,6 +304,9 @@ impl TadicAdapter {
                 job["inputs_sha256"] = json!({table.display().to_string(): table_sha256});
             }
         }
+        if req.record_per_seed {
+            job["primes"]["record_per_seed"] = json!(true);
+        }
         if let Some(d) = &req.dependences {
             job["dependence_table"] =
                 json!({"path": d.path.display().to_string(), "sha256": d.sha256});
@@ -296,6 +337,7 @@ impl TadicAdapter {
         let id = json!({"kind": "tadic-replay", "binary": bin_sha, "driver": self.driver.sha256, "level": level,
             "requests": req.requests, "d0": req.d0, "order": req.order, "primes": req.primes,
             "max_primes": req.max_primes, "seeds": req.seeds, "max_length": req.limits.max_length, "crt": req.crt,
+            "record_per_seed": req.record_per_seed, "release_every": req.release_every,
             "terminals": req.terminals.as_ref().map(|d| &d.sha256),
             "dependences": req.dependences.as_ref().map(|d| &d.sha256),
             "depths": req.depths.as_ref().map(|d| &d.sha256)});
@@ -558,6 +600,30 @@ impl JobAdapter for TadicAdapter {
                         "request {}: no input",
                         q.label
                     )));
+                }
+                if q.label.contains('#') {
+                    return Err(AdapterError::Request(format!(
+                        "label {} (# names a weight vector)",
+                        q.label
+                    )));
+                }
+                if let Some(w) = &q.weight_vectors {
+                    let ok = match w {
+                        WeightVectors::Explicit { vectors } => {
+                            !vectors.is_empty()
+                                && vectors.iter().all(|v| {
+                                    v.len() == q.inputs.len()
+                                        && v.iter().all(|x| x.unsigned_abs() < 1u64 << 62)
+                                })
+                        }
+                        WeightVectors::Drawn { count, .. } => *count >= 1,
+                    };
+                    if !ok {
+                        return Err(AdapterError::Request(format!(
+                            "request {}: weight vectors",
+                            q.label
+                        )));
+                    }
                 }
                 for i in &q.inputs {
                     let w = match i {

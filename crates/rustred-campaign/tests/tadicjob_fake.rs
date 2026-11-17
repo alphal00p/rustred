@@ -8,7 +8,7 @@ use rustred_campaign::adapters::default_emulation_script;
 use rustred_campaign::adapters::job::{Invocation, JobAdapter, Program, RunOptions, run_attempt};
 use rustred_campaign::adapters::tadicjob::{
     DataFile, ResultStore, TadicAdapter, TadicInput, TadicJobRequest, TadicLevel, TadicLimits,
-    TadicRequest,
+    TadicRequest, WeightVectors,
 };
 use rustred_campaign::launch::RealLauncher;
 use rustred_campaign::resources::{Sampler, SamplerConfig};
@@ -85,14 +85,17 @@ fn request(dir: &Path, seeds: &[u64]) -> TadicJobRequest {
             TadicRequest {
                 label: "k0".into(),
                 inputs: vec![k([2, 1, -1], 1)],
+                weight_vectors: None,
             },
             TadicRequest {
                 label: "k1".into(),
                 inputs: vec![k([1, 2, 0], 1)],
+                weight_vectors: None,
             },
             TadicRequest {
                 label: "g".into(),
                 inputs: vec![k([2, 1, -1], 3), k([1, 2, 0], -5)],
+                weight_vectors: None,
             },
         ],
         d0: 4,
@@ -108,6 +111,8 @@ fn request(dir: &Path, seeds: &[u64]) -> TadicJobRequest {
             no_step_cache: false,
         },
         crt: false,
+        release_every: None,
+        record_per_seed: false,
         terminals: Some(DataFile::from_file(&lib).unwrap()),
         dependences: None,
         depths: None,
@@ -263,6 +268,60 @@ fn the_store_resumes_a_verified_job_and_refuses_a_changed_one() {
     bytes.push(b' ');
     std::fs::write(&p, bytes).unwrap();
     assert!(store.get(&ad, &rq).is_err());
+}
+
+#[test]
+fn job_v2_weight_vectors_give_one_entry_per_vector_equal_to_plain_requests() {
+    let dir = tmp("v2");
+    let ad = adapter(&dir, &[]);
+    let mut rq = request(&dir, &[1, 2]);
+    // the request g with 2 explicit vectors: (3, -5) = g itself and (1, 0) = k0
+    rq.requests[2].weight_vectors = Some(WeightVectors::Explicit {
+        vectors: vec![vec![3, -5], vec![1, 0]],
+    });
+    rq.release_every = Some(1);
+    let plans = ad.plan(std::slice::from_ref(&rq)).unwrap();
+    let opts = RunOptions {
+        cpus: vec![],
+        memory_cap_bytes: Some(2 << 30),
+        licence_env: None,
+        wall_cap: Some(Duration::from_secs(60)),
+        grace: Some(Duration::from_secs(5)),
+    };
+    let mut l = RealLauncher::new(sampler());
+    let (b, _) = run_attempt(
+        &mut l,
+        &ad,
+        std::slice::from_ref(&rq),
+        &plans[0],
+        &dir.join("work"),
+        1,
+        &opts,
+    )
+    .unwrap();
+    assert_eq!(b.classification.row, 50, "{:?}", b.unread);
+    let r = b.result.as_ref().unwrap();
+    let labels: Vec<&str> = r.requests.iter().map(|q| q.label.as_str()).collect();
+    assert_eq!(labels, vec!["k0", "k1", "g#0", "g#1"]);
+    for &p in &r.primes {
+        assert_eq!(
+            series_at_minus1(&r.requests[3].outcome, "M:fa", p),
+            series_at_minus1(&r.requests[0].outcome, "M:fa", p),
+            "vector (1, 0) = k0"
+        );
+        let a0 = series_at_minus1(&r.requests[0].outcome, "M:fa", p) as i128;
+        let a1 = series_at_minus1(&r.requests[1].outcome, "M:fa", p) as i128;
+        assert_eq!(
+            (3 * a0 - 5 * a1).rem_euclid(p as i128),
+            series_at_minus1(&r.requests[2].outcome, "M:fa", p) as i128
+        );
+    }
+    // malformed vectors are refused at plan time
+    let mut bad = request(&dir, &[1, 2]);
+    bad.requests[2].weight_vectors = Some(WeightVectors::Explicit {
+        vectors: vec![vec![1]],
+    });
+    assert!(ad.plan(std::slice::from_ref(&bad)).is_err());
 }
 
 #[test]

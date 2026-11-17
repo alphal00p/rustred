@@ -20,6 +20,11 @@ use std::collections::{BTreeMap, BTreeSet};
 pub const JOB_SCHEMA: &str = "helper-vh2.tadic-job.v1";
 /// The driver's result schema.
 pub const RESULT_SCHEMA: &str = "helper-vh2.tadic-result.v1";
+/// Job / result schemas v2 (frozen 083d2f6c, TADIC_DESIGN 13.11): `requests[].weight_vectors` (m combinations of the
+/// request's inputs from ONE recording; result entries `<label>#<j>`, j = 0..m-1), `primes.record_per_seed`,
+/// `limits.release_every`; one recording for all seeds (certificate block with `variants` per seed and vector).
+pub const JOB_SCHEMA_V2: &str = "helper-vh2.tadic-job.v2";
+pub const RESULT_SCHEMA_V2: &str = "helper-vh2.tadic-result.v2";
 /// The pinned job file in `in/` (role `tadic_job`).
 pub const JOB_INPUT: &str = "tadic_job.json";
 /// The driver's result file in `out/`.
@@ -210,17 +215,25 @@ fn dec_u64(v: &Value, what: &str) -> Result<u64, String> {
 
 /// The job's request labels in order (the job file the adapter wrote).
 pub fn job_labels(job: &Value) -> Result<Vec<String>, String> {
-    job["requests"]
-        .as_array()
-        .ok_or("job: requests")?
-        .iter()
-        .map(|r| {
-            r["label"]
-                .as_str()
-                .map(str::to_string)
-                .ok_or("job: label".to_string())
-        })
-        .collect()
+    let mut out = vec![];
+    for r in job["requests"].as_array().ok_or("job: requests")? {
+        let label = r["label"].as_str().ok_or("job: label")?;
+        // v2: m weight vectors -> m result entries `<label>#<j>`
+        let m = match &r["weight_vectors"] {
+            Value::Null => None,
+            w => Some(
+                w["count"]
+                    .as_u64()
+                    .or_else(|| w["vectors"].as_array().map(|a| a.len() as u64))
+                    .ok_or("job: weight_vectors without count / vectors")?,
+            ),
+        };
+        match m {
+            None => out.push(label.to_string()),
+            Some(m) => out.extend((0..m).map(|j| format!("{label}#{j}"))),
+        }
+    }
+    Ok(out)
 }
 
 fn parse_term(t: &Value, primes: &BTreeSet<u64>, order: i64) -> Result<Term, String> {
@@ -304,13 +317,13 @@ fn parse_term(t: &Value, primes: &BTreeSet<u64>, order: i64) -> Result<Term, Str
 /// C1: bind the driver's result to the job and the pins and check its structure. Every answer is RE-DERIVED from the
 /// per-prime series. `Err` = the result is not this job's or not readable (nothing is read: row 51).
 pub fn check_result(job: &Value, result: &Value, pins: &Pins) -> Result<CheckedResult, String> {
-    if result["schema"] != RESULT_SCHEMA {
+    if result["schema"] != RESULT_SCHEMA && result["schema"] != RESULT_SCHEMA_V2 {
         return Err(format!(
-            "schema {} is not {RESULT_SCHEMA}",
+            "schema {} is not {RESULT_SCHEMA} / {RESULT_SCHEMA_V2}",
             result["schema"]
         ));
     }
-    if job["schema"] != JOB_SCHEMA {
+    if job["schema"] != JOB_SCHEMA && job["schema"] != JOB_SCHEMA_V2 {
         return Err("job schema".into());
     }
     let job_id = s(job, "job_id")?.to_string();
@@ -797,12 +810,17 @@ pub mod certificate {
             let RequestOutcome::Series { terms, .. } = &q.outcome else {
                 continue;
             };
-            // C2
+            // C2 (v2: one block for all seeds when it lists a `variants` record for the seed)
             for seed in &seeds {
-                let block = q
-                    .certificates
-                    .iter()
-                    .find(|c| c["seed"].as_u64() == Some(*seed));
+                let block = q.certificates.iter().find(|c| {
+                    c["seed"].as_u64() == Some(*seed)
+                        || c["variants"].as_array().is_some_and(|v| {
+                            v.iter().any(|x| {
+                                x["seed"].as_u64() == Some(*seed)
+                                    || x["seed"].as_str() == Some(seed.to_string().as_str())
+                            })
+                        })
+                });
                 match block {
                     None => findings.push(Finding::MissingDigest {
                         label: q.label.clone(),

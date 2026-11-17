@@ -181,47 +181,91 @@ pub fn run(spec_path: &Path) -> ! {
             );
             continue;
         }
-        let mut terms_a = vec![];
-        let mut terms_b = vec![];
-        let mut certs = vec![];
-        for (si, &seed) in seeds.iter().enumerate() {
-            let pair = (seed % 3) as usize;
-            for &p in &PRIMES[2 * pair..2 * pair + 2] {
-                if !primes_all.contains(&p) {
-                    primes_all.push(p);
-                }
-                let n = (order + 1).max(0) as usize;
-                let (mut a, mut b) = (vec![0u64; n], vec![0u64; n]);
-                for i in r["inputs"].as_array().cloned().unwrap_or_default() {
-                    let w = i["weight"].as_i64().unwrap_or(1);
-                    let (ka, kb) = key_series(&key_ints(&i), order, p);
-                    for j in 0..n {
-                        a[j] = modp(a[j] as i128 + w as i128 * ka[j] as i128, p);
-                        b[j] = modp(b[j] as i128 + w as i128 * kb[j] as i128, p);
-                    }
-                }
-                let shift = if disagree.contains(&label) && si + 1 == seeds.len() {
-                    1
-                } else {
-                    0
+        // job v2: weight vectors -> one entry per vector `<label>#<j>` (drawn vectors: a deterministic test rule)
+        let n_in = r["inputs"].as_array().map_or(0, |a| a.len());
+        let variants: Vec<(String, Option<Vec<i64>>)> = match &r["weight_vectors"] {
+            Value::Null => vec![(label.clone(), None)],
+            w => {
+                let vs: Vec<Vec<i64>> = match w["vectors"].as_array() {
+                    Some(a) => a
+                        .iter()
+                        .map(|v| {
+                            v.as_array()
+                                .into_iter()
+                                .flatten()
+                                .filter_map(Value::as_i64)
+                                .collect()
+                        })
+                        .collect(),
+                    None => (0..w["count"].as_u64().unwrap_or(1) as i64)
+                        .map(|j| (0..n_in as i64).map(|i| (j + 1) * (i + 2)).collect())
+                        .collect(),
                 };
-                terms_a.push(per_prime(&a, p, seed, order, shift));
-                terms_b.push(per_prime(&b, p, seed, order, shift));
+                vs.into_iter()
+                    .enumerate()
+                    .map(|(j, v)| (format!("{label}#{j}"), Some(v)))
+                    .collect()
             }
-            certs.push(if level == "node" {
-                json!({"seed": seed, "graph_digest": "fake-graph", "plan_digest": "fake-plan", "plan": {"max_need": order + 1}})
-            } else {
-                json!({"seed": seed, "trace_digests": ["fake-trace"], "plan_digests": ["fake-plan"], "replays": 1})
-            });
-        }
-        let term = |basis: &str, pp: Vec<Value>| {
-            json!({"basis": basis, "tag": "", "kind": "master", "answer": "IGNORED", "valuation": null,
-                "per_prime": pp})
         };
-        requests.push(json!({"label": label, "inputs": r["inputs"], "status": "OK",
-            "terms": [term("M:fa", terms_a), term("M:fb", terms_b)], "pole": {}, "certificate": certs}));
+        for (vj, (lab, wv)) in variants.into_iter().enumerate() {
+            let mut terms_a = vec![];
+            let mut terms_b = vec![];
+            let mut certs = vec![];
+            for (si, &seed) in seeds.iter().enumerate() {
+                let pair = (seed % 3) as usize;
+                for &p in &PRIMES[2 * pair..2 * pair + 2] {
+                    if !primes_all.contains(&p) {
+                        primes_all.push(p);
+                    }
+                    let n = (order + 1).max(0) as usize;
+                    let (mut a, mut b) = (vec![0u64; n], vec![0u64; n]);
+                    for (ii, i) in r["inputs"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default()
+                        .into_iter()
+                        .enumerate()
+                    {
+                        let w = match &wv {
+                            Some(v) => v[ii],
+                            None => i["weight"].as_i64().unwrap_or(1),
+                        };
+                        let (ka, kb) = key_series(&key_ints(&i), order, p);
+                        for j in 0..n {
+                            a[j] = modp(a[j] as i128 + w as i128 * ka[j] as i128, p);
+                            b[j] = modp(b[j] as i128 + w as i128 * kb[j] as i128, p);
+                        }
+                    }
+                    let shift = if disagree.contains(&label) && si + 1 == seeds.len() {
+                        1
+                    } else {
+                        0
+                    };
+                    terms_a.push(per_prime(&a, p, seed, order, shift));
+                    terms_b.push(per_prime(&b, p, seed, order, shift));
+                }
+                certs.push(if level == "node" {
+                    json!({"seed": seed, "graph_digest": "fake-graph", "plan_digest": "fake-plan", "plan": {"max_need": order + 1}})
+                } else {
+                    json!({"seed": seed, "trace_digests": ["fake-trace"], "plan_digests": ["fake-plan"], "replays": 1})
+                });
+            }
+            let term = |basis: &str, pp: Vec<Value>| {
+                json!({"basis": basis, "tag": "", "kind": "master", "answer": "IGNORED", "valuation": null,
+                    "per_prime": pp})
+            };
+            let mut entry = json!({"label": lab, "inputs": r["inputs"], "status": "OK",
+                "terms": [term("M:fa", terms_a), term("M:fb", terms_b)], "pole": {}, "certificate": certs});
+            if let Some(v) = &wv {
+                entry["vector"] = json!({"of": label, "index": vj, "weights": v});
+            }
+            requests.push(entry);
+        }
     }
     let mut v = base.clone();
+    if job["schema"] == "helper-vh2.tadic-job.v2" {
+        v["schema"] = json!("helper-vh2.tadic-result.v2");
+    }
     v["status"] = json!(if partial { "PARTIAL" } else { "OK" });
     v["error"] = Value::Null;
     v["level"] = json!(level);

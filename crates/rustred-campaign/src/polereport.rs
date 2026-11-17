@@ -18,7 +18,7 @@
 use crate::adapters::job::{JobAdapter, Program, RunOptions, run_attempt, sha256_hex};
 use crate::adapters::tadicjob::{
     DataFile, ResultStore, TadicAdapter, TadicInput, TadicJobRequest, TadicLevel, TadicLimits,
-    TadicRequest,
+    TadicRequest, WeightVectors,
 };
 use crate::launch::RealLauncher;
 use crate::resources::{Sampler, SamplerConfig};
@@ -385,6 +385,12 @@ pub struct PoleReportSpec {
     /// unions run one request per job. Absent = all new combinations of a round in one job.
     #[serde(default)]
     pub max_requests_per_job: Option<usize>,
+    /// Job v2 (frozen 083d2f6c): a round's combinations as weight vectors of ONE request (one recording for all of
+    /// them and for both seeds); `release_every` = the engine's retained state released every n requests.
+    #[serde(default)]
+    pub vectors: bool,
+    #[serde(default)]
+    pub release_every: Option<u32>,
     pub max_length: u64,
     pub threads: u32,
     pub memory_cap_bytes: u64,
@@ -578,21 +584,40 @@ fn group_job(
     out: &mut CellOutcome,
 ) -> Result<Result<(), String>, String> {
     let spec = ctx.spec;
-    let reqs: Vec<TadicRequest> = (g.m_done..g.m)
-        .map(|ci| TadicRequest {
-            label: format!("{}{ci}", g.prefix),
-            inputs: g
-                .keys
-                .iter()
-                .enumerate()
-                .map(|(ki, k)| TadicInput::Package {
-                    top: ns.top.clone(),
-                    powers: k.clone(),
-                    weight: weight(spec.combination_seed, &g.weight_tag, c.d, c.r, ci, ki),
-                })
-                .collect(),
-        })
-        .collect();
+    let weights = |ci: usize| -> Vec<i64> {
+        (0..g.keys.len())
+            .map(|ki| weight(spec.combination_seed, &g.weight_tag, c.d, c.r, ci, ki))
+            .collect()
+    };
+    let inputs_with = |w: &[i64]| -> Vec<TadicInput> {
+        g.keys
+            .iter()
+            .zip(w)
+            .map(|(k, &wt)| TadicInput::Package {
+                top: ns.top.clone(),
+                powers: k.clone(),
+                weight: wt,
+            })
+            .collect()
+    };
+    // job v2 (`vectors`): the round's combinations as weight vectors of ONE request (one recording); labels
+    // `<prefix><first>#<j>` = combination first + j. Else one request per combination, label `<prefix><i>`.
+    let reqs: Vec<TadicRequest> = if spec.vectors {
+        let ws: Vec<Vec<i64>> = (g.m_done..g.m).map(weights).collect();
+        vec![TadicRequest {
+            label: format!("{}{}", g.prefix, g.m_done),
+            inputs: inputs_with(&ws[0]),
+            weight_vectors: Some(WeightVectors::Explicit { vectors: ws }),
+        }]
+    } else {
+        (g.m_done..g.m)
+            .map(|ci| TadicRequest {
+                label: format!("{}{ci}", g.prefix),
+                inputs: inputs_with(&weights(ci)),
+                weight_vectors: None,
+            })
+            .collect()
+    };
     let jr = TadicJobRequest {
         level: TadicLevel::Package {
             path: spec.package.clone(),
@@ -613,6 +638,8 @@ fn group_job(
             no_step_cache: false,
         },
         crt: false,
+        release_every: spec.release_every,
+        record_per_seed: false,
         terminals: Some(DataFile::from_file(&spec.library.path).map_err(|e| e.to_string())?),
         dependences: ctx.deps.clone(),
         depths: Some(ctx.depths.clone()),
