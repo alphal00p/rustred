@@ -38,12 +38,67 @@ const RESOURCES: i32 = 71;
 
 fn in_ns() -> bool {
     if rustred_campaign::launch::in_private_namespace() {
+        orphan_reaper();
         return true;
     }
     eprintln!(
         "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
     );
     false
+}
+
+/// procfix7 round 7 (suite r11 on 2dfe705e: `g9_b2_fork_churner_crashed_session_200ms` ended 0 with the chain alive).
+/// Test code, ONLY while this test binary is pid 1 of its private namespace (LIGHT_PIDNS): ONE reaper thread for the
+/// whole binary reaps ZOMBIE orphans re-parented to it whose command is `rr_fake_child` (the incarnations of the fork
+/// chains; the same rule as `OrphanReaper` in tests/procfix10.rs). An init that never reaps them keeps them: the 0-us
+/// chain of `g9_b2_fork_churner_live_session` left 40,741 zombies in the namespace, every later strict scan read all of
+/// them (walk + listing 3.5-4.8 s, the reads 1.5-1.9 s, oldest pid first), longer than the 200 ms hop of the crashed
+/// case, whose current incarnation had then exited before its turn in every scan. Reaps nothing else (the supervisors
+/// and shells the tests spawn have other commands); nothing is ever signalled.
+fn orphan_reaper() {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    if std::process::id() != 1 {
+        return;
+    }
+    STARTED.call_once(|| {
+        std::thread::spawn(|| {
+            loop {
+                fake_zombie_orphans(true);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        });
+    });
+}
+
+/// The zombie `rr_fake_child` orphans of this test binary (pid 1 of the namespace), each reaped when `reap`.
+fn fake_zombie_orphans(reap: bool) -> usize {
+    let mut n = 0;
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return 0;
+    };
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|n| n.parse::<i32>().ok()) else {
+            continue;
+        };
+        let Ok(st) = std::fs::read_to_string(format!("/proc/{pid}/stat")) else {
+            continue;
+        };
+        let (Some(a), Some(b)) = (st.find('('), st.rfind(')')) else {
+            continue;
+        };
+        let rest: Vec<&str> = st[b + 2..].split_whitespace().collect();
+        if &st[a + 1..b] == "rr_fake_child"
+            && rest.first() == Some(&"Z")
+            && rest.get(1) == Some(&"1")
+        {
+            n += 1;
+            if reap {
+                // SAFETY: waitpid on one exact pid with a null status pointer
+                unsafe { libc::waitpid(pid, std::ptr::null_mut(), libc::WNOHANG) };
+            }
+        }
+    }
+    n
 }
 
 fn path_env() -> std::ffi::OsString {
@@ -175,6 +230,18 @@ fn run(sp: &Path, d: &Path, env: &[(&str, &str)], limit: Duration) -> i32 {
 /// The churner verdict: never exit 0 while the churner lives.
 fn churn_case(mode: &str, sub: &str, life: u64, extra: &str) -> (i32, bool) {
     let _g = serial();
+    // precondition (procfix7 round 7): no zombie orphan of an earlier case is left (the reaper above takes them; a
+    // namespace full of them made every scan longer than a 200 ms hop)
+    if std::process::id() == 1 {
+        let t0 = Instant::now();
+        while fake_zombie_orphans(false) > 0 {
+            assert!(
+                t0.elapsed() < Duration::from_secs(60),
+                "zombie orphans of an earlier case were not reaped"
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
     let t = Tmp::new(&format!("pf9-{sub}-{mode}-{life}"));
     let ch = Churn::new(&t.path);
     let sp = spec_with(
