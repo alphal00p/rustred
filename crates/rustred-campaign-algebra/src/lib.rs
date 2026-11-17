@@ -41,6 +41,9 @@ pub mod tadic;
 pub mod valuation;
 pub mod wrap;
 pub mod zero_proofs;
+// lane arrivals (interfaces/arrivals.md): route expansion / transport of hand-down terms (REQUEST TO I-INT, int8 stage 2;
+// the bin rr_arrivals and tests/arrivals_toy keep their #[path] copies)
+pub mod arrivals;
 // lane tworow (interfaces/tworow.md): REQUEST TO I-INT, one line
 pub mod tworow_check;
 

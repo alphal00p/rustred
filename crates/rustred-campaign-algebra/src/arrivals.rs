@@ -22,7 +22,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use rustred_campaign_algebra::SymbolicaAlgebra;
+// int8: `super::` (a lib module since stage 2; the #[path] copies in rr_arrivals / arrivals_toy import it at their root)
+use super::SymbolicaAlgebra;
 use rustred_campaign_core::accept::rule::RuleText;
 use rustred_campaign_core::closure::CoefFact;
 use rustred_campaign_core::import::ImportedSet;

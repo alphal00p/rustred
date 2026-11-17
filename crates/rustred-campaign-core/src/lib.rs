@@ -63,3 +63,6 @@ pub mod seedmin;
 pub mod symcert;
 // lane parametric (interfaces/parametric.md; whole-domain descent B1, cone coverage B2): REQUEST TO I-INT, one line
 pub mod parametric;
+// lane arrivals (interfaces/arrivals.md): certified arrival sets per DAG edge (REQUEST TO I-INT, int8 stage 2; also
+// reachable as `import::arrivals`)
+pub mod arrivals;
