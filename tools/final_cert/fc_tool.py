@@ -106,9 +106,14 @@ def cmd_prep(a):
                 g.write(raw)
         ix.close()
         os.replace(dom + '.tmp', dom)
-        if labels != list(range(len(labels))):
-            scan['problems'].append('%s: rule indices are not 0..n-1 in order' % src)
-        scan['tables'].append({'path': src, 'domain_copy': dom, 'rules': n, 'header': hdr, 'charts': charts, 'end': ends[-1] if ends else None})
+        in_order = labels == list(range(len(labels)))
+        if not in_order:
+            # first match follows FILE order; labels stay as written. The native importer needs index = running count:
+            # a file that is not in that order is reported here and refused by the import step (the engine's own message)
+            scan.setdefault('warnings', []).append('%s: rule indices are not 0..n-1 in file order (first out of order at file rule %d, index %s): '
+                                                   'the native importer will refuse it' % (src, next(i for i, l in enumerate(labels) if l != i), labels[next(i for i, l in enumerate(labels) if l != i)]))
+        scan['tables'].append({'path': src, 'domain_copy': dom, 'rules': n, 'header': hdr, 'charts': charts, 'end': ends[-1] if ends else None,
+                               'indices_in_file_order': in_order, 'labels': labels})
         if not hdr:
             scan['problems'].append('%s: no header line' % src)
         if not ends:
@@ -134,7 +139,7 @@ def cmd_prep(a):
         if not any(d is not None for (_, _, d) in all_rules):
             scan['problems'].append('recipes given but no rule carries origin.dispatch_position: cannot place them')
         p = first
-        scan['recipe_position'] = p
+        scan['recipe_position'] = p   # rules before the recipes in file order (= the importer's table index when indices are in order)
         scan['rules_without_dispatch_position'] = [lab for (_, lab, d) in all_rules if d is None]
         if len(files) != 1:
             scan['problems'].append('recipes with several table files: not supported')
@@ -162,11 +167,12 @@ def cmd_prep(a):
             n = scan['tables'][fi]['rules']
             if recipes and fi == 0:
                 p = scan['recipe_position']
-                srcs.append({'id': '%s.final [0,%d)' % (a.node, p), 'class': 'ship', 'path': path, 'records': list(range(p)), 'witness': True})
+                labs = scan['tables'][fi]['labels']
+                srcs.append({'id': '%s.final [0,%d)' % (a.node, p), 'class': 'ship', 'path': path, 'records': labs[:p], 'witness': True})
                 for r in recipes:
                     srcs.append({'id': r['id'], 'class': 'sealed_recipe', 'path': r['coverage_record']['path'], 'records': None, 'witness': False,
                                  'bound_dr': r['bound']['bound_dr'], 'seal': {'path': r['seal']['manifest'], 'sha256': r['seal']['sha256']}})
-                srcs.append({'id': '%s.final [%d,%d)' % (a.node, p, n), 'class': 'ship', 'path': path, 'records': list(range(p, n)), 'witness': True})
+                srcs.append({'id': '%s.final [%d,%d)' % (a.node, p, n), 'class': 'ship', 'path': path, 'records': labs[p:], 'witness': True})
             else:
                 srcs.append({'id': '%s.final file %d' % (a.node, fi), 'class': 'ship', 'path': path, 'records': None, 'witness': True})
         dump({'node': a.node, 'catalogue': None, 'note': 'lane parametric final certification (%s): %s' % (a.label, form), 'sources': srcs},
@@ -181,7 +187,7 @@ def cmd_prep(a):
                     g.write(json.dumps({'position': pos, 'source': s['id'], 'label': lab, 'file': None, 'table_index': None}) + '\n'); pos += 1
             else:
                 fi = [t['domain_copy'] for t in scan['tables']].index(s['path'])
-                labs = s['records'] if s['records'] is not None else list(range(scan['tables'][fi]['rules']))
+                labs = s['records'] if s['records'] is not None else scan['tables'][fi]['labels']
                 for lab in labs:
                     g.write(json.dumps({'position': pos, 'source': s['id'], 'label': lab, 'file': fi, 'table_index': lab}) + '\n'); pos += 1
     scan['positions'] = pos
