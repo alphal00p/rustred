@@ -1508,6 +1508,340 @@ pub fn cell_rank(
             "mod_p": "the rank mod p is a lower bound of the rank over Q; equality fails only if p divides a maximal minor (no height bound: two primes per seed and two seeds must agree)"}})
 }
 
+/// The node-level EXACT route (lane tadicjob, the certificate's second route; interfaces/tadic-job.md 3): our own
+/// composition of ONE candidate rr_node table onto its masters and exits, exactly in Q(d) (Symbolica rational
+/// functions), independent of the replay: first-match dispatch by the campaign core (`read_table_file`,
+/// `cover::Table`, `Dispatcher::first_match`), the rule point (`closure::bodies::rule_point`), right-hand-side keys by
+/// `parse_rhs_pattern`, coefficients read at the rule point (`SymbolicaLaurent::coeff_from_text`); a term on a key
+/// with a positive numerator index must have an exactly zero coefficient (else refused); keys outside the node's top
+/// sector (a line slot of the header mask at power <= 0) are exits; masters are the table's `residual` records (or the
+/// caller's list). Generic: arity, mask, masters and keys are data.
+pub mod nodeexact {
+    use super::*;
+    use crate::epsdepth::{SymbolicaExact, TRational};
+    use rustred_campaign_core::closure::bodies::{RhsSlot, parse_rhs_pattern, rule_point};
+    use rustred_campaign_core::cover::{Dispatch, Dispatcher, Table};
+    use rustred_campaign_core::domain::DomainOptions;
+    use rustred_campaign_core::record::{ReadOptions, read_table_file};
+    use std::collections::HashMap;
+
+    /// A loaded candidate table.
+    pub struct NodeTable {
+        disp: Dispatcher,
+        lines: Vec<String>,
+        rule_lines: Vec<usize>,
+        mask: Vec<bool>,
+        arity: usize,
+        pub masters: Vec<Vec<i32>>,
+        /// Sector masks (slot '1' = power >= 1) of the table's `zero_sectors` record: keys there are exactly zero.
+        zero: BTreeSet<String>,
+    }
+
+    fn key_text(k: &[i32]) -> String {
+        format!(
+            "I({})",
+            k.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+
+    /// `I(a,b,..)` -> key.
+    pub fn parse_key(s: &str) -> Result<Vec<i32>, String> {
+        s.trim()
+            .strip_prefix("I(")
+            .and_then(|x| x.strip_suffix(')'))
+            .ok_or(format!("key {s}"))?
+            .split(',')
+            .map(|x| x.trim().parse::<i32>().map_err(|e| format!("key {s}: {e}")))
+            .collect()
+    }
+
+    impl NodeTable {
+        pub fn load(
+            path: &std::path::Path,
+            masters: Option<Vec<Vec<i32>>>,
+        ) -> Result<NodeTable, String> {
+            let text =
+                std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+            let lines: Vec<String> = text.lines().map(str::to_string).collect();
+            let tf = read_table_file(path, ReadOptions::default())
+                .map_err(|e| format!("table: {e:?}"))?;
+            let header = tf.header.as_ref().ok_or("table without header")?;
+            let mask: Vec<bool> = header.raw["mask"]
+                .as_str()
+                .ok_or("header without mask")?
+                .chars()
+                .map(|c| c == '1')
+                .collect();
+            let arity = mask.len();
+            let table = Table::from_table_file(
+                "node",
+                path.display().to_string(),
+                &tf,
+                DomainOptions::default(),
+            )
+            .map_err(|e| format!("table domains: {e:?}"))?;
+            let disp =
+                Dispatcher::new(vec![table], vec![0]).map_err(|e| format!("dispatcher: {e:?}"))?;
+            let rule_lines = tf.rules.iter().map(|r| r.line_no).collect();
+            let mut found = vec![];
+            let mut zero = BTreeSet::new();
+            for l in &lines {
+                let v: Value = match serde_json::from_str(l) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if v["type"] == "residual" {
+                    match &v["key"] {
+                        Value::String(s) => found.push(parse_key(s)?),
+                        Value::Array(k) => found.push(
+                            k.iter()
+                                .filter_map(|x| x.as_i64().map(|y| y as i32))
+                                .collect(),
+                        ),
+                        _ => return Err("residual record without key".into()),
+                    }
+                }
+                if v["type"] == "zero_sectors" {
+                    if v["scope"].as_str().is_some_and(|s| s != "downset") {
+                        return Err(format!("zero_sectors scope {} not read", v["scope"]));
+                    }
+                    for m in v["masks"].as_array().into_iter().flatten() {
+                        zero.insert(m.as_str().ok_or("zero sector mask")?.to_string());
+                    }
+                }
+            }
+            let masters = masters.unwrap_or(found);
+            Ok(NodeTable {
+                disp,
+                lines,
+                rule_lines,
+                mask,
+                arity,
+                masters,
+                zero,
+            })
+        }
+
+        fn in_top_sector(&self, k: &[i32]) -> bool {
+            k.iter().zip(&self.mask).all(|(&x, &line)| !line || x >= 1)
+        }
+
+        fn support_violated(&self, k: &[i32]) -> bool {
+            k.iter().zip(&self.mask).any(|(&x, &line)| !line && x > 0)
+        }
+
+        /// The exact composition of `key` onto masters and exits (basis text -> rational function of t = d - d0).
+        pub fn compose(
+            &self,
+            alg: &SymbolicaAlgebra,
+            lau: &SymbolicaLaurent,
+            ex: &SymbolicaExact,
+            key: &[i32],
+            memo: &mut HashMap<Vec<i32>, BTreeMap<String, TRational>>,
+            depth: usize,
+        ) -> Result<BTreeMap<String, TRational>, String> {
+            if let Some(m) = memo.get(key) {
+                return Ok(m.clone());
+            }
+            if depth > 100_000 {
+                return Err("composition deeper than 100000 steps (a cycle?)".into());
+            }
+            let one = || -> TRational {
+                let c = lau.coeff_from_text(alg, "1", 0, &[]).expect("one");
+                ex.rational(&c).expect("one is not zero")
+            };
+            let sector: String = key
+                .iter()
+                .map(|&x| if x >= 1 { '1' } else { '0' })
+                .collect();
+            if self.zero.contains(&sector) {
+                memo.insert(key.to_vec(), BTreeMap::new());
+                return Ok(BTreeMap::new());
+            }
+            if self.masters.iter().any(|m| m.as_slice() == key) || !self.in_top_sector(key) {
+                let r = BTreeMap::from([(key_text(key), one())]);
+                memo.insert(key.to_vec(), r.clone());
+                return Ok(r);
+            }
+            let rr = match self
+                .disp
+                .first_match(key)
+                .map_err(|e| format!("dispatch {key:?}: {e:?}"))?
+            {
+                Dispatch::Covered(r) => r,
+                other => {
+                    return Err(format!(
+                        "{}: not covered by the table ({other:?})",
+                        key_text(key)
+                    ));
+                }
+            };
+            let domain = &self.disp.tables()[0].domains[rr.record];
+            let mut pt = vec![];
+            if !rule_point(domain, key, &mut pt) {
+                return Err(format!("{}: no rule point", key_text(key)));
+            }
+            let line_no = self.rule_lines[rr.source_index];
+            let rec: Value = serde_json::from_str(&self.lines[line_no - 1])
+                .map_err(|e| format!("rule line: {e}"))?;
+            let rel = crate::valuation::relation::RelationText::of_record(&rec)?;
+            let mut out: BTreeMap<String, TRational> = BTreeMap::new();
+            for (pat, coeff, _) in &rel.terms {
+                let slots = parse_rhs_pattern(pat, self.arity)?;
+                let k2: Vec<i32> = slots
+                    .iter()
+                    .map(|s| match s {
+                        RhsSlot::Param { param, offset } => pt[*param] + offset,
+                        RhsSlot::Const(c) => *c,
+                    })
+                    .collect();
+                let c = lau.coeff_from_text(alg, coeff, self.arity, &pt)?;
+                let Some(cr) = ex.rational(&c) else {
+                    continue;
+                };
+                if self.support_violated(&k2) {
+                    return Err(format!(
+                        "{}: term {} outside the support with a non-zero coefficient",
+                        key_text(key),
+                        key_text(&k2)
+                    ));
+                }
+                if k2 == key {
+                    return Err(format!(
+                        "{}: the rule serves the key with itself",
+                        key_text(key)
+                    ));
+                }
+                for (b, v) in self.compose(alg, lau, ex, &k2, memo, depth + 1)? {
+                    let add = &cr * &v;
+                    let next = match out.remove(&b) {
+                        None => add,
+                        Some(a) => &a + &add,
+                    };
+                    if !next.numerator.is_zero() {
+                        out.insert(b, next);
+                    }
+                }
+            }
+            memo.insert(key.to_vec(), out.clone());
+            Ok(out)
+        }
+    }
+
+    /// Compare a node-level replay result with the exact composition: every residue of every term at every prime and
+    /// every order below its precision. Returns (residues compared, mismatches as JSON).
+    pub fn compare(
+        alg: &SymbolicaAlgebra,
+        table: &NodeTable,
+        result: &Value,
+        d0: &str,
+    ) -> Result<(u64, Vec<Value>), String> {
+        let lau = SymbolicaLaurent::new(d0)?;
+        let lau0 = SymbolicaLaurent::new("0")?;
+        let ex = SymbolicaExact::new()?;
+        let mut memo = HashMap::new();
+        let mut compared = 0u64;
+        let mut bad = vec![];
+        for q in result["requests"].as_array().ok_or("result: requests")? {
+            if q["status"] != "OK" {
+                continue;
+            }
+            let label = q["label"].as_str().unwrap_or("?");
+            // the exact request: sum of weight x composition
+            let mut exact: BTreeMap<String, TRational> = BTreeMap::new();
+            for i in q["inputs"].as_array().into_iter().flatten() {
+                let k = parse_key(i["key"].as_str().ok_or("input key")?)?;
+                let w = i["weight"].as_i64().unwrap_or(1);
+                let wc = ex
+                    .rational(&lau.coeff_from_text(alg, &w.to_string(), 0, &[])?)
+                    .ok_or("zero weight")?;
+                for (b, v) in table.compose(alg, &lau, &ex, &k, &mut memo, 0)? {
+                    let add = &wc * &v;
+                    let next = match exact.remove(&b) {
+                        None => add,
+                        Some(a) => &a + &add,
+                    };
+                    if !next.numerator.is_zero() {
+                        exact.insert(b, next);
+                    }
+                }
+            }
+            let mut seen = BTreeSet::new();
+            for t in q["terms"].as_array().into_iter().flatten() {
+                let basis = t["basis"].as_str().unwrap_or("").to_string();
+                seen.insert(basis.clone());
+                let tc = exact
+                    .get(&basis)
+                    .map(|r| lau0.coeff_from_zpolys(&r.numerator, &r.denominator, 0));
+                for pp in t["per_prime"].as_array().into_iter().flatten() {
+                    let p: u64 = pp["prime"]
+                        .as_str()
+                        .and_then(|s| s.parse().ok())
+                        .ok_or("prime")?;
+                    let prec = pp["precision"].as_i64().ok_or("precision")?;
+                    let v = pp["valuation"].as_i64();
+                    let cs: Vec<u64> = pp["coefficients"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|c| c.as_str().and_then(|s| s.parse().ok()))
+                        .collect();
+                    let fp = Fp::new(p, 0)?;
+                    let low = match (&tc, v) {
+                        (Some(Ok(c)), _) => match c.valuation() {
+                            rustred_campaign_core::epsdepth::Val::Order(o) => o.min(v.unwrap_or(o)),
+                            _ => v.unwrap_or(prec),
+                        },
+                        _ => v.unwrap_or(prec),
+                    };
+                    let series = match &tc {
+                        Some(Ok(c)) => lau0.expand_coeff(c, prec)?,
+                        Some(Err(e)) => return Err(e.clone()),
+                        None => None,
+                    };
+                    for k in low..prec {
+                        let got = match v {
+                            Some(v0) if k >= v0 => cs.get((k - v0) as usize).copied().unwrap_or(0),
+                            _ => 0,
+                        };
+                        let want = match &series {
+                            Some(s) => {
+                                let r = SymbolicaLaurent::series_coefficient(s, k)
+                                    .unwrap_or_else(|| Q.zero());
+                                fp.f.from_element(&fp.rat(&r)?)
+                            }
+                            None => 0,
+                        };
+                        compared += 1;
+                        if got != want {
+                            bad.push(json!({"label": label, "term": basis, "prime": p.to_string(), "order": k,
+                                "replay": got.to_string(), "exact": want.to_string()}));
+                        }
+                    }
+                }
+            }
+            // an exact term the replay does not list must have no coefficient below the precision
+            for (b, r) in &exact {
+                if seen.contains(b) {
+                    continue;
+                }
+                let c = lau0.coeff_from_zpolys(&r.numerator, &r.denominator, 0)?;
+                if let rustred_campaign_core::epsdepth::Val::Order(o) = c.valuation()
+                    && o < result["expansion"]["order"].as_i64().unwrap_or(0)
+                {
+                    bad.push(
+                        json!({"label": label, "term": b, "missing_in_replay": true, "order": o}),
+                    );
+                }
+            }
+        }
+        Ok((compared, bad))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
