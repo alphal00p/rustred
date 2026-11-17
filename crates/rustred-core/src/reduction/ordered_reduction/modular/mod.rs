@@ -68,7 +68,7 @@ pub(super) const PROBES: usize = 2;
 /// checkpoints when a recording finishes.
 const FINISH_CHECKPOINT_ENTRIES: usize = 1024;
 
-pub(super) fn error(detail: impl Into<String>) -> ReductionError {
+pub(crate) fn error(detail: impl Into<String>) -> ReductionError {
     ReductionError::ModularWeights {
         detail: detail.into(),
     }
@@ -1785,6 +1785,116 @@ impl OrderedWeights for ModularRecorder {
             probe: self.scaled(weight, reference),
             zero,
         })
+    }
+
+    fn resume_bind(&mut self, dir: &std::path::Path, ops: Option<u64>) -> Result<bool, ReductionError> {
+        if self.multi_inputs.is_some() || self.shared.is_some() || !self.ops.is_empty() {
+            return Ok(false);
+        }
+        self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(spill::Spill::at(dir, ops)?)));
+        Ok(true)
+    }
+
+    fn resume_save(&mut self, w: &mut super::step_cache::codec::Writer) -> Result<(), ReductionError> {
+        let spill = self.spill.as_ref().ok_or_else(|| error("resume state without a spill file"))?;
+        let mut spill = spill.lock().map_err(|_| error("trace spill poisoned"))?;
+        spill.flush(&mut self.ops)?;
+        spill.sync()?;
+        w.varint(spill.flushed as u64);
+        drop(spill);
+        w.len(self.entries.len());
+        for (coefficient, reference) in self.entries.iter().zip(&self.entry_refs) {
+            super::resume::put_coefficient(w, coefficient);
+            w.varint(u64::from(reference.0));
+        }
+        w.len(self.constant_probe.len());
+        for value in &self.constant_probe {
+            w.varint(self.probe_field.from_element(value));
+        }
+        w.len(self.polynomial_probe.len());
+        for values in &self.polynomial_probe {
+            for value in values {
+                w.varint(self.probe_field.from_element(value));
+            }
+        }
+        w.varint(u64::from(self.constant_count));
+        w.varint(u64::from(self.polynomial_count));
+        w.len(self.free_slots.len());
+        for slot in &self.free_slots {
+            w.varint(u64::from(*slot));
+        }
+        w.varint(u64::from(self.next_slot));
+        w.varint(u64::from(self.terminal_slots));
+        w.len(self.phase_starts.len());
+        for (phase, start) in &self.phase_starts {
+            w.varint(*phase as u64);
+            w.varint(*start as u64);
+        }
+        w.varint(self.lookups as u64);
+        Ok(())
+    }
+
+    fn resume_load(&mut self, r: &mut super::step_cache::codec::Reader<'_>) -> Result<(), ReductionError> {
+        let e = |m: String| error(format!("resume state: {m}"));
+        let _ops = r.varint().map_err(e)?;
+        let template = self.context.zero();
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.entries = Vec::with_capacity(n);
+        self.entry_refs = Vec::with_capacity(n);
+        self.entry_hashes = Vec::with_capacity(n);
+        self.table = HashTable::new();
+        for index in 0..n {
+            let coefficient = super::resume::get_coefficient(r, &template).map_err(e)?;
+            let reference = CoefRef(r.varint().map_err(e)? as u32);
+            let hash = FxBuild.hash_one(&coefficient);
+            self.entries.push(coefficient);
+            self.entry_refs.push(reference);
+            self.entry_hashes.push(hash);
+            let hashes = &self.entry_hashes;
+            self.table.insert_unique(hash, index as u32, |&i| hashes[i as usize]);
+        }
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.constant_probe = (0..n).map(|_| r.varint().map(|v| self.probe_field.to_element(v))).collect::<Result<_, _>>().map_err(e)?;
+        let n = r.len(usize::MAX).map_err(e)?;
+        let mut probes = Vec::with_capacity(n);
+        for _ in 0..n {
+            let mut values = [self.probe_field.zero(); PROBES];
+            for value in &mut values {
+                *value = self.probe_field.to_element(r.varint().map_err(e)?);
+            }
+            probes.push(values);
+        }
+        self.polynomial_probe = probes;
+        self.constant_count = r.varint().map_err(e)? as u32;
+        self.polynomial_count = r.varint().map_err(e)? as u32;
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.free_slots = (0..n).map(|_| r.varint().map(|v| v as u32)).collect::<Result<_, _>>().map_err(e)?;
+        self.next_slot = r.varint().map_err(e)? as u32;
+        self.terminal_slots = r.varint().map_err(e)? as u32;
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.phase_starts = (0..n)
+            .map(|_| Ok((r.varint()? as usize, r.varint()? as usize)))
+            .collect::<Result<_, String>>()
+            .map_err(e)?;
+        self.lookups = r.varint().map_err(e)? as usize;
+        Ok(())
+    }
+
+    fn resume_put_weight(&self, weight: &ModularWeight, w: &mut super::step_cache::codec::Writer) {
+        w.varint(u64::from(weight.slot));
+        for value in &weight.probe {
+            w.varint(self.probe_field.from_element(value));
+        }
+    }
+
+    fn resume_get_weight(&self, r: &mut super::step_cache::codec::Reader<'_>) -> Result<ModularWeight, ReductionError> {
+        let e = |m: String| error(format!("resume state: {m}"));
+        let slot = r.varint().map_err(e)? as u32;
+        let mut probe = [self.probe_field.zero(); PROBES];
+        for value in &mut probe {
+            *value = self.probe_field.to_element(r.varint().map_err(e)?);
+        }
+        Ok(ModularWeight { slot, probe })
     }
 
     fn contribution_is_zero(&self, contribution: &ModularContribution) -> bool {

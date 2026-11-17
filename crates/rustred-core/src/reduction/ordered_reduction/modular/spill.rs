@@ -29,11 +29,32 @@ pub(super) struct Spill {
     dir: PathBuf,
     file: Option<(File, PathBuf)>,
     pub flushed: usize,
+    /// Resume mode: the file is the request's `ops.bin` and is kept.
+    keep: bool,
 }
 
 impl Spill {
     pub(super) fn create(dir: PathBuf) -> Result<Self, ReductionError> {
-        Ok(Self { dir, file: None, flushed: 0 })
+        Ok(Self { dir, file: None, flushed: 0, keep: false })
+    }
+
+    /// Resume mode: `<dir>/ops.bin`, cut back to `ops` ops when continuing
+    /// a saved state (else created empty); kept on drop.
+    pub(super) fn at(dir: &std::path::Path, ops: Option<u64>) -> Result<Self, ReductionError> {
+        std::fs::create_dir_all(dir).map_err(|e| error(format!("resume directory: {e}")))?;
+        let path = dir.join("ops.bin");
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(ops.is_none())
+            .open(&path)
+            .map_err(|e| error(format!("resume ops file: {e}")))?;
+        let flushed = ops.unwrap_or(0) as usize;
+        file.set_len((flushed * std::mem::size_of::<Op>()) as u64).map_err(|e| error(format!("resume ops cut: {e}")))?;
+        use std::io::Seek;
+        let mut file = file;
+        file.seek(std::io::SeekFrom::End(0)).map_err(|e| error(format!("resume ops seek: {e}")))?;
+        Ok(Self { dir: dir.to_path_buf(), file: Some((file, path)), flushed, keep: true })
     }
 
     /// Append `ops` and clear them.
@@ -58,10 +79,22 @@ impl Spill {
         Ok(())
     }
 
+    /// Make the written ops durable (resume checkpoints).
+    pub(super) fn sync(&mut self) -> Result<(), ReductionError> {
+        if let Some((file, _)) = &mut self.file {
+            file.flush().map_err(|e| error(format!("trace spill flush: {e}")))?;
+            file.sync_data().map_err(|e| error(format!("trace spill sync: {e}")))?;
+        }
+        Ok(())
+    }
+
     /// The whole trace: the rest appended and the file mapped (or the rest
     /// itself when nothing was ever flushed).
     pub(super) fn finish(mut self, rest: &mut Vec<Op>) -> Result<OpStore, ReductionError> {
-        if self.file.is_none() {
+        if self.file.is_none() || (self.keep && self.flushed == 0 && rest.len() < block_ops()) {
+            if let Some((_, path)) = self.file.take() {
+                let _ = std::fs::remove_file(path);
+            }
             return Ok(OpStore::from(std::mem::take(rest)));
         }
         self.flush(rest)?;
@@ -75,6 +108,9 @@ impl Spill {
 
 impl Drop for Spill {
     fn drop(&mut self) {
+        if self.keep {
+            return;
+        }
         if let Some((_, path)) = self.file.take() {
             let _ = std::fs::remove_file(path);
         }
