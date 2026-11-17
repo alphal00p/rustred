@@ -821,9 +821,9 @@ def cmd_deliver(a):
         except OSError:
             refs['table/' + os.path.basename(path)] = {'path': path, 'sha256': sha}
     for f in glob.glob(os.path.join(run, 'prep', '*')):
-        if not f.endswith('.domain.jsonl'):
+        if os.path.isfile(f) and not f.endswith(('.domain.jsonl', '.ship.concat.jsonl')):
             cp(f, os.path.join(a.out, 'prep', os.path.basename(f)))
-    for f in glob.glob(os.path.join(run, 'prep', '*.domain.jsonl')):
+    for f in glob.glob(os.path.join(run, 'prep', '*.domain.jsonl')) + glob.glob(os.path.join(run, 'prep', '*.ship.concat.jsonl')):
         refs['prep/' + os.path.basename(f)] = {'path': f, 'sha256': sha256_file(f), 'bytes': os.path.getsize(f)}
     if os.path.exists(os.path.join(run, 'prep', N + '.recipes.jsonl')):
         cp(os.path.join(run, 'prep', N + '.recipes.jsonl'), os.path.join(a.out, 'table', N + '.recipes.jsonl'))
@@ -906,9 +906,13 @@ def write_verifier_spec(out, env, v):
     L.append('3. STRICT DESCENT of every rhs term on the record\'s whole domain (b1/ has lane parametric\'s result: does-not-descend 0;'
              ' "descends except" = on numerator planes where the engine fails closed).')
     L.append('4. TERMINAL RULE: no record contains a terminal key; no coverage stub.')
-    L.append('5. EXACTNESS, keyed by `target_rhs_sha256 = sha256(json.dumps([target, rhs], separators=(",", ":")))` per record:'
-             ' `exact/%s.exact.jsonl` lists every record with its hash, its dispatch position, the evidence class it re-binds to and the'
-             ' category (whole domain / per key / NOT proven). Records whose hash is not in the evidence ("changed") need new proofs.' % N)
+    cfgx = json.load(open(env['cfg_exact_config']))
+    forms = ', '.join('%s: %s' % (e['name'], e.get('hash_form', 'list')) for e in cfgx['evidence'])
+    L.append('5. EXACTNESS, keyed by the hash of target + rhs per record: form "list" = sha256(json.dumps([target, rhs], separators=(",", ":"))),'
+             ' form "dict_sorted" = sha256(json.dumps({"target": .., "rhs": ..}, sort_keys=True, separators=(",", ":"))); evidence sources and'
+             ' their forms: %s. `exact/%s.exact.jsonl` lists every record with its hashes (`target_rhs_sha256_forms`), dispatch position,'
+             ' the evidence class it re-binds to and the category (whole domain / per key / NOT proven). A record whose hash is in no'
+             ' evidence ("changed") needs a new proof.' % (forms, N))
     if ex:
         L.append('   - by category: %s; changed vs evidence: %d; not proven: %d; watch list: %s' % (ex.get('by_category'), len(ex.get('changed_vs_evidence', [])),
                  len(ex.get('not_proven', [])), [(w['dispatch_position'], w['category']) for w in ex.get('watch_list', [])]))
@@ -916,7 +920,29 @@ def write_verifier_spec(out, env, v):
              ' first-match agreement engine vs core on the drill keys (fm/fm.verdict.json).')
     L.append('')
     L.append('## Not proven / open (never silent)')
-    L.append('See summary.json and exact/%s.exact.summary.json: `not_proven`, `per_key`, `changed_vs_evidence`, `watch_list`.' % N)
+    L.append('Source: exact/%s.exact.summary.json (`not_proven`, `per_key`, `changed_vs_evidence`, `watch_list`); first-match liveness in %s'
+             ' of each from live/%s.liveness.jsonl.' % (N, env.get('cfg_region'), N))
+    live = {}
+    lp = os.path.join(out, 'live', N + '.liveness.jsonl')
+    if os.path.exists(lp):
+        for l in open(lp):
+            r = json.loads(l)
+            if r.get('file') is not None:
+                live[(r['file'], r['table_index'])] = r['live']
+    def row(r):
+        return '| %s | %s | %s | %s | %s | %s |' % (r.get('file'), r.get('table_index'), r.get('dispatch_position'), r.get('bytes'),
+                                                   (r.get('class') or 'no evidence (changed)')[:90], live.get((r.get('file'), r.get('table_index')), 'not run'))
+    for title, key in (('NOT proven', 'not_proven'), ('per key only', 'per_key'), ('changed vs evidence (hash in no evidence)', 'changed_vs_evidence'),
+                       ('watch list (%s)' % cfgx.get('watch_note', ''), 'watch_list')):
+        rows = ex.get(key, [])
+        L.append(''); L.append('### %s: %d record(s)' % (title, len(rows)))
+        if rows:
+            L.append('| file | table index | dispatch position | bytes | class | first match in %s |' % env.get('cfg_region'))
+            L.append('|---|---|---|---|---|---|')
+            L.extend(row(r) for r in rows[:400])
+    notes = env.get('cfg_delivery_notes')
+    if notes and os.path.exists(notes):
+        L.append(''); L.append(open(notes).read().strip())
     open(os.path.join(out, 'VERIFIER_SPEC.md'), 'w').write('\n'.join(L) + '\n')
 
 

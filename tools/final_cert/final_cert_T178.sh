@@ -39,6 +39,7 @@ cfg_drill_points=""
 cfg_one_cap1=40; cfg_one_parallel=3
 cfg_live_shards=8; cfg_live_units=50000000; cfg_live_wall=300; cfg_live_max=0
 cfg_deliver_dir=$P/deliver/T178-final
+cfg_delivery_notes=$FC_SELF/T178.delivery-notes.md
 # resources per step: "MemoryMax_GB expected_peak_GB cpus writes_GB expected_wall"
 cfg_res_prep="12 4 1 1 5m"; cfg_res_cert="32 12 1 0 20m"; cfg_res_term="12 5 1 0 4m"; cfg_res_b1="12 5 2 0 4m"; cfg_res_exact="8 3 1 0 4m"
 cfg_res_imp_plain="16 6 4 3 8m"; cfg_res_imp_shared="16 7 4 1 8m"; cfg_res_live="24 8 8 0 20m"; cfg_res_fm="16 7 2 0 5m"; cfg_res_one="24 12 3 0 10m"
