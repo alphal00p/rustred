@@ -830,26 +830,34 @@ impl ProcRoot {
     /// thread's list only. Single-threaded (status `Threads:` <= 1): the leader's list. Otherwise the task list is
     /// trusted only with its completeness proof: the leader listed ([`ProcRoot::tasks`]), the kernel's `Threads:` the same
     /// before and after the listing and equal to the number listed, and the SAME task list after the children lists were
-    /// read (a thread that exits hands its children to another thread of the group). Up to [`WALK_TRIES`] tries, else
-    /// Unreadable (never a partial answer). Gone: the process is gone.
+    /// read (a thread that exits hands its children to another thread of the group). Up to [`WALK_TRIES`] tries with a
+    /// back-off, else Unreadable (never a partial answer), except for THIS process (its own descendants are covered by
+    /// the kernel's wait answer at the end: the children it could read). Gone: the process is gone.
     pub fn children_all_threads_proven(&self, pid: u32) -> ProcResult<Vec<u32>> {
         let first = self.status(pid)?.threads()?;
         if first <= 1 {
             return self.children(pid, pid);
         }
         let mut why = String::new();
-        for _ in 0..WALK_TRIES {
+        let mut partial: Vec<u32> = Vec::new();
+        for attempt in 0..WALK_TRIES {
+            // threads that come and go (helper threads) leave no quiet moment at once: back off (0.25 ms .. 8 ms)
+            if attempt > 0 {
+                std::thread::sleep(Duration::from_micros(250u64 << attempt.min(5)));
+            }
             let before = self.status(pid)?.threads()?;
-            let mut ts = self.tasks(pid)?;
+            // one thread exiting and another starting during the listing keeps the count EQUAL while the listing misses
+            // the newcomer: `tasks` then says "incomplete"; here that only means "not proven yet" (try again)
+            let mut ts = match self.tasks(pid) {
+                Ok(v) => v,
+                Err(ProcError::Unreadable(w)) if w.contains("task listing incomplete") => {
+                    why = w;
+                    continue;
+                }
+                Err(e) => return Err(e),
+            };
             let after = self.status(pid)?.threads()?;
             ts.sort_unstable();
-            if before != after || ts.len() != after as usize {
-                why = format!(
-                    "{} listed, the kernel counted {before} then {after} threads",
-                    ts.len()
-                );
-                continue;
-            }
             let mut out = Vec::new();
             let mut thread_gone = false;
             for &t in &ts {
@@ -862,13 +870,28 @@ impl ProcRoot {
                     Err(e) => return Err(e),
                 }
             }
-            let mut again = self.tasks(pid)?;
+            if before != after || ts.len() != after as usize {
+                why = format!(
+                    "{} listed, the kernel counted {before} then {after} threads",
+                    ts.len()
+                );
+                partial = out;
+                continue;
+            }
+            let mut again = self.tasks(pid).unwrap_or_default();
             again.sort_unstable();
             if thread_gone || again != ts {
                 why = "its threads changed while their children lists were read".to_string();
+                partial = out;
                 continue;
             }
             return Ok(out);
+        }
+        // procfix7 round 7: THIS process (the supervisor: its helper threads come and go with its jobs) keeps the
+        // children it could read; every descendant of this child subreaper is proven gone or named by the kernel's wait
+        // answer at the end (own-tree check, atomic), so a partial walk here cannot hide a survivor of an exit 0
+        if pid == std::process::id() {
+            return Ok(partial);
         }
         unreadable(format!(
             "{}: the children of every thread cannot be proven complete after {WALK_TRIES} tries ({why})",
