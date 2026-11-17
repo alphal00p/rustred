@@ -84,5 +84,11 @@ fn the_tripwire_catches_planted_imports() {
         assert!(!hits_in("planted.rs", planted).is_empty(), "{planted}");
     }
     // comments and the verifier's own modules are not forms
-    assert!(hits_in("ok.rs", "use crate::cover; // unlike rustred_campaign_core::partition").is_empty());
+    assert!(
+        hits_in(
+            "ok.rs",
+            "use crate::cover; // unlike rustred_campaign_core::partition"
+        )
+        .is_empty()
+    );
 }

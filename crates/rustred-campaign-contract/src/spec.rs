@@ -121,7 +121,7 @@ impl JobKind {
             | JobKind::PoleRegularAt
             | JobKind::ProofSymrows
             | JobKind::RegularBasis => Level::Legacy,
-            | JobKind::TadicReplay => Level::Legacy,
+            JobKind::TadicReplay => Level::Legacy,
             _ => Level::L1,
         }
     }
@@ -186,7 +186,7 @@ impl JobKind {
             | JobKind::PoleRegularAt
             | JobKind::ProofSymrows
             | JobKind::RegularBasis => Some(&RESULT_OUTPUTS),
-            | JobKind::TadicReplay => Some(&RESULT_OUTPUTS),
+            JobKind::TadicReplay => Some(&RESULT_OUTPUTS),
             JobKind::GenerateAuto => None,
         }
     }

@@ -106,15 +106,15 @@ pub fn rule_derivations(f: &JobFiles<'_>) -> Result<Vec<Value>, String> {
                 }
             }
             Some("engine") => {
-                if let Some(r) = v.get("event").and_then(|e| e.get("RelationRetry")) {
-                    if let Some(c) = current.and_then(|o| cases.get_mut(&o)) {
-                        c.retries.push(
-                            r.get("source_order")
-                                .and_then(Value::as_str)
-                                .unwrap_or("?")
-                                .to_string(),
-                        );
-                    }
+                if let Some(r) = v.get("event").and_then(|e| e.get("RelationRetry"))
+                    && let Some(c) = current.and_then(|o| cases.get_mut(&o))
+                {
+                    c.retries.push(
+                        r.get("source_order")
+                            .and_then(Value::as_str)
+                            .unwrap_or("?")
+                            .to_string(),
+                    );
                 }
             }
             Some("rule_committed") => {

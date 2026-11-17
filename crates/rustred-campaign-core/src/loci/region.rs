@@ -439,7 +439,8 @@ impl Region {
                 if a.coef.iter().all(|&x| x == 0) {
                     continue;
                 }
-                for b in r.cons.iter().skip(i + 1) {
+                // int8: the module denies arithmetic side effects (an index + 1 cannot overflow, but the lint rules)
+                for b in r.cons.iter().skip(i.saturating_add(1)) {
                     if b.c == a.c.checked_neg().unwrap_or(i128::MIN)
                         && b.coef.len() == a.coef.len()
                         && b.coef

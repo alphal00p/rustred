@@ -514,6 +514,8 @@ pub struct StreamCfg {
 const CHUNK: usize = 20_000;
 
 /// Entries a worker gathers before merging them into the shared accumulators.
+// int8: the documented default (pub in the lib since stage 2); unused in rr_arrivals' #[path] copy
+#[allow(dead_code)]
 pub const LOCAL_FLUSH: usize = 1 << 21;
 
 fn merge_into(

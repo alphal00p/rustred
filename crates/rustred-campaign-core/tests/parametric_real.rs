@@ -3170,13 +3170,13 @@ fn engine_order(ld: &mut Loaded) -> serde_json::Value {
             if aliases.contains(&(ti, r)) {
                 ad.push(t.domains[r].clone());
                 al.push(t.labels[r]);
-                am.push(t.meta[r].clone());
+                am.push(t.meta[r]);
                 asrc.push((ti, r));
             } else {
                 remap.insert((ti, r), (new_tables.len(), od.len()));
                 od.push(t.domains[r].clone());
                 ol.push(t.labels[r]);
-                om.push(t.meta[r].clone());
+                om.push(t.meta[r]);
             }
         }
         ord.domains = od;
@@ -3414,8 +3414,8 @@ fn chain_walk() {
         serde_json::from_slice(&b).unwrap()
     };
     // per (table, record): (target slots, rhs term slots) or None for a stub
-    let mut rules: BTreeMap<(usize, usize), Option<(Vec<String>, Vec<Vec<String>>)>> =
-        BTreeMap::new();
+    type Slots = Option<(Vec<String>, Vec<Vec<String>>)>;
+    let mut rules: BTreeMap<(usize, usize), Slots> = BTreeMap::new();
     let parse_slots = |t: &str| -> Vec<String> {
         t[t.find('(').unwrap() + 1..t.rfind(')').unwrap()]
             .split(',')
@@ -3633,8 +3633,7 @@ fn record_liveness() {
         }
     }
     let mut w = std::io::BufWriter::new(std::fs::File::create(&out).unwrap());
-    for pos in a..b.min(order.len()) {
-        let (ti, ri) = order[pos];
+    for (pos, &(ti, ri)) in order.iter().enumerate().take(b.min(order.len())).skip(a) {
         let d = &g5.tables()[ti].domains[ri];
         let label = g5.tables()[ti].labels[ri];
         let t0 = std::time::Instant::now();
