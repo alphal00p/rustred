@@ -1130,11 +1130,13 @@ fn request_row_inner(fp: &Fp, data: &RankData<'_>, request: &Value) -> Result<Ro
         let row = data.map.row_of(&t.basis);
         let contribs: Vec<(String, Lau)> = match row {
             TermRow::Closed => continue,
-            TermRow::Unmapped(why) => {
-                if r.s.is_some() {
-                    return Ok(RowOutcome::NotDecided(format!("UNMAPPED_TERMINAL:{why}")));
-                }
-                continue;
+            // TRICKS 59: ANY term on an unmapped terminal (every order of it unknown, the regular part too) makes the
+            // request incomplete, whatever its series: never counted, neither as zero nor as non-zero
+            TermRow::Unmapped(_) => {
+                return Ok(RowOutcome::NotDecided(format!(
+                    "UNMAPPED_TERMINAL:{}",
+                    t.basis
+                )));
             }
             TermRow::Itself(m) => {
                 let u = fp.gamma_unit(&t.tag, target(&m).unwrap_or(0) - fp.val(&r) + 1)?;
@@ -1438,7 +1440,22 @@ pub fn cell_rank(
         })
         .count();
     let seeds: BTreeSet<u64> = primes.iter().map(|x| x.1).collect();
-    let (verdict, rank, pivots) = if !undecided.is_empty() {
+    // TRICKS 59: a cell touching an unmapped terminal is INCOMPLETE (listed), never a count
+    let unmapped: BTreeSet<String> = undecided
+        .iter()
+        .filter_map(|u| u.split("UNMAPPED_TERMINAL:").nth(1))
+        .map(|s| s.split_whitespace().next().unwrap_or(s).to_string())
+        .collect();
+    let (verdict, rank, pivots) = if !unmapped.is_empty() {
+        (
+            format!(
+                "incomplete: unmapped terminal ({})",
+                unmapped.iter().cloned().collect::<Vec<_>>().join(", ")
+            ),
+            Value::Null,
+            Value::Null,
+        )
+    } else if !undecided.is_empty() {
         (
             format!("not decided ({})", undecided[0]),
             Value::Null,

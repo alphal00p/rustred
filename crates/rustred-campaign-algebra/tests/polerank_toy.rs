@@ -194,6 +194,33 @@ fn typed_not_decided_cases() {
 }
 
 #[test]
+fn a_cell_touching_an_unmapped_terminal_is_incomplete_never_counted() {
+    if !licensed() {
+        eprintln!("SKIP: Symbolica licence absent");
+        return;
+    }
+    let lau = SymbolicaLaurent::new("4").unwrap();
+    let map = TerminalMap::default();
+    let dep = depths();
+    let data = RankData {
+        map: &map,
+        depths: &dep,
+        dependences: None,
+        lau: &lau,
+        exchange: None,
+    };
+    // a package term R:7 that the (empty) terminal map does not list, even with NO polar part (regular only)
+    let mut reqs = combos(&[(5, 7)], 4, &[1, 2]);
+    reqs[1]["terms"]
+        .as_array_mut()
+        .unwrap()
+        .push(term("R:7", 0, 3, 1, &[1, 2]));
+    let r = cell_rank(&data, &result(reqs), "c", 1);
+    assert_eq!(r["verdict"], "incomplete: unmapped terminal (R:7)", "{r}");
+    assert!(r["rank"].is_null());
+}
+
+#[test]
 fn gamma_unit_is_pi_x_over_sin_pi_x() {
     if !licensed() {
         eprintln!("SKIP: Symbolica licence absent");
