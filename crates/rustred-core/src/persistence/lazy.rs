@@ -14,6 +14,34 @@ use std::{
 };
 use symbolica::state::{State, StateMap};
 
+enum FactoredAccess {
+    Eager(Vec<Coefficient>),
+    OnDemand(super::factored::OnDemandFactoredSection),
+}
+
+impl FactoredAccess {
+    fn len(&self) -> usize {
+        match self {
+            Self::Eager(coefficients) => coefficients.len(),
+            Self::OnDemand(section) => section.len(),
+        }
+    }
+
+    fn get(&self, index: usize) -> Result<Coefficient, BinaryIoError> {
+        match self {
+            Self::Eager(coefficients) => coefficients
+                .get(index)
+                .cloned()
+                .ok_or(BinaryIoError::Invalid("coefficient ID is outside table")),
+            Self::OnDemand(section) => section.expand(index),
+        }
+    }
+}
+
+fn factored_eager() -> bool {
+    std::env::var("RUSTRED_COEF_FORM_EAGER").is_ok_and(|v| v == "1")
+}
+
 struct Imported {
     state: Option<StateMap>,
     coefficients: BTreeMap<usize, Arc<Coefficient>>,
@@ -28,9 +56,12 @@ pub struct LazyDecodedCoefficientTable {
     frames: Vec<Range<usize>>,
     limits: BinaryIoLimits,
     imported: Mutex<Imported>,
-    /// coef-form: a factored section (`factored::is_factored_table`) is
-    /// decoded whole at construction; entries are admitted on first access.
-    factored: Option<Vec<Coefficient>>,
+    /// coef-form: a factored / shared section (`factored::is_factored_table`)
+    /// is read ON DEMAND (batch 12): offsets at construction, a dictionary
+    /// entry decoded on first need, a coefficient multiplied back on access
+    /// (`RUSTRED_COEF_FORM_EAGER=1`: the whole section decoded at
+    /// construction, the behaviour before batch 12).
+    factored: Option<FactoredAccess>,
     /// t162-export: keep decoded coefficients (default). Without retention
     /// every access decodes its frame again and nothing is cached: a consumer
     /// that reads each coefficient once and keeps its own (interned) copy
@@ -77,12 +108,33 @@ impl LazyDecodedCoefficientTable {
             .to_vec();
         if super::factored::is_factored_table(&head) {
             let state_bytes = state.read()?.as_ref().to_vec();
-            let atom_bytes = atoms.read()?.as_ref().to_vec();
             let state_map = super::atoms::import_state(&state_bytes)?;
-            let coefficients = catch_unwind(AssertUnwindSafe(|| {
-                super::factored::decode_factored_table(&atom_bytes, &state_map, limits)
-            }))
-            .map_err(|_| BinaryIoError::Native("factored coefficient import panicked".into()))??;
+            let access = if factored_eager() {
+                let atom_bytes = atoms.read()?.as_ref().to_vec();
+                FactoredAccess::Eager(
+                    catch_unwind(AssertUnwindSafe(|| {
+                        super::factored::decode_factored_table(&atom_bytes, &state_map, limits)
+                    }))
+                    .map_err(|_| {
+                        BinaryIoError::Native("factored coefficient import panicked".into())
+                    })??,
+                )
+            } else {
+                let atom_bytes: Arc<[u8]> = match atoms.whole_shared() {
+                    Some(bytes) => bytes,
+                    None => Arc::from(atoms.read()?.as_ref()),
+                };
+                FactoredAccess::OnDemand(
+                    catch_unwind(AssertUnwindSafe(|| {
+                        super::factored::OnDemandFactoredSection::new(
+                            atom_bytes, &state_map, limits,
+                        )
+                    }))
+                    .map_err(|_| {
+                        BinaryIoError::Native("factored coefficient import panicked".into())
+                    })??,
+                )
+            };
             return Ok(Self {
                 state,
                 atoms,
@@ -92,7 +144,7 @@ impl LazyDecodedCoefficientTable {
                     state: Some(state_map),
                     coefficients: BTreeMap::new(),
                 }),
-                factored: Some(coefficients),
+                factored: Some(access),
                 retain: true,
             });
         }
@@ -164,7 +216,9 @@ impl LazyDecodedCoefficientTable {
     }
 
     pub fn len(&self) -> usize {
-        self.factored.as_ref().map_or(self.frames.len(), Vec::len)
+        self.factored
+            .as_ref()
+            .map_or(self.frames.len(), FactoredAccess::len)
     }
     pub fn is_empty(&self) -> bool {
         self.len() == 0
@@ -210,9 +264,9 @@ impl LazyDecodedCoefficientTable {
         admit: impl FnOnce(&Coefficient) -> Result<(), BinaryIoError>,
     ) -> Result<Arc<Coefficient>, BinaryIoError> {
         if let Some(factored) = &self.factored {
-            let decoded = factored
-                .get(id.index())
-                .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+            if id.index() >= factored.len() {
+                return Err(BinaryIoError::Invalid("coefficient ID is outside table"));
+            }
             let mut imported = self
                 .imported
                 .lock()
@@ -220,7 +274,7 @@ impl LazyDecodedCoefficientTable {
             if let Some(value) = imported.coefficients.get(&id.index()) {
                 return Ok(value.clone());
             }
-            let value = Arc::new(decoded.clone());
+            let value = Arc::new(factored.get(id.index())?);
             admit(&value)?;
             if self.retain {
                 super::resource_array::<(usize, Arc<Coefficient>)>(1)?;

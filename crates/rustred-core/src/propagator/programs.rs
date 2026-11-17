@@ -41,6 +41,15 @@ impl CustomPayloadRef {
         }
     }
 
+    /// The bytes for a program build: a payload file is mapped, not read
+    /// (batch 12); otherwise as [`Self::bytes`].
+    pub fn view(&self) -> Result<super::payload_cache::PPayloadBytes, PError> {
+        match self {
+            Self::File(file) => file.view(),
+            _ => self.bytes().map(Into::into),
+        }
+    }
+
     /// The payload length when it is known without reading the payload.
     pub fn len_hint(&self) -> Option<u64> {
         match self {
@@ -151,14 +160,14 @@ fn custom_step(library: &PLibrary, owner: &POwnerSpec) -> Result<Arc<dyn PLaneSt
             weight,
             Arc::clone(budget),
             Box::new(move || {
-                build_custom_step_ordered(&presentation, &payload.bytes()?, &meta, order.as_deref())
+                build_custom_step_ordered(&presentation, &payload.view()?, &meta, order.as_deref())
             }),
         );
         return Ok(step);
     }
     build_custom_step_ordered(
         presentation,
-        &payload.bytes()?,
+        &payload.view()?,
         meta,
         library.rule_order(owner.class),
     )

@@ -714,6 +714,197 @@ impl FactoredSection {
     }
 }
 
+// ----- on-demand reader (batch 12, engine-line) -----
+
+fn skip_integer(src: &mut Cursor<'_>) -> Result<(), BinaryIoError> {
+    let tag = src.varint()?;
+    if tag & 1 == 1 {
+        let n = usize::try_from(tag >> 1)
+            .map_err(|_| BinaryIoError::Invalid("factored table integer length"))?;
+        src.take(n)?;
+    }
+    Ok(())
+}
+
+fn skip_poly(src: &mut Cursor<'_>, limits: BinaryIoLimits) -> Result<(), BinaryIoError> {
+    let n = src.count(limits, "factored table polynomial terms")?;
+    for _ in 0..n {
+        skip_integer(src)?;
+        let nz = src.varint()?;
+        for _ in 0..nz {
+            src.varint()?;
+            src.varint()?;
+        }
+    }
+    Ok(())
+}
+
+fn skip_part(src: &mut Cursor<'_>, limits: BinaryIoLimits) -> Result<(), BinaryIoError> {
+    skip_integer(src)?;
+    let n = src.count(limits, "factored table factor references")?;
+    for _ in 0..n {
+        src.varint()?;
+        src.varint()?;
+    }
+    Ok(())
+}
+
+/// A factored / shared section read ON DEMAND: one pass records the byte
+/// offset of every dictionary entry and every coefficient's parts (no
+/// polynomial is built); a dictionary entry is decoded the first time a
+/// coefficient needs it and kept (shared by every later coefficient: the
+/// shared form's repeated denominators), a coefficient is multiplied back
+/// on each request. [`Self::expand`] is identical to the eager decoder's
+/// coefficient (same parts, same entries, same multiplication).
+pub(super) struct OnDemandFactoredSection {
+    bytes: Arc<[u8]>,
+    templates: Vec<Coefficient>,
+    entry_offsets: Vec<u64>,
+    part_offsets: Vec<u64>,
+    entries: Vec<std::sync::OnceLock<Arc<CoefficientPolynomial>>>,
+    limits: BinaryIoLimits,
+}
+
+impl OnDemandFactoredSection {
+    pub(super) fn new(
+        bytes: Arc<[u8]>,
+        state_map: &symbolica::state::StateMap,
+        limits: BinaryIoLimits,
+    ) -> Result<Self, BinaryIoError> {
+        if !is_factored_table(&bytes) {
+            return Err(BinaryIoError::Invalid("not a factored coefficient table"));
+        }
+        let mut src = Cursor {
+            bytes: &bytes,
+            at: 8,
+        };
+        let version = u32::from_le_bytes(src.take(4)?.try_into().expect("4 bytes"));
+        if version != FACTORED_TABLE_VERSION {
+            return Err(BinaryIoError::Invalid(
+                "unsupported factored coefficient table version",
+            ));
+        }
+        let nmaps = src.count(limits, "factored table variable maps")?;
+        let mut templates = Vec::with_capacity(nmaps);
+        for _ in 0..nmaps {
+            let n = src.count(limits, "factored table template bytes")?;
+            if n <= NATIVE_ATOM_HEADER_BYTES {
+                return Err(BinaryIoError::Invalid("invalid native atom frame"));
+            }
+            let frame = src.take(n)?;
+            templates.push(super::atoms::decode_generated_frame(
+                frame, state_map, limits, false,
+            )?);
+        }
+        let nentries = src.count(limits, "factored table dictionary entries")?;
+        super::resource_array::<u64>(nentries)?;
+        let mut entry_offsets = Vec::with_capacity(nentries);
+        for _ in 0..nentries {
+            entry_offsets.push(src.at as u64);
+            let map = usize::try_from(src.varint()?)
+                .ok()
+                .filter(|&m| m < templates.len())
+                .ok_or(BinaryIoError::Invalid("factored table map reference"))?;
+            let _ = map;
+            skip_poly(&mut src, limits)?;
+        }
+        let count = src.count(limits, "coefficient table entries")?;
+        if count > 0 {
+            super::CoefficientId::try_from_index(count - 1)?;
+        }
+        super::resource_array::<u64>(count)?;
+        let mut part_offsets = Vec::with_capacity(count);
+        for _ in 0..count {
+            part_offsets.push(src.at as u64);
+            let map = usize::try_from(src.varint()?)
+                .ok()
+                .filter(|&m| m < templates.len())
+                .ok_or(BinaryIoError::Invalid("factored table map reference"))?;
+            let _ = map;
+            skip_part(&mut src, limits)?;
+            skip_part(&mut src, limits)?;
+        }
+        if src.at != bytes.len() {
+            return Err(BinaryIoError::Invalid("trailing coefficient table bytes"));
+        }
+        let entries = (0..nentries).map(|_| std::sync::OnceLock::new()).collect();
+        Ok(Self {
+            bytes,
+            templates,
+            entry_offsets,
+            part_offsets,
+            entries,
+            limits,
+        })
+    }
+
+    pub(super) fn len(&self) -> usize {
+        self.part_offsets.len()
+    }
+
+    /// Dictionary entries decoded so far.
+    pub(super) fn decoded_entries(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| entry.get().is_some())
+            .count()
+    }
+
+    fn entry(&self, id: u32) -> Result<Arc<CoefficientPolynomial>, BinaryIoError> {
+        let cell = self.entries.get(id as usize).ok_or(BinaryIoError::Invalid(
+            "factored table dictionary reference",
+        ))?;
+        if let Some(entry) = cell.get() {
+            return Ok(Arc::clone(entry));
+        }
+        let mut src = Cursor {
+            bytes: &self.bytes,
+            at: self.entry_offsets[id as usize] as usize,
+        };
+        let map = src.varint()? as usize;
+        let polynomial = Arc::new(get_poly(
+            &mut src,
+            &self.templates[map].numerator,
+            self.limits,
+        )?);
+        Ok(Arc::clone(cell.get_or_init(|| polynomial)))
+    }
+
+    pub(super) fn expand(&self, i: usize) -> Result<Coefficient, BinaryIoError> {
+        let at = *self
+            .part_offsets
+            .get(i)
+            .ok_or(BinaryIoError::Invalid("coefficient ID is outside table"))?;
+        let mut src = Cursor {
+            bytes: &self.bytes,
+            at: at as usize,
+        };
+        let map = src.varint()? as usize;
+        let num = get_part(&mut src, self.entries.len(), self.limits)?;
+        let den = get_part(&mut src, self.entries.len(), self.limits)?;
+        let used: HashMap<u32, Arc<CoefficientPolynomial>> = num
+            .factors
+            .iter()
+            .chain(&den.factors)
+            .map(|&(id, _)| Ok((id, self.entry(id)?)))
+            .collect::<Result<_, BinaryIoError>>()?;
+        let template = &self.templates[map];
+        let mut value = template.clone();
+        value.numerator = multiply(&num, |id| &*used[&id], &template.numerator);
+        value.denominator = multiply(&den, |id| &*used[&id], &template.numerator);
+        if value.denominator.is_zero() {
+            return Err(BinaryIoError::Invalid("factored table zero denominator"));
+        }
+        validate_coefficient_on_map(
+            &value,
+            value.numerator.variables(),
+            self.limits.exact_algebra,
+        )
+        .map_err(super::native_error)?;
+        Ok(value)
+    }
+}
+
 /// Parse a factored section without multiplying any coefficient back.
 pub(super) fn parse_factored_table(
     atoms: &[u8],
@@ -855,8 +1046,43 @@ mod tests {
             assert_eq!(value.denominator, original.denominator, "denominator {i}");
             assert_eq!(value.get_variables(), original.get_variables(), "map {i}");
         }
-        // per-coefficient expansion (RUSTRED_COEF_FORM_LAZY path), any order
+        // batch 12: the ON-DEMAND reader of both forms gives the identical coefficients, in any order,
+        // decoding only the dictionary entries the requested coefficients use
         let state_map = super::super::atoms::import_state(&encoded.state).unwrap();
+        for form in [factored.clone(), encode_shared_table(&originals).unwrap()] {
+            let on_demand = OnDemandFactoredSection::new(
+                Arc::from(&form[..]),
+                &state_map,
+                BinaryIoLimits::default(),
+            )
+            .unwrap();
+            assert_eq!(on_demand.len(), originals.len());
+            assert_eq!(on_demand.decoded_entries(), 0);
+            let last = originals.len() - 1;
+            let value = on_demand.expand(last).unwrap();
+            assert_eq!(value.numerator, originals[last].numerator);
+            assert!(
+                on_demand.decoded_entries() <= 2,
+                "only the last coefficient's entries"
+            );
+            for (i, original) in originals.iter().enumerate().rev() {
+                let value = on_demand.expand(i).unwrap();
+                assert_eq!(
+                    value.numerator, original.numerator,
+                    "on-demand numerator {i}"
+                );
+                assert_eq!(
+                    value.denominator, original.denominator,
+                    "on-demand denominator {i}"
+                );
+                assert_eq!(
+                    value.get_variables(),
+                    original.get_variables(),
+                    "on-demand map {i}"
+                );
+            }
+        }
+        // per-coefficient expansion (RUSTRED_COEF_FORM_LAZY path), any order
         let section =
             parse_factored_table(&factored, &state_map, BinaryIoLimits::default()).unwrap();
         assert_eq!(section.len(), originals.len());

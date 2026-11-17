@@ -37,6 +37,101 @@ pub type PPayloadCheck = Arc<dyn Fn(&[u8]) -> Result<(), PError> + Send + Sync>;
 
 /// The decoding of a stored payload file into the payload bytes (a
 /// compressed package, p5l-library session 2), applied on every read.
+/// A payload's bytes: in memory, or a read-only private mapping of its file
+/// (batch 12: the pages are page cache, read on access, not process heap).
+#[derive(Clone)]
+pub struct PPayloadBytes(PayloadOwner);
+
+#[derive(Clone)]
+enum PayloadOwner {
+    Owned(Arc<[u8]>),
+    Mapped(Arc<Mapping>),
+}
+
+struct Mapping {
+    ptr: *const u8,
+    len: usize,
+}
+
+// SAFETY: a read-only private mapping, never written through, unmapped once
+// in Drop; its bytes are immutable for its lifetime (the payload files of a
+// library are not rewritten in place: the digest check below catches a change
+// between reads).
+unsafe impl Send for Mapping {}
+unsafe impl Sync for Mapping {}
+
+impl Drop for Mapping {
+    fn drop(&mut self) {
+        if self.len > 0 {
+            // SAFETY: ptr/len are exactly the mapping created in `map_file`.
+            unsafe {
+                libc::munmap(self.ptr as *mut libc::c_void, self.len);
+            }
+        }
+    }
+}
+
+fn map_file(path: &Path) -> std::io::Result<Mapping> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::File::open(path)?;
+    let len = usize::try_from(file.metadata()?.len())
+        .map_err(|_| std::io::Error::other("payload larger than the address space"))?;
+    if len == 0 {
+        return Ok(Mapping {
+            ptr: std::ptr::NonNull::<u8>::dangling().as_ptr(),
+            len: 0,
+        });
+    }
+    // SAFETY: a fresh read-only private mapping of a whole open file.
+    let ptr = unsafe {
+        libc::mmap(
+            std::ptr::null_mut(),
+            len,
+            libc::PROT_READ,
+            libc::MAP_PRIVATE,
+            file.as_raw_fd(),
+            0,
+        )
+    };
+    if ptr == libc::MAP_FAILED {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(Mapping {
+        ptr: ptr as *const u8,
+        len,
+    })
+}
+
+impl std::ops::Deref for PPayloadBytes {
+    type Target = [u8];
+    fn deref(&self) -> &[u8] {
+        match &self.0 {
+            PayloadOwner::Owned(bytes) => bytes,
+            // SAFETY: the mapping lives as long as the Arc this borrows from.
+            PayloadOwner::Mapped(mapping) => unsafe {
+                std::slice::from_raw_parts(mapping.ptr, mapping.len)
+            },
+        }
+    }
+}
+
+impl From<Arc<[u8]>> for PPayloadBytes {
+    fn from(bytes: Arc<[u8]>) -> Self {
+        Self(PayloadOwner::Owned(bytes))
+    }
+}
+
+impl PPayloadBytes {
+    pub fn is_mapped(&self) -> bool {
+        matches!(self.0, PayloadOwner::Mapped(_))
+    }
+}
+
+/// `RUSTRED_P_PAYLOAD_MMAP=0`: read payload files into memory (before batch 12).
+fn payload_mmap() -> bool {
+    !std::env::var("RUSTRED_P_PAYLOAD_MMAP").is_ok_and(|v| v == "0")
+}
+
 pub type PPayloadDecode = Arc<dyn Fn(Vec<u8>) -> Result<Vec<u8>, PError> + Send + Sync>;
 
 /// A Custom payload on disk, read on use.
@@ -109,6 +204,40 @@ impl PPayloadFile {
     /// How often the file was read.
     pub fn reads(&self) -> u64 {
         self.reads.load(Ordering::Relaxed)
+    }
+
+    /// The bytes for a program build: a read-only mapping of the file when it
+    /// is stored plain (checked like [`Self::read`]), else [`Self::read`].
+    pub fn view(&self) -> Result<PPayloadBytes, PError> {
+        if self.decode.is_some() || !payload_mmap() {
+            return self.read().map(PPayloadBytes::from);
+        }
+        let failed = |detail: String| {
+            PError::MalformedLibrary(format!("payload {}: {detail}", self.path.display()))
+        };
+        let mapping = map_file(&self.path).map_err(|error| failed(error.to_string()))?;
+        self.reads.fetch_add(1, Ordering::Relaxed);
+        if mapping.len as u64 != self.bytes {
+            return Err(failed(format!(
+                "{} bytes, the library records {}",
+                mapping.len, self.bytes
+            )));
+        }
+        let bytes = PPayloadBytes(PayloadOwner::Mapped(Arc::new(mapping)));
+        let digest: [u8; 32] = blake3::hash(&bytes[..]).into();
+        match self.digest.get() {
+            Some(first) if *first != digest => {
+                return Err(failed("changed since its first read".to_owned()));
+            }
+            Some(_) => {}
+            None => {
+                if let Some(check) = &self.check {
+                    check(&bytes[..])?;
+                }
+                let _ = self.digest.set(digest);
+            }
+        }
+        Ok(bytes)
     }
 
     /// The bytes: the recorded length, checked on the first read, and the
@@ -527,8 +656,15 @@ mod tests {
         std::fs::write(&path, b"abcd").unwrap();
         let file = PPayloadFile::new(path.clone(), 4, None);
         assert_eq!(&*file.read().unwrap(), b"abcd");
+        // batch 12: the mapped view has the same bytes and the same checks
+        if payload_mmap() {
+            let view = file.view().unwrap();
+            assert!(view.is_mapped());
+            assert_eq!(&view[..], b"abcd");
+        }
         std::fs::write(&path, b"abce").unwrap();
         assert!(file.read().is_err());
+        assert!(file.view().is_err());
         std::fs::write(&path, b"abc").unwrap();
         assert!(file.read().is_err());
         std::fs::remove_dir_all(&dir).ok();
