@@ -578,22 +578,38 @@ fn a_linear_cap_is_served_exactly_on_its_violation() {
                         {
                             let k = [k0, k1, k2];
                             let inside = caps.constraints.iter().all(|(a, b)| {
-                                a.iter().zip(&k).map(|(x, y)| x * i64::from(*y)).sum::<i64>() <= *b
+                                a.iter()
+                                    .zip(&k)
+                                    .map(|(x, y)| x * i64::from(*y))
+                                    .sum::<i64>()
+                                    <= *b
                             });
                             let got = cd.first_match(&k).unwrap();
                             if !inside {
-                                assert!(matches!(&got, Dispatch::Covered(r) if r.table == 0), "case {case} {k:?}: {got:?}");
+                                assert!(
+                                    matches!(&got, Dispatch::Covered(r) if r.table == 0),
+                                    "case {case} {k:?}: {got:?}"
+                                );
                                 continue;
                             }
                             inside_n += 1;
                             let want = d.first_match(&k).unwrap();
                             match (&got, &want) {
                                 (Dispatch::Covered(a), Dispatch::Covered(b)) => {
-                                    assert!(a.table >= 1 && a.record == b.record, "case {case} {k:?}")
+                                    assert!(
+                                        a.table >= 1 && a.record == b.record,
+                                        "case {case} {k:?}"
+                                    )
                                 }
                                 (Dispatch::Uncovered, Dispatch::Uncovered) => {}
-                                (Dispatch::Blocked { at: a, .. }, Dispatch::Blocked { at: b, .. }) => {
-                                    assert!(a.table >= 1 && a.record == b.record, "case {case} {k:?}")
+                                (
+                                    Dispatch::Blocked { at: a, .. },
+                                    Dispatch::Blocked { at: b, .. },
+                                ) => {
+                                    assert!(
+                                        a.table >= 1 && a.record == b.record,
+                                        "case {case} {k:?}"
+                                    )
                                 }
                                 _ => panic!("case {case} {k:?}: capped {got:?} vs {want:?}"),
                             }
@@ -616,7 +632,10 @@ fn implicit_equalities_are_made_explicit_with_the_same_points() {
     for case in 0..60 {
         let k = 3usize;
         let x: Vec<Affine> = (0..k)
-            .map(|i| Affine { coef: (0..k).map(|j| i128::from(i == j)).collect(), c: 0 })
+            .map(|i| Affine {
+                coef: (0..k).map(|j| i128::from(i == j)).collect(),
+                c: 0,
+            })
             .collect();
         let a: Vec<i128> = (0..k).map(|_| rng.below(5) as i128 - 2).collect();
         if a.iter().all(|&v| v == 0) {
@@ -624,25 +643,48 @@ fn implicit_equalities_are_made_explicit_with_the_same_points() {
         }
         let b = rng.below(7) as i128 - 3;
         let mut cons = vec![
-            Affine { coef: a.clone(), c: b },
-            Affine { coef: a.iter().map(|v| -v).collect(), c: -b },
+            Affine {
+                coef: a.clone(),
+                c: b,
+            },
+            Affine {
+                coef: a.iter().map(|v| -v).collect(),
+                c: -b,
+            },
         ];
         // box -4..=4 per parameter
         for j in 0..k {
             let mut e = vec![0i128; k];
             e[j] = 1;
-            cons.push(Affine { coef: e.clone(), c: 4 });
+            cons.push(Affine {
+                coef: e.clone(),
+                c: 4,
+            });
             e[j] = -1;
             cons.push(Affine { coef: e, c: 4 });
         }
-        let r = Region { k, x, cons, names: (0..k).map(|i| format!("t{i}")).collect() };
+        let r = Region {
+            k,
+            x,
+            cons,
+            names: (0..k).map(|i| format!("t{i}")).collect(),
+        };
         let pts = |r: &Region, w: i128| -> std::collections::BTreeSet<Vec<i128>> {
             let mut out = std::collections::BTreeSet::new();
             let rng_k: Vec<i128> = (-w..=w).collect();
             let mut t = vec![-w; r.k];
             loop {
-                if r.cons.iter().all(|c| c.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + c.c >= 0) {
-                    out.insert(r.x.iter().map(|xa| xa.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + xa.c).collect());
+                if r.cons
+                    .iter()
+                    .all(|c| c.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + c.c >= 0)
+                {
+                    out.insert(
+                        r.x.iter()
+                            .map(|xa| {
+                                xa.coef.iter().zip(&t).map(|(a, b)| a * b).sum::<i128>() + xa.c
+                            })
+                            .collect(),
+                    );
                 }
                 let mut s = 0;
                 loop {
@@ -663,7 +705,11 @@ fn implicit_equalities_are_made_explicit_with_the_same_points() {
         };
         let before = pts(&r, 6);
         match r.reduce_equalities().unwrap() {
-            None => assert!(before.is_empty(), "case {case}: reduced to empty but {} points", before.len()),
+            None => assert!(
+                before.is_empty(),
+                "case {case}: reduced to empty but {} points",
+                before.len()
+            ),
             Some(red) => {
                 assert_eq!(red.k, k - 1, "case {case}");
                 // the lattice re-parametrisation may stretch the parameters: a wide window
@@ -687,9 +733,18 @@ fn prune_drops_only_dead_records_and_fails_on_a_live_one() {
     let d = disp(&f, &[r0, r1, r2]);
     let region = Cone::excess_simplex(&f, 3);
     let o = ConeOptions::default();
-    assert!(matches!(record_liveness(&d, &f, &region, 0, &o, 10_000), Liveness::Live(_)));
-    assert!(matches!(record_liveness(&d, &f, &region, 1, &o, 10_000), Liveness::Live(_)));
-    assert_eq!(record_liveness(&d, &f, &region, 2, &o, 10_000), Liveness::Dead);
+    assert!(matches!(
+        record_liveness(&d, &f, &region, 0, &o, 10_000),
+        Liveness::Live(_)
+    ));
+    assert!(matches!(
+        record_liveness(&d, &f, &region, 1, &o, 10_000),
+        Liveness::Live(_)
+    ));
+    assert_eq!(
+        record_liveness(&d, &f, &region, 2, &o, 10_000),
+        Liveness::Dead
+    );
     // the dead record pruned: ok, coverage and first matches unchanged
     let v = vec![None, None, Some(Liveness::Dead)];
     let (p, rep) = prune(&d, &f, &region, &v, true, false, &o, 10_000).unwrap();
@@ -700,10 +755,18 @@ fn prune_drops_only_dead_records_and_fails_on_a_live_one() {
     // a LIVE record forged as dead: the re-proof refuses it
     let v = vec![Some(Liveness::Dead), None, None];
     let (_, rep) = prune(&d, &f, &region, &v, true, false, &o, 10_000).unwrap();
-    assert!(!rep.ok() && rep.problems.iter().any(|p| p.contains("IS first match")), "{:?}", rep.problems);
+    assert!(
+        !rep.ok() && rep.problems.iter().any(|p| p.contains("IS first match")),
+        "{:?}",
+        rep.problems
+    );
     // the same with trusted verdicts: the first-match identity on the probe keys refuses it
     let (_, rep) = prune(&d, &f, &region, &v, true, true, &o, 10_000).unwrap();
-    assert!(!rep.ok() && rep.problems.iter().any(|p| p.contains("first match")), "{:?}", rep.problems);
+    assert!(
+        !rep.ok() && rep.problems.iter().any(|p| p.contains("first match")),
+        "{:?}",
+        rep.problems
+    );
     // an undecided verdict is kept with keep_undecided
     let v = vec![None, None, Some(Liveness::Undecided("budget".into()))];
     let (_, rep) = prune(&d, &f, &region, &v, true, true, &o, 10_000).unwrap();
@@ -724,7 +787,10 @@ fn a_duplicate_after_its_original_is_dead() {
     let d = disp(&f, &[r0, r1, r2]);
     let region = Cone::excess_simplex(&f, 4);
     let o = ConeOptions::default();
-    assert_eq!(record_liveness(&d, &f, &region, 1, &o, 10_000), Liveness::Dead);
+    assert_eq!(
+        record_liveness(&d, &f, &region, 1, &o, 10_000),
+        Liveness::Dead
+    );
     match record_liveness(&d, &f, &region, 2, &o, 10_000) {
         Liveness::Live(w) => {
             assert_eq!(w[0], 2, "{w:?}");
@@ -733,7 +799,64 @@ fn a_duplicate_after_its_original_is_dead() {
         x => panic!("{x:?}"),
     }
     match record_liveness(&d, &f, &region, 0, &o, 10_000) {
-        Liveness::Live(w) => assert!(matches!(d.first_match(&w), Ok(Dispatch::Covered(r)) if r.record == 0)),
+        Liveness::Live(w) => {
+            assert!(matches!(d.first_match(&w), Ok(Dispatch::Covered(r)) if r.record == 0))
+        }
         x => panic!("{x:?}"),
+    }
+}
+
+/// Per-record FIRST-MATCH KEY COUNTS per shell (D + r) on a region equal brute force (frame: 2 lines, 1 numerator): every key of the region counted once,
+/// for the record that is its first match; a shadowed record counts 0; the counts are complete within the enumeration cap.
+#[test]
+fn first_match_counts_per_shell_equal_brute_force() {
+    use rustred_campaign_core::parametric::prune::record_first_match_counts;
+    use std::collections::BTreeMap;
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut r0 = rec(3);
+    r0.bounds.push("n0-2"); // n0 >= 2
+    let mut r1 = rec(3);
+    r1.exceptions.push(vec!["-1+n1"]); // excepted at n1 = 1
+    let r2 = rec(3); // everything left
+    let r3 = rec(3); // shadowed by r2
+    let d = disp(&f, &[r0, r1, r2, r3]);
+    let region = Cone::excess_simplex(&f, 4);
+    let o = ConeOptions::default();
+    let shell = |k: &[i32]| -> i64 {
+        (0..3)
+            .map(|s| {
+                if f.is_line(s) {
+                    i64::from(k[s]) - 1
+                } else {
+                    -i64::from(k[s])
+                }
+            })
+            .sum()
+    };
+    // brute force over a box that contains the region
+    let mut want: Vec<BTreeMap<i64, u64>> = vec![BTreeMap::new(); 4];
+    for a in 1..=7 {
+        for b in 1..=7 {
+            for x in -6..=0 {
+                let k = vec![a, b, x];
+                if !region.contains(&k) {
+                    continue;
+                }
+                if let Ok(Dispatch::Covered(r)) = d.first_match(&k) {
+                    *want[r.record].entry(shell(&k)).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    assert!(
+        want[0].values().sum::<u64>() > 0
+            && want[1].values().sum::<u64>() > 0
+            && want[2].values().sum::<u64>() > 0
+    );
+    for (pos, w) in want.iter().enumerate() {
+        let (got, complete) =
+            record_first_match_counts(&d, &f, &region, pos, &o, 1_000_000, &shell).unwrap();
+        assert!(complete, "record {pos}");
+        assert_eq!(&got, w, "record {pos}");
     }
 }

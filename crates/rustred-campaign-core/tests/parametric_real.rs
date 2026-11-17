@@ -3700,6 +3700,11 @@ fn record_liveness() {
             .as_ref()
             .map_or("none".to_string(), |s| s.len().to_string())
     );
+    let count = std::env::var("PARAMETRIC_LIVENESS_COUNTS").as_deref() == Ok("1");
+    let count_cap: u64 = std::env::var("PARAMETRIC_COUNT_ENUM")
+        .ok()
+        .and_then(|x| x.parse().ok())
+        .unwrap_or(10_000_000);
     let mut w = std::io::BufWriter::new(file);
     for pos in todo {
         let (ti, ri) = order[pos];
@@ -3716,8 +3721,40 @@ fn record_liveness() {
                 ("undecided", None, Some(y))
             }
         };
-        writeln!(w, "{}", json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
-            "why": why, "region": region.label, "seconds": t0.elapsed().as_secs_f64()})).unwrap();
+        // PARAMETRIC_LIVENESS_COUNTS=1 (2026-11-17, final certification: the per-key proof lane needs them): for a LIVE
+        // record its first-match distinct keys in the region per shell D + r (enumeration cap PARAMETRIC_COUNT_ENUM per element)
+        let mut line = json!({"position": pos, "table": g5.tables()[ti].name, "label": label, "live": live, "witness": witness,
+            "why": why, "region": region.label, "seconds": t0.elapsed().as_secs_f64()});
+        if count && live == "live" {
+            let t1 = std::time::Instant::now();
+            let shell = |k: &[i32]| -> i64 {
+                (0..n)
+                    .map(|s| {
+                        if frame.is_line(s) {
+                            i64::from(k[s]) - 1
+                        } else {
+                            -i64::from(k[s])
+                        }
+                    })
+                    .sum()
+            };
+            match rustred_campaign_core::parametric::prune::record_first_match_counts(
+                &g5, &frame, &region, pos, &base_opts, count_cap, &shell,
+            ) {
+                Ok((c, complete)) => {
+                    line["fm_keys"] = json!(c.values().sum::<u64>());
+                    line["fm_keys_by_shell"] = json!(
+                        c.iter()
+                            .map(|(k, v)| (k.to_string(), *v))
+                            .collect::<std::collections::BTreeMap<_, _>>()
+                    );
+                    line["fm_count_complete"] = json!(complete);
+                }
+                Err(e) => line["fm_count_error"] = json!(e),
+            }
+            line["count_seconds"] = json!(t1.elapsed().as_secs_f64());
+        }
+        writeln!(w, "{line}").unwrap();
         w.flush().unwrap();
     }
 }

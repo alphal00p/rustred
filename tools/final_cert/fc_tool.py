@@ -808,6 +808,124 @@ def cmd_candcheck(a):
     return 0 if not probs else FAIL
 
 
+# ------------------------------------------------------------------------------------------------------------- classes
+CLASS_WORDS = ('whole domain', 'every first-match key in cone', 'sampled N keys', 'dead in cone', 'none')
+
+
+def per_key_class(blob, cone_bound):
+    """'every first-match key in cone' / ('sampled', N) / None from the evidence text bound to a record."""
+    if re.search(r'ALL [\d,]+ first-match keys of cone %d\b' % cone_bound, blob) or re.search(r'all fm keys', blob):
+        return 'every first-match key in cone'
+    m = re.search(r'ALL [\d,]+ first-match keys with D \+ r <= (\d+)', blob)
+    if m and int(m.group(1)) >= cone_bound:
+        return 'every first-match key in cone'
+    m = re.search(r'"keys": (\d+).*?"fm_count_cone\d+": (\d+)', blob)
+    if m:
+        return 'every first-match key in cone' if int(m.group(1)) >= int(m.group(2)) else ('sampled', int(m.group(1)))
+    for pat in (r'EXACT at (\d+) keys', r'all (\d+) served', r'at (\d+) keys'):
+        m = re.search(pat, blob)
+        if m:
+            return ('sampled', int(m.group(1)))
+    return None
+
+
+def cmd_classes(a):
+    """Per rule ONE exactness class in the coordinator's words (whole domain / every first-match key in cone / sampled N keys /
+    dead in cone / none), from the exactness binding (evidence re-read for the key counts), the liveness in the region and the
+    optional first-match counts; written into the run and the delivery (classes file, VERIFIER_SPEC section, summary metadata,
+    MANIFEST re-issued)."""
+    env = run_env(a.run); N = env['cfg_node']
+    cfgx = json.load(open(env['cfg_exact_config']))
+    cone_bound = int(re.search(r'simplex:(\d+)', env['cfg_region']).group(1))
+    # every evidence row's full text, by (form, hash) and by index
+    blobs_h, blobs_i = {}, {}
+    for e in cfgx['evidence']:
+        lines = [l for l in open(e['path']) if not (e.get('comment') and l.startswith(e['comment']))]
+        for r in csv.DictReader(lines, delimiter='\t'):
+            text = ' | '.join('%s=%s' % (k, v) for k, v in r.items() if v)
+            if e.get('hash_col') and r.get(e['hash_col']):
+                blobs_h.setdefault((e.get('hash_form', 'list'), r[e['hash_col']]), []).append(text)
+            try:
+                blobs_i.setdefault(int(r[e['index_col']]), []).append(text)
+            except (KeyError, ValueError):
+                pass
+    live = {}
+    lp = os.path.join(a.run, 'live', N + '.liveness.jsonl')
+    if os.path.exists(lp):
+        for l in open(lp):
+            r = json.loads(l)
+            if r.get('file') is not None:
+                live[(r['file'], r['table_index'])] = r
+    counts = {}
+    if a.counts and os.path.exists(a.counts):
+        for l in open(a.counts):
+            r = json.loads(l)
+            counts[(r.get('file'), r.get('table_index'))] = r
+    out, tally, open_live = [], {}, []
+    for l in open(os.path.join(a.run, 'exact', N + '.exact.jsonl')):
+        r = json.loads(l)
+        key = (r['file'], r['table_index'])
+        lv = live.get(key, {}).get('live')
+        blob = ' || '.join(sum((blobs_h.get((f, h), []) for f, h in r['target_rhs_sha256_forms'].items()), [])
+                           + (blobs_i.get(r['dispatch_position'], []) if r['dispatch_position'] is not None and r['bound_by'] == 'index' else []))
+        if r['category'] == 'whole':
+            cls, n = 'whole domain', None
+        elif lv == 'dead':
+            cls, n = 'dead in cone', None
+        else:
+            pk = per_key_class(blob, cone_bound) if r['category'] == 'per_key' else None
+            if pk == 'every first-match key in cone':
+                cls, n = pk, None
+            elif isinstance(pk, tuple):
+                cls, n = 'sampled N keys', pk[1]
+            else:
+                cls, n = 'none', None
+        words = cls.replace('N', str(n)) if cls == 'sampled N keys' else cls
+        c = counts.get(key, {})
+        row = {'file': r['file'], 'table_index': r['table_index'], 'dispatch_position': r['dispatch_position'], 'bytes': r['bytes'],
+               'target_rhs_sha256': r['target_rhs_sha256'], 'exactness_class': words, 'evidence_class': r['class'],
+               'evidence_source': r['class_source'], 'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
+               'fm_keys_in_cone': c.get('fm_keys'), 'fm_count_complete': c.get('fm_count_complete')}
+        out.append(row); tally[cls] = tally.get(cls, 0) + 1
+        if cls == 'none' and lv in ('live', 'undecided', None):
+            open_live.append(row)
+    rd = os.path.join(a.run, 'exact')
+    with open(os.path.join(rd, N + '.exact_classes.jsonl'), 'w') as g:
+        for row in out:
+            g.write(json.dumps(row) + '\n')
+    with open(os.path.join(rd, N + '.exact_classes.tsv'), 'w') as g:
+        cols = list(out[0].keys())
+        g.write('\t'.join(cols) + '\n')
+        for row in out:
+            g.write('\t'.join('' if row[c] is None else str(row[c]) for c in cols) + '\n')
+    summ = {'region': env['cfg_region'], 'words': list(CLASS_WORDS), 'by_class': tally, 'records': len(out),
+            'none_live_or_undecided': [{k: x[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'evidence_class', 'liveness_in_cone')} for x in open_live],
+            'status': ('EXACTNESS OPEN: see %s' % a.open_lane) if open_live else 'every rule live in the cone has an exactness class other than none',
+            'rule': 'whole domain if the re-bound evidence proves the identity on the whole domain; else dead in cone if record_liveness proves'
+                    ' it never first match in the region; else every first-match key in cone / sampled N keys from the per-key evidence; else none'}
+    dump(summ, os.path.join(rd, N + '.exact_classes.summary.json'))
+    print(json.dumps({k: v for k, v in summ.items() if k != 'none_live_or_undecided'}), len(open_live))
+    if a.deliver:
+        for f in (N + '.exact_classes.jsonl', N + '.exact_classes.tsv', N + '.exact_classes.summary.json'):
+            import shutil
+            shutil.copy2(os.path.join(rd, f), os.path.join(a.deliver, 'exact', f))
+        sp = os.path.join(a.deliver, 'summary.json')
+        sj = json.load(open(sp)); sj['exactness_classes'] = {'file': 'exact/%s.exact_classes.tsv' % N, 'by_class': tally, 'status': summ['status'],
+                                                              'none_live_or_undecided': len(open_live)}
+        dump(sj, sp)
+        vs = os.path.join(a.deliver, 'VERIFIER_SPEC.md')
+        L = ['', '## Per-rule exactness class (%s; region %s)' % ('; '.join(CLASS_WORDS).replace('N keys', '<N> keys'), env['cfg_region']),
+             'File `exact/%s.exact_classes.tsv` (and .jsonl): per rule its class, the evidence class text it rests on, its liveness in the region.' % N,
+             'Counts: %s.' % ', '.join('%s %d' % (k, v) for k, v in sorted(tally.items())),
+             '**%s**' % summ['status']]
+        if open_live:
+            L.append('Rules with class "none" that are live (or undecided / not run) in %s: %d (listed in exact/%s.exact_classes.summary.json).' % (env['cfg_region'], len(open_live), N))
+        open(vs, 'a').write('\n'.join(L) + '\n')
+        cmd_manifest(argparse.Namespace(dir=a.deliver, label=env.get('FC_LABEL', 'FINAL'), extra=os.path.join(a.deliver, 'referenced_outside.json')))
+        print('MANIFEST', sha256_file(os.path.join(a.deliver, 'MANIFEST.json')))
+    return 0
+
+
 # ------------------------------------------------------------------------------------------------------ summary / deliver
 STEPS = ['prep', 'cert', 'term', 'b1', 'exact', 'imp_plain', 'imp_shared', 'live', 'fm', 'one', 'deliver']
 
@@ -1065,6 +1183,8 @@ def main():
     p.add_argument('--work', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('candcheck'); p.add_argument('--candidate', required=True); p.add_argument('--reference', required=True); p.add_argument('--sub', default='')
     p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
+    p = sp.add_parser('classes'); p.add_argument('--run', required=True); p.add_argument('--deliver', default=''); p.add_argument('--counts', default='')
+    p.add_argument('--open-lane', default='exact162')
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('summary'); p.add_argument('--run', required=True); p.add_argument('--state', required=True)
     p = sp.add_parser('deliver'); p.add_argument('--run', required=True); p.add_argument('--out', required=True)
