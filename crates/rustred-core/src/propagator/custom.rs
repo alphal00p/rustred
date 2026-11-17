@@ -1817,6 +1817,36 @@ pub(crate) fn take_rule_hit() -> Option<(u64, u32)> {
     LAST_RULE.with(std::cell::Cell::take)
 }
 
+type ZeroCertificateEntry = (
+    Arc<crate::family::IntegralFamily>,
+    Arc<Vec<zero::Certificate>>,
+);
+
+/// The process-wide cache of [`cached_zero_certificates`].
+#[allow(clippy::type_complexity)]
+static ZERO_CERTIFICATES: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<(usize, u64), ZeroCertificateEntry>>,
+> = std::sync::OnceLock::new();
+
+/// helper-vh2 B3: entries and certificates of the zero-proof cache.
+pub(crate) fn zero_certificate_cache() -> (usize, usize) {
+    ZERO_CERTIFICATES.get().map_or((0, 0), |cache| {
+        let cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+        (cache.len(), cache.values().map(|(_, proofs)| proofs.len()).sum())
+    })
+}
+
+/// helper-vh2 B3: drop the zero-proof cache (rebuilt on use; values never
+/// depend on it). Returns the entries dropped.
+pub(crate) fn release_zero_certificate_cache() -> usize {
+    ZERO_CERTIFICATES.get().map_or(0, |cache| {
+        let mut cache = cache.lock().unwrap_or_else(|e| e.into_inner());
+        let entries = cache.len();
+        *cache = std::collections::HashMap::new();
+        entries
+    })
+}
+
 /// [`zero_certificates`], computed once per process for each family and
 /// support (p5l-library-3): a lazily loaded Custom program evicted under its
 /// library's program budget is rebuilt on its next use, and the zero analysis
@@ -1827,14 +1857,7 @@ fn cached_zero_certificates(
     presentation: &Presentation,
     support: u64,
 ) -> Result<Vec<zero::Certificate>, PError> {
-    type Entry = (
-        Arc<crate::family::IntegralFamily>,
-        Arc<Vec<zero::Certificate>>,
-    );
-    static CACHE: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<(usize, u64), Entry>>,
-    > = std::sync::OnceLock::new();
-    let cache = CACHE.get_or_init(Default::default);
+    let cache = ZERO_CERTIFICATES.get_or_init(Default::default);
     let key = (Arc::as_ptr(&presentation.family) as usize, support);
     if let Some((_, proofs)) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(&key) {
         return Ok(proofs.as_ref().clone());

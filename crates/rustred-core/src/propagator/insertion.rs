@@ -374,6 +374,21 @@ thread_local! {
     > = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
+/// helper-vh2 B3: prepared kernel weights held by this thread.
+pub(crate) fn prepared_entries() -> usize {
+    PREPARED.with(|cache| cache.borrow().len())
+}
+
+/// helper-vh2 B3: drop this thread's prepared kernel weights.
+pub(crate) fn release_prepared() -> usize {
+    PREPARED.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let entries = cache.len();
+        *cache = std::collections::HashMap::new();
+        entries
+    })
+}
+
 /// Most prepared kernel weights kept per thread (cleared when full).
 const PREPARED_ENTRIES: usize = 1 << 16;
 

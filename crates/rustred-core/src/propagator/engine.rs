@@ -441,6 +441,38 @@ pub(crate) struct PEngine {
 }
 
 impl PEngine {
+    /// helper-vh2 B3: lazily built per-library state held by the engine:
+    /// prepared routes and authenticated orbits (built / cells).
+    pub(crate) fn retained(&self) -> serde_json::Value {
+        let built = |cells: &mut dyn Iterator<Item = bool>| cells.filter(|b| *b).count();
+        serde_json::json!({
+            "routes_prepared": built(&mut self.routes.values().map(|c| c.get().is_some())),
+            "routes": self.routes.len(),
+            "owner_orbits": built(&mut self.orbits.values().map(|c| c.get().is_some())),
+            "route_orbits": built(&mut self.route_orbits.values().map(|c| c.get().is_some())),
+            "presentation_orbits": built(&mut self.presentation_orbits.iter().map(|c| c.get().is_some())),
+        })
+    }
+
+    /// helper-vh2 B3: drop every prepared route and orbit (rebuilt on use;
+    /// they are pure functions of the library). Returns the cells dropped.
+    pub(crate) fn release(&mut self) -> usize {
+        let mut dropped = 0;
+        for cell in self.routes.values_mut() {
+            dropped += usize::from(cell.take().is_some());
+        }
+        for cell in self.orbits.values_mut() {
+            dropped += usize::from(cell.take().is_some());
+        }
+        for cell in self.route_orbits.values_mut() {
+            dropped += usize::from(cell.take().is_some());
+        }
+        for cell in &mut self.presentation_orbits {
+            dropped += usize::from(cell.take().is_some());
+        }
+        dropped
+    }
+
     pub(crate) fn new(library: &PLibrary) -> Result<Self, PError> {
         let shapes: Vec<Shape> = library
             .presentations()
@@ -1055,7 +1087,7 @@ pub(crate) mod light {
 /// contribution. `RUSTRED_P_CANON_CACHE=off` disables it,
 /// `RUSTRED_P_CANON_CACHE=<b>` sets 2^b entries per thread (default 2^13).
 /// Errors are not cached (computed again). Value-neutral.
-mod canon_cache {
+pub(crate) mod canon_cache {
     use std::cell::RefCell;
     use std::sync::OnceLock;
 
@@ -1080,6 +1112,19 @@ mod canon_cache {
 
     thread_local! {
         static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    /// helper-vh2 B3: (slots, filled) of this thread's cache.
+    pub(crate) fn occupancy() -> (usize, usize) {
+        CACHE.with(|cache| {
+            let cache = cache.borrow();
+            (cache.entries.len(), cache.entries.iter().filter(|e| e.is_some()).count())
+        })
+    }
+
+    /// helper-vh2 B3: drop this thread's cache.
+    pub(crate) fn release() {
+        CACHE.with(|cache| cache.borrow_mut().entries = Vec::new());
     }
 
     /// The cache size of this thread: `RUSTRED_P_CANON_CACHE` when set;
@@ -1169,7 +1214,7 @@ mod canon_cache {
 /// packed key). A key reached from many parents has its position computed
 /// once per cache residency. Same switch as [`canon_cache`]
 /// (`RUSTRED_P_CANON_CACHE`). Errors are not cached. Value-neutral.
-mod order_cache {
+pub(crate) mod order_cache {
     use std::cell::RefCell;
     use std::hash::BuildHasher;
 
@@ -1190,6 +1235,19 @@ mod order_cache {
 
     thread_local! {
         static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    /// helper-vh2 B3: (slots, filled) of this thread's cache.
+    pub(crate) fn occupancy() -> (usize, usize) {
+        CACHE.with(|cache| {
+            let cache = cache.borrow();
+            (cache.entries.len(), cache.entries.iter().filter(|e| e.is_some()).count())
+        })
+    }
+
+    /// helper-vh2 B3: drop this thread's cache.
+    pub(crate) fn release() {
+        CACHE.with(|cache| cache.borrow_mut().entries = Vec::new());
     }
 
     pub(super) fn lookup(

@@ -526,6 +526,75 @@ impl PLibrary {
         self.program_budget.as_ref()
     }
 
+    /// helper-vh2 B3: the state this library and the CALLING thread keep
+    /// between requests (counts; byte sizes only where the engine already
+    /// estimates them). Request worker pools are private to a request: their
+    /// threads, and so their thread-local caches, end with it.
+    pub fn retained_state(&self) -> serde_json::Value {
+        let programs = self.owners.values().filter(|owner| owner.program.get().is_some()).count();
+        let budget = self.program_budget.as_ref().map(|budget| {
+            let stats = budget.stats();
+            serde_json::json!({"limit_bytes": stats.limit_bytes, "resident_bytes": stats.resident_bytes,
+                "peak_resident_bytes": stats.peak_resident_bytes, "builds": stats.builds,
+                "rebuilds": stats.rebuilds, "evictions": stats.evictions})
+        });
+        let engine = match self.engine.get() {
+            Some(Ok(engine)) => engine.retained(),
+            Some(Err(_)) => serde_json::json!("failed"),
+            None => serde_json::Value::Null,
+        };
+        let (zero_entries, zero_proofs) = super::custom::zero_certificate_cache();
+        let memo = super::step_memo::counters();
+        let pools = super::step_memo::thread_pools();
+        let canon = super::engine::canon_cache::occupancy();
+        let order = super::engine::order_cache::occupancy();
+        let retained = self.retained.lock().unwrap_or_else(|e| e.into_inner());
+        serde_json::json!({
+            "owner_programs_built": programs,
+            "owners": self.owners.len(),
+            "program_budget": budget,
+            "engine": engine,
+            "zero_certificate_cache": {"entries": zero_entries, "proofs": zero_proofs},
+            "thread": {
+                "step_memo_entries": memo[2] + memo[5], "step_memo_coefficients": memo[6],
+                "spent_power_vectors": pools[0], "home_polynomial_contexts": pools[1],
+                "home_coefficient_contexts": pools[2],
+                "prepared_insertion_weights": super::insertion::prepared_entries(),
+                "canon_cache": [canon.0, canon.1], "order_cache": [order.0, order.1],
+            },
+            "retain_request_keys": retained.ids.len(),
+            "retain_request_records": retained.records.len(),
+        })
+    }
+
+    /// helper-vh2 B3: drop the state of [`Self::retained_state`] that a later
+    /// request rebuilds on use: built owner programs, the program budget's
+    /// unheld programs, the engine's prepared routes and orbits, the zero-proof
+    /// cache and the calling thread's caches and pools. Values never depend on
+    /// this state (each piece is a pure function of the library), only time.
+    /// Not dropped: the library itself, the engine's scheduling tables, a
+    /// caller's step cache, Retain-request keys. Returns what was dropped.
+    pub fn release_retained(&mut self) -> serde_json::Value {
+        let mut programs = 0usize;
+        for owner in self.owners.values_mut() {
+            programs += usize::from(owner.program.take().is_some());
+        }
+        let budget_freed = self.program_budget.as_ref().map_or(0, |budget| budget.release_unheld());
+        let engine_cells = match self.engine.get_mut() {
+            Some(Ok(engine)) => engine.release(),
+            _ => 0,
+        };
+        let zero = super::custom::release_zero_certificate_cache();
+        let prepared = super::insertion::release_prepared();
+        super::step_memo::release_thread_pools();
+        super::engine::canon_cache::release();
+        super::engine::order_cache::release();
+        super::engine::light::clear();
+        serde_json::json!({"owner_programs": programs, "program_budget_bytes": budget_freed,
+            "engine_cells": engine_cells, "zero_certificate_entries": zero,
+            "prepared_insertion_weights": prepared})
+    }
+
     /// The ordering tag `<P_ORDERING_VERSION>:<heuristic>` of the library's
     /// ordering (p artefact v2), part of its identity.
     pub fn ordering(&self) -> Option<&str> {

@@ -519,6 +519,24 @@ pub(crate) fn route(
     })
 }
 
+/// helper-vh2 B3: sizes of this thread's pools (spent power vectors, home
+/// polynomial contexts, home coefficient contexts).
+pub(crate) fn thread_pools() -> [usize; 3] {
+    [
+        POWERS.with(|pool| pool.borrow().len()),
+        HOME.with(|home| home.borrow().len()),
+        HOME_CONTEXT.with(|home| home.borrow().len()),
+    ]
+}
+
+/// helper-vh2 B3: drop this thread's pools and memo state.
+pub(crate) fn release_thread_pools() {
+    POWERS.with(|pool| *pool.borrow_mut() = Vec::new());
+    HOME.with(|home| *home.borrow_mut() = Vec::new());
+    HOME_CONTEXT.with(|home| *home.borrow_mut() = Vec::new());
+    STATE.with(|state| *state.borrow_mut() = State::default());
+}
+
 /// Drop this thread's memo entries (end of a request); the shared memo is
 /// dropped when no request uses it any more ([`begin`]).
 pub(crate) fn clear() {
