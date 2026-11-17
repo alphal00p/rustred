@@ -10,22 +10,24 @@
 //! node's line slots (at most `max_dots_per_line` each) times the ISP powers summing to -r (generic enumerator; its
 //! count is checked against the table's `keys_in_cell`). Jobs run through the tadic-replay adapter and the process layer
 //! (RealLauncher; run the campaign inside a private pid namespace); the rank step is the Symbolica-backed `rr_pole_rank`
-//! (pinned by sha256, run as a subprocess on the verified results). Resume: the result store (a stored job is never
+//! (pinned by sha256, checked at every launch, run on the verified results as a child of the same process layer:
+//! [`run_program_child`]; caps `rank_memory_cap_bytes` / `rank_wall_seconds`). Resume: the result store (a stored job is never
 //! rerun) and the per-cell records in the campaign directory.
 //!
 //! Generic (L8): nodes, slots, cells, packages, masters, depths and seeds are data.
 
-use crate::adapters::job::{JobAdapter, Program, RunOptions, run_attempt, sha256_hex};
+use crate::adapters::job::{JobAdapter, Program, RunOptions, drive, run_attempt, sha256_hex};
 use crate::adapters::tadicjob::{
     DataFile, ResultStore, TadicAdapter, TadicInput, TadicJobRequest, TadicLevel, TadicLimits,
     TadicRequest, WeightVectors,
 };
-use crate::launch::RealLauncher;
+use crate::launch::{ChildLauncher, ExitState, FinalReport, LaunchSpec, RealLauncher};
 use crate::resources::{Sampler, SamplerConfig};
 use rustred_campaign_contract::tadicjob::{self, Pins, certificate};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -401,6 +403,12 @@ pub struct PoleReportSpec {
     pub max_length: u64,
     pub threads: u32,
     pub memory_cap_bytes: u64,
+    /// Memory cap of one rank step (`rr_pole_rank`, a child of the process layer); absent = `memory_cap_bytes`.
+    #[serde(default)]
+    pub rank_memory_cap_bytes: Option<u64>,
+    /// Wall cap of one rank step in seconds; absent = `wall_seconds`.
+    #[serde(default)]
+    pub rank_wall_seconds: Option<u64>,
     #[serde(default)]
     pub licence_env: Option<String>,
     /// Test stand: the fake child runs the jobs (program = rr_fake_child).
@@ -493,57 +501,160 @@ pub struct CellOutcome {
 }
 
 fn rank_of(
-    spec: &PoleReportSpec,
+    ctx: &CellCtx<'_>,
     dir: &Path,
     results: &[PathBuf],
     tag: &str,
     prefix: &str,
 ) -> Result<Value, String> {
-    rank_of_with(spec, dir, results, tag, prefix, true)
+    rank_of_with(ctx, dir, results, tag, prefix, true)
 }
 
-/// The rank step; `with_dependences = false` = the NAIVE upper bound (no dependence table).
+/// The rank step; `with_dependences = false` = the NAIVE upper bound (no dependence table). `rr_pole_rank` runs as a
+/// child of the process layer ([`run_program_child`]), never spawned directly (L10, tripwire procfix3_proc m5).
 fn rank_of_with(
-    spec: &PoleReportSpec,
+    ctx: &CellCtx<'_>,
     dir: &Path,
     results: &[PathBuf],
     tag: &str,
     prefix: &str,
     with_dependences: bool,
 ) -> Result<Value, String> {
+    let spec = ctx.spec;
     let out = dir.join(format!("rank.{tag}.json"));
-    let mut cmd = std::process::Command::new(&spec.rank_bin.path);
+    let mut a: Vec<OsString> = vec![];
     for r in results {
-        cmd.arg("--result").arg(r);
+        a.push("--result".into());
+        a.push(r.into());
     }
-    cmd.arg("--depths").arg(&spec.depths.path);
+    a.push("--depths".into());
+    a.push((&spec.depths.path).into());
     match &spec.terminal_map {
         Some(m) => {
-            cmd.arg("--terminal-map").arg(&m.path);
+            a.push("--terminal-map".into());
+            a.push((&m.path).into());
             if let Some(r) = &spec.rows_route {
-                cmd.arg("--route").arg(r);
+                a.push("--route".into());
+                a.push(r.into());
             }
         }
         None => {
-            cmd.arg("--library")
-                .arg(&spec.library.path)
-                .arg("--catalogue")
-                .arg(&spec.catalogue.path);
+            a.push("--library".into());
+            a.push((&spec.library.path).into());
+            a.push("--catalogue".into());
+            a.push((&spec.catalogue.path).into());
         }
     }
-    cmd.arg("--rank-prefix").arg(prefix).arg("--out").arg(&out);
-    if with_dependences && let Some(d) = &spec.dependences {
-        cmd.arg("--dependences").arg(&d.path);
+    for x in ["--rank-prefix", prefix, "--out"] {
+        a.push(x.into());
     }
-    let o = cmd.output().map_err(|e| format!("rr_pole_rank: {e}"))?;
-    if !o.status.success() {
-        return Err(format!(
-            "rr_pole_rank exit {}: {}",
-            o.status,
-            String::from_utf8_lossy(&o.stderr).trim()
-        ));
+    a.push((&out).into());
+    if with_dependences && let Some(d) = &spec.dependences {
+        a.push("--dependences".into());
+        a.push((&d.path).into());
+    }
+    // the binary that runs is the pinned one (checked again at every launch, not only at the start of the campaign)
+    spec.rank_bin.check("rank binary")?;
+    let opts = RunOptions {
+        cpus: vec![],
+        memory_cap_bytes: Some(spec.rank_memory_cap_bytes.unwrap_or(spec.memory_cap_bytes)),
+        licence_env: spec.licence_env.clone(),
+        wall_cap: Some(Duration::from_secs(
+            spec.rank_wall_seconds.unwrap_or(spec.wall_seconds),
+        )),
+        grace: Some(Duration::from_secs(10)),
+    };
+    let run = run_program_child(
+        ctx.sampler,
+        &spec.rank_bin.path,
+        &a,
+        &dir.join("rank-runs"),
+        &format!("pole-rank-{tag}"),
+        &opts,
+    )?;
+    if !run.success() {
+        return Err(format!("rr_pole_rank {}: {}", run.how(), run.stderr_tail()));
     }
     read_json(&out.display().to_string()).map(|x| x.0)
+}
+
+/// One finished child of [`run_program_child`]: its launcher report and the run directory (stdout.log, stderr.log).
+#[derive(Debug, Clone)]
+pub struct ProgramRun {
+    pub report: FinalReport,
+    pub run_dir: PathBuf,
+}
+
+impl ProgramRun {
+    /// Exit 0, no kill by the supervisor, and the session proven empty.
+    pub fn success(&self) -> bool {
+        self.report.exit == Some(ExitState::Exited(0))
+            && self.report.kill_reason.is_none()
+            && self.report.verification.is_verified()
+    }
+
+    /// How the child ended, in words (exit code or signal, the supervisor's kill reason, an unverified session).
+    pub fn how(&self) -> String {
+        let mut w = match self.report.exit {
+            Some(ExitState::Exited(c)) => format!("exit {c}"),
+            Some(ExitState::Signaled { signal, .. }) => format!("signal {signal}"),
+            Some(ExitState::Unknown) | None => "exit unknown".to_string(),
+        };
+        if let Some(k) = &self.report.kill_reason {
+            w.push_str(&format!(", killed by the supervisor ({})", k.outcome()));
+        }
+        if !self.report.verification.is_verified() {
+            w.push_str(", session not verified empty");
+        }
+        w
+    }
+
+    /// The last 2,000 bytes of the child's stderr (empty when unreadable).
+    pub fn stderr_tail(&self) -> String {
+        let b = std::fs::read(self.run_dir.join("stderr.log")).unwrap_or_default();
+        let from = b.len().saturating_sub(2000);
+        String::from_utf8_lossy(&b[from..]).trim().to_string()
+    }
+}
+
+/// Run one program to its end as a child of the process layer (L10): the [`RealLauncher`] starts it in its own session
+/// under the campaign marker, with the minimal contract environment (TMPDIR = `<run dir>/tmp`), the licence variable
+/// passed BY NAME only, the memory cap and the wall cap of `opts`; stdout / stderr go to the run directory
+/// `<runs>/<label>.<n>` (n = the first free attempt number; nothing is overwritten). A launch error (nothing started)
+/// is an Err; a started child returns its report whatever its exit (the caller decides).
+pub fn run_program_child(
+    sampler: &Arc<Sampler>,
+    program: &Path,
+    args: &[OsString],
+    runs: &Path,
+    label: &str,
+    opts: &RunOptions,
+) -> Result<ProgramRun, String> {
+    std::fs::create_dir_all(runs).map_err(|e| format!("{}: {e}", runs.display()))?;
+    let mut n = 1u32;
+    let run_dir = loop {
+        let d = runs.join(format!("{label}.{n}"));
+        match std::fs::create_dir(&d) {
+            Ok(()) => break d,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => n += 1,
+            Err(e) => return Err(format!("{}: {e}", d.display())),
+        }
+    };
+    let tmp = run_dir.join("tmp");
+    std::fs::create_dir(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+    let mut ls = LaunchSpec::new(format!("{label}.{n}"), program, &run_dir).with_contract_env(&tmp);
+    ls.args = args.to_vec();
+    ls.cpus = opts.cpus.clone();
+    ls.memory_cap_bytes = opts.memory_cap_bytes;
+    if let Some(name) = &opts.licence_env {
+        ls.env_passthrough.push(name.clone());
+    }
+    let mut l = RealLauncher::new(sampler.clone());
+    let mut h = l
+        .launch(&ls)
+        .map_err(|e| format!("launch of {}: {e}", program.display()))?;
+    let report = drive(&mut h, opts);
+    Ok(ProgramRun { report, run_dir })
 }
 
 /// "boxed node N key I(..)" from an engine refusal text ("... failed for boxed node N: ... could not solve the key I(..)"),
@@ -849,7 +960,7 @@ fn run_cell(
                 break;
             }
             let r = rank_of(
-                spec,
+                ctx,
                 &cdir,
                 &g.results,
                 &format!("{}m{}", g.prefix, g.m),
@@ -884,10 +995,10 @@ fn run_cell(
         out.verdict = format!("not decided ({why})");
     } else if !all.is_empty() {
         let prefix = if block.is_some() { "b" } else { "c" };
-        let rank = rank_of(spec, &cdir, &all, "cell", prefix)?;
+        let rank = rank_of(ctx, &cdir, &all, "cell", prefix)?;
         if spec.dependences.is_some() {
             out.naive_rank =
-                rank_of_with(spec, &cdir, &all, "cell_naive", prefix, false)?["rank"].clone();
+                rank_of_with(ctx, &cdir, &all, "cell_naive", prefix, false)?["rank"].clone();
         }
         out.rank = rank["rank"].clone();
         out.pivots = rank["pivots"].clone();
