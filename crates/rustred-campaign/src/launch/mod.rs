@@ -57,9 +57,9 @@ pub use guard::{
 pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
     CapPreference, Containment, LauncherError, LauncherSetup, REATTACH_UNDECIDED, RealChild,
-    RealConfig, RealLauncher, RetireEvent, TrackingPreference, adhoc_campaign_id,
+    RealConfig, RealLauncher, RetireEvent, SCOPE_ACK_PREFIX, TrackingPreference, adhoc_campaign_id,
     audit_inheritable_fds, barrier_shim, in_private_namespace, namespace_state, peek_exit,
-    set_not_dumpable,
+    scope_reset_failed, scope_unit_result, set_not_dumpable,
 };
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 

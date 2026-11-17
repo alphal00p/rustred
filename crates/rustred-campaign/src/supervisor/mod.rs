@@ -552,6 +552,8 @@ pub struct Supervisor {
     vanished_open: BTreeMap<u32, (Option<u64>, String, String)>,
     /// procfix7 round 7 (gate11 M11-2): when a failed CPU-policy refresh was last logged (rate limit).
     cpu_refresh_warned: Option<Instant>,
+    /// procfix7 round 8b (host step 1): per job, the attempts ended because their scope could not be verified.
+    scope_unverified: BTreeMap<String, u32>,
     /// procfix7 round 6 (M10-1): the attempt labels (`job:a<k>`) launched by THIS session: their processes and every
     /// successor stay in this child subreaper's tree, so the kernel's wait answer (ECHILD) covers them.
     launched_here: BTreeSet<String>,
@@ -658,6 +660,65 @@ fn statvfs_avail(p: &Path) -> Option<u64> {
 /// BLAKE3 of a file.
 pub fn file_digest(p: &Path) -> std::io::Result<(u64, String)> {
     crate::atomic::blake3_file(p)
+}
+
+/// procfix7 round 8b (host step 1): how long a requested scope may stay unverified while its job runs.
+const SCOPE_VERIFY_BOUND: Duration = Duration::from_secs(10);
+/// procfix7 round 8b: attempts of one job ended for an unverified scope before the run stops (exit 71).
+const SCOPE_UNVERIFIED_LIMIT: u32 = 3;
+
+/// The containment note of a job whose requested scope was not verified (procfix7 round 8b).
+struct ScopeEnd {
+    word: &'static str,
+    why: String,
+    /// The attempt did not run under a scope we can prove (counts toward [`SCOPE_UNVERIFIED_LIMIT`]).
+    unverified: bool,
+}
+
+/// procfix7 round 8b (host step 1): the evidence for a requested scope that was not verified. `alive`: the job still
+/// runs (it is ended now: `scope_unverified_ended`). Dead before its check: systemd-run's start acknowledgment
+/// ([`crate::launch::SCOPE_ACK_PREFIX`] + the exact unit, written to the job's stderr before the exec) is POSITIVE
+/// evidence that the scope existed (`scope_acknowledged_ended`); without it the attempt is `scope_unverified_ended`.
+fn scope_end(stderr: &Path, unit: Option<&str>, alive: bool) -> ScopeEnd {
+    let unit = unit.unwrap_or("?");
+    if alive {
+        return ScopeEnd {
+            word: "scope_unverified_ended",
+            why: format!(
+                "scope {unit} not verified within {} s while the job ran (the leader's cgroup does not name it): attempt ended (SIGKILL), requeued",
+                SCOPE_VERIFY_BOUND.as_secs()
+            ),
+            unverified: true,
+        };
+    }
+    let ack = format!("{}{unit}.scope", crate::launch::SCOPE_ACK_PREFIX);
+    match crate::fsx::read_to_string("job.stderr", stderr) {
+        crate::fsx::Read::Content(t) if t.lines().any(|l| l.trim_end() == ack) => ScopeEnd {
+            word: "scope_acknowledged_ended",
+            why: format!(
+                "scope {unit} existed per systemd-run's start acknowledgment ({:?} in {}); the job ended before its cgroup was checked",
+                ack,
+                stderr.display()
+            ),
+            unverified: false,
+        },
+        crate::fsx::Read::Content(_) | crate::fsx::Read::Absent => ScopeEnd {
+            word: "scope_unverified_ended",
+            why: format!(
+                "scope {unit} requested; the job ended before its cgroup was checked and {} holds no start acknowledgment",
+                stderr.display()
+            ),
+            unverified: true,
+        },
+        crate::fsx::Read::Failed(e) => ScopeEnd {
+            word: "scope_unverified_ended",
+            why: format!(
+                "scope {unit} requested; the job ended before its cgroup was checked and {} cannot be read ({e})",
+                stderr.display()
+            ),
+            unverified: true,
+        },
+    }
 }
 
 fn contract_kill_reason(k: Option<&KillReason>) -> CKill {
@@ -1385,6 +1446,7 @@ impl Supervisor {
             vanished_open: BTreeMap::new(),
             launched_here: BTreeSet::new(),
             cpu_refresh_warned: None,
+            scope_unverified: BTreeMap::new(),
             scope_proven_empty: BTreeSet::new(),
             opts,
         })
@@ -3221,6 +3283,80 @@ impl Supervisor {
     /// procfix6 (gate5 m5): ONE log line and ONE ledger note per job naming the containment actually in force:
     /// `scope:<unit>` only when the scope exists (verified from the leader's cgroup), else `marker_only` (with why) or
     /// `cgroup:<path>`.
+    /// procfix7 round 8b (host step 1): the note and log line of a job whose requested scope was not verified, and the
+    /// bound: 3 such ENDED-WHILE-ALIVE attempts of one job stop the run (exit 71: the scope mechanism does not work).
+    fn note_scope_end(&mut self, job: &str, attempt: u32, end: &ScopeEnd) {
+        let level = if end.unverified { "WARN" } else { "INFO" };
+        self.log.line(
+            level,
+            &format!("{job} a{attempt}: containment {} ({})", end.word, end.why),
+        );
+        self.commit(vec![Event::Note {
+            text: format!(
+                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{:?},\"why\":{:?}}}",
+                end.word, end.why
+            ),
+        }]);
+        if end.unverified {
+            let n = self.scope_unverified.entry(job.to_string()).or_insert(0);
+            *n += 1;
+            if *n >= SCOPE_UNVERIFIED_LIMIT && self.ledger_dead.is_none() {
+                let msg = format!(
+                    "job {job}: {SCOPE_UNVERIFIED_LIMIT} attempts ended because their systemd scope could not be verified \
+                     (last: {}): the scope mechanism does not work as required; stopping (exit 71)",
+                    end.why
+                );
+                self.note(format!(
+                    "scope_unverified_limit {{\"job\":{job:?},\"message\":{msg:?}}}"
+                ));
+                self.log.line("ERROR", &msg);
+                self.ledger_dead = Some(RunExit::Resources(msg));
+            }
+        }
+    }
+
+    /// procfix7 round 8b (host step 1): a job SIGKILLed with no kill reason of ours whose scope unit FAILED with result
+    /// `oom-kill` (systemd's own record, read by the exact unit name) was killed by the kernel's memory-cgroup OOM killer
+    /// inside its scope (MemoryMax): it is a memory kill (killed_memory), never "lost". The failed unit is then reset.
+    fn scope_result_class(
+        &mut self,
+        ch: &Child,
+        mut report: crate::launch::FinalReport,
+    ) -> crate::launch::FinalReport {
+        let Some(unit) = ch.handle.requested_scope_unit().map(str::to_string) else {
+            return report;
+        };
+        let sigkill = matches!(report.exit, Some(crate::launch::ExitState::Signaled { signal, .. }) if signal == libc::SIGKILL);
+        if !sigkill || report.kill_reason.is_some() || crate::launch::in_private_namespace() {
+            return report;
+        }
+        match crate::launch::scope_unit_result(&unit) {
+            Ok((load, result)) if load == "loaded" => {
+                if result == "oom-kill" {
+                    report.kill_reason = Some(KillReason::MemoryCap {
+                        rss_bytes: report.peak_rss_bytes.max(ch.peak),
+                        cap_bytes: ch.cap,
+                    });
+                    self.note(format!(
+                        "scope_oom_kill {{\"job\":{:?},\"attempt\":{},\"unit\":{unit:?}}}",
+                        ch.job, ch.attempt
+                    ));
+                }
+                if result != "success" {
+                    #[allow(clippy::let_underscore_must_use)]
+                    // ignored-ok (procfix7 round 8b): a unit left loaded is listed by the operator's checks (P8)
+                    let _ = crate::launch::scope_reset_failed(&unit);
+                }
+            }
+            Ok(_) => {}
+            Err(e) => self.log.line(
+                "WARN",
+                &format!("{} a{}: the result of scope {unit} could not be read ({e}): classified without it", ch.job, ch.attempt),
+            ),
+        }
+        report
+    }
+
     fn note_containment(
         &mut self,
         job: &str,
@@ -4458,6 +4594,7 @@ impl Supervisor {
     fn poll_children(&mut self) {
         let mut finished = Vec::new();
         let mut contain = Vec::new();
+        let mut scope_words: Vec<(String, u32, ScopeEnd)> = Vec::new();
         let mut poll_dead: Vec<String> = Vec::new();
         let stopping_grace = Duration::from_secs(self.opts.spec.resources.grace_seconds + 5);
         let start_timeout = Duration::from_secs(self.opts.spec.resources.start_timeout_s);
@@ -4497,12 +4634,24 @@ impl Supervisor {
             // procfix6 (gate5 m5): the containment actually in force, once verified (or after 10 s / at the end).
             if !ch.containment_noted {
                 let c = ch.handle.containment();
-                if c != crate::launch::Containment::Pending
-                    || ch.launched_at.elapsed() > Duration::from_secs(10)
-                {
+                if c != crate::launch::Containment::Pending {
                     ch.containment_noted = true;
                     let req = ch.handle.requested_scope_unit().map(str::to_string);
                     contain.push((ch.job.clone(), ch.attempt, c, req));
+                } else if ch.launched_at.elapsed() > SCOPE_VERIFY_BOUND {
+                    // procfix7 round 8b (host step 1): a requested scope that is not verified is NEVER run under
+                    // marker_only: a live job is ended at once (SIGKILL through its pinned group and its marked
+                    // processes) and requeued (bounded); a job already dead is recorded from the evidence
+                    ch.containment_noted = true;
+                    let req = ch.handle.requested_scope_unit().map(str::to_string);
+                    let alive = !ch.handle.leader_exited();
+                    let end = scope_end(&ch.layout.stderr_log(), req.as_deref(), alive);
+                    if alive {
+                        ch.stopping = true;
+                        ch.handle
+                            .kill_now(KillReason::Other("its scope could not be verified".into()));
+                    }
+                    scope_words.push((ch.job.clone(), ch.attempt, end));
                 }
             }
             // test builds: `poll_fails:1` makes every poll fail (EIO) (gate10 m10-5's every-waitid-failing cell)
@@ -4534,7 +4683,13 @@ impl Supervisor {
             }
         }
         for (job, attempt, c, req) in contain {
+            if matches!(c, crate::launch::Containment::Scope(..)) {
+                self.scope_unverified.remove(&job);
+            }
             self.note_containment(&job, attempt, &c, req.as_deref());
+        }
+        for (job, attempt, end) in scope_words {
+            self.note_scope_end(&job, attempt, &end);
         }
         for msg in poll_dead {
             self.note(format!("poll_failures {{\"message\":{msg:?}}}"));
@@ -4547,8 +4702,16 @@ impl Supervisor {
                 ch.containment_noted = true;
                 let c = ch.handle.containment();
                 let req = ch.handle.requested_scope_unit().map(str::to_string);
-                self.note_containment(&ch.job, ch.attempt, &c, req.as_deref());
+                if c == crate::launch::Containment::Pending {
+                    // procfix7 round 8b: ended before its scope was verified: recorded from the evidence, never
+                    // marker_only
+                    let end = scope_end(&ch.layout.stderr_log(), req.as_deref(), false);
+                    self.note_scope_end(&ch.job, ch.attempt, &end);
+                } else {
+                    self.note_containment(&ch.job, ch.attempt, &c, req.as_deref());
+                }
             }
+            let report = self.scope_result_class(&ch, report);
             let marker = format!("{}:a{}", ch.job, ch.attempt);
             // Leftovers the process layer already killed through its verified path (helpers that outlived the job).
             for l in &report.leftovers_killed {

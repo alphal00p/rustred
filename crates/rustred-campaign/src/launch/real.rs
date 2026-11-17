@@ -240,13 +240,13 @@ fn systemd_env() -> Vec<(String, std::ffi::OsString)> {
     v
 }
 
+/// procfix7 round 8b (host step 1): NO `--quiet`: systemd-run then writes `Running scope as unit: <unit>.scope` to the
+/// job's stderr after systemd ACKNOWLEDGED the scope's start and before it execs the job (the positive evidence for a
+/// job that dies before its cgroup is checked, [`SCOPE_ACK_PREFIX`]); NO `--collect`: a scope that FAILED (e.g. result
+/// `oom-kill`) stays loaded until the supervisor has read its result ([`scope_unit_result`]) and reset it
+/// ([`scope_reset_failed`]); a scope that ends without failure is unloaded by systemd as before.
 fn systemd_args(cap: u64, unit: Option<&str>) -> Vec<String> {
-    let mut v: Vec<String> = vec![
-        "--user".into(),
-        "--scope".into(),
-        "--quiet".into(),
-        "--collect".into(),
-    ];
+    let mut v: Vec<String> = vec!["--user".into(), "--scope".into()];
     // gate3 M5: a deterministic unit name (campaign id + label) instead of systemd-run's anonymous run-p<pid>-i<n>
     if let Some(u) = unit {
         v.push(format!("--unit={u}"));
@@ -262,6 +262,103 @@ fn systemd_args(cap: u64, unit: Option<&str>) -> Vec<String> {
     ]);
     v
 }
+
+/// The line systemd-run writes to the job's stderr once systemd has started the scope (before it execs the job).
+pub const SCOPE_ACK_PREFIX: &str = "Running scope as unit: ";
+
+/// procfix7 round 8b: the `LoadState` and `Result` of a scope unit (`systemctl --user show`, bounded 10 s). Ok((load,
+/// result)); Err when it cannot be read (never a guessed result). Never inside a private namespace.
+pub fn scope_unit_result(unit: &str) -> Result<(String, String), String> {
+    if in_private_namespace() {
+        return Err("inside a private namespace: no systemd unit".into());
+    }
+    let exe = which("systemctl").ok_or("systemctl not on PATH")?;
+    let name = format!("{unit}.scope");
+    let r = run_bounded(Duration::from_secs(10), move || {
+        let mut c = Command::new(&exe);
+        c.args(["--user", "show", "--property=LoadState,Result", "--", &name])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stderr(Stdio::null());
+        for (k, v) in systemd_env() {
+            c.env(k, v);
+        }
+        c.output()
+    });
+    let out = match r {
+        crate::resources::Bounded::Done(Ok(o)) if o.status.success() => o.stdout,
+        crate::resources::Bounded::Done(Ok(o)) => {
+            return Err(format!("systemctl show: {}", o.status));
+        }
+        crate::resources::Bounded::Done(Err(e)) => return Err(format!("systemctl show: {e}")),
+        crate::resources::Bounded::TimedOut => {
+            return Err("systemctl show: no answer within 10 s".into());
+        }
+        crate::resources::Bounded::SpawnFailed(e) => return Err(format!("systemctl show: {e}")),
+    };
+    let t = String::from_utf8_lossy(&out);
+    let get = |k: &str| {
+        t.lines()
+            .find_map(|l| l.strip_prefix(k).and_then(|v| v.strip_prefix('=')))
+            .map(str::to_string)
+    };
+    match (get("LoadState"), get("Result")) {
+        (Some(l), Some(r)) => Ok((l, r)),
+        _ => Err(format!("systemctl show: unparsable answer {t:?}")),
+    }
+}
+
+/// procfix7 round 8b: unload a FAILED scope of this campaign by its exact name (`systemctl --user reset-failed`), after
+/// its result was read. Best effort (a unit left loaded is listed by P8 / the operator); never inside a namespace.
+pub fn scope_reset_failed(unit: &str) -> Result<(), String> {
+    if in_private_namespace() {
+        return Err("inside a private namespace: no systemd unit".into());
+    }
+    let exe = which("systemctl").ok_or("systemctl not on PATH")?;
+    let name = format!("{unit}.scope");
+    match run_bounded(Duration::from_secs(10), move || {
+        let mut c = Command::new(&exe);
+        c.args(["--user", "reset-failed", "--", &name])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        for (k, v) in systemd_env() {
+            c.env(k, v);
+        }
+        c.status()
+    }) {
+        crate::resources::Bounded::Done(Ok(s)) if s.success() => Ok(()),
+        crate::resources::Bounded::Done(Ok(s)) => Err(format!("systemctl reset-failed: {s}")),
+        crate::resources::Bounded::Done(Err(e)) => Err(format!("systemctl reset-failed: {e}")),
+        crate::resources::Bounded::TimedOut => {
+            Err("systemctl reset-failed: no answer within 10 s".into())
+        }
+        crate::resources::Bounded::SpawnFailed(e) => Err(format!("systemctl reset-failed: {e}")),
+    }
+}
+
+/// TEST BUILDS ONLY (procfix7 round 8b): `scope_pending:1` in RR_CAMPAIGN_FAILPOINT makes every job's containment
+/// `Pending` with the requested unit [`TEST_PENDING_UNIT`] ("the cgroup does not name the scope"), also inside a
+/// namespace.
+fn test_scope_pending() -> Option<&'static str> {
+    #[cfg(debug_assertions)]
+    {
+        static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let on = *ON.get_or_init(|| {
+            std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+                .is_ok_and(|v| v.split(',').any(|p| p.trim() == "scope_pending:1"))
+        });
+        on.then_some(TEST_PENDING_UNIT)
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
+/// The requested unit name under the test failpoint `scope_pending:1`.
+pub const TEST_PENDING_UNIT: &str = "rr-fp-pending";
 
 /// Are we inside a non-initial user or pid namespace? Then the host's user manager would interpret the pids that
 /// systemd-run passes in ITS namespace, i.e. as other processes: the scope mechanism must not be used.
@@ -1301,6 +1398,9 @@ impl RealChild {
     /// cgroup names the job's unit under our user manager (the strict `ScopeRef` check), else `Pending` while a scope
     /// was requested, or the job's delegated cgroup, or the marker only.
     pub fn containment(&mut self) -> Containment {
+        if test_scope_pending().is_some() {
+            return Containment::Pending;
+        }
         match &self.mechanism {
             MemoryMechanism::SystemdScope { .. } => {
                 if self.scope.is_none() {
@@ -1330,9 +1430,17 @@ impl RealChild {
 
     /// The scope unit requested for this job (`systemd-run --unit=`), if the scope mechanism was chosen.
     pub fn requested_scope_unit(&self) -> Option<&str> {
+        if let Some(u) = test_scope_pending() {
+            return Some(u);
+        }
         matches!(self.mechanism, MemoryMechanism::SystemdScope { .. })
             .then_some(self.scope_unit.as_deref())
             .flatten()
+    }
+
+    /// procfix7 round 8b: has the job's leader exited (its exit observed; the zombie may still be pinned)?
+    pub fn leader_exited(&self) -> bool {
+        self.exit.is_some()
     }
 
     /// Is the child still waiting behind its spawn barrier (procfix5 m1)?
