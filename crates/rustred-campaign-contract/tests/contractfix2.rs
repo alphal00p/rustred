@@ -63,13 +63,14 @@ fn cf2_row3_never_closes_an_item_on_unverified_claims() {
     // relation CANDIDATES only, each accepted later through the import's own verification, never by the row; lane
     // coreseed: row 37 (kind pole-regular-at, answers sealed and checked) gives diagnostic records only
     // lane symcert: row 40 (kind proof-symrows, certificate sealed and bound) gives certificates only
-    assert_eq!(complete, vec![1, 30, 31, 33, 37, 40]);
+    // lane tadicjob: row 50 (kind tadic-replay, result bound to the pinned job and sealed) gives diagnostic records only
+    assert_eq!(complete, vec![1, 30, 31, 33, 37, 40, 50]);
     for r in ROWS.iter().filter(|r| r.row == 40) {
         assert_eq!(r.accept, Accept::Certificates);
     }
     for r in ROWS
         .iter()
-        .filter(|r| r.row == 30 || r.row == 31 || r.row == 37)
+        .filter(|r| r.row == 30 || r.row == 31 || r.row == 37 || r.row == 50)
     {
         assert_eq!(r.accept, Accept::DiagnosticRecords);
     }
