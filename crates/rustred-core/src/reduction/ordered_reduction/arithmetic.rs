@@ -431,7 +431,11 @@ fn parse_i32(key: &str, value: &str) -> Result<i32, String> {
 
 fn assign_tadic(tadic: &mut TadicOptions, key: &str, value: &str) -> Result<bool, String> {
     match key {
-        "d0" => tadic.d0 = value.parse::<i64>().map_err(|e| format!("{key}={value}: {e}"))?,
+        "d0" => {
+            tadic.d0 = value
+                .parse::<i64>()
+                .map_err(|e| format!("{key}={value}: {e}"))?
+        }
         "order" => tadic.order = parse_i32(key, value)?,
         "primes" => tadic.primes = parse_count(key, value)?,
         "check_points" => tadic.check_points = parse_count(key, value)?,
@@ -772,7 +776,9 @@ mod tests {
             parse("tadic"),
             OrderedWeightArithmetic::Tadic(ModularCommon::default(), TadicOptions::default())
         );
-        let tadic = parse("tadic:d0=-3,order=0,primes=3,check_points=4,erasure_check_order=2,max_length=99,threads=2");
+        let tadic = parse(
+            "tadic:d0=-3,order=0,primes=3,check_points=4,erasure_check_order=2,max_length=99,threads=2",
+        );
         assert_eq!(
             tadic,
             OrderedWeightArithmetic::Tadic(

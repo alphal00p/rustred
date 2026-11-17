@@ -666,7 +666,10 @@ pub const PROVENANCE_KINDS: [&str; 6] = [
 /// definition) is not checked.
 pub fn check_provenance_kinds(family_source: &str) -> Result<(), PError> {
     let mut lines = family_source.split('\n');
-    if !lines.next().is_some_and(|first| first.starts_with("imported")) {
+    if !lines
+        .next()
+        .is_some_and(|first| first.starts_with("imported"))
+    {
         return Ok(());
     }
     for line in lines {

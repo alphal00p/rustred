@@ -94,7 +94,10 @@ fn parse_line(line: &str) -> Input {
         .unwrap_or("1")
         .to_owned();
     let vector: Vec<i64> = if weight_text.contains(';') {
-        weight_text.split(';').map(|w| w.trim().parse().expect("integer weight")).collect()
+        weight_text
+            .split(';')
+            .map(|w| w.trim().parse().expect("integer weight"))
+            .collect()
     } else {
         vec![]
     };
@@ -156,7 +159,11 @@ fn basis_text(basis: &PBasis) -> String {
 fn tadic_text(reduction: &PTadicReduction, seeds: &[u64], vectors: Option<&[Vec<i64>]>) -> String {
     let mut out = String::new();
     if let Some(vectors) = vectors {
-        let markers: Vec<String> = reduction.recording_markers.iter().map(u64::to_string).collect();
+        let markers: Vec<String> = reduction
+            .recording_markers
+            .iter()
+            .map(u64::to_string)
+            .collect();
         out.push_str(&format!("markers {}\n", markers.join(" ")));
         let _ = vectors;
     }
@@ -172,7 +179,11 @@ fn tadic_text(reduction: &PTadicReduction, seeds: &[u64], vectors: Option<&[Vec<
     if !seeds.is_empty() {
         out.push_str(&format!(
             " seeds={}",
-            seeds.iter().map(u64::to_string).collect::<Vec<_>>().join(",")
+            seeds
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
         ));
     }
     if let Some(vectors) = vectors {
@@ -227,7 +238,11 @@ fn tadic_text(reduction: &PTadicReduction, seeds: &[u64], vectors: Option<&[Vec<
 /// t-adic certificate fields) to the request.
 fn stats_marker(line: &str) {
     if let Some(path) = std::env::var_os("RUSTRED_ORDERED_MODULAR_STATS") {
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+        {
             let _ = writeln!(file, "{line}");
         }
     }
@@ -257,7 +272,10 @@ fn rss_kb() -> (u64, u64) {
 fn malloc_bytes() -> (u64, u64) {
     // SAFETY: mallinfo2 only reads the allocator's statistics.
     let info = unsafe { libc::mallinfo2() };
-    (info.uordblks as u64 + info.hblkhd as u64, info.fordblks as u64)
+    (
+        info.uordblks as u64 + info.hblkhd as u64,
+        info.fordblks as u64,
+    )
 }
 
 /// Options after `[threads]`.
@@ -271,14 +289,22 @@ struct Options {
 fn options(args: &[String]) -> Options {
     let mut options = Options::default();
     for arg in args {
-        let (key, value) = arg.split_once('=').unwrap_or_else(|| panic!("option {arg}: key=value"));
+        let (key, value) = arg
+            .split_once('=')
+            .unwrap_or_else(|| panic!("option {arg}: key=value"));
         match key {
             "seeds" => {
-                options.seeds = value.split(',').map(|s| s.trim().parse().expect("seed")).collect()
+                options.seeds = value
+                    .split(',')
+                    .map(|s| s.trim().parse().expect("seed"))
+                    .collect()
             }
             "vectors" => {
                 let (m, seed) = value.split_once(':').unwrap_or((value, "0"));
-                options.vectors = Some((m.parse().expect("vectors=m"), seed.parse().expect("vector seed")));
+                options.vectors = Some((
+                    m.parse().expect("vectors=m"),
+                    seed.parse().expect("vector seed"),
+                ));
             }
             "release_every" => options.release_every = value.parse().expect("release_every=n"),
             other => panic!("unknown option {other}"),
@@ -288,21 +314,28 @@ fn options(args: &[String]) -> Options {
 }
 
 /// Weight vectors of a group: explicit (`w1;w2;..` columns) or drawn.
-fn group_vectors(request: &[Input], drawn: Option<(usize, u64)>, label: &str) -> Option<Vec<Vec<i64>>> {
+fn group_vectors(
+    request: &[Input],
+    drawn: Option<(usize, u64)>,
+    label: &str,
+) -> Option<Vec<Vec<i64>>> {
     if request.iter().any(|input| !input.vector.is_empty()) {
         let m = request[0].vector.len();
         assert!(
             request.iter().all(|input| input.vector.len() == m),
             "group {label}: every input needs the same number of explicit weights"
         );
-        return Some((0..m).map(|j| request.iter().map(|input| input.vector[j]).collect()).collect());
+        return Some(
+            (0..m)
+                .map(|j| request.iter().map(|input| input.vector[j]).collect())
+                .collect(),
+        );
     }
     let (m, seed) = drawn?;
     // splitmix64 from (seed, FNV-1a of the label): reproducible, documented in the output (`vector` lines)
-    let mut state = label
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3))
-        ^ seed;
+    let mut state = label.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x100_0000_01b3)
+    }) ^ seed;
     let mut next = move || {
         state = state.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = state;
@@ -310,7 +343,11 @@ fn group_vectors(request: &[Input], drawn: Option<(usize, u64)>, label: &str) ->
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         ((z ^ (z >> 31)) >> 2).max(1) as i64
     };
-    Some((0..m).map(|_| request.iter().map(|_| next()).collect()).collect())
+    Some(
+        (0..m)
+            .map(|_| request.iter().map(|_| next()).collect())
+            .collect(),
+    )
 }
 
 fn main() {

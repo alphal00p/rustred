@@ -77,9 +77,9 @@ const CHECK_POINT_ATTEMPTS: usize = 4;
 /// t-adic primes: `[2^62 + 2^61 + 2^60, 2^62 + 2^61 + 2^60 + 2^59)` plus the
 /// primes consumed (disjoint from the probe, lift and verification ranges).
 const TADIC_BASE: u64 = (1 << 62) + (1 << 61) + (1 << 60);
-const TADIC_SALT: u64 = 0x7461_6469_63;
+const TADIC_SALT: u64 = 0x0074_6164_6963;
 /// Seed salt of the erasure-check points.
-const CHECK_POINTS_SALT: u64 = 0x7461_6368_6b;
+const CHECK_POINTS_SALT: u64 = 0x0074_6163_686b;
 
 fn precision_error(detail: impl std::fmt::Display) -> ReductionError {
     error(format!("{TADIC_PRECISION_FAILURE}: {detail}"))

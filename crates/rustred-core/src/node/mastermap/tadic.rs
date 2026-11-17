@@ -36,6 +36,8 @@ use super::{Key, Table, at, key_text};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 use crate::reduction::ordered_reduction::coefficient_valuation;
 use crate::reduction::{TadicSeries, expand_coefficient};
+/// (lowest valuation, edges, precision losses) of one rule over the live edges.
+type RuleStat = (i32, usize, usize);
 
 /// Schema of the JSON document written by `rr_node tadic`.
 pub const NODE_TADIC_SCHEMA: &str = "rustred.node-tadic.v1";
@@ -177,7 +179,9 @@ fn exact(
             let x = exact(a, n, pt, ctx, d)?;
             if *op == '^' {
                 let e: i64 = match &**b {
-                    Node::Num(t) => t.parse().map_err(|_| typed("TADIC_TABLE_EXPRESSION", "exponent"))?,
+                    Node::Num(t) => t
+                        .parse()
+                        .map_err(|_| typed("TADIC_TABLE_EXPRESSION", "exponent"))?,
                     Node::Neg(bb) => match &**bb {
                         Node::Num(t) => -t
                             .parse::<i64>()
@@ -299,7 +303,9 @@ fn mul_to(
         if available < precision {
             return Err(typed(
                 "TADIC_PRECISION_FAILURE",
-                format!("a product needs precision {precision}, its factors give {available} (inconsistent plan)"),
+                format!(
+                    "a product needs precision {precision}, its factors give {available} (inconsistent plan)"
+                ),
             ));
         }
         return Ok(known_zero(precision));
@@ -308,7 +314,9 @@ fn mul_to(
     if available < precision {
         return Err(typed(
             "TADIC_PRECISION_FAILURE",
-            format!("a product needs precision {precision}, its factors give {available} (inconsistent plan)"),
+            format!(
+                "a product needs precision {precision}, its factors give {available} (inconsistent plan)"
+            ),
         ));
     }
     let start = a.start + c.start;
@@ -352,7 +360,10 @@ impl Table {
             return Err(typed("TADIC_JOB_INVALID", "an empty request"));
         }
         if opt.primes == 0 || opt.max_primes < opt.primes {
-            return Err(typed("TADIC_JOB_INVALID", "primes must be >= 1 and <= max_primes"));
+            return Err(typed(
+                "TADIC_JOB_INVALID",
+                "primes must be >= 1 and <= max_primes",
+            ));
         }
         let masters: HashSet<Key> = self.masters.iter().cloned().collect();
         // ---- graph (copy of reduce_mod's walk); kind 0 inner, 1 master, 2 lower (exit)
@@ -364,7 +375,10 @@ impl Table {
         let mut kid_term: Vec<Vec<usize>> = vec![];
         let mut state: Vec<u8> = vec![];
         let mut post: Vec<u32> = vec![];
-        let zero_sector = |t: &Table, k: &Key| t.zero.contains(&k.iter().map(|&x| x > 0).collect::<Vec<bool>>());
+        let zero_sector = |t: &Table, k: &Key| {
+            t.zero
+                .contains(&k.iter().map(|&x| x > 0).collect::<Vec<bool>>())
+        };
         let mut intern = |t: &Table,
                           k: Key,
                           nodes: &mut Vec<Key>,
@@ -377,7 +391,10 @@ impl Table {
             if let Some(&i) = id.get(&k) {
                 return Ok(Some(i));
             }
-            let kd = if t.in_sector(&k).map_err(|e| typed("TADIC_TABLE_INVALID", e))? {
+            let kd = if t
+                .in_sector(&k)
+                .map_err(|e| typed("TADIC_TABLE_INVALID", e))?
+            {
                 u8::from(masters.contains(&k))
             } else {
                 if zero_sector(t, &k) {
@@ -433,7 +450,10 @@ impl Table {
                         continue;
                     }
                     if state[ui] == 1 {
-                        return Err(typed("TADIC_TABLE_CYCLE", format!("cycle at {}", key_text(&nodes[ui]))));
+                        return Err(typed(
+                            "TADIC_TABLE_CYCLE",
+                            format!("cycle at {}", key_text(&nodes[ui])),
+                        ));
                     }
                     state[ui] = 1;
                     if kind[ui] == 0 {
@@ -455,7 +475,8 @@ impl Table {
                                 for ti in 0..npat {
                                     let k = at(&self.rules[ri].rhs_pats[ti], &pt);
                                     if (0..n).any(|i| !self.mask[i] && k[i] > 0) {
-                                        let e = &self.rules[ri].rhs_expr.as_ref().expect("parsed")[ti];
+                                        let e =
+                                            &self.rules[ri].rhs_expr.as_ref().expect("parsed")[ti];
                                         // the same exact-in-d test as `reduce_mod` (batch 11, b42390d6); the
                                         // dropped term is re-checked EXACTLY zero over Q(d) below
                                         if !e.vanishes_in_d(&pt).unwrap_or(false) {
@@ -525,14 +546,20 @@ impl Table {
                 "TADIC_TABLE_UNCOVERED",
                 format!(
                     "uncovered top-sector keys (no rule, not a master): {}",
-                    uncovered.iter().take(20).map(|k| key_text(k)).collect::<Vec<_>>().join(" ")
+                    uncovered
+                        .iter()
+                        .take(20)
+                        .map(|k| key_text(k))
+                        .collect::<Vec<_>>()
+                        .join(" ")
                 ),
             ));
         }
         let graph_seconds = t0.elapsed().as_secs_f64();
         // ---- exact edge coefficients and valuations
         let t1 = std::time::Instant::now();
-        let ctx = CoefficientContext::try_new(["d"]).map_err(|e| typed("TADIC_EXACT_ALGEBRA", e))?;
+        let ctx =
+            CoefficientContext::try_new(["d"]).map_err(|e| typed("TADIC_EXACT_ALGEBRA", e))?;
         let d = ctx.parameter("d").expect("d");
         let mut edges: Vec<Vec<Edge>> = (0..nodes.len()).map(|_| vec![]).collect();
         let mut zero_edges = 0usize;
@@ -617,7 +644,8 @@ impl Table {
         // length budget: the longest series a key may carry is need - (lowest start), bounded by the plan
         // (the start of a value is >= the minimum over paths of the summed valuations; checked during the replay)
         // ---- per-rule valuations (precision losses met) over live edges
-        let mut rule_stats: BTreeMap<u32, (i32, usize, usize)> = BTreeMap::new();
+        // rule -> (lowest valuation, edges, losses)
+        let mut rule_stats: BTreeMap<u32, RuleStat> = BTreeMap::new();
         let mut histogram: BTreeMap<i32, usize> = BTreeMap::new();
         for &u in &post {
             let ui = u as usize;
@@ -652,10 +680,16 @@ impl Table {
             if consumed >= opt.max_primes {
                 return Err(typed(
                     "TADIC_PRIMES_EXHAUSTED",
-                    format!("{} usable primes within max_primes = {}", images.len(), opt.max_primes),
+                    format!(
+                        "{} usable primes within max_primes = {}",
+                        images.len(),
+                        opt.max_primes
+                    ),
                 ));
             }
-            let p = stream.next().ok_or_else(|| typed("TADIC_PRIMES_EXHAUSTED", "no 64-bit prime left"))?;
+            let p = stream
+                .next()
+                .ok_or_else(|| typed("TADIC_PRIMES_EXHAUSTED", "no 64-bit prime left"))?;
             consumed += 1;
             // values[node][request]
             let mut values: Vec<Option<Vec<Option<TadicSeries>>>> = vec![None; nodes.len()];
@@ -692,7 +726,9 @@ impl Table {
             let mut outputs: Vec<Vec<(u32, TadicSeries)>> = vec![vec![]; nreq];
             'nodes: for &u in &order_rev {
                 let ui = u as usize;
-                let Some(vals) = values[ui].take() else { continue };
+                let Some(vals) = values[ui].take() else {
+                    continue;
+                };
                 if kind[ui] != 0 {
                     if live[ui] {
                         for (j, v) in vals.into_iter().enumerate() {
@@ -710,12 +746,20 @@ impl Table {
                     }
                     let target = need[ci];
                     // the coefficient to the precision the lowest-start value needs
-                    let lowest = vals.iter().flatten().map(|v| v.start).min().unwrap_or(target);
+                    let lowest = vals
+                        .iter()
+                        .flatten()
+                        .map(|v| v.start)
+                        .min()
+                        .unwrap_or(target);
                     let len = target - lowest - e.valuation;
                     if len > opt.max_length as i32 {
                         return Err(typed(
                             "TADIC_LENGTH_BUDGET",
-                            format!("a key needs {len} coefficients > max_length {}", opt.max_length),
+                            format!(
+                                "a key needs {len} coefficients > max_length {}",
+                                opt.max_length
+                            ),
                         ));
                     }
                     let Some(cs) = expand_coefficient(&e.coefficient, opt.d0, p, target - lowest)
@@ -742,7 +786,8 @@ impl Table {
                             ));
                         }
                         let product = mul_to(p, &a, &cs, e.valuation, target)?;
-                        max_length = max_length.max((product.precision() - product.start).max(0) as usize);
+                        max_length =
+                            max_length.max((product.precision() - product.start).max(0) as usize);
                         slot[j] = Some(match slot[j].take() {
                             Some(old) => add(p, &old, &product),
                             None => product,

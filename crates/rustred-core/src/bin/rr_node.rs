@@ -1961,12 +1961,23 @@ fn cmd_tadic(mut a: Args) -> i32 {
                 .next()
                 .map(str::trim)
                 .filter(|w| !w.is_empty())
-                .map_or(1, |w| w.parse().unwrap_or_else(|_| die(&format!("bad weight {w}"))));
-            let label = cols.next().map(str::trim).filter(|g| !g.is_empty()).map(str::to_owned);
+                .map_or(1, |w| {
+                    w.parse()
+                        .unwrap_or_else(|_| die(&format!("bad weight {w}")))
+                });
+            let label = cols
+                .next()
+                .map(str::trim)
+                .filter(|g| !g.is_empty())
+                .map(str::to_owned);
             match (&label, &last_label) {
-                (Some(l), Some(m)) if l == m => requests.last_mut().unwrap().inputs.push((key, weight)),
+                (Some(l), Some(m)) if l == m => {
+                    requests.last_mut().unwrap().inputs.push((key, weight))
+                }
                 _ => requests.push(NodeRequest {
-                    label: label.clone().unwrap_or_else(|| rustred::node::mastermap::key_text(&key)),
+                    label: label
+                        .clone()
+                        .unwrap_or_else(|| rustred::node::mastermap::key_text(&key)),
                     inputs: vec![(key, weight)],
                 }),
             }

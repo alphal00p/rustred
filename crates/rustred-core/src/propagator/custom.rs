@@ -1832,7 +1832,10 @@ static ZERO_CERTIFICATES: std::sync::OnceLock<
 pub(crate) fn zero_certificate_cache() -> (usize, usize) {
     ZERO_CERTIFICATES.get().map_or((0, 0), |cache| {
         let cache = cache.lock().unwrap_or_else(|e| e.into_inner());
-        (cache.len(), cache.values().map(|(_, proofs)| proofs.len()).sum())
+        (
+            cache.len(),
+            cache.values().map(|(_, proofs)| proofs.len()).sum(),
+        )
     })
 }
 

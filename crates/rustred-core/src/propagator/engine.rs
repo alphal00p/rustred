@@ -1118,7 +1118,10 @@ pub(crate) mod canon_cache {
     pub(crate) fn occupancy() -> (usize, usize) {
         CACHE.with(|cache| {
             let cache = cache.borrow();
-            (cache.entries.len(), cache.entries.iter().filter(|e| e.is_some()).count())
+            (
+                cache.entries.len(),
+                cache.entries.iter().filter(|e| e.is_some()).count(),
+            )
         })
     }
 
@@ -1241,7 +1244,10 @@ pub(crate) mod order_cache {
     pub(crate) fn occupancy() -> (usize, usize) {
         CACHE.with(|cache| {
             let cache = cache.borrow();
-            (cache.entries.len(), cache.entries.iter().filter(|e| e.is_some()).count())
+            (
+                cache.entries.len(),
+                cache.entries.iter().filter(|e| e.is_some()).count(),
+            )
         })
     }
 
