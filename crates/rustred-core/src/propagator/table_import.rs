@@ -647,6 +647,39 @@ impl SlotAliasRecord {
     }
 }
 
+/// helper-vh2 B3: the kinds of provenance line (the word after the newline) this reader understands in the
+/// `family_source` of an IMPORTED payload (first line `imported ...`). Each kind is read by its own `*_of_source`
+/// function, which finds its marker and ignores every other line: a line of a kind added by a later importer would
+/// therefore be skipped silently (as `slot_aliases` was by readers before 8be0df7f). [`check_provenance_kinds`]
+/// refuses such a payload instead.
+pub const PROVENANCE_KINDS: [&str; 5] = [
+    "boxed_node",
+    "certified_keys",
+    "recipes",
+    "slot_aliases",
+    "slot_order",
+];
+
+/// helper-vh2 B3: fail closed on an imported payload whose provenance holds a line of a kind this reader does not
+/// understand ([`PROVENANCE_KINDS`]); a payload that is not imported (its provenance is free text, e.g. a family
+/// definition) is not checked.
+pub fn check_provenance_kinds(family_source: &str) -> Result<(), PError> {
+    let mut lines = family_source.split('\n');
+    if !lines.next().is_some_and(|first| first.starts_with("imported")) {
+        return Ok(());
+    }
+    for line in lines {
+        let kind = line.split(' ').next().unwrap_or("");
+        if !PROVENANCE_KINDS.contains(&kind) {
+            return Err(PError::MalformedLibrary(format!(
+                "custom payload: provenance line of unknown kind {kind:?} (this reader knows {PROVENANCE_KINDS:?}); \
+                 refused instead of skipped: the payload needs a newer reader"
+            )));
+        }
+    }
+    Ok(())
+}
+
 /// The slot-permuted alias records of a payload are one provenance line after this marker (JSON array of
 /// [`SlotAliasRecord`]), before the slot order.
 pub const SLOT_ALIASES_MARKER: &str = "\nslot_aliases ";
@@ -3280,6 +3313,30 @@ pub fn slot_map_text(imported: &ImportedOwner) -> BTreeMap<String, usize> {
         .zip(&imported.slot_map)
         .map(|(slot, &image)| (slot.name.clone(), image))
         .collect()
+}
+
+#[cfg(test)]
+mod provenance_kind_tests {
+    use super::*;
+    use crate::propagator::recipes::RECIPES_MARKER;
+
+    #[test]
+    fn imported_provenance_with_an_unknown_line_kind_is_refused() {
+        let known = format!(
+            "imported from T.sym (table_dump.v1), table family T, p-table-import v3{BOXED_NODE_MARKER}{{}}\
+             {CERTIFIED_KEYS_MARKER}AAAA{RECIPES_MARKER}BBBB{SLOT_ALIASES_MARKER}[]{SLOT_ORDER_MARKER}[0,1]"
+        );
+        assert!(check_provenance_kinds(&known).is_ok());
+        assert!(check_provenance_kinds(&format!("imported{SLOT_ORDER_MARKER}[]")).is_ok());
+        // a later importer's line kind: refused, never skipped
+        let unknown = format!("{known}\nalias_faces [1,2,3]");
+        let error = check_provenance_kinds(&unknown).unwrap_err();
+        assert!(format!("{error}").contains("alias_faces"), "{error}");
+        // an empty extra line is also not understood
+        assert!(check_provenance_kinds(&format!("{known}\n")).is_err());
+        // a payload that is not imported carries free text (a family definition): not checked
+        assert!(check_provenance_kinds("I(\n  name(T),\n  loops(k1)\n)").is_ok());
+    }
 }
 
 #[cfg(test)]

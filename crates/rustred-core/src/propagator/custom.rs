@@ -2075,6 +2075,8 @@ fn build<const N: usize>(
         )));
     }
     check_residual_positions(forced, &residuals)?;
+    // helper-vh2 B3: a provenance line this reader does not understand is a typed refusal, never skipped.
+    super::table_import::check_provenance_kinds(&program.family_source)?;
     let boxed = super::table_import::boxed_node_of_source(&program.family_source)?;
     let aliases = super::table_import::slot_aliases_of_source(&program.family_source)?;
     // vk5l WP1: the certified set of a boxed payload, with its record.
