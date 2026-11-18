@@ -25,6 +25,11 @@ for f in host_step_fake1.sh grade_host_step.py p8_units.py test_grade_host_step.
          rehearsal-fake-systemd/systemd-run rehearsal-fake-systemd/systemctl; do
   cmp -s "$H/$f" "scripts/procfix7/host-tests/$f" || { echo "freeze: $H/$f differs from the git copy"; exit 2; }
 done
+# round 12 (gate15 nit): the fixtures too, against the sha256 list kept in git (every file, no extra file)
+( cd "$H" && sha256sum -c --quiet "$WT/scripts/procfix7/host-tests/fixtures.sha256" ) \
+  || { echo "freeze: $H/fixtures differ from scripts/procfix7/host-tests/fixtures.sha256"; exit 2; }
+diff <(cd "$H" && find fixtures/host-step-1 -type f | sort) <(awk '{print $2}' scripts/procfix7/host-tests/fixtures.sha256 | sort) \
+  > /dev/null || { echo "freeze: $H/fixtures holds files the git list does not name"; exit 2; }
 nice -n 10 "$WS/plan/auto-campaign/implementer_ops/light_build.sh" procfix7 build -p rustred-campaign --release --bins
 RC=$WT/target/release/rr_campaign; FC=$WT/target/release/rr_fake_child; SC=$WT/target/release/rr_scope_check
 # round 11 (gate14 m14-freeze): BOTH binaries are checked (rr_fake_child too)
@@ -47,19 +52,25 @@ cp "$H"/host_step_fake1.sh "$H"/grade_host_step.py "$H"/p8_units.py "$H"/test_gr
 cp "$H"/rehearsal-fake-systemd/systemd-run "$H"/rehearsal-fake-systemd/systemctl "$F/rehearsal-fake-systemd/"
 cp -r "$H/fixtures/host-step-1" "$F/fixtures/"
 cp "$RC" "$FC" "$SC" "$F/bin/"
-unshare -Urpf --mount-proc -- env -u RR_CAMPAIGN_JOB REL="$F/bin" bash "$F/host_step_fake1.sh" --dry-run > "$F/dry-run.txt" 2>&1
+unshare -Urpf --mount-proc -- env -u RR_CAMPAIGN_JOB -u HELPERS REL="$F/bin" bash "$F/host_step_fake1.sh" --dry-run > "$F/dry-run.txt" 2>&1
+# round 12: the forking workload (B) too; its spec must carry the helpers
+unshare -Urpf --mount-proc -- env -u RR_CAMPAIGN_JOB HELPERS=2 REL="$F/bin" bash "$F/host_step_fake1.sh" --dry-run \
+  > "$F/dry-run-fork.txt" 2>&1
+grep -q '"honest_helpers":2' "$F/dry-run-fork.txt" || { echo "freeze: dry-run-fork.txt lacks honest_helpers 2"; exit 2; }
+grep -q '"honest_helpers":0' "$F/dry-run.txt" || { echo "freeze: dry-run.txt lacks honest_helpers 0"; exit 2; }
 RCS=$(sha256sum < "$F/bin/rr_campaign" | cut -c1-16); FCS=$(sha256sum < "$F/bin/rr_fake_child" | cut -c1-16)
+SCS=$(sha256sum < "$F/bin/rr_scope_check" | cut -c1-16)
 # round 11 (gate14 item 5): the safe host check's binary refuses inside a private namespace (nothing started): checked here
 unshare -Urpf --mount-proc -- "$F/bin/rr_scope_check" --unit gate-scopecheck-0123456789abcdef > "$F/scope-check-refusal.txt" 2>&1 \
   && { echo "freeze: rr_scope_check did not refuse inside a namespace"; exit 2; }
 grep -q 'refused: inside a private pid namespace' "$F/scope-check-refusal.txt" \
   || { echo "freeze: rr_scope_check's refusal text is missing"; exit 2; }
 python3 -I -B - "scripts/procfix7/MANIFEST.host-step.template" "$F/MANIFEST" "$F" "$COMMIT" "$RCS.." "$FCS.." "$SUPERSEDES" \
-  "$(date -u +%FT%TZ)" <<'PY'
+  "$(date -u +%FT%TZ)" "$SCS.." <<'PY'
 import re, sys
-tpl, out, d, commit, rc, fc, sup, utc = sys.argv[1:9]
+tpl, out, d, commit, rc, fc, sup, utc, sc = sys.argv[1:10]
 s = open(tpl).read()
-for k, v in (("@DIR@", d), ("@COMMIT@", commit), ("@RC_SHA@", rc), ("@FC_SHA@", fc), ("@SUPERSEDES@", sup), ("@UTC@", utc)):
+for k, v in (("@DIR@", d), ("@COMMIT@", commit), ("@RC_SHA@", rc), ("@FC_SHA@", fc), ("@SC_SHA@", sc), ("@SUPERSEDES@", sup), ("@UTC@", utc)):
     s = s.replace(k, v)
 assert not re.search(r"@[A-Z_]+@", s), "an unfilled placeholder in the MANIFEST"
 open(out, "w").write(s)
