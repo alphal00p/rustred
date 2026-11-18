@@ -1698,6 +1698,7 @@ name = "rustred-proof"
 version = "0.1.0"
 dependencies = [
  "rustred",
+ "symbolica",
 ]
 
 [[package]]
