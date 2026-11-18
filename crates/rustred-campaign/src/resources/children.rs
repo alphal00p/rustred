@@ -79,6 +79,12 @@ pub(crate) fn own_children() -> Result<BTreeSet<u32>, String> {
     }
 }
 
+/// procfix7 round 11 (gate14 L14-1): STOP CANDIDATES among our direct children when the strict read fails because the
+/// lists keep changing (a fast relay re-parented to us): never a proof of absence.
+pub(crate) fn own_children_candidates() -> BTreeSet<u32> {
+    procfs::sys().children_candidates(getpid())
+}
+
 /// procfix7 round 11 (gate14 m14-liveness): THE REAP GATE. The end-of-job hunt holds it SHARED from its listing of our
 /// direct children until every entry's stat is read; the adopted-children reaper ([`reap_tick`]) and the leader reap
 /// after a verified end hold it EXCLUSIVE around each reap. So no child of ours that those two reap can vanish between a

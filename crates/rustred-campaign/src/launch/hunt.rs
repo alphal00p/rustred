@@ -663,6 +663,24 @@ impl Hunt<'_> {
             Ok(st) if st.start_ticks <= born && st.ppid == me() && st.session == session)
     }
 
+    /// procfix7 round 11 (gate14 L14-1): our children list keeps changing (a fast relay re-parented to us): the round
+    /// cannot conclude, but every live child that any read names is still a candidate to STOP (a stopped relay hop cannot
+    /// fork, so the list settles). Candidates only: nothing is concluded from this union.
+    fn unstable_top_candidates(&self, queue: &mut Vec<Cand>) {
+        let me = me();
+        let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
+        for pid in crate::resources::own_children_candidates() {
+            if reg.contains(&pid) {
+                continue;
+            }
+            if let Ok(st) = crate::resources::read_stat(pid)
+                && !st.is_dead()
+            {
+                queue.push((pid, Some(me), st.start_ticks));
+            }
+        }
+    }
+
     /// procfix7 round 11 (gate14 G14-M1, W1): take one raw listing of `parent` into the round: an ended entry that may
     /// have handed off makes the round a CHANGE; every live entry not examined yet (by pid AND start) is queued.
     fn take_listing(
@@ -780,7 +798,11 @@ impl Hunt<'_> {
             match self.s.enumeration {
                 Enumeration::SubreaperTree => match self.snapshot_tops(false) {
                     Ok(t) => self.take_listing(me(), &t, &examined, &mut queue, &mut changed),
-                    Err(e) => inconclusive = Some(e),
+                    Err(e) => {
+                        // round 11 (gate14 L14-1): nothing is concluded, but the listed children are still stopped
+                        self.unstable_top_candidates(&mut queue);
+                        inconclusive = Some(e);
+                    }
                 },
                 Enumeration::FullProc => match strict_listing_counted() {
                     Ok((all, _)) => queue.extend(

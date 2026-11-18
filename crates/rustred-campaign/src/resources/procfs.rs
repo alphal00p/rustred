@@ -850,6 +850,14 @@ impl ProcRoot {
         out
     }
 
+    /// procfix7 round 11 (gate14 L14-1): STOP CANDIDATES only, never a proof: every child of `pid` that any of two
+    /// best-effort reads of its threads' lists names (a list that keeps changing still names live children).
+    pub fn children_candidates(&self, pid: u32) -> BTreeSet<u32> {
+        let mut out: BTreeSet<u32> = self.children_best_effort(pid).into_iter().collect();
+        out.extend(self.children_best_effort(pid));
+        out
+    }
+
     /// procfix7 round 8b (item c'): is `pid` an ancestor of THIS process (the re-parent targets of its descendants)? The
     /// chain is read once per process AND PER PROC ROOT (pid and start time of each ancestor; procfix7 round 9, gate13
     /// m13-chain: one process-wide chain was filled by the first caller's root, so a fake root of a test decided the
