@@ -30,12 +30,11 @@ mod unmemoized;
 pub use cached_program::{CandidateGuardedCacheError, CandidateUnitMassProgram};
 pub(crate) use litered_view::CandidateProgramView;
 pub(crate) use model::PreparedRule;
-pub(crate) use model::{PreparedTerm, RuleBodyLoader};
-pub(crate) use preparation::shared::{LazyRhs, StreamedRule};
 pub use model::{
     CandidateCacheRepresentation, CandidateDecomposition, CandidateFamilyAdmission,
     CandidateReachabilityReport, CandidateReductionError, CandidateStatistics, UnresolvedPolicy,
 };
+pub(crate) use model::{PreparedTerm, RuleBodyLoader};
 pub use ordered::CandidateOrderedReduction;
 pub use owners::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateIntegralIdentity, CandidateOwnerContext,
@@ -57,6 +56,7 @@ pub use owners::{
 pub use power_domain::{
     DomainPowerBounds, DomainPowerError, DomainPowerExtrema, DomainPowerSummary,
 };
+pub(crate) use preparation::shared::{LazyRhs, StreamedRule};
 pub use reducer::CandidateReducer;
 pub use routed::{
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,

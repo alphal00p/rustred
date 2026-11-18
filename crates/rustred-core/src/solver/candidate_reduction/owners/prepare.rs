@@ -8,8 +8,8 @@ use crate::solver::FiniteCasePolicy;
 
 use super::super::CandidateReductionError;
 use super::super::preparation::shared::{
-    StreamedRule, prepare_terms, term_interner_with,
-    prepare_batch_from, prepare_family, prepare_shifted_p_family, validate_solution_order,
+    StreamedRule, prepare_batch_from, prepare_family, prepare_shifted_p_family, prepare_terms,
+    term_interner_with, validate_solution_order,
 };
 use super::model::*;
 
@@ -75,7 +75,13 @@ impl<const N: usize> CandidateOwnerContext<N> {
         denominators: &[Arc<crate::algebra::IndexedPolynomial>],
     ) -> Result<Vec<crate::solver::PreparedTerm<N>>, CandidateReductionError> {
         let mut interner = term_interner_with(denominators);
-        prepare_terms(&self.shared.context, target, terms, self.limits, &mut interner)
+        prepare_terms(
+            &self.shared.context,
+            target,
+            terms,
+            self.limits,
+            &mut interner,
+        )
     }
 }
 

@@ -448,7 +448,10 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
 /// [`prepare_batch`] over rules restored one at a time (t162-export): each
 /// source rule is dropped once prepared, so the restored form of the whole
 /// batch is never held next to the prepared one.
-pub(in crate::solver::candidate_reduction) fn prepare_batch_from<const N: usize, R: Into<StreamedRule<N>>>(
+pub(in crate::solver::candidate_reduction) fn prepare_batch_from<
+    const N: usize,
+    R: Into<StreamedRule<N>>,
+>(
     shared: &PreparedFamily<N>,
     sector: [bool; N],
     source_rules: impl IntoIterator<Item = Result<R, CandidateReductionError>>,

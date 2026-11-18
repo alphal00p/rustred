@@ -423,7 +423,10 @@ impl<const N: usize> RuleBody<N> {
     pub fn eager(terms: Vec<PreparedTerm<N>>) -> Self {
         let cell = std::sync::OnceLock::new();
         let _ = cell.set(terms);
-        Self { terms: cell, lazy: None }
+        Self {
+            terms: cell,
+            lazy: None,
+        }
     }
 
     pub fn lazy(body: LazyRuleBody<N>) -> Self {
@@ -455,15 +458,6 @@ impl<const N: usize> RuleBody<N> {
         Ok(self.terms.get().expect("just set"))
     }
 
-    /// Whether the terms are in memory (always for an eager body).
-    pub fn is_loaded(&self) -> bool {
-        self.terms.get().is_some()
-    }
-
-    pub fn is_lazy(&self) -> bool {
-        self.lazy.is_some()
-    }
-
     /// Number of terms, without loading.
     pub fn len(&self) -> usize {
         match (self.terms.get(), &self.lazy) {
@@ -471,10 +465,6 @@ impl<const N: usize> RuleBody<N> {
             (None, Some(lazy)) => lazy.len,
             (None, None) => 0,
         }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     /// `len` minus the number of distinct shifts, without loading.

@@ -406,7 +406,8 @@ fn rejection_lookahead_optional_preflight_is_inconclusive_but_mandatory_error_st
                         coefficient: c.zero().into(),
                         denominator: poly(&c, c.zero()).into(),
                     },
-                ].into();
+                ]
+                .into();
                 OwnerDomainPredicate::OriginalDenominator {
                     batch: 0,
                     rule: 17,

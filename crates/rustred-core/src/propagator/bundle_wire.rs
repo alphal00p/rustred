@@ -1049,7 +1049,10 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
             }
             let id = CoefficientId::try_from_index(term.coefficient as usize)
                 .map_err(BundleWireError::binary)?;
-            let key = self.table.denominator_key(id).map_err(BundleWireError::binary)?;
+            let key = self
+                .table
+                .denominator_key(id)
+                .map_err(BundleWireError::binary)?;
             if let Some(key) = &key
                 && by_key.contains(key)
             {

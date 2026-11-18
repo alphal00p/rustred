@@ -42,7 +42,6 @@ pub(crate) use instantiate::{
 };
 
 pub(crate) use candidate_reduction::owner_step;
-pub(crate) use candidate_reduction::{LazyRhs, PreparedTerm, RuleBodyLoader, StreamedRule};
 pub use candidate_reduction::{
     BoundOwnerOverlay, BoundOwnerSearch, CandidateCacheRepresentation, CandidateDecomposition,
     CandidateDomainRouteCover, CandidateDomainRouteError, CandidateDomainRouteEvent,
@@ -89,6 +88,7 @@ pub use candidate_reduction::{
     RootAdmissionError, RootRegionInput, RoutedCandidateApplication, RoutedCandidateLimits,
     RoutedCandidateReducer, UnresolvedPolicy, pick_entry_intersection_witness,
 };
+pub(crate) use candidate_reduction::{LazyRhs, PreparedTerm, RuleBodyLoader, StreamedRule};
 pub use case::{
     AffineCase, AffineGeometryError, AffineIntersection, Case, CaseIntersectionBudget,
     CaseIntersectionError, CaseIntersectionFailure, CaseIntersectionLimits, CaseIntersectionResult,

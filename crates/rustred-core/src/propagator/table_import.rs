@@ -4154,7 +4154,13 @@ mod tests {
         let cases: [(String, &[[i64; 5]]); 2] = [
             (
                 kite_table(false, None, &[]),
-                &[[2, 1, 1, 1, 1], [1, 2, 1, 1, 1], [1, 1, 2, 1, 1], [1, 1, 1, 1, 2], [1, 1, 1, 1, 1]],
+                &[
+                    [2, 1, 1, 1, 1],
+                    [1, 2, 1, 1, 1],
+                    [1, 1, 2, 1, 1],
+                    [1, 1, 1, 1, 2],
+                    [1, 1, 1, 1, 1],
+                ],
             ),
             (
                 mixed_kite_table("I(n0-1,1,1,1,1)", false),
@@ -4175,6 +4181,15 @@ mod tests {
                             &seed,
                         );
                         RULE_BODIES_OVERRIDE.with(|cell| cell.set(None));
+                        // everything but the wall time
+                        let out = out.map(|replays| {
+                            (replays.into_iter())
+                                .map(|mut replay| {
+                                    replay.seconds = 0.0;
+                                    replay
+                                })
+                                .collect::<Vec<_>>()
+                        });
                         format!("{out:?}")
                     };
                     let eager = run(false);

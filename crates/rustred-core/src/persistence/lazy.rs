@@ -256,9 +256,14 @@ impl LazyDecodedCoefficientTable {
     /// ([`super::factored::OnDemandFactoredSection::denominator_key`]) and the
     /// denominator itself, decoded without the numerator; `None` for every
     /// other form (the caller then reads the whole coefficient).
-    pub(crate) fn denominator_key(&self, id: CoefficientId) -> Result<Option<Vec<u8>>, BinaryIoError> {
+    pub(crate) fn denominator_key(
+        &self,
+        id: CoefficientId,
+    ) -> Result<Option<Vec<u8>>, BinaryIoError> {
         match &self.factored {
-            Some(FactoredAccess::OnDemand(section)) => section.denominator_key(id.index()).map(Some),
+            Some(FactoredAccess::OnDemand(section)) => {
+                section.denominator_key(id.index()).map(Some)
+            }
             _ => Ok(None),
         }
     }
