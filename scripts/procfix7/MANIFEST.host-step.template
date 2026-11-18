@@ -28,10 +28,16 @@ THE SUPERVISOR IS A DETACHED systemd USER SERVICE with an exact name: the script
     (its own systemctl helpers, a job's systemd-run client before its scope move). The jobs' scopes are separate units
     and are never touched by it; no foreign process can be in that cgroup.
 
-THE END-OF-JOB PROOF (round 10, gate13c G13c-M1): a listed process that ended between the listing and its examination
-(possibly handing off to a successor born after the listing) is never counted as absent: the hunt keeps looking, a proof
-pass that sees one is inconclusive, and a scope still populated with no live member listed gets cgroup.kill. A proof that
-stays inconclusive ends as an unverified / unproven end (P5), never as a proven one.
+THE END-OF-JOB PROOF (round 10 gate13c G13c-M1; round 11 gate14 G14-M1, RUNBOOK 2.10): at EVERY level the hunt follows
+(the supervisor's own children, every member it stopped, every marker-less process of the job it walks through), a listed
+process that ended between the listing and its examination, and may have handed off to a successor born after the
+listing, is never counted as absent: the fixed point looks again, and a proof pass that sees one (or a walked process that
+ended, or a walked list that changed) is inconclusive. Exempt only by a conclusive fact: a member the hunt stopped and
+killed (pid AND start), a zombie already seen ended in an earlier listing of the hunt, a process older than the job, the
+supervisor's own session, a process classified as not the job's, a zombie of another job's session whose leader is held.
+A scope still populated with no live member listed gets cgroup.kill. A proof that stays inconclusive ends as an unverified
+/ unproven end (P5), never as a proven one. It covers marked processes and members of the job's session; a marker-less
+process that re-sets the marker for new children is outside it (RUNBOOK 2.10).
 
 HOW TO READ P5: P5 stays STRICT: any unproven_end note FAILs it. When unproven_end notes exist, pass.txt carries an extra
 line "P5-unproven INFO: N unproven_end note(s) (<attempts>): k of N cleared later (unverified_end_cleared of the same

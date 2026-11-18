@@ -27,14 +27,21 @@ for f in host_step_fake1.sh grade_host_step.py p8_units.py test_grade_host_step.
 done
 nice -n 10 "$WS/plan/auto-campaign/implementer_ops/light_build.sh" procfix7 build -p rustred-campaign --release --bins
 RC=$WT/target/release/rr_campaign; FC=$WT/target/release/rr_fake_child
-for s in RR_CAMPAIGN_FAILPOINT "TEST BUILD"; do
-  [ "$(grep -a -c "$s" "$RC" || true)" = 0 ] || { echo "freeze: $RC names '$s': not a release build"; exit 2; }
+# round 11 (gate14 m14-freeze): BOTH binaries are checked (rr_fake_child too)
+for b in "$RC" "$FC"; do
+  for s in RR_CAMPAIGN_FAILPOINT "TEST BUILD"; do
+    [ "$(grep -a -c "$s" "$b" || true)" = 0 ] || { echo "freeze: $b names '$s': not a release build"; exit 2; }
+  done
 done
 UTC=$(date -u +%Y%m%dT%H%MZ)
 # FROZEN_ROOT: only to validate this script into a scratch directory (default: the real WS/bin/frozen)
-F=${FROZEN_ROOT:-$WS/bin/frozen}/$UTC-host-step
-[ -e "$F" ] && { echo "freeze: $F exists (never edited): wait a minute"; exit 2; }
-mkdir -p "$F/bin" "$F/fixtures" "$F/rehearsal-fake-systemd"
+FR=${FROZEN_ROOT:-$WS/bin/frozen}
+F=$FR/$UTC-host-step
+# round 11 (gate14 m14-freeze): ONE atomic mkdir (no -p) creates the directory or fails when it exists (a frozen directory
+# is never edited, also not by a second freeze in the same minute); only its parent may be created on the way
+[ -d "$FR" ] || mkdir -p "$FR"
+mkdir "$F" || { echo "freeze: $F exists (never edited): wait a minute"; exit 2; }
+mkdir "$F/bin" "$F/fixtures" "$F/rehearsal-fake-systemd"
 cp "$H"/host_step_fake1.sh "$H"/grade_host_step.py "$H"/p8_units.py "$H"/test_grade_host_step.py "$H"/test_p8_units.py "$F/"
 cp "$H"/rehearsal-fake-systemd/systemd-run "$H"/rehearsal-fake-systemd/systemctl "$F/rehearsal-fake-systemd/"
 cp -r "$H/fixtures/host-step-1" "$F/fixtures/"
