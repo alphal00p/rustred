@@ -161,6 +161,9 @@ mod tadicjob;
 // lane symcert: kind proof-symrows emulated (src/bin/rr_fake_child/symrows.rs)
 #[path = "rr_fake_child/symrows.rs"]
 mod symrows;
+// lane gencheck: a fake of the independent checker `rr_proof --mode weight-cert` (src/bin/rr_fake_child/wcert.rs)
+#[path = "rr_fake_child/wcert.rs"]
+mod wcert;
 
 mod own {
     use serde_json::Value;
@@ -1079,6 +1082,15 @@ impl Main {
         let mut rule_index = None;
         if let (CaseResult::Rule, Some(r)) = (result, rule) {
             let index = ctx.st().counters.rules_committed;
+            // lane gencheck: a weight certificate for the emission hook (out/wcert/r<index>.json), not in the record
+            let (r, cert) = wcert::split_cert(r);
+            let r = &r;
+            if let Some(c) = cert {
+                let d = RunLayout::new(&ctx.spec.run_dir).out_dir().join("wcert");
+                std::fs::create_dir_all(&d).map_err(Finish::Io)?;
+                std::fs::write(d.join(format!("r{index}.json")), serde_json::to_vec(&c).unwrap())
+                    .map_err(Finish::Io)?;
+            }
             let (line, elided) = fake_rule_record(r, index, &ctx.spec.output, ctx.jitter());
             let (off, len, canon) = self
                 .table
@@ -1913,6 +1925,7 @@ fn main() {
             println!("{}", serde_json::to_string(&v).unwrap());
         }
         ["job", path] => run_job(Path::new(path)),
+        ["--mode", "weight-cert", ..] => wcert::main(&args),
         _ => {
             eprintln!("usage: rr_fake_child job RUN/job.json | rr_fake_child version --json");
             std::process::exit(2);

@@ -8,12 +8,15 @@
 //! - [`class`]: class words, the check summary, [`class::class_of`], the [`class::Policy`].
 //! - [`ladder`]: open loci and new branches -> child cases, piece exception bookkeeping, the partition proof.
 //! - [`validate`]: the record-level part of `rr_campaign table-check`.
+//! - [`legacy`]: LEGACY IMPORT WITH EVIDENCE BINDING (the class of a record brought in unchanged, from its bytes and the
+//!   evidence files alone).
 //!
 //! The process part (running the producer and the checker as children, writing tables) is
 //! `rustred_campaign::emission`.
 pub mod body;
 pub mod class;
 pub mod ladder;
+pub mod legacy;
 pub mod validate;
 
 use class::{CheckSummary, Classed, ConeEvidence, Kind, Origin, SampleEvidence};
@@ -27,6 +30,8 @@ pub const AREA_CHECK: &str = "check";
 pub const AREA_PROV: &str = "prov";
 pub const AREA_POLICY: &str = "policy";
 pub const AREA_KEYS: &str = "keys";
+/// bound evidence rows of a legacy import (the verdict row a class rests on)
+pub const AREA_EVID: &str = "evid";
 
 /// The side directory of a table path (`x/T.table.jsonl` -> `x/T.emission`).
 pub fn side_dir(table: &std::path::Path) -> std::path::PathBuf {
@@ -89,6 +94,8 @@ pub struct Parts {
     pub cone: Option<ConeEvidence>,
     pub sample: Option<SampleEvidence>,
     pub ladder: Option<Value>,
+    /// legacy import: the `legacy` member of the class (bound proof object, proof-line binding, liveness)
+    pub legacy: Option<Value>,
     /// policy name and sha256
     pub policy: (String, String),
 }
@@ -110,6 +117,9 @@ pub fn derivation(p: &Parts) -> Value {
     }
     if let Some(s) = &p.sample {
         class["sample"] = serde_json::to_value(s).unwrap_or(Value::Null);
+    }
+    if let Some(l) = &p.legacy {
+        class["legacy"] = l.clone();
     }
     json!({
         "schema": SCHEMA,

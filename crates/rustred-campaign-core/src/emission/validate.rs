@@ -8,7 +8,8 @@ use super::body::{body_ids, sha256_hex, strip_derivation};
 use super::class::{
     CheckSummary, ClassWord, ConeEvidence, Evidence, Kind, Origin, SampleEvidence, class_of,
 };
-use super::{AREA_CERT, AREA_CHECK, AREA_POLICY, AREA_PROV, SCHEMA};
+use super::legacy::verify_row;
+use super::{AREA_CERT, AREA_CHECK, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, SCHEMA};
 use serde_json::Value;
 
 /// The verdict on one record.
@@ -171,12 +172,54 @@ pub fn check_record(
         }
         v.check_output = Some(text);
     }
+    let cone = serde_json::from_value::<ConeEvidence>(d["class"]["cone"].clone()).ok();
+    let sample = serde_json::from_value::<SampleEvidence>(d["class"]["sample"].clone()).ok();
+    // legacy import (contract section 12): the bound verdict row is re-read and re-verified against THIS body; the
+    // per-key proof lines must have been made on this body's bytes; the proven key lists must be beside the table
+    let mut legacy_proof = None;
+    let legacy = &d["class"]["legacy"];
+    if origin == Origin::Import && legacy.is_object() {
+        if let Some(sha) = legacy["proof_object"]["row_sha256"].as_str()
+            && let Some(b) = fetch(AREA_EVID, sha, "bound proof object", &mut v.problems)
+        {
+            match serde_json::from_slice::<Value>(&b) {
+                Ok(row) => match verify_row(&row, &ids.relation_sha256, &ids.domain_sha256) {
+                    Ok(()) => legacy_proof = Some(true),
+                    Err(e) => {
+                        v.problems.push(e);
+                        legacy_proof = Some(false);
+                    }
+                },
+                Err(e) => v.problems.push(format!("bound proof object: {e}")),
+            }
+        }
+        if let Some(ls) = legacy["proofs_line_sha256"].as_str()
+            && ls != sha256_hex(body.as_bytes())
+        {
+            v.problems
+                .push("the per-key proof lines were made on another line than this body".into());
+        }
+        let keyed = [
+            cone.as_ref().map(|c| (c.keys_sha256.clone(), c.proven)),
+            sample.as_ref().map(|s| (s.keys_sha256.clone(), s.proven)),
+        ];
+        for (sha, proven) in keyed.into_iter().flatten() {
+            if let Some(b) = fetch(AREA_KEYS, &sha, "proven key list", &mut v.problems) {
+                let n = b.split(|&c| c == b'\n').filter(|l| !l.is_empty()).count() as u64;
+                if n != proven {
+                    v.problems
+                        .push(format!("proven key list has {n} keys, the record states {proven}"));
+                }
+            }
+        }
+    }
     let ev = Evidence {
-        cone: serde_json::from_value::<ConeEvidence>(d["class"]["cone"].clone()).ok(),
-        sample: serde_json::from_value::<SampleEvidence>(d["class"]["sample"].clone()).ok(),
+        cone,
+        sample,
         exact_at_key: d["class"]["exact_at_key"].as_bool(),
         alias_target: d["class"]["alias_of"].as_i64().and_then(alias_class),
         sealed: d["class"]["sealed"].as_bool(),
+        legacy_proof,
     };
     let derived = class_of(kind, origin, summary.as_ref(), &ev);
     let stated = d["class"]["word"].as_str().and_then(ClassWord::from_word);

@@ -979,6 +979,12 @@ impl ImproveSource {
             let abs_t = self.cdir.join(&rel_t);
             let abs_o = self.cdir.join(&rel_o);
             std::fs::create_dir_all(abs_t.parent().expect("dir")).map_err(|e| e.to_string())?;
+            // EMISSION: the kept records' derivation members reference side files of the INPUT table's side
+            // directory: carry them (content-addressed: hard links, else copies) so the new table checks on its own
+            crate::emission::carry_side(
+                &rustred_campaign_core::emission::side_dir(Path::new(&self.nodes[i].e.table.path)),
+                &rustred_campaign_core::emission::side_dir(&abs_t),
+            )?;
             let tmp_t = abs_t.with_extension("jsonl.tmp");
             let mut sink = TableSink {
                 file: match table_not_written {

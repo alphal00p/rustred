@@ -240,6 +240,10 @@ pub struct Evidence {
     /// recipe kind: the seal covers every key of the face up to the cone
     #[serde(default)]
     pub sealed: Option<bool>,
+    /// legacy import: the bound verdict row (side file) re-verified at validation: same relation and domain as the
+    /// record's body and still a whole-domain proof object (`legacy::verify_row`)
+    #[serde(default)]
+    pub legacy_proof: Option<bool>,
 }
 
 /// The class of a record and the reason for anything below `whole domain`.
@@ -303,6 +307,14 @@ pub fn class_of(
                         evidence: vec!["check", "cone"],
                     };
                 }
+            }
+            // legacy import: a whole-domain proof object of a reviewing lane, bound to this body (relation + domain)
+            if kind == Kind::Legacy && origin == Origin::Import && ev.legacy_proof == Some(true) {
+                return Classed {
+                    class: ClassWord::WholeDomain,
+                    reason: None,
+                    evidence: vec!["proof_object"],
+                };
             }
             // per-key evidence on every first-match key of the cone (no whole-domain check needed)
             if ev

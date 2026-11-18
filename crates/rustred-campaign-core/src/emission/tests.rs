@@ -450,6 +450,7 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
         cone: None,
         sample: None,
         ladder: None,
+        legacy: None,
         policy: (policy.name.clone(), sha256_hex(&policy_text)),
     };
     let d = derivation(&parts);

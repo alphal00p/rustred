@@ -159,6 +159,16 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        "legacy-import" => match crate::emission::legacy_import::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("legacy-import: {e}");
+                exit::USAGE
+            }
+        },
         "emit-replace" => match crate::emission::emit_replace_cmd(rest) {
             Ok((t, closed)) => {
                 outln!("{t}");

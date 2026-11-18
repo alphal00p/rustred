@@ -108,6 +108,7 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
             let row = json!({"chart": chart, "position": position, "index": verdict.index, "body_sha256": verdict.body_sha256,
                 "kind": verdict.kind.map(|k| k.word()), "class": class.word(), "certificate_sha256": verdict.certificate_sha256,
                 "check_output_sha256": d.as_ref().and_then(|d| d["check"]["output_sha256"].as_str().map(str::to_string)),
+                "liveness": d.as_ref().and_then(|d| d["class"]["legacy"]["liveness"]["verdict"].as_str().map(str::to_string)),
                 "accepted": verdict.ok()});
             writeln!(m, "{row}").map_err(|e| e.to_string())?;
         }

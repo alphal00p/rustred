@@ -9,6 +9,7 @@
 pub mod bindcheck;
 pub mod child;
 pub mod emitter;
+pub mod legacy_import;
 pub mod replace;
 pub mod tablecheck;
 
@@ -158,6 +159,35 @@ pub fn write_replaced_table(
         sha.finish_hex(),
         std::fs::metadata(out).map(|m| m.len()).unwrap_or(0),
     ))
+}
+
+/// Carry a table's side directory into another's (content-addressed files: a hard link, else a copy; existing files
+/// are kept). Returns the number of files carried. A missing source is no error (a table without emitted records).
+pub fn carry_side(from: &Path, to: &Path) -> Result<u64, String> {
+    if !from.is_dir() || from == to {
+        return Ok(0);
+    }
+    let mut n = 0;
+    for area in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+        let area = area.map_err(|e| e.to_string())?.path();
+        if !area.is_dir() {
+            continue;
+        }
+        let dst = to.join(area.file_name().expect("area name"));
+        std::fs::create_dir_all(&dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+        for f in std::fs::read_dir(&area).map_err(|e| format!("{}: {e}", area.display()))? {
+            let f = f.map_err(|e| e.to_string())?.path();
+            let d = dst.join(f.file_name().expect("file name"));
+            if d.exists() {
+                continue;
+            }
+            if std::fs::hard_link(&f, &d).is_err() {
+                std::fs::copy(&f, &d).map_err(|e| format!("{} -> {}: {e}", f.display(), d.display()))?;
+            }
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 fn flag_value(rest: &[String], i: usize) -> Result<String, String> {

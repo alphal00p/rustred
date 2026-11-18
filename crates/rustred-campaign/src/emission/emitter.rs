@@ -325,6 +325,7 @@ impl Emitter {
             cone: c.cone.clone(),
             sample: c.sample.clone(),
             ladder: c.ladder.clone(),
+            legacy: None,
             policy: (self.policy.name.clone(), self.policy_sha.clone()),
         };
         let d = derivation(&parts);
