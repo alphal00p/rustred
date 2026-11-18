@@ -9,6 +9,7 @@ use rustred_campaign_core::emission::body::{
 };
 use rustred_campaign_core::emission::class::{
     CheckSummary, Classed, ConeEvidence, Kind, Liveness, Origin, Policy, SampleEvidence, class_of,
+    span_exact,
 };
 use rustred_campaign_core::emission::{
     AREA_CERT, AREA_CHECK, AREA_POLICY, AREA_PROV, Parts, derivation, side_rel,
@@ -136,6 +137,85 @@ pub fn run_checker(
     })
 }
 
+/// The key of a POINT record (every slot fixed in `fixed`), as instance-span's key line over all slots; None when a
+/// slot is free (a parametric record has no single key: its exactness is per key only).
+pub fn point_key(body: &str) -> Option<Value> {
+    let v: Value = serde_json::from_str(body).ok()?;
+    let fixed = v["fixed"].as_array()?;
+    let mut key = serde_json::Map::new();
+    for (i, x) in fixed.iter().enumerate() {
+        key.insert(format!("n{i}"), json!(x.as_i64()?));
+    }
+    Some(json!({"key": Value::Object(key)}))
+}
+
+/// Run the checker in INSTANCE-SPAN mode on `[header, body]` at the record's own key (point / symmetry records):
+/// returns (output line, its exactness bound to the body, the child run).
+pub fn run_span_checker(
+    checker: &Checker,
+    header: &str,
+    body: &str,
+    dir: &Path,
+    budget_s: f64,
+) -> Result<(Option<String>, Result<bool, String>, ChildRun), String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let input = dir.join("check-input.table.jsonl");
+    let header = header.trim_end();
+    std::fs::write(&input, format!("{header}\n{body}\n"))
+        .map_err(|e| format!("{}: {e}", input.display()))?;
+    let keys = dir.join("keys.jsonl");
+    let Some(k) = point_key(body) else {
+        return Err("not a point record (a free slot): its exactness is per key only".into());
+    };
+    std::fs::write(&keys, format!("{k}\n")).map_err(|e| format!("{}: {e}", keys.display()))?;
+    let index = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|v| v["index"].as_i64())
+        .unwrap_or(0);
+    let mut args: Vec<String> = vec![
+        "--mode".into(),
+        "instance-span".into(),
+        "--table".into(),
+        input.display().to_string(),
+        "--rule".into(),
+        index.to_string(),
+        "--offset".into(),
+        (header.len() + 1).to_string(),
+        "--keys".into(),
+        keys.display().to_string(),
+    ];
+    for (flag, p) in [
+        ("--family", &checker.family),
+        ("--zero-sectors", &checker.zero_sectors),
+        ("--symmetry-group", &checker.symmetry_group),
+    ] {
+        if let Some(p) = p {
+            args.push(flag.into());
+            args.push(p.display().to_string());
+        }
+    }
+    let run = child::run(&checker.binary, &args, &[], dir, "span", budget_s)?;
+    let output = run
+        .stdout_text()
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with('{'))
+        .map(str::to_string);
+    let exact = if run.over_budget {
+        Err(format!("budget_exceeded ({:.1} s > {budget_s:.1} s)", run.seconds))
+    } else {
+        match &output {
+            None => Err(format!(
+                "checker_error (exit {:?}, no output: {})",
+                run.code,
+                run.stderr_tail(300)
+            )),
+            Some(o) => span_exact(o, body),
+        }
+    };
+    Ok((output, exact, run))
+}
+
 /// One checker run on a body.
 #[derive(Clone, Debug)]
 pub struct CheckRun {
@@ -253,7 +333,41 @@ impl Emitter {
         let ids = body_ids(&body)?;
         let mut certificate = None;
         let mut check_run = None;
+        // POINT / SYMMETRY records: the instance-span check at the record's own key (no certificate)
+        let point = matches!(c.kind, Kind::Point | Kind::Symmetry);
+        let mut span: Option<(String, String, String)> = None;
+        let mut exact_at_key: Option<bool> = None;
+        let mut span_err: Option<String> = None;
+        if point {
+            match run_span_checker(
+                &self.checker,
+                &c.header,
+                &body,
+                &self.work.join(&c.tag),
+                self.checker.budget(c.lift_seconds),
+            ) {
+                Ok((Some(o), exact, _)) => {
+                    let out = self.put_side(AREA_CHECK, o.as_bytes())?;
+                    let verdict = serde_json::from_str::<Value>(&o)
+                        .ok()
+                        .and_then(|v| v["verdict"].as_str().map(str::to_string))
+                        .unwrap_or_default();
+                    match exact {
+                        Ok(x) => {
+                            exact_at_key = Some(x);
+                            span = Some((self.checker.sha256.clone(), out, verdict));
+                        }
+                        Err(e) => span_err = Some(e),
+                    }
+                }
+                Ok((None, exact, _)) => span_err = Some(exact.err().unwrap_or_default()),
+                Err(e) => span_err = Some(e),
+            }
+        }
         let check: Result<(String, String, CheckSummary), String> = match &c.cert {
+            _ if point => Err(span_err
+                .clone()
+                .unwrap_or_else(|| "point / symmetry record: instance-span check".into())),
             None => Err(match c.kind {
                 Kind::Legacy => "legacy_unchecked".into(),
                 _ => "no_certificate".into(),
@@ -306,6 +420,7 @@ impl Emitter {
         let ev = rustred_campaign_core::emission::class::Evidence {
             cone: c.cone.clone(),
             sample: c.sample.clone(),
+            exact_at_key,
             ..Default::default()
         };
         let mut classed = class_of(c.kind, c.origin, summary.as_ref(), &ev);
@@ -321,6 +436,7 @@ impl Emitter {
             producer,
             certificate,
             check,
+            span,
             classed: classed.clone(),
             cone: c.cone.clone(),
             sample: c.sample.clone(),

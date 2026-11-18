@@ -196,6 +196,30 @@ impl CheckSummary {
     }
 }
 
+/// The verdict of an independent INSTANCE-SPAN check (`rr_proof --mode instance-span`, schema
+/// `rustred.proof-kernel.span.v1`) of a POINT / SYMMETRY record, BOUND to the record's body: Ok(true) when every key it
+/// checked is EXACT_IN_SPAN_AT_KEY (verdict EXACT_ALL_KEYS_IN_SPAN, none not in span, none other), Ok(false) for any
+/// other verdict; Err when the output is not an instance-span record of THIS body (`record_sha256` = sha256 of the
+/// body line the checker read) or checked no key.
+pub fn span_exact(out: &str, body: &str) -> Result<bool, String> {
+    let v: Value = serde_json::from_str(out).map_err(|e| format!("span output: {e}"))?;
+    if v["mode"].as_str() != Some("instance-span") {
+        return Err("the check output is not an instance-span record".into());
+    }
+    if v["record_sha256"].as_str() != Some(super::body::sha256_hex(body.as_bytes()).as_str()) {
+        return Err("the instance-span check was made on another record line".into());
+    }
+    let keys = v["keys"].as_array().map_or(0, Vec::len);
+    if keys == 0 {
+        return Err("the instance-span check checked no key".into());
+    }
+    let c = &v["counts"];
+    Ok(v["verdict"].as_str() == Some("EXACT_ALL_KEYS_IN_SPAN")
+        && c["not_in_span"].as_u64() == Some(0)
+        && c["other"].as_u64() == Some(0)
+        && c["in_span"].as_u64() == Some(keys as u64))
+}
+
 /// Per-key evidence of the cone class: keys of the record's domain inside cone `cone` that need a per-key proof (the keys
 /// on the open loci, or every first-match key), how many were enumerated, whether the enumeration is complete, how many
 /// are proven exact.

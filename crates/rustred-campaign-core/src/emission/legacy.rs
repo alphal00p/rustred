@@ -885,6 +885,69 @@ mod tests {
         assert_eq!(decide(&r, &[&w], &[], &none_ref, p.get(&5), Some(&dead), 39).word, "whole domain");
     }
 
+    /// A point record's exactness comes only from a stored instance-span output bound to its body: a stated
+    /// `exact_at_key` is not read; an output of another line is refused.
+    #[test]
+    fn point_records_need_a_stored_instance_span_output_of_their_own_body() {
+        use crate::emission::AREA_CHECK;
+        let line = r#"{"type":"rule","chart":"110","index":0,"case":"Coordinate(P)","fixed":[1,1,0],"equations":[],"target":"I(1,1,0)","rhs":[["I(0,1,0)","1"]],"exceptions":[],"domain_bounds":null}"#;
+        let ids = body_ids(line).unwrap();
+        let policy = Policy::default();
+        let pt = serde_json::to_vec(&policy).unwrap();
+        let mk = |span: Option<(String, Vec<u8>)>, stated: bool| {
+            let mut side: BTreeMap<(String, String), Vec<u8>> = BTreeMap::new();
+            side.insert((AREA_POLICY.into(), sha256_hex(&pt)), pt.clone());
+            let sp = span.map(|(verdict, out)| {
+                let sha = sha256_hex(&out);
+                side.insert((AREA_CHECK.into(), sha.clone()), out);
+                ("tool".to_string(), sha, verdict)
+            });
+            let parts = Parts {
+                kind: Kind::Point,
+                origin: Origin::Lift,
+                body_sha256: ids.body_sha256.clone(),
+                producer: None,
+                certificate: None,
+                check: Err("point record: instance-span check".into()),
+                span: sp,
+                classed: Classed { class: ClassWord::WholeDomain, reason: None, evidence: vec!["exact_at_key"] },
+                cone: None,
+                sample: None,
+                ladder: None,
+                legacy: None,
+                policy: (policy.name.clone(), sha256_hex(&pt)),
+            };
+            let mut d = derivation(&parts);
+            if stated {
+                d["class"]["exact_at_key"] = json!(true);
+            }
+            (attach_derivation(line, &d).unwrap(), side)
+        };
+        let span_out = |l: &str, verdict: &str, exact: bool| -> Vec<u8> {
+            json!({"mode": "instance-span", "record_sha256": sha256_hex(l.as_bytes()), "keys": [{"status": "x"}],
+                   "verdict": verdict, "counts": {"in_span": if exact {1} else {0}, "not_in_span": if exact {0} else {1}, "other": 0}})
+            .to_string().into_bytes()
+        };
+        let no_alias = |_: i64| None;
+        let look = |s: BTreeMap<(String, String), Vec<u8>>| move |a: &str, h: &str| s.get(&(a.to_string(), h.to_string())).cloned();
+        let (l, s) = mk(Some(("EXACT_ALL_KEYS_IN_SPAN".into(), span_out(line, "EXACT_ALL_KEYS_IN_SPAN", true))), false);
+        let v = check_record(&l, 0, &look(s), &no_alias);
+        assert!(v.ok(), "{:?}", v.problems);
+        assert_eq!(v.class, Some(ClassWord::WholeDomain));
+        // a stated exact_at_key without any check output: not whole domain, refused
+        let (l, s) = mk(None, true);
+        assert!(!check_record(&l, 0, &look(s), &no_alias).ok());
+        // an output made on another line: refused
+        let other = line.replace("I(0,1,0)", "I(0,0,0)");
+        let (l, s) = mk(Some(("EXACT_ALL_KEYS_IN_SPAN".into(), span_out(&other, "EXACT_ALL_KEYS_IN_SPAN", true))), false);
+        assert!(!check_record(&l, 0, &look(s), &no_alias).ok());
+        // not in span: not whole domain
+        let (l, s) = mk(Some(("NOT_ALL_KEYS_IN_SPAN".into(), span_out(line, "NOT_ALL_KEYS_IN_SPAN", false))), false);
+        let v = check_record(&l, 0, &look(s), &no_alias);
+        assert!(!v.ok());
+        assert_eq!(v.class, Some(ClassWord::None));
+    }
+
     /// An imported record is accepted by the record-level table-check and refused when its bound row, its proof-line
     /// binding or its key list does not fit the body.
     #[test]
@@ -920,6 +983,7 @@ mod tests {
                 producer: None,
                 certificate: None,
                 check: Err("legacy record".into()),
+                span: None,
                 classed: Classed { class, reason: None, evidence: ev },
                 cone,
                 sample: None,

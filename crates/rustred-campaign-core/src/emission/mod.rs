@@ -90,6 +90,8 @@ pub struct Parts {
     pub certificate: Option<(String, u64, String)>,
     /// checker binary sha256, output sha256, the summary; or the typed reason it did not run
     pub check: Result<(String, String, CheckSummary), String>,
+    /// POINT / SYMMETRY kinds: the instance-span check instead (checker sha256, output sha256, its verdict word)
+    pub span: Option<(String, String, String)>,
     pub classed: Classed,
     pub cone: Option<ConeEvidence>,
     pub sample: Option<SampleEvidence>,
@@ -102,11 +104,14 @@ pub struct Parts {
 
 /// The `derivation` member (small: sha256s, verdict words, class, evidence references).
 pub fn derivation(p: &Parts) -> Value {
-    let check = match &p.check {
-        Ok((tool, out, s)) => {
+    let check = match (&p.span, &p.check) {
+        (Some((tool, out, verdict)), _) => {
+            json!({"tool_sha256": tool, "output_sha256": out, "mode": "instance-span", "verdict": verdict})
+        }
+        (None, Ok((tool, out, s))) => {
             json!({"tool_sha256": tool, "output_sha256": out, "stages": s.record_json()})
         }
-        Err(why) => json!({"ran": false, "reason": why}),
+        (None, Err(why)) => json!({"ran": false, "reason": why}),
     };
     let mut class = json!({"word": p.classed.class.word(), "evidence": p.classed.evidence});
     if let Some(r) = &p.classed.reason {

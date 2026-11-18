@@ -711,6 +711,51 @@ impl<S: WorkSource> RepairFlowSource<S> {
             }
         }
         let mut table_rel = None;
+        // EMISSION (lane gencheck): when the policy has `emission`, the kept records go through the gate (checker on
+        // their own bytes with the certificate of THEIR face lift, found in its job's run directory); one refusal
+        // stops the node, nothing is written
+        if let Some(es) = self.nodes[i].policy.emission.clone()
+            && !kept_lines.is_empty()
+        {
+            let mut dirs = vec![];
+            for f in &d.faces {
+                if f.kept.is_some()
+                    && let Some(FaceAnswer::Candidates { job, .. }) = answers.get(&f.face)
+                    && let Some(rd) = st.jobs.get(job).and_then(|j| j.run_dir.clone())
+                {
+                    dirs.push(Path::new(&rd).join(&es.cert_dir));
+                }
+            }
+            let side = rustred_campaign_core::emission::side_dir(&self.abs(&format!("{dir}/symbolic.table.jsonl")));
+            let mut ck = crate::emission::emitter::Checker::new(Path::new(&es.checker))?;
+            ck.recover_rows = es.recover_rows;
+            ck.family = es.family.as_ref().map(PathBuf::from);
+            if let Some(f) = es.floor_s {
+                ck.floor_s = f;
+            }
+            let em = crate::emission::emitter::Emitter::new(
+                ck,
+                es.policy.clone().unwrap_or_default(),
+                &side,
+                &self.abs(&format!("{dir}/emission-work")),
+            )?;
+            let g = crate::emission::gate::gate_lines(
+                &em,
+                &p1.frame_header_line,
+                &kept_lines,
+                &crate::emission::gate::CertIndex::from_dirs(&dirs),
+                crate::emission::gate::GateKind::Lifted,
+                "sym",
+            )?;
+            if !g.ok() {
+                return Err(format!(
+                    "repairflow: {node}: emission refused {} kept record(s) of the symbolic table (nothing written): {}",
+                    g.refused.len(),
+                    serde_json::Value::from(g.refused.clone())
+                ));
+            }
+            kept_lines = g.lines;
+        }
         if !kept_lines.is_empty() {
             let mut t = p1.frame_header_line.clone();
             t.push('\n');

@@ -376,6 +376,7 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
                 producer: None,
                 certificate: None,
                 check: Err("legacy record: no certificate (class from bound evidence)".into()),
+                span: None,
                 classed: c.clone(),
                 cone: d.cone.clone(),
                 sample: d.sample.clone(),

@@ -446,6 +446,7 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
         producer: None,
         certificate: Some((sha256_hex(b"cert"), 4, "v0+rows".into())),
         check: Ok((sha256_hex(b"checker"), sha256_hex(check_line.as_bytes()), s)),
+        span: None,
         classed,
         cone: None,
         sample: None,

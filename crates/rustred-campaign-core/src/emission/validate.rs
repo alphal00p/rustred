@@ -7,6 +7,7 @@
 use super::body::{body_ids, sha256_hex, strip_derivation};
 use super::class::{
     CheckSummary, ClassWord, ConeEvidence, Evidence, Kind, Origin, SampleEvidence, class_of,
+    span_exact,
 };
 use super::legacy::verify_row;
 use super::{AREA_CERT, AREA_CHECK, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, SCHEMA};
@@ -140,7 +141,33 @@ pub fn check_record(
         v.certificate_sha256 = Some(sha.clone());
     }
     let mut summary: Option<CheckSummary> = None;
-    if let Some(out_sha) = d["check"]["output_sha256"].as_str()
+    // POINT / SYMMETRY: the exactness at the record's key comes ONLY from a stored instance-span output bound to this
+    // body (a stated `exact_at_key` is never read)
+    let point = matches!(kind, Kind::Point | Kind::Symmetry);
+    let mut exact_at_key: Option<bool> = None;
+    if point {
+        if let Some(out_sha) = d["check"]["output_sha256"].as_str()
+            && let Some(b) = fetch(AREA_CHECK, out_sha, "check output", &mut v.problems)
+        {
+            let text = String::from_utf8_lossy(&b).trim().to_string();
+            match span_exact(&text, &body) {
+                Ok(x) => {
+                    exact_at_key = Some(x);
+                    let stored = serde_json::from_str::<Value>(&text)
+                        .ok()
+                        .and_then(|o| o["verdict"].as_str().map(str::to_string));
+                    if d["check"]["verdict"].as_str() != stored.as_deref() {
+                        v.problems.push(format!(
+                            "stated span verdict {} differs from the stored check output {stored:?}",
+                            d["check"]["verdict"]
+                        ));
+                    }
+                }
+                Err(e) => v.problems.push(e),
+            }
+            v.check_output = Some(text);
+        }
+    } else if let Some(out_sha) = d["check"]["output_sha256"].as_str()
         && let Some(b) = fetch(AREA_CHECK, out_sha, "check output", &mut v.problems)
     {
         let text = String::from_utf8_lossy(&b).trim().to_string();
@@ -216,7 +243,7 @@ pub fn check_record(
     let ev = Evidence {
         cone,
         sample,
-        exact_at_key: d["class"]["exact_at_key"].as_bool(),
+        exact_at_key,
         alias_target: d["class"]["alias_of"].as_i64().and_then(alias_class),
         sealed: d["class"]["sealed"].as_bool(),
         legacy_proof,

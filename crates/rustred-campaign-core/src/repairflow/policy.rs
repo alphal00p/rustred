@@ -53,6 +53,11 @@ pub struct RepairPolicy {
     pub recipes: RecipePolicy,
     pub proposals: ProposalPolicy,
     pub runtime: RuntimePolicy,
+    /// lane gencheck (emission contract): the symbolic table's kept records go through the emission gate (checker on
+    /// their own bytes with the certificate of their face lift, class, policy) before it is written; a refused record
+    /// stops the node (fail closed). Default off; omitted from the digest while off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emission: Option<crate::emission::Settings>,
 }
 
 impl Default for RepairPolicy {
@@ -78,6 +83,7 @@ impl Default for RepairPolicy {
             recipes: RecipePolicy::default(),
             proposals: ProposalPolicy::default(),
             runtime: RuntimePolicy::default(),
+            emission: None,
         }
     }
 }

@@ -62,3 +62,44 @@ pub fn split_cert(
         .and_then(|m| m.remove("fake_weight_cert"));
     (r, cert)
 }
+
+/// `rr_fake_child --mode instance-span --table T --rule N --offset B --keys K [...]`: a FAKE of `rr_proof
+/// --mode instance-span` for point / symmetry records: binds its answer to sha256 of the line at `B` (like the real
+/// kernel's `record_sha256`); each key of `K` gets the status of the line's `fake_span` member (default
+/// EXACT_IN_SPAN_AT_KEY).
+pub fn span_main(args: &[String]) -> ! {
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let (Some(table), Some(offset), Some(keys)) = (flag("--table"), flag("--offset"), flag("--keys")) else {
+        die("fake instance-span: --table, --offset and --keys are required")
+    };
+    let off: u64 = offset.parse().unwrap_or_else(|_| die("bad --offset"));
+    let mut f = std::fs::File::open(&table).unwrap_or_else(|e| die(&format!("{table}: {e}")));
+    f.seek(SeekFrom::Start(off)).unwrap_or_else(|e| die(&e.to_string()));
+    let mut line = String::new();
+    std::io::BufReader::new(f)
+        .read_line(&mut line)
+        .unwrap_or_else(|e| die(&e.to_string()));
+    let line = line.trim_end_matches('\n');
+    let rec: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+    let status = rec["fake_span"].as_str().unwrap_or("EXACT_IN_SPAN_AT_KEY").to_string();
+    let ks: Vec<Value> = std::fs::read_to_string(&keys)
+        .unwrap_or_else(|e| die(&format!("{keys}: {e}")))
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .map(|k| json!({"key": k["key"], "status": status}))
+        .collect();
+    let n = ks.len() as u64;
+    let exact = status == "EXACT_IN_SPAN_AT_KEY";
+    let out = json!({"schema": "rustred.proof-kernel.span.v1", "mode": "instance-span", "fake": true,
+        "rule": rec["index"], "record_sha256": sha256_hex(line.as_bytes()), "keys": ks,
+        "verdict": if exact { "EXACT_ALL_KEYS_IN_SPAN" } else { "NOT_ALL_KEYS_IN_SPAN" },
+        "counts": {"in_span": if exact { n } else { 0 }, "not_in_span": if exact { 0 } else { n }, "other": 0}});
+    println!("{out}");
+    std::process::exit(0)
+}

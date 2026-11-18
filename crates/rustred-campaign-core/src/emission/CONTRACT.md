@@ -107,6 +107,10 @@ For a lifted candidate whose check is `OPEN_LOCI` (or whose lift added exception
 
 ## 6. Records that are not lifted: their own check kinds
 - `point` (every slot numeric; the importer's point rule): `rr_proof --mode instance-span` at its key; whole domain.
+  (ROUND 2: the emitter runs it on the record's own bytes at its key; the OUTPUT is stored in `check/` and the record
+  states `check: {tool_sha256, output_sha256, mode: instance-span, verdict}`. table-check derives `exact_at_key` ONLY
+  from that stored output, bound by its `record_sha256` = sha256 of the body line; a stated `exact_at_key` is never
+  read.)
 - `symmetry` / one-term (target = coefficient x image of another key under a family automorphism): instance-span with
   the symmetry rows (`--symrows`) or the symcert proof of the action; the symmetry group record is a stated input
   (sha256 in `check.args`).
@@ -117,7 +121,8 @@ For a lifted candidate whose check is `OPEN_LOCI` (or whose lift added exception
   solved and descended); class at most `every first-match key in cone`.
 - `legacy` (a record imported unchanged from a table written before this contract): `none`, reason
   `legacy_unchecked`, until re-emitted through steps 1-6 (e.g. by `rr_node witness` with its recorded options, or by
-  the ladder). Old class tables are evidence for a re-emission job to target, never a source of a class.
+  the ladder), OR brought in by the LEGACY IMPORT WITH EVIDENCE BINDING (section 12). Old class tables are never a
+  source of a class.
 
 ## 7. Policy (data; REVIEW CHANGE 2026-11-18; `class::Policy` defaults)
 - A rule the automation LIFTS (origin `lift`) and that is live: `whole domain`, or `every first-match key in cone C` only
@@ -183,8 +188,34 @@ ROUTING (every write of a rule line in the campaign crates):
 | improve writer (`supervisor/improve.rs` write_outputs: improved / replacements tables) | ROUTED when the improve config has `emission` (checker, cert_dir in the job's run dir, policy): every replacement line is emitted before writing, refused -> old rule kept + reason. Without `emission`: the old writer (not routed). Needs the producer to write the job's certificates into its run directory (engine list, item 5) |
 | certify by replacement (`emission::replace`, `rr_campaign emit-replace`) | ROUTED (new path) |
 | `economy::improve::{replacement_lines, apply, apply_subtrees, subtree_lines}` | helpers of the improve writer: their output goes through the emitter when configured (body hash unaffected by their origin / index edits) |
-| node assembly (`core assemble`: `<node>.assembled.table.jsonl`) | NOT YET ROUTED: assembles records that were produced by engine jobs without certificates; needs per-record certificates or a legacy import step with evidence |
-| closeloop repair (`closeloop/repair.rs`: symbolic / symrel tables), closeloop source (relations tables) | NOT YET ROUTED: tables of engine job outputs (face lifts, recipe relations); route when the producer exports certificates (same hook as improve) |
-| closeloop derived (`symmetry-at-key`), termmin (`symmetry-relations`) | NOT YET ROUTED: one-term symmetry records written by the tool; their check kind is `symmetry` (instance-span with symmetry rows), not wired yet |
+| THE GATE (`emission::gate`, `rr_campaign emit-table --table T --out O --checker BIN [--certs DIR ...] [--kind lifted/point/symmetry/auto]`) (ROUND 2) | every rule line of a written table through the emitter: lifted records with the certificate of THEIR lift (found by the record's `case` = an engine certificate's first member), point / symmetry records with the instance-span check at their key; FAIL CLOSED (one refusal, nothing written) |
+| node assembly (`assemble::assemble`: `<node>.assembled.table.jsonl`) | ROUTED THROUGH THE GATE: the library has no production caller in the campaign crates; its output is emitted by `emit-table` with the producing jobs' certificate directories (and the point kind for point records) |
+| closeloop repair, symbolic table (`closeloop/repair.rs`) | ROUTED IN THE FLOW (ROUND 2) when the repair policy has `emission` (same `Settings` as improve): the kept records go through the gate with the certificates of THEIR face-lift jobs (`<run_dir>/<cert_dir>`); a refusal stops the node (nothing written). Default off (digest unchanged) |
+| closeloop repair symrel table, closeloop source relations tables, closeloop derived (`symmetry-at-key`), termmin (`symmetry-relations`) | ROUTED THROUGH THE GATE (`emit-table --kind point` / `symmetry`): their records are point / one-term records whose check kind (instance-span at the key, the symmetry group record passed with `--symmetry-group`) the emitter now runs. Not gated inside these flows: their tables are re-written on resume byte-identically and an in-flow gate would need the check outputs persisted with the flow's commit |
+| legacy tables (genchoice choice, shipped finals) | `rr_campaign legacy-import` (section 12) |
 | genchoice (choice of a whole engine table), contract seal (engine `F.table.jsonl`) | not writers of rule lines (they select / seal what the engine wrote); the chosen table is a LEGACY import under the contract until its records are emitted |
 | shipecon probe table, wire_composite / symcomp / symrows inputs | not delivered tables (probe / job inputs) |
+
+## 12. LEGACY IMPORT WITH EVIDENCE BINDING (ROUND 2, `emission::legacy`, `rr_campaign legacy-import`)
+The class of a record brought in UNCHANGED, decided from the record's bytes and the evidence FILES alone (config
+`rustred.legacy-import.v1`: verdict TSVs of reviewing lanes + their proof-object tables, per-key proof-line files,
+first-match count / liveness files, the reference table whose positions reference-keyed rows use). NO class table is
+read.
+- BINDING (strict, TRICKS 67): a verdict row binds at the record's OWN position (reference rows: its
+  `origin.dispatch_position`; table rows: its position) iff relation sha256 AND domain sha256 are the record's (the
+  row's own values, else the reference record's computed from the reference table's bytes). A row of ANOTHER position
+  binds only as a whole-domain proof object of the IDENTICAL statement (equal relation and domain sha256).
+- KINDS of a row: vacuous / dead verdicts = no evidence (a LIVE record with one at its own position is refused);
+  `whole domain` only from a whole-domain class word or a FACE-VERDICT whose proof object states `PROVED whole domain`
+  and nothing about first-match keys; per-key verdict TEXT gives no class (its keys are not listed).
+- PER-KEY: proof lines bind by `line_sha256` = sha256 of the record's line at its position; `every first-match key in
+  cone` iff, shell by shell D + r <= bound, the distinct proven keys equal the COMPLETE first-match count; else
+  `sampled N` (N distinct proven keys). `dead in cone` (delivery word) from the counts when no whole-domain proof object.
+- EMITTED form: kind `legacy`, origin `import`, no certificate; `class.legacy` = {proof_object {row_sha256, binding},
+  proofs_line_sha256, liveness}; side files `evid/<sha>.json` (the bound row), `keys/<sha>.jsonl` (the proven keys).
+  table-check re-reads the row and re-verifies relation, domain and kind against THIS body, the proof-line binding and
+  the key-list counts.
+- T162 (shipped table a9c34170, 2026-11-18): 1,930 / 1,930 classes equal to the delivery's words (N included): whole
+  domain 1,552 (1,526 helper A own + 24 helper B own + 2 identical statement: 1292 = reference 2863, 1299 = reference
+  2469), every 115, sampled 48, dead 215, none 0; table-check ACCEPTED (1,930 rules, 0 refused).
+
