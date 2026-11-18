@@ -16,9 +16,11 @@
 //! at the exit when the manager answers, and by `rr_campaign units clear <dir>`: each name must be this campaign's
 //! (`rr-<campaign id>-...-<16 hex>`, the BLAKE3 of the campaign id with its nonce and the label) and recorded by this
 //! campaign's ledger; its state is READ first; not loaded: done; failed: reset-failed; active / activating /
-//! deactivating with the kernel showing its cgroup absent or `populated 0`: stopped (an empty scope: no process can
-//! receive anything); populated: never stopped (its members go through the marker-based backstop); unreadable: kept.
-//! Never a pattern.
+//! deactivating with the kernel showing its cgroup `populated 0`: stopped (an empty scope: no process can receive
+//! anything); populated: never stopped (its members go through the marker-based backstop); its cgroup not found or
+//! unreadable: kept (round 15, gate16 m16-leftover-path: was "absent = empty"). "Not loaded" leaves the list only after
+//! a re-check at least [`NOT_LOADED_GRACE`] later (round 15, m16-not-loaded-early: a request still queued in a stalled
+//! manager can create the unit minutes late). Never a pattern.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -197,6 +199,53 @@ pub(crate) struct Leftover {
     pub attempt: String,
     pub why: String,
     pub utc: String,
+    /// procfix7 round 15 (gate16 m16-not-loaded-early): when (epoch seconds) the unit was FIRST found not loaded; the
+    /// entry leaves the list only when it is found not loaded again at least [`NOT_LOADED_GRACE`] later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub not_loaded_since: Option<u64>,
+}
+
+/// procfix7 round 15 (gate16 m16-not-loaded-early): a "not loaded" unit stays listed this long (a StartTransientUnit
+/// request still queued in a stalled manager created units 3-4 min late in host step 3's run B).
+pub(crate) const NOT_LOADED_GRACE: Duration = Duration::from_secs(15 * 60);
+
+/// The step for a unit found NOT LOADED now (`now`, epoch seconds), given when it was first found so: (action, the
+/// entry leaves the list, the new `not_loaded_since`).
+pub(crate) fn not_loaded_step(since: Option<u64>, now: u64) -> (String, bool, Option<u64>) {
+    let g = NOT_LOADED_GRACE.as_secs();
+    match since {
+        Some(s) if now >= s.saturating_add(g) => (
+            format!(
+                "not loaded (again {} s after it was first found so)",
+                now - s
+            ),
+            true,
+            None,
+        ),
+        Some(s) => (
+            format!(
+                "kept: not loaded since {} s; re-checked from {g} s on (a request still queued in the manager may create it)",
+                now.saturating_sub(s)
+            ),
+            false,
+            Some(s),
+        ),
+        None => (
+            format!(
+                "kept: not loaded; re-checked from {g} s on (a request still queued in the manager may create it)"
+            ),
+            false,
+            Some(now),
+        ),
+    }
+}
+
+/// Seconds since the epoch (0 when the clock is before it).
+pub(crate) fn epoch_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// The list (empty when the file does not exist). Err: it exists and cannot be read or parsed.
@@ -288,13 +337,14 @@ pub(crate) struct Cleared {
     pub done: bool,
 }
 
-/// The kernel's view of a scope's cgroup: Some(true) populated, Some(false) not populated or absent, None unknown.
+/// The kernel's view of a scope's cgroup: Some(true) populated, Some(false) `populated 0`, None unknown. procfix7 round
+/// 15 (gate16 m16-leftover-path): a cgroup found at NEITHER guessed path (app.slice/U.scope, U.scope) is unknown, never
+/// "empty": a unit of ours whose cgroup sits elsewhere is never stopped unread (it stays on the list).
 fn scope_populated(unit: &str) -> Option<bool> {
     let uid = crate::resources::our_uid();
     let root = PathBuf::from(format!(
         "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"
     ));
-    let mut any_unknown = false;
     for d in [
         root.join("app.slice").join(format!("{unit}.scope")),
         root.join(format!("{unit}.scope")),
@@ -303,11 +353,10 @@ fn scope_populated(unit: &str) -> Option<bool> {
             crate::fsx::Read::Content(t) => {
                 return Some(t.lines().any(|l| l.trim() == "populated 1"));
             }
-            crate::fsx::Read::Absent => {}
-            crate::fsx::Read::Failed(_) => any_unknown = true,
+            crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => {}
         }
     }
-    (!any_unknown).then_some(false)
+    None
 }
 
 /// procfix7 round 14 (M4): clear the leftover list of `cdir` by exact names (see the module doc). `recorded`: the
@@ -317,6 +366,7 @@ pub(crate) fn clear_leftovers(
     cdir: &Path,
     campaign_id: &str,
     recorded: Option<&BTreeSet<String>>,
+    now: u64,
 ) -> Result<Vec<Cleared>, String> {
     let list = load_leftovers(cdir)?;
     if list.is_empty() {
@@ -324,9 +374,11 @@ pub(crate) fn clear_leftovers(
     }
     let mut out = Vec::new();
     let mut keep = Vec::new();
-    for l in list {
-        let c = clear_one(&l.unit, campaign_id, recorded);
+    for mut l in list {
+        let (c, not_loaded_since) =
+            clear_one(&l.unit, campaign_id, recorded, l.not_loaded_since, now);
         if !c.done {
+            l.not_loaded_since = not_loaded_since;
             keep.push(l);
         }
         out.push(c);
@@ -335,11 +387,23 @@ pub(crate) fn clear_leftovers(
     Ok(out)
 }
 
-fn clear_one(unit: &str, campaign_id: &str, recorded: Option<&BTreeSet<String>>) -> Cleared {
-    let c = |action: String, done: bool| Cleared {
-        unit: unit.to_string(),
-        action,
-        done,
+/// One entry: what was done, and its new `not_loaded_since` (kept only while the unit is not loaded).
+fn clear_one(
+    unit: &str,
+    campaign_id: &str,
+    recorded: Option<&BTreeSet<String>>,
+    not_loaded_since: Option<u64>,
+    now: u64,
+) -> (Cleared, Option<u64>) {
+    let c = |action: String, done: bool| {
+        (
+            Cleared {
+                unit: unit.to_string(),
+                action,
+                done,
+            },
+            None,
+        )
     };
     if !ours(unit, campaign_id) {
         return c("refused: not a scope name of this campaign".into(), false);
@@ -364,7 +428,16 @@ fn clear_one(unit: &str, campaign_id: &str, recorded: Option<&BTreeSet<String>>)
         Err(e) => return c(format!("kept: state unreadable ({e})"), false),
     };
     if !st.loaded() {
-        return c("not loaded".into(), true);
+        // round 15 (gate16 m16-not-loaded-early): kept for the grace period, then re-checked
+        let (action, done, since) = not_loaded_step(not_loaded_since, now);
+        return (
+            Cleared {
+                unit: unit.to_string(),
+                action,
+                done,
+            },
+            since,
+        );
     }
     match st.active.as_str() {
         "failed" => match crate::launch::scope_reset_failed(unit) {
@@ -388,7 +461,10 @@ fn clear_one(unit: &str, campaign_id: &str, recorded: Option<&BTreeSet<String>>)
                 false,
             ),
             None => c(
-                format!("kept: {} and its cgroup unreadable", st.active),
+                format!(
+                    "kept: {} and its cgroup not found or unreadable (never stopped unread)",
+                    st.active
+                ),
                 false,
             ),
         },
@@ -470,6 +546,7 @@ mod tests {
             attempt: "j:a1".into(),
             why: "w".into(),
             utc: "t".into(),
+            not_loaded_since: None,
         };
         assert_eq!(add_leftovers(&d, vec![l("a"), l("b"), l("a")]).unwrap(), 2);
         assert_eq!(add_leftovers(&d, vec![l("b")]).unwrap(), 0);
@@ -500,6 +577,7 @@ mod tests {
             attempt: "j:a1".into(),
             why: "w".into(),
             utc: "t".into(),
+            not_loaded_since: None,
         };
         add_leftovers(
             &d,
@@ -507,7 +585,7 @@ mod tests {
         )
         .unwrap();
         let rec: BTreeSet<String> = [mine.clone()].into();
-        let r = clear_leftovers(&d, cid, Some(&rec)).unwrap();
+        let r = clear_leftovers(&d, cid, Some(&rec), epoch_now()).unwrap();
         assert_eq!(r.len(), 3);
         assert!(r[0].action.starts_with("kept: state unreadable"), "{r:?}");
         assert!(r[1].action.starts_with("refused: not recorded"), "{r:?}");
@@ -517,8 +595,33 @@ mod tests {
         );
         assert!(r.iter().all(|c| !c.done));
         assert_eq!(load_leftovers(&d).unwrap().len(), 3);
-        let r = clear_leftovers(&d, cid, None).unwrap();
+        let r = clear_leftovers(&d, cid, None, epoch_now()).unwrap();
         assert!(r[0].action.starts_with("kept: the ledger"), "{r:?}");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// procfix7 round 15 (gate16 m16-not-loaded-early): a unit found not loaded stays listed; it leaves the list only
+    /// when found not loaded again at least the grace period after the first time; a list written before round 15 (no
+    /// `not_loaded_since`) reads as never found so.
+    #[test]
+    fn a_unit_not_loaded_leaves_the_list_only_after_the_grace_and_a_recheck() {
+        let g = NOT_LOADED_GRACE.as_secs();
+        let (a, done, s) = not_loaded_step(None, 1000);
+        assert!(
+            !done && s == Some(1000) && a.starts_with("kept: not loaded"),
+            "{a}"
+        );
+        let (a, done, s) = not_loaded_step(Some(1000), 1000 + g - 1);
+        assert!(!done && s == Some(1000), "{a}");
+        let (a, done, s) = not_loaded_step(Some(1000), 1000 + g);
+        assert!(
+            done && s.is_none() && a.starts_with("not loaded (again"),
+            "{a}"
+        );
+        let old: Vec<Leftover> =
+            serde_json::from_str(r#"[{"unit":"u","attempt":"j:a1","why":"w","utc":"t"}]"#).unwrap();
+        assert_eq!(old[0].not_loaded_since, None);
+        let back = serde_json::to_string(&old).unwrap();
+        assert!(!back.contains("not_loaded_since"), "{back}");
     }
 }

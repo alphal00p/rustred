@@ -443,9 +443,11 @@ fn cmd_scope_check(rest: &[String]) -> i32 {
 /// leftover-unit list (`<dir>/units.leftover.json`): each unit by its EXACT name, only a name of THIS campaign
 /// (`rr-<campaign id>-...-<16 hex>`) that its ledger recorded at a launch, its state read first; not loaded: done;
 /// failed: reset-failed; active / activating / deactivating with its cgroup absent or `populated 0`: stopped (an empty
-/// scope); populated: never stopped (kept: the restart's marker backstop handles its processes). Never a pattern. Run
-/// it while no supervisor runs on the directory. Exit 0: the list is empty afterwards; 1: entries are kept (named);
-/// 2: usage; 3: no such directory.
+/// scope); populated: never stopped (kept: the restart's marker backstop handles its processes). Never a pattern.
+/// procfix7 round 15 (gate16 m16-units-lock): it takes the CAMPAIGN LOCK (refused, exit 1 "refused: the campaign lock
+/// is not free", while a supervisor holds it); a unit found not loaded leaves the list only when found so again 15 min
+/// later (m16-not-loaded-early). Exit 0: the list is empty afterwards; 1: entries are kept (named) or refused; 2: usage;
+/// 3: no such directory.
 fn cmd_units(rest: &[String]) -> i32 {
     let [verb, dir] = rest else {
         errln!("units takes: clear <campaign dir>\n{USAGE}");
@@ -460,6 +462,28 @@ fn cmd_units(rest: &[String]) -> i32 {
         errln!("{}: not a directory", cdir.display());
         return exit::NOT_FOUND;
     }
+    // round 15 (gate16 m16-units-lock): never beside a supervisor of the directory (it rewrites the same list)
+    let clock = crate::clock::SystemClock::new();
+    let argv: Vec<String> = ["rr_campaign".to_string(), "units".to_string()]
+        .into_iter()
+        .chain(rest.iter().cloned())
+        .collect();
+    let (lock, _) = match crate::lock::acquire(cdir, &clock, &argv) {
+        Ok(x) => x,
+        Err(e) => {
+            errln!("refused: the campaign lock is not free ({e}); stop the supervisor first");
+            return exit::REFUSED;
+        }
+    };
+    let code = units_clear_locked(cdir);
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): round 15: the kernel releases the flock at exit anyway; a LOCK.json left in place is stale
+    let _ = lock.release();
+    code
+}
+
+/// `units clear` under the campaign lock.
+fn units_clear_locked(cdir: &Path) -> i32 {
     let (st, _) = match crate::ledger::replay_state(cdir) {
         Ok(x) => x,
         Err(e) => {
@@ -478,7 +502,12 @@ fn cmd_units(rest: &[String]) -> i32 {
         return 1;
     };
     let recorded = crate::supervisor::manager::recorded_scope_units(cdir);
-    match crate::supervisor::manager::clear_leftovers(cdir, &cid, recorded.as_ref()) {
+    match crate::supervisor::manager::clear_leftovers(
+        cdir,
+        &cid,
+        recorded.as_ref(),
+        crate::supervisor::manager::epoch_now(),
+    ) {
         Ok(done) => {
             if done.is_empty() {
                 outln!("units clear {}: no leftover unit", cdir.display());

@@ -510,6 +510,10 @@ pub struct Supervisor {
     /// delivered, ends, notes) is still written to the ledger. Before round 14 such stops set `ledger_dead`, and every
     /// later record was refused (host step 3: 21 delivered signals reached only the intent log).
     stop_exit: Option<RunExit>,
+    /// procfix7 round 15 (gate16 m16-start-clear): the leftover list of earlier sessions still to be cleared (once the
+    /// manager answers), and the clearing's own probe for a run that does not probe for its jobs.
+    start_clear: bool,
+    clear_probe: Option<manager::ManagerGate>,
     /// procfix7 round 14 (host step 3, M3): the user-manager gate (no launch while the manager does not answer).
     gate: manager::ManagerGate,
     /// procfix7 round 14 (M3): our manager calls at the start of the current minute (per-minute report).
@@ -1524,6 +1528,8 @@ impl Supervisor {
             ledger_dead: None,
             stop_exit: None,
             gate: manager::ManagerGate::new(probing, opts.spec.resources.manager_probe == "on"),
+            start_clear: false,
+            clear_probe: None,
             calls_minute: (Instant::now(), crate::launch::manager_calls()),
             never_ran: BTreeMap::new(),
             control_stop: false,
@@ -3577,6 +3583,7 @@ impl Supervisor {
             attempt: format!("{job}:a{attempt}"),
             why: why.to_string(),
             utc: crate::cpu_policy::utc_now(),
+            not_loaded_since: None,
         };
         match manager::add_leftovers(&self.cdir, vec![e]) {
             Ok(_) => self.note(format!(
@@ -3589,6 +3596,37 @@ impl Supervisor {
         }
     }
 
+    /// procfix7 round 15 (gate16 m16-start-clear): the start's clearing of the leftover list waits for a manager that
+    /// ANSWERS: the gate open and its latest probe answered within the bound; a run that does not probe for its jobs
+    /// uses a probe of its own (one in flight at most, the same back-off) that never touches the launch gate.
+    fn tick_start_clear(&mut self) {
+        if !self.start_clear {
+            return;
+        }
+        if crate::launch::systemd_units_unavailable()
+            && crate::launch::test_manager_stall().is_none()
+        {
+            self.start_clear = false;
+            return;
+        }
+        let answered = if self.gate.probing {
+            self.gate.closed().is_none() && self.gate.answers() == Some(true)
+        } else {
+            let allow = self.opts.spec.resources.manager_probe == "on";
+            let g = self
+                .clear_probe
+                .get_or_insert_with(|| manager::ManagerGate::new(true, allow));
+            // this probe's gate only decides the clearing (its changes are not the launch gate's)
+            g.tick(None);
+            g.closed().is_none() && g.answers() == Some(true)
+        };
+        if answered {
+            self.start_clear = false;
+            self.clear_probe = None;
+            self.clear_leftovers("at start");
+        }
+    }
+
     /// procfix7 round 14 (M4): clear the leftover list (by exact names, each state read first; see `manager`), noting
     /// every action. `when`: "at start" / "at exit".
     fn clear_leftovers(&mut self, when: &str) {
@@ -3598,7 +3636,12 @@ impl Supervisor {
             return;
         }
         let recorded = manager::recorded_scope_units(&self.cdir);
-        match manager::clear_leftovers(&self.cdir, &self.ctx.campaign_key, recorded.as_ref()) {
+        match manager::clear_leftovers(
+            &self.cdir,
+            &self.ctx.campaign_key,
+            recorded.as_ref(),
+            manager::epoch_now(),
+        ) {
             Ok(done) => {
                 for c in done {
                     self.log.line(
@@ -6954,8 +6997,10 @@ impl Supervisor {
         if let Some(e) = self.stop_cause() {
             return self.stop_return(e);
         }
-        // procfix7 round 14 (host step 3, M4): units of earlier sessions that could not be confirmed cleared
-        self.clear_leftovers("at start");
+        // procfix7 round 14 (host step 3, M4): units of earlier sessions that could not be confirmed cleared. Round 15
+        // (gate16 m16-start-clear): cleared once the manager ANSWERS (`tick_start_clear`), never blocking the start on a
+        // stalled manager (each listed unit's reads are bounded at 10 s)
+        self.start_clear = !matches!(manager::load_leftovers(&self.cdir), Ok(l) if l.is_empty());
         if let Err(e) = self.register_binaries() {
             return e;
         }
@@ -7060,6 +7105,8 @@ impl Supervisor {
             }
             // procfix7 round 14 (host step 3, M3): the user-manager gate
             self.tick_manager_gate();
+            // round 15 (gate16 m16-start-clear): the start's leftover clearing, once the manager answers
+            self.tick_start_clear();
             // gate3 M2: every delivered signal becomes a ledger record
             self.record_deliveries();
             // ledger dead, or (round 14, M1) a stop decided: no launches; children get the grace, then are killed (with a
