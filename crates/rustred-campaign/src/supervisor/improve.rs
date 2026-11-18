@@ -714,6 +714,11 @@ impl ImproveSource {
                             + c.apply_ns_base * a.sub_rules.unwrap_or(1) as f64
                             + c.apply_ns_per_monomial * m as f64)
                             .round() as u64,
+                        // lane rulecost: candidates of one rule share its calls; rank by the case rule's cost per
+                        // application at the candidate's (sub-table) monomials (the verdict used every piece)
+                        im::RankBy::RuleCost => im::rule_cost_model(c)
+                            .per_application_ns(m, r.cost.as_ref())
+                            .round() as u64,
                     };
                     (primary, m, b, a.cand.clone())
                 });

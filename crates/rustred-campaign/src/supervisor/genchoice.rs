@@ -1248,6 +1248,7 @@ impl GenChoiceSource {
                             exceptions: vec![],
                             monomials: r.monomials,
                             bytes: r.bytes,
+                            cost: None,
                         })
                         .collect()
                 };

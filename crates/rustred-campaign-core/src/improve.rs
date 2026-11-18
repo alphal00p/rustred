@@ -35,6 +35,10 @@ pub struct TableRule {
     pub exceptions: Vec<String>,
     pub monomials: u64,
     pub bytes: u64,
+    /// lane rulecost: what the `rule_cost` measure reads of the record (terms, denominators, children by sector);
+    /// None when the record does not give them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost: Option<crate::rulecost::RuleFeatures>,
 }
 
 impl TableRule {
@@ -110,6 +114,7 @@ impl TableRule {
             exceptions,
             monomials: m.monomials,
             bytes: m.bytes,
+            cost: crate::rulecost::RuleFeatures::from_record(&v),
         }))
     }
 }
@@ -363,6 +368,9 @@ pub enum RankBy {
     Monomials,
     Bytes,
     UseCost,
+    /// lane rulecost (interfaces/rule-cost.md 4): calls x measured cost per application with its children
+    /// ([`crate::rulecost::RuleCostModel`], `cost.rule_cost`).
+    RuleCost,
 }
 
 /// The size of rules under a measure (`use_cost`: load_ns_per_byte x bytes + per rule apply_ns_base +
@@ -384,7 +392,52 @@ pub fn size_of(
             })
             .sum::<f64>()
             .round() as u64,
+        RankBy::RuleCost => {
+            let model = rule_cost_model(cost);
+            rules
+                .iter()
+                .map(|r| {
+                    model.calls_of(&r.chart, r.index)
+                        * model.per_application_ns(r.monomials, r.cost.as_ref())
+                })
+                .sum::<f64>()
+                .round() as u64
+        }
     }
+}
+
+/// The `rule_cost` model of a cost model (its defaults when absent).
+pub fn rule_cost_model(
+    cost: &crate::economy::genchoice::CostModel,
+) -> std::borrow::Cow<'_, crate::rulecost::RuleCostModel> {
+    match &cost.rule_cost {
+        Some(m) => std::borrow::Cow::Borrowed(m),
+        None => std::borrow::Cow::Owned(crate::rulecost::RuleCostModel::default()),
+    }
+}
+
+/// `rule_cost` of `old` and of its replacement `new` (one rule, or the pieces of a sub-table), both at OLD's calls
+/// (the replacement serves old's domain at old's position): a sub-table's pieces share them per
+/// [`crate::rulecost::SubtableCalls`] (default: every call at the most expensive piece).
+pub fn rule_cost_pair(
+    old: &TableRule,
+    new: &[&TableRule],
+    cost: &crate::economy::genchoice::CostModel,
+) -> (u64, u64) {
+    let model = rule_cost_model(cost);
+    let calls = model.calls_of(&old.chart, old.index);
+    let o = calls * model.per_application_ns(old.monomials, old.cost.as_ref());
+    let per: Vec<f64> = new
+        .iter()
+        .map(|r| model.per_application_ns(r.monomials, r.cost.as_ref()))
+        .collect();
+    let n = match model.subtable {
+        crate::rulecost::SubtableCalls::Max => per.iter().copied().fold(0.0, f64::max),
+        crate::rulecost::SubtableCalls::Uniform => {
+            per.iter().sum::<f64>() / per.len().max(1) as f64
+        }
+    } * calls;
+    (o.round() as u64, n.round() as u64)
 }
 
 impl Default for RuleFilter {
@@ -805,7 +858,7 @@ pub fn replacement_verdict_eq(
 ) -> Result<(), String> {
     if accept_equal {
         structural_verdict(old, new)?;
-        let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
+        let (o, n) = pair_size(old, &[new], by, cost);
         return if n > o {
             Err(format!("larger ({n} vs {o} {})", by_word(by)))
         } else {
@@ -816,7 +869,7 @@ pub fn replacement_verdict_eq(
         return replacement_verdict(old, new, min_gain);
     }
     structural_verdict(old, new)?;
-    let (o, n) = (size_of(&[old], by, cost), size_of(&[new], by, cost));
+    let (o, n) = pair_size(old, &[new], by, cost);
     if n >= o || (n as f64) > o as f64 * min_gain {
         return Err(format!("not_smaller ({n} vs {o} {})", by_word(by)));
     }
@@ -851,7 +904,7 @@ pub fn subtree_verdict_eq(
             return Err(format!("other_target ({} vs {})", first.target, old.target));
         }
         let nr: Vec<&TableRule> = new.iter().collect();
-        let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
+        let (o, n) = pair_size(old, &nr, by, cost);
         return if n > o {
             Err(format!("larger (sub-table {n} vs {o} {})", by_word(by)))
         } else {
@@ -868,7 +921,7 @@ pub fn subtree_verdict_eq(
         return Err(format!("other_target ({} vs {})", first.target, old.target));
     }
     let nr: Vec<&TableRule> = new.iter().collect();
-    let (o, n) = (size_of(&[old], by, cost), size_of(&nr, by, cost));
+    let (o, n) = pair_size(old, &nr, by, cost);
     if n >= o || (n as f64) > o as f64 * min_gain {
         return Err(format!(
             "not_smaller (sub-table {n} vs {o} {})",
@@ -883,6 +936,21 @@ fn by_word(by: RankBy) -> &'static str {
         RankBy::Monomials => "monomials",
         RankBy::Bytes => "bytes",
         RankBy::UseCost => "use-cost ns",
+        RankBy::RuleCost => "rule-cost ns",
+    }
+}
+
+/// Sizes of `old` and of its replacement `new` under `by`: [`rule_cost_pair`] for `rule_cost` (both at old's calls),
+/// else [`size_of`] of each side.
+fn pair_size(
+    old: &TableRule,
+    new: &[&TableRule],
+    by: RankBy,
+    cost: &crate::economy::genchoice::CostModel,
+) -> (u64, u64) {
+    match by {
+        RankBy::RuleCost => rule_cost_pair(old, new, cost),
+        _ => (size_of(&[old], by, cost), size_of(new, by, cost)),
     }
 }
 
