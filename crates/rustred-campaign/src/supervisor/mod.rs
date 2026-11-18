@@ -3584,7 +3584,7 @@ impl Supervisor {
             )),
             Err(e) => self.log.line(
                 "WARN",
-                &format!("{job} a{attempt}: unit {unit}.scope could not be put on the leftover list ({e}); clear it by hand: systemctl --user status {unit}.scope"),
+                &format!("{job} a{attempt}: unit {unit}.scope could not be put on the leftover list ({e}); look at that exact unit by hand (its state, then reset or stop it only if it is failed or empty)"),
             ),
         }
     }
