@@ -6,7 +6,8 @@
 //!   rr_proof --mode instance-exact  (same inputs, --key/--keys required, default no random points)
 //!   rr_proof --mode instance-span --table F.table.jsonl --rule N [--offset BYTES] [--cert F.cert.jsonl]
 //!            (--key n0=1,n1=2,... | --keys FILE)+ [--drop-zero-sectors] [--max-primes 40] [--max-points K] [--emit-certs DIR] [--symmetry auto|on|off] [--symmetry-group FILE]
-//!   rr_proof --mode weight-cert --cert CERT.json --table F.table.jsonl --rule N [--offset BYTES]   (feature wcert;
+//!   rr_proof --mode weight-cert --cert CERT.json --table F.table.jsonl --rule N [--offset BYTES]
+//!            [--zero-sectors FILE] [--symmetry-group FILE]   (feature wcert;
 //!            independent check of a weight certificate, plan/auto-campaign/interfaces/weight-cert-check.md)
 //!   common:  [--rows engine|cert] [--family F.family.sym] [--out results.jsonl] [--ignore-exceptions]
 //!
@@ -161,12 +162,15 @@ fn weight_cert(
     offset: Option<u64>,
     rows_src: &str,
     family: Option<&str>,
+    side: (Option<String>, Option<String>),
 ) -> String {
     let args = rustred_proof::wcert::WcertArgs {
         cert: cert.to_string(),
         table: table.to_string(),
         rule,
         offset,
+        zero_sectors: side.0,
+        symmetry_group: side.1,
     };
     let rows = || -> Option<EngineRows> {
         if rows_src != "engine" {
@@ -186,7 +190,15 @@ fn weight_cert(
     }
 }
 #[cfg(not(feature = "wcert"))]
-fn weight_cert(_: &str, _: &str, _: i64, _: Option<u64>, _: &str, _: Option<&str>) -> String {
+fn weight_cert(
+    _: &str,
+    _: &str,
+    _: i64,
+    _: Option<u64>,
+    _: &str,
+    _: Option<&str>,
+    _: (Option<String>, Option<String>),
+) -> String {
     rustred_proof::error_record("UNSUPPORTED: built without the wcert feature")
 }
 
@@ -241,6 +253,7 @@ fn main() {
         "cert".to_string()
     };
     let mut family: Option<String> = None;
+    let mut zero_sectors: Option<String> = None;
     let mut out: Option<String> = None;
     let mut kmod: Option<usize> = None;
     let mut kex: Option<usize> = None;
@@ -282,6 +295,7 @@ fn main() {
             }
             "--rows" => rows_src = v,
             "--family" => family = Some(v),
+            "--zero-sectors" => zero_sectors = Some(v),
             "--out" => out = Some(v),
             "--max-primes" => pa.max_primes = v.parse().unwrap(),
             "--max-points" => pa.max_points = Some(v.parse().unwrap()),
@@ -313,6 +327,7 @@ fn main() {
             pa.offset,
             &rows_src,
             family.as_deref(),
+            (zero_sectors.clone(), pa.symmetry_group.clone()),
         );
         let code = if line.contains("\"verdict\":\"ERROR\"")
             || line.contains("\"verdict\":\"UNSUPPORTED\"")

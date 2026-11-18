@@ -13,6 +13,7 @@
 //! Overall class WHOLE_DOMAIN / OPEN_LOCI / NOT_WHOLE_DOMAIN (+ conditional class) / FAIL.
 #![allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub mod alg;
+pub mod canon;
 pub mod json;
 pub mod loci;
 #[cfg(test)]
@@ -38,6 +39,10 @@ pub struct WcertArgs {
     pub table: String,
     pub rule: i64,
     pub offset: Option<u64>,
+    /// file with the `zero_sectors` record (a table or a side file; read up to its first rule record)
+    pub zero_sectors: Option<String>,
+    /// file with the `symmetry_group` record of the rule's chart (idem)
+    pub symmetry_group: Option<String>,
 }
 
 /// The stored rule line and where it was found.
@@ -576,7 +581,11 @@ pub fn run(args: &WcertArgs, engine: &dyn Fn() -> Option<EngineRows>) -> Result<
     f.read_to_end(&mut bytes)
         .map_err(|e| format!("read {}: {e}", args.cert))?;
     let t_load = t0.elapsed().as_secs_f64();
-    let mut rec = check(&stored, &bytes, engine, &args.table, &args.cert)?;
+    let side = Side {
+        zero_sectors: args.zero_sectors.clone(),
+        symmetry_group: args.symmetry_group.clone(),
+    };
+    let mut rec = check(&stored, &bytes, engine, &args.table, &args.cert, &side)?;
     rec.put("seconds_load", format!("{t_load:.3}"));
     rec.put(
         "seconds_total",
@@ -598,7 +607,38 @@ pub fn run_bytes(
         position: None,
         offset: None,
     };
-    check(&stored, cert, &|| engine.cloned(), "-", "-").map(|r| r.emit())
+    check(
+        &stored,
+        cert,
+        &|| engine.cloned(),
+        "-",
+        "-",
+        &Side::default(),
+    )
+    .map(|r| r.emit())
+}
+
+/// Run the check on in-memory inputs with zero-sector / symmetry side files (tests).
+pub fn run_bytes_side(
+    stored_line: &[u8],
+    cert: &[u8],
+    engine: Option<&EngineRows>,
+    side: &Side,
+) -> Result<String, String> {
+    let stored = Stored {
+        line: stored_line.to_vec(),
+        header: vec![],
+        position: None,
+        offset: None,
+    };
+    check(&stored, cert, &|| engine.cloned(), "-", "-", side).map(|r| r.emit())
+}
+
+/// Side files for the binding modulo zero sectors / symmetry (section 4 (c) of the interface).
+#[derive(Clone, Debug, Default)]
+pub struct Side {
+    pub zero_sectors: Option<String>,
+    pub symmetry_group: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -614,6 +654,7 @@ fn check(
     engine_fn: &dyn Fn() -> Option<EngineRows>,
     table: &str,
     cert_path: &str,
+    side: &Side,
 ) -> Result<Out, String> {
     let mut o = Out(vec![]);
     let mut secs: Vec<(String, f64)> = vec![];
@@ -653,6 +694,48 @@ fn check(
     );
     let vars = Vars::new(rule.arity);
     let arity = rule.arity;
+    let dom = loci::Domain::from_rule(&vars, &rule)?;
+    // zero-sector / symmetry records (stated inputs) for the binding modulo, when given
+    let canon: Option<canon::Canon> =
+        if side.zero_sectors.is_some() || side.symmetry_group.is_some() {
+            let mut c = canon::Canon {
+                zero: Default::default(),
+                actions: vec![],
+                bounds: canon::slot_bounds(&dom, arity),
+                zero_source: None,
+                group_source: None,
+            };
+            if let Some(f) = &side.zero_sectors {
+                match canon::read_records(f, &rule.chart).0 {
+                    Some((m, sha)) => {
+                        c.zero = m;
+                        c.zero_source = Some((f.clone(), sha));
+                    }
+                    None => {
+                        return Err(format!(
+                            "--zero-sectors {f}: no zero_sectors record before the first rule"
+                        ));
+                    }
+                }
+            }
+            if let Some(f) = &side.symmetry_group {
+                match canon::read_records(f, &rule.chart).1 {
+                    Some((a, sha, n)) => {
+                        c.actions = a;
+                        c.group_source = Some((f.clone(), sha, n));
+                    }
+                    None => {
+                        return Err(format!(
+                            "--symmetry-group {f}: no symmetry_group record of chart {}",
+                            rule.chart
+                        ));
+                    }
+                }
+            }
+            Some(c)
+        } else {
+            None
+        };
     for (p, _) in cert.row.iter() {
         if p.len() != arity {
             return Err(
@@ -668,7 +751,12 @@ fn check(
         .filter(|(_, t)| t.trim() != "0")
         .map(|(p, _)| p)
         .collect();
-    let (pre, pre_layout) = translations(&rule, &pre_pats);
+    let (mut pre, pre_layout) = translations(&rule, &pre_pats);
+    if pre.is_empty() {
+        if let Some(c) = &canon {
+            pre = translations_modulo(&rule, &pre_pats, c);
+        }
+    }
     let case_differs = matches!((&cert.case, &rule.case), (Some(a), Some(b)) if a != b);
     let target_differs = cert.target.as_ref().is_some_and(|tt| {
         crate::guarded(|| parse_pat(tt.as_bytes())).ok().as_ref() != Some(&rule.target)
@@ -939,7 +1027,7 @@ fn check(
 
     // ---------------------------------------------------------------- (c) binding
     let tc = Instant::now();
-    let bind = binding(&vars, &rule, &cert, &row);
+    let bind = binding(&vars, &rule, &cert, &row, canon.as_ref());
     o.put("binding", bind.json());
     secs.push(("binding".into(), tc.elapsed().as_secs_f64()));
     let t = bind.translation.clone().unwrap_or(vec![0; arity]);
@@ -963,7 +1051,6 @@ fn check(
 
     // ---------------------------------------------------------------- (e) loci
     let te = Instant::now();
-    let dom = loci::Domain::from_rule(&vars, &rule)?;
     o.put("domain", dom.json(&vars, &rule));
     let mut lrecs = vec![];
     let mut n_open = 0usize;
@@ -1004,7 +1091,7 @@ fn check(
     // ---------------------------------------------------------------- class
     let rows_ok = rows_v == RowsV::Verified;
     let ident_ok = identity_verdict == "IDENTITY_EXACT";
-    let bind_ok = bind.verdict == "BINDING_EQUAL";
+    let bind_ok = bind.verdict == "BINDING_EQUAL" || bind.verdict == "BINDING_EQUAL_MODULO";
     let loci_word = if n_open == 0 {
         "WHOLE_DOMAIN"
     } else {
@@ -1050,6 +1137,13 @@ fn check(
             format!("{why} ({}); binding and loci checked", cert.form.name()),
             jstr(&format!("{loci_word}_IF_ROWS")),
         )
+    };
+    let reason = if bind.verdict == "BINDING_EQUAL_MODULO" {
+        format!(
+            "{reason}; binding MODULO the stated zero-sector / symmetry records (see binding.detail)"
+        )
+    } else {
+        reason
     };
     o.put("class", jstr(class));
     o.put("class_reason", jstr(&reason));
@@ -1231,7 +1325,48 @@ pub fn translations(rule: &Rule, row: &[&Pat]) -> (Vec<(Vec<i64>, usize)>, bool)
     (valid, any_layout)
 }
 
-fn binding(vars: &Vars, rule: &Rule, cert: &Cert, row: &[(Pat, Rf)]) -> Binding {
+/// [`translations`] modulo zero sectors and symmetry: the shifted row classes (zero-sector terms dropped) equal the stored
+/// relation's classes.
+pub fn translations_modulo(rule: &Rule, row: &[&Pat], c: &canon::Canon) -> Vec<(Vec<i64>, usize)> {
+    let arity = rule.arity;
+    let rhs: Vec<Pat> = rule.rhs.iter().map(|x| x.0.clone()).collect();
+    let (tclass, st, _) = canon::stored_classes(c, &rule.target, &rhs);
+    let mut stored_keys: std::collections::BTreeSet<Pat> = st.keys().cloned().collect();
+    if let canon::Class::Rep(r, _) = &tclass {
+        stored_keys.insert(r.clone());
+    }
+    let layout_ok = |p: &Pat| {
+        (0..arity).all(|i| p[i].0 == rule.target[i].0 && (p[i].0 || p[i].1 == rule.target[i].1))
+    };
+    let mut valid = vec![];
+    for (ti, p) in row.iter().enumerate() {
+        if !layout_ok(p) {
+            continue;
+        }
+        let t: Vec<i64> = (0..arity)
+            .map(|i| if p[i].0 { rule.target[i].1 - p[i].1 } else { 0 })
+            .collect();
+        let mut keys: std::collections::BTreeSet<Pat> = Default::default();
+        for q in row.iter() {
+            let s: Pat = (0..arity).map(|i| (q[i].0, q[i].1 + t[i])).collect();
+            if let canon::Class::Rep(r, _) = c.class(&s) {
+                keys.insert(r);
+            }
+        }
+        if keys == stored_keys {
+            valid.push((t, ti));
+        }
+    }
+    valid
+}
+
+fn binding(
+    vars: &Vars,
+    rule: &Rule,
+    cert: &Cert,
+    row: &[(Pat, Rf)],
+    canon: Option<&canon::Canon>,
+) -> Binding {
     let mut b = Binding {
         verdict: "BINDING_EQUAL",
         translation: None,
@@ -1294,6 +1429,9 @@ fn binding(vars: &Vars, rule: &Rule, cert: &Cert, row: &[(Pat, Rf)]) -> Binding 
     let (valid, any_layout) = translations(rule, &pats);
     b.candidates = valid.len();
     if valid.is_empty() {
+        if let Some(c) = canon {
+            return binding_modulo(vars, rule, row, &stored_rf, c, b);
+        }
         b.verdict = if any_layout {
             "BINDING_TERMS_DIFFER"
         } else {
@@ -1576,4 +1714,129 @@ pub mod factors {
             vanishing_on_case: vanishing,
         })
     }
+}
+
+/// (c) modulo zero sectors and symmetry: class sums of -R(m+t)/R_target(m+t) over the row equal the class sums of the
+/// stored coefficients (exact rational-function equality per class).
+fn binding_modulo(
+    vars: &Vars,
+    rule: &Rule,
+    row: &[(Pat, Rf)],
+    stored_rf: &[Option<Rf>],
+    c: &canon::Canon,
+    mut b: Binding,
+) -> Binding {
+    let arity = rule.arity;
+    let pats: Vec<&Pat> = row.iter().map(|x| &x.0).collect();
+    let valid = translations_modulo(rule, &pats, c);
+    b.candidates = valid.len();
+    let src = format!(
+        "zero_sectors {} (sha256 {}), symmetry_group {} (sha256 {}, {} elements)",
+        c.zero_source.as_ref().map_or("none", |x| x.0.as_str()),
+        c.zero_source.as_ref().map_or("-", |x| x.1.as_str()),
+        c.group_source.as_ref().map_or("none", |x| x.0.as_str()),
+        c.group_source.as_ref().map_or("-", |x| x.1.as_str()),
+        c.group_source.as_ref().map_or(0, |x| x.2)
+    );
+    if valid.is_empty() {
+        b.verdict = "BINDING_TERMS_DIFFER";
+        b.detail = format!("no shift maps the row onto the stored relation, even modulo {src}");
+        return b;
+    }
+    let pick = rule
+        .recenter
+        .as_ref()
+        .and_then(|rc| valid.iter().position(|(t, _)| t == rc))
+        .unwrap_or(0);
+    let (t, ti) = valid[pick].clone();
+    b.recenter_agrees = rule.recenter.as_ref().map(|rc| *rc == t);
+    b.translation = Some(t.clone());
+    let shifts: Vec<(usize, i64)> = (0..arity).map(|i| (Vars::slot(i), t[i])).collect();
+    let rt = alg::shift_rf(&row[ti].1, &shifts);
+    if rt.is_zero() {
+        b.verdict = "BINDING_TERMS_DIFFER";
+        b.detail = "the row's target coefficient is zero".into();
+        return b;
+    }
+    let neg_inv = &vars.const_rf(-1) / &rt;
+    let tclass = c.class(&rule.target);
+    let mut row_acc: BTreeMap<Pat, Rf> = BTreeMap::new();
+    let (mut row_zero, mut row_moved) = (0usize, 0usize);
+    for (qi, (q, r)) in row.iter().enumerate() {
+        if qi == ti {
+            continue;
+        }
+        let s: Pat = (0..arity).map(|i| (q[i].0, q[i].1 + t[i])).collect();
+        match c.class(&s) {
+            canon::Class::Zero => row_zero += 1,
+            canon::Class::Rep(rep, neg) => {
+                if rep != s || neg {
+                    row_moved += 1;
+                }
+                let v = &alg::shift_rf(r, &shifts) * &neg_inv;
+                let v = if neg { -v } else { v };
+                let e = row_acc.entry(rep).or_insert_with(|| vars.zero_rf());
+                *e = &*e + &v;
+            }
+        }
+    }
+    let mut st_acc: BTreeMap<Pat, Rf> = BTreeMap::new();
+    let (mut st_zero, mut st_moved) = (0usize, 0usize);
+    for (i, (p, _)) in rule.rhs.iter().enumerate() {
+        let Some(r) = &stored_rf[i] else {
+            b.verdict = "BINDING_TERMS_DIFFER";
+            b.detail = "a stored coefficient does not parse".into();
+            return b;
+        };
+        match c.class(p) {
+            canon::Class::Zero => st_zero += 1,
+            canon::Class::Rep(rep, neg) => {
+                if &rep != p || neg {
+                    st_moved += 1;
+                }
+                let v = if neg { -r.clone() } else { r.clone() };
+                let e = st_acc.entry(rep).or_insert_with(|| vars.zero_rf());
+                *e = &*e + &v;
+            }
+        }
+    }
+    let mut n_diff = 0usize;
+    let keys: std::collections::BTreeSet<&Pat> = row_acc.keys().chain(st_acc.keys()).collect();
+    for k in &keys {
+        let zero = vars.zero_rf();
+        let a = row_acc.get(*k).unwrap_or(&zero);
+        let s2 = st_acc.get(*k).unwrap_or(&zero);
+        if !(a - s2).is_zero() {
+            n_diff += 1;
+            if b.mismatches.len() < 5 {
+                b.mismatches
+                    .push(format!("class of {}: coefficient sums differ", pat_str(k)));
+            }
+        }
+    }
+    if let canon::Class::Rep(tr, _) = &tclass {
+        if row_acc.get(tr).is_some_and(|x| !x.is_zero())
+            || st_acc.get(tr).is_some_and(|x| !x.is_zero())
+        {
+            n_diff += 1;
+            b.mismatches
+                .push("an rhs integral lies in the target's symmetry class".into());
+        }
+    }
+    b.compared = keys.len();
+    if n_diff > 0 {
+        b.verdict = "BINDING_TERMS_DIFFER";
+        b.detail = format!("{n_diff} of {} classes differ modulo {src}", keys.len());
+    } else {
+        b.verdict = "BINDING_EQUAL_MODULO";
+        b.detail = format!(
+            "canonical(row) == stored relation MODULO the stated records ({src}): {} classes equal (exact rational-function sums); row terms: {} in zero sectors dropped, {} mapped to another class member; stored terms: {} zero-sector, {} mapped",
+            keys.len(),
+            row_zero,
+            row_moved,
+            st_zero,
+            st_moved
+        );
+    }
+    b
 }

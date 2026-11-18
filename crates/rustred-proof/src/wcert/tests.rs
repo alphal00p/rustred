@@ -415,6 +415,7 @@ fn real_case(table_var: &str, index: i64, offset: u64, cert_rel: &str) -> Option
         table,
         rule: index,
         offset: Some(offset),
+        ..Default::default()
     };
     let rec = run(&args, &|| None).unwrap_or_else(|e| panic!("refused: {e}"));
     eprintln!("{rec}");
@@ -503,5 +504,66 @@ fn real_1610() {
         "L3/1610/p0/cert/cert-efef896d1de0f5bb.json",
     ) {
         assert_v0_real(&r);
+    }
+}
+
+// ---------------------------------------------------------------- binding modulo zero sectors and symmetry
+
+fn side_file(name: &str, text: &str) -> String {
+    let dir = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
+    let p = format!("{dir}/wcert-test-{}-{name}", std::process::id());
+    std::fs::write(&p, text).unwrap();
+    p
+}
+
+#[test]
+fn binding_modulo_zero_sectors_and_symmetry() {
+    // row: target I(n0,1,0); I(n0,0,0) lies in the zero sector "100"; I(n0,2,0) and I(n0,0,2) are one class under the
+    // slot swap 1 <-> 2 (representative I(n0,0,2)); the stored rule keeps only the class sum
+    let row =
+        r#"[["I(n0,1,0)","1"],["I(n0,0,0)","1/(n0-1)"],["I(n0,2,0)","3"],["I(n0,0,2)","n0"]]"#;
+    let cert = format!(
+        r#"{{"schema":"rustred.weight-cert.v0","case":"toy3","target":"I(n0,1,0)","sources":[],"weights":[],"row":{row}}}"#
+    );
+    let stored = |c: &str| {
+        format!(
+            r#"{{"type":"rule","chart":"110","index":0,"case":"toy3","fixed":[null,1,0],"equations":[],"target":"I(n0,1,0)","rhs":[["I(n0,0,2)","{c}"]],"exceptions":[]}}"#
+        )
+        .into_bytes()
+    };
+    let zs = side_file(
+        "zero",
+        r#"{"type":"zero_sectors","scope":"downset","masks":["000","100"]}"#,
+    );
+    let sg = side_file(
+        "sym",
+        r#"{"type":"symmetry_group","chart":"110","group":{"elements":[{"action":[[0,false],[1,false],[2,false]]},{"action":[[0,false],[2,false],[1,false]]}]}}"#,
+    );
+    let side = Side {
+        zero_sectors: Some(zs.clone()),
+        symmetry_group: Some(sg.clone()),
+    };
+    // without the records: the integral sets differ
+    let rec = run_ok(&stored("-3-n0"), cert.as_bytes(), None);
+    assert_eq!(field(&rec, &["binding", "verdict"]), "BINDING_TERMS_DIFFER");
+    // with them: equal modulo
+    let rec = run_bytes_side(&stored("-3-n0"), cert.as_bytes(), None, &side).unwrap();
+    eprintln!("{rec}");
+    assert_eq!(field(&rec, &["binding", "verdict"]), "BINDING_EQUAL_MODULO");
+    assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
+    // a wrong class sum is still caught
+    let rec = run_bytes_side(&stored("-3-2*n0"), cert.as_bytes(), None, &side).unwrap();
+    assert_eq!(field(&rec, &["binding", "verdict"]), "BINDING_TERMS_DIFFER");
+    assert_eq!(field(&rec, &["class"]), "FAIL");
+    // the zero-sector drop needs the domain: I(n0-1,0,0) has n0 - 1 >= 0 only (n0 >= 1), its sector is not decided
+    let cert2 = cert.replace(
+        r#"["I(n0,0,0)","1/(n0-1)"]"#,
+        r#"["I(n0-1,0,0)","1/(n0-1)"]"#,
+    );
+    let rec = run_bytes_side(&stored("-3-n0"), cert2.as_bytes(), None, &side).unwrap();
+    assert_eq!(field(&rec, &["binding", "verdict"]), "BINDING_TERMS_DIFFER");
+    let sg010 = side_file("unused", "{}");
+    for p in [zs, sg, sg010] {
+        let _ = std::fs::remove_file(p);
     }
 }
