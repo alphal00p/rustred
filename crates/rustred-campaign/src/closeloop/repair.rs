@@ -814,6 +814,18 @@ impl<S: WorkSource> RepairFlowSource<S> {
             let rel = format!("{dir}/symrel.table.jsonl");
             // (re)written: the P1 commit wrote the same bytes; a resume recomputes them identically
             rt.accepts.push(record(rel.clone(), t.clone().into_bytes()));
+            // EMISSION (lane gencheck): the symmetry relations through the in-flow gate (emitted copy beside, written
+            // once: the flow's own table keeps its re-derivable bytes; fail closed)
+            if let Some(es) = &self.nodes[i].policy.emission {
+                crate::emission::gate::gate_beside(
+                    es,
+                    t,
+                    &self.abs(&format!("{dir}/symrel.emitted.table.jsonl")),
+                    crate::emission::gate::GateKind::Symmetry,
+                    &[],
+                    true,
+                )?;
+            }
             let mut src = json!({"id": "rf:symmetry-relations", "kind": "supplied_relations",
                 "class": "symmetry-relation", "path": self.abs(&rel).display().to_string(),
                 "sha256": sha256_hex(t.as_bytes())});

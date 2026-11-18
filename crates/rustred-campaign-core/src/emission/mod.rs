@@ -76,6 +76,12 @@ pub struct Settings {
     pub family: Option<String>,
     #[serde(default)]
     pub floor_s: Option<f64>,
+    /// the family's symmetry_group record (file) for checks of symmetry / point records (`--symmetry-group`)
+    #[serde(default)]
+    pub symmetry_group: Option<String>,
+    /// the zero_sectors record (file) stated to the checker (`--zero-sectors`)
+    #[serde(default)]
+    pub zero_sectors: Option<String>,
 }
 
 /// The parts of a `derivation` member (everything bulky lives in the side directory, referenced by sha256).

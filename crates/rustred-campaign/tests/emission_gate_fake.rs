@@ -123,3 +123,43 @@ fn the_gate_fails_closed_without_a_certificate_or_with_a_point_not_in_span() {
     let _ = std::fs::remove_dir_all(&d);
     let _ = std::fs::remove_dir_all(&d2);
 }
+
+/// THE IN-FLOW GATE (closeloop relation / symmetry tables): the emitted copy is written ONCE beside the flow's table; a
+/// later pass reuses it without running the checker; a verifying restart (no write) refuses a missing or different copy;
+/// a refusal writes nothing.
+#[test]
+fn the_in_flow_gate_writes_once_reuses_and_refuses_on_a_verifying_restart() {
+    use rustred_campaign::emission::gate::gate_beside;
+    let d = tmp("beside");
+    let line = |i: usize, k: Value, tg: &str, extra: Option<(&str, &str)>| rule(i, k, "point", tg, extra).to_string();
+    let plain = format!(
+        "{}\n{}\n{}\n",
+        json!({"type":"header","schema":"table_dump.v1","family":"TOY"}),
+        line(0, json!([1, 1, 0]), "I(1,1,0)", None),
+        line(1, json!([2, 1, 0]), "I(2,1,0)", None)
+    );
+    let es: rustred_campaign_core::emission::Settings =
+        serde_json::from_value(json!({"checker": FAKE, "recover_rows": false})).unwrap();
+    let em = d.join("sym.emitted.table.jsonl");
+    let s = gate_beside(&es, &plain, &em, GateKind::Symmetry, &[], true).unwrap();
+    assert_eq!(s["classes"]["whole domain"], 2, "{s:#}");
+    let first = std::fs::read(&em).unwrap();
+    // a second pass: reused, not re-gated (bytes unchanged even though the fake checker's output would be the same)
+    let s = gate_beside(&es, &plain, &em, GateKind::Symmetry, &[], true).unwrap();
+    assert_eq!(s["reused"], true, "{s:#}");
+    assert_eq!(std::fs::read(&em).unwrap(), first);
+    // a verifying restart with ANOTHER table: refused, nothing rewritten
+    let other = plain.replace("I(2,1,0)", "I(3,1,0)").replace("[2,1,0]", "[3,1,0]");
+    assert!(gate_beside(&es, &other, &em, GateKind::Symmetry, &[], false).is_err());
+    assert_eq!(std::fs::read(&em).unwrap(), first);
+    // a record not in span: refused, nothing written
+    let bad = format!(
+        "{}\n{}\n",
+        json!({"type":"header","schema":"table_dump.v1","family":"TOY"}),
+        line(0, json!([1, 1, 0]), "I(1,1,0)", Some(("fake_span", "NOT_IN_SPAN")))
+    );
+    let em2 = d.join("bad.emitted.table.jsonl");
+    assert!(gate_beside(&es, &bad, &em2, GateKind::Point, &[], true).is_err());
+    assert!(!em2.exists());
+    let _ = std::fs::remove_dir_all(&d);
+}

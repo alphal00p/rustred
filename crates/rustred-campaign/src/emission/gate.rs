@@ -223,6 +223,87 @@ pub fn emit_table(
     ))
 }
 
+/// An emitter built from flow settings (`emission` member of a flow config) for the side directory `side`.
+pub fn emitter_from(
+    es: &rustred_campaign_core::emission::Settings,
+    side: &Path,
+    work: &Path,
+) -> Result<Emitter, String> {
+    let mut ck = super::emitter::Checker::new(Path::new(&es.checker))?;
+    ck.recover_rows = es.recover_rows;
+    ck.family = es.family.as_ref().map(PathBuf::from);
+    ck.symmetry_group = es.symmetry_group.as_ref().map(PathBuf::from);
+    ck.zero_sectors = es.zero_sectors.as_ref().map(PathBuf::from);
+    if let Some(f) = es.floor_s {
+        ck.floor_s = f;
+    }
+    Emitter::new(ck, es.policy.clone().unwrap_or_default(), side, work)
+}
+
+/// The rule lines of a table text with their `derivation` member removed (and every other line as it is).
+fn bodies(text: &str) -> Result<Vec<String>, String> {
+    text.lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| {
+            if string_member(l, "type").as_deref() == Some("rule") {
+                strip_derivation(l).map(|x| x.0)
+            } else {
+                Ok(l.to_string())
+            }
+        })
+        .collect()
+}
+
+/// THE IN-FLOW GATE of a table a flow writes as TEXT (closeloop relation / symmetry tables; lane gencheck round 3).
+/// The flow's own table is untouched (its bytes stay those the flow re-derives and verifies on a restart); the
+/// EMITTED copy `emitted` (every rule line with its derivation member) and its side directory are written ONCE. A later
+/// pass or a restart REUSES an existing emitted copy when its bodies are exactly the plain text's and `table-check`
+/// accepts it (never re-gated, never rewritten); otherwise, when `may_write`, the plain text is gated (fail closed: Err
+/// with the refusals, nothing written); when not `may_write` (a verifying restart), a missing or different copy is an
+/// Err. Returns the gate's summary.
+pub fn gate_beside(
+    es: &rustred_campaign_core::emission::Settings,
+    plain: &str,
+    emitted: &Path,
+    kind: GateKind,
+    cert_dirs: &[PathBuf],
+    may_write: bool,
+) -> Result<Value, String> {
+    if let Ok(have) = std::fs::read_to_string(emitted)
+        && bodies(&have)? == bodies(plain)?
+    {
+        let (tc, ok) = super::tablecheck::table_check(&super::tablecheck::Args {
+            table: emitted.to_path_buf(),
+            every: 1,
+            ..Default::default()
+        })?;
+        if ok {
+            return Ok(json!({"emitted": emitted.display().to_string(), "reused": true, "classes": tc["classes"]}));
+        }
+    }
+    if !may_write {
+        return Err(format!(
+            "emission: {}: the emitted copy is missing or differs from the re-derived table (restart: never re-gated)",
+            emitted.display()
+        ));
+    }
+    let plain_path = emitted.with_extension("plain.jsonl");
+    std::fs::write(&plain_path, plain).map_err(|e| format!("{}: {e}", plain_path.display()))?;
+    let work = emitted.with_extension("emit-work");
+    let em_for = |side: &Path| emitter_from(es, side, &work);
+    let (s, ok) = emit_table(&em_for, &plain_path, emitted, &CertIndex::from_dirs(cert_dirs), kind)?;
+    let _ = std::fs::remove_file(&plain_path);
+    if !ok {
+        return Err(format!(
+            "emission refused {} record(s) of {} (nothing written): {}",
+            s["refused"],
+            emitted.display(),
+            s["refusals"]
+        ));
+    }
+    Ok(s)
+}
+
 /// CLI: `emit-table --table T --out O --checker BIN [--certs DIR ...] [--kind lifted|point|symmetry|auto]
 /// [--policy FILE] [--family F] [--zero-sectors F] [--symmetry-group F] [--no-recover-rows] [--check-floor S]
 /// [--work DIR]`. Exit 0 emitted, 3 refused (nothing written).
