@@ -39,6 +39,15 @@ A scope still populated with no live member listed gets cgroup.kill. A proof tha
 / unproven end (P5), never as a proven one. It covers marked processes and members of the job's session; a marker-less
 process that re-sets the marker for new children is outside it (RUNBOOK 2.10).
 
+THE SAFE HOST SCOPE CHECK (round 11, gate14 item 5; separate from the host step, at the coordinator's decision): from this
+directory, on the host, outside any job: `bash host_scope_check.sh --dry-run` (refusals and plan; nothing started), then
+`bash host_scope_check.sh --run`: ONE scope gate-scopecheck-<16 random hex>.scope whose processes all live in their own
+private pid namespace; the belt's record and live_members() checked read-only; a safety gate (every pid in that scope is
+its own unshare or inside its private namespace, else ABORT without writing); ONE cgroup.kill of that scope; the exact
+unit stopped if anything is left; PASS only when every step held and the unit is no longer loaded. bin/rr_scope_check is
+release-built from the same commit; scope-check-refusal.txt shows it refusing inside a namespace (made by the freeze).
+It signals nothing else, uses no pattern, and touches no other unit.
+
 HOW TO READ P5: P5 stays STRICT: any unproven_end note FAILs it. When unproven_end notes exist, pass.txt carries an extra
 line "P5-unproven INFO: N unproven_end note(s) (<attempts>): k of N cleared later (unverified_end_cleared of the same
 attempt); signals not accounted for 0, POSSIBLY SENT 0, other P5 notes none: the strict P5 FAILs ONLY on these notes".

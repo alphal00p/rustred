@@ -517,7 +517,7 @@ pub(crate) struct ScopeRef {
 }
 
 /// Where systemd puts a user's transient scopes: `/sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service/`.
-fn user_manager_root(uid: u32) -> PathBuf {
+pub(super) fn user_manager_root(uid: u32) -> PathBuf {
     PathBuf::from(format!(
         "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"
     ))

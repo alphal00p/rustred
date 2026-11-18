@@ -1143,6 +1143,14 @@ impl ProcRoot {
             .ino())
     }
 
+    /// procfix7 round 11 (gate14 item 5, the safe host check): the inode of `/proc/<pid>/ns/pid` (the pid namespace that
+    /// `pid` lives in).
+    pub fn pid_ns_ino(&self, pid: u32) -> ProcResult<u64> {
+        Ok(self
+            .metadata(ns_kind("pid"), Some(pid), &format!("{pid}/ns/pid"))?
+            .ino())
+    }
+
     /// The link text of `/proc/self/ns/<kind>` (`pid:[4026531836]`).
     pub fn self_ns_link(&self, kind: &str) -> ProcResult<String> {
         let l = self.read_link(ns_kind(kind), None, &format!("self/ns/{kind}"))?;

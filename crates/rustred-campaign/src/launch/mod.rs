@@ -24,6 +24,7 @@
 mod cgroup;
 mod fake;
 pub mod guard;
+pub mod host_check;
 mod hunt;
 mod idlock;
 mod real;

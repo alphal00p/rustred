@@ -21,14 +21,14 @@ cd "$WT"
 [ -z "$(git status --porcelain)" ] || { echo "freeze: the tree is not clean"; git status --porcelain; exit 2; }
 COMMIT=$(git rev-parse --short=8 HEAD)
 # the host-tests copies in git must be the installed ones (the frozen files come from host-tests/)
-for f in host_step_fake1.sh grade_host_step.py p8_units.py test_grade_host_step.py test_p8_units.py \
+for f in host_step_fake1.sh grade_host_step.py p8_units.py test_grade_host_step.py test_p8_units.py host_scope_check.sh \
          rehearsal-fake-systemd/systemd-run rehearsal-fake-systemd/systemctl; do
   cmp -s "$H/$f" "scripts/procfix7/host-tests/$f" || { echo "freeze: $H/$f differs from the git copy"; exit 2; }
 done
 nice -n 10 "$WS/plan/auto-campaign/implementer_ops/light_build.sh" procfix7 build -p rustred-campaign --release --bins
-RC=$WT/target/release/rr_campaign; FC=$WT/target/release/rr_fake_child
+RC=$WT/target/release/rr_campaign; FC=$WT/target/release/rr_fake_child; SC=$WT/target/release/rr_scope_check
 # round 11 (gate14 m14-freeze): BOTH binaries are checked (rr_fake_child too)
-for b in "$RC" "$FC"; do
+for b in "$RC" "$FC" "$SC"; do
   for s in RR_CAMPAIGN_FAILPOINT "TEST BUILD"; do
     [ "$(grep -a -c "$s" "$b" || true)" = 0 ] || { echo "freeze: $b names '$s': not a release build"; exit 2; }
   done
@@ -42,12 +42,18 @@ F=$FR/$UTC-host-step
 [ -d "$FR" ] || mkdir -p "$FR"
 mkdir "$F" || { echo "freeze: $F exists (never edited): wait a minute"; exit 2; }
 mkdir "$F/bin" "$F/fixtures" "$F/rehearsal-fake-systemd"
-cp "$H"/host_step_fake1.sh "$H"/grade_host_step.py "$H"/p8_units.py "$H"/test_grade_host_step.py "$H"/test_p8_units.py "$F/"
+cp "$H"/host_step_fake1.sh "$H"/grade_host_step.py "$H"/p8_units.py "$H"/test_grade_host_step.py "$H"/test_p8_units.py \
+   "$H"/host_scope_check.sh "$F/"
 cp "$H"/rehearsal-fake-systemd/systemd-run "$H"/rehearsal-fake-systemd/systemctl "$F/rehearsal-fake-systemd/"
 cp -r "$H/fixtures/host-step-1" "$F/fixtures/"
-cp "$RC" "$FC" "$F/bin/"
+cp "$RC" "$FC" "$SC" "$F/bin/"
 unshare -Urpf --mount-proc -- env -u RR_CAMPAIGN_JOB REL="$F/bin" bash "$F/host_step_fake1.sh" --dry-run > "$F/dry-run.txt" 2>&1
 RCS=$(sha256sum < "$F/bin/rr_campaign" | cut -c1-16); FCS=$(sha256sum < "$F/bin/rr_fake_child" | cut -c1-16)
+# round 11 (gate14 item 5): the safe host check's binary refuses inside a private namespace (nothing started): checked here
+unshare -Urpf --mount-proc -- "$F/bin/rr_scope_check" --unit gate-scopecheck-0123456789abcdef > "$F/scope-check-refusal.txt" 2>&1 \
+  && { echo "freeze: rr_scope_check did not refuse inside a namespace"; exit 2; }
+grep -q 'refused: inside a private pid namespace' "$F/scope-check-refusal.txt" \
+  || { echo "freeze: rr_scope_check's refusal text is missing"; exit 2; }
 python3 -I -B - "scripts/procfix7/MANIFEST.host-step.template" "$F/MANIFEST" "$F" "$COMMIT" "$RCS.." "$FCS.." "$SUPERSEDES" \
   "$(date -u +%FT%TZ)" <<'PY'
 import re, sys
