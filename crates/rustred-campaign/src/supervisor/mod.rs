@@ -167,6 +167,21 @@ pub enum RunExit {
     Attention(String),
 }
 
+/// procfix7 round 14 (M1): the human reason of a stop exit (diagnostics; ledger note `stop_decided`).
+fn run_exit_text(e: &RunExit) -> String {
+    match e {
+        RunExit::Internal(m)
+        | RunExit::Resources(m)
+        | RunExit::Attention(m)
+        | RunExit::Refused(m)
+        | RunExit::BinaryChanged(m)
+        | RunExit::Moved(m)
+        | RunExit::FinishedOpen(m)
+        | RunExit::FinishedError(m) => m.clone(),
+        other => format!("{other:?}"),
+    }
+}
+
 impl RunExit {
     pub fn code(&self) -> i32 {
         match self {
@@ -471,7 +486,15 @@ pub struct Supervisor {
     log: Log,
     bypassed: BTreeMap<String, u32>,
     launch_seq: u64,
+    /// The ledger itself is UNUSABLE (an append failed, the intent log's disk is full, the campaign directory was
+    /// removed or replaced): nothing more can be recorded; the run drains and stops with this exit.
     ledger_dead: Option<RunExit>,
+    /// procfix7 round 14 (host step 3, M1): a STOP decision of the supervisor (a policy or resource stop: the scope limit,
+    /// recovery that cannot read, the user manager not answering for too long) while the ledger stays USABLE: the run
+    /// drains (no launch; children get their grace) and stops with this exit, and every record of the drain (signals
+    /// delivered, ends, notes) is still written to the ledger. Before round 14 such stops set `ledger_dead`, and every
+    /// later record was refused (host step 3: 21 delivered signals reached only the intent log).
+    stop_exit: Option<RunExit>,
     control_stop: bool,
     disk_floor_hit: bool,
     /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
@@ -1471,6 +1494,7 @@ impl Supervisor {
             bypassed: BTreeMap::new(),
             launch_seq: 0,
             ledger_dead: None,
+            stop_exit: None,
             control_stop: false,
             disk_floor_hit: false,
             fsize_stop: false,
@@ -1519,6 +1543,25 @@ impl Supervisor {
 
     fn st(&self) -> &CampaignState {
         self.ledger.state()
+    }
+
+    /// procfix7 round 14 (M1): why the run stops, if it does: the ledger's own failure first, else a stop decision.
+    fn stop_cause(&self) -> Option<RunExit> {
+        self.ledger_dead.clone().or_else(|| self.stop_exit.clone())
+    }
+
+    /// procfix7 round 14 (M1): decide a stop (the first decision wins) WITHOUT touching the ledger's health; the decision
+    /// is noted in the ledger (`stop_decided`) while the ledger is usable.
+    fn decide_stop(&mut self, e: RunExit) {
+        if self.stop_cause().is_some() {
+            return;
+        }
+        self.note(format!(
+            "stop_decided {{\"exit\":{},\"reason\":{:?}}}",
+            e.code(),
+            run_exit_text(&e)
+        ));
+        self.stop_exit = Some(e);
     }
 
     /// Appends a batch; on failure marks the ledger dead (ENOSPC -> disk full; anything else -> internal).
@@ -1700,7 +1743,7 @@ impl Supervisor {
         self.mark_unconfirmed();
         // procfix5 (gate4 M1): signals of earlier sessions that never reached the ledger, from the intent log.
         self.reconcile_intents(&facts.recorded_intents, logs);
-        if self.ledger_dead.is_some() {
+        if self.stop_cause().is_some() {
             return;
         }
         let unsettled: Vec<(String, u32, AttemptState)> = self
@@ -2079,12 +2122,11 @@ impl Supervisor {
             }
         );
         self.log.line("ERROR", &msg);
-        if self.ledger_dead.is_none() {
-            self.ledger_dead = Some(match resource {
-                Some(_) => RunExit::Resources(msg),
-                None => RunExit::Internal(msg),
-            });
-        }
+        // round 14 (M1): a stop decision; the ledger stays usable
+        self.decide_stop(match resource {
+            Some(_) => RunExit::Resources(msg),
+            None => RunExit::Internal(msg),
+        });
     }
 
     /// procfix7 (gate7 B1): one file read of recovery, classified (the failpoint first).
@@ -2249,7 +2291,7 @@ impl Supervisor {
             ));
         }
         for (job, attempt, state) in unsettled {
-            if self.ledger_dead.is_some() {
+            if self.stop_cause().is_some() {
                 return;
             }
             if state == AttemptState::Launching {
@@ -2301,7 +2343,7 @@ impl Supervisor {
             // released only after `job.started` is durable): a marked process of it is the exiting shim or a copied
             // environment, never a late confirmation.
             let barrier = unconfirmed && self.barrier_launch(&job, attempt);
-            if self.ledger_dead.is_some() {
+            if self.stop_cause().is_some() {
                 // procfix7 (gate7 B1): a read of this attempt failed: nothing more is decided
                 return;
             }
@@ -2992,7 +3034,8 @@ impl Supervisor {
             "recovery cannot read the files of {job} a{attempt} for lack of a supervisor resource; free it (e.g. raise ulimit -n / -u) and run the same command"
         );
         self.log.line("ERROR", &msg);
-        self.ledger_dead = Some(RunExit::Resources(msg));
+        // round 14 (M1): a stop decision; the ledger stays usable
+        self.decide_stop(RunExit::Resources(msg));
     }
 
     fn authenticate_run(
@@ -3365,7 +3408,7 @@ impl Supervisor {
         if end.unverified {
             let n = self.scope_unverified.entry(job.to_string()).or_insert(0);
             *n += 1;
-            if *n >= SCOPE_UNVERIFIED_LIMIT && self.ledger_dead.is_none() {
+            if *n >= SCOPE_UNVERIFIED_LIMIT && self.stop_cause().is_none() {
                 let msg = format!(
                     "job {job}: {SCOPE_UNVERIFIED_LIMIT} attempts ended because their systemd scope could not be verified \
                      (last: {}): the scope mechanism does not work as required; stopping (exit 71)",
@@ -3375,7 +3418,8 @@ impl Supervisor {
                     "scope_unverified_limit {{\"job\":{job:?},\"message\":{msg:?}}}"
                 ));
                 self.log.line("ERROR", &msg);
-                self.ledger_dead = Some(RunExit::Resources(msg));
+                // round 14 (M1): a stop decision, never "the ledger is unavailable"
+                self.decide_stop(RunExit::Resources(msg));
             }
         }
     }
@@ -6212,6 +6256,8 @@ impl Supervisor {
         }
         if self.ledger_dead.is_some() {
             b.reasons.push("ledger unavailable".into());
+        } else if let Some(e) = &self.stop_exit {
+            b.reasons.push(format!("stopping (exit {})", e.code()));
         }
         if let Some(t) = self.resource_backoff_until
             && Instant::now() < t
@@ -6390,7 +6436,7 @@ impl Supervisor {
             match d {
                 Decision::Admit => {
                     if self.children.len() + self.pending.len() >= max_jobs
-                        || self.ledger_dead.is_some()
+                        || self.stop_cause().is_some()
                     {
                         break;
                     }
@@ -6404,7 +6450,7 @@ impl Supervisor {
                                 self.log.line("WARN", &format!("{}: {e}", r.job));
                                 // procfix7: a refusal (a run directory not ours) or a removed campaign directory ends
                                 // the launching at once
-                                if self.refusal_stop.is_some() || self.ledger_dead.is_some() {
+                                if self.refusal_stop.is_some() || self.stop_cause().is_some() {
                                     break;
                                 }
                                 if self.resource_backoff_until.is_some() {
@@ -6587,7 +6633,7 @@ impl Supervisor {
 
     fn main_loop(&mut self) -> RunExit {
         self.recover();
-        if let Some(e) = self.ledger_dead.clone() {
+        if let Some(e) = self.stop_cause() {
             return e;
         }
         if let Err(e) = self.register_binaries() {
@@ -6689,13 +6735,14 @@ impl Supervisor {
             self.poll_children();
             self.tick_quarantine();
             self.drive_pending();
-            if self.ledger_dead.is_none() {
+            if self.stop_cause().is_none() {
                 self.periodic_sweep();
             }
             // gate3 M2: every delivered signal becomes a ledger record
             self.record_deliveries();
-            // ledger dead: no launches; children get the grace, then are killed (their attempts stay unsettled).
-            if let Some(e) = self.ledger_dead.clone() {
+            // ledger dead, or (round 14, M1) a stop decided: no launches; children get the grace, then are killed (with a
+            // dead ledger their attempts stay unsettled; after a stop decision every end is still recorded).
+            if let Some(e) = self.stop_cause() {
                 let d = *dead_deadline.get_or_insert_with(|| {
                     let g = Duration::from_secs(self.opts.spec.resources.grace_seconds);
                     for c in &mut self.children {
@@ -6787,7 +6834,7 @@ impl Supervisor {
                     if let Err(msg) = self.final_sweep() {
                         // procfix6 (gate5 m3): a final sweep that could not signal for lack of space is exit 75.
                         self.check_not_signalled();
-                        if let Some(e) = self.ledger_dead.clone() {
+                        if let Some(e) = self.stop_cause() {
                             self.log.line("WARN", &msg);
                             return e;
                         }
@@ -6817,7 +6864,7 @@ impl Supervisor {
                         }]);
                     }
                     // procfix5: a refused / failed finish record is never reported as a finished campaign.
-                    if let Some(e) = self.ledger_dead.clone() {
+                    if let Some(e) = self.stop_cause() {
                         return e;
                     }
                     self.write_progress(true);

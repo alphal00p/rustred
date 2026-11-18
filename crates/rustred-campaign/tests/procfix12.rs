@@ -122,6 +122,77 @@ fn b_a_live_job_without_a_verified_scope_is_ended_requeued_and_bounded() {
         st.jobs.values().any(|j| j.attempt >= 3),
         "a job reached its third attempt"
     );
+    // procfix7 round 14 (host step 3, M1): the limit is a STOP DECISION, never "the ledger is unavailable": every
+    // signal delivered after it (the drain's terminate, the end-of-job hunts, a dropped handle) is a ledger record, every
+    // launched attempt has its end recorded, and the decision itself is noted
+    ledger_complete_after_a_stop(&d, 71);
+}
+
+/// procfix7 round 14 (M1): after a stop decision the ledger holds a `signal_sent` for EVERY delivered intent of the
+/// intent log, a `finished` record for every launched attempt, and one note `stop_decided` with the exit; the run's log
+/// never says that the ledger is unavailable or that a delivered signal was not recorded.
+fn ledger_complete_after_a_stop(d: &Path, code: i32) {
+    use rustred_campaign::ledger::{Event, JobEvent};
+    let log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+    assert!(
+        !log.contains("ledger is unavailable") && !log.contains("not recorded"),
+        "{}",
+        log.lines()
+            .filter(|l| l.contains("not recorded") || l.contains("unavailable"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    );
+    let intents = std::fs::read_to_string(d.join("log/signal-intents.jsonl")).unwrap_or_default();
+    let delivered: Vec<String> = intents
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["kind"] == "done" && v["result"] == "delivered")
+        .filter_map(|v| v["id"].as_str().map(str::to_string))
+        .collect();
+    assert!(!delivered.is_empty(), "no delivered intent at all");
+    let recs = records(d);
+    let bys: Vec<String> = recs
+        .iter()
+        .filter_map(|r| match &r.event {
+            Event::SignalSent { by, .. } => Some(by.clone()),
+            _ => None,
+        })
+        .collect();
+    let missing: Vec<&String> = delivered
+        .iter()
+        .filter(|id| !bys.iter().any(|b| b.contains(&format!("[intent {id}]"))))
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "{} of {} delivered intents have no signal_sent record: {missing:?}",
+        missing.len(),
+        delivered.len()
+    );
+    let launches = count(d, |e| {
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Launch { .. },
+                ..
+            }
+        )
+    });
+    let finished = count(d, |e| {
+        matches!(
+            e,
+            Event::Job {
+                ev: JobEvent::Finished { .. },
+                ..
+            }
+        )
+    });
+    assert_eq!(
+        launches, finished,
+        "every launched attempt has its end recorded"
+    );
+    let dec = notes(d, "stop_decided ");
+    assert_eq!(dec.len(), 1, "{dec:?}");
+    assert!(dec[0].contains(&format!("\"exit\":{code}")), "{dec:?}");
 }
 
 fn containment_whys(d: &Path) -> Vec<String> {
