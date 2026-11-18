@@ -499,6 +499,8 @@ impl ChildHandle for ScriptedChild {
         }
         let report = FinalReport {
             barrier_refused: None,
+            proof_seconds: None,
+            proof_waits: Vec::new(),
             label: p.label.clone(),
             identity: p.identity.clone(),
             marker: crate::resources::CampaignMarker {

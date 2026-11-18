@@ -321,6 +321,41 @@ pub fn request_reap() {
     s.cv.notify_all();
 }
 
+/// procfix7 round 17 (host run B, N2.i0158): the identities of the children THIS reaper reaped (pid, start ticks,
+/// session, when), the latest [`REAPED_KEPT`]: a listing that named a pid which is gone at its read takes its identity
+/// from here when the reap came AFTER that listing ended (the process listed is then the one reaped: a pid names one
+/// process until that process is reaped).
+const REAPED_KEPT: usize = 4096;
+
+/// One reap of ours: pid, start ticks, session, when the reap began.
+type Reaped = (u32, u64, u32, Instant);
+
+fn reaped_ring() -> &'static Mutex<std::collections::VecDeque<Reaped>> {
+    static R: OnceLock<Mutex<std::collections::VecDeque<Reaped>>> = OnceLock::new();
+    R.get_or_init(|| Mutex::new(std::collections::VecDeque::with_capacity(REAPED_KEPT)))
+}
+
+/// Record a reap of ours: `began` is taken BEFORE the reap; call it under the registry lock, after the reap succeeded.
+pub(crate) fn note_reaped(pid: u32, start: u64, session: u32, began: Instant) {
+    let mut r = reaped_ring().lock().unwrap_or_else(|p| p.into_inner());
+    if r.len() >= REAPED_KEPT {
+        r.pop_front();
+    }
+    r.push_back((pid, start, session, began));
+}
+
+/// procfix7 round 17: (start, session) of `pid` if we reaped it in a reap that began at or after `listed_end` (the
+/// end of the listing that named it). Records are kept in the order their reaps began.
+pub(crate) fn reaped_after(pid: u32, listed_end: Instant) -> Option<(u64, u32)> {
+    reaped_ring()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .filter(|&&(_, _, _, t)| t >= listed_end)
+        .find(|&&(p, _, _, _)| p == pid)
+        .map(|&(_, s, sess, _)| (s, sess))
+}
+
 /// One reaper tick: reap at most `max` zombie children that are not registered leaders and not in our own session.
 /// Returns how many were reaped.
 pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
@@ -363,7 +398,13 @@ pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
             outstanding += 1;
             continue;
         }
+        let began = Instant::now();
         let ok = crate::launch::reap_adopted(pid, st.start_ticks, own_session);
+        if ok {
+            // round 17: recorded BEFORE the registry lock is released (a hunt that found the entry gone looks it up
+            // under the same lock), with the time taken before the reap
+            note_reaped(pid, st.start_ticks, st.session, began);
+        }
         drop(guard);
         if ok {
             reaped += 1;
@@ -409,4 +450,29 @@ pub(crate) fn start_reaper(leaders: Arc<Leaders>, period: Duration, max_per_tick
                 }
             });
     });
+}
+
+#[cfg(test)]
+mod round17_tests {
+    use super::*;
+
+    /// procfix7 round 17: a reap of ours names the listed process only if it BEGAN at or after the end of the listing
+    /// that named it (then the pid could not have been another process meanwhile); the first such reap is the one.
+    #[test]
+    fn a_reap_identifies_a_listed_pid_only_when_it_began_after_the_listing() {
+        let pid = 4_000_000 + std::process::id() % 100_000;
+        note_reaped(pid, 11, 100, Instant::now());
+        std::thread::sleep(Duration::from_millis(2));
+        let listed_end = Instant::now();
+        assert_eq!(
+            reaped_after(pid, listed_end),
+            None,
+            "a reap before the listing ended"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+        note_reaped(pid, 22, 200, Instant::now());
+        note_reaped(pid, 33, 300, Instant::now());
+        assert_eq!(reaped_after(pid, listed_end), Some((22, 200)));
+        assert_eq!(reaped_after(pid + 1, listed_end), None);
+    }
 }

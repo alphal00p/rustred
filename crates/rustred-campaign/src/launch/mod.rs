@@ -221,6 +221,57 @@ impl Verification {
     }
 }
 
+/// procfix7 round 17 (host run B, N2.i0158): why an end-of-job proof waited: one entry per KIND of inconclusive hunt
+/// round (the reason with its numbers taken out), how many rounds had it, and the first full text (pids, owners).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct ProofWait {
+    pub kind: String,
+    pub count: u32,
+    pub example: String,
+}
+
+/// The kind of an inconclusive hunt reason: every run of digits replaced by `N` and any bracketed list by `[..]` (pids
+/// and owners differ from round to round; the kind does not).
+pub fn proof_wait_kind(reason: &str) -> String {
+    let mut out = String::with_capacity(reason.len());
+    let mut depth = 0u32;
+    let mut last_digit = false;
+    for c in reason.chars() {
+        match c {
+            '[' => {
+                if depth == 0 {
+                    out.push_str("[..]");
+                }
+                depth += 1;
+                last_digit = false;
+            }
+            ']' => depth = depth.saturating_sub(1),
+            _ if depth > 0 => {}
+            d if d.is_ascii_digit() => {
+                if !last_digit {
+                    out.push('N');
+                }
+                last_digit = true;
+            }
+            _ => {
+                out.push(c);
+                last_digit = false;
+            }
+        }
+    }
+    out
+}
+
+/// Merge `kind` counts (same kind: counts added, the first example kept).
+pub fn merge_proof_waits(into: &mut Vec<ProofWait>, more: &[ProofWait]) {
+    for w in more {
+        match into.iter_mut().find(|x| x.kind == w.kind) {
+            Some(x) => x.count = x.count.saturating_add(w.count),
+            None => into.push(w.clone()),
+        }
+    }
+}
+
 /// Everything known about a finished child. Written to the ledger by the scheduler.
 #[derive(Clone, Debug, Serialize)]
 pub struct FinalReport {
@@ -248,6 +299,10 @@ pub struct FinalReport {
     /// procfix7 (gate7 m-br): the spawn-barrier shim REFUSED the release (its reason, from the report pipe only the shim
     /// could write): the program never ran. None: no refusal reported (the program ran, or no barrier).
     pub barrier_refused: Option<String>,
+    /// procfix7 round 17: seconds from the leader's end (first seen) to this report (None: no end-of-job proof ran).
+    pub proof_seconds: Option<f64>,
+    /// procfix7 round 17: why the proof waited (empty: every hunt round was conclusive).
+    pub proof_waits: Vec<ProofWait>,
 }
 
 impl FinalReport {
@@ -689,5 +744,36 @@ mod tests {
             MEMORY_CAP_EXCEEDED
         );
         assert_eq!(KillReason::Stop.outcome(), "interrupted");
+    }
+}
+
+#[cfg(test)]
+mod round17_wait_tests {
+    use super::*;
+
+    /// procfix7 round 17: the kind of a reason drops the pids and the bracketed suspects; kinds merge by count.
+    #[test]
+    fn a_wait_kind_drops_numbers_and_suspect_lists_and_merges_by_count() {
+        let a = "proof pass inconclusive: children [57 (leader of N1.i0157.L0-t0:a1)] ended between the listing and the read (hand-off?)";
+        let b = "proof pass inconclusive: children [9 (gone before its read: no identity), 12 (owner unknown, session 3)] ended between the listing and the read (hand-off?)";
+        assert_eq!(proof_wait_kind(a), proof_wait_kind(b));
+        assert_eq!(
+            proof_wait_kind(a),
+            "proof pass inconclusive: children [..] ended between the listing and the read (hand-off?)"
+        );
+        assert_eq!(
+            proof_wait_kind("3 member(s) did not exit after SIGKILL"),
+            "N member(s) did not exit after SIGKILL"
+        );
+        let mut w = Vec::new();
+        let one = |r: &str| ProofWait {
+            kind: proof_wait_kind(r),
+            count: 1,
+            example: r.into(),
+        };
+        merge_proof_waits(&mut w, &[one(a), one(b), one("x 1")]);
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0].count, 2);
+        assert_eq!(w[0].example, a, "the first example is kept");
     }
 }

@@ -1783,6 +1783,14 @@ impl ChildLauncher for RealLauncher {
             }
         };
         self.sampler.track(pid);
+        // procfix7 round 17 (host run B, N2.i0158): this leader by IDENTITY (read just now, while it is our unreaped
+        // child), so that other jobs' proofs recognise it when it has ended and left the registry (never by pid alone)
+        leaders.note_owner(
+            identity.pid,
+            identity.start_ticks,
+            crate::resources::OwnerRole::Leader,
+            &marker.attempt_id,
+        );
         let mechanism = mechanism_kind;
         let mut h = RealChild::new(
             spec.label.clone(),
@@ -1937,6 +1945,8 @@ pub struct RealChild {
     sigkill_at: Option<Instant>,
     leftovers: Vec<LeftoverRecord>,
     verify_started: Option<Instant>,
+    /// procfix7 round 17: why this job's end-of-job proof waited (every hunt invocation's inconclusive rounds).
+    proof_waits: Vec<super::ProofWait>,
     last_usage: Option<SessionUsage>,
     last_usage_at: Option<Instant>,
     /// Marked processes of this attempt outside the session (escapees) in the latest fresh scan.
@@ -2015,6 +2025,7 @@ impl RealChild {
             sigkill_at: None,
             leftovers: Vec::new(),
             verify_started: None,
+            proof_waits: Vec::new(),
             last_usage: None,
             last_usage_at: None,
             marked_outside: Vec::new(),
@@ -2462,9 +2473,17 @@ impl RealChild {
         if let Some(mut c) = self.child.take() {
             let mut reg = self.leaders.lock();
             if self.exit.is_some() {
-                #[allow(clippy::let_underscore_must_use)]
-                // ignored-ok (procfix7): reaping a zombie (immediate); its exit was already observed
-                let _ = c.try_wait(); // a zombie: immediate
+                // procfix7 round 17: the reap is recorded under the registry lock (time taken before it), so that a
+                // neighbour's proof that listed this leader and then found it gone knows WHAT it listed (pid AND start)
+                let began = Instant::now();
+                if matches!(c.try_wait(), Ok(Some(_))) {
+                    crate::resources::note_reaped(
+                        self.identity.pid,
+                        self.identity.start_ticks,
+                        self.sid,
+                        began,
+                    );
+                }
             }
             reg.remove(&self.sid);
             drop(reg);
@@ -2501,6 +2520,8 @@ impl RealChild {
             memory_mechanism: self.mechanism.clone(),
             rlimit_as_bytes: self.rlimit_as,
             barrier_refused: self.barrier_refused().clone(),
+            proof_seconds: self.verify_started.map(|t| t.elapsed().as_secs_f64()),
+            proof_waits: self.proof_waits.clone(),
         }
     }
 
@@ -2770,7 +2791,9 @@ impl ChildHandle for RealChild {
                     by,
                     killed,
                     unattributed,
+                    waits,
                 }) => {
+                    super::merge_proof_waits(&mut self.proof_waits, &waits);
                     self.merge_killed(killed);
                     self.merge_unattributed(unattributed);
                     return Ok(ChildProgress::Finished(self.finish_verified(by)));
@@ -2780,7 +2803,9 @@ impl ChildHandle for RealChild {
                     left,
                     killed,
                     unattributed,
+                    waits,
                 }) => {
+                    super::merge_proof_waits(&mut self.proof_waits, &waits);
                     self.merge_killed(killed);
                     self.merge_unattributed(unattributed);
                     self.next_hunt_at = Some(now + self.rehunt_delay());
@@ -2933,7 +2958,9 @@ impl ChildHandle for RealChild {
                 by,
                 killed,
                 unattributed,
+                waits,
             }) => {
+                super::merge_proof_waits(&mut self.proof_waits, &waits);
                 self.merge_killed(killed);
                 self.merge_unattributed(unattributed);
                 return Ok(ChildProgress::Finished(self.finish_verified(by)));
@@ -2948,7 +2975,9 @@ impl ChildHandle for RealChild {
                 left,
                 killed,
                 unattributed,
+                waits,
             }) => {
+                super::merge_proof_waits(&mut self.proof_waits, &waits);
                 self.merge_killed(killed);
                 self.merge_unattributed(unattributed);
                 self.last_hunt_reason = reason;

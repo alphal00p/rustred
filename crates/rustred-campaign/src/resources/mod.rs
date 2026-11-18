@@ -35,8 +35,8 @@ pub(crate) use children::listing_hold;
 #[cfg(debug_assertions)]
 pub use children::set_listing_hold;
 pub(crate) use children::{
-    FactRead, MarkerFact, ProcFacts, children_of, own_children, own_children_by_scan,
-    own_children_candidates, read_proc_facts, start_reaper, strict_listing_counted,
+    FactRead, MarkerFact, ProcFacts, children_of, note_reaped, own_children, own_children_by_scan,
+    own_children_candidates, read_proc_facts, reaped_after, start_reaper, strict_listing_counted,
 };
 pub use children::{ReaperStats, reaper_stats, request_reap};
 pub use lineage::{HiddenProcess, describe_hidden};
@@ -50,11 +50,11 @@ pub(crate) use marked::{
 };
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
 pub use procfs::{ProcError, ProcResult, ProcRoot};
-pub(crate) use scan::Leaders;
 pub use scan::{
     EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,
     scan_sessions_now,
 };
+pub(crate) use scan::{Leaders, OwnerRole};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};

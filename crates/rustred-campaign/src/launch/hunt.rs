@@ -95,12 +95,15 @@ pub(crate) enum HuntResult {
         by: VerifiedBy,
         killed: Vec<LeftoverRecord>,
         unattributed: Vec<UnattributedChild>,
+        /// procfix7 round 17: why rounds of this invocation were inconclusive before the proof.
+        waits: Vec<super::ProofWait>,
     },
     NotProven {
         reason: String,
         left: Vec<LeftoverRecord>,
         killed: Vec<LeftoverRecord>,
         unattributed: Vec<UnattributedChild>,
+        waits: Vec<super::ProofWait>,
     },
     /// Observe mode: the job still has live processes.
     Survivors { left: Vec<LeftoverRecord> },
@@ -149,6 +152,21 @@ struct Listing {
     live: BTreeMap<u32, u64>,
     /// Listed, but ended when read: (pid, (start, session) of a zombie; None: gone before its stat was read).
     ended: Vec<(u32, Option<(u64, u32)>)>,
+}
+
+/// procfix7 round 17: the hand-off suspects of a listing, each "pid (owner)" (printed in the inconclusive reasons).
+struct Suspects(Vec<String>);
+
+impl Suspects {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for Suspects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}]", self.0.join(", "))
+    }
 }
 
 enum Stop {
@@ -219,9 +237,37 @@ struct Hunt<'a> {
     /// listing read after that first sighting already shows its successors: a zombie still listed later (its parent has
     /// not reaped it) is no new hand-off suspect. A gone entry has no start time and never enters this set.
     seen_ended: BTreeSet<(u32, u64)>,
+    /// procfix7 round 17: the kinds of this invocation's inconclusive rounds (with counts and a first example).
+    waits: Vec<super::ProofWait>,
 }
 
 impl Hunt<'_> {
+    /// procfix7 round 17: a member this hunt killed, also recorded by IDENTITY (pid and start of the facts it signalled)
+    /// as a member of this attempt (other jobs' proofs then recognise it when it has ended).
+    fn record_killed(&mut self, r: LeftoverRecord) {
+        if r.start_ticks != 0 {
+            self.s.leaders.note_owner(
+                r.pid,
+                r.start_ticks,
+                crate::resources::OwnerRole::Member,
+                &self.s.marker.attempt_id,
+            );
+        }
+        self.killed.push(r);
+    }
+
+    /// procfix7 round 17: count an inconclusive round by its kind (`launch::proof_wait_kind`), keeping the first text.
+    fn note_wait(&mut self, reason: &str) {
+        super::merge_proof_waits(
+            &mut self.waits,
+            &[super::ProofWait {
+                kind: super::proof_wait_kind(reason),
+                count: 1,
+                example: reason.chars().take(300).collect(),
+            }],
+        );
+    }
+
     /// A marker-found process through THE ONE OWNERSHIP RULE (`guard::marker_target`, shared with the campaign sweep
     /// and the job signaller); a member of the pinned session through the session proof.
     fn target(&self, f: &ProcFacts, proof: Proof) -> ProcessTarget {
@@ -510,10 +556,20 @@ impl Hunt<'_> {
     /// or gone at the read). An ended entry may have HANDED OFF to a child born after the listing (a re-forking job), so
     /// it is never "absent": [`Self::handoff_suspects`]. Strict: a failed enumeration or stat read is an error.
     fn snapshot_tops(&self, with_scan: bool) -> Result<Listing, String> {
-        let mut kids = own_children().map_err(|e| format!("own children: {e}"))?;
+        // procfix7 round 17 (host run B, N2.i0158): every pid keeps the moment its listing ended: an entry gone at its read
+        // takes the identity recorded when it was reaped by us (the launcher's leader reap, the adopted-children reaper)
+        let mut kids: BTreeMap<u32, Instant> = own_children()
+            .map_err(|e| format!("own children: {e}"))?
+            .into_iter()
+            .map(|p| (p, Instant::now()))
+            .collect();
         crate::resources::listing_hold();
         if with_scan {
-            kids.extend(own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))?);
+            let scan = own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))?;
+            let t = Instant::now();
+            for p in scan {
+                kids.entry(p).or_insert(t);
+            }
         }
         self.read_entries(kids)
     }
@@ -528,8 +584,9 @@ impl Hunt<'_> {
             Err(ProcError::Gone) => return Ok(None),
             Err(ProcError::Unreadable(e)) => return Err(format!("children of {parent}: {e}")),
         };
+        let t = Instant::now();
         crate::resources::listing_hold();
-        let l = self.read_entries(kids)?;
+        let l = self.read_entries(kids.into_iter().map(|p| (p, t)).collect())?;
         match self.alive_as(parent, start)? {
             true => Ok(Some(l)),
             false => Ok(None),
@@ -553,10 +610,15 @@ impl Hunt<'_> {
 
     /// The entries of a children list with what each was at its stat read. Round 11: an entry whose main thread is a
     /// zombie but which still has a live thread is ALIVE (it can fork): only a zombie without live threads is ended.
-    fn read_entries(&self, kids: BTreeSet<u32>) -> Result<Listing, String> {
+    /// Round 17: `kids` maps each listed pid to the moment its listing ended. An entry gone at its read takes the
+    /// (start, session) recorded when WE reaped it (the launcher's leader reap, the adopted-children reaper: both record
+    /// under the registry lock, with the time taken BEFORE the reap) if that reap began at or after the end of the
+    /// listing that named it: the listed process is then the reaped one (a pid names one process until that process is
+    /// reaped). Otherwise it has no identity.
+    fn read_entries(&self, kids: BTreeMap<u32, Instant>) -> Result<Listing, String> {
         let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
         let mut out = Listing::default();
-        for pid in kids {
+        for (pid, listed_end) in kids {
             if reg.contains(&pid) {
                 continue;
             }
@@ -573,7 +635,14 @@ impl Hunt<'_> {
                 Ok(st) => {
                     out.live.insert(pid, st.start_ticks);
                 }
-                Err(ProcError::Gone) => out.ended.push((pid, None)),
+                Err(ProcError::Gone) => {
+                    // the registry lock orders this lookup after any reap critical section that made the entry gone
+                    let reaped = {
+                        let _reg = self.s.leaders.lock();
+                        crate::resources::reaped_after(pid, listed_end)
+                    };
+                    out.ended.push((pid, reaped))
+                }
                 Err(ProcError::Unreadable(e)) => return Err(format!("stat of child {pid}: {e}")),
             }
         }
@@ -591,9 +660,9 @@ impl Hunt<'_> {
     /// procfix7 round 10 (gate13c G13c-M1): the ENDED entries of a raw listing that may have handed off to a successor
     /// born after the listing ([`Self::ended_suspect`]; records each in `seen_ended`).
     /// Round 11: the other leaders' sessions of the listing are read ONCE under the registry lock.
-    fn handoff_suspects(&mut self, l: &Listing) -> Vec<u32> {
+    fn handoff_suspects(&mut self, l: &Listing) -> Suspects {
         if l.ended.is_empty() {
-            return Vec::new();
+            return Suspects(Vec::new());
         }
         let leaders =
             self.other_leader_starts(l.ended.iter().filter_map(|(_, i)| i.map(|(_, s)| s)));
@@ -605,10 +674,22 @@ impl Hunt<'_> {
                 info.map(|(_, sess)| sess),
                 &leaders,
             ) {
-                out.push(pid);
+                out.push(self.owner_text(pid, info));
             }
         }
-        out
+        Suspects(out)
+    }
+
+    /// procfix7 round 17: a suspect with what is known of its owner, for the reasons the log and the summary show.
+    fn owner_text(&self, pid: u32, info: Option<(u64, u32)>) -> String {
+        match info {
+            None => format!("{pid} (gone before its read: no identity)"),
+            Some((start, sess)) => match self.s.leaders.owner_of(pid, start) {
+                Some((role, attempt)) => format!("{pid} ({} of {attempt})", role.word()),
+                None if sess == self.s.sid => format!("{pid} (of this job's session)"),
+                None => format!("{pid} (owner unknown, session {sess})"),
+            },
+        }
     }
 
     /// A candidate listed alive as (pid, `listed`) and classified Dead: a hand-off suspect? The facts' session is used
@@ -646,6 +727,22 @@ impl Hunt<'_> {
         leaders: &BTreeMap<u32, u64>,
     ) -> bool {
         let Some(start) = start else { return true };
+        // procfix7 round 17 (host run B, N2.i0158: the neighbour attempt's ended leader, a suspect for 120 s): a process
+        // RECORDED as the leader or a killed member of ANOTHER attempt of this launcher, by pid AND start, is not J's
+        // suspect. It cannot hide a hand-off of J: everything that process forked is in ITS process tree, so in its
+        // session or a session one of its descendants created (a session is only ever inherited by fork or created new
+        // by setsid; no process can join J's session from outside J's tree) and carrying ITS attempt's marker (unless it
+        // forges J's, the marker rule's documented limit since procfix3). A process that is both another attempt's
+        // recorded leader / member and an ancestor of J's relay would have to have forked J's process tree: J's leader
+        // is a child of the supervisor, spawned by the launcher itself, never by another job.
+        if self
+            .s
+            .leaders
+            .owner_of(pid, start)
+            .is_some_and(|(_, attempt)| attempt != self.s.marker.attempt_id)
+        {
+            return false;
+        }
         if self.killed_member(pid, start)
             || self.seen_ended.contains(&(pid, start))
             || start < self.s.launch_ticks
@@ -1121,7 +1218,7 @@ impl Hunt<'_> {
             trace(|| format!("sid {} SIGKILL pid {}: {v:?}", self.s.sid, m.facts.stat.pid));
             match v {
                 Verdict::Delivered | Verdict::Gone => {
-                    self.killed.push(record(&m.facts));
+                    self.record_killed(record(&m.facts));
                     pending.push(m);
                 }
                 // procfix6 (gate5 m1): a member this hunt STOPPED that the proof check refuses now (it dropped the marker
@@ -1134,7 +1231,7 @@ impl Hunt<'_> {
                         .unwrap_or(Verdict::Unverified("no verdict".into()));
                     trace(|| format!("sid {} held SIGKILL pid {}: {kv:?}", self.s.sid, h.pid()));
                     match kv {
-                        Verdict::Delivered | Verdict::Gone => self.killed.push(record(&m.facts)),
+                        Verdict::Delivered | Verdict::Gone => self.record_killed(record(&m.facts)),
                         _ => {
                             let cv = guard::continue_held(&[(&m.fd, h)]);
                             trace(|| {
@@ -1175,11 +1272,20 @@ impl Hunt<'_> {
             for pid in &live {
                 // a record of what the scope kill takes (diagnostics); an unreadable stat is recorded without details
                 match crate::resources::read_stat(*pid) {
-                    Ok(st) => self.killed.push(LeftoverRecord {
-                        pid: *pid,
-                        start_ticks: st.start_ticks,
-                        pgrp: st.pgrp,
-                        comm: format!("{} <killed through the job's systemd scope>", st.comm),
+                    Ok(st) => self.killed.push({
+                        // round 17: a member of this attempt by identity (other proofs recognise it once ended)
+                        self.s.leaders.note_owner(
+                            *pid,
+                            st.start_ticks,
+                            crate::resources::OwnerRole::Member,
+                            &self.s.marker.attempt_id,
+                        );
+                        LeftoverRecord {
+                            pid: *pid,
+                            start_ticks: st.start_ticks,
+                            pgrp: st.pgrp,
+                            comm: format!("{} <killed through the job's systemd scope>", st.comm),
+                        }
                     }),
                     Err(ProcError::Gone) => {}
                     Err(ProcError::Unreadable(_)) => self.killed.push(LeftoverRecord {
@@ -1530,6 +1636,7 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         suspects: BTreeMap::new(),
         classified_now: BTreeSet::new(),
         seen_ended: BTreeSet::new(),
+        waits: Vec::new(),
     };
     if !spec.kill {
         return match h.two_passes() {
@@ -1537,14 +1644,19 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
                 by: h.by(),
                 killed: Vec::new(),
                 unattributed: h.unattributed.into_values().collect(),
+                waits: Vec::new(),
             },
             Ok(left) => HuntResult::Survivors { left },
-            Err(reason) => HuntResult::NotProven {
-                reason,
-                left: Vec::new(),
-                killed: Vec::new(),
-                unattributed: h.unattributed.into_values().collect(),
-            },
+            Err(reason) => {
+                h.note_wait(&reason);
+                HuntResult::NotProven {
+                    reason,
+                    left: Vec::new(),
+                    killed: Vec::new(),
+                    unattributed: h.unattributed.into_values().collect(),
+                    waits: h.waits,
+                }
+            }
         };
     }
     if let Some(cg) = &spec.cgroup
@@ -1576,6 +1688,7 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
                         by,
                         killed: h.killed,
                         unattributed: h.unattributed.into_values().collect(),
+                        waits: h.waits,
                     };
                 }
                 Ok(s) => {
@@ -1587,6 +1700,7 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         } else if reason.is_empty() {
             reason = format!("{} member(s) did not exit after SIGKILL", left.len());
         }
+        h.note_wait(&reason);
         if h.out_of_time() {
             break;
         }
@@ -1600,5 +1714,6 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         left,
         killed: h.killed,
         unattributed: h.unattributed.into_values().collect(),
+        waits: h.waits,
     }
 }

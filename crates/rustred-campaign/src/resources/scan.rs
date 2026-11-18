@@ -43,7 +43,31 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Default)]
 pub(crate) struct Leaders {
     set: Mutex<BTreeSet<u32>>,
+    /// procfix7 round 17 (host run B, N2.i0158): processes of THIS launcher's attempts by IDENTITY (pid, start ticks):
+    /// every leader as spawned (its identity read while it was our unreaped child) and every member an end-of-job hunt
+    /// killed (pid and start of the facts it signalled), with the attempt. Looked up by pid AND start only, never by pid.
+    owners: Mutex<BTreeMap<(u32, u64), (OwnerRole, String)>>,
 }
+
+/// procfix7 round 17: what a recorded process was to its attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnerRole {
+    Leader,
+    Member,
+}
+
+impl OwnerRole {
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            OwnerRole::Leader => "leader",
+            OwnerRole::Member => "member",
+        }
+    }
+}
+
+/// procfix7 round 17: the owner records kept at most (beyond it, records of processes that no longer exist with that
+/// start time are dropped first).
+const OWNERS_MAX: usize = 65_536;
 
 /// The registry is PROCESS-WIDE (reaping is process-wide: a second launcher's sampler must never reap the first's
 /// leaders).
@@ -55,6 +79,28 @@ pub(crate) fn global_leaders() -> &'static Arc<Leaders> {
 impl Leaders {
     pub(crate) fn lock(&self) -> MutexGuard<'_, BTreeSet<u32>> {
         self.set.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// procfix7 round 17: record (pid, start) as `role` of `attempt` (a later record of the same identity wins).
+    pub(crate) fn note_owner(&self, pid: u32, start: u64, role: OwnerRole, attempt: &str) {
+        let mut o = self.owners.lock().unwrap_or_else(|p| p.into_inner());
+        if o.len() >= OWNERS_MAX {
+            o.retain(|&(p, s), _| {
+                super::read_stat(p).is_ok_and(|st| st.start_ticks == s && !st.is_dead())
+            });
+        }
+        if o.len() < OWNERS_MAX {
+            o.insert((pid, start), (role, attempt.to_string()));
+        }
+    }
+
+    /// procfix7 round 17: the recorded owner of the process (pid, start), if any.
+    pub(crate) fn owner_of(&self, pid: u32, start: u64) -> Option<(OwnerRole, String)> {
+        self.owners
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&(pid, start))
+            .cloned()
     }
 }
 
@@ -892,5 +938,25 @@ mod tests {
         s.untrack(sid);
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod round17_owner_tests {
+    use super::*;
+
+    /// procfix7 round 17: owners are found by pid AND start only (a reused pid is never another attempt's).
+    #[test]
+    fn owners_are_found_by_pid_and_start_never_by_pid_alone() {
+        let l = Leaders::default();
+        l.note_owner(77, 1000, OwnerRole::Leader, "job:a1");
+        l.note_owner(78, 1001, OwnerRole::Member, "job:a1");
+        assert_eq!(
+            l.owner_of(77, 1000),
+            Some((OwnerRole::Leader, "job:a1".into()))
+        );
+        assert_eq!(l.owner_of(77, 1002), None, "the same pid, another start");
+        assert_eq!(l.owner_of(78, 1001).map(|o| o.0), Some(OwnerRole::Member));
+        assert_eq!(OwnerRole::Member.word(), "member");
     }
 }

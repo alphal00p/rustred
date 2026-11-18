@@ -520,6 +520,9 @@ pub struct Supervisor {
     calls_minute: (Instant, [u64; 5]),
     /// procfix7 round 14 (M2): attempts whose launcher ended while pending (the program never ran), for settle.
     never_ran: BTreeMap<(String, u32), String>,
+    /// procfix7 round 17 (host run B, N2.i0158): end-of-job proofs of this session: how many, how many waited longer
+    /// than [`PROOF_WAIT_REPORTED`], the longest, and why those waited (kinds with counts).
+    proofs: ProofTally,
     control_stop: bool,
     disk_floor_hit: bool,
     /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
@@ -1534,6 +1537,7 @@ impl Supervisor {
             clear_probe: None,
             calls_minute: (Instant::now(), crate::launch::manager_calls()),
             never_ran: BTreeMap::new(),
+            proofs: ProofTally::default(),
             control_stop: false,
             disk_floor_hit: false,
             fsize_stop: false,
@@ -5320,6 +5324,8 @@ impl Supervisor {
             }
             let report = self.scope_result_class(&ch, report);
             let marker = format!("{}:a{}", ch.job, ch.attempt);
+            // round 17: the end-of-job proof's wait, for the exit's summary
+            self.proofs.add(&marker, &report);
             // Leftovers the process layer already killed through its verified path (helpers that outlived the job).
             for l in &report.leftovers_killed {
                 self.orphan_killed(
@@ -7444,6 +7450,9 @@ impl Supervisor {
         #[allow(clippy::let_underscore_must_use)]
         // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
         let _ = self.ledger.sync();
+        // procfix7 round 17: ONE line on the session's end-of-job proofs (how many waited longer than 10 s, and why)
+        let line = self.proofs.summary();
+        self.log.line("INFO", &line);
         // procfix7 round 15 (gate16 M16-1): the exit pass above COMMITS after the main loop's last progress write (the
         // at-exit scope_result / unit_leftover / unit_cleared notes, unproven_at_exit, the deliveries of the dropped
         // jobs): the progress files are written once more, LAST, while the ledger is usable and the lock still held, so
@@ -7999,6 +8008,73 @@ fn resource_classification(c: &classify::Classification, why: String) -> classif
         time_decided: false,
         attention: false,
         why: format!("{why} (classified row {}{}: {})", c.row, c.sub, c.why),
+    }
+}
+
+/// procfix7 round 17: a proof that waited longer than this is counted and explained in the exit's summary line.
+const PROOF_WAIT_REPORTED: Duration = Duration::from_secs(10);
+
+/// procfix7 round 17 (host run B, N2.i0158): the session's end-of-job proofs.
+#[derive(Default)]
+struct ProofTally {
+    proofs: u64,
+    over: u64,
+    max_s: f64,
+    max_of: String,
+    why: Vec<crate::launch::ProofWait>,
+}
+
+impl ProofTally {
+    fn add(&mut self, attempt: &str, r: &crate::launch::FinalReport) {
+        let Some(s) = r.proof_seconds else { return };
+        self.proofs += 1;
+        if s > self.max_s {
+            self.max_s = s;
+            self.max_of = attempt.to_string();
+        }
+        if s > PROOF_WAIT_REPORTED.as_secs_f64() {
+            self.over += 1;
+            if r.proof_waits.is_empty() {
+                crate::launch::merge_proof_waits(
+                    &mut self.why,
+                    &[crate::launch::ProofWait {
+                        kind: "no inconclusive round (the proof itself was slow)".into(),
+                        count: 1,
+                        example: attempt.to_string(),
+                    }],
+                );
+            } else {
+                crate::launch::merge_proof_waits(&mut self.why, &r.proof_waits);
+            }
+        }
+    }
+
+    fn summary(&self) -> String {
+        let why = if self.why.is_empty() {
+            String::new()
+        } else {
+            let mut w = self.why.clone();
+            w.sort_by_key(|x| std::cmp::Reverse(x.count));
+            format!(
+                "; why (inconclusive rounds of those proofs): {}",
+                w.iter()
+                    .map(|x| format!("{} x{} (e.g. {})", x.kind, x.count, x.example))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )
+        };
+        format!(
+            "end-of-job proofs: {}, longer than {} s: {} (longest {:.1} s{}){why}",
+            self.proofs,
+            PROOF_WAIT_REPORTED.as_secs(),
+            self.over,
+            self.max_s,
+            if self.max_of.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", self.max_of)
+            }
+        )
     }
 }
 
