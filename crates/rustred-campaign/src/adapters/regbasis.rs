@@ -171,7 +171,30 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
             };
             let dir = layout.out_dir().join(regbasis::CHILD_DIR);
             let record = std::fs::read(dir.join(regbasis::RECORD_FILE)).unwrap_or_default();
-            let tower = std::fs::read(dir.join(regbasis::TOWER_FILE)).ok();
+            // procfix7 round 16 (int8b-gate review of the tripwire-flagged lines, defect 1): an EXISTING tower.json that
+            // cannot be read is never sealed away (the record accepted without the tower the child wrote): an io
+            // OUTCOME (ExitCode::Io, retried); only a tower that is not there is None
+            let tower = match read_tower(&dir.join(regbasis::TOWER_FILE)) {
+                Ok(t) => t,
+                Err(e) => {
+                    let mut io = JobOutcome::for_spec(
+                        spec,
+                        spec_blake3,
+                        program_info(spec),
+                        ExitCode::Io,
+                        StopInfo {
+                            code: Some(StopCode::IoError),
+                            ..StopInfo::none()
+                        },
+                    );
+                    io.error = Some(ErrorInfo::new(
+                        ErrorClass::Io,
+                        format!("{}: {e}", regbasis::TOWER_FILE),
+                    ));
+                    write(io);
+                    return WaitStatus::Exited(ExitCode::Io.code());
+                }
+            };
             let sha = rustred_campaign_contract::symcert::sha256_hex(&statement);
             let mut j = JobOutcome::for_spec(
                 spec,
@@ -230,5 +253,38 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
             input_error(msg)
         }
         w => w,
+    }
+}
+
+/// procfix7 round 16 (int8b-gate review, defect 1): the OPTIONAL tower of the child's export: not there (NotFound) =
+/// None; any other read error is an error, never "no tower".
+fn read_tower(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// procfix7 round 16 (int8b-gate review, defect 1): a tower that exists but cannot be read (here: a directory, EISDIR)
+    /// is an error, never None (the record would be sealed and accepted without it).
+    #[test]
+    fn a_tower_that_exists_but_cannot_be_read_is_an_error_never_none() {
+        let d = std::env::temp_dir().join(format!("rr-regbasis-tower-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        assert!(read_tower(&d.join("absent.json")).unwrap().is_none());
+        std::fs::write(d.join("tower.json"), b"{}").unwrap();
+        assert_eq!(
+            read_tower(&d.join("tower.json")).unwrap().as_deref(),
+            Some(&b"{}"[..])
+        );
+        std::fs::create_dir(d.join("unreadable.json")).unwrap();
+        assert!(read_tower(&d.join("unreadable.json")).is_err());
+        let _ = std::fs::remove_dir_all(&d);
     }
 }
