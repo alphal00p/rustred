@@ -7362,6 +7362,13 @@ impl Supervisor {
         #[allow(clippy::let_underscore_must_use)]
         // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
         let _ = self.ledger.sync();
+        // procfix7 round 15 (gate16 M16-1): the exit pass above COMMITS after the main loop's last progress write (the
+        // at-exit scope_result / unit_leftover / unit_cleared notes, unproven_at_exit, the deliveries of the dropped
+        // jobs): the progress files are written once more, LAST, while the ledger is usable and the lock still held, so
+        // that they state the ledger's final seq (`verify` exit 0). An unusable ledger keeps its own rule.
+        if self.ledger_dead.is_none() {
+            self.write_progress(true);
+        }
         if let Some(l) = self.lock.take() {
             #[allow(clippy::let_underscore_must_use)]
             // ignored-ok (procfix7): the kernel releases the flock at exit anyway

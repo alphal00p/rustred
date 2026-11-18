@@ -187,6 +187,8 @@ fn every_ended_attempts_failed_scope_is_recorded_then_reset_whatever_ended_it() 
         );
         assert!(!log.contains("NOT-RECORDED"), "{case}: {log}");
         assert!(notes(&d, "scope_reset_error ").is_empty());
+        // procfix7 round 15 (gate16 M16-1): the progress files state the ledger's final seq after the exit pass
+        assert_eq!(verify(&d), 0, "{case}: verify after the exit pass");
         assert_no_marked(&t.campaign);
     }
 }
@@ -220,5 +222,19 @@ fn a_scope_not_in_a_final_state_is_never_reset_and_looked_at_again_at_the_exit()
         log_tail(&d)
     );
     assert_eq!(classes.len(), 2);
+    // procfix7 round 15 (gate16 M16-1): this exit pass COMMITS (the unit still deactivating goes on the leftover list,
+    // noted, and the list's clearing is noted) after the main loop's last progress write: gate 16 found the progress at
+    // seq 32 and the ledger at 35 (`verify` exit 4). The final progress write of finish_run makes them agree.
+    let left = notes(&d, "unit_leftover ");
+    assert!(
+        !left.is_empty(),
+        "the exit pass wrote notes: {}",
+        log_tail(&d)
+    );
+    assert!(
+        left.iter().any(|n| n.contains("still active at the exit")),
+        "{left:?}"
+    );
+    assert_eq!(verify(&d), 0, "verify after an exit pass that wrote notes");
     assert_no_marked(&t.campaign);
 }
