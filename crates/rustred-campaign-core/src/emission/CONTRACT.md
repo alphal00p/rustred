@@ -1,7 +1,8 @@
 # Interface: the EMISSION CONTRACT (every rule the automation writes carries its derivation check)
 
 Lane `gencheck` (implementer session), branch `ac/gencheck` (base int/8b 595ea105 + ac/wcertproof 42d71824).
-Status: v1 DRAFT for review, 2026-11-18T09:30Z. USER RULING 2026-11-18: no further certification campaigns; exactness by
+Status: v2, 2026-11-18 (v1 reviewed by the implementer 09:5xZ: decisions 1,2,3,5,6,7 accepted; 4 and the body hash changed
+as below; code on ac/gencheck). USER RULING 2026-11-18: no further certification campaigns; exactness by
 construction, the class bound to the right record AT THE MOMENT OF EMISSION, never by a later pass.
 Requirements read: TRICKS 67/68/69 (+ addendum), notes/final-cert-indep.md LIMITS, interfaces/weight-cert-check.md,
 reports/WEIGHT-CERT-CHECK.md, notes/engine-line.WEIGHT-CERT.md (A1-A7, E1-E3), notes/sizegen-takeover.md.
@@ -26,7 +27,7 @@ and takes named fields only]. Schema `rustred.campaign.emission.v1`:
 | field | content |
 |---|---|
 | `schema` | `rustred.campaign.emission.v1` |
-| `body_sha256` | sha256 of the BODY: the line without the `derivation` member and with its top-level `index` set to 0 (`improve::set_index`): the record's own bytes independent of its position label |
+| `body_sha256` | sha256 of `chart \n case \n relation_sha256 \n domain_sha256` (REVIEW CHANGE): relation = sha256 of `[target, rhs]`, domain = sha256 of `[fixed, equations, exceptions, domain_bounds]`, both in Python-compact JSON with members in file order (= the checker's `target_rhs_sha256` / `domain_sha256`). Stable under index renumbering, whitespace, member order and every provenance member; changed by any coefficient TEXT, target, domain member, chart or case. The coefficient text is the engine's canonical Symbolica printing (the checker confirms it byte for byte); a payload that re-encodes coefficients must decode to the identical text or the record is re-emitted. |
 | `kind` | `lifted` / `point` / `symmetry` / `alias` / `recipe` / `legacy` (section 6) |
 | `producer` | `tool`, `binary_sha256`, `verb`, `args` (exact argv), `env` (only the `RUSTRED_*` switches that change the output, e.g. `RUSTRED_WEIGHT_CERT_ROWS`), `family_sha256`, `table_header_sha256` (the header the lift ran under: options, order), `seeds` (setting + sha256 of the seed list), `sources` (what was re-lifted: table sha256 + position + record sha256), `job` (id, attempt), `lift_seconds` |
 | `certificate` | `path` (RELATIVE to the table's directory: `<stem>.certs/<body_sha256>.<form>.json`), `sha256`, `bytes`, `schema`, `form` (`v0` / `v0+rows` / `v1-ordinary` / `v1-composed`); null for kinds without one. Never in the shipped payload: beside the table |
@@ -50,7 +51,7 @@ budget kills a child, not the supervisor. Tests that spawn it run under `LIGHT_P
 `emit(candidate, ctx) -> Emitted | Refused`, the ONLY writer of rule lines (pure decisions in
 `rustred-campaign-core::emission`, the child runs and file writes in `rustred-campaign::emission`):
 1. BODY. Take the candidate line, drop any `derivation` it carries (a candidate never brings a class), set `index`
-   to the target position (the positioned writer's `Positions::peek`), compute `body_sha256` (index -> 0).
+   to the target position (the positioned writer's `Positions::peek`), compute `body_sha256` (section 1).
 2. CHECK ON THE BYTES. Write `[table header, body]` to the run's check directory and run the checker on exactly these
    bytes (`--offset` of the body), with the certificate the producer wrote for THIS lift (selected by the engine's
    `rule_digest` = the final rule, E1; a certificate of another lift of the same case binds `BINDING_TERMS_DIFFER`).
@@ -118,10 +119,15 @@ For a lifted candidate whose check is `OPEN_LOCI` (or whose lift added exception
   `legacy_unchecked`, until re-emitted through steps 1-6 (e.g. by `rr_node witness` with its recorded options, or by
   the ladder). Old class tables are evidence for a re-emission job to target, never a source of a class.
 
-## 7. Policy (data, `emission.policy` in the spec; default shown)
-`{"live": {"min_class": "sampled", "allow_none": false}, "dead": {"allow_none": true}, "min_sample": 200,
-"liveness_cone": <from the spec>}`. LIVE = at least one first-match key in the policy's cone at the record's position
-(exact, `record_liveness`); with no cone given every record counts as live. A refused record never enters the table.
+## 7. Policy (data; REVIEW CHANGE 2026-11-18; `class::Policy` defaults)
+- A rule the automation LIFTS (origin `lift`) and that is live: `whole domain`, or `every first-match key in cone C` only
+  when every open locus is a curve the ladder cannot branch and the curve's keys in C are enumerated and proven per key
+  (C is then part of the class and of the table's stated reach). `sampled` is NEVER produced for a lift; `none` refused.
+- A LEGACY record brought in unchanged (origin `import`): `sampled` allowed (default yes for import, `min_sample` 200),
+  bound by body sha + domain at its own position; `none` refused when live.
+- Dead records may enter with `none`. LIVE = a first-match key in the policy's cone at the record's position; when not
+  computed (`Liveness::Unknown`) the record counts as live. A refused record never enters the table (`<stem>.emission/
+  refused.jsonl` keeps its derivation and reason).
 
 ## 8. Cost budget
 The check must be cheap relative to the lift: budget = max(`check.floor_s` (default 120 s), `check.ratio` (default
@@ -154,7 +160,31 @@ and counted in its budget.
   sum W O(s) == row exactly; the denominators of W join the factor list. Verdict `ROWS_VERIFIED_BY_RECOVERY`. Its
   feasibility on 987's pieces is the key question of item 4.
 - v1 (`ordinary` / `composed`, engine branch weightcert 6031bd9a): rows verified directly by the generator; no recovery.
+- RESULT (2026-11-18, item 4): recovery is EXACT and complete on 987's three pieces (103 / 154 / 140 weighted rows, every
+  combination polynomial: 0 new denominators, ~30 s, < 40 MB each): class WHOLE_DOMAIN with no producer trust; a doubled
+  weight -> IDENTITY_FAIL. The run on the other binding certificates of WEIGHT-CERT-CHECK.md: reports/EMISSION-CHECK.md.
 
-## 11. Routing (filled by item 2)
-Every write of a rule line in the campaign crates either goes through the emitter or is listed here as NOT YET ROUTED
-with its reason. (Inventory follows with the code.)
+## 11. Implementation (ac/gencheck) and routing
+- Pure: `rustred-campaign-core::emission` (body, class, ladder incl. partition proof and curve-key enumeration, validate).
+- Process: `rustred-campaign::emission` (child, emitter, replace, tablecheck). Side files are CONTENT-ADDRESSED in
+  `<stem>.emission/{cert,check,prov,policy,keys}/<sha256>.json(l)`: the record names sha256s only (member < 1 kB).
+- Checker: `rr_proof --mode weight-cert ... --recover-rows` (row recovery, section 10) and `rr_proof --mode source-rows`.
+- CLI: `rr_campaign table-check --table T [--recheck --checker BIN [--every K]] [--manifest OUT]` (exit 2 = REFUSED;
+  the manifest is one line per rule: chart, position, index, body_sha256, kind, class, certificate sha256, check output
+  sha256); `rr_campaign emit-replace --table T --rule N [--offset B] --rr-node BIN --checker BIN --out DIR [--cone S]
+  [--max-depth 6] [--max-pieces 16] [--case-budget S] [--policy FILE] [--write-table] [--witness-off]`.
+- QUESTION (a), TESTED 2026-11-18 (T178 core, 1,515 rules, strict native import --stream-payload + --check, 12b and 12a,
+  plain and shared): the member is ACCEPTED, IGNORED and DROPPED (payload byte-identical with and without it). Hence the
+  per-rule CLASS MANIFEST written by table-check is the package metadata; table-check runs on the delivery's table + side
+  directory, not on the payload.
+ROUTING (every write of a rule line in the campaign crates):
+| site | status |
+|---|---|
+| improve writer (`supervisor/improve.rs` write_outputs: improved / replacements tables) | ROUTED when the improve config has `emission` (checker, cert_dir in the job's run dir, policy): every replacement line is emitted before writing, refused -> old rule kept + reason. Without `emission`: the old writer (not routed). Needs the producer to write the job's certificates into its run directory (engine list, item 5) |
+| certify by replacement (`emission::replace`, `rr_campaign emit-replace`) | ROUTED (new path) |
+| `economy::improve::{replacement_lines, apply, apply_subtrees, subtree_lines}` | helpers of the improve writer: their output goes through the emitter when configured (body hash unaffected by their origin / index edits) |
+| node assembly (`core assemble`: `<node>.assembled.table.jsonl`) | NOT YET ROUTED: assembles records that were produced by engine jobs without certificates; needs per-record certificates or a legacy import step with evidence |
+| closeloop repair (`closeloop/repair.rs`: symbolic / symrel tables), closeloop source (relations tables) | NOT YET ROUTED: tables of engine job outputs (face lifts, recipe relations); route when the producer exports certificates (same hook as improve) |
+| closeloop derived (`symmetry-at-key`), termmin (`symmetry-relations`) | NOT YET ROUTED: one-term symmetry records written by the tool; their check kind is `symmetry` (instance-span with symmetry rows), not wired yet |
+| genchoice (choice of a whole engine table), contract seal (engine `F.table.jsonl`) | not writers of rule lines (they select / seal what the engine wrote); the chosen table is a LEGACY import under the contract until its records are emitted |
+| shipecon probe table, wire_composite / symcomp / symrows inputs | not delivered tables (probe / job inputs) |
