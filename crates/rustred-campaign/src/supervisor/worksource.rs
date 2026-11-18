@@ -450,6 +450,15 @@ impl ScriptedWorkSource {
                 rule_case(ms),
                 end,
             ],
+            Behaviour::Rule if self.cfg.honest_helpers > 0 => {
+                let mut v = vec![FakeOp::Prepare { ms: 20 }];
+                v.extend(
+                    (0..self.cfg.honest_helpers.min(8) as usize)
+                        .map(|index| FakeOp::Helper { index }),
+                );
+                v.extend([rule_case(ms), end]);
+                v
+            }
             Behaviour::Rule => vec![FakeOp::Prepare { ms: 20 }, rule_case(ms), end],
             Behaviour::NoRule => vec![
                 FakeOp::Prepare { ms: 20 },
@@ -488,7 +497,15 @@ impl ScriptedWorkSource {
                 escape_group: true,
             }]
         } else {
-            vec![]
+            // procfix7 round 11: honest (compliant) helpers, see `SyntheticCfg::honest_helpers`
+            (0..self.cfg.honest_helpers.min(8))
+                .map(|k| HelperPlan {
+                    sleep_ms: if k % 2 == 0 { 150 } else { 600_000 },
+                    pdeathsig: true,
+                    ignore_sigterm: false,
+                    escape_group: false,
+                })
+                .collect()
         };
         let faults = if r == 0 && self.cfg.hang_items.contains(&i) {
             vec![Fault {
@@ -840,6 +857,49 @@ mod tests {
 
     fn cfg() -> Synthetic {
         serde_json::from_value(serde_json::json!({"items": 60, "seed": 7})).unwrap()
+    }
+
+    /// procfix7 round 11 (gate14 item 5b): `honest_helpers` = that many COMPLIANT helper forks in every rule job (valid
+    /// scripts; none escapes its group, every one has PDEATHSIG; half short, half killed by the job at its end).
+    #[test]
+    fn honest_helpers_fork_compliant_helpers_in_rule_jobs() {
+        let s = ScriptedWorkSource::new(
+            serde_json::from_value(
+                serde_json::json!({"items": 40, "seed": 7, "honest_helpers": 4}),
+            )
+            .unwrap(),
+        );
+        let mut rule_jobs = 0;
+        for i in 0..40 {
+            let sc = s.script(i, 0);
+            sc.validate().unwrap();
+            let forks = sc
+                .script
+                .iter()
+                .filter(|o| matches!(o, FakeOp::Helper { .. }))
+                .count();
+            if s.behaviour(i, 0) == Behaviour::Rule {
+                rule_jobs += 1;
+                assert_eq!(forks, 4);
+                assert_eq!(sc.helpers.len(), 4);
+                assert!(
+                    sc.helpers
+                        .iter()
+                        .all(|h| h.pdeathsig && !h.escape_group && !h.ignore_sigterm)
+                );
+                assert_eq!(sc.helpers.iter().filter(|h| h.sleep_ms == 150).count(), 2);
+            } else {
+                assert_eq!(forks, 0);
+            }
+        }
+        assert!(rule_jobs > 0);
+        // the default: no helper
+        assert!(
+            ScriptedWorkSource::new(cfg())
+                .script(0, 0)
+                .helpers
+                .is_empty()
+        );
     }
 
     #[test]

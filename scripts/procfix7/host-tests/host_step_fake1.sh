@@ -95,6 +95,12 @@ TS=$(date -u +%Y%m%dT%H%M%SZ)
 OUT=${OUT:-/common/build-cache/vhirschi/p_integral_dev/host-steps/fake1-$TS}
 ITEMS=${ITEMS:-240}
 CASE_MS=${CASE_MS:-[60000,120000]}
+# procfix7 round 11 (gate14 item 5b): HELPERS=<0-8> (default 0: the step as before): every rule job of the fake campaign
+# FORKS that many honest helpers inside its own scope (same session and group, PR_SET_PDEATHSIG; half end on their own
+# while the job runs, half are killed by the job itself at its end): the end-of-job proof must hold for forking jobs
+# (P5 strict, unchanged grader)
+HELPERS=${HELPERS:-0}
+case "$HELPERS" in [0-8]) ;; *) echo "HELPERS must be 0-8" >&2; exit 2 ;; esac
 
 # ---------------------------------------------------------------- preconditions
 NFP=$(grep -a -c RR_CAMPAIGN_FAILPOINT "$RC" || true)
@@ -150,7 +156,7 @@ SPEC=$(cat <<J
               "pause_files":["$WS/ops/PAUSE","$WS/plan/auto-campaign/implementer_ops/PAUSE"]$CONT},
  "progress":{"cadence_seconds":2},
  "synthetic":{"items":$ITEMS,"nodes":3,"rungs":1,"seed":1,"case_ms":$CASE_MS,"p_norule":0.25,"p_mem":0.05,
-              "p_crash":0.0,"deps":0.3,"mem_cap_mb":48}}
+              "p_crash":0.0,"deps":0.3,"mem_cap_mb":48,"honest_helpers":$HELPERS}}
 J
 )
 HMS=$(date -u +%H%M%S)

@@ -280,6 +280,13 @@ pub struct Synthetic {
     /// marker sweep after the job end must clean up.
     #[serde(default)]
     pub escape_helpers: bool,
+    /// procfix7 round 11 (gate14 item 5b: a host step whose fake children FORK honestly): every rule job forks this many
+    /// COMPLIANT helpers (0-8; its own session and group, PR_SET_PDEATHSIG, SIGTERM default; inside the job's scope):
+    /// the even-numbered ones sleep 150 ms and exit while the job runs, the odd-numbered ones outlive the case and are
+    /// killed by the job itself at its end (registered helpers). Nothing escapes: the end-of-job proof must hold (P5
+    /// strict).
+    #[serde(default)]
+    pub honest_helpers: u8,
     /// Items whose rung-0 job stops its heartbeat and hangs (the heartbeat timeout must kill it).
     #[serde(default)]
     pub hang_items: Vec<u32>,

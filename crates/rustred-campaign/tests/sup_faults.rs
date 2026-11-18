@@ -147,6 +147,39 @@ fn helpers_that_escape_the_group_are_killed_by_marker() {
     assert_eq!(verify(&d), 0);
 }
 
+/// procfix7 round 11 (gate14 item 5b): rule jobs that FORK honest helpers (same session and group, PDEATHSIG; half end
+/// on their own while the job runs, half are killed by the job at its end): every end is proven (no unproven end, no
+/// orphan killed by a sweep: nothing outlives its job), and the campaign finishes as usual.
+#[test]
+fn honest_forking_jobs_end_proven_and_nothing_outlives_them() {
+    let _g = serial();
+    let t = Tmp::new("honest");
+    let syn = serde_json::json!({"items": 8, "case_ms": [200, 600], "seed": 5, "p_mem": 0.0,
+        "honest_helpers": 4});
+    let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
+    let d = t.cdir("run");
+    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![finish_code_by_items(&d)]);
+    let forked = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
+    let killed = count(&d, |e| matches!(e, Event::OrphanKilled { .. }));
+    assert_eq!(
+        killed,
+        0,
+        "an honest helper outlived its job: {}",
+        log_tail(&d)
+    );
+    for n in [
+        "unproven_end",
+        "unproven_at_exit",
+        "final_sweep_unproven",
+        "final_sweep_vanished",
+    ] {
+        assert!(notes(&d, n).is_empty(), "{n}: {}", log_tail(&d));
+    }
+    assert!(!forked.contains("end UNPROVEN"), "{}", log_tail(&d));
+    assert_no_marked(&t.campaign);
+    assert_eq!(verify(&d), 0);
+}
+
 #[test]
 fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     let _g = serial();
