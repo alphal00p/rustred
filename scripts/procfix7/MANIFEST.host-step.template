@@ -44,7 +44,7 @@ THE TWO WORKLOADS (round 12; the same script, the same grader, P1-P8 as in RUNBO
 THE USER MANAGER (round 14, host step 3: run B ended exit 71 during a 4-minute stall of the user manager that the run
 did not cause; reports/HOST-STEP-3-ANALYSIS.md). Now a HOST condition, never a verdict about the scope mechanism or a job:
 - a scope launch whose launcher (systemd-run) is still in the supervisor's own cgroup is PENDING (decided from the kernel:
-  /proc/<leader>/exe, then /proc/<leader>/cgroup; no manager call): the job has not started; it is never killed by the
+  /proc/<leader>/cgroup, then /proc/<leader>/exe; no manager call): the job has not started; it is never killed by the
   10-s rule and never counted toward the limit of 3; a launcher that gives up while pending is "never ran" (retried);
 - THE GATE: while a launch is pending longer than 5 s or the manager probe (ONE `systemctl --user show -p Version
   --value`, at most one in flight, every 30 s; 5-60 s back-off while closed) does not answer within 5 s, NO job is
@@ -57,8 +57,16 @@ did not cause; reports/HOST-STEP-3-ANALYSIS.md). Now a HOST condition, never a v
   <OUT>/c/units.leftover.json and cleared by exact name at the next start, at the exit when the manager answers, and by
   `bin/rr_campaign units clear <OUT>/c` (only names of this campaign recorded by its ledger; state read first; failed:
   reset-failed; active with an empty cgroup: stopped; populated: never stopped);
-- a stop decision (limit, recovery, manager) no longer disables the ledger: every signal delivered during the drain is
-  recorded (run B: 21 were only in the intent log);
+- a stop decision (limit, recovery, manager; since round 15 also 100 failed polls of a child) no longer disables the
+  ledger: every signal delivered during the drain is recorded (run B: 21 were only in the intent log); since round 15
+  (gate16 M16-1) the exit pass's records (at-exit scope notes, leftover notes, deliveries of jobs dropped at the exit)
+  come BEFORE the last progress write (P4 `verify` 0 after a stall too). Not covered: after the ledger's OWN failure
+  (disk full, a directory removed or replaced) or a panic a delivered signal is in the intent log only (P5 names it;
+  the next start reconciles it);
+- round 15 (gate16 minors): the pending decision reads the leader's cgroup first, its executable second; a launcher
+  that ends while the manager does not answer is never counted; a leftover unit whose cgroup is not found is kept (never
+  stopped); "not loaded" leaves the list only when found so again >= 15 min later; the start's clearing waits for an
+  answering manager; `units clear` refuses while a supervisor holds the campaign lock;
 - our manager calls are logged per minute ("user-manager calls in the last 60 s: systemd-run N, show N, ...").
 
 THE END-OF-JOB PROOF (round 10 gate13c G13c-M1; round 11 gate14 G14-M1; wording round 12 gate15 m15-manifest; RUNBOOK
