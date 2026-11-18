@@ -16,12 +16,14 @@ use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
 
-/// One checked rule: a label, the checker output file, the certificate file.
-#[derive(Clone, Debug)]
+/// One rule: a label, the checker output file and the certificate file; or (check path `-`) a rule WITHOUT a new
+/// check, named by its table index in `label`, kept at its class-table class with `note` as the reason.
+#[derive(Clone, Debug, Default)]
 pub struct Item {
     pub label: String,
     pub check: PathBuf,
     pub cert: PathBuf,
+    pub note: String,
 }
 
 struct Rec {
@@ -60,7 +62,12 @@ pub fn bind_check(
 ) -> Result<(Value, Vec<Value>, Vec<Value>), String> {
     // the checker outputs first: which offsets to look at
     let mut outs: Vec<(Item, Value, String)> = vec![];
+    let mut bare: Vec<&Item> = vec![];
     for it in items {
+        if it.check.as_os_str() == "-" {
+            bare.push(it);
+            continue;
+        }
         let t = std::fs::read_to_string(&it.check)
             .map_err(|e| format!("{}: {e}", it.check.display()))?;
         let line = t
@@ -196,7 +203,8 @@ pub fn bind_check(
             "record_sha256": v["rule"]["record_sha256"], "body_sha256": rec.map(|r| r.body.clone()),
             "class_before": b.map(|b| b["exactness_class"].clone()),
             "class_table_hashes_equal": b.map(|b| b["target_rhs_sha256"] == v["rule"]["target_rhs_sha256"] && b["domain_sha256"] == v["rule"]["domain_sha256"]),
-            "class_now": class, "reason": reason, "binding_problems": problems,
+            "class_now": class, "class_after": if class == "whole domain" { json!(class) } else { b.map(|b| b["exactness_class"].clone()).unwrap_or(json!(class)) },
+            "reason": reason, "note": it.note, "binding_problems": problems,
             "certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": std::fs::metadata(&it.cert).map(|m| m.len()).ok(), "form": v["cert"]["form"]},
             "check_output": {"file": it.check.display().to_string(), "sha256": sha256_hex(raw.as_bytes())},
             "stages": {"rows": v["rows"]["verdict"], "identity": v["identity"]["verdict"], "binding": v["binding"]["verdict"],
@@ -207,6 +215,24 @@ pub fn bind_check(
             now.insert(idx, (class.clone(), row.clone()));
         }
         rows.push(row);
+    }
+    // rules without a new check: their class-table class stays, with the note as the reason
+    for it in bare {
+        let idx: i64 = it
+            .label
+            .trim()
+            .parse()
+            .map_err(|_| format!("label {} is not a table index", it.label))?;
+        let b = before.get(&idx);
+        let rec = all.iter().find(|r| r.index == idx);
+        rows.push(json!({"label": it.label, "table_index": idx, "position": rec.map(|r| r.position), "offset": null,
+            "chart": rec.map(|r| r.chart.clone()), "target_rhs_sha256": rec.map(|r| r.relation.clone()),
+            "domain_sha256": rec.map(|r| r.domain.clone()), "record_sha256": null, "body_sha256": rec.map(|r| r.body.clone()),
+            "class_before": b.map(|b| b["exactness_class"].clone()),
+            "class_table_hashes_equal": b.and_then(|b| rec.map(|r| b["target_rhs_sha256"] == json!(r.relation) && b["domain_sha256"] == json!(r.domain))),
+            "class_now": null, "class_after": b.map(|b| b["exactness_class"].clone()), "reason": it.note, "note": it.note,
+            "binding_problems": [], "certificate": null, "check_output": null, "stages": null, "recovery": null,
+            "checker_class": null, "seconds_total": null, "peak_mb": null}));
     }
     // the class manifest of every rule
     let mut manifest = vec![];
@@ -265,6 +291,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
                 label: f[0].to_string(),
                 check: PathBuf::from(f.get(1).copied().unwrap_or_default()),
                 cert: PathBuf::from(f.get(2).copied().unwrap_or_default()),
+                note: f.get(3).copied().unwrap_or_default().to_string(),
             }
         })
         .collect();
@@ -288,7 +315,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     if let Some(p) = a.get("tsv") {
         let mut f =
             std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| format!("{p}: {e}"))?);
-        writeln!(f, "table_index\tposition\ttarget_rhs_sha256\tdomain_sha256\tclass_before\tclass_now\treason\tcertificate_file\tcertificate_sha256\tcheck_output_file\tcheck_output_sha256\trows\tidentity\tbinding\tfactors\tloci\tseconds\tpeak_mb").map_err(|e| e.to_string())?;
+        writeln!(f, "table_index\tposition\ttarget_rhs_sha256\tdomain_sha256\tclass_before\tclass_after\treason\tcertificate_file\tcertificate_sha256\tcheck_output_file\tcheck_output_sha256\trows\tidentity\tbinding\tfactors\tloci\tseconds\tpeak_mb").map_err(|e| e.to_string())?;
         let s = |v: &Value| match v {
             Value::String(t) => t.clone(),
             Value::Null => "-".into(),
@@ -303,7 +330,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
                 s(&r["target_rhs_sha256"]),
                 s(&r["domain_sha256"]),
                 s(&r["class_before"]),
-                s(&r["class_now"]),
+                s(&r["class_after"]),
                 s(&r["reason"]),
                 s(&r["certificate"]["file"]),
                 s(&r["certificate"]["sha256"]),

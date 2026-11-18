@@ -265,6 +265,7 @@ fn correct_certificate_gives_whole_domain_and_the_validator_accepts_and_rechecks
         label: "ok".into(),
         check: cdir.join("check.out"),
         cert: dir.join("ok.cert.json"),
+        ..Default::default()
     };
     let input = cdir.join("check-input.table.jsonl");
     let (sum, rows, man) = rustred_campaign::emission::bindcheck::bind_check(
