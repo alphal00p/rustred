@@ -96,6 +96,62 @@ fn evaluate_table(
     })
 }
 
+/// sampled-replay: a progress line of a replay every
+/// `RUSTRED_REPLAY_PROGRESS` ops (default 2^28; 0 = silent): position / total,
+/// anonymous memory, elapsed seconds and the rate since the start.
+pub(super) struct Progress {
+    kind: String,
+    total: usize,
+    every: usize,
+    next: usize,
+    started: std::time::Instant,
+}
+
+impl Progress {
+    pub(super) fn new(kind: String, total: usize) -> Self {
+        static EVERY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        let every = *EVERY.get_or_init(|| {
+            std::env::var("RUSTRED_REPLAY_PROGRESS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1 << 28)
+        });
+        Self {
+            kind,
+            total,
+            every,
+            next: every,
+            started: std::time::Instant::now(),
+        }
+    }
+
+    /// Called with the number of ops replayed so far (cheap unless due).
+    #[inline]
+    pub(super) fn at(&mut self, position: usize) {
+        if self.every == 0 || position < self.next {
+            return;
+        }
+        self.next = position + self.every;
+        let seconds = self.started.elapsed().as_secs_f64();
+        let anon_kb: u64 = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("RssAnon:"))
+                    .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
+            })
+            .unwrap_or(0);
+        eprintln!(
+            "rustred replay: {} op {position} / {} ({:.1} %), anon {:.2} GiB, {seconds:.0} s, {:.2} us/op",
+            self.kind,
+            self.total,
+            100.0 * position as f64 / self.total.max(1) as f64,
+            anon_kb as f64 / 1048576.0,
+            1e6 * seconds / position.max(1) as f64
+        );
+    }
+}
+
 /// Evaluate the trace at `points` (distinct, Montgomery form) modulo `field`.
 pub(super) fn replay(
     trace: &Trace,
@@ -115,11 +171,13 @@ pub(super) fn replay(
     let interval = checkpoint_interval(width);
     let mut countdown = interval;
     let kernel = Kernel::new(field);
-    for op in &trace.ops {
+    let mut progress = Progress::new(format!("sampled ({width} points)"), trace.ops.len());
+    for (index, op) in trace.ops.iter().enumerate() {
         countdown -= 1;
         if countdown == 0 {
             countdown = interval;
             resources::checkpoint().map_err(ReplayError::Stopped)?;
+            progress.at(index);
         }
         let tag = op.tag();
         let slot = op.slot();

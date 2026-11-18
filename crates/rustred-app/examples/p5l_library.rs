@@ -581,7 +581,7 @@ fn reduce_files_cli(args: &[String]) {
     let pruning = target_keep_from_env();
     let context = library.coefficient_context();
     let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
-    let modular = args.get(2).map(String::as_str) == Some("modular");
+    let mode = args.get(2).cloned().unwrap_or_default();
     let binding = library.step_cache_binding().expect("step cache binding");
     let options = rustred::reduction::OrderedStepCacheOptions {
         populate: true,
@@ -608,10 +608,10 @@ fn reduce_files_cli(args: &[String]) {
         let started = Instant::now();
         let inputs = read_inputs(context, input);
         let n = inputs.len();
-        let arithmetic = if modular {
-            modular_polynomial(threads)
-        } else {
-            OrderedWeightArithmetic::Exact
+        let arithmetic = match mode.as_str() {
+            "modular" | "polynomial" => modular_polynomial(threads),
+            "sampled" => modular_sampled(threads),
+            _ => OrderedWeightArithmetic::Exact,
         };
         let result = library.reduce(PReductionRequest {
             inputs,
@@ -777,7 +777,8 @@ fn reduce_file_cli(args: &[String]) {
     let context = library.coefficient_context();
     let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
     let arithmetic = match args.get(2).map(String::as_str) {
-        Some("modular") => modular_polynomial(threads),
+        Some("modular" | "polynomial") => modular_polynomial(threads),
+        Some("sampled") => modular_sampled(threads),
         _ => OrderedWeightArithmetic::Exact,
     };
     let started = Instant::now();
@@ -908,6 +909,27 @@ fn encoding(args: &[String]) {
 
 fn exact() -> ExactAlgebraLimits {
     ExactAlgebraLimits::default()
+}
+
+/// sampled-replay: the bounded-memory replay of the same recorded trace at
+/// vectors of sample points (memory = peak live slots x batch width x 8 B per
+/// batch): `RUSTRED_SAMPLED_BATCH_POINTS` (default 128) sets the width.
+/// A 12d2 final state recorded under `modular` continues as `sampled`.
+fn modular_sampled(threads: usize) -> OrderedWeightArithmetic {
+    let mut options = rustred::reduction::SampledOptions::default();
+    if let Some(points) = std::env::var("RUSTRED_SAMPLED_BATCH_POINTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        options.batch_points = points;
+    }
+    OrderedWeightArithmetic::ModularSampled(
+        ModularCommon {
+            threads,
+            ..Default::default()
+        },
+        options,
+    )
 }
 
 fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {
