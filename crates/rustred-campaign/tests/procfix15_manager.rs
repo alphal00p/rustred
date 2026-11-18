@@ -107,6 +107,8 @@ fn ledger_complete(d: &Path) {
         )
     });
     assert_eq!(launches, finished, "every launch has its end recorded");
+    // the stop's own records precede the final progress write: `verify` is clean
+    assert_eq!(verify(d), 0, "verify after the stop");
 }
 
 #[test]

@@ -143,10 +143,15 @@ impl ManagerGate {
             (None, None, true) => {
                 let why = format!(
                     "the user manager does not answer the probe ({})",
-                    match &self.last {
-                        Some((_, Err(e))) => e.clone(),
-                        Some((_, Ok(d))) => format!("{:.1} s", d.as_secs_f64()),
-                        None => format!("no answer within {} s", PROBE_BOUND.as_secs()),
+                    match (&self.in_flight, &self.last) {
+                        (Some((t, _)), _) if t.elapsed() > PROBE_BOUND => format!(
+                            "no answer within {} s: a probe in flight for {} s",
+                            PROBE_BOUND.as_secs(),
+                            t.elapsed().as_secs()
+                        ),
+                        (_, Some((_, Err(e)))) => e.clone(),
+                        (_, Some((_, Ok(d)))) => format!("answered after {:.1} s", d.as_secs_f64()),
+                        (_, None) => format!("no answer within {} s", PROBE_BOUND.as_secs()),
                     }
                 );
                 self.close(now, why.clone());

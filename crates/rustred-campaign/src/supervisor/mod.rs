@@ -1581,6 +1581,15 @@ impl Supervisor {
         self.ledger_dead.clone().or_else(|| self.stop_exit.clone())
     }
 
+    /// procfix7 round 14 (M1): return a stop's exit after the FINAL progress write while the ledger is usable (the stop's
+    /// own records, e.g. `stop_decided`, follow the last periodic write: `verify` would find the progress stale).
+    fn stop_return(&mut self, e: RunExit) -> RunExit {
+        if self.ledger_dead.is_none() {
+            self.write_progress(true);
+        }
+        e
+    }
+
     /// procfix7 round 14 (M1): decide a stop (the first decision wins) WITHOUT touching the ledger's health; the decision
     /// is noted in the ledger (`stop_decided`) while the ledger is usable.
     fn decide_stop(&mut self, e: RunExit) {
@@ -6934,7 +6943,7 @@ impl Supervisor {
     fn main_loop(&mut self) -> RunExit {
         self.recover();
         if let Some(e) = self.stop_cause() {
-            return e;
+            return self.stop_return(e);
         }
         // procfix7 round 14 (host step 3, M4): units of earlier sessions that could not be confirmed cleared
         self.clear_leftovers("at start");
@@ -7058,7 +7067,7 @@ impl Supervisor {
                 if (self.children.is_empty() && self.pending.iter().all(|p| p.sweep.is_none()))
                     || Instant::now() > d
                 {
-                    return e;
+                    return self.stop_return(e);
                 }
                 self.write_progress(false);
                 std::thread::sleep(self.opts.tick);
@@ -7140,7 +7149,7 @@ impl Supervisor {
                         self.check_not_signalled();
                         if let Some(e) = self.stop_cause() {
                             self.log.line("WARN", &msg);
-                            return e;
+                            return self.stop_return(e);
                         }
                         self.log.line("WARN", &msg);
                         self.commit(vec![Event::Campaign {
@@ -7169,7 +7178,7 @@ impl Supervisor {
                     }
                     // procfix5: a refused / failed finish record is never reported as a finished campaign.
                     if let Some(e) = self.stop_cause() {
-                        return e;
+                        return self.stop_return(e);
                     }
                     self.write_progress(true);
                     if let Err(e) = self.final_consistency() {

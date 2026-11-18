@@ -193,6 +193,8 @@ fn ledger_complete_after_a_stop(d: &Path, code: i32) {
     let dec = notes(d, "stop_decided ");
     assert_eq!(dec.len(), 1, "{dec:?}");
     assert!(dec[0].contains(&format!("\"exit\":{code}")), "{dec:?}");
+    // the stop's own records precede the final progress write: `verify` is clean
+    assert_eq!(verify(d), 0, "verify after the stop");
 }
 
 fn containment_whys(d: &Path) -> Vec<String> {
