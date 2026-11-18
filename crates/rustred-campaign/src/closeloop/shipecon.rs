@@ -2338,7 +2338,7 @@ fn write_artifact(
     let mut removed = vec![];
     let mut recipe_records: BTreeMap<String, Value> = BTreeMap::new();
     let mut entries = vec![];
-    let fam_text = family_source_of(set);
+    let fam_text = family_source_of(set)?;
     let node_identity = blake3::hash(
         json!({"family_blake3": blake3::hash(fam_text.as_bytes()).to_hex().to_string(),
                "order": serde_json::from_str::<Value>(&cfg.order).unwrap_or(Value::String(cfg.order.clone())),
@@ -2483,22 +2483,51 @@ fn write_artifact(
     )
 }
 
-/// The frame table's `original_family_source` (else `family_source`) header text.
-fn family_source_of(set: &ImportedSet) -> String {
+/// The frame table's `original_family_source` (else `family_source`) header text. procfix7 round 16 (int8b-gate review
+/// of the tripwire-flagged lines, defect 2): a table that cannot be opened or read is an ERROR (the shipped spec's node
+/// identity is never the hash of an empty family because of an I/O error).
+fn family_source_of(set: &ImportedSet) -> Result<String, String> {
     let Some(i) = set.rules.iter().flatten().next() else {
-        return String::new();
+        return Ok(String::new());
     };
-    let Ok(f) = std::fs::File::open(&i.path) else {
-        return String::new();
-    };
+    family_source_from(Path::new(&i.path))
+}
+
+fn family_source_from(path: &Path) -> Result<String, String> {
+    let f = std::fs::File::open(path)
+        .map_err(|e| format!("family source of {}: {e}", path.display()))?;
     let mut first = String::new();
-    if std::io::BufReader::new(f).read_line(&mut first).is_err() {
-        return String::new();
-    }
+    std::io::BufReader::new(f)
+        .read_line(&mut first)
+        .map_err(|e| format!("family source of {}: {e}", path.display()))?;
     let h: Value = serde_json::from_str(&first).unwrap_or(Value::Null);
-    h["original_family_source"]
+    Ok(h["original_family_source"]
         .as_str()
         .or(h["family_source"].as_str())
         .unwrap_or("")
-        .to_string()
+        .to_string())
+}
+
+#[cfg(test)]
+mod family_source_tests {
+    use super::*;
+
+    /// procfix7 round 16 (int8b-gate review, defect 2): a frame table that cannot be opened (gone) or read (here: a
+    /// directory, EISDIR at the read) is an error; a readable one gives its header's family source.
+    #[test]
+    fn an_unreadable_frame_table_is_an_error_never_an_empty_family() {
+        let d = std::env::temp_dir().join(format!("rr-shipecon-family-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        assert!(family_source_from(&d.join("absent.jsonl")).is_err());
+        std::fs::create_dir(d.join("dir.jsonl")).unwrap();
+        assert!(family_source_from(&d.join("dir.jsonl")).is_err());
+        std::fs::write(
+            d.join("t.jsonl"),
+            b"{\"family_source\":\"fam\",\"original_family_source\":\"orig\"}\n{}\n",
+        )
+        .unwrap();
+        assert_eq!(family_source_from(&d.join("t.jsonl")).unwrap(), "orig");
+        let _ = std::fs::remove_dir_all(&d);
+    }
 }
