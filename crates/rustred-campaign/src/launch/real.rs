@@ -870,10 +870,10 @@ pub fn systemd_units_unavailable() -> bool {
 }
 
 /// procfix7 round 14 (host step 3, M2): what the KERNEL says about a scope launch whose scope is not verified yet. No
-/// manager call: the pinned (unreaped) leader's `/proc/<pid>/exe`, read FIRST, and its `/proc/<pid>/cgroup`, read
-/// SECOND. systemd-run execs the job only after the user manager has moved it into the scope, so "the executable was the
-/// launcher, then the cgroup is still the supervisor's own" proves that the job program had not started at the second
-/// read.
+/// manager call: the pinned (unreaped) leader's `/proc/<pid>/cgroup`, read FIRST, and its `/proc/<pid>/exe`, read
+/// SECOND (round 15, gate16 m16-read-order: was exe first). "The cgroup was the supervisor's own, THEN the executable
+/// is still the launcher" proves that the job program had not started at the second read without relying on
+/// systemd-run's order (move, then exec): an exec between the reads changes the executable.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum LaunchState {
     /// Not a scope launch waiting for the manager (no scope requested, the scope verified, the leader ended or not
@@ -885,10 +885,14 @@ pub enum LaunchState {
     /// Not verified and not pending (the leader exec'd outside the scope, sits in a third cgroup, or a read failed): the
     /// job condition (the 10-s rule applies from the moment the attempt stopped being pending).
     Unverified(String),
+    /// procfix7 round 15 (gate16 m16-pending-exit-race): the leader ENDED during the look (a read says gone: the pinned
+    /// zombie has no executable link): this look decides nothing; the previous look's evidence stands, and the end is
+    /// classified at the next poll from the kernel's record of the cgroup it exited in.
+    Gone,
 }
 
 /// procfix7 round 14 (M2): the pure decision from the two kernel reads (unit-tested on recorded inputs). `exe`: the
-/// leader's `/proc/<pid>/exe` (read first); `cgroup_text`: its `/proc/<pid>/cgroup` (read second); `launcher`: the
+/// leader's `/proc/<pid>/exe` (read second); `cgroup_text`: its `/proc/<pid>/cgroup` (read first); `launcher`: the
 /// canonical path of the systemd-run this launch executed; `own`: the supervisor's own cgroup-v2 path (`0::<own>`).
 pub fn launch_state_from(exe: &Path, cgroup_text: &str, launcher: &Path, own: &str) -> LaunchState {
     let line = cgroup_text
@@ -2102,13 +2106,17 @@ impl RealChild {
             );
         };
         let root = crate::resources::procfs::sys();
-        let exe = match root.exe(self.sid) {
-            Ok(e) => e,
-            Err(e) => return LaunchState::Unverified(format!("exe of the leader: {e}")),
-        };
+        // round 15 (gate16 m16-read-order): the cgroup FIRST, the executable SECOND (see `LaunchState`); a read that
+        // says gone (the leader ended during the look) decides nothing (m16-pending-exit-race)
         let text = match root.cgroup_text(self.sid, Duration::from_millis(200)) {
             Ok(t) => t,
+            Err(crate::resources::ProcError::Gone) => return LaunchState::Gone,
             Err(e) => return LaunchState::Unverified(format!("cgroup of the leader: {e}")),
+        };
+        let exe = match root.exe(self.sid) {
+            Ok(e) => e,
+            Err(crate::resources::ProcError::Gone) => return LaunchState::Gone,
+            Err(e) => return LaunchState::Unverified(format!("exe of the leader: {e}")),
         };
         launch_state_from(&exe, &text, &launcher, &own)
     }
@@ -3177,6 +3185,29 @@ pub fn barrier_shim(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unreaped_zombie_leader_has_a_cgroup_but_no_executable_link() {
+        // procfix7 round 15 (gate16 m16-pending-exit-race): the kernel fact `LaunchState::Gone` rests on: a leader that
+        // ended (our unreaped child) still shows its cgroup (the record its end is classified by) while its executable
+        // link reads as gone; launch_state reads the cgroup first, then the link, and a gone link decides nothing
+        let mut c = std::process::Command::new("true")
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .spawn()
+            .unwrap();
+        let pid = c.id();
+        let t0 = Instant::now();
+        while !crate::resources::read_stat(pid).is_ok_and(|s| s.is_dead()) {
+            assert!(t0.elapsed() < Duration::from_secs(20), "never a zombie");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let root = crate::resources::procfs::sys();
+        let cg = root.cgroup_text(pid, Duration::from_secs(5)).unwrap();
+        assert!(cg.lines().any(|l| l.starts_with("0::")), "{cg}");
+        assert_eq!(root.exe(pid), Err(crate::resources::ProcError::Gone));
+        c.wait().unwrap();
+        assert_eq!(root.exe(pid), Err(crate::resources::ProcError::Gone));
+    }
 
     /// procfix7 round 14 (host step 3, M2): the pending decision on RECORDED inputs (host step 3: the supervisor's
     /// service cgroup, systemd-run of systemd 261 in the nix store, the job's scope under app.slice).

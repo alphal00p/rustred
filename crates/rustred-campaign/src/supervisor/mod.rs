@@ -5125,11 +5125,16 @@ impl Supervisor {
                 // program has not started; it is never killed by the 10-s rule and never counted; the 10-s window starts
                 // when it stops being pending (the scope's creation follows that moment)
                 if c == crate::launch::Containment::Pending {
-                    if ch.handle.launch_state() == crate::launch::LaunchState::Pending {
-                        ch.pending_since.get_or_insert_with(Instant::now);
-                        ch.verify_from = Instant::now();
-                    } else {
-                        ch.pending_since = None;
+                    match ch.handle.launch_state() {
+                        crate::launch::LaunchState::Pending => {
+                            ch.pending_since.get_or_insert_with(Instant::now);
+                            ch.verify_from = Instant::now();
+                        }
+                        // round 15 (gate16 m16-pending-exit-race): the launcher ended between this tick's poll and the
+                        // look: the previous look's evidence stands (pending_since and the 10-s window unchanged); the
+                        // next poll sees the end and classifies it from the kernel's record of its exit cgroup
+                        crate::launch::LaunchState::Gone => {}
+                        _ => ch.pending_since = None,
                     }
                 }
                 if c != crate::launch::Containment::Pending {
