@@ -149,6 +149,16 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        "bind-check" => match crate::emission::bindcheck::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 2 }
+            }
+            Err(e) => {
+                errln!("bind-check: {e}");
+                exit::USAGE
+            }
+        },
         "emit-replace" => match crate::emission::emit_replace_cmd(rest) {
             Ok((t, closed)) => {
                 outln!("{t}");

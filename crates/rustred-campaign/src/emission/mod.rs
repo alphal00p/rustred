@@ -6,6 +6,7 @@
 //! - [`tablecheck`]: `rr_campaign table-check`.
 //!
 //! CLI: `rr_campaign emit-replace ...` ([`emit_replace_cmd`]) and `rr_campaign table-check ...` ([`tablecheck::cmd`]).
+pub mod bindcheck;
 pub mod child;
 pub mod emitter;
 pub mod replace;

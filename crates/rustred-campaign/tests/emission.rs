@@ -258,6 +258,45 @@ fn correct_certificate_gives_whole_domain_and_the_validator_accepts_and_rechecks
         manifest.contains("\"class\":\"whole domain\""),
         "{manifest}"
     );
+    // bind-check: the checker output re-binds to the record at its own position of the table the checker read; the same
+    // output against a table with one more record before it does not
+    let cdir = em.work.join("ok");
+    let item = rustred_campaign::emission::bindcheck::Item {
+        label: "ok".into(),
+        check: cdir.join("check.out"),
+        cert: dir.join("ok.cert.json"),
+    };
+    let input = cdir.join("check-input.table.jsonl");
+    let (sum, rows, man) = rustred_campaign::emission::bindcheck::bind_check(
+        &input,
+        std::slice::from_ref(&item),
+        None,
+    )
+    .unwrap();
+    assert_eq!(sum["binding_failures"], json!(0), "{sum} {rows:?}");
+    assert_eq!(rows[0]["class_now"], json!("whole domain"));
+    assert_eq!(man.len(), 1);
+    let shifted = dir.join("shifted.table.jsonl");
+    let mut other = rec.clone();
+    other["target"] = json!("I(n0,n1,n2,n3,n4+1)");
+    std::fs::write(
+        &shifted,
+        format!(
+            "{}\n{}\n{}\n",
+            header(),
+            other,
+            std::fs::read_to_string(&input)
+                .unwrap()
+                .lines()
+                .nth(1)
+                .unwrap()
+        ),
+    )
+    .unwrap();
+    let (sum, rows, _) =
+        rustred_campaign::emission::bindcheck::bind_check(&shifted, &[item], None).unwrap();
+    assert_eq!(sum["binding_failures"], json!(1), "{sum}");
+    assert_eq!(rows[0]["class_now"], json!("none"));
     // THE VALIDATOR CATCHES A HAND-EDITED CLASS and an edited stage
     let weak = line.replace("\"word\":\"whole domain\"", "\"word\":\"sampled\"");
     let (s, ok) = check_table(&write_table(&dir, &[weak]), &bin, false);
