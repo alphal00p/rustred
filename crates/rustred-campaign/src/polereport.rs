@@ -581,6 +581,10 @@ pub struct PoleReportSpec {
     pub driver: Bound,
     pub package_binary: Bound,
     pub node_binary: Bound,
+    /// The reader features the two binaries implement, as DECLARED for them (their frozen manifest or `version --json`):
+    /// a package / table requiring a feature not listed is refused before any job (TRICKS 65 residual).
+    #[serde(default)]
+    pub reader_features: Vec<String>,
     pub rank_bin: Bound,
     pub depths: Bound,
     pub dependences: Option<Bound>,
@@ -1388,6 +1392,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             spec.node_binary.path.clone(),
             spec.node_binary.sha256.clone(),
         ),
+        reader_features: spec.reader_features.clone(),
         licence_env: spec.licence_env.clone(),
         fake: spec
             .fake_program

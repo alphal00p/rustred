@@ -113,6 +113,14 @@ pub enum AdapterError {
     /// The spec the adapter built is refused by the contract crate (a bug of the adapter or of its data).
     Spec(String),
     Io(String),
+    /// TRICKS 65 residual (int8, 2026-11-18): the pinned program does not declare reader features its input requires
+    /// (the input's own `required_features`; [`super::reader_features`]): refused at validation, before any launch.
+    ReaderFeatures {
+        program: String,
+        input: String,
+        missing: Vec<String>,
+        supported: Vec<String>,
+    },
 }
 
 impl fmt::Display for AdapterError {
@@ -121,6 +129,16 @@ impl fmt::Display for AdapterError {
             AdapterError::Request(m) => write!(f, "request: {m}"),
             AdapterError::Spec(m) => write!(f, "job spec: {m}"),
             AdapterError::Io(m) => write!(f, "io: {m}"),
+            AdapterError::ReaderFeatures {
+                program,
+                input,
+                missing,
+                supported,
+            } => write!(
+                f,
+                "reader features: {input} requires {missing:?}, which the pinned program {program} does not declare \
+                 (it declares {supported:?}): pin a newer engine build and declare its reader features"
+            ),
         }
     }
 }

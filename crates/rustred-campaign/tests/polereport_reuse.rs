@@ -42,6 +42,7 @@ fn adapter(dir: &Path) -> TadicAdapter {
         driver: DataFile::from_file(&drv).unwrap(),
         package_binary: (dir.join("p_key_batch_tadic"), BIN_SHA.into()),
         node_binary: (dir.join("rr_node_tadic"), BIN_SHA.into()),
+        reader_features: vec![],
         licence_env: None,
         fake: Some(script),
     }

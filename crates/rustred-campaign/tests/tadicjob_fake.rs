@@ -62,6 +62,7 @@ fn adapter(dir: &Path, directives: &[&str]) -> TadicAdapter {
         driver: DataFile::from_file(&drv).unwrap(),
         package_binary: (dir.join("p_key_batch_tadic"), BIN_SHA.into()),
         node_binary: (dir.join("rr_node_tadic"), BIN_SHA.into()),
+        reader_features: vec![],
         licence_env: None,
         fake: Some(script),
     }
@@ -360,4 +361,43 @@ fn plan_refuses_malformed_requests() {
     let a = ad.content_of(&request(&dir, &[1, 2]));
     assert_eq!(a, ad.content_of(&request(&dir, &[1, 2])));
     assert_ne!(a, ad.content_of(&request(&dir, &[1, 3])));
+}
+
+/// TRICKS 65 residual (int8, int/10): a package whose library.json REQUIRES a reader feature that the pinned binaries do
+/// not declare is refused at PLANNING with the typed error (nothing is launched); declared, the job is planned; a
+/// malformed declaration is an I/O error, never "nothing required". Planning only: no child, no namespace needed.
+#[test]
+fn a_package_requiring_an_undeclared_reader_feature_is_refused_at_planning() {
+    use rustred_campaign::adapters::job::AdapterError;
+    let dir = tmp("readerfeat");
+    let mut ad = adapter(&dir, &[]);
+    let rq = request(&dir, &[1]);
+    // the package states what it requires (request() wrote a library.json without the field: nothing required)
+    assert!(ad.plan(std::slice::from_ref(&rq)).is_ok());
+    std::fs::write(
+        dir.join("library.json"),
+        b"{\"terminals\": [\"unit\"], \"required_features\": [\"slot_aliases\", \"alias_equations\"]}",
+    )
+    .unwrap();
+    ad.reader_features = vec!["slot_aliases".into()];
+    match ad.plan(std::slice::from_ref(&rq)) {
+        Err(AdapterError::ReaderFeatures {
+            missing, supported, ..
+        }) => {
+            assert_eq!(missing, vec!["alias_equations".to_string()]);
+            assert_eq!(supported, vec!["slot_aliases".to_string()]);
+        }
+        other => panic!("expected the typed reader-features refusal, got {other:?}"),
+    }
+    ad.reader_features = vec!["slot_aliases".into(), "alias_equations".into()];
+    assert!(ad.plan(std::slice::from_ref(&rq)).is_ok());
+    std::fs::write(
+        dir.join("library.json"),
+        b"{\"required_features\": \"slot_aliases\"}",
+    )
+    .unwrap();
+    assert!(matches!(
+        ad.plan(std::slice::from_ref(&rq)),
+        Err(AdapterError::Io(_))
+    ));
 }
