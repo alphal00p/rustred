@@ -36,6 +36,14 @@ pub(super) struct Spill {
     pub flushed: usize,
     /// Resume mode: the file is the request's `ops.bin` and is kept.
     keep: bool,
+    /// Resume mode: BLAKE3 of every byte written to `ops.bin` so far (the
+    /// prefix a saved state covers), updated at every flush.
+    hasher: Option<blake3::Hasher>,
+}
+
+/// Bytes of `ops` ops in the spill file.
+fn op_bytes(ops: u64) -> u64 {
+    ops * std::mem::size_of::<Op>() as u64
 }
 
 impl Spill {
@@ -45,33 +53,125 @@ impl Spill {
             file: None,
             flushed: 0,
             keep: false,
+            hasher: None,
         })
     }
 
-    /// Resume mode: `<dir>/ops.bin`, cut back to `ops` ops when continuing
-    /// a saved state (else created empty); kept on drop.
-    pub(super) fn at(dir: &std::path::Path, ops: Option<u64>) -> Result<Self, ReductionError> {
+    /// Resume mode: `<dir>/ops.bin`. Fresh (`resume` None): created empty.
+    /// Continuing a saved state (`resume` = (ops, digest)): the file must
+    /// EXIST and hold at least `ops` ops (a hard error names both lengths: it
+    /// is never created or extended, so a missing or short trace can never be
+    /// replayed as zero ops); the digest of its first `ops` ops is computed in
+    /// one streaming pass and must equal the state's (states of format v1
+    /// carry none: length check only, with a warning); then the file is cut
+    /// back to exactly `ops` ops (the ops recorded after that save) and the
+    /// digest continues from the verified prefix. kept on drop.
+    pub(super) fn at(
+        dir: &std::path::Path,
+        resume: Option<(u64, Option<[u8; 32]>)>,
+    ) -> Result<Self, ReductionError> {
+        use std::io::{Read, Seek};
         std::fs::create_dir_all(dir).map_err(|e| error(format!("resume directory: {e}")))?;
         let path = dir.join("ops.bin");
-        let file = std::fs::OpenOptions::new()
-            .create(true)
+        let Some((ops, digest)) = resume else {
+            // 12d2: a trace without a saved state is never truncated silently
+            // (it may be a finished record whose state was lost, or another
+            // run's): refused unless RUSTRED_RESUME_DISCARD_TRACE=1.
+            if let Ok(meta) = std::fs::metadata(&path)
+                && meta.len() > 0
+                && std::env::var("RUSTRED_RESUME_DISCARD_TRACE").as_deref() != Ok("1")
+            {
+                return Err(error(format!(
+                    "resume refused: {} holds a trace of {} bytes but there is no saved state; it is kept \
+                     (remove it, or set RUSTRED_RESUME_DISCARD_TRACE=1, to start this request from zero)",
+                    path.display(),
+                    meta.len()
+                )));
+            }
+            let file = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(&path)
+                .map_err(|e| error(format!("resume ops file: {e}")))?;
+            return Ok(Self {
+                dir: dir.to_path_buf(),
+                file: Some((file, path)),
+                flushed: 0,
+                keep: true,
+                hasher: Some(blake3::Hasher::new()),
+            });
+        };
+        let needed = op_bytes(ops);
+        let have = match std::fs::metadata(&path) {
+            Ok(meta) => meta.len(),
+            Err(e) => {
+                return Err(error(format!(
+                    "resume refused: the trace file {} cannot be read ({e}); the saved state needs {needed} bytes \
+                     ({ops} ops)",
+                    path.display()
+                )));
+            }
+        };
+        if have < needed {
+            return Err(error(format!(
+                "resume refused: the trace file {} holds {have} bytes ({} ops), the saved state needs {needed} bytes \
+                 ({ops} ops)",
+                path.display(),
+                have / std::mem::size_of::<Op>() as u64
+            )));
+        }
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
             .write(true)
-            .truncate(ops.is_none())
             .open(&path)
             .map_err(|e| error(format!("resume ops file: {e}")))?;
-        let flushed = ops.unwrap_or(0) as usize;
-        file.set_len((flushed * std::mem::size_of::<Op>()) as u64)
+        // the digest of the prefix the state covers: one streaming pass
+        let mut hasher = blake3::Hasher::new();
+        let mut buffer = vec![0u8; 16 << 20];
+        let mut left = needed;
+        while left > 0 {
+            let n = (left as usize).min(buffer.len());
+            file.read_exact(&mut buffer[..n])
+                .map_err(|e| error(format!("resume ops read: {e}")))?;
+            hasher.update(&buffer[..n]);
+            left -= n as u64;
+        }
+        match digest {
+            Some(want) => {
+                let got = hasher.finalize();
+                if got.as_bytes() != &want {
+                    return Err(error(format!(
+                        "resume refused: the first {ops} ops of {} do not match the saved state (trace digest {} \
+                         expected, {} found)",
+                        path.display(),
+                        blake3::Hash::from(want).to_hex(),
+                        got.to_hex()
+                    )));
+                }
+            }
+            None => eprintln!(
+                "rustred resume: WARNING: state without a trace digest (format v1): only the length of {} was \
+                 checked ({have} bytes >= {needed}); its content is NOT verified",
+                path.display()
+            ),
+        }
+        file.set_len(needed)
             .map_err(|e| error(format!("resume ops cut: {e}")))?;
-        use std::io::Seek;
-        let mut file = file;
         file.seek(std::io::SeekFrom::End(0))
             .map_err(|e| error(format!("resume ops seek: {e}")))?;
         Ok(Self {
             dir: dir.to_path_buf(),
             file: Some((file, path)),
-            flushed,
+            flushed: ops as usize,
             keep: true,
+            hasher: Some(hasher),
         })
+    }
+
+    /// Resume mode: the digest of every op written so far.
+    pub(super) fn digest(&self) -> Option<[u8; 32]> {
+        self.hasher.as_ref().map(|h| *h.finalize().as_bytes())
     }
 
     /// Append `ops` and clear them.
@@ -98,9 +198,17 @@ impl Spill {
         };
         file.write_all(bytes)
             .map_err(|e| error(format!("trace spill write: {e}")))?;
+        if let Some(hasher) = &mut self.hasher {
+            hasher.update(bytes);
+        }
         self.flushed += ops.len();
         ops.clear();
         Ok(())
+    }
+
+    /// 12d2: the request directory when this is a kept (resume) trace.
+    pub(super) fn kept_dir(&self) -> Option<PathBuf> {
+        self.keep.then(|| self.dir.clone())
     }
 
     /// Make the written ops durable (resume checkpoints).
@@ -118,7 +226,10 @@ impl Spill {
     /// itself when nothing was ever flushed).
     pub(super) fn finish(mut self, rest: &mut Vec<Op>) -> Result<OpStore, ReductionError> {
         if self.file.is_none() || (self.keep && self.flushed == 0 && rest.len() < block_ops()) {
-            if let Some((_, path)) = self.file.take() {
+            // a kept (resume) file stays: its request removes it with the state
+            if let Some((_, path)) = self.file.take()
+                && !self.keep
+            {
                 let _ = std::fs::remove_file(path);
             }
             return Ok(OpStore::from(std::mem::take(rest)));
@@ -129,7 +240,7 @@ impl Spill {
         file.flush()
             .map_err(|e| error(format!("trace spill flush: {e}")))?;
         drop(file);
-        OpStore::map(path, self.flushed)
+        OpStore::map(path, self.flushed, self.keep)
     }
 }
 
@@ -151,6 +262,9 @@ pub(super) enum OpStore {
         ptr: *const Op,
         len: usize,
         path: PathBuf,
+        /// 12d2: a resume trace, removed by its request once the result
+        /// exists (never by the replay that maps it).
+        keep: bool,
     },
 }
 
@@ -159,9 +273,11 @@ unsafe impl Send for OpStore {}
 unsafe impl Sync for OpStore {}
 
 impl OpStore {
-    fn map(path: PathBuf, len: usize) -> Result<Self, ReductionError> {
+    fn map(path: PathBuf, len: usize, keep: bool) -> Result<Self, ReductionError> {
         if len == 0 {
-            let _ = std::fs::remove_file(&path);
+            if !keep {
+                let _ = std::fs::remove_file(&path);
+            }
             return Ok(Self::Memory(Vec::new()));
         }
         let file = File::open(&path).map_err(|e| error(format!("trace spill open: {e}")))?;
@@ -186,15 +302,24 @@ impl OpStore {
             ptr: ptr.cast::<Op>(),
             len,
             path,
+            keep,
         })
     }
 }
 
 impl Drop for OpStore {
     fn drop(&mut self) {
-        if let Self::Mapped { ptr, len, path } = self {
+        if let Self::Mapped {
+            ptr,
+            len,
+            path,
+            keep,
+        } = self
+        {
             unsafe { libc::munmap((*ptr).cast_mut().cast(), *len * std::mem::size_of::<Op>()) };
-            let _ = std::fs::remove_file(&*path);
+            if !*keep {
+                let _ = std::fs::remove_file(&*path);
+            }
         }
     }
 }
@@ -268,5 +393,128 @@ mod tests {
         drop(store);
         assert!(std::fs::read_dir(&dir).map(|d| d.count()).unwrap_or(0) == 0);
         let _ = std::fs::remove_dir(&dir);
+    }
+
+    /// Resume trace binding (correctness fix): a continued state needs its trace file to EXIST, to hold at least the
+    /// saved ops and (format v2) to match the saved digest; missing, short by one op, short by a block and one flipped
+    /// byte are hard errors (never a created or zero-extended file); an intact or longer file continues, cut back to
+    /// the saved ops, with the digest continuing from the verified prefix.
+    #[test]
+    fn a_resumed_trace_must_exist_hold_the_saved_ops_and_match_its_digest() {
+        let root =
+            std::env::temp_dir().join(format!("rustred-resume-bind-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let ops = |from: u32, n: u32| -> Vec<Op> {
+            (from..from + n)
+                .map(|i| Op::new(OpTag::Add, i % 5, CoefRef(i)))
+                .collect()
+        };
+        // a fresh run: 3 flushes of 10 ops, digest at the save
+        let mut spill = Spill::at(&root, None).unwrap();
+        for k in 0..3 {
+            let mut buffer = ops(10 * k, 10);
+            spill.flush(&mut buffer).unwrap();
+        }
+        spill.sync().unwrap();
+        let (saved, digest) = (spill.flushed as u64, spill.digest().unwrap());
+        // ops recorded after the save (lost on resume: cut back)
+        let mut buffer = ops(30, 7);
+        spill.flush(&mut buffer).unwrap();
+        drop(spill);
+        let path = root.join("ops.bin");
+        let original = std::fs::read(&path).unwrap();
+        assert_eq!(original.len() as u64, (saved + 7) * 8);
+        let restore = |bytes: Option<&[u8]>| {
+            match bytes {
+                Some(b) => std::fs::write(&path, b).unwrap(),
+                None => {
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+            Spill::at(&root, Some((saved, Some(digest))))
+        };
+        let refused = |r: Result<Spill, ReductionError>, what: &str| {
+            let e = r
+                .err()
+                .unwrap_or_else(|| panic!("{what}: accepted"))
+                .to_string();
+            assert!(e.contains("resume refused"), "{what}: {e}");
+            e
+        };
+        let e = refused(restore(None), "missing");
+        assert!(e.contains("240 bytes") && e.contains("30 ops"), "{e}");
+        assert!(!path.exists(), "a missing trace is never created");
+        let e = refused(
+            restore(Some(&original[..(saved as usize - 1) * 8])),
+            "short by one op",
+        );
+        assert!(
+            e.contains("holds 232 bytes") && e.contains("needs 240 bytes"),
+            "{e}"
+        );
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            232,
+            "a short trace is never extended"
+        );
+        refused(
+            restore(Some(&original[..(saved as usize - 10) * 8])),
+            "short by a block",
+        );
+        let mut flipped = original.clone();
+        flipped[17] ^= 0x01;
+        let e = refused(restore(Some(&flipped)), "one flipped byte");
+        assert!(e.contains("do not match"), "{e}");
+        // intact (with the 7 ops after the save): continues, cut back to the saved ops, digest continues
+        let mut spill = restore(Some(&original)).unwrap();
+        assert_eq!(spill.flushed as u64, saved);
+        assert_eq!(spill.digest().unwrap(), digest);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), saved * 8);
+        let mut buffer = ops(100, 4);
+        spill.flush(&mut buffer).unwrap();
+        let whole = std::fs::read(&path).unwrap();
+        assert_eq!(spill.digest().unwrap(), *blake3::hash(&whole).as_bytes());
+        drop(spill);
+        // a v1 state (no digest): the length check only
+        std::fs::write(&path, &flipped).unwrap();
+        assert!(
+            Spill::at(&root, Some((saved, None))).is_ok(),
+            "v1: length only"
+        );
+        std::fs::write(&path, &original[..8]).unwrap();
+        refused(Spill::at(&root, Some((saved, None))), "v1 short");
+        // 12d2: a trace without a saved state (a finished record whose state is gone) is never truncated by a
+        // fresh launch; an empty one is reused
+        std::fs::write(&path, &original).unwrap();
+        let e = refused(Spill::at(&root, None), "trace without a state");
+        assert!(
+            e.contains("no saved state") && e.contains("RUSTRED_RESUME_DISCARD_TRACE"),
+            "{e}"
+        );
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "the trace is untouched"
+        );
+        std::fs::write(&path, b"").unwrap();
+        assert!(
+            Spill::at(&root, None).is_ok(),
+            "an empty trace file is reused"
+        );
+        // 12d2: a kept (resume) trace survives its mapping and the replay that reads it
+        let mut spill = Spill::at(&root, None).unwrap();
+        let mut buffer = ops(0, 9);
+        spill.flush(&mut buffer).unwrap();
+        assert_eq!(spill.kept_dir().as_deref(), Some(root.as_path()));
+        let mut rest = ops(9, 3);
+        let store = spill.finish(&mut rest).unwrap();
+        assert_eq!(store.len(), 12);
+        drop(store);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            12 * 8,
+            "kept after the replay's mapping"
+        );
+        std::fs::remove_dir_all(&root).unwrap();
     }
 }

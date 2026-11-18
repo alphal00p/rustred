@@ -540,6 +540,9 @@ fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
 }
 
 fn reduce_files_cli(args: &[String]) {
+    // 12d2: a resumable request keeps its final state and trace until its
+    // output file is durably written (a failed write re-launches as a replay).
+    rustred::reduction::set_resume_caller_commit(true);
     let (library, _) = load(&args[0], false);
     let pruning = target_keep_from_env();
     let context = library.coefficient_context();
@@ -595,8 +598,23 @@ fn reduce_files_cli(args: &[String]) {
             Err(error) => format!("error: {error}\n"),
         };
         let tmp = format!("{output}.tmp");
-        std::fs::write(&tmp, text).expect("write output");
+        {
+            use std::io::Write;
+            let mut file = std::fs::File::create(&tmp).expect("write output");
+            file.write_all(text.as_bytes()).expect("write output");
+            file.sync_all().expect("sync output");
+        }
         std::fs::rename(&tmp, output).expect("rename output");
+        if let Some(parent) = std::path::Path::new(output).parent()
+            && let Ok(dir) = std::fs::File::open(if parent.as_os_str().is_empty() {
+                std::path::Path::new(".")
+            } else {
+                parent
+            })
+        {
+            let _ = dir.sync_all();
+        }
+        rustred::reduction::commit_resume();
         let saved = if std::env::var("P_STEP_CACHE").is_ok() {
             format!("{:?}", cache.save().map(|_| "saved"))
         } else {
@@ -729,6 +747,8 @@ fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
 }
 
 fn reduce_file_cli(args: &[String]) {
+    // 12d2: the resume files stay until the result is printed and flushed.
+    rustred::reduction::set_resume_caller_commit(true);
     let (library, _) = load(&args[0], false);
     let pruning = target_keep_from_env();
     let context = library.coefficient_context();
@@ -767,6 +787,14 @@ fn reduce_file_cli(args: &[String]) {
         rustred::propagator::engine::target_pruned_count()
     );
     print_reduction(&library, result);
+    {
+        use std::io::Write;
+        if let Err(e) = std::io::stdout().flush() {
+            eprintln!("reduce-file: writing the result failed ({e}); resume state and trace kept");
+            std::process::exit(4);
+        }
+    }
+    rustred::reduction::commit_resume();
 }
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {

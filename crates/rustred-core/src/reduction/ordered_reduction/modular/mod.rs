@@ -967,6 +967,14 @@ impl ModularRecorder {
                 .map_or(0, |s| s.lock().map_or(0, |s| s.flushed))
     }
 
+    /// 12d2: the request directory of a resumable record (its state and
+    /// trace are removed once the result exists).
+    pub(crate) fn resume_dir(&self) -> Option<std::path::PathBuf> {
+        self.spill
+            .as_ref()
+            .and_then(|s| s.lock().ok().and_then(|s| s.kept_dir()))
+    }
+
     /// The whole trace as one store (spilled file mapped, or the Vec).
     fn take_op_store(&mut self) -> Result<spill::OpStore, ReductionError> {
         match self.spill.take() {
@@ -1419,6 +1427,13 @@ impl ModularRecorder {
             terminal_slots: self.terminal_slots as usize,
             phase_starts: self.phase_starts,
         };
+        // 12d2 test hook: a replay that stops after its trace is mapped (as a
+        // memory bound or an OOM would); the request's state and trace stay.
+        if std::env::var("RUSTRED_RESUME_STOP_IN_REPLAY").as_deref() == Ok("1") {
+            return Err(error(
+                "stopped in the replay (RUSTRED_RESUME_STOP_IN_REPLAY)",
+            ));
+        }
         let mut statistics = ModularStatistics {
             arithmetic: self.lifter.name(),
             trace_digest: statistics_requested().then(|| trace.digest()),
@@ -1977,7 +1992,7 @@ impl OrderedWeights for ModularRecorder {
     fn resume_bind(
         &mut self,
         dir: &std::path::Path,
-        ops: Option<u64>,
+        resume: Option<(u64, Option<[u8; 32]>)>,
     ) -> Result<bool, ReductionError> {
         // 4A: the prestage table (`shared`, > 1 thread) is only a cache of
         // the workers; the recorder still interns every coefficient into its
@@ -1988,7 +2003,7 @@ impl OrderedWeights for ModularRecorder {
             return Ok(false);
         }
         self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(
-            spill::Spill::at(dir, ops)?,
+            spill::Spill::at(dir, resume)?,
         )));
         Ok(true)
     }
@@ -2005,6 +2020,11 @@ impl OrderedWeights for ModularRecorder {
         spill.flush(&mut self.ops)?;
         spill.sync()?;
         w.varint(spill.flushed as u64);
+        // format v2: the digest of the trace prefix this state covers
+        let digest = spill
+            .digest()
+            .ok_or_else(|| error("resume state without a trace digest"))?;
+        w.raw(&digest);
         drop(spill);
         w.len(self.entries.len());
         for (coefficient, reference) in self.entries.iter().zip(&self.entry_refs) {
@@ -2041,9 +2061,13 @@ impl OrderedWeights for ModularRecorder {
     fn resume_load(
         &mut self,
         r: &mut super::step_cache::codec::Reader<'_>,
+        digest: bool,
     ) -> Result<(), ReductionError> {
         let e = |m: String| error(format!("resume state: {m}"));
         let _ops = r.varint().map_err(e)?;
+        if digest {
+            r.take(32).map_err(e)?;
+        }
         let template = self.context.zero();
         let n = r.len(usize::MAX).map_err(e)?;
         self.entries = Vec::with_capacity(n);

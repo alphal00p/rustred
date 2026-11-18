@@ -16,6 +16,15 @@ use super::OrderedKernel;
 use crate::algebra::Coefficient;
 
 pub(crate) const RESUME_VERSION: &str = "rustred.resume-state.v1";
+/// The leading bytes of a state file written since the trace digest (format
+/// v2: a BLAKE3 digest of the trace prefix follows the op count). The request
+/// fingerprint keeps using [`RESUME_VERSION`], so states of both formats are
+/// found in the same request directory; v1 states are read with a length
+/// check of the trace only (a warning says so).
+/// 12d2 state format: magic, phase, recorder section (op count, trace
+/// digest, ...), scheduler sections, BLAKE3 of the program identity, and last
+/// the BLAKE3 of every preceding byte of the file (the state's own digest).
+pub(crate) const STATE_FORMAT: &str = "rustred.resume-state.v3";
 
 pub(crate) fn dir() -> Option<PathBuf> {
     std::env::var_os("RUSTRED_RESUME_DIR").map(PathBuf::from)
@@ -26,6 +35,56 @@ pub(crate) fn interval() -> f64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(1800.0)
+}
+
+static CALLER_COMMIT: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PENDING_COMMIT: std::sync::Mutex<Vec<PathBuf>> = std::sync::Mutex::new(Vec::new());
+
+pub(crate) fn set_caller_commit(on: bool) {
+    CALLER_COMMIT.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn caller_commit() -> bool {
+    match std::env::var("RUSTRED_RESUME_COMMIT").as_deref() {
+        Ok("caller") => true,
+        Ok("engine") => false,
+        _ => CALLER_COMMIT.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+fn remove_request(dir: &Path) {
+    let _ = std::fs::remove_file(dir.join("state.bin"));
+    let _ = std::fs::remove_file(dir.join("ops.bin"));
+    let _ = std::fs::remove_dir(dir);
+}
+
+/// The result of the request in `dir` exists: remove its state and trace, or
+/// keep them for [`commit`] (caller-commit mode).
+pub(crate) fn result_ready(dir: PathBuf) {
+    if caller_commit() {
+        eprintln!(
+            "rustred resume: result ready; state and trace in {} kept until the caller commits its output",
+            dir.display()
+        );
+        PENDING_COMMIT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(dir);
+    } else {
+        remove_request(&dir);
+    }
+}
+
+pub(crate) fn commit() -> usize {
+    let pending = std::mem::take(
+        &mut *PENDING_COMMIT
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    );
+    for dir in &pending {
+        remove_request(dir);
+    }
+    pending.len()
 }
 
 pub(crate) fn stop_after_phase() -> Option<usize> {
@@ -59,6 +118,7 @@ pub(crate) fn request_dir<K: OrderedKernel>(
     root: &Path,
     initial: &BTreeMap<K::Key, Coefficient>,
     conditions: &[Coefficient],
+    selection: &[u8],
 ) -> Option<PathBuf> {
     let mut hasher = blake3::Hasher::new();
     hasher.update(RESUME_VERSION.as_bytes());
@@ -74,6 +134,13 @@ pub(crate) fn request_dir<K: OrderedKernel>(
     }
     for c in conditions {
         hasher.update(c.to_string().as_bytes());
+    }
+    // 12d2: a target selection (empty for a full run: the directory of a full
+    // run is unchanged, so earlier full-run states stay reachable).
+    if !selection.is_empty() {
+        hasher.update(b"rustred.resume-selection");
+        hasher.update(&(selection.len() as u64).to_le_bytes());
+        hasher.update(selection);
     }
     Some(root.join(hasher.finalize().to_hex().to_string()))
 }
