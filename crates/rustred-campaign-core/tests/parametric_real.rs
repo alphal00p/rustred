@@ -2277,6 +2277,16 @@ fn redispatch_keys() {
         let mut open_faces: BTreeMap<String, u64> = BTreeMap::new();
         let mut open_first: Vec<serde_json::Value> = Vec::new();
         let (mut total, mut open) = (0u64, 0u64);
+        // PARAMETRIC_DUMP_SERVED (JSON array of served names "table#label") + PARAMETRIC_DUMP_OUT (JSONL): every key whose first
+        // match is one of these records is written with its ordinal in the key file, its chain depth and the serving record.
+        let dump_set: std::collections::BTreeSet<String> = std::env::var("PARAMETRIC_DUMP_SERVED")
+            .ok()
+            .map(|p| serde_json::from_str(&std::fs::read_to_string(p).unwrap()).unwrap())
+            .unwrap_or_default();
+        let mut dump_w = std::env::var("PARAMETRIC_DUMP_OUT")
+            .ok()
+            .map(|p| std::io::BufWriter::new(std::fs::File::create(p).unwrap()));
+        let mut dumped = 0u64;
         let t0 = std::time::Instant::now();
         let mut buf = vec![0u8; block * rec];
         loop {
@@ -2300,7 +2310,9 @@ fn redispatch_keys() {
                 BTreeMap<String, u64>,
                 Vec<serde_json::Value>,
                 u64,
+                Vec<serde_json::Value>,
             );
+            let base = total;
             let parts: Vec<Part> = std::thread::scope(|sc| {
                 let hs: Vec<_> = (0..threads)
                     .map(|t| {
@@ -2309,25 +2321,30 @@ fn redispatch_keys() {
                         let data = &buf[lo * rec..hi * rec];
                         let g5 = &g5;
                         let lines = &lines;
+                        let dump_set = &dump_set;
                         sc.spawn(move || {
-                            let (mut sv, mut rs, mut of, mut ofirst, mut op) = (
+                            let (mut sv, mut rs, mut of, mut ofirst, mut op, mut dp) = (
                                 BTreeMap::new(),
                                 BTreeMap::new(),
                                 BTreeMap::new(),
                                 Vec::new(),
                                 0u64,
+                                Vec::new(),
                             );
-                            for r in data.chunks_exact(rec) {
+                            for (i, r) in data.chunks_exact(rec).enumerate() {
                                 let k: Vec<i32> =
                                     r[..n].iter().map(|&b| i32::from(b as i8)).collect();
                                 match g5.first_match(&k) {
                                     Ok(Dispatch::Covered(rr)) => {
-                                        *sv.entry(format!(
+                                        let name = format!(
                                             "{}#{}",
                                             g5.tables()[rr.table].name,
                                             g5.tables()[rr.table].labels[rr.record]
-                                        ))
-                                        .or_insert(0u64) += 1;
+                                        );
+                                        if dump_set.contains(&name) {
+                                            dp.push(json!({"ordinal": base + (lo + i) as u64, "key": k, "depth": r[n], "served": name}));
+                                        }
+                                        *sv.entry(name).or_insert(0u64) += 1;
                                     }
                                     other => {
                                         op += 1;
@@ -2353,13 +2370,20 @@ fn redispatch_keys() {
                                     }
                                 }
                             }
-                            (sv, rs, of, ofirst, op)
+                            (sv, rs, of, ofirst, op, dp)
                         })
                     })
                     .collect();
                 hs.into_iter().map(|h| h.join().unwrap()).collect()
             });
-            for (sv, rs, of, ofirst, op) in parts {
+            for (sv, rs, of, ofirst, op, dp) in parts {
+                if let Some(w) = dump_w.as_mut() {
+                    use std::io::Write;
+                    for x in &dp {
+                        writeln!(w, "{x}").unwrap();
+                    }
+                    dumped += dp.len() as u64;
+                }
                 for (k, v) in sv {
                     *served.entry(k).or_default() += v;
                 }
@@ -2390,8 +2414,12 @@ fn redispatch_keys() {
             "restored_loci": restored, "bank_witness_loci": bank_loci, "fall_through": "reduced (decision G5)",
             "keys_checked": total, "open": open, "open_by_dispatch": reasons, "open_by_face": open_faces,
             "open_keys_first_2000": open_first, "covered_by_record": served, "seconds": t0.elapsed().as_secs_f64(),
-            "threads": threads,
+            "threads": threads, "dump": {"served": dump_set, "out": std::env::var("PARAMETRIC_DUMP_OUT").ok(), "keys": dumped},
         });
+        if let Some(mut w) = dump_w {
+            use std::io::Write;
+            w.flush().unwrap();
+        }
         std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
         eprintln!("redispatch (binary): {total} keys, {open} open");
         return;
@@ -3434,6 +3462,60 @@ fn chain_walk() {
             .map(|x| x.trim().to_string())
             .collect()
     };
+    // PARAMETRIC_CHAIN_POINTS (optional): a table-dump file of POINT relations (concrete target and rhs, e.g. the sealed
+    // relations of a bounded recipe at the chain's keys): a key served by a record without rhs (stub) follows the point
+    // relation of that key when the file has one.
+    let points: BTreeMap<Vec<i32>, Vec<Vec<i32>>> = std::env::var("PARAMETRIC_CHAIN_POINTS")
+        .ok()
+        .map(|p| {
+            let mut m = BTreeMap::new();
+            for l in std::fs::read_to_string(p).unwrap().lines() {
+                let v: serde_json::Value = match serde_json::from_str(l) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                if v["type"] != "rule" {
+                    continue;
+                }
+                let ints = |t: &str| -> Option<Vec<i32>> {
+                    t[t.find('(')? + 1..t.rfind(')')?]
+                        .split(',')
+                        .map(|x| x.trim().parse().ok())
+                        .collect()
+                };
+                let Some(tg) = v["target"].as_str().and_then(ints) else {
+                    continue;
+                };
+                let rhs: Vec<Vec<i32>> = v["rhs"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|t| t[0].as_str().and_then(ints))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                m.insert(tg, rhs);
+            }
+            m
+        })
+        .unwrap_or_default();
+    // PARAMETRIC_CHAIN_KEYS_OUT (optional, JSONL): every key of the walk with its level, its first match and its kind
+    // (rule / point / stub / terminal / open); the keys of the top sector reached from the start key.
+    let mut keys_w = std::env::var("PARAMETRIC_CHAIN_KEYS_OUT")
+        .ok()
+        .map(|p| std::io::BufWriter::new(std::fs::File::create(p).unwrap()));
+    let mut put = |k: &Vec<i32>, level: usize, served: Option<&str>, kind: &str| {
+        if let Some(w) = keys_w.as_mut() {
+            use std::io::Write;
+            writeln!(
+                w,
+                "{}",
+                json!({"key": k, "level": level, "served": served, "kind": kind})
+            )
+            .unwrap();
+        }
+    };
+    let mut point_steps = 0u64;
     let mut seen: std::collections::BTreeSet<Vec<i32>> = std::collections::BTreeSet::new();
     let mut frontier = vec![start.clone()];
     seen.insert(start.clone());
@@ -3452,6 +3534,7 @@ fn chain_walk() {
         for k in &frontier {
             if terms.contains(k) {
                 terminal_hits += 1;
+                put(k, depth, None, "terminal");
                 continue;
             }
             match g5.first_match(k) {
@@ -3485,16 +3568,31 @@ fn chain_walk() {
                                 .collect(),
                         ))
                     });
+                    let served = format!("{tname}#{lab}");
                     match ent {
                         None => {
-                            *stub_steps.entry(format!("{tname}#{lab}")).or_default() += 1;
-                            stub_keys
-                                .entry(format!("{tname}#{lab}"))
-                                .or_default()
-                                .push(k.clone());
+                            *stub_steps.entry(served.clone()).or_default() += 1;
+                            stub_keys.entry(served.clone()).or_default().push(k.clone());
+                            match points.get(k) {
+                                Some(rhs) => {
+                                    put(k, depth, Some(&served), "point");
+                                    point_steps += 1;
+                                    for c in rhs {
+                                        if (0..n).any(|i| lines[i] && c[i] < 1) {
+                                            lower += 1;
+                                            continue;
+                                        }
+                                        if seen.insert(c.clone()) {
+                                            next.push(c.clone());
+                                        }
+                                    }
+                                }
+                                None => put(k, depth, Some(&served), "stub"),
+                            }
                         }
                         Some((tg, pats)) => {
-                            *used.entry(format!("{tname}#{lab}")).or_default() += 1;
+                            put(k, depth, Some(&served), "rule");
+                            *used.entry(served.clone()).or_default() += 1;
                             // parameter values from the target pattern: slot s = n_j + o  =>  n_j = k[s] - o
                             let mut val: BTreeMap<usize, i64> = BTreeMap::new();
                             let sym = |e: &str| -> Option<(usize, i64)> {
@@ -3537,6 +3635,7 @@ fn chain_walk() {
                     }
                 }
                 other => {
+                    put(k, depth, None, "open");
                     if open.len() < 200 {
                         open.push(json!({"key": k, "dispatch": format!("{other:?}").chars().take(120).collect::<String>()}));
                     }
@@ -3557,7 +3656,14 @@ fn chain_walk() {
     let res = json!({"start": start, "spec": {"path": spec.display().to_string(), "sha256": sha256_file(&spec)},
         "keys_reached_in_top_sector": seen.len(), "depth": depth, "complete": frontier.is_empty(), "terminal_hits": terminal_hits,
         "terms_leaving_the_sector": lower, "records_used": used.len(), "records_used_top": used_top,
-        "stub_steps": stub_steps, "stub_keys": stub_keys, "records_used_all": used, "open_keys": open});
+        "stub_steps": stub_steps, "stub_keys": stub_keys, "records_used_all": used, "open_keys": open,
+        "point_relations": points.len(), "point_steps": point_steps, "keys_out": std::env::var("PARAMETRIC_CHAIN_KEYS_OUT").ok(),
+        "unvisited_frontier": frontier.len()});
+    drop(put);
+    if let Some(mut w) = keys_w {
+        use std::io::Write;
+        w.flush().unwrap();
+    }
     std::fs::write(&out, serde_json::to_string_pretty(&res).unwrap()).unwrap();
     eprintln!(
         "chain walk: {} keys, depth {depth}, {} records, stub steps {:?}, open {}",
