@@ -388,6 +388,144 @@ impl Bound {
     }
 }
 
+/// A stored driver attempt (driver job + driver result, both by SHA-256) offered for the rank-only route of one cell.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ReuseEntry {
+    pub cell: (i64, i64),
+    pub job: Bound,
+    pub result: Bound,
+}
+
+/// Fields of a driver job that do not change the replay's answers (helper VH 2's driver): `job_id` (derived from a
+/// content id that also hashes the rank-step roles), `limits.wall_seconds` (a stop, never an answer) and
+/// `dependence_table` (the driver binds it by SHA-256 and does NOT apply it). Every other field must be equal.
+pub const RANK_ONLY_JOB_FIELDS: [&str; 3] = ["job_id", "limits.wall_seconds", "dependence_table"];
+
+/// Ok when a stored driver job equals the job this cell would issue up to [`RANK_ONLY_JOB_FIELDS`]; else the differing
+/// top-level fields.
+pub fn reuse_compatible(stored: &Value, ours: &Value) -> Result<(), String> {
+    let strip = |v: &Value| {
+        let mut v = v.clone();
+        if let Some(o) = v.as_object_mut() {
+            o.remove("job_id");
+            o.remove("dependence_table");
+            if let Some(l) = o.get_mut("limits").and_then(|l| l.as_object_mut()) {
+                l.remove("wall_seconds");
+            }
+        }
+        v
+    };
+    let (a, b) = (strip(stored), strip(ours));
+    if a == b {
+        return Ok(());
+    }
+    let keys: std::collections::BTreeSet<&String> = a
+        .as_object()
+        .into_iter()
+        .flatten()
+        .chain(b.as_object().into_iter().flatten())
+        .map(|(k, _)| k)
+        .collect();
+    let differ: Vec<&str> = keys
+        .into_iter()
+        .filter(|k| a.get(k.as_str()) != b.get(k.as_str()))
+        .map(|k| k.as_str())
+        .collect();
+    Err(format!(
+        "the stored driver job differs from this cell's job in: {}",
+        differ.join(", ")
+    ))
+}
+
+/// The rank-only route's gate: a stored attempt answers THIS cell's job `jr` iff (1) its job equals the job the tool
+/// issues for `jr` up to [`RANK_ONLY_JOB_FIELDS`], (2) its result binds to ITS job bytes and to the adapter's pinned
+/// binary and driver (`tadicjob::check_result`), (3) the certificate checks find nothing and (4) every request is
+/// decided. The rank-step roles (depths, dependences, terminal map) are then the spec's, never the stored job's.
+pub fn verify_reuse(
+    adapter: &TadicAdapter,
+    jr: &TadicJobRequest,
+    job_bytes: &[u8],
+    result_bytes: &[u8],
+) -> Result<tadicjob::CheckedResult, String> {
+    let stored: Value =
+        serde_json::from_slice(job_bytes).map_err(|e| format!("stored job: {e}"))?;
+    let ours = adapter.driver_job(jr, stored["job_id"].as_str().unwrap_or(""));
+    reuse_compatible(&stored, &ours)?;
+    let result: Value =
+        serde_json::from_slice(result_bytes).map_err(|e| format!("stored result: {e}"))?;
+    let checked = tadicjob::check_result(&stored, &result, &adapter.pins(job_bytes, &jr.level))?;
+    let cert = certificate::check(&checked);
+    if let Some(f) = cert.findings.first() {
+        return Err(format!("NOT_CERTIFIED: {}", f.to_json()));
+    }
+    if let Some(q) = checked.requests.iter().find(|q| !q.outcome.is_decided()) {
+        return Err(format!("{}: {}", q.label, q.outcome.word()));
+    }
+    Ok(checked)
+}
+
+/// Spec rule (2026-11-18: a dependence table republished during a 4.7 h attempt broke the wrapper's post-run binding):
+/// every DATA input (cell table, library, depths, dependences, catalogue, terminal map) is copied at launch into
+/// `<dir>/inputs/<sha256>/<file name>` (read-only, re-hashed after the copy; an existing snapshot is re-hashed and must
+/// match) and the spec is rewritten to read only the snapshots: driver jobs, the wrapper's re-hash and every rank step
+/// see bytes that cannot change. The spec's own paths stay as provenance in the report. Returns that provenance.
+pub fn snapshot_inputs(spec: &mut PoleReportSpec, dir: &Path) -> Result<Value, String> {
+    let mut prov = serde_json::Map::new();
+    let mut one = |role: &str, b: &mut Bound| -> Result<(), String> {
+        let bytes = b.check(role)?;
+        let name = b
+            .path
+            .file_name()
+            .ok_or(format!("{role}: no file name"))?
+            .to_owned();
+        let d = dir.join("inputs").join(&b.sha256);
+        std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+        let snap = d.join(&name);
+        match std::fs::read(&snap) {
+            Ok(have) => {
+                if sha256_hex(&have) != b.sha256 {
+                    return Err(format!(
+                        "{role}: snapshot {} is not the spec's sha256",
+                        snap.display()
+                    ));
+                }
+            }
+            Err(_) => {
+                let tmp = d.join(format!(".{}.tmp", name.to_string_lossy()));
+                std::fs::write(&tmp, &bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
+                let mut perm = std::fs::File::open(&tmp)
+                    .and_then(|f| f.metadata())
+                    .map_err(|e| e.to_string())?
+                    .permissions();
+                perm.set_readonly(true);
+                std::fs::set_permissions(&tmp, perm).map_err(|e| e.to_string())?;
+                std::fs::rename(&tmp, &snap).map_err(|e| e.to_string())?;
+                let again = std::fs::read(&snap).map_err(|e| e.to_string())?;
+                if sha256_hex(&again) != b.sha256 {
+                    return Err(format!("{role}: snapshot copy differs"));
+                }
+            }
+        }
+        prov.insert(
+            role.into(),
+            json!({"source": b.path, "snapshot": snap, "sha256": b.sha256}),
+        );
+        b.path = snap;
+        Ok(())
+    };
+    one("cells", &mut spec.cells)?;
+    one("library", &mut spec.library)?;
+    one("depths", &mut spec.depths)?;
+    one("catalogue", &mut spec.catalogue)?;
+    if let Some(d) = spec.dependences.as_mut() {
+        one("dependences", d)?;
+    }
+    if let Some(m) = spec.terminal_map.as_mut() {
+        one("terminal_map", m)?;
+    }
+    Ok(Value::Object(prov))
+}
+
 /// One node of the report: its presented top and slots.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct NodeSpec {
@@ -431,6 +569,11 @@ pub struct PoleReportSpec {
     /// The shift s of the offset o = r - (E + D - s) (absent = read from the cell table's rows 'on' the line).
     #[serde(default)]
     pub offset_shift: Option<i64>,
+    /// RANK-ONLY reuse of stored driver attempts (one entry per cell): when the inputs of the RANK step changed after a
+    /// driver attempt (a republished dependence table broke the wrapper's post-run binding), the attempt is reused only
+    /// through [`verify_reuse`] and the rank step binds the spec's (snapshotted) inputs; the cell says so.
+    #[serde(default)]
+    pub reuse: Vec<ReuseEntry>,
     pub package: PathBuf,
     pub relations: Option<PathBuf>,
     pub library: Bound,
@@ -576,6 +719,8 @@ pub struct CellOutcome {
     pub requests: Vec<Value>,
     /// The node's tripwire masters on this cell: need, q, allowance, fired.
     pub tripwires: Vec<Value>,
+    /// Driver attempts reused by the rank-only route (job / result SHA-256, the copy in the campaign directory).
+    pub reused: Vec<Value>,
 }
 
 fn rank_of(
@@ -878,6 +1023,11 @@ fn group_job(
         depths: Some(ctx.depths.clone()),
     };
     let content = ctx.adapter.content_of(&jr);
+    if ctx.store.get(ctx.adapter, &jr)?.is_none()
+        && let Some(re) = spec.reuse.iter().find(|e| e.cell == (c.d, c.r))
+    {
+        return reuse_job(ctx, &jr, re, g, out);
+    }
     if ctx.store.get(ctx.adapter, &jr)?.is_none() {
         let plans = ctx
             .adapter
@@ -943,6 +1093,43 @@ fn group_job(
     Ok(Ok(()))
 }
 
+/// The rank-only route of one round: the stored attempt `re` replaces the driver job iff [`verify_reuse`] accepts it;
+/// a read-only copy keyed by the job's SHA-256 is kept in the campaign directory and its result feeds the rank step.
+fn reuse_job(
+    ctx: &CellCtx<'_>,
+    jr: &TadicJobRequest,
+    re: &ReuseEntry,
+    g: &mut Group,
+    out: &mut CellOutcome,
+) -> Result<Result<(), String>, String> {
+    let jb = re.job.check("reused driver job")?;
+    let rb = re.result.check("reused driver result")?;
+    if let Err(why) = verify_reuse(ctx.adapter, jr, &jb, &rb) {
+        return Ok(Err(format!("REUSE REFUSED: {why}")));
+    }
+    let (jsha, rsha) = (sha256_hex(&jb), sha256_hex(&rb));
+    let d = ctx.dir.join("reused").join(&jsha);
+    std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
+    for (name, b) in [(tadicjob::JOB_INPUT, &jb), (tadicjob::CHILD_OUT, &rb)] {
+        let f = d.join(name);
+        match std::fs::read(&f) {
+            Ok(have) if have == **b => {}
+            Ok(_) => return Err(format!("{}: differs from the reused bytes", f.display())),
+            Err(_) => std::fs::write(&f, b).map_err(|e| format!("{}: {e}", f.display()))?,
+        }
+    }
+    let seconds = serde_json::from_slice::<Value>(&rb)
+        .ok()
+        .and_then(|v| v["seconds"].as_f64());
+    out.reused.push(json!({"job": re.job.path, "job_sha256": jsha, "result": re.result.path,
+        "result_sha256": rsha, "copy": d, "driver_seconds": seconds,
+        "route": "rank-only: driver result reused (verify_reuse), rank step bound to the spec's inputs"}));
+    out.jobs.push(format!("reused:{jsha}"));
+    g.results.push(d.join(tadicjob::CHILD_OUT));
+    g.m_done = g.m;
+    Ok(Ok(()))
+}
+
 /// One cell: the union route (one group over all keys) or the block route (one group per block; the cell rank from
 /// the stacked rows of every block, each block stable on its own: combinations >= its rank + 3).
 fn run_cell(
@@ -990,6 +1177,7 @@ fn run_cell(
         blocks: vec![],
         requests: vec![],
         tripwires: vec![],
+        reused: vec![],
     };
     if keys.len() as u64 != c.keys_in_cell {
         out.verdict = format!(
@@ -1065,6 +1253,12 @@ fn run_cell(
         }
     }
     out.combinations = groups.iter().map(|g| g.m_done).sum();
+    if !out.reused.is_empty() {
+        out.route = format!(
+            "{} (driver result reused; rank step bound to the spec's inputs)",
+            out.route
+        );
+    }
     out.blocks = groups
         .iter()
         .map(|g| {
@@ -1138,7 +1332,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         return Err("usage: pole-report --spec S.json --dir D".into());
     };
     let (sv, sb) = read_json(&sp)?;
-    let spec: PoleReportSpec = serde_json::from_value(sv).map_err(|e| format!("spec: {e}"))?;
+    let mut spec: PoleReportSpec = serde_json::from_value(sv).map_err(|e| format!("spec: {e}"))?;
     if spec.schema != SPEC_SCHEMA {
         return Err(format!("spec schema {} is not {SPEC_SCHEMA}", spec.schema));
     }
@@ -1165,6 +1359,8 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
     }
     let dir = PathBuf::from(dir);
     std::fs::create_dir_all(dir.join("cells")).map_err(|e| e.to_string())?;
+    // spec rule: every data input is read from a launch-time snapshot by sha256 (never from a republishable path)
+    let input_snapshots = snapshot_inputs(&mut spec, &dir)?;
     let rows = read_cell_tops(std::str::from_utf8(&cells_bytes).map_err(|e| e.to_string())?)?;
     let program = match &spec.fake_program {
         Some(p) => Program::from_file(
@@ -1347,6 +1543,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
                 blocks: v["blocks"].as_array().cloned().unwrap_or_default(),
                 requests: v["requests"].as_array().cloned().unwrap_or_default(),
                 tripwires: v["tripwires"].as_array().cloned().unwrap_or_default(),
+                reused: v["reused"].as_array().cloned().unwrap_or_default(),
             });
         }
     }
@@ -1399,6 +1596,7 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
             Some((s, src)) => json!({"definition": "o = r - (E + D - s)", "s": s, "source": src}),
             None => json!({"definition": "o = r - (E + D - s)", "s": null, "source": "no reference line (no row 'on' the line, no spec offset_shift)"}),
         })).collect::<BTreeMap<_, _>>(),
+        "inputs": input_snapshots,
         "nodes": nodes, "cells": outcomes});
     let tmp = dir.join("pole_report.json.tmp");
     std::fs::write(&tmp, serde_json::to_vec_pretty(&report).expect("json"))
@@ -1643,5 +1841,95 @@ mod tests {
         assert!(md.contains("m11 6/5 FIRED"), "{md}");
         assert!(md.contains("incomplete: unmapped terminal (R:9)"));
         assert!(md.contains("s = 11"));
+    }
+
+    #[test]
+    fn reuse_ignores_only_the_rank_only_fields() {
+        let ours = json!({"schema": "s", "job_id": "a.tr", "requests": [{"label": "c0", "inputs": [{"top": "X", "powers": [1, 0], "weight": 5}]}],
+            "expansion": {"d0": 4, "order": 1}, "primes": {"count": 2, "max_primes": 8, "seeds": [1, 2]},
+            "limits": {"wall_seconds": 100, "max_length": 64, "threads": 4}, "crt": false,
+            "binary": {"path": "/b", "sha256": "bb"}, "dependence_table": {"path": "/d1", "sha256": "d1"}});
+        // another job id, wall cap and (bound, not applied) dependence table: compatible
+        let mut stored = ours.clone();
+        stored["job_id"] = json!("b.tr");
+        stored["limits"]["wall_seconds"] = json!(7);
+        stored["dependence_table"] = json!({"path": "/d0", "sha256": "d0"});
+        assert!(reuse_compatible(&stored, &ours).is_ok());
+        let mut no_table = stored.clone();
+        no_table.as_object_mut().unwrap().remove("dependence_table");
+        assert!(reuse_compatible(&no_table, &ours).is_ok());
+        // anything that changes the answers: refused, naming the field
+        let mut w = stored.clone();
+        w["requests"][0]["inputs"][0]["weight"] = json!(6);
+        assert!(
+            reuse_compatible(&w, &ours)
+                .unwrap_err()
+                .contains("requests")
+        );
+        let mut b = stored.clone();
+        b["binary"]["sha256"] = json!("cc");
+        assert!(reuse_compatible(&b, &ours).unwrap_err().contains("binary"));
+        let mut l = stored.clone();
+        l["limits"]["max_length"] = json!(65);
+        assert!(reuse_compatible(&l, &ours).unwrap_err().contains("limits"));
+        let mut p = stored;
+        p["primes"]["seeds"] = json!([1, 3]);
+        assert!(reuse_compatible(&p, &ours).unwrap_err().contains("primes"));
+    }
+
+    #[test]
+    fn data_inputs_are_read_from_launch_snapshots_by_sha256() {
+        let d = std::env::temp_dir().join(format!("polereport-snap-{}", std::process::id()));
+        let src = d.join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let bound = |name: &str, body: &str| {
+            let p = src.join(name);
+            std::fs::write(&p, body).unwrap();
+            json!({"path": p, "sha256": sha256_hex(body.as_bytes())})
+        };
+        let spec_json = json!({"schema": SPEC_SCHEMA, "cells": bound("cells.tsv", "c"), "nodes": [],
+            "package": "/pkg", "library": bound("library.json", "l"), "python": "/py",
+            "driver": bound("drv.py", "v"), "package_binary": bound("pkb", "p"), "node_binary": bound("nb", "n"),
+            "rank_bin": bound("rank", "r"), "depths": bound("depths.json", "depths-v1"),
+            "dependences": bound("deps.json", "deps-v1"), "catalogue": bound("cat.json", "k"),
+            "terminal_map": bound("map.json", "m"), "seeds": [1, 2], "primes": 2, "order": 1,
+            "combination_seed": 1, "m_initial": 4, "m_step": 3, "m_max": 16, "wall_seconds": 1, "max_length": 1,
+            "threads": 1, "memory_cap_bytes": 1});
+        let campaign = d.join("campaign");
+        let mut spec: PoleReportSpec = serde_json::from_value(spec_json.clone()).unwrap();
+        let prov = snapshot_inputs(&mut spec, &campaign).unwrap();
+        let deps = spec.dependences.clone().unwrap();
+        assert!(
+            deps.path.starts_with(campaign.join("inputs")),
+            "{}",
+            deps.path.display()
+        );
+        assert_eq!(std::fs::read(&deps.path).unwrap(), b"deps-v1");
+        assert_eq!(prov["dependences"]["source"], json!(src.join("deps.json")));
+        // binaries and the driver are pinned in place (frozen sets), not copied
+        assert_eq!(spec.driver.path, src.join("drv.py"));
+        // the source is REPUBLISHED: the snapshot still holds the launch bytes and still matches the bound sha256
+        std::fs::write(src.join("deps.json"), "deps-v2").unwrap();
+        assert_eq!(std::fs::read(&deps.path).unwrap(), b"deps-v1");
+        assert!(deps.check("dependences").is_ok());
+        // a resumed launch (source restored) re-hashes the existing snapshot and accepts it
+        std::fs::write(src.join("deps.json"), "deps-v1").unwrap();
+        let mut again: PoleReportSpec = serde_json::from_value(spec_json.clone()).unwrap();
+        snapshot_inputs(&mut again, &campaign).unwrap();
+        assert_eq!(again.dependences.unwrap().path, deps.path);
+        // a tampered snapshot is refused
+        let mut perm = std::fs::metadata(&deps.path).unwrap().permissions();
+        assert!(perm.readonly());
+        #[allow(clippy::permissions_set_readonly_false)]
+        perm.set_readonly(false);
+        std::fs::set_permissions(&deps.path, perm).unwrap();
+        std::fs::write(&deps.path, "tampered").unwrap();
+        let mut third: PoleReportSpec = serde_json::from_value(spec_json).unwrap();
+        assert!(snapshot_inputs(&mut third, &campaign).is_err());
+        // a launch whose source no longer matches the spec's sha256 is refused before any snapshot
+        std::fs::write(src.join("deps.json"), "deps-v3").unwrap();
+        let mut fourth = spec;
+        fourth.dependences.as_mut().unwrap().path = src.join("deps.json");
+        assert!(snapshot_inputs(&mut fourth, &d.join("campaign2")).is_err());
     }
 }
