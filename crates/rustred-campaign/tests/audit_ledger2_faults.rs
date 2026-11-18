@@ -21,6 +21,19 @@ use rustred_campaign::ledger::{
 use rustred_campaign::lock::{self, CampaignLock};
 use rustred_campaign::state::EvidenceLevel;
 
+/// ONE TEST AT A TIME in this binary (int8, 2026-11-18). A property of fork + flock, not of the product: a flock belongs
+/// to the open file description, and a child created by `fork` (here `Command::spawn` of a2_concurrent_appender_processes
+/// and a2_real_full_and_readonly_fs) holds a duplicate of EVERY descriptor of the test process until its `exec` closes the
+/// O_CLOEXEC ones. A test of another thread that drops a CampaignLock inside that window and at once re-takes the lock of
+/// the same directory (build() then take_lock) gets EWOULDBLOCK = `Busy { owner: None }`: seen in int8's s6 run (4 tests,
+/// in-suite under load; 10/10 alone x5). The product takes its campaign lock once per session and holds it to the end
+/// (INT8-STAGE2.md, gate request: where the same mechanism can reach the product, and why it fails safe there).
+static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn take_lock(cdir: &Path) -> CampaignLock {
     lock::acquire(cdir, &SystemClock::new(), &["audit-ledger2".into()])
         .unwrap()
@@ -411,6 +424,7 @@ fn classify(e: &LedgerError, errno: i32) -> Result<String, String> {
 
 #[test]
 fn a2_errno_fault_at_every_operation() {
+    let _serial = serial();
     let base = scratch("a2-faults");
     let _c = Cleanup(base.clone());
     let src = base.join("full");
@@ -501,6 +515,7 @@ fn outcome(cdir: &Path, full: &[Record]) -> String {
 
 #[test]
 fn a2_forged_and_foreign_records() {
+    let _serial = serial();
     let base = scratch("a2-forge");
     let _c = Cleanup(base.clone());
     let src = base.join("src");
@@ -806,6 +821,7 @@ fn a2_forged_and_foreign_records() {
 
 #[test]
 fn a2_lock_layers() {
+    let _serial = serial();
     let base = scratch("a2-lock");
     let _c = Cleanup(base.clone());
     let a = base.join("A");
@@ -856,6 +872,7 @@ fn a2_lock_layers() {
 
 #[test]
 fn a2_readers_during_rotation() {
+    let _serial = serial();
     let base = scratch("a2-readers");
     let _c = Cleanup(base.clone());
     let d = base.join("c");
@@ -953,6 +970,7 @@ fn in_pidns() -> bool {
 /// Child body: appends `rounds` x 5 notes, taking and releasing the campaign lock each round.
 #[test]
 fn a2_child_appender() {
+    let _serial = serial();
     let Ok(cdir) = std::env::var("RR_A2_APPENDER") else {
         return;
     };
@@ -996,6 +1014,7 @@ fn a2_child_appender() {
 
 #[test]
 fn a2_concurrent_appender_processes() {
+    let _serial = serial();
     if !in_pidns() {
         eprintln!("skipped: run with LIGHT_PIDNS=1 (spawns children)");
         return;
@@ -1084,6 +1103,7 @@ fn a2_concurrent_appender_processes() {
 /// read-only.
 #[test]
 fn a2_real_fs_inner() {
+    let _serial = serial();
     let Ok(mnt) = std::env::var("RR_A2_MNT") else {
         return;
     };
@@ -1206,6 +1226,7 @@ fn a2_real_fs_inner() {
 
 #[test]
 fn a2_real_full_and_readonly_fs() {
+    let _serial = serial();
     if !in_pidns() {
         eprintln!("skipped: run with LIGHT_PIDNS=1 (spawns a child in a private mount namespace)");
         return;
@@ -1258,6 +1279,7 @@ fn a2_real_full_and_readonly_fs() {
 /// create", even when they hold an acknowledged multi-segment history.
 #[test]
 fn a2_missing_manifest_create_wipes_history() {
+    let _serial = serial();
     let base = scratch("a2-nomanifest");
     let _c = Cleanup(base.clone());
     let d = base.join("c");
@@ -1303,6 +1325,7 @@ fn a2_missing_manifest_create_wipes_history() {
 /// unacknowledged, yet `open` refuses (Corrupt: "valid records follow") and needs the operator override.
 #[test]
 fn a2_partial_page_loss_beyond_mark() {
+    let _serial = serial();
     let base = scratch("a2-pageloss");
     let _c = Cleanup(base.clone());
     let d = base.join("c");
