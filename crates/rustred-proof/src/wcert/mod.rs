@@ -885,6 +885,8 @@ fn check(
     let mut basis_word = "eliminated";
     let mut recovery_json: Option<String> = None;
     let mut rows_recovered = false;
+    let mut rows_modulo_zero = false;
+    let mut identity_modulo_zero = false;
     // trace terms: list of (weight, row terms) to combine
     let mut trace: Option<Vec<(Rf, Vec<(Pat, Rf)>)>> = None;
     let mut comp_dens: Vec<Poly> = vec![];
@@ -938,14 +940,44 @@ fn check(
                         row_dens = carried_dens;
                     }
                     Some(er) => {
-                        let rec = recover::recover(&vars, &cert.sources, &parsed, &weights, er);
+                        // the stated zero-sector record (if any) as a raw-frame predicate: stored = raw + t (the
+                        // pattern-level translation derived above)
+                        let t0: Option<Vec<i64>> = pre.first().map(|x| x.0.clone());
+                        let zero_fn = |p: &Pat| -> bool {
+                            match (&canon, &t0) {
+                                (Some(c), Some(t)) => {
+                                    let s: Pat = p
+                                        .iter()
+                                        .zip(t)
+                                        .map(|(&(sym, v), &ti)| (sym, v + ti))
+                                        .collect();
+                                    c.is_zero_sector(&s)
+                                }
+                                _ => false,
+                            }
+                        };
+                        let use_zero =
+                            canon.as_ref().is_some_and(|c| !c.zero.is_empty()) && t0.is_some();
+                        let zref: Option<&dyn Fn(&Pat) -> bool> =
+                            if use_zero { Some(&zero_fn) } else { None };
+                        let rec =
+                            recover::recover(&vars, &cert.sources, &parsed, &weights, er, zref);
+                        let modulo = rec.modulo_zero_rows > 0;
                         recovery_json = Some(rec.json());
                         if rec.complete() {
-                            let (tr2, missing) =
+                            let (mut tr2, missing) =
                                 trace_from_triples(&vars, arity, er, &rec.triples)?;
+                            if modulo {
+                                // the identity is then checked modulo the same stated zero sectors
+                                for (_, terms) in tr2.iter_mut() {
+                                    terms.retain(|(p, _)| !zero_fn(p));
+                                }
+                                identity_modulo_zero = true;
+                            }
                             if missing == 0 {
                                 rows_v = RowsV::Verified;
                                 rows_recovered = true;
+                                rows_modulo_zero = modulo;
                                 basis_word = "ordinary (recovered from the carried rows)";
                                 rows_detail = format!(
                                     "v0+rows: every weighted carried row RECOVERED as an exact combination of this tool's ordinary IBP rows at its seed ({}); the identity below is checked on the ordinary rows; the combination denominators join the factor list",
@@ -1042,6 +1074,9 @@ fn check(
         rows_detail = format!("CERT_MALFORMED: {}", malformed.join("; "));
     }
     let rows_verdict = match rows_v {
+        RowsV::Verified if rows_recovered && rows_modulo_zero => {
+            "ROWS_VERIFIED_BY_RECOVERY_MODULO_ZERO_SECTORS"
+        }
         RowsV::Verified if rows_recovered => "ROWS_VERIFIED_BY_RECOVERY",
         RowsV::Verified => "ROWS_VERIFIED",
         RowsV::NotVerified => "ROWS_NOT_INDEPENDENTLY_VERIFIED",
@@ -1069,16 +1104,38 @@ fn check(
             identity_detail = "the certificate carries no trace rows the tool can form".into();
         }
         Some(tr) => {
-            let (ok, nints, diffs) = identity(&vars, tr, &row);
+            let (ok, nints, diffs) = if identity_modulo_zero {
+                // modulo the stated zero sectors (rows recovered modulo them): the row's zero-sector terms dropped too
+                let t0: Option<Vec<i64>> = pre.first().map(|x| x.0.clone());
+                let row2: Vec<(Pat, Rf)> = row
+                    .iter()
+                    .filter(|(p, _)| match (&canon, &t0) {
+                        (Some(c), Some(t)) => {
+                            let s: Pat = p
+                                .iter()
+                                .zip(t)
+                                .map(|(&(sym, v), &ti)| (sym, v + ti))
+                                .collect();
+                            !c.is_zero_sector(&s)
+                        }
+                        _ => true,
+                    })
+                    .cloned()
+                    .collect();
+                identity(&vars, tr, &row2)
+            } else {
+                identity(&vars, tr, &row)
+            };
             identity_verdict = if ok {
                 "IDENTITY_EXACT"
             } else {
                 "IDENTITY_FAIL"
             };
             identity_detail = format!(
-                "{{\"integrals\":{},\"weighted_rows\":{},\"first_differences\":{}}}",
+                "{{\"integrals\":{},\"weighted_rows\":{},\"modulo_zero_sectors\":{},\"first_differences\":{}}}",
                 nints,
                 tr.len(),
+                identity_modulo_zero,
                 jlist(&diffs, |s| jstr(s))
             );
         }
@@ -1206,6 +1263,13 @@ fn check(
             format!("{why} ({}); binding and loci checked", cert.form.name()),
             jstr(&format!("{loci_word}_IF_ROWS")),
         )
+    };
+    let reason = if rows_modulo_zero {
+        format!(
+            "{reason}; rows recovered and identity checked MODULO the stated zero-sector record (see rows.recovery)"
+        )
+    } else {
+        reason
     };
     let reason = if bind.verdict == "BINDING_EQUAL_MODULO" {
         format!(

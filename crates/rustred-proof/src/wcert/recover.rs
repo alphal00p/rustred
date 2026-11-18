@@ -39,6 +39,10 @@ pub struct Recovery {
     pub max_equations: usize,
     pub max_unknowns: usize,
     pub seconds: f64,
+    /// rows recovered only MODULO the stated zero-sector record (integrals in zero sectors dropped on both sides)
+    pub modulo_zero_rows: usize,
+    /// zero-sector terms dropped in those rows (carried row + ordinary rows)
+    pub zero_terms_dropped: usize,
 }
 
 impl Recovery {
@@ -47,7 +51,7 @@ impl Recovery {
     }
     pub fn json(&self) -> String {
         format!(
-            "{{\"weighted_sources\":{},\"recovered\":{},\"by_cache\":{},\"failed\":{},\"failed_first\":[{}],\"max_equations\":{},\"max_unknowns\":{},\"denominators\":{},\"seconds\":{:.3},\"method\":\"exact: A_j = sum_m c_jm O_m(seed_j) solved by Symbolica Matrix::solve_any over Q(n,d) with this tool's ordinary rows, then verified term by term (Symbolica is_zero)\"}}",
+            "{{\"weighted_sources\":{},\"recovered\":{},\"by_cache\":{},\"failed\":{},\"failed_first\":[{}],\"max_equations\":{},\"max_unknowns\":{},\"denominators\":{},\"modulo_zero_rows\":{},\"zero_terms_dropped\":{},\"seconds\":{:.3},\"method\":\"exact: A_j = sum_m c_jm O_m(seed_j) solved by Symbolica Matrix::solve_any over Q(n,d) with this tool's ordinary rows, then verified term by term (Symbolica is_zero)\"}}",
             self.sources,
             self.recovered,
             self.by_cache,
@@ -60,6 +64,8 @@ impl Recovery {
             self.max_equations,
             self.max_unknowns,
             self.dens.len(),
+            self.modulo_zero_rows,
+            self.zero_terms_dropped,
             self.seconds
         )
     }
@@ -188,14 +194,24 @@ fn solve(
     Ok(out)
 }
 
+/// Drop the terms whose integral is in a zero sector; returns the number dropped.
+fn drop_zero(terms: &mut Vec<(Pat, Rf)>, zero: &dyn Fn(&Pat) -> bool) -> usize {
+    let n = terms.len();
+    terms.retain(|(p, _)| !zero(p));
+    n - terms.len()
+}
+
 /// Recover every weighted carried row. `sources[j]` = (basis row, seed); `rows[j]` = the carried row of source j (terms
-/// already parsed); `weights` = (j, w_j), nonzero.
+/// already parsed); `weights` = (j, w_j), nonzero. `zero`: when given (a STATED zero-sector record, raw frame), a row
+/// that is not recovered exactly is tried again with every zero-sector integral dropped on both sides (the producer's
+/// eliminated rows drop them); such rows are counted in `modulo_zero_rows`.
 pub fn recover(
     vars: &Vars,
     sources: &[(i64, Pat)],
     rows: &[Vec<(Pat, Rf)>],
     weights: &[(usize, Rf)],
     er: &Rows,
+    zero: Option<&dyn Fn(&Pat) -> bool>,
 ) -> Recovery {
     let t0 = Instant::now();
     let mut rec = Recovery {
@@ -209,6 +225,8 @@ pub fn recover(
         max_equations: 0,
         max_unknowns: 0,
         seconds: 0.0,
+        modulo_zero_rows: 0,
+        zero_terms_dropped: 0,
     };
     // (basis row, numeric part of the seed) -> (seed, solution)
     type Key = (i64, Vec<Option<i64>>);
@@ -257,6 +275,7 @@ pub fn recover(
             }
         }
         if sol.is_none() {
+            let mut why = String::new();
             match solve(
                 vars,
                 &inst,
@@ -266,15 +285,40 @@ pub fn recover(
             ) {
                 Ok(c) => match verify(vars, &inst, &c, target) {
                     None => {
-                        cache.insert(key, (seed.clone(), c.clone()));
+                        cache.insert(key.clone(), (seed.clone(), c.clone()));
                         sol = Some(c);
                     }
-                    Some(why) => fail(
-                        &mut rec,
-                        format!("{label}: solver result not verified: {why}"),
-                    ),
+                    Some(w) => why = format!("solver result not verified: {w}"),
                 },
-                Err(e) => fail(&mut rec, format!("{label}: {e}")),
+                Err(e) => why = e,
+            }
+            if let (true, Some(z)) = (sol.is_none(), zero) {
+                // modulo the stated zero sectors: drop their integrals on both sides and solve again
+                let mut t2 = target.clone();
+                let mut dropped = drop_zero(&mut t2, z);
+                let mut inst2 = inst.clone();
+                for (_, terms) in inst2.iter_mut() {
+                    dropped += drop_zero(terms, z);
+                }
+                inst2.retain(|(_, t)| !t.is_empty());
+                match solve(
+                    vars,
+                    &inst2,
+                    &t2,
+                    &mut rec.max_equations,
+                    &mut rec.max_unknowns,
+                ) {
+                    Ok(c) if verify(vars, &inst2, &c, &t2).is_none() => {
+                        rec.modulo_zero_rows += 1;
+                        rec.zero_terms_dropped += dropped;
+                        sol = Some(c);
+                    }
+                    Ok(_) => why = format!("{why}; modulo zero sectors: not verified"),
+                    Err(e) => why = format!("{why}; modulo zero sectors: {e}"),
+                }
+            }
+            if sol.is_none() {
+                fail(&mut rec, format!("{label}: {why}"));
             }
         }
         let Some(c) = sol else { continue };
