@@ -182,6 +182,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut write_table = false;
     let (mut check_floor, mut check_ratio) = (None, None);
     let mut given: Option<PathBuf> = None;
+    let (mut zero_sectors, mut symmetry_group): (Option<PathBuf>, Option<PathBuf>) = (None, None);
     let mut i = 0;
     while i < rest.len() {
         let mut one = false;
@@ -222,6 +223,8 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
             }
             "--family" => family = Some(PathBuf::from(flag_value(rest, i)?)),
             "--pieces" => given = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--zero-sectors" => zero_sectors = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--symmetry-group" => symmetry_group = Some(PathBuf::from(flag_value(rest, i)?)),
             "--check-floor" => {
                 check_floor = Some(
                     flag_value(rest, i)?
@@ -276,6 +279,8 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut ck = Checker::new(&checker)?;
     ck.recover_rows = recover;
     ck.family = family.clone();
+    ck.zero_sectors = zero_sectors;
+    ck.symmetry_group = symmetry_group;
     if let Some(f) = check_floor {
         ck.floor_s = f;
     }
