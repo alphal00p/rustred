@@ -59,7 +59,9 @@ const REVIEWED: &[(&str, usize)] = &[
     ("src/launch/guard.rs", 7),
     ("src/launch/hunt.rs", 3),
     ("src/launch/idlock.rs", 6),
-    ("src/launch/real.rs", 11),
+    // procfix7 round 17: reap_and_untrack's zombie reap is now `if matches!(c.try_wait(), Ok(Some(_)))` (the reap is
+    // recorded for a neighbour's proof; an Err leaves the zombie to reap_in_background as before): 11 -> 10
+    ("src/launch/real.rs", 10),
     ("src/launch/sweep.rs", 1),
     ("src/resources/children.rs", 1),
     ("src/resources/scan.rs", 1),

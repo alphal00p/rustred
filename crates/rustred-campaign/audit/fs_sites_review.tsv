@@ -140,7 +140,7 @@ src/launch/real.rs	V	if let Some(d) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS
 src/launch/real.rs	V	let path = std::env::var_os("PATH")?;	PATH search for systemd-run / true (execvp semantics)
 src/launch/real.rs	V	match std::env::var_os("XDG_RUNTIME_DIR") {	the user manager address for systemd-run (unset = derived from the uid, typed probe)
 src/launch/real.rs	V	match std::env::var_os(name) {	the job environment (contract variables; an unset one is not passed)
-src/launch/real.rs	W	let _ = c.try_wait(); // a zombie: immediate	waitid / try_wait of an own child (peek_exit typed; a zombie probe child)
+src/launch/real.rs	W	if matches!(c.try_wait(), Ok(Some(_))) {	procfix7 round 17: reap_and_untrack reaps OUR OWN leader (its exit already observed, a zombie: immediate) under the registry lock and records the reap only on Ok(Some); Err or Ok(None) leaves the child to reap_in_background as before
 src/launch/real.rs	W	libc::waitid(	waitid / try_wait of an own child (peek_exit typed; a zombie probe child)
 src/launch/sweep.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)	test builds only (failpoint hooks)
 src/launch/sweep.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {	test builds only (failpoint hooks)
@@ -222,3 +222,4 @@ src/supervisor/manager.rs	D	return match std::fs::remove_file(&p) {	round 14 (M4
 src/launch/real.rs	V	if let Some(p) = std::env::var_os("PATH") {	round 14 (M3): the manager probe passes the supervisor's PATH when it has one (a rehearsal's fake systemctl is a script); absent: systemctl runs with the systemd environment only, as before
 src/cli/mod.rs	D	let back = crate::atomic::write_json_atomic(&cdir.join(crate::lock::OWNER_FILE), previous);	procfix7 round 16 (gate17 m17-units-takeover): units clear writes a crashed supervisor's lock record BACK before it refuses (nothing cleared either way); its Err is printed with the refusal ("WARNING: its lock record could not be restored ...: the next start sees no stale lock")
 src/supervisor/mod.rs	F	match control_of(crate::fsx::read("supervisor.control", &p)) {	procfix7 round 16 (int8b-gate review defect 3): control_of maps Read::Failed to Unreadable (the request stays, read again next tick, logged), Absent to skipped, Content to a request or unparsable (refused, archived): an unreadable request is never archived or lost (unit-tested)
+src/resources/scan.rs	X	super::read_stat(p).is_ok_and(|st| st.start_ticks == s && !st.is_dead())	procfix7 round 17: prunes the owner records (pid, start) of processes that ended, only when the table is full (65,536); a failed read drops the record: its process loses the exemption from the hand-off rule (stays a suspect: conservative, liveness only); no signal depends on it

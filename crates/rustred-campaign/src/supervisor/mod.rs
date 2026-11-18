@@ -8589,6 +8589,28 @@ mod tests {
         assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
         assert!(!r.attention);
         assert!(is_resource_requeue("lost (row 15s)"));
+        // round 17: the exit's line on the end-of-job proofs (counts, the longest, the kinds of their waits by count)
+        let mut tally = ProofTally::default();
+        assert_eq!(
+            tally.summary(),
+            "end-of-job proofs: 0, longer than 10 s: 0 (longest 0.0 s)"
+        );
+        tally.proofs = 3;
+        tally.over = 1;
+        tally.max_s = 12.5;
+        tally.max_of = "N2.i0158.L0-t0:a1".into();
+        tally.why = vec![crate::launch::ProofWait {
+            kind: "proof pass inconclusive: children [..] ended during the pass (hand-off?)".into(),
+            count: 4,
+            example: "proof pass inconclusive: children [57 (gone before its read: no identity)] ended during the pass (hand-off?)".into(),
+        }];
+        let s = tally.summary();
+        assert!(
+            s.starts_with(
+                "end-of-job proofs: 3, longer than 10 s: 1 (longest 12.5 s, N2.i0158.L0-t0:a1); why"
+            ) && s.contains("x4 (e.g. proof pass inconclusive: children [57 (gone before its read"),
+            "{s}"
+        );
         // round 16 (int8b-gate defect 3): an unreadable control file is never "unparsable" (archived, lost): it is kept
         let eio = std::io::Error::from_raw_os_error(libc::EIO);
         assert!(matches!(
