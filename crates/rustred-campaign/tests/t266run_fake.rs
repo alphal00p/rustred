@@ -655,12 +655,22 @@ fn a_refused_or_dropped_routing_ends_typed_and_a_new_attempt_closes() {
 // `memory_cap_exceeded` (never evidence: no final verdict, the node is held); a session with a higher `--mem-cap` (same
 // campaign, same identity) reopens it and the run ends exactly as an uninterrupted run with the higher cap.
 
+/// How long a solve child of [`setup_mem`] works per key (ms): long enough to be SAMPLED above its cap. In the
+/// namespaced test the memory cap is enforced by RSS sampling (marker-only containment, no cgroup): the supervisor
+/// samples every `resources.sampler_ms` = 300 ms here (closeloop_support campaign_spec; the product default is
+/// 1000 ms, supervisor/spec.rs d_sampler_ms) and one scan walks the host's /proc, which takes seconds under load.
+/// With 1500 ms a child was above the cap for ~1.4 s and could end UNSAMPLED (int8b gate: 5 of 24 stress runs, the
+/// session then ended 0 instead of ATTENTION). 6 s per key = 20 sampling periods (6 of the product default). The
+/// product is unchanged; only uncapped runs of this test take longer (the capped children are killed at a sample).
+const MEM_FAKE_MS: u64 = 6000;
+
 /// The toy whose solve children grow to 300 MB of resident memory under a configured cap of 150 MB.
 fn setup_mem(tag: &str) -> (Tmp, PathBuf, PathBuf) {
     setup_tweak(tag, 3, Some(2), true, 1500, false, |node| {
         node["solve"]["cap_bytes"] = json!(150_000_000u64);
         node["solve"]["expected_peak_bytes"] = json!(64_000_000u64);
         node["solve"]["fake"]["rss_bytes"] = json!(300_000_000u64);
+        node["solve"]["fake"]["ms"] = json!(MEM_FAKE_MS);
     })
 }
 
