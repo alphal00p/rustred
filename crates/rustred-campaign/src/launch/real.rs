@@ -350,6 +350,7 @@ pub fn scope_unit_state(unit: &str) -> Result<ScopeUnitState, String> {
     ]
     .map(String::from)
     .to_vec();
+    note_manager_call(ManagerCall::Show);
     let out = stdout_bounded(exe, args, Duration::from_secs(10))
         .map_err(|e| format!("systemctl show: {e}"))?;
     let t = String::from_utf8_lossy(&out);
@@ -430,6 +431,7 @@ pub fn scope_reset_failed(unit: &str) -> Result<(), String> {
     exact_unit_name(unit)?;
     let exe = which("systemctl").ok_or("systemctl not on PATH")?;
     let name = format!("{unit}.scope");
+    note_manager_call(ManagerCall::Reset);
     match run_bounded(Duration::from_secs(10), move || {
         let mut c = Command::new(&exe);
         c.args(["--user", "reset-failed", "--", &name])
@@ -449,6 +451,112 @@ pub fn scope_reset_failed(unit: &str) -> Result<(), String> {
             Err("systemctl reset-failed: no answer within 10 s".into())
         }
         crate::resources::Bounded::SpawnFailed(e) => Err(format!("systemctl reset-failed: {e}")),
+    }
+}
+
+/// procfix7 round 14 (host step 3, M4): `systemctl --user stop -- <unit>.scope` of ONE exact unit name, bounded (10 s).
+/// The caller ([`crate::supervisor`]'s leftover list) stops only a scope of THIS campaign whose state it has just read
+/// and whose cgroup the kernel shows absent or not populated: an empty scope (no process can receive anything).
+pub fn scope_stop(unit: &str) -> Result<(), String> {
+    if systemd_units_unavailable() {
+        return Err("inside a private namespace: no systemd unit".into());
+    }
+    exact_unit_name(unit)?;
+    let exe = which("systemctl").ok_or("systemctl not on PATH")?;
+    let name = format!("{unit}.scope");
+    note_manager_call(ManagerCall::Stop);
+    match run_bounded(Duration::from_secs(10), move || {
+        let mut c = Command::new(&exe);
+        c.args(["--user", "stop", "--", &name])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        for (k, v) in systemd_env() {
+            c.env(k, v);
+        }
+        c.status()
+    }) {
+        crate::resources::Bounded::Done(Ok(s)) if s.success() => Ok(()),
+        crate::resources::Bounded::Done(Ok(s)) => Err(format!("systemctl stop: {s}")),
+        crate::resources::Bounded::Done(Err(e)) => Err(format!("systemctl stop: {e}")),
+        crate::resources::Bounded::TimedOut => Err("systemctl stop: no answer within 10 s".into()),
+        crate::resources::Bounded::SpawnFailed(e) => Err(format!("systemctl stop: {e}")),
+    }
+}
+
+/// procfix7 round 14 (host step 3, M3): the kinds of our calls to the user manager, counted ([`manager_calls`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ManagerCall {
+    /// `systemd-run --user --scope` of a job (StartTransientUnit).
+    Run,
+    /// `systemctl --user show` of a unit.
+    Show,
+    /// `systemctl --user reset-failed` of a unit.
+    Reset,
+    /// `systemctl --user stop` of a unit (leftover list only).
+    Stop,
+    /// The manager probe (`systemctl --user show -p Version --value`).
+    Probe,
+}
+
+static MANAGER_CALLS: [std::sync::atomic::AtomicU64; 5] = [
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+    std::sync::atomic::AtomicU64::new(0),
+];
+
+/// Count one call to the user manager.
+pub fn note_manager_call(k: ManagerCall) {
+    MANAGER_CALLS[k as usize].fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Our calls to the user manager since the process started: [run, show, reset, stop, probe].
+pub fn manager_calls() -> [u64; 5] {
+    std::array::from_fn(|k| MANAGER_CALLS[k].load(std::sync::atomic::Ordering::Relaxed))
+}
+
+/// procfix7 round 14 (host step 3, M3): ONE probe of the user manager, BLOCKING (the caller runs it on its own worker and
+/// never starts a second while one is in flight: a stalled manager holds at most one probe of ours): `systemctl --user
+/// show -p Version --value`; Ok(latency) when it answered with exit 0. `allow_in_namespace`: also inside a private
+/// namespace (the spec's `resources.manager_probe = "on"`: a namespaced rehearsal against a fake `systemctl`). Test
+/// builds under `manager_stall:1`: the emulated manager (no call).
+pub fn manager_probe(allow_in_namespace: bool) -> Result<Duration, String> {
+    if let Some(answers) = test_manager_answers() {
+        return if answers {
+            Ok(Duration::ZERO)
+        } else {
+            Err("the emulated manager stalls (test)".into())
+        };
+    }
+    if in_private_namespace() && !allow_in_namespace && !test_fake_systemd() {
+        return Err("inside a private namespace: no user manager to probe".into());
+    }
+    let exe = which("systemctl").ok_or("systemctl not on PATH")?;
+    note_manager_call(ManagerCall::Probe);
+    let t0 = Instant::now();
+    let (mut rd, wr) = std::io::pipe().map_err(|e| format!("pipe: {e}"))?;
+    let st = {
+        let mut c = Command::new(&exe);
+        c.args(["--user", "show", "-p", "Version", "--value"])
+            .env_clear()
+            .stdin(Stdio::null())
+            .stdout(wr)
+            .stderr(Stdio::null());
+        for (k, v) in systemd_env() {
+            c.env(k, v);
+        }
+        c.status().map_err(|e| format!("systemctl: {e}"))?
+        // `c` and its copy of the write end are dropped here
+    };
+    let mut out = Vec::new();
+    std::io::Read::read_to_end(&mut rd, &mut out).map_err(|e| format!("read: {e}"))?;
+    if st.success() && !out.is_empty() {
+        Ok(t0.elapsed())
+    } else {
+        Err(format!("systemctl show -p Version: {st}"))
     }
 }
 
@@ -756,6 +864,95 @@ pub fn test_fake_systemd() -> bool {
 pub fn systemd_units_unavailable() -> bool {
     in_private_namespace() && !test_fake_systemd()
 }
+
+/// procfix7 round 14 (host step 3, M2): what the KERNEL says about a scope launch whose scope is not verified yet. No
+/// manager call: the pinned (unreaped) leader's `/proc/<pid>/exe`, read FIRST, and its `/proc/<pid>/cgroup`, read
+/// SECOND. systemd-run execs the job only after the user manager has moved it into the scope, so "the executable was the
+/// launcher, then the cgroup is still the supervisor's own" proves that the job program had not started at the second
+/// read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LaunchState {
+    /// Not a scope launch waiting for the manager (no scope requested, the scope verified, the leader ended or not
+    /// pinned): nothing to wait for.
+    NotApplicable,
+    /// PENDING: the leader is still the launcher (`systemd-run`, by its executable) and still in the supervisor's OWN
+    /// cgroup: the user manager has not created / joined the scope yet; NOTHING of the job runs. A host condition.
+    Pending,
+    /// Not verified and not pending (the leader exec'd outside the scope, sits in a third cgroup, or a read failed): the
+    /// job condition (the 10-s rule applies from the moment the attempt stopped being pending).
+    Unverified(String),
+}
+
+/// procfix7 round 14 (M2): the pure decision from the two kernel reads (unit-tested on recorded inputs). `exe`: the
+/// leader's `/proc/<pid>/exe` (read first); `cgroup_text`: its `/proc/<pid>/cgroup` (read second); `launcher`: the
+/// canonical path of the systemd-run this launch executed; `own`: the supervisor's own cgroup-v2 path (`0::<own>`).
+pub fn launch_state_from(exe: &Path, cgroup_text: &str, launcher: &Path, own: &str) -> LaunchState {
+    let line = cgroup_text
+        .lines()
+        .find_map(|l| l.strip_prefix("0::"))
+        .map(str::trim_end);
+    if exe != launcher {
+        return LaunchState::Unverified(format!(
+            "the leader runs {} (not the launcher {})",
+            exe.display(),
+            launcher.display()
+        ));
+    }
+    match line {
+        Some(l) if l == own => LaunchState::Pending,
+        Some(l) => LaunchState::Unverified(format!(
+            "the launcher is in {l}, not in the supervisor's cgroup {own}"
+        )),
+        None => LaunchState::Unverified("no cgroup-v2 line for the leader".into()),
+    }
+}
+
+/// The supervisor's own cgroup-v2 path (`0::<path>`), read now; None when unknown.
+fn own_cgroup_rel() -> Option<String> {
+    let t = crate::resources::procfs::sys()
+        .cgroup_text(std::process::id(), Duration::from_millis(200))
+        .ok()?;
+    t.lines()
+        .find_map(|l| l.strip_prefix("0::"))
+        .map(|l| l.trim_end().to_string())
+}
+
+/// TEST BUILDS ONLY (procfix7 round 14): `manager_stall:1` in RR_CAMPAIGN_FAILPOINT emulates scope launches inside a
+/// namespace against a user manager that stalls while the file named by `RR_TEST_MANAGER_STALL` exists: every job
+/// requests the unit [`TEST_STALL_UNIT`]; while the file exists its containment is `Pending` and its launch state
+/// `Pending`; afterwards its scope reads as verified (`Scope`, a directory that does not exist). The supervisor's manager
+/// probe answers exactly when the file does not exist ([`test_manager_answers`]). Release builds: never.
+pub fn test_manager_stall() -> Option<PathBuf> {
+    #[cfg(debug_assertions)]
+    {
+        static ON: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
+        ON.get_or_init(|| {
+            let fp = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+            if !fp.split(',').any(|p| p.trim() == "manager_stall:1") {
+                return None;
+            }
+            std::env::var_os("RR_TEST_MANAGER_STALL").map(PathBuf::from)
+        })
+        .clone()
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
+/// TEST BUILDS ONLY: under `manager_stall:1`, does the emulated manager answer (its stall file absent)? None: no
+/// emulation.
+pub fn test_manager_answers() -> Option<bool> {
+    let f = test_manager_stall()?;
+    Some(matches!(
+        crate::fsx::presence("real.program", &f),
+        crate::fsx::Presence::Absent
+    ))
+}
+
+/// The requested unit name under the test failpoint `manager_stall:1`.
+pub const TEST_STALL_UNIT: &str = "rr-fp-stall";
 
 /// The requested unit name under the test failpoint `scope_pending:1`.
 #[cfg_attr(not(debug_assertions), allow(dead_code))]
@@ -1505,6 +1702,10 @@ impl ChildLauncher for RealLauncher {
             match cmd.spawn() {
                 Ok(c) => {
                     reg.insert(c.id());
+                    if in_scope {
+                        // round 14 (M3): one StartTransientUnit of ours
+                        note_manager_call(ManagerCall::Run);
+                    }
                     Ok(c)
                 }
                 Err(e) => Err(e),
@@ -1571,6 +1772,15 @@ impl ChildLauncher for RealLauncher {
         );
         h.enumeration = self.setup.enumeration;
         h.scope_unit = spec.scope_unit.clone();
+        if matches!(h.mechanism, MemoryMechanism::SystemdScope { .. }) {
+            // round 14 (M2): what the pending decision compares the leader with
+            h.launcher_exe = self
+                .setup
+                .systemd_run
+                .as_ref()
+                .and_then(|p| crate::fsx::canonicalize("real.program", p).ok());
+            h.own_cgroup = own_cgroup_rel();
+        }
         h.barrier = barrier_w;
         h.barrier_report = report_r;
         Ok(h)
@@ -1713,6 +1923,10 @@ pub struct RealChild {
     scope: Option<ScopeRef>,
     /// The deterministic unit name the scope was created with (gate3 M5), if any.
     scope_unit: Option<String>,
+    /// procfix7 round 14 (M2): the canonical path of the systemd-run this scope launch executed, and the supervisor's
+    /// own cgroup-v2 path at the launch (the pending decision, [`LaunchState`]).
+    launcher_exe: Option<PathBuf>,
+    own_cgroup: Option<String>,
     /// procfix7 round 9 (gate13 G13-M1): the kernel's record of the cgroup the leader exited in, read once when its exit
     /// is first observed (still unreaped), if a scope was requested and not verified before.
     exit_scope: Option<ExitScope>,
@@ -1783,6 +1997,8 @@ impl RealChild {
             scope_dir: None,
             scope: None,
             scope_unit: None,
+            launcher_exe: None,
+            own_cgroup: None,
             exit_scope: None,
             peak_rss: 0,
             cpu_ticks: 0,
@@ -1805,6 +2021,16 @@ impl RealChild {
     pub fn containment(&mut self) -> Containment {
         if test_scope_pending().is_some() {
             return Containment::Pending;
+        }
+        if let Some(answers) = test_manager_answers() {
+            return if answers {
+                Containment::Scope(
+                    format!("{TEST_STALL_UNIT}.scope"),
+                    PathBuf::from(format!("/nonexistent/{TEST_STALL_UNIT}.scope")),
+                )
+            } else {
+                Containment::Pending
+            };
         }
         match &self.mechanism {
             MemoryMechanism::SystemdScope { .. } => {
@@ -1838,9 +2064,58 @@ impl RealChild {
         if let Some(u) = test_scope_pending() {
             return Some(u);
         }
+        if test_manager_stall().is_some() {
+            return Some(TEST_STALL_UNIT);
+        }
         matches!(self.mechanism, MemoryMechanism::SystemdScope { .. })
             .then_some(self.scope_unit.as_deref())
             .flatten()
+    }
+
+    /// procfix7 round 14 (host step 3, M2): the launch state of a scope launch not verified yet ([`LaunchState`]), from
+    /// the kernel only (the pinned leader's exe, then its cgroup). Never a manager call; never a signal.
+    pub fn launch_state(&mut self) -> LaunchState {
+        if let Some(answers) = test_manager_answers() {
+            return if answers || self.exit.is_some() {
+                LaunchState::NotApplicable
+            } else {
+                LaunchState::Pending
+            };
+        }
+        if !matches!(
+            self.mechanism,
+            MemoryMechanism::SystemdScope { cgroup: None }
+        ) || self.scope_dir.is_some()
+            || self.exit.is_some()
+            || !self.pinned()
+        {
+            return LaunchState::NotApplicable;
+        }
+        let (Some(launcher), Some(own)) = (self.launcher_exe.clone(), self.own_cgroup.clone())
+        else {
+            return LaunchState::Unverified(
+                "the launcher's executable or the supervisor's cgroup is unknown".into(),
+            );
+        };
+        let root = crate::resources::procfs::sys();
+        let exe = match root.exe(self.sid) {
+            Ok(e) => e,
+            Err(e) => return LaunchState::Unverified(format!("exe of the leader: {e}")),
+        };
+        let text = match root.cgroup_text(self.sid, Duration::from_millis(200)) {
+            Ok(t) => t,
+            Err(e) => return LaunchState::Unverified(format!("cgroup of the leader: {e}")),
+        };
+        launch_state_from(&exe, &text, &launcher, &own)
+    }
+
+    /// procfix7 round 14 (M2): did the leader EXIT in the supervisor's own cgroup (the kernel's record at its exit:
+    /// systemd-run never moved, so it never exec'd the job)? False when unknown.
+    pub fn exited_in_own_cgroup(&self) -> bool {
+        match (&self.exit_scope, &self.own_cgroup) {
+            (Some(ExitScope::Elsewhere(line)), Some(own)) => line.trim_end() == own,
+            _ => false,
+        }
     }
 
     /// procfix7 round 8b: has the job's leader exited (its exit observed; the zombie may still be pinned)?
@@ -2898,6 +3173,52 @@ pub fn barrier_shim(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// procfix7 round 14 (host step 3, M2): the pending decision on RECORDED inputs (host step 3: the supervisor's
+    /// service cgroup, systemd-run of systemd 261 in the nix store, the job's scope under app.slice).
+    #[test]
+    fn a_launcher_still_in_our_cgroup_is_pending_and_anything_else_is_not() {
+        let launcher =
+            Path::new("/nix/store/0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-systemd-261/bin/systemd-run");
+        let own =
+            "/user.slice/user-1002.slice/user@1002.service/app.slice/hoststep-fake1-045548.service";
+        let scope = "/user.slice/user-1002.slice/user@1002.service/app.slice/rr-host-fake-1.e8090c684f269eb5-N1.i0058.L0-t0_a1-e284ca118b12afdd.scope";
+        let txt = |p: &str| format!("0::{p}\n");
+        assert_eq!(
+            launch_state_from(launcher, &txt(own), launcher, own),
+            LaunchState::Pending
+        );
+        // moved into its scope: no longer pending (the containment check verifies it)
+        assert!(
+            matches!(launch_state_from(launcher, &txt(scope), launcher, own), LaunchState::Unverified(w) if w.contains("not in the supervisor's cgroup"))
+        );
+        // exec'd outside its scope (the job program in our cgroup): the job condition
+        let job = Path::new("/shared/x/bin/rr_fake_child");
+        assert!(
+            matches!(launch_state_from(job, &txt(own), launcher, own), LaunchState::Unverified(w) if w.contains("not the launcher"))
+        );
+        // the launcher's file replaced while it runs: not the recorded launcher
+        let deleted = Path::new(
+            "/nix/store/0aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-systemd-261/bin/systemd-run (deleted)",
+        );
+        assert!(matches!(
+            launch_state_from(deleted, &txt(own), launcher, own),
+            LaunchState::Unverified(_)
+        ));
+        // a third cgroup, no cgroup-v2 line
+        assert!(matches!(
+            launch_state_from(launcher, &txt("/elsewhere"), launcher, own),
+            LaunchState::Unverified(_)
+        ));
+        assert!(
+            matches!(launch_state_from(launcher, "1:name=systemd:/x\n", launcher, own), LaunchState::Unverified(w) if w.contains("no cgroup-v2"))
+        );
+        // a prefix of our cgroup is not ours
+        assert!(matches!(
+            launch_state_from(launcher, &txt(&format!("{own}/sub")), launcher, own),
+            LaunchState::Unverified(_)
+        ));
+    }
 
     /// procfix7 round 9 (gate13 G13-M1): systemd-run's start acknowledgment in its documented forms, each a whole line
     /// naming EXACTLY the requested unit; every near miss is no acknowledgment.

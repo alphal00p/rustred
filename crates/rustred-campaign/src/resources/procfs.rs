@@ -121,6 +121,8 @@ pub enum Kind {
     /// The owner of `/proc/<pid>` (its effective uid) and the openability checks.
     PidDir,
     Cwd,
+    /// procfix7 round 14 (M2): `/proc/<pid>/exe`.
+    Exe,
     /// `/proc/<pid>/fd` listings and links.
     Fd,
     Statm,
@@ -131,7 +133,7 @@ pub enum Kind {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 16] = [
+    pub const ALL: [Kind; 17] = [
         Kind::Listing,
         Kind::Tasks,
         Kind::Stat,
@@ -143,6 +145,7 @@ impl Kind {
         Kind::Children,
         Kind::PidDir,
         Kind::Cwd,
+        Kind::Exe,
         Kind::Fd,
         Kind::Statm,
         Kind::Smaps,
@@ -163,6 +166,7 @@ impl Kind {
             Kind::Children => "children",
             Kind::PidDir => "piddir",
             Kind::Cwd => "cwd",
+            Kind::Exe => "exe",
             Kind::Fd => "fd",
             Kind::Statm => "statm",
             Kind::Smaps => "smaps",
@@ -1152,6 +1156,12 @@ impl ProcRoot {
         self.read_link(Kind::Cwd, Some(pid), &format!("{pid}/cwd"))
     }
 
+    /// procfix7 round 14 (M2): `/proc/<pid>/exe`, the executable the process runs (the kernel's canonical path; a
+    /// replaced file reads with a ` (deleted)` suffix).
+    pub fn exe(&self, pid: u32) -> ProcResult<PathBuf> {
+        self.read_link(Kind::Exe, Some(pid), &format!("{pid}/exe"))
+    }
+
     /// The targets of every descriptor of `pid` (Gone: the process is gone; a descriptor closed while listed is left
     /// out).
     pub fn fd_targets(&self, pid: u32) -> ProcResult<Vec<PathBuf>> {
@@ -1868,6 +1878,7 @@ mod tests {
                 Kind::Children => format!("{:?}", r.children(pid, pid)?),
                 Kind::PidDir => format!("{} {:?}", r.owner_uid(pid)?, r.environ_access(pid)),
                 Kind::Cwd => r.cwd(pid)?.display().to_string(),
+                Kind::Exe => r.exe(pid)?.display().to_string(),
                 Kind::Fd => format!("{}", !r.fd_targets(pid)?.is_empty()),
                 Kind::Statm => format!("{}", r.statm_rss(pid)? > 0),
                 Kind::Smaps => format!("{}", r.smaps_pss(pid, Duration::from_secs(5))? > 0),

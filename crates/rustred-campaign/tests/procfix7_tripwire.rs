@@ -64,6 +64,9 @@ const REVIEWED: &[(&str, usize)] = &[
     ("src/resources/children.rs", 1),
     ("src/resources/scan.rs", 1),
     ("src/supervisor/failpoint.rs", 1),
+    // procfix7 round 14 (M3): the manager probe's worker sends its one answer; the receiver is gone only when the
+    // supervisor itself ends
+    ("src/supervisor/manager.rs", 1),
     ("src/supervisor/mod.rs", 16),
     ("src/supervisor/workdir.rs", 3),
 ];

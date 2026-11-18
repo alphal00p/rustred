@@ -64,6 +64,10 @@ pub use real::{
     scope_reset_failed, scope_unit_state, set_not_dumpable, systemd_units_unavailable,
     test_fake_systemd,
 };
+pub use real::{
+    LaunchState, ManagerCall, TEST_STALL_UNIT, launch_state_from, manager_calls, manager_probe,
+    note_manager_call, scope_stop, test_manager_answers, test_manager_stall,
+};
 pub use sweep::{LeftMarked, Narrowing, SweepReport, SweepSpec};
 
 use crate::resources::{CampaignMarker, EscapeeRecord, MARKER_VAR, ProcessIdentity, SessionUsage};

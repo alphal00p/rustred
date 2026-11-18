@@ -174,6 +174,20 @@ pub struct Resources {
     /// would bring back the never-ending quarantine of gate7 MJ-1).
     #[serde(default = "d_unproven_end_limit")]
     pub unproven_end_limit_s: u64,
+    /// procfix7 round 14 (host step 3, M3): how long the run may wait for a user manager that does not answer (the
+    /// manager gate closed: no launch) before it drains and stops with exit 69 ("manager unavailable"). Default 900;
+    /// 10 ..= [`MAX_MANAGER_WAIT_LIMIT_S`].
+    #[serde(default = "d_manager_wait_limit")]
+    pub manager_wait_limit_s: u64,
+    /// procfix7 round 14 (M2 / M3): a scope launch still PENDING (the launcher waiting for the manager, decided from the
+    /// kernel) longer than this closes the manager gate. Default 5; 1 ..= 600.
+    #[serde(default = "d_scope_pending_warn")]
+    pub scope_pending_warn_s: u64,
+    /// procfix7 round 14 (M3): the manager probe: "auto" (default: probe when job scopes are used), "on" (also inside a
+    /// private namespace, against the `systemctl` on PATH: a rehearsal with a fake manager), "off" (never; the gate
+    /// then closes only on pending launches).
+    #[serde(default = "d_manager_probe")]
+    pub manager_probe: String,
     /// Allow running on a kernel without pidfd (signals then use the documented weaker path). Default false: refused.
     #[serde(default)]
     pub allow_no_pidfd: bool,
@@ -209,6 +223,21 @@ fn d_sampler_ms() -> u64 {
 }
 fn d_start_timeout() -> u64 {
     60
+}
+
+/// The largest `resources.manager_wait_limit_s` a spec may set (one day).
+pub const MAX_MANAGER_WAIT_LIMIT_S: u64 = 86_400;
+
+fn d_manager_wait_limit() -> u64 {
+    900
+}
+
+fn d_scope_pending_warn() -> u64 {
+    5
+}
+
+fn d_manager_probe() -> String {
+    "auto".into()
 }
 
 /// The largest `resources.unproven_end_limit_s` a spec may set (one day).
@@ -453,6 +482,24 @@ impl CampaignSpec {
         }
         if self.resources.max_jobs == 0 {
             return Err("resources.max_jobs is 0".into());
+        }
+        if !(10..=MAX_MANAGER_WAIT_LIMIT_S).contains(&self.resources.manager_wait_limit_s) {
+            return Err(format!(
+                "resources.manager_wait_limit_s {}: 10 ..= {MAX_MANAGER_WAIT_LIMIT_S} (one day)",
+                self.resources.manager_wait_limit_s
+            ));
+        }
+        if !(1..=600).contains(&self.resources.scope_pending_warn_s) {
+            return Err(format!(
+                "resources.scope_pending_warn_s {}: 1 ..= 600",
+                self.resources.scope_pending_warn_s
+            ));
+        }
+        if !matches!(self.resources.manager_probe.as_str(), "auto" | "on" | "off") {
+            return Err(format!(
+                "resources.manager_probe {:?}: \"auto\", \"on\" or \"off\"",
+                self.resources.manager_probe
+            ));
         }
         if !(1..=MAX_UNPROVEN_END_LIMIT_S).contains(&self.resources.unproven_end_limit_s) {
             return Err(format!(

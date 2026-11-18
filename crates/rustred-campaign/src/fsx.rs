@@ -142,6 +142,8 @@ pub const SITES: &[&str] = &[
     "real.program",
     // procfix7 round 9: the job's stderr read for systemd-run's start acknowledgment (supervisor scope_end)
     "job.stderr",
+    // procfix7 round 14 (host step 3, M4): the campaign directory's leftover-unit list
+    "leftover",
 ];
 
 fn is_absent(e: &io::Error) -> bool {

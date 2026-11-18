@@ -11,6 +11,7 @@
 #![deny(clippy::let_underscore_must_use, unused_must_use)]
 pub mod failpoint;
 pub mod identity;
+pub(crate) mod manager;
 pub mod orphans;
 pub mod result;
 pub mod spec;
@@ -86,6 +87,9 @@ pub mod exit {
     /// The SUPERVISOR ran out of a resource it needs to launch (EMFILE, ENFILE, ENOMEM, EAGAIN) a bounded number of times
     /// in a row (gate-B M3): stopped cleanly; free the resource (e.g. `ulimit -n`) and run the same command.
     pub const RESOURCES: i32 = 71;
+    /// procfix7 round 14 (host step 3, M3): the user manager did not answer for `resources.manager_wait_limit_s`: the
+    /// run drained and stopped (sysexits' EX_UNAVAILABLE).
+    pub const MANAGER_UNAVAILABLE: i32 = 69;
     pub const DISK_FULL: i32 = 75;
     pub const DISK_FLOOR: i32 = 76;
     pub const SIGHUP: i32 = 129;
@@ -165,6 +169,9 @@ pub enum RunExit {
     Resources(String),
     /// Stopped for an operator decision (execution-unknown attempts block the remaining work).
     Attention(String),
+    /// procfix7 round 14 (M3): the user manager did not answer for too long (exit 69); a host condition, never a verdict
+    /// about the scope mechanism or a job.
+    ManagerUnavailable(String),
 }
 
 /// procfix7 round 14 (M1): the human reason of a stop exit (diagnostics; ledger note `stop_decided`).
@@ -177,7 +184,8 @@ fn run_exit_text(e: &RunExit) -> String {
         | RunExit::BinaryChanged(m)
         | RunExit::Moved(m)
         | RunExit::FinishedOpen(m)
-        | RunExit::FinishedError(m) => m.clone(),
+        | RunExit::FinishedError(m)
+        | RunExit::ManagerUnavailable(m) => m.clone(),
         other => format!("{other:?}"),
     }
 }
@@ -197,6 +205,7 @@ impl RunExit {
             RunExit::Internal(_) => exit::INTERNAL,
             RunExit::Resources(_) => exit::RESOURCES,
             RunExit::Attention(_) => exit::ATTENTION,
+            RunExit::ManagerUnavailable(_) => exit::MANAGER_UNAVAILABLE,
         }
     }
 }
@@ -339,6 +348,12 @@ struct Child {
     containment_noted: bool,
     /// procfix7 round 6 (gate10 m10-5): consecutive failed polls of this child (waitid / pidfd errors): bounded.
     poll_failures: u32,
+    /// procfix7 round 14 (host step 3, M2): the scope launch is PENDING since (the launcher waiting for the user manager,
+    /// decided from the kernel; `launch::LaunchState`); None: not pending at the latest look.
+    pending_since: Option<Instant>,
+    /// procfix7 round 14 (M2): the 10-s verification window runs from here: the launch, or the last moment the attempt
+    /// was seen pending (its scope's creation follows that moment).
+    verify_from: Instant,
 }
 
 /// A marker sweep running on a helper thread (never on the control loop: gate-A m-4).
@@ -495,6 +510,12 @@ pub struct Supervisor {
     /// delivered, ends, notes) is still written to the ledger. Before round 14 such stops set `ledger_dead`, and every
     /// later record was refused (host step 3: 21 delivered signals reached only the intent log).
     stop_exit: Option<RunExit>,
+    /// procfix7 round 14 (host step 3, M3): the user-manager gate (no launch while the manager does not answer).
+    gate: manager::ManagerGate,
+    /// procfix7 round 14 (M3): our manager calls at the start of the current minute (per-minute report).
+    calls_minute: (Instant, [u64; 5]),
+    /// procfix7 round 14 (M2): attempts whose launcher ended while pending (the program never ran), for settle.
+    never_ran: BTreeMap<(String, u32), String>,
     control_stop: bool,
     disk_floor_hit: bool,
     /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
@@ -1468,6 +1489,13 @@ impl Supervisor {
         } else {
             None
         };
+        // procfix7 round 14 (M3): probe the user manager when job scopes are used ("auto"), always ("on": also a
+        // namespaced rehearsal against a fake systemctl), never ("off"); the test emulation `manager_stall:1` too
+        let probing = match opts.spec.resources.manager_probe.as_str() {
+            "on" => true,
+            "off" => false,
+            _ => launcher.setup().systemd_run.is_some(),
+        } || crate::launch::test_manager_stall().is_some();
         Ok(Supervisor {
             cdir,
             work_root,
@@ -1495,6 +1523,9 @@ impl Supervisor {
             launch_seq: 0,
             ledger_dead: None,
             stop_exit: None,
+            gate: manager::ManagerGate::new(probing, opts.spec.resources.manager_probe == "on"),
+            calls_minute: (Instant::now(), crate::launch::manager_calls()),
+            never_ran: BTreeMap::new(),
             control_stop: false,
             disk_floor_hit: false,
             fsize_stop: false,
@@ -3424,6 +3455,159 @@ impl Supervisor {
         }
     }
 
+    /// procfix7 round 14 (host step 3, M3): one tick of the user-manager gate: the oldest PENDING scope launch, the probe,
+    /// the notes of a closure / reopening, the per-minute count of our manager calls, and the bounded wait: closed longer
+    /// than `resources.manager_wait_limit_s` = a typed stop (exit 69). Every launcher still pending then is ended through
+    /// its pinned group and its unit goes on the leftover list (the manager may still serve its queued request).
+    fn tick_manager_gate(&mut self) {
+        let warn = Duration::from_secs(self.opts.spec.resources.scope_pending_warn_s);
+        let oldest = self
+            .children
+            .iter()
+            .filter_map(|c| c.pending_since.map(|t| (t, c)))
+            .min_by_key(|(t, _)| *t)
+            .filter(|(t, _)| t.elapsed() > warn)
+            .map(|(t, c)| {
+                format!(
+                    "{} a{} pending {} s",
+                    c.job,
+                    c.attempt,
+                    t.elapsed().as_secs()
+                )
+            });
+        match self.gate.tick(oldest.as_deref()) {
+            manager::GateChange::Closed(why) => {
+                let pending: Vec<String> = self
+                    .children
+                    .iter()
+                    .filter(|c| c.pending_since.is_some())
+                    .filter_map(|c| {
+                        c.handle
+                            .requested_scope_unit()
+                            .map(|u| format!("{u}.scope"))
+                    })
+                    .collect();
+                self.log.line(
+                    "WARN",
+                    &format!("the user manager does not answer ({why}): NO new launch until it answers; running jobs go on; pending launches wait ({})", pending.len()),
+                );
+                self.note(format!(
+                    "manager_unresponsive {{\"why\":{why:?},\"pending\":{pending:?},\"wait_limit_s\":{}}}",
+                    self.opts.spec.resources.manager_wait_limit_s
+                ));
+            }
+            manager::GateChange::Opened(after) => {
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "the user manager answers again after {:.1} s: launches resume",
+                        after.as_secs_f64()
+                    ),
+                );
+                self.note(format!(
+                    "manager_answered {{\"after_s\":{:.1}}}",
+                    after.as_secs_f64()
+                ));
+            }
+            manager::GateChange::None => {}
+        }
+        // our manager calls in the last minute (only when there were any)
+        if self.calls_minute.0.elapsed() >= Duration::from_secs(60) {
+            let now = crate::launch::manager_calls();
+            let d: Vec<u64> = (0..5).map(|k| now[k] - self.calls_minute.1[k]).collect();
+            if d.iter().any(|&n| n > 0) {
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "user-manager calls in the last {} s: systemd-run {}, show {}, reset-failed {}, stop {}, probe {}",
+                        self.calls_minute.0.elapsed().as_secs(),
+                        d[0], d[1], d[2], d[3], d[4]
+                    ),
+                );
+            }
+            self.calls_minute = (Instant::now(), now);
+        }
+        let limit = Duration::from_secs(self.opts.spec.resources.manager_wait_limit_s);
+        if let Some((since, why)) = self.gate.closed().cloned()
+            && since.elapsed() > limit
+            && self.stop_cause().is_none()
+        {
+            let msg = format!(
+                "the user manager has not answered for {} s ({why}; resources.manager_wait_limit_s {}): draining; a HOST condition (not the scope mechanism, not a job): run the same command once the manager answers (exit 69)",
+                since.elapsed().as_secs(),
+                limit.as_secs()
+            );
+            self.log.line("ERROR", &msg);
+            self.decide_stop(RunExit::ManagerUnavailable(msg));
+            // every launcher still waiting: ended through its pinned group; its unit on the leftover list
+            let mut listed = Vec::new();
+            for ch in &mut self.children {
+                if ch.pending_since.is_some() {
+                    ch.stopping = true;
+                    ch.handle.kill_now(KillReason::Stop);
+                    if let Some(u) = ch.handle.requested_scope_unit() {
+                        listed.push((u.to_string(), ch.job.clone(), ch.attempt));
+                    }
+                }
+            }
+            for (u, job, attempt) in listed {
+                self.leftover_add(
+                    &u,
+                    &job,
+                    attempt,
+                    "launcher ended at the manager wait limit while pending",
+                );
+            }
+        }
+    }
+
+    /// procfix7 round 14 (host step 3, M4): put an exact unit name of ours on the durable leftover list (noted).
+    fn leftover_add(&mut self, unit: &str, job: &str, attempt: u32, why: &str) {
+        let e = manager::Leftover {
+            unit: unit.to_string(),
+            attempt: format!("{job}:a{attempt}"),
+            why: why.to_string(),
+            utc: crate::cpu_policy::utc_now(),
+        };
+        match manager::add_leftovers(&self.cdir, vec![e]) {
+            Ok(_) => self.note(format!(
+                "unit_leftover {{\"unit\":\"{unit}.scope\",\"job\":{job:?},\"attempt\":{attempt},\"why\":{why:?}}}"
+            )),
+            Err(e) => self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: unit {unit}.scope could not be put on the leftover list ({e}); clear it by hand: systemctl --user status {unit}.scope"),
+            ),
+        }
+    }
+
+    /// procfix7 round 14 (M4): clear the leftover list (by exact names, each state read first; see `manager`), noting
+    /// every action. `when`: "at start" / "at exit".
+    fn clear_leftovers(&mut self, when: &str) {
+        if crate::launch::systemd_units_unavailable()
+            && crate::launch::test_manager_stall().is_none()
+        {
+            return;
+        }
+        let recorded = manager::recorded_scope_units(&self.cdir);
+        match manager::clear_leftovers(&self.cdir, &self.ctx.campaign_key, recorded.as_ref()) {
+            Ok(done) => {
+                for c in done {
+                    self.log.line(
+                        if c.done { "INFO" } else { "WARN" },
+                        &format!("leftover unit {}.scope ({when}): {}", c.unit, c.action),
+                    );
+                    self.note(format!(
+                        "unit_cleared {{\"unit\":\"{}.scope\",\"action\":{:?},\"done\":{},\"when\":{when:?}}}",
+                        c.unit, c.action, c.done
+                    ));
+                }
+            }
+            Err(e) => self
+                .log
+                .line("WARN", &format!("leftover units ({when}): {e}")),
+        }
+    }
+
     /// procfix7 round 8b / 9 (gate13 G13-M2): the systemd state of an ENDED attempt's scope, read by its exact unit name
     /// WHATEVER ended the job (also a kill reason of ours: host step 1's nine killed_memory ends, killed by our sampler
     /// after the kernel's OOM kill, had FAILED oom-kill scopes that stayed loaded). Read once the attempt is finished
@@ -3441,6 +3625,17 @@ impl Supervisor {
             return report;
         };
         if crate::launch::systemd_units_unavailable() {
+            return report;
+        }
+        // procfix7 round 14 (host step 3, M3): while the user manager does not answer, the read is DEFERRED to the exit
+        // (host step 3: twelve synchronous 10-s `systemctl show` timeouts blocked the main loop for 120 s)
+        if let Some((_, why)) = self.gate.closed() {
+            self.log.line(
+                "WARN",
+                &format!("{} a{}: the state of scope {unit} is read later (the user manager does not answer: {why})", ch.job, ch.attempt),
+            );
+            self.scope_unsettled
+                .push((ch.job.clone(), ch.attempt, unit));
             return report;
         }
         let st = match read_scope_settled(&unit, SCOPE_SETTLE_WAIT) {
@@ -3516,9 +3711,13 @@ impl Supervisor {
                     "INFO",
                     &format!("{job} a{attempt}: failed scope {unit}.scope (result {}) reset after its state was recorded", st.result),
                 ),
-                Err(e) => self.note(format!(
-                    "scope_reset_error {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":\"{unit}.scope\",\"error\":{e:?}}}"
-                )),
+                Err(e) => {
+                    self.note(format!(
+                        "scope_reset_error {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":\"{unit}.scope\",\"error\":{e:?}}}"
+                    ));
+                    // round 14 (M4): a failed unit not reset is cleared later by its exact name
+                    self.leftover_add(unit, job, attempt, "failed, reset-failed did not succeed");
+                }
             }
         }
         true
@@ -3562,15 +3761,34 @@ impl Supervisor {
                     if !self.record_scope_state(&job, attempt, &unit, &st, "at exit") {
                         self.log.line(
                             "WARN",
-                            &format!("{job} a{attempt}: scope {unit}.scope still {} at the exit: left alone", st.active),
+                            &format!("{job} a{attempt}: scope {unit}.scope still {} at the exit: left alone (leftover list)", st.active),
                         );
+                        // round 14 (M4): an active unit is cleared later by its exact name (stopped only when empty)
+                        self.leftover_add(&unit, &job, attempt, "still active at the exit");
                     }
                 }
-                Err(e) => self.log.line(
-                    "WARN",
-                    &format!("{job} a{attempt}: the state of scope {unit}.scope could not be read at the exit ({e}): left as it is"),
-                ),
+                Err(e) => {
+                    self.log.line(
+                        "WARN",
+                        &format!("{job} a{attempt}: the state of scope {unit}.scope could not be read at the exit ({e}): left as it is (leftover list)"),
+                    );
+                    self.leftover_add(&unit, &job, attempt, "state not readable at the exit");
+                }
             }
+        }
+        for n in &not_read {
+            // round 14 (M4): "<job> a<k> <unit>.scope"
+            let mut it = n.split(' ');
+            if let (Some(job), Some(a), Some(u)) = (it.next(), it.next(), it.next())
+                && let Ok(attempt) = a.trim_start_matches('a').parse::<u32>()
+            {
+                let unit = u.trim_end_matches(".scope").to_string();
+                self.leftover_add(&unit, job, attempt, "not read at the exit");
+            }
+        }
+        // round 14 (M4): the leftover list, cleared by exact names when the manager answers
+        if self.gate.closed().is_none() && self.gate.answers() != Some(false) {
+            self.clear_leftovers("at exit");
         }
         if !not_read.is_empty() {
             self.log.line(
@@ -3939,6 +4157,25 @@ impl Supervisor {
                     &format!("{job} a{attempt}: the spawn barrier refused its release ({why}): the program never ran; retried (row 15s), not a crash (was row {}{})", c.row, c.sub),
                 );
                 barrier_refused_classification(&c, why)
+            }
+            None => c,
+        };
+        // procfix7 round 14 (host step 3, M2): the launcher ended while waiting for the user manager: the program never
+        // ran (row 15m: lost, retried after the back-off), never a crash count
+        let c = match self.never_ran.remove(&(job.to_string(), attempt)) {
+            Some(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: {why}: the program never ran; retried (row 15m), not a crash (was row {}{})", c.row, c.sub),
+                );
+                classify::Classification {
+                    sub: "m".into(),
+                    why: format!(
+                        "{why}; the program never ran (classified row {}{}: {})",
+                        c.row, c.sub, c.why
+                    ),
+                    ..resource_classification(&c, String::new())
+                }
             }
             None => c,
         };
@@ -4806,6 +5043,8 @@ impl Supervisor {
             budget_s,
             containment_noted: false,
             poll_failures: 0,
+            pending_since: None,
+            verify_from: Instant::now(),
         });
         Ok(())
     }
@@ -4872,11 +5111,26 @@ impl Supervisor {
             let finished_now = matches!(polled, Ok(ChildProgress::Finished(_)));
             if !ch.containment_noted && !finished_now {
                 let c = ch.handle.containment();
+                // procfix7 round 14 (host step 3, M2): a scope launch whose launcher is still waiting for the user manager
+                // (kernel: the leader's exe is the launcher, then its cgroup is the supervisor's own) is PENDING: the job
+                // program has not started; it is never killed by the 10-s rule and never counted; the 10-s window starts
+                // when it stops being pending (the scope's creation follows that moment)
+                if c == crate::launch::Containment::Pending {
+                    if ch.handle.launch_state() == crate::launch::LaunchState::Pending {
+                        ch.pending_since.get_or_insert_with(Instant::now);
+                        ch.verify_from = Instant::now();
+                    } else {
+                        ch.pending_since = None;
+                    }
+                }
                 if c != crate::launch::Containment::Pending {
                     ch.containment_noted = true;
+                    ch.pending_since = None;
                     let req = ch.handle.requested_scope_unit().map(str::to_string);
                     contain.push((ch.job.clone(), ch.attempt, c, req));
-                } else if ch.launched_at.elapsed() > SCOPE_VERIFY_BOUND {
+                } else if ch.pending_since.is_none()
+                    && ch.verify_from.elapsed() > SCOPE_VERIFY_BOUND
+                {
                     // procfix7 round 8b (host step 1): a requested scope that is not verified is NEVER run under
                     // marker_only: a live job is ended at once (SIGKILL through its pinned group and its marked
                     // processes) and requeued (bounded); a job already dead is recorded from the evidence
@@ -4939,7 +5193,47 @@ impl Supervisor {
                 ch.containment_noted = true;
                 let c = ch.handle.containment();
                 let req = ch.handle.requested_scope_unit().map(str::to_string);
-                if c == crate::launch::Containment::Pending {
+                if c == crate::launch::Containment::Pending
+                    && ch.pending_since.is_some()
+                    && (ch.handle.exited_in_own_cgroup()
+                        || crate::launch::test_manager_stall().is_some())
+                {
+                    // procfix7 round 14 (M2): the launcher ENDED WHILE PENDING and never left the supervisor's cgroup
+                    // (the kernel's record at its exit): the job program never ran (systemd-run gives up on its own after
+                    // its D-Bus timeout during a manager stall). Settled as "never ran" (row 15m: retried after the
+                    // back-off, never a crash count); counted toward the scope limit only when the manager ANSWERED
+                    // (then systemd-run failed for another reason); while it does not answer, the unit goes on the
+                    // leftover list (the manager may still serve the queued request later)
+                    let gate = self.gate.closed().map(|(_, w)| w.clone());
+                    let unit = req.clone().unwrap_or_default();
+                    let end = ScopeEnd {
+                        word: "scope_launcher_ended_pending",
+                        why: format!(
+                            "the launcher ended while waiting for the user manager (its exit record names the supervisor's own cgroup: the job never ran); {}",
+                            match &gate {
+                                Some(w) => format!(
+                                    "the manager does not answer ({w}): not counted; unit {unit}.scope listed as a leftover"
+                                ),
+                                None =>
+                                    "the manager answers: counted toward the scope limit".into(),
+                            }
+                        ),
+                        unverified: gate.is_none(),
+                    };
+                    self.note_scope_end(&ch.job, ch.attempt, &end);
+                    if gate.is_some() && !unit.is_empty() {
+                        self.leftover_add(
+                            &unit,
+                            &ch.job,
+                            ch.attempt,
+                            "launcher ended while pending (manager not answering)",
+                        );
+                    }
+                    self.never_ran.insert(
+                        (ch.job.clone(), ch.attempt),
+                        "its launcher ended while waiting for the user manager".into(),
+                    );
+                } else if c == crate::launch::Containment::Pending {
                     // procfix7 round 8b: ended before its scope was verified: recorded from the evidence, never
                     // marker_only
                     let end = scope_end(
@@ -6254,6 +6548,12 @@ impl Supervisor {
             b.reasons
                 .push("process sampler stale (> 30 s): no launch".into());
         }
+        if let Some((since, why)) = self.gate.closed() {
+            b.reasons.push(format!(
+                "the user manager does not answer ({why}; {} s): no launch",
+                since.elapsed().as_secs()
+            ));
+        }
         if self.ledger_dead.is_some() {
             b.reasons.push("ledger unavailable".into());
         } else if let Some(e) = &self.stop_exit {
@@ -6636,6 +6936,8 @@ impl Supervisor {
         if let Some(e) = self.stop_cause() {
             return e;
         }
+        // procfix7 round 14 (host step 3, M4): units of earlier sessions that could not be confirmed cleared
+        self.clear_leftovers("at start");
         if let Err(e) = self.register_binaries() {
             return e;
         }
@@ -6738,6 +7040,8 @@ impl Supervisor {
             if self.stop_cause().is_none() {
                 self.periodic_sweep();
             }
+            // procfix7 round 14 (host step 3, M3): the user-manager gate
+            self.tick_manager_gate();
             // gate3 M2: every delivered signal becomes a ledger record
             self.record_deliveries();
             // ledger dead, or (round 14, M1) a stop decided: no launches; children get the grace, then are killed (with a

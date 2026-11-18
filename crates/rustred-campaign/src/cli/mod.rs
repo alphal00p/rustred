@@ -24,7 +24,10 @@ pub const USAGE: &str = "usage:
   rr_campaign result CDIR
   rr_campaign rebuild-manifest CDIR         (recovery: a ledger whose MANIFEST.json is missing; refused while a supervisor holds the lock)
   rr_campaign scope-check [--unit NAME]     (host only: ONE transient systemd scope around `true`, as a job's; checks the evidence
-                                             a job that ends before its first check is recorded from; exit 0 = PASS; signals nothing)";
+                                             a job that ends before its first check is recorded from; exit 0 = PASS; signals nothing)
+  rr_campaign units clear CDIR              (the campaign's leftover systemd units, CDIR/units.leftover.json: each by its exact
+                                             name, its state read first: reset-failed if failed, stopped only if its cgroup is
+                                             empty; never a pattern; run while no supervisor runs on CDIR)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
 macro_rules! outln {
@@ -94,6 +97,7 @@ pub fn main_with(args: &[String]) -> i32 {
         "result" => cmd_result(rest),
         "rebuild-manifest" => cmd_rebuild_manifest(rest),
         "scope-check" => cmd_scope_check(rest),
+        "units" => cmd_units(rest),
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK
@@ -433,6 +437,63 @@ fn cmd_scope_check(rest: &[String]) -> i32 {
         outln!("scope-check {}: {l}", c.unit);
     }
     if c.pass { exit::OK } else { 1 }
+}
+
+/// procfix7 round 14 (host step 3, M4): `rr_campaign units clear <dir>`: the operator's command for the campaign's
+/// leftover-unit list (`<dir>/units.leftover.json`): each unit by its EXACT name, only a name of THIS campaign
+/// (`rr-<campaign id>-...-<16 hex>`) that its ledger recorded at a launch, its state read first; not loaded: done;
+/// failed: reset-failed; active / activating / deactivating with its cgroup absent or `populated 0`: stopped (an empty
+/// scope); populated: never stopped (kept: the restart's marker backstop handles its processes). Never a pattern. Run
+/// it while no supervisor runs on the directory. Exit 0: the list is empty afterwards; 1: entries are kept (named);
+/// 2: usage; 3: no such directory.
+fn cmd_units(rest: &[String]) -> i32 {
+    let [verb, dir] = rest else {
+        errln!("units takes: clear <campaign dir>\n{USAGE}");
+        return exit::USAGE;
+    };
+    if verb != "clear" {
+        errln!("units takes: clear <campaign dir>\n{USAGE}");
+        return exit::USAGE;
+    }
+    let cdir = Path::new(dir);
+    if !crate::fsx::presence("cli", cdir).is_dir() {
+        errln!("{}: not a directory", cdir.display());
+        return exit::NOT_FOUND;
+    }
+    let (st, _) = match crate::ledger::replay_state(cdir) {
+        Ok(x) => x,
+        Err(e) => {
+            errln!(
+                "{}: the ledger cannot be read ({e}): nothing done",
+                cdir.display()
+            );
+            return 1;
+        }
+    };
+    let Some(cid) = crate::supervisor::identity::recorded_id(&st) else {
+        errln!(
+            "{}: the ledger records no campaign id: nothing done",
+            cdir.display()
+        );
+        return 1;
+    };
+    let recorded = crate::supervisor::manager::recorded_scope_units(cdir);
+    match crate::supervisor::manager::clear_leftovers(cdir, &cid, recorded.as_ref()) {
+        Ok(done) => {
+            if done.is_empty() {
+                outln!("units clear {}: no leftover unit", cdir.display());
+            }
+            let kept = done.iter().filter(|c| !c.done).count();
+            for c in &done {
+                outln!("units clear {}.scope: {}", c.unit, c.action);
+            }
+            if kept == 0 { exit::OK } else { 1 }
+        }
+        Err(e) => {
+            errln!("units clear {}: {e}", cdir.display());
+            1
+        }
+    }
 }
 
 fn cmd_preflight(rest: &[String]) -> i32 {
