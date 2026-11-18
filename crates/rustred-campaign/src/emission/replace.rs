@@ -569,7 +569,6 @@ pub fn certify_by_replacement(
         attempts: 0,
     };
     let mut case = original.clone();
-    case["rhs"] = json!([]);
     if let Some(o) = case.as_object_mut() {
         o.remove("derivation");
     }

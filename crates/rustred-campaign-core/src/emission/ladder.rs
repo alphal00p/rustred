@@ -250,7 +250,8 @@ pub fn fixed_of(rec: &Value) -> Vec<Option<i64>> {
 }
 
 /// The CHILD case record of a branch plan: the parent with the slots fixed (target and case text rewritten) or the
-/// equation appended; `exceptions` set to `inherited`; rhs emptied (the child is lifted, not copied).
+/// equation appended; `exceptions` set to `inherited`; the parent's rhs kept as it is (the producer's witness verb reads
+/// the record as given; the child's relation is the one its lift returns).
 pub fn child_record(
     parent: &Value,
     plan: &BranchPlan,
@@ -283,7 +284,6 @@ pub fn child_record(
         _ => return Err("only fixed-slot and equation branches have a child case".into()),
     }
     r["exceptions"] = json!(inherited);
-    r["rhs"] = json!([]);
     Ok(r)
 }
 

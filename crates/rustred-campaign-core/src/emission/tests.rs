@@ -363,7 +363,7 @@ fn child_record_fixes_the_slot_in_target_and_case() {
         c["case"],
         json!("Coordinate(CoordinateCase { fixed: [Some(1), Some(1), None] })")
     );
-    assert_eq!(c["rhs"], json!([]));
+    assert_eq!(c["rhs"], parent["rhs"]);
     assert_eq!(c["exceptions"], json!([["n2"]]));
 }
 
