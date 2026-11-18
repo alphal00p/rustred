@@ -429,6 +429,22 @@ pub fn prove_partition(
     witness_modes: &[bool],
 ) -> Result<(bool, Vec<PartCheck>), String> {
     let mut out = vec![];
+    // one piece with the original's domain members byte for byte (fixed, equations, exceptions, domain_bounds, chart):
+    // the two domains are the same predicate, a partition by identity (no emptiness decision needed; this is the
+    // re-certification of a rule whose re-lift reproduced its case)
+    if pieces.len() == 1 {
+        let dom =
+            |v: &Value| super::body::body_ids(&v.to_string()).map(|i| (i.domain_sha256, i.chart));
+        if dom(original)? == dom(&pieces[0])? {
+            out.push(PartCheck {
+                check: "identity: the one piece has the original's domain (domain_sha256 and chart equal)".into(),
+                witness: false,
+                verdict: "dead".into(),
+                why: String::new(),
+            });
+            return Ok((true, out));
+        }
+    }
     let mut dead_ok = true;
     let mut controls = true;
     let k = pieces.len();

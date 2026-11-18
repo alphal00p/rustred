@@ -401,6 +401,10 @@ fn partition_proof_accepts_a_ladder_and_refuses_an_overlap_or_a_gap() {
     )
     .unwrap();
     assert!(ok, "{checks:?}");
+    // one piece with the original's domain: a partition by identity
+    let same = rec(json!([null, null, null]), "I(n0,n1,n2)", json!([["n2"]]));
+    let (ok, checks) = prove_partition(HEADER, &[], &o, &[same], &tmp, &[false]).unwrap();
+    assert!(ok && checks[0].check.starts_with("identity"), "{checks:?}");
     // a gap (C missing): the original stays live after the pieces
     let (ok, _) =
         prove_partition(HEADER, &[], &o, &[a.clone(), b.clone()], &tmp, &[false]).unwrap();

@@ -284,6 +284,8 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
             "stages": p.emission.summary.as_ref().map(|s| s.record_json()), "body_sha256": p.emission.ids.body_sha256,
             "fixed": p.record["fixed"], "exceptions": p.record["exceptions"]})).collect::<Vec<_>>(),
         "pieces_total": {"bytes": rep.pieces.iter().map(|p| p.bytes).sum::<usize>(), "rhs_terms": rep.pieces.iter().map(|p| p.rhs_terms).sum::<usize>()},
+        "same_relation_as_original": rep.pieces.len() == 1 && rustred_campaign_core::emission::body::body_ids(&line).ok().map(|i| i.relation_sha256)
+            == rep.pieces[0].emission.line.as_deref().and_then(|l| rustred_campaign_core::emission::body::body_ids(l).ok()).map(|i| i.relation_sha256),
         "partition": rep.partition.as_ref().map(|(ok, checks)| json!({"partition": ok, "checks": checks.iter().map(|c| json!({"check": c.check, "witness": c.witness, "verdict": c.verdict, "why": c.why})).collect::<Vec<_>>()})),
         "log": rep.log, "seconds": t0.elapsed().as_secs_f64(),
         "checker": {"binary": checker.display().to_string(), "sha256": emitter.checker.sha256, "recover_rows": recover},
