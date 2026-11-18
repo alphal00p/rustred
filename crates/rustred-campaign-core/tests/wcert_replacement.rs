@@ -255,10 +255,10 @@ fn replacement_pieces_partition_the_replaced_domain() {
         let mut recs = vec![o.clone()];
         recs.extend(pieces.records.iter().cloned());
         write_table(&p2, &pieces, &recs);
-        for i in 0..k {
+        for (i, idx) in piece_idx.iter().enumerate().take(k) {
             let (v, w, why, s) = liveness(&p2, 1 + i, witness, enum_cap);
             all_dead &= v == "dead";
-            out.push(json!({"check": format!("contained: piece {} (index {}) after the original", i, piece_idx[i]), "witness": witness, "verdict": v, "witness_key": w, "why": why, "seconds": s}));
+            out.push(json!({"check": format!("contained: piece {} (index {}) after the original", i, idx), "witness": witness, "verdict": v, "witness_key": w, "why": why, "seconds": s}));
         }
         // (3) disjoint
         for i in 0..k {
