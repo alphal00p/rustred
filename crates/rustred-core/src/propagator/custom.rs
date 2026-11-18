@@ -76,8 +76,11 @@ use super::{OwnerClassId, PTerminalId, PresentationId};
 /// Bundle schemas a payload may carry: the generated candidate bundle without
 /// and with a rule-dispatch table, as [`super::bundle_wire`] defines them (the
 /// application's codec writes them). Legacy v1 bundles have no order program.
-pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 2] =
-    [CANDIDATE_BUNDLE_SCHEMA, DISPATCH_CANDIDATE_BUNDLE_SCHEMA];
+pub const CUSTOM_PAYLOAD_SCHEMAS: [&str; 3] = [
+    CANDIDATE_BUNDLE_SCHEMA,
+    DISPATCH_CANDIDATE_BUNDLE_SCHEMA,
+    super::bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA,
+];
 /// First line of [`custom_payload_dump`]; bump it when the dump's text changes.
 pub const CUSTOM_PAYLOAD_DUMP_VERSION: &str = "rustred.p-custom-payload-dump.v1";
 /// Unrestricted solver policies: the default numerical depth, or an explicit
@@ -444,9 +447,28 @@ impl fmt::Debug for Decoded {
     }
 }
 
+/// Diagnostic (engine-line on-demand assessment): `RUSTRED_P_PAYLOAD_PROFILE=1`
+/// prints where a payload's first use spends time and memory (stderr).
+fn payload_profile() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RUSTRED_P_PAYLOAD_PROFILE").is_ok_and(|v| v == "1"))
+}
+
+fn rss_gb() -> f64 {
+    std::fs::read_to_string("/proc/self/statm")
+        .ok()
+        .and_then(|statm| statm.split_whitespace().nth(1)?.parse::<f64>().ok())
+        .map_or(0.0, |pages| pages * 4096.0 / 1e9)
+}
+
 /// Decode a payload with its coefficients, bound to `presentation`'s family
 /// and arity; without a presentation, to the family the payload records.
 fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded, PError> {
+    let profile = payload_profile();
+    let (started, rss0) = (
+        std::time::Instant::now(),
+        if profile { rss_gb() } else { 0.0 },
+    );
     let Structure {
         envelope,
         family,
@@ -469,6 +491,11 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
             .map(Arc::<[u8]>::from)
             .ok_or_else(|| payload_error("expected a generated candidate binary program"))
     };
+    let (structure_s, rss1) = (
+        started.elapsed().as_secs_f64(),
+        if profile { rss_gb() } else { 0.0 },
+    );
+    let section_bytes = |tag| envelope.section(tag).map_or(0, <[u8]>::len);
     let table = LazyDecodedCoefficientTable::new(
         section(SectionTag::SYMBOLICA_STATE)?,
         section(SectionTag::COEFFICIENTS)?,
@@ -476,6 +503,45 @@ fn decode(presentation: Option<&Presentation>, payload: &[u8]) -> Result<Decoded
     )
     .map_err(payload_error)?
     .without_retention();
+    if profile {
+        let rules: Vec<&RuleRecord> = program
+            .sectors
+            .iter()
+            .flat_map(|sector| &sector.rules)
+            .collect();
+        let terms: usize = rules.iter().map(|rule| rule.rhs.len()).sum();
+        let conditions: usize = rules
+            .iter()
+            .map(|rule| {
+                rule.case.equations.len() + rule.exclusions.iter().map(Vec::len).sum::<usize>()
+            })
+            .sum();
+        let mut sizes: Vec<usize> = rules.iter().map(|rule| rule.rhs.len()).collect();
+        sizes.sort_unstable_by(|a, b| b.cmp(a));
+        let top20: usize = sizes.iter().take(20).sum();
+        eprintln!(
+            "payload-profile decode: payload {} B, PROGRAM {} B, COEFFICIENTS {} B, STATE {} B; charts {}, rules {}, rhs terms {}, \
+             top-20 rules {} terms ({:.1} %), largest {:?}; case/exception conditions {}; coefficients {}; structure {:.2} s \
+             (rss {:.2} -> {:.2} GB), coefficient table {:.2} s (rss -> {:.2} GB)",
+            payload.len(),
+            section_bytes(SectionTag::PROGRAM),
+            section_bytes(SectionTag::COEFFICIENTS),
+            section_bytes(SectionTag::SYMBOLICA_STATE),
+            program.sectors.len(),
+            rules.len(),
+            terms,
+            top20,
+            100.0 * top20 as f64 / terms.max(1) as f64,
+            &sizes[..sizes.len().min(5)],
+            conditions,
+            table.len(),
+            structure_s,
+            rss0,
+            rss1,
+            started.elapsed().as_secs_f64() - structure_s,
+            rss_gb(),
+        );
+    }
     for rule in program.sectors.iter().flat_map(|sector| &sector.rules) {
         validate_rule_ids(rule, table.len()).map_err(wire_error)?;
     }
@@ -541,6 +607,12 @@ impl Decoded {
             variables: &variables,
             indices: &indices,
         };
+        let profile = payload_profile();
+        let (started, rss0) = (
+            std::time::Instant::now(),
+            if profile { rss_gb() } else { 0.0 },
+        );
+        let restore_seconds = std::cell::Cell::new(0.0f64);
         let (_, solution, rules) = restore
             .sector_streamed(
                 program,
@@ -557,11 +629,35 @@ impl Decoded {
             ordering: self.ordering.clone(),
             solution,
         };
-        CandidateOwnerPrograms::try_new_streamed(
+        let terms = program.sectors[ordinal]
+            .rules
+            .iter()
+            .map(|rule| rule.rhs.len())
+            .sum::<usize>();
+        let mut rules = rules;
+        let timed = std::iter::from_fn(|| {
+            let at = std::time::Instant::now();
+            let next = rules.next();
+            restore_seconds.set(restore_seconds.get() + at.elapsed().as_secs_f64());
+            next
+        });
+        let prepared = CandidateOwnerPrograms::try_new_streamed(
             context,
             input,
-            rules.map(|rule| rule.map_err(restore_error)),
-        )
+            timed.map(|rule| rule.map_err(restore_error)),
+        );
+        if profile {
+            let total = started.elapsed().as_secs_f64();
+            eprintln!(
+                "payload-profile chart {ordinal}: rules {}, rhs terms {terms}, restore (decode coefficients + rule) {:.2} s, \
+                 prepare (admit/specialisation programs) {:.2} s, rss {rss0:.2} -> {:.2} GB",
+                program.sectors[ordinal].rules.len(),
+                restore_seconds.get(),
+                total - restore_seconds.get(),
+                rss_gb()
+            );
+        }
+        prepared
     }
 }
 
@@ -926,6 +1022,35 @@ impl<const N: usize> DeferredCandidateOwnerLoader<N> for PayloadLoader {
     }
 }
 
+/// batch 12a: an item dispatched at a table position.
+enum Positioned<'a> {
+    Alias(&'a super::table_import::SlotAliasRecord),
+    Recipe {
+        recipes: &'a RecipeDispatch,
+        index: usize,
+        rules_before: usize,
+    },
+}
+
+impl Positioned<'_> {
+    fn rules_before(&self) -> usize {
+        match self {
+            Self::Alias(alias) => alias.rules_before,
+            Self::Recipe { rules_before, .. } => *rules_before,
+        }
+    }
+
+    fn table_index(&self) -> usize {
+        match self {
+            Self::Alias(alias) => alias.index,
+            Self::Recipe { recipes, index, .. } => recipes.bundle().records[*index]
+                .position
+                .as_ref()
+                .map_or(usize::MAX, |position| position.index),
+        }
+    }
+}
+
 // ----- the lane step -----
 
 /// A Custom owner's program: the generated rules of every raw chart of its
@@ -1172,7 +1297,7 @@ impl<const N: usize> CustomStep<N> {
             return self.apply_recipe(recipes, index, powers);
         }
         let chart = self.chart(powers);
-        let alias = self.first_alias(powers);
+        let positioned = self.first_positioned(powers);
         let guards = conditions.len();
         let applied = apply_prepared_owner(
             &self.programs,
@@ -1185,11 +1310,11 @@ impl<const N: usize> CustomStep<N> {
         );
         match applied {
             Ok(AppliedOwnerStep::Terminal) => Ok(KeyApplied::Terminal),
-            Ok(AppliedOwnerStep::Applied(terms, position)) => match alias {
-                // first match: an alias before the matched rule in the table wins
-                Some(alias) if alias.rules_before <= position => {
+            Ok(AppliedOwnerStep::Applied(terms, position)) => match positioned {
+                // first match: an alias or positioned recipe before the matched rule in the table wins
+                Some(item) if item.rules_before() <= position => {
                     conditions.truncate(guards);
-                    self.apply_alias(alias, powers)
+                    self.apply_positioned(item, powers)
                 }
                 _ => Ok(KeyApplied::Children(
                     terms,
@@ -1197,8 +1322,8 @@ impl<const N: usize> CustomStep<N> {
                 )),
             },
             Ok(AppliedOwnerStep::Uncovered) | Err(CandidateReductionError::Uncovered { .. }) => {
-                if let Some(alias) = alias {
-                    return self.apply_alias(alias, powers);
+                if let Some(item) = positioned {
+                    return self.apply_positioned(item, powers);
                 }
                 match &self.recipes {
                     Some(recipes) if recipes.order() == RecipeDispatchOrder::RulesFirst => {
@@ -1228,6 +1353,32 @@ impl<const N: usize> CustomStep<N> {
         self.aliases
             .iter()
             .find(|alias| alias.image(powers).is_some())
+    }
+
+    /// batch 12a: the first item dispatched at a table position (a slot-permuted alias, a recipe of an unboxed
+    /// table) whose domain holds `powers`: the one earliest in the table.
+    fn first_positioned(&self, powers: &[i64]) -> Option<Positioned<'_>> {
+        let alias = self.first_alias(powers).map(Positioned::Alias);
+        let recipe = self.recipes.as_ref().and_then(|recipes| {
+            recipes
+                .positioned(powers)
+                .map(|(index, rules_before)| Positioned::Recipe {
+                    recipes,
+                    index,
+                    rules_before,
+                })
+        });
+        [alias, recipe]
+            .into_iter()
+            .flatten()
+            .min_by_key(|item| (item.rules_before(), item.table_index()))
+    }
+
+    fn apply_positioned(&self, item: Positioned<'_>, powers: &[i64]) -> Result<KeyApplied, PError> {
+        match item {
+            Positioned::Alias(alias) => self.apply_alias(alias, powers),
+            Positioned::Recipe { recipes, index, .. } => self.apply_recipe(recipes, index, powers),
+        }
     }
 
     /// `I(key) = c * I(image)` by a slot-permuted alias rule whose domain holds `powers`. The image must stay on the
@@ -1937,13 +2088,21 @@ fn build<const N: usize>(
     // vk5l WP2: the recipe bundle of a boxed payload.
     let recipes = match super::recipes::recipes_of_source(&program.family_source)? {
         Some(bundle) => {
-            let Some(record) = &boxed else {
+            // batch 12a: an unboxed payload carries recipes only at table positions
+            let positioned_only = !bundle.records.is_empty()
+                && bundle
+                    .records
+                    .iter()
+                    .all(|record| record.position.is_some());
+            if boxed.is_none() && !positioned_only {
                 return Err(payload_error(format!(
                     "recipes of node {} on a payload without a box record",
                     bundle.node
                 )));
-            };
-            if bundle.node != record.node {
+            }
+            if let Some(record) = &boxed
+                && bundle.node != record.node
+            {
                 return Err(payload_error(format!(
                     "the recipes of node {} on boxed node {}",
                     bundle.node, record.node
@@ -2931,6 +3090,8 @@ pub struct CustomReplay {
     /// (`RUSTRED_P_REPLAY_MAX_STEPS`, a diagnostic: e.g. one step checks the
     /// seed's own rule application); empty for a complete replay.
     pub open: Vec<(Vec<i64>, Coefficient)>,
+    /// Wall seconds of this seed's replay.
+    pub seconds: f64,
 }
 
 /// Each seed (a key of the owner support) reduced with the owner's program,
@@ -2977,6 +3138,7 @@ pub fn replay_custom_payload(
         queue.insert((ops.order_of(seed)?, seed.clone()), context.one());
         let (mut residuals, mut boundary) = (BTreeMap::new(), BTreeMap::new());
         let mut steps = 0;
+        let started = std::time::Instant::now();
         while let Some(((order, key), weight)) = queue.pop_last() {
             if weight.is_zero() {
                 continue;
@@ -3026,6 +3188,7 @@ pub fn replay_custom_payload(
             boundary: nonzero(boundary),
             steps,
             open: nonzero(open),
+            seconds: started.elapsed().as_secs_f64(),
         });
     }
     Ok(replays)

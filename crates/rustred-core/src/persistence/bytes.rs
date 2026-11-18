@@ -204,6 +204,14 @@ impl SharedCoefficientBytes {
         self.range.len()
     }
 
+    /// The shared buffer itself when this covers all of it (no copy).
+    pub(crate) fn whole_shared(&self) -> Option<Arc<[u8]>> {
+        match self.owner.as_ref() {
+            Bytes::Shared(bytes) if self.range == (0..bytes.len()) => Some(Arc::clone(bytes)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn read(&self) -> Result<Cow<'_, [u8]>, BinaryIoError> {
         match self.owner.as_ref() {
             Bytes::Memory(bytes) => Ok(Cow::Borrowed(&bytes[self.range.clone()])),

@@ -2414,6 +2414,34 @@ pub fn import_table_streamed<R: std::io::BufRead, W: std::io::Write>(
     scratch: std::fs::File,
     payload: &mut W,
 ) -> Result<ImportedOwner, PError> {
+    import_table_impl(
+        reader,
+        graph,
+        options,
+        Some((StreamScratch::Atoms(scratch), payload)),
+    )
+}
+
+/// vk5l WP6: the scratch storage of a streamed import: the expanded form's
+/// atom frames, or the SHARED form's dictionary entries and coefficient parts.
+pub enum StreamScratch {
+    Atoms(std::fs::File),
+    Shared {
+        entries: std::fs::File,
+        parts: std::fs::File,
+    },
+}
+
+/// vk5l WP6: [`import_table_streamed`] with the payload's coefficient section
+/// in the form `scratch` selects (`Shared`: the section `--coef-form shared`
+/// writes, built while the rules are read, without the expanded table).
+pub fn import_table_streamed_with<R: std::io::BufRead, W: std::io::Write>(
+    reader: R,
+    graph: &PTopo,
+    options: &TableImportOptions,
+    scratch: StreamScratch,
+    payload: &mut W,
+) -> Result<ImportedOwner, PError> {
     import_table_impl(reader, graph, options, Some((scratch, payload)))
 }
 
@@ -2421,7 +2449,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     reader: R,
     graph: &PTopo,
     options: &TableImportOptions,
-    stream: Option<(std::fs::File, &mut W)>,
+    stream: Option<(StreamScratch, &mut W)>,
 ) -> Result<ImportedOwner, PError> {
     trace_rss("start");
     let (scratch, mut sink) = match stream {
@@ -2612,8 +2640,15 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     let mut coefficients = Coefficients {
         context: &indexed,
         table: match scratch {
-            Some(scratch) => {
+            Some(StreamScratch::Atoms(scratch)) => {
                 CoefficientTableBuilder::with_spill(BinaryIoLimits::default(), scratch)
+            }
+            Some(StreamScratch::Shared { entries, parts }) => {
+                CoefficientTableBuilder::with_shared_spill(
+                    BinaryIoLimits::default(),
+                    entries,
+                    parts,
+                )
             }
             None => CoefficientTableBuilder::new(BinaryIoLimits::default()),
         },
@@ -2639,6 +2674,8 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     let (mut rules, mut rhs_terms, mut negated, mut affine_rules, mut excepted) = (0, 0, 0, 0, 0);
     // slot-permuted alias rules (SlotAliasRecord): per chart, kept in table order beside the payload's rules
     let mut slot_aliases: Vec<Vec<SlotAliasRecord>> = vec![Vec::new(); charts.len()];
+    // batch 12a: the table indices of each chart's ordinary rules (the first-match place of positioned recipes)
+    let mut rule_indices: Vec<Vec<usize>> = vec![Vec::new(); charts.len()];
     let mut end: Option<Value> = None;
     while let Some(record) = records.next()? {
         let record = &record;
@@ -2844,6 +2881,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                         exclusions,
                     })
                     .map_err(|error| malformed(error))?;
+                rule_indices[sector].push(index);
                 rules += 1;
             }
             _ => {}
@@ -2857,11 +2895,42 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
             format!("{} chart errors", end["chart_errors"]),
         ));
     }
-    if options.recipes.is_some() && box_checker.is_none() {
-        return Err(gap(
-            "recipes",
-            "recipe records need a boxed table (header boxed_node)".to_owned(),
-        ));
+    // batch 12a: an UNBOXED table takes recipe records that stand at a table position (bounded faces dispatched
+    // in first match); their place = the ordinary rules of their chart before that table record
+    let mut positioned_records: Option<Vec<super::recipes::RecipeRecord>> = None;
+    if let Some(recipes) = &options.recipes
+        && box_checker.is_none()
+    {
+        if recipes.records.is_empty()
+            || recipes
+                .records
+                .iter()
+                .any(|record| record.position.is_none())
+        {
+            return Err(gap(
+                "recipes",
+                "recipe records need a boxed table (header boxed_node), or every record a table position".to_owned(),
+            ));
+        }
+        let mut records = recipes.records.clone();
+        for record in &mut records {
+            let chart = record.recipe["chart"].as_str().unwrap_or("");
+            let sector = charts
+                .iter()
+                .position(|candidate| candidate == chart)
+                .ok_or_else(|| {
+                    malformed(format!(
+                        "recipe {}: chart {chart} is no chart of the table",
+                        record.id
+                    ))
+                })?;
+            let position = record.position.as_mut().expect("checked");
+            position.rules_before = rule_indices[sector]
+                .iter()
+                .filter(|&&index| index < position.index)
+                .count();
+        }
+        positioned_records = Some(records);
     }
     if let (Some(checker), Some(recipes)) = (&mut box_checker, &options.recipes) {
         checker.add_recipe_keys(&recipes.records)?;
@@ -2898,6 +2967,35 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                 slot_map.clone(),
                 recipes.dispatch,
                 recipes.records.clone(),
+            )?)
+        }
+        // batch 12a: positioned recipes of an unboxed table (node = the table's family)
+        (Some(recipes), None) => {
+            let family_text = header["original_family_source"]
+                .as_str()
+                .or_else(|| header["family_source"].as_str())
+                .ok_or_else(|| malformed("a recipe bundle needs the header's family source"))?;
+            let order = header
+                .get("node_order")
+                .filter(|order| !order.is_null())
+                .cloned()
+                .ok_or_else(|| {
+                    gap(
+                        "recipes",
+                        "a recipe bundle needs the table header's node_order".to_owned(),
+                    )
+                })?;
+            let node = header["family"].as_str().ok_or_else(|| {
+                malformed("a recipe bundle of an unboxed table needs the header's family")
+            })?;
+            Some(super::recipes::RecipeBundle::new(
+                node.to_owned(),
+                recipes.revision.clone(),
+                family_text,
+                order,
+                slot_map.clone(),
+                recipes.dispatch,
+                positioned_records.clone().expect("checked above"),
             )?)
         }
         // vk5l WP2: a boxed table without recipe records still carries its
@@ -2937,7 +3035,11 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
                 None => String::new(),
             }
         ),
-        None => String::new(),
+        // batch 12a: an unboxed table's positioned recipes
+        None => match &recipe_bundle {
+            Some(bundle) => bundle.provenance_line()?,
+            None => String::new(),
+        },
     };
     dispatch.sort_by_key(|entry| (entry.sector, entry.rule));
     let dispatched_rules = dispatch.len();
@@ -2950,11 +3052,36 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
             serde_json::to_string(&alias_records).map_err(|error| malformed(error))?
         )
     };
+    // batch 12a: reader features this payload needs; then schema v4, so a reader built before them refuses
+    // the payload instead of skipping provenance it does not know (s12349c-era payloads keep v2 / v3)
+    let mut features: Vec<&str> = Vec::new();
+    if !alias_records.is_empty() {
+        features.push("slot_aliases");
+    }
+    if recipe_bundle.as_ref().is_some_and(|bundle| {
+        bundle
+            .records
+            .iter()
+            .any(|record| record.position.is_some())
+    }) {
+        features.push("positioned_recipes");
+    }
+    let features_provenance = if features.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{}{}",
+            super::bundle_wire::REQUIRED_FEATURES_MARKER,
+            features.join(",")
+        )
+    };
     let root_sector: Vec<bool> = (0..arity)
         .map(|slot| matches!(presentation.slots[slot], Slot::Line(_)))
         .collect();
     let program = ProgramRecord {
-        schema: if dispatch.is_empty() {
+        schema: if !features.is_empty() {
+            super::bundle_wire::FEATURES_CANDIDATE_BUNDLE_SCHEMA
+        } else if dispatch.is_empty() {
             CANDIDATE_BUNDLE_SCHEMA
         } else {
             DISPATCH_CANDIDATE_BUNDLE_SCHEMA
@@ -2971,7 +3098,7 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
             IMPORT_SOLVER_POLICY.to_owned()
         },
         family_source: format!(
-            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{alias_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
+            "imported from {} ({}), table family {}, p-table-import v{P_TABLE_IMPORT_VERSION}{boxed_provenance}{alias_provenance}{features_provenance}{SLOT_ORDER_MARKER}{slot_order_json}",
             header["family_file"].as_str().unwrap_or("?"),
             schema,
             family.name

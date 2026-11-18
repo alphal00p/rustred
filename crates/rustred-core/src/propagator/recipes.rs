@@ -350,7 +350,31 @@ pub enum RecipeDomain {
     Predicate,
 }
 
-/// One recipe record of a boxed node.
+/// batch 12a: where a recipe of an UNBOXED table stands in first match: just
+/// before the table record `index` (the delivery's `position`), i.e. after the
+/// `rules_before` ordinary rules of its chart that precede that record; its
+/// domain is the recipe's own predicate AND `D + r <= bound_dr` (dots on the
+/// chart's lines plus the numerator rank of the others, TABLE slots).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecipeTablePosition {
+    pub index: usize,
+    pub rules_before: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_dr: Option<i64>,
+}
+
+/// `D + r` of a TABLE key on `chart` (`1` = line): the dots `n - 1` of the
+/// lines plus the rank `-n` of the other slots.
+pub fn dots_plus_rank(chart: &str, key: &[i64]) -> i64 {
+    chart
+        .bytes()
+        .zip(key)
+        .map(|(line, &power)| if line == b'1' { power - 1 } else { -power })
+        .sum()
+}
+
+/// One recipe record of a boxed node (or, with a table position, of an
+/// unboxed table).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RecipeRecord {
     /// The recipe's id (free text, echoed in every message).
@@ -367,9 +391,23 @@ pub struct RecipeRecord {
     /// Optional deterministic work limit of the solve (`--max-trace-rows`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_trace_rows: Option<usize>,
+    /// batch 12a: a recipe of an unboxed table, dispatched at a table position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub position: Option<RecipeTablePosition>,
 }
 
 impl RecipeRecord {
+    /// Whether this positioned record's domain holds the TABLE key `table`.
+    pub fn holds_at_position(&self, table: &[i64]) -> bool {
+        let Some(position) = &self.position else {
+            return false;
+        };
+        predicate_holds(&self.recipe, table)
+            && position
+                .bound_dr
+                .is_none_or(|bound| dots_plus_rank(self.chart(), table) <= bound)
+    }
+
     fn chart(&self) -> &str {
         self.recipe["chart"].as_str().unwrap_or("")
     }
@@ -469,6 +507,7 @@ impl RecipeBundle {
             domain,
             relation_digests: BTreeMap::new(),
             max_trace_rows: None,
+            position: None,
         })
     }
 
@@ -1522,6 +1561,8 @@ pub struct RecipeDispatch {
     keys: HashMap<Vec<i64>, usize>,
     /// Predicate records, in record order.
     predicates: Vec<usize>,
+    /// batch 12a: records at a table position (unboxed tables), record order.
+    positioned: Vec<usize>,
     solver: Arc<dyn PRecipeSolver>,
     cache: super::relation_entries::RelationStore,
     node_identity: String,
@@ -1559,7 +1600,13 @@ impl RecipeDispatch {
         }
         let mut keys = HashMap::new();
         let mut predicates = Vec::new();
+        let mut positioned = Vec::new();
         for (index, record) in bundle.records.iter().enumerate() {
+            if record.position.is_some() {
+                // batch 12a: dispatched by the owner in table order, never by `find`
+                positioned.push(index);
+                continue;
+            }
             match &record.domain {
                 RecipeDomain::Keys(list) => {
                     for key in list {
@@ -1588,6 +1635,7 @@ impl RecipeDispatch {
             bundle,
             keys,
             predicates,
+            positioned,
             cache,
             memo: Mutex::new(HashMap::new()),
             outside: Mutex::new(HashMap::new()),
@@ -1612,6 +1660,31 @@ impl RecipeDispatch {
         let mut keys: Vec<_> = self.keys.iter().map(|(k, &i)| (k.clone(), i)).collect();
         keys.sort();
         keys
+    }
+
+    /// batch 12a: the first positioned record whose domain holds `key`
+    /// (presentation slots), with the number of its chart's ordinary rules
+    /// that precede it in first match.
+    pub fn positioned(&self, key: &[i64]) -> Option<(usize, usize)> {
+        if self.positioned.is_empty() {
+            return None;
+        }
+        let table = self.bundle.to_table(key);
+        self.positioned.iter().copied().find_map(|index| {
+            let record = &self.bundle.records[index];
+            record.holds_at_position(&table).then(|| {
+                (
+                    index,
+                    record.position.as_ref().expect("positioned").rules_before,
+                )
+            })
+        })
+    }
+
+    /// Every record of the bundle stands at a table position (an unboxed
+    /// table's recipes).
+    pub fn all_positioned(&self) -> bool {
+        !self.bundle.records.is_empty() && self.positioned.len() == self.bundle.records.len()
     }
 
     /// The record whose domain holds `key` (presentation slots), if any; the
@@ -2131,6 +2204,7 @@ impl RecipeDispatch {
             domain: RecipeDomain::Keys(Vec::new()),
             relation_digests: BTreeMap::new(),
             max_trace_rows: None,
+            position: None,
         };
         match self.checked_entry(&named, key, &key_table, &entry, source) {
             Some((relation, _)) => {
@@ -2712,6 +2786,86 @@ mod kite_tests {
             }),
         )
         .unwrap()
+    }
+
+    /// batch 12a: an UNBOXED table (the kite without its box record) takes a recipe at a table position: it
+    /// serves its domain in first match before the table record `position` (the solve is the verified run-time
+    /// solve), a rule earlier in the table wins, and the `D + r` bound limits its domain.
+    #[test]
+    fn a_positioned_recipe_of_an_unboxed_table_is_dispatched_in_table_order() {
+        let node = "KITE-positioned";
+        let target = dots(0, 1); // the table's rule 5
+        let fake = install(node, vec![toy(target)]);
+        let unboxed = |table: String| -> String {
+            let mut lines: Vec<String> = table.lines().map(str::to_owned).collect();
+            let mut header: Value = serde_json::from_str(&lines[0]).unwrap();
+            header.as_object_mut().unwrap().remove("boxed_node");
+            // an unboxed bundle's node is the table's family
+            header["family"] = json!(node);
+            lines[0] = header.to_string();
+            lines.join("\n") + "\n"
+        };
+        let recipe = |position: usize, bound_dr: Option<i64>| {
+            let mut record = RecipeBundle::record_of(
+                &json!({"schema": "rustred.recipe.v1", "id": "kite/face01", "arity": 5, "chart": "11111",
+                        "domain": {"fixed": [2, 2, 1, 1, 1]},
+                        "seeds": {"centres": [], "generator": {"shells": SHELLS}}})
+                .to_string(),
+            )
+            .unwrap();
+            record.position = Some(RecipeTablePosition {
+                index: position,
+                rules_before: 0,
+                bound_dr,
+            });
+            record
+        };
+        let replay = |position: usize, bound_dr: Option<i64>| {
+            let (_, graph) = canonical_node_graph(BOXED_KITE_GRAPH, 2, 3).unwrap();
+            let imported = import_table(
+                &unboxed(boxed_kite_table_d2(node, &[])),
+                &graph,
+                &TableImportOptions {
+                    id: BOXED_KITE_OWNER,
+                    node: None,
+                    lp_count: 1,
+                    census_family: None,
+                    order_map: None,
+                    partial_box: false,
+                    mixed_box: false,
+                    certified_keys: None,
+                    recipes: Some(RecipeImport {
+                        revision: "t1".to_owned(),
+                        dispatch: RecipeDispatchOrder::RulesFirst,
+                        records: vec![recipe(position, bound_dr)],
+                    }),
+                },
+            )
+            .unwrap();
+            let replays = crate::propagator::custom::replay_custom_payload(
+                &imported.presentation,
+                &imported.payload,
+                &imported.meta,
+                &[presented(target)],
+            )
+            .unwrap();
+            let residuals: Vec<String> = replays[0]
+                .residuals
+                .iter()
+                .map(|(key, value)| format!("{key:?}={value}"))
+                .collect();
+            residuals
+        };
+        // before rule 5: the recipe's relation (I = (d-4)/(d-3) I(1^5)), one solve
+        let calls = fake.calls();
+        let by_recipe = replay(5, Some(39));
+        assert_eq!(fake.calls(), calls + 1);
+        // after rule 5 (position 6) or outside its D + r bound (D + r = 2 > 1): the table's rule 5, no solve
+        let by_rule = replay(6, None);
+        assert_eq!(replay(5, Some(1)), by_rule);
+        assert_eq!(fake.calls(), calls + 1);
+        assert_ne!(by_recipe, by_rule);
+        assert_eq!(by_recipe.len(), 1, "{by_recipe:?}");
     }
 
     /// The presentation key of a table key of the kite.

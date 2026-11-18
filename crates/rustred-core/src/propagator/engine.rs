@@ -3165,6 +3165,13 @@ impl PKernel<'_, '_> {
 }
 
 impl OrderedKernel for PKernel<'_, '_> {
+    /// vk5l-physrun resume state: a pending key from its compact form.
+    fn tail_key(&self, encoded: &[u8]) -> Option<PKey> {
+        let (stage, integral) =
+            crate::reduction::ordered_reduction::step_cache::codec::decode_node(encoded).ok()?;
+        self.stepper.recorded_key(stage, integral).ok()
+    }
+
     type Key = PKey;
     type Priority = PPriority;
     type Error = PError;

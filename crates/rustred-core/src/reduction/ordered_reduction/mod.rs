@@ -14,6 +14,7 @@ pub(crate) mod memstats;
 mod modular;
 mod parallel;
 pub(crate) mod parstats;
+pub(crate) mod resume;
 pub(crate) mod step_cache;
 pub(crate) mod tail;
 
@@ -572,6 +573,32 @@ pub(crate) trait OrderedWeights {
         self.scale_hashed(weight, coefficient, hash)
     }
     fn contribution_is_zero(&self, contribution: &Self::Contribution) -> bool;
+    /// vk5l-physrun resume state (`resume`): bind the request directory
+    /// (`ops`: the op count of a saved state to continue from). `false`:
+    /// this arithmetic does not resume.
+    fn resume_bind(
+        &mut self,
+        _dir: &std::path::Path,
+        _ops: Option<u64>,
+    ) -> Result<bool, ReductionError> {
+        Ok(false)
+    }
+    fn resume_save(&mut self, _w: &mut step_cache::codec::Writer) -> Result<(), ReductionError> {
+        Err(invariant("this arithmetic keeps no resume state"))
+    }
+    fn resume_load(
+        &mut self,
+        _r: &mut step_cache::codec::Reader<'_>,
+    ) -> Result<(), ReductionError> {
+        Err(invariant("this arithmetic keeps no resume state"))
+    }
+    fn resume_put_weight(&self, _weight: &Self::Weight, _w: &mut step_cache::codec::Writer) {}
+    fn resume_get_weight(
+        &self,
+        _r: &mut step_cache::codec::Reader<'_>,
+    ) -> Result<Self::Weight, ReductionError> {
+        Err(invariant("this arithmetic keeps no resume state"))
+    }
     /// fwd-opt: the contribution `weight * value(handle)` of a light child
     /// (see `OrderedKernel::take_light`); an arithmetic may remember the
     /// coefficient of a handle for the request. `None` from `value`: the
@@ -1288,6 +1315,71 @@ fn run_modular<K: OrderedKernel, S: StepSource<K>>(
         )
         .and_then(|output| cross_checked_output(weights, output).map_err(Into::into))
     } else {
+        // vk5l-physrun channel replay: record the (mixed) inputs once, replay
+        // the trace per channel with its own inputs.
+        if let Some((channels, lambdas)) = modular::channels::take::<K::Key>() {
+            let mut weights = recorder;
+            weights.set_multi();
+            let order: Vec<K::Key> = initial
+                .iter()
+                .filter(|(_, coefficient)| !coefficient.is_zero())
+                .map(|(key, _)| key.clone())
+                .collect();
+            for channel in &channels {
+                if channel
+                    .iter()
+                    .any(|(key, value)| !value.is_zero() && order.binary_search(key).is_err())
+                {
+                    kernel.set_light(false);
+                    return Err(modular::error("a channel input vanished in the mix").into());
+                }
+            }
+            if !weights.set_multi_probes(&order, &channels, &lambdas)? {
+                kernel.set_light(false);
+                return Err(modular::error("a mixed input vanishes at every probe point").into());
+            }
+            let output = run_inner(
+                kernel,
+                &mut weights,
+                request,
+                initial,
+                nonzero_conditions,
+                work,
+                source,
+                tail,
+            );
+            kernel.set_light(false);
+            let output = output?;
+            kernel.forward_finished();
+            let zero = kernel.context().zero();
+            let patches = channels
+                .iter()
+                .map(|channel| {
+                    order
+                        .iter()
+                        .map(|key| channel.get(key).cloned().unwrap_or_else(|| zero.clone()))
+                        .collect()
+                })
+                .collect();
+            let finished = weights.finish_channels(output.terms, patches)?;
+            let mut per_channel = Vec::with_capacity(finished.len());
+            for (finished, statistics) in finished {
+                modular::report_statistics(&statistics);
+                let modular::Finished::Terminals(terms) = finished else {
+                    return Err(modular::error("a channel replay composed its terminals").into());
+                };
+                per_channel.push(terms);
+            }
+            let first = per_channel.first().cloned().unwrap_or_default();
+            modular::channels::put_out(per_channel);
+            return Ok(OrderedOutput {
+                terms: first,
+                composed: None,
+                nonzero_conditions: output.nonzero_conditions,
+                work: output.work,
+                progress: output.progress,
+            });
+        }
         let mut weights = recorder;
         if tail.prestage
             && let Some(table) = weights.shared_intern()
@@ -1762,17 +1854,55 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let limits = kernel.limits();
-    let mut state = crate::prof_wrap!(
-        Admit,
-        admit(
-            kernel,
-            weights,
-            request,
-            initial,
-            nonzero_conditions,
-            tail.frontier,
-        )
-    )?;
+    // vk5l-physrun resume state (`resume`): one-thread runs without a tail.
+    let resume_dir = if tail.enabled {
+        None
+    } else {
+        resume::dir()
+            .and_then(|root| resume::request_dir::<K>(&root, &initial, &nonzero_conditions))
+    };
+    let mut start_phase = 0;
+    let mut restored = None;
+    let mut resume_dir = match resume_dir {
+        Some(dir) if dir.join("state.bin").exists() => {
+            match resume_restore(kernel, weights, request, &dir, tail.frontier) {
+                Ok((state, next)) => {
+                    eprintln!(
+                        "rustred resume: continuing {} at phase {next}",
+                        dir.display()
+                    );
+                    start_phase = next;
+                    restored = Some(state);
+                    Some(dir)
+                }
+                Err(error) => {
+                    eprintln!(
+                        "rustred resume: state of {} unusable ({error}); starting afresh",
+                        dir.display()
+                    );
+                    let _ = std::fs::remove_dir_all(&dir);
+                    weights.resume_bind(&dir, None)?.then_some(dir)
+                }
+            }
+        }
+        Some(dir) => weights.resume_bind(&dir, None)?.then_some(dir),
+        None => None,
+    };
+    let mut last_save = std::time::Instant::now();
+    let mut state = match restored {
+        Some(state) => state,
+        None => crate::prof_wrap!(
+            Admit,
+            admit(
+                kernel,
+                weights,
+                request,
+                initial,
+                nonzero_conditions,
+                tail.frontier,
+            )
+        )?,
+    };
     let mut tail = if tail.enabled {
         TailRun::new(kernel, weights, tail.threads, true)?
     } else {
@@ -1795,7 +1925,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     if light {
         kernel.set_light(true);
     }
-    for phase in 0..state.progress.total_phases {
+    for phase in start_phase..state.progress.total_phases {
         let phase_started = par_clock.now();
         let (mut par_pops, mut par_source) = (0u64, 0.0f64);
         // Phase marker first: a tail closed at this phase records its
@@ -2167,6 +2297,36 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             tail.phase_finished(phase);
         }
         state.finish_phase(kernel, phase)?;
+        if let Some(dir) = &resume_dir {
+            let stop = resume::stop_after_phase() == Some(phase);
+            if stop || last_save.elapsed().as_secs_f64() >= resume::interval() {
+                match resume_save(kernel, weights, &state, phase) {
+                    Ok(bytes) => {
+                        resume::write_atomic(&dir.join("state.bin"), &bytes)
+                            .map_err(|e| modular::error(format!("resume state write: {e}")))?;
+                        eprintln!(
+                            "rustred resume: state saved after phase {phase} ({} bytes)",
+                            bytes.len()
+                        );
+                        last_save = std::time::Instant::now();
+                    }
+                    Err(reason) => {
+                        eprintln!("rustred resume: no state after phase {phase} ({reason})");
+                        resume_dir = None;
+                    }
+                }
+                if stop {
+                    return Err(invariant(
+                        "stopped after a saved phase (RUSTRED_RESUME_STOP_AFTER_PHASE)",
+                    )
+                    .into());
+                }
+            }
+        }
+    }
+    if let Some(dir) = &resume_dir {
+        // The record pass is complete; its state is no longer needed.
+        let _ = std::fs::remove_file(dir.join("state.bin"));
     }
     if let Some(tail) = tail {
         tail.finish(kernel, weights, request, work, &mut state)?;
@@ -2235,6 +2395,165 @@ fn merge_terminal_contribution<A: OrderedWeights>(
         .peak_terminal_coefficient_monomials
         .max(progress.terminal_coefficient_monomials);
     Ok(())
+}
+
+/// vk5l-physrun channel replay (see `PLibrary::reduce_channels`).
+pub(crate) fn modular_channels_set<K: FrontierKey>(
+    channels: Vec<BTreeMap<K, Coefficient>>,
+    lambdas: Vec<u64>,
+) {
+    modular::channels::set(channels, lambdas);
+}
+
+/// The per-channel terminals the last channel replay left on this thread.
+pub(crate) fn modular_channels_take_out() -> Option<Vec<BTreeMap<IntegralKey, Coefficient>>> {
+    modular::channels::take_out()
+}
+
+/// vk5l-physrun: the saved scheduler state after `phase` (see `resume`).
+fn resume_save<K: OrderedKernel, A: OrderedWeights>(
+    kernel: &K,
+    weights: &mut A,
+    state: &Admitted<K, A>,
+    phase: usize,
+) -> Result<Vec<u8>, String> {
+    let mut w = step_cache::codec::Writer { bytes: Vec::new() };
+    w.raw(resume::RESUME_VERSION.as_bytes());
+    w.varint(phase as u64);
+    weights.resume_save(&mut w).map_err(|e| e.to_string())?;
+    w.len(state.nonzero_conditions.len());
+    for condition in &state.nonzero_conditions {
+        resume::put_coefficient(&mut w, condition);
+    }
+    let entries: Vec<_> = state.frontier.iter().collect();
+    w.len(entries.len());
+    let mut bytes = Vec::new();
+    for (scheduled, weight) in entries {
+        bytes.clear();
+        if !K::tail_encode(&scheduled.key, &mut bytes) || kernel.tail_key(&bytes).is_none() {
+            return Err("a pending key has no decodable compact form".to_owned());
+        }
+        w.len(bytes.len());
+        w.raw(&bytes);
+        weights.resume_put_weight(weight, &mut w);
+    }
+    w.len(state.output.len());
+    for (key, weight) in &state.output {
+        w.len(key.powers().len());
+        for &power in key.powers() {
+            w.zigzag(power);
+        }
+        weights.resume_put_weight(weight, &mut w);
+    }
+    Ok(w.bytes)
+}
+
+/// vk5l-physrun: the scheduler state saved by [`resume_save`] and the phase
+/// to continue with.
+fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
+    kernel: &mut K,
+    weights: &mut A,
+    request: &mut ReductionRequest,
+    dir: &std::path::Path,
+    layout: FrontierLayout,
+) -> Result<(Admitted<K, A>, usize), String> {
+    let bytes = std::fs::read(dir.join("state.bin")).map_err(|e| e.to_string())?;
+    let mut r = step_cache::codec::Reader::new(&bytes);
+    if r.take(resume::RESUME_VERSION.len())? != resume::RESUME_VERSION.as_bytes() {
+        return Err("another resume state version".to_owned());
+    }
+    let phase = r.varint()? as usize;
+    // The op count of the state: the spill file is cut back to it.
+    let ops = step_cache::codec::Reader::new(&bytes[r_position(&bytes, &r)..]).varint()?;
+    weights
+        .resume_bind(dir, Some(ops))
+        .map_err(|e| e.to_string())?;
+    weights.resume_load(&mut r).map_err(|e| e.to_string())?;
+    let template = kernel.context().zero();
+    let mut guards = GuardIndex::new();
+    let mut nonzero_conditions = Vec::new();
+    let n = r.len(usize::MAX)?;
+    for _ in 0..n {
+        let condition = resume::get_coefficient(&mut r, &template)?;
+        guards
+            .intern(&mut nonzero_conditions, &condition, |_| {
+                Ok::<(), ReductionError>(())
+            })
+            .map_err(|e| e.to_string())?;
+    }
+    let mut frontier = Frontier::new(layout);
+    let n = r.len(usize::MAX)?;
+    for _ in 0..n {
+        let len = r.len(usize::MAX)?;
+        let encoded = r.take(len)?;
+        let key = kernel
+            .tail_key(encoded)
+            .ok_or("an undecodable pending key")?;
+        let weight = weights
+            .resume_get_weight(&mut r)
+            .map_err(|e| e.to_string())?;
+        let position = kernel
+            .position(&key)
+            .map_err(|_| "a pending key without a position".to_owned())?;
+        // As admit: every pending entry holds one frame of the request.
+        request
+            .retain_pending_frame(
+                kernel
+                    .limits()
+                    .diagnostic_limit(kernel.limits().max_pending_frames),
+            )
+            .map_err(|e| e.to_string())?;
+        frontier.insert(key, Pending { position, weight });
+    }
+    let mut output = BTreeMap::new();
+    let n = r.len(usize::MAX)?;
+    for _ in 0..n {
+        let len = r.len(usize::MAX)?;
+        let powers = (0..len)
+            .map(|_| r.zigzag())
+            .collect::<Result<Vec<_>, _>>()?;
+        let key = IntegralKey::try_new(powers).map_err(|e| e.to_string())?;
+        let weight = weights
+            .resume_get_weight(&mut r)
+            .map_err(|e| e.to_string())?;
+        output.insert(key, weight);
+    }
+    // As admit: the census of the resident coefficient size of the frontier.
+    let mut monomials = 0usize;
+    for (_, weight) in frontier.iter() {
+        monomials = monomials.saturating_add(weights.monomials(weight).map_err(|e| e.to_string())?);
+    }
+    let mut terminal_monomials = 0usize;
+    for weight in output.values() {
+        terminal_monomials = terminal_monomials
+            .saturating_add(weights.monomials(weight).map_err(|e| e.to_string())?);
+    }
+    let progress = CandidateOrderedReductionProgress {
+        terminal_coefficient_monomials: terminal_monomials,
+        peak_terminal_coefficient_monomials: terminal_monomials,
+        total_phases: kernel.phase_count(),
+        completed_phases: phase + 1,
+        frontier_keys: frontier.len(),
+        frontier_coefficient_monomials: monomials,
+        peak_frontier_keys: frontier.len(),
+        peak_frontier_coefficient_monomials: monomials,
+        ..Default::default()
+    };
+    Ok((
+        Admitted {
+            guards,
+            nonzero_conditions,
+            frontier,
+            output,
+            progress,
+        },
+        phase + 1,
+    ))
+}
+
+/// Byte offset of a reader into `bytes`.
+fn r_position(bytes: &[u8], r: &step_cache::codec::Reader<'_>) -> usize {
+    bytes.len() - r.remaining()
 }
 
 #[cfg(test)]

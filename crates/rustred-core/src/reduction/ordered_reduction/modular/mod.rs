@@ -36,6 +36,7 @@ mod polynomial;
 mod replay;
 mod sampled;
 mod simd;
+mod spill;
 
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, Hasher};
@@ -67,7 +68,7 @@ pub(super) const PROBES: usize = 2;
 /// checkpoints when a recording finishes.
 const FINISH_CHECKPOINT_ENTRIES: usize = 1024;
 
-pub(super) fn error(detail: impl Into<String>) -> ReductionError {
+pub(crate) fn error(detail: impl Into<String>) -> ReductionError {
     ReductionError::ModularWeights {
         detail: detail.into(),
     }
@@ -129,6 +130,7 @@ pub(crate) fn coefficient_hash(coefficient: &Coefficient) -> u64 {
 
 /// Interned coefficient reference; the top bit marks a constant.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(transparent)]
 pub(super) struct CoefRef(u32);
 
 const CONSTANT_FLAG: u32 = 1 << 31;
@@ -161,6 +163,7 @@ const SLOT_BITS: u32 = 29;
 const SLOT_MASK: u32 = (1 << SLOT_BITS) - 1;
 
 #[derive(Clone, Copy, Debug)]
+#[repr(C)]
 pub(super) struct Op {
     word: u32,
     pub coefficient: CoefRef,
@@ -297,7 +300,7 @@ impl Trace {
 
 /// The weight-independent numeric program of one Ordered request.
 pub(super) struct Trace {
-    ops: Vec<Op>,
+    ops: spill::OpStore,
     /// Rational constants `(numerator, denominator)`.
     constants: Vec<(Integer, Integer)>,
     /// Non-constant univariate rational functions.
@@ -566,6 +569,7 @@ impl ModularStatistics {
 }
 
 /// Recording weight backend.
+#[derive(Clone)]
 pub(crate) struct ModularRecorder {
     common: ModularCommon,
     lifter: Lifter,
@@ -598,6 +602,15 @@ pub(crate) struct ModularRecorder {
     shared_refs: Vec<Vec<u32>>,
     /// fwd-opt: light handles of this request -> (reference, zero).
     handles: std::collections::HashMap<u64, (CoefRef, bool), FxBuild>,
+    /// vk5l-physrun channel replay: the entry index of every admitted input
+    /// (each input its own unshared polynomial entry), in admission order.
+    multi_inputs: Option<Vec<u32>>,
+    /// vk5l-physrun level 2: the spill file of this request's ops (see
+    /// `spill`); `None`: the ops stay in memory.
+    spill: Option<std::sync::Arc<std::sync::Mutex<spill::Spill>>>,
+    /// Channel replay: the probe values of the k-th admitted input
+    /// (Σ λ_c · probe(input of channel c)), in admission order.
+    multi_probes: std::collections::VecDeque<[Fe; PROBES]>,
 }
 
 /// rr-par2: shards of [`SharedIntern`] (low bits of an id).
@@ -835,7 +848,243 @@ impl ModularRecorder {
             shared: None,
             shared_refs: vec![Vec::new(); INTERN_SHARDS],
             handles: Default::default(),
+            multi_inputs: None,
+            multi_probes: Default::default(),
+            spill: match spill::spill_dir() {
+                Some(dir) => Some(std::sync::Arc::new(std::sync::Mutex::new(
+                    spill::Spill::create(dir)?,
+                ))),
+                None => None,
+            },
         })
+    }
+
+    /// Ops recorded so far (spilled and in memory).
+    fn op_count(&self) -> usize {
+        self.ops.len()
+            + self
+                .spill
+                .as_ref()
+                .map_or(0, |s| s.lock().map_or(0, |s| s.flushed))
+    }
+
+    /// The whole trace as one store (spilled file mapped, or the Vec).
+    fn take_op_store(&mut self) -> Result<spill::OpStore, ReductionError> {
+        match self.spill.take() {
+            Some(spill) => {
+                let spill = std::sync::Arc::try_unwrap(spill)
+                    .map_err(|_| error("trace spill still shared"))?
+                    .into_inner()
+                    .map_err(|_| error("trace spill poisoned"))?;
+                spill.finish(&mut self.ops)
+            }
+            None => Ok(spill::OpStore::from(std::mem::take(&mut self.ops))),
+        }
+    }
+
+    /// Channel replay: the probes of `channels` mixed with `lambdas`, per
+    /// key of `order` (admission order). `None` when a key's mix vanishes
+    /// at every probe point (the caller falls back).
+    pub(crate) fn set_multi_probes<K: Ord>(
+        &mut self,
+        order: &[K],
+        channels: &[BTreeMap<K, Coefficient>],
+        lambdas: &[u64],
+    ) -> Result<bool, ReductionError> {
+        let mut probes = std::collections::VecDeque::with_capacity(order.len());
+        for key in order {
+            let mut mixed = [self.probe_field.zero(); PROBES];
+            for (channel, &lambda) in channels.iter().zip(lambdas) {
+                if let Some(value) = channel.get(key) {
+                    if value.is_zero() {
+                        continue;
+                    }
+                    let values = self.evaluate_probe(&DenseRational::from_coefficient(value))?;
+                    let lambda = self.probe_field.to_element(lambda);
+                    for (m, v) in mixed.iter_mut().zip(values) {
+                        let term = self.probe_field.mul(&lambda, &v);
+                        *m = self.probe_field.add(&*m, &term);
+                    }
+                }
+            }
+            if mixed.iter().all(|v| self.probe_field.is_zero(v)) {
+                return Ok(false);
+            }
+            probes.push_back(mixed);
+        }
+        self.multi_probes = probes;
+        Ok(true)
+    }
+
+    /// vk5l-physrun channel replay: a recorder holding only what one
+    /// channel's sliced `ops` reference: coefficients renumbered densely in
+    /// first-use order (constants and polynomials apart), inputs replaced by
+    /// the channel's (`patched`, by entry index).
+    fn compact_for_channel(
+        &self,
+        mut ops: Vec<Op>,
+        patched: &std::collections::HashMap<u32, Coefficient>,
+        entry_of: &std::collections::HashMap<u32, u32>,
+    ) -> Result<Self, ReductionError> {
+        let mut renumber = std::collections::HashMap::<u32, u32>::new();
+        // Equal channel inputs share one entry (as the interning of an
+        // ordinary request would).
+        let mut by_value = std::collections::HashMap::<Coefficient, u32>::new();
+        let mut entries = Vec::new();
+        let mut entry_refs = Vec::new();
+        let (mut constants, mut polynomials) = (0u32, 0u32);
+        for op in &mut ops {
+            if matches!(op.tag(), OpTag::Pop | OpTag::Cancel | OpTag::TermCancel) {
+                continue;
+            }
+            let old = op.coefficient.0;
+            let new = match renumber.get(&old) {
+                Some(&new) => new,
+                None => {
+                    let entry = *entry_of
+                        .get(&old)
+                        .ok_or_else(|| error("a trace op names no interned coefficient"))?;
+                    if let Some(value) = patched.get(&entry)
+                        && let Some(&shared) = by_value.get(value)
+                    {
+                        renumber.insert(old, shared);
+                        op.coefficient = CoefRef(shared);
+                        continue;
+                    }
+                    let reference = if op.coefficient.is_constant() {
+                        constants += 1;
+                        (constants - 1) | CONSTANT_FLAG
+                    } else {
+                        polynomials += 1;
+                        polynomials - 1
+                    };
+                    entries.push(match patched.get(&entry) {
+                        Some(value) => {
+                            by_value.insert(value.clone(), reference);
+                            value.clone()
+                        }
+                        None => self.entries[entry as usize].clone(),
+                    });
+                    entry_refs.push(CoefRef(reference));
+                    renumber.insert(old, reference);
+                    reference
+                }
+            };
+            op.coefficient = CoefRef(new);
+        }
+        let mut copy = self.clone_for_channel();
+        copy.ops = ops;
+        copy.entries = entries;
+        copy.entry_refs = entry_refs;
+        copy.constant_count = constants;
+        copy.polynomial_count = polynomials;
+        Ok(copy)
+    }
+
+    /// A copy of everything `finish` reads, without the trace ops.
+    fn clone_for_channel(&self) -> Self {
+        Self {
+            ops: Vec::new(),
+            common: self.common,
+            lifter: self.lifter,
+            context: self.context.clone(),
+            limits: self.limits,
+            probe_field: self.probe_field.clone(),
+            probe_points: self.probe_points,
+            table: HashTable::new(),
+            entries: Vec::new(),
+            entry_refs: Vec::new(),
+            entry_hashes: Vec::new(),
+            constant_probe: Vec::new(),
+            polynomial_probe: Vec::new(),
+            constant_count: self.constant_count,
+            polynomial_count: self.polynomial_count,
+            phase_starts: Vec::new(),
+            free_slots: Vec::new(),
+            next_slot: self.next_slot,
+            terminal_slots: self.terminal_slots,
+            lookups: self.lookups,
+            started: self.started,
+            modular_round: self.modular_round,
+            par_replay: self.par_replay,
+            shared: None,
+            shared_refs: Vec::new(),
+            handles: Default::default(),
+            multi_inputs: None,
+            multi_probes: Default::default(),
+            spill: None,
+        }
+    }
+
+    /// vk5l-physrun channel replay: admit every input as its own entry, so
+    /// that [`Self::finish_channels`] can replay the trace with other inputs.
+    pub(crate) fn set_multi(&mut self) {
+        self.multi_inputs = Some(Vec::new());
+    }
+
+    /// vk5l-physrun channel replay: the trace recorded once replayed per
+    /// channel, the admitted inputs replaced by `patches[c]` (same order as
+    /// admitted). The trace is linear in its inputs; a zero decision of the
+    /// recording that does not hold for a channel fails that channel's
+    /// replay (`Cancel` checks), and the caller falls back.
+    pub(crate) fn finish_channels(
+        mut self,
+        terms: BTreeMap<IntegralKey, ModularWeight>,
+        patches: Vec<Vec<Coefficient>>,
+    ) -> Result<Vec<(Finished, ModularStatistics)>, ReductionError> {
+        let inputs = self
+            .multi_inputs
+            .take()
+            .ok_or_else(|| error("channel replay without channel inputs"))?;
+        // reference -> entry index (constants and polynomials apart).
+        let mut entry_of =
+            std::collections::HashMap::<u32, u32>::with_capacity(self.entry_refs.len());
+        for (index, reference) in self.entry_refs.iter().enumerate() {
+            entry_of.insert(reference.0, index as u32);
+        }
+        let all = self.take_op_store()?;
+        let mut out = Vec::with_capacity(patches.len());
+        for patch in patches {
+            if patch.len() != inputs.len() {
+                return Err(error("a channel patch of another length"));
+            }
+            let live: Vec<bool> = patch.iter().map(|c| !c.is_zero()).collect();
+            let sliced = slice_channel(
+                &all,
+                &live,
+                self.next_slot as usize,
+                self.terminal_slots as usize,
+            )?;
+            let ops = sliced.ops;
+            let mut patched: std::collections::HashMap<u32, Coefficient> =
+                std::collections::HashMap::new();
+            for (&index, coefficient) in inputs.iter().zip(patch) {
+                self.context
+                    .validate_with_limits(&coefficient, self.limits)
+                    .map_err(ReductionError::from)?;
+                patched.insert(index, coefficient);
+            }
+            let mut copy = self.compact_for_channel(ops, &patched, &entry_of)?;
+            copy.next_slot = sliced.slots;
+            copy.terminal_slots = sliced.terminal_slots;
+            let channel_terms: BTreeMap<IntegralKey, ModularWeight> = terms
+                .iter()
+                .filter_map(|(key, weight)| {
+                    let mapped = *sliced.term_map.get(weight.slot as usize)?;
+                    (mapped != u32::MAX).then(|| {
+                        (
+                            key.clone(),
+                            ModularWeight {
+                                slot: mapped,
+                                probe: weight.probe,
+                            },
+                        )
+                    })
+                })
+                .collect();
+            out.push(copy.finish(channel_terms, None)?);
+        }
+        Ok(out)
     }
 
     /// rr-par2: the table step sources intern into (prestage only).
@@ -1056,8 +1305,9 @@ impl ModularRecorder {
         drop(std::mem::take(&mut self.entries));
         drop(std::mem::take(&mut self.entry_refs));
         drop(std::mem::take(&mut self.entry_hashes));
+        let ops = self.take_op_store()?;
         let trace = Trace {
-            ops: self.ops,
+            ops,
             constants,
             polynomials,
             slots: self.next_slot as usize,
@@ -1354,6 +1604,10 @@ impl ModularRecorder {
 
     /// fwd-opt: `len` more ops (placeholders), to be written by the caller.
     pub(super) fn layered_append(&mut self, len: usize) -> &mut [Op] {
+        assert!(
+            self.spill.is_none(),
+            "layered mode does not spill its trace"
+        );
         let start = self.ops.len();
         self.ops.resize(start + len, Op::bare(OpTag::Pop, 0));
         &mut self.ops[start..]
@@ -1419,7 +1673,33 @@ impl OrderedWeights for ModularRecorder {
     }
 
     fn admit(&mut self, coefficient: Coefficient) -> Result<ModularWeight, ReductionError> {
-        let reference = self.intern(&coefficient)?;
+        let reference = if self.multi_inputs.is_some() {
+            // vk5l-physrun channel replay: an unshared polynomial entry.
+            self.context
+                .validate_with_limits(&coefficient, self.limits)
+                .map_err(ReductionError::from)?;
+            let values = match self.multi_probes.pop_front() {
+                Some(values) => values,
+                None => self.evaluate_probe(&DenseRational::from_coefficient(&coefficient))?,
+            };
+            self.polynomial_probe.push(values);
+            let reference = CoefRef(self.polynomial_count);
+            self.polynomial_count += 1;
+            if self.polynomial_count >= CONSTANT_FLAG {
+                return Err(error("too many distinct polynomial coefficients"));
+            }
+            let index = u32::try_from(self.entries.len())
+                .map_err(|_| error("too many distinct coefficients"))?;
+            self.entries.push(coefficient.clone());
+            self.entry_refs.push(reference);
+            self.entry_hashes.push(0);
+            if let Some(inputs) = &mut self.multi_inputs {
+                inputs.push(index);
+            }
+            reference
+        } else {
+            self.intern(&coefficient)?
+        };
         let slot = self.allocate()?;
         self.ops.push(Op::new(OpTag::Init, slot, reference));
         Ok(ModularWeight {
@@ -1429,13 +1709,22 @@ impl OrderedWeights for ModularRecorder {
     }
 
     fn begin_step(&mut self, weight: &ModularWeight) -> Result<(), ReductionError> {
+        if self.ops.len() >= spill::block_ops()
+            && let Some(spill) = &self.spill
+        {
+            spill
+                .lock()
+                .map_err(|_| error("trace spill poisoned"))?
+                .flush(&mut self.ops)?;
+        }
         self.ops
             .push(Op::new(OpTag::Pop, weight.slot, CoefRef(CONSTANT_FLAG)));
         Ok(())
     }
 
     fn phase_started(&mut self, phase: usize) {
-        self.phase_starts.push((phase, self.ops.len()));
+        let count = self.op_count();
+        self.phase_starts.push((phase, count));
     }
 
     fn end_step(&mut self, weight: ModularWeight) {
@@ -1520,6 +1809,141 @@ impl OrderedWeights for ModularRecorder {
             probe: self.scaled(weight, reference),
             zero,
         })
+    }
+
+    fn resume_bind(
+        &mut self,
+        dir: &std::path::Path,
+        ops: Option<u64>,
+    ) -> Result<bool, ReductionError> {
+        if self.multi_inputs.is_some() || self.shared.is_some() || !self.ops.is_empty() {
+            return Ok(false);
+        }
+        self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(
+            spill::Spill::at(dir, ops)?,
+        )));
+        Ok(true)
+    }
+
+    fn resume_save(
+        &mut self,
+        w: &mut super::step_cache::codec::Writer,
+    ) -> Result<(), ReductionError> {
+        let spill = self
+            .spill
+            .as_ref()
+            .ok_or_else(|| error("resume state without a spill file"))?;
+        let mut spill = spill.lock().map_err(|_| error("trace spill poisoned"))?;
+        spill.flush(&mut self.ops)?;
+        spill.sync()?;
+        w.varint(spill.flushed as u64);
+        drop(spill);
+        w.len(self.entries.len());
+        for (coefficient, reference) in self.entries.iter().zip(&self.entry_refs) {
+            super::resume::put_coefficient(w, coefficient);
+            w.varint(u64::from(reference.0));
+        }
+        w.len(self.constant_probe.len());
+        for value in &self.constant_probe {
+            w.varint(self.probe_field.from_element(value));
+        }
+        w.len(self.polynomial_probe.len());
+        for values in &self.polynomial_probe {
+            for value in values {
+                w.varint(self.probe_field.from_element(value));
+            }
+        }
+        w.varint(u64::from(self.constant_count));
+        w.varint(u64::from(self.polynomial_count));
+        w.len(self.free_slots.len());
+        for slot in &self.free_slots {
+            w.varint(u64::from(*slot));
+        }
+        w.varint(u64::from(self.next_slot));
+        w.varint(u64::from(self.terminal_slots));
+        w.len(self.phase_starts.len());
+        for (phase, start) in &self.phase_starts {
+            w.varint(*phase as u64);
+            w.varint(*start as u64);
+        }
+        w.varint(self.lookups as u64);
+        Ok(())
+    }
+
+    fn resume_load(
+        &mut self,
+        r: &mut super::step_cache::codec::Reader<'_>,
+    ) -> Result<(), ReductionError> {
+        let e = |m: String| error(format!("resume state: {m}"));
+        let _ops = r.varint().map_err(e)?;
+        let template = self.context.zero();
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.entries = Vec::with_capacity(n);
+        self.entry_refs = Vec::with_capacity(n);
+        self.entry_hashes = Vec::with_capacity(n);
+        self.table = HashTable::new();
+        for index in 0..n {
+            let coefficient = super::resume::get_coefficient(r, &template).map_err(e)?;
+            let reference = CoefRef(r.varint().map_err(e)? as u32);
+            let hash = FxBuild.hash_one(&coefficient);
+            self.entries.push(coefficient);
+            self.entry_refs.push(reference);
+            self.entry_hashes.push(hash);
+            let hashes = &self.entry_hashes;
+            self.table
+                .insert_unique(hash, index as u32, |&i| hashes[i as usize]);
+        }
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.constant_probe = (0..n)
+            .map(|_| r.varint().map(|v| self.probe_field.to_element(v)))
+            .collect::<Result<_, _>>()
+            .map_err(e)?;
+        let n = r.len(usize::MAX).map_err(e)?;
+        let mut probes = Vec::with_capacity(n);
+        for _ in 0..n {
+            let mut values = [self.probe_field.zero(); PROBES];
+            for value in &mut values {
+                *value = self.probe_field.to_element(r.varint().map_err(e)?);
+            }
+            probes.push(values);
+        }
+        self.polynomial_probe = probes;
+        self.constant_count = r.varint().map_err(e)? as u32;
+        self.polynomial_count = r.varint().map_err(e)? as u32;
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.free_slots = (0..n)
+            .map(|_| r.varint().map(|v| v as u32))
+            .collect::<Result<_, _>>()
+            .map_err(e)?;
+        self.next_slot = r.varint().map_err(e)? as u32;
+        self.terminal_slots = r.varint().map_err(e)? as u32;
+        let n = r.len(usize::MAX).map_err(e)?;
+        self.phase_starts = (0..n)
+            .map(|_| Ok((r.varint()? as usize, r.varint()? as usize)))
+            .collect::<Result<_, String>>()
+            .map_err(e)?;
+        self.lookups = r.varint().map_err(e)? as usize;
+        Ok(())
+    }
+
+    fn resume_put_weight(&self, weight: &ModularWeight, w: &mut super::step_cache::codec::Writer) {
+        w.varint(u64::from(weight.slot));
+        for value in &weight.probe {
+            w.varint(self.probe_field.from_element(value));
+        }
+    }
+
+    fn resume_get_weight(
+        &self,
+        r: &mut super::step_cache::codec::Reader<'_>,
+    ) -> Result<ModularWeight, ReductionError> {
+        let e = |m: String| error(format!("resume state: {m}"));
+        let slot = r.varint().map_err(e)? as u32;
+        let mut probe = [self.probe_field.zero(); PROBES];
+        for value in &mut probe {
+            *value = self.probe_field.to_element(r.varint().map_err(e)?);
+        }
+        Ok(ModularWeight { slot, probe })
     }
 
     fn contribution_is_zero(&self, contribution: &ModularContribution) -> bool {
@@ -1607,7 +2031,8 @@ impl OrderedWeights for ModularRecorder {
     }
 
     fn tail_checkpoint(&self) -> Option<usize> {
-        Some(self.ops.len())
+        // A spilled trace is not rewritten (tail rewrites refuse it below).
+        Some(self.op_count())
     }
 
     fn tail_probe(&self, weight: &ModularWeight) -> Option<[Fe; PROBES]> {
@@ -1670,10 +2095,17 @@ impl OrderedWeights for ModularRecorder {
         terminal: &mut Option<ModularWeight>,
         probe: Option<[Fe; PROBES]>,
     ) -> Result<super::TailRewriteReport, ReductionError> {
-        if rewrite.ops > self.ops.len() {
+        // A spilled trace is rewritten only after its last flushed op.
+        let flushed = self.op_count() - self.ops.len();
+        if rewrite.ops < flushed {
+            return Err(error(
+                "tail rewrites below the spilled part of a trace are not supported",
+            ));
+        }
+        if rewrite.ops > self.op_count() {
             return Err(error("tail checkpoint beyond the recorded trace"));
         }
-        self.ops.truncate(rewrite.ops);
+        self.ops.truncate(rewrite.ops - flushed);
         // Phase markers (replay diagnostics) of the replaced program go with
         // it: the rewritten products count for the phase the tail starts in.
         self.phase_starts.retain(|&(_, start)| start <= rewrite.ops);
@@ -1841,4 +2273,246 @@ thread_local! {
 #[cfg(test)]
 pub(crate) fn take_reported_statistics() -> Vec<ModularStatistics> {
     REPORTED.with(|reported| std::mem::take(&mut *reported.borrow_mut()))
+}
+
+/// vk5l-physrun channel replay: the per-channel inputs of the next modular
+/// request on this thread (type-erased `Vec<BTreeMap<Key, Coefficient>>`),
+/// and the per-channel terminal maps it leaves behind.
+pub(crate) mod channels {
+    use std::any::Any;
+    use std::cell::RefCell;
+    use std::collections::BTreeMap;
+
+    use crate::algebra::Coefficient;
+    use crate::family::IntegralKey;
+
+    thread_local! {
+        static IN: RefCell<Option<Box<dyn Any>>> = const { RefCell::new(None) };
+        static OUT: RefCell<Option<Vec<BTreeMap<IntegralKey, Coefficient>>>> = const { RefCell::new(None) };
+    }
+
+    pub(crate) fn set<K: 'static>(channels: Vec<BTreeMap<K, Coefficient>>, lambdas: Vec<u64>) {
+        IN.with(|cell| *cell.borrow_mut() = Some(Box::new((channels, lambdas))));
+        OUT.with(|cell| *cell.borrow_mut() = None);
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn take<K: 'static>() -> Option<(Vec<BTreeMap<K, Coefficient>>, Vec<u64>)> {
+        IN.with(|cell| cell.borrow_mut().take())
+            .and_then(|boxed| {
+                boxed
+                    .downcast::<(Vec<BTreeMap<K, Coefficient>>, Vec<u64>)>()
+                    .ok()
+            })
+            .map(|boxed| *boxed)
+    }
+
+    pub(crate) fn put_out(out: Vec<BTreeMap<IntegralKey, Coefficient>>) {
+        OUT.with(|cell| *cell.borrow_mut() = Some(out));
+    }
+
+    pub(crate) fn take_out() -> Option<Vec<BTreeMap<IntegralKey, Coefficient>>> {
+        IN.with(|cell| cell.borrow_mut().take());
+        OUT.with(|cell| cell.borrow_mut().take())
+    }
+}
+
+/// vk5l-physrun channel replay: the ops of a trace recorded over mixed inputs
+/// that one channel needs: `live[k]` tells whether the k-th admitted input
+/// (the k-th `Init`) is nonzero for the channel. An op whose source is zero
+/// for the channel adds nothing and is dropped; an addition into a slot that
+/// is zero for the channel becomes an assignment; erasure checks of slots
+/// that are zero for the channel are dropped. The replayed values are those
+/// of the full trace with the channel's inputs, exactly. A terminal slot that
+/// would have to be reset to zero after a live write is refused (the caller
+/// falls back).
+fn slice_channel(
+    ops: &[Op],
+    live: &[bool],
+    slots: usize,
+    terminal_slots: usize,
+) -> Result<SlicedChannel, ReductionError> {
+    // Liveness per union slot, and the channel's own dense slot numbering.
+    let mut slot_live = vec![false; slots];
+    let mut slot_map: Vec<u32> = vec![u32::MAX; slots];
+    let mut free: Vec<u32> = Vec::new();
+    let mut next_slot = 0u32;
+    let mut term_live = vec![false; terminal_slots];
+    let mut term_written = vec![false; terminal_slots];
+    let mut term_map: Vec<u32> = vec![u32::MAX; terminal_slots];
+    let mut next_term = 0u32;
+    let mut active = false;
+    let mut popped: Option<usize> = None;
+    let mut inputs = live.iter();
+    let mut out = Vec::with_capacity(ops.len() / 2);
+    let map =
+        |slot: usize, slot_map: &mut Vec<u32>, free: &mut Vec<u32>, next_slot: &mut u32| -> u32 {
+            if slot_map[slot] == u32::MAX {
+                slot_map[slot] = free.pop().unwrap_or_else(|| {
+                    *next_slot += 1;
+                    *next_slot - 1
+                });
+            }
+            slot_map[slot]
+        };
+    let release = |slot: usize, slot_map: &mut Vec<u32>, free: &mut Vec<u32>| {
+        if slot_map[slot] != u32::MAX {
+            free.push(slot_map[slot]);
+            slot_map[slot] = u32::MAX;
+        }
+    };
+    let term = |slot: usize, term_map: &mut Vec<u32>, next_term: &mut u32| -> u32 {
+        if term_map[slot] == u32::MAX {
+            term_map[slot] = *next_term;
+            *next_term += 1;
+        }
+        term_map[slot]
+    };
+    for op in ops {
+        let slot = op.slot();
+        match op.tag() {
+            OpTag::Init => {
+                let on = *inputs
+                    .next()
+                    .ok_or_else(|| error("more inputs in the trace than in the channel"))?;
+                slot_live[slot] = on;
+                if on {
+                    let s = map(slot, &mut slot_map, &mut free, &mut next_slot);
+                    out.push(Op::new(OpTag::Init, s, op.coefficient));
+                }
+            }
+            OpTag::Pop => {
+                // The slot popped before is freed at the end of its step.
+                if let Some(previous) = popped.take() {
+                    release(previous, &mut slot_map, &mut free);
+                    slot_live[previous] = false;
+                }
+                popped = Some(slot);
+                active = slot_live[slot];
+                if active {
+                    out.push(Op::bare(OpTag::Pop, slot_map[slot]));
+                }
+            }
+            OpTag::New => {
+                if active {
+                    let s = map(slot, &mut slot_map, &mut free, &mut next_slot);
+                    out.push(Op::new(OpTag::New, s, op.coefficient));
+                    slot_live[slot] = true;
+                } else {
+                    release(slot, &mut slot_map, &mut free);
+                    slot_live[slot] = false;
+                }
+            }
+            OpTag::Add => {
+                if active {
+                    let tag = if slot_live[slot] {
+                        OpTag::Add
+                    } else {
+                        OpTag::New
+                    };
+                    let s = map(slot, &mut slot_map, &mut free, &mut next_slot);
+                    out.push(Op::new(tag, s, op.coefficient));
+                    slot_live[slot] = true;
+                }
+            }
+            OpTag::Cancel => {
+                if slot_live[slot] {
+                    out.push(Op::bare(OpTag::Cancel, slot_map[slot]));
+                }
+                release(slot, &mut slot_map, &mut free);
+                slot_live[slot] = false;
+            }
+            OpTag::TermNew => {
+                if active {
+                    let t = term(slot, &mut term_map, &mut next_term);
+                    out.push(Op::new(OpTag::TermNew, t, op.coefficient));
+                    term_live[slot] = true;
+                    term_written[slot] = true;
+                } else {
+                    if term_written[slot] {
+                        return Err(error("a terminal slot would need a reset to zero"));
+                    }
+                    term_live[slot] = false;
+                }
+            }
+            OpTag::TermAdd => {
+                if active {
+                    let tag = if term_live[slot] {
+                        OpTag::TermAdd
+                    } else {
+                        OpTag::TermNew
+                    };
+                    let t = term(slot, &mut term_map, &mut next_term);
+                    out.push(Op::new(tag, t, op.coefficient));
+                    term_live[slot] = true;
+                    term_written[slot] = true;
+                }
+            }
+            OpTag::TermCancel => {
+                if term_live[slot] {
+                    out.push(Op::bare(OpTag::TermCancel, term_map[slot]));
+                }
+            }
+        }
+    }
+    if inputs.next().is_some() {
+        return Err(error("fewer inputs in the trace than in the channel"));
+    }
+    Ok(SlicedChannel {
+        ops: out,
+        slots: next_slot,
+        terminal_slots: next_term,
+        term_map,
+    })
+}
+
+/// One channel's slice of a mixed trace ([`slice_channel`]).
+struct SlicedChannel {
+    ops: Vec<Op>,
+    slots: u32,
+    terminal_slots: u32,
+    /// union terminal slot -> channel terminal slot (`u32::MAX`: never written).
+    term_map: Vec<u32>,
+}
+
+#[cfg(test)]
+mod channel_slice_tests {
+    use super::*;
+
+    /// Two inputs; the channel keeps only the second: the first input's ops
+    /// go, an addition into a slot that is zero for the channel becomes an
+    /// assignment, slots and terminals are renumbered densely.
+    #[test]
+    fn a_channel_slice_keeps_only_what_its_inputs_reach() {
+        let c = CoefRef(0);
+        let ops = vec![
+            Op::new(OpTag::Init, 0, c),
+            Op::new(OpTag::Init, 1, c),
+            Op::bare(OpTag::Pop, 0),
+            Op::new(OpTag::New, 2, c),
+            Op::new(OpTag::TermNew, 0, c),
+            Op::bare(OpTag::Pop, 1),
+            Op::new(OpTag::Add, 2, c),
+            Op::new(OpTag::TermNew, 1, c),
+            Op::bare(OpTag::Pop, 2),
+            Op::new(OpTag::TermAdd, 1, c),
+        ];
+        let sliced = slice_channel(&ops, &[false, true], 3, 2).unwrap();
+        let tags: Vec<OpTag> = sliced.ops.iter().map(|op| op.tag()).collect();
+        assert_eq!(
+            tags,
+            vec![
+                OpTag::Init,
+                OpTag::Pop,
+                OpTag::New,
+                OpTag::TermNew,
+                OpTag::Pop,
+                OpTag::TermAdd
+            ]
+        );
+        assert_eq!(sliced.terminal_slots, 1);
+        assert_eq!(sliced.term_map[1], 0);
+        assert_eq!(sliced.term_map[0], u32::MAX);
+        assert!(sliced.slots <= 2);
+    }
 }

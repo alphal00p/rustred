@@ -187,7 +187,7 @@ mod tests {
         ];
         list.extend((0..ops).map(|_| Op::new(OpTag::TermAdd, 0, constant(1))));
         Trace {
-            ops: list,
+            ops: list.into(),
             constants: vec![
                 (Integer::from(3u64), Integer::one()),
                 (Integer::from(2u64), Integer::one()),

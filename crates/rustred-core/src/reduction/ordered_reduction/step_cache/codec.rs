@@ -84,6 +84,11 @@ impl<'a> Reader<'a> {
         Self { bytes, position: 0 }
     }
 
+    /// Bytes not read yet.
+    pub(crate) fn remaining(&self) -> usize {
+        self.bytes.len() - self.position
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.position == self.bytes.len()
     }

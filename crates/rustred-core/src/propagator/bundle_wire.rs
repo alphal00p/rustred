@@ -44,6 +44,56 @@ pub const LEGACY_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.b
 pub const CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v2";
 /// Program records with a sparse rule-dispatch table.
 pub const DISPATCH_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v3";
+/// batch 12a: program records (v3 layout, dispatch table possibly empty) of a
+/// payload that REQUIRES reader features (a `required_features` provenance
+/// line, [`REQUIRED_FEATURES_MARKER`]): a reader built before them refuses
+/// the schema ("unsupported candidate structural schema") instead of
+/// skipping provenance it does not know; a reader that knows the schema
+/// refuses any feature not in [`KNOWN_PAYLOAD_FEATURES`].
+pub const FEATURES_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates.binary.v4";
+/// The provenance line naming the reader features a payload requires.
+pub const REQUIRED_FEATURES_MARKER: &str = "\nrequired_features ";
+/// Reader features this build implements.
+pub const KNOWN_PAYLOAD_FEATURES: [&str; 2] = ["slot_aliases", "positioned_recipes"];
+
+/// The features a payload's provenance text requires (none without the line).
+pub fn required_features(family_source: &str) -> Vec<String> {
+    let Some(at) = family_source.find(REQUIRED_FEATURES_MARKER) else {
+        return Vec::new();
+    };
+    family_source[at + REQUIRED_FEATURES_MARKER.len()..]
+        .split('\n')
+        .next()
+        .unwrap_or("")
+        .split(',')
+        .map(str::trim)
+        .filter(|feature| !feature.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Refuse a program whose schema / required features this build does not
+/// implement (every v4 feature must be known; a feature line without v4 is
+/// malformed: it would be invisible to older readers).
+pub fn check_required_features(records: &ProgramRecord) -> Result<(), BundleWireError> {
+    let features = required_features(&records.family_source);
+    let v4 = records.schema == FEATURES_CANDIDATE_BUNDLE_SCHEMA;
+    if v4 != !features.is_empty() {
+        return Err(BundleWireError::schema(
+            "a required_features line belongs to (and only to) the v4 schema",
+        ));
+    }
+    if let Some(unknown) = features
+        .iter()
+        .find(|feature| !KNOWN_PAYLOAD_FEATURES.contains(&feature.as_str()))
+    {
+        return Err(BundleWireError::schema(format!(
+            "the payload requires the reader feature {unknown:?}, which this build does not implement \
+             (it implements {KNOWN_PAYLOAD_FEATURES:?}): use a newer RustRed"
+        )));
+    }
+    Ok(())
+}
 /// The status of every generated bundle: its rules are not certified.
 pub const CANDIDATE_BUNDLE_STATUS: &str = "uncertified-candidates";
 
@@ -307,7 +357,7 @@ struct V2Ref<'a> {
 pub fn encode_program_record(
     records: &ProgramRecord,
 ) -> Result<Vec<u8>, bincode::error::EncodeError> {
-    if records.rule_dispatch.is_empty() {
+    if records.rule_dispatch.is_empty() && records.schema != FEATURES_CANDIDATE_BUNDLE_SCHEMA {
         let wire = V2Ref {
             schema: CANDIDATE_BUNDLE_SCHEMA,
             status: &records.status,
@@ -388,7 +438,9 @@ pub fn encode_program_record_with_sectors(
     let config = bincode::config::standard();
     let mut out = bincode::encode_to_vec(
         EncodedV2Ref {
-            schema: if records.rule_dispatch.is_empty() {
+            schema: if records.rule_dispatch.is_empty()
+                && records.schema != FEATURES_CANDIDATE_BUNDLE_SCHEMA
+            {
                 CANDIDATE_BUNDLE_SCHEMA
             } else {
                 &records.schema
@@ -405,7 +457,7 @@ pub fn encode_program_record_with_sectors(
         },
         config,
     )?;
-    if !records.rule_dispatch.is_empty() {
+    if !records.rule_dispatch.is_empty() || records.schema == FEATURES_CANDIDATE_BUNDLE_SCHEMA {
         bincode::encode_into_std_write(records.rule_dispatch.as_slice(), &mut out, config)?;
     }
     Ok(out)
@@ -521,8 +573,9 @@ pub fn decode_program_record(
 ) -> Result<StoredProgram, BundleWireError> {
     let (schema, _): (String, usize) = decode_record(bytes, allowance)?;
     let (program, consumed) = match schema.as_str() {
-        DISPATCH_CANDIDATE_BUNDLE_SCHEMA => {
-            let (records, consumed) = decode_record(bytes, allowance)?;
+        DISPATCH_CANDIDATE_BUNDLE_SCHEMA | FEATURES_CANDIDATE_BUNDLE_SCHEMA => {
+            let (records, consumed): (ProgramRecord, usize) = decode_record(bytes, allowance)?;
+            check_required_features(&records)?;
             (StoredProgram::Current(records), consumed)
         }
         CANDIDATE_BUNDLE_SCHEMA => {
@@ -679,7 +732,9 @@ pub fn validate_rule_ids(rule: &RuleRecord, count: usize) -> Result<(), BundleWi
 /// The dispatch table matches the schema and lists valid entries, strictly
 /// ascending, each on an existing rule.
 pub fn validate_dispatch(records: &ProgramRecord) -> Result<(), BundleWireError> {
-    if records.rule_dispatch.is_empty() == (records.schema == DISPATCH_CANDIDATE_BUNDLE_SCHEMA) {
+    if records.schema != FEATURES_CANDIDATE_BUNDLE_SCHEMA
+        && records.rule_dispatch.is_empty() == (records.schema == DISPATCH_CANDIDATE_BUNDLE_SCHEMA)
+    {
         return Err(BundleWireError::schema(
             "candidate dispatch table/schema mismatch",
         ));
@@ -1098,6 +1153,96 @@ mod encoded_sector_tests {
             sources: vec![],
             exclusions: vec![vec![7, 1_000_000]],
         }
+    }
+
+    /// batch 12a: a payload needing reader features is schema v4 (v3 layout, also without dispatch entries);
+    /// it round-trips through both encoders, a reader refuses a feature it does not implement, and a feature
+    /// line outside v4 (which an older reader would skip) is refused too. A reader built before batch 12a
+    /// knows v1-v3 only and refuses v4 as "unsupported candidate structural schema".
+    #[test]
+    fn a_payload_requiring_reader_features_is_schema_v4_and_refused_when_unknown() {
+        let sectors = vec![SectorRecord {
+            sector: vec![true, true, false],
+            rules: vec![rule(&[2, 1, 0], 3)],
+            finite_residuals: vec![integral(&[1, 1, 0])],
+        }];
+        let program = |schema: &str, source: &str| ProgramRecord {
+            schema: schema.to_owned(),
+            status: CANDIDATE_BUNDLE_STATUS.to_owned(),
+            solver_policy: "p".into(),
+            family_source: source.to_owned(),
+            input_format: "auto".into(),
+            family_fingerprint: "x".into(),
+            root_sector: vec![true, true, false],
+            permutation: None,
+            integral_order: "o".into(),
+            sectors: sectors.clone(),
+            rule_dispatch: vec![],
+        };
+        let encoded_sectors: Vec<EncodedSectorRecord> = sectors
+            .iter()
+            .map(|sector| {
+                let mut out = EncodedSectorRecord {
+                    sector: sector.sector.clone(),
+                    finite_residuals: sector.finite_residuals.clone(),
+                    ..Default::default()
+                };
+                for rule in &sector.rules {
+                    out.push_rule(rule).unwrap();
+                }
+                out
+            })
+            .collect();
+        let v4 = program(
+            FEATURES_CANDIDATE_BUNDLE_SCHEMA,
+            "f\nslot_aliases []\nrequired_features slot_aliases,positioned_recipes\nslot_order {}",
+        );
+        let bytes = encode_program_record(&v4).unwrap();
+        assert_eq!(
+            bytes,
+            encode_program_record_with_sectors(&v4, &encoded_sectors).unwrap()
+        );
+        let StoredProgram::Current(back) = decode_program_record(&bytes, usize::MAX).unwrap()
+        else {
+            panic!("a current program");
+        };
+        assert_eq!(back, v4);
+        assert_eq!(
+            required_features(&back.family_source),
+            ["slot_aliases", "positioned_recipes"]
+        );
+        validate_dispatch(&back).unwrap();
+        // a feature this build does not implement: refused with its name
+        let future = program(
+            FEATURES_CANDIDATE_BUNDLE_SCHEMA,
+            "f\nrequired_features lazy_bodies\nslot_order {}",
+        );
+        let Err(error) =
+            decode_program_record(&encode_program_record(&future).unwrap(), usize::MAX)
+        else {
+            panic!("an unknown feature must be refused");
+        };
+        assert!(error.to_string().contains("lazy_bodies"), "{error}");
+        // the v4 schema without a feature line, and a feature line under v2 / v3: refused
+        let empty = program(FEATURES_CANDIDATE_BUNDLE_SCHEMA, "f\nslot_order {}");
+        assert!(
+            decode_program_record(&encode_program_record(&empty).unwrap(), usize::MAX).is_err()
+        );
+        let mut hidden = program(
+            DISPATCH_CANDIDATE_BUNDLE_SCHEMA,
+            "f\nrequired_features slot_aliases",
+        );
+        hidden.rule_dispatch = vec![RuleDispatchRecord {
+            sector: 0,
+            rule: 0,
+            policy: 1,
+        }];
+        assert!(
+            decode_program_record(&encode_program_record(&hidden).unwrap(), usize::MAX).is_err()
+        );
+        // old payloads: v2 / v3 without the line decode unchanged
+        let old = program(CANDIDATE_BUNDLE_SCHEMA, "f\nslot_order {}");
+        assert!(decode_program_record(&encode_program_record(&old).unwrap(), usize::MAX).is_ok());
     }
 
     /// A program of encoded sectors has the bytes of the decoded program, in
