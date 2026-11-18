@@ -22,8 +22,10 @@
 //! 6. THE WRITE: `kill_members()` (the belt's own call: descriptor-checked `cgroup.kill`), then within 5 s the scope
 //!    unpopulated or removed, C killed by SIGKILL, the unit not loaded or inactive.
 //!
-//! Always at the end: if C still runs or the unit is still loaded, `systemctl --user stop <U>.scope` (the exact name), and
-//! `reset-failed <U>.scope` if it failed (the exact name this check created). No pattern, no other pid, no other unit.
+//! Always at the end, and ONLY if this run created the unit (round 12, gate15 m15-hc-stop: our own unreaped child C seen
+//! by the kernel inside `<U>.scope`; a name already loaded, or whose scope directory exists, is refused up front): if C
+//! still runs or the unit is still loaded, `systemctl --user stop <U>.scope` (the exact name), and `reset-failed
+//! <U>.scope` if it failed. No pattern, no other pid, no other unit; a unit this run did not create is never touched.
 use super::cgroup::{ScopeRef, populated, procs_recursive, user_manager_root};
 use crate::resources::{Bounded, procfs, read_stat, run_bounded};
 use std::path::Path;
@@ -114,11 +116,52 @@ fn preconditions(unit: &str) -> Result<std::path::PathBuf, String> {
             "refused: {unit}.scope is known to the user manager (LoadState {load})"
         ));
     }
+    // round 12 (gate15 m15-hc-stop): a name already in use as a scope directory (a hand-typed --unit of an earlier or
+    // foreign run) is refused too
+    for d in [
+        root.join("app.slice").join(format!("{unit}.scope")),
+        root.join(format!("{unit}.scope")),
+    ] {
+        match crate::fsx::presence_lstat("cgroup", &d) {
+            crate::fsx::Presence::Absent => {}
+            _ => {
+                return Err(format!(
+                    "refused: {} exists (or cannot be checked)",
+                    d.display()
+                ));
+            }
+        }
+    }
     Ok(root)
 }
 
+/// Does the cgroup text of C (`/proc/<C>/cgroup`) name `<unit>.scope` as C's cgroup-v2 cgroup?
+fn names_unit(text: &str, unit: &str) -> bool {
+    let want = format!("/{unit}.scope");
+    text.lines()
+        .any(|l| l.starts_with("0::") && l.trim_end().ends_with(&want))
+}
+
+/// procfix7 round 12 (gate15 m15-hc-stop): what the end of a run may do to `<unit>.scope`: NOTHING unless THIS run
+/// created it (`created`: our own child C, unreaped (its pid cannot be reused), was seen by the kernel inside
+/// `<unit>.scope`; `systemd-run --scope --unit=U` never starts its command when U exists). Then `stop` while C may still
+/// run or the unit is still loaded, and `reset-failed` when it failed.
+fn end_actions(created: bool, c_alive: bool, load: &str, active: &str) -> Vec<&'static str> {
+    let mut v = Vec::new();
+    if !created {
+        return v;
+    }
+    if c_alive || load != "not-found" {
+        v.push("stop");
+    }
+    if active == "failed" {
+        v.push("reset-failed");
+    }
+    v
+}
+
 /// Run the check. `say` receives every report line at once. Ok(()) = every step held; Err = a refusal (nothing started)
-/// or a failed step (the scope was stopped by its exact name).
+/// or a failed step (the scope, if this run created it, was stopped by its exact name).
 pub fn host_scope_check(unit: &str, run: bool, say: &mut dyn FnMut(&str)) -> Result<(), String> {
     let root = preconditions(unit)?;
     say(&format!(
@@ -162,14 +205,27 @@ pub fn host_scope_check(unit: &str, run: bool, say: &mut dyn FnMut(&str)) -> Res
         .spawn()
         .map_err(|e| format!("step 1: systemd-run: {e}"))?;
     let cpid = c.id();
-    let r = steps(unit, &mut c, cpid, say);
-    // Always: nothing of the check is left (exact unit name only).
+    let mut created = false;
+    let r = steps(unit, &mut c, cpid, &mut created, say);
+    // Always: nothing of the check is left, by the exact unit name and ONLY if this run created the unit.
     let alive = matches!(c.try_wait(), Ok(None));
-    if alive || !matches!(show(unit, "LoadState").as_deref(), Ok("not-found")) {
-        say(&systemctl("stop", unit));
+    if !created
+        && alive
+        && let Ok(t) = procfs::sys().cgroup_text(cpid, Duration::from_secs(5))
+        && names_unit(&t, unit)
+    {
+        created = true;
     }
-    if matches!(show(unit, "ActiveState").as_deref(), Ok("failed")) {
-        say(&systemctl("reset-failed", unit));
+    let load = show(unit, "LoadState").unwrap_or_else(|e| format!("unknown ({e})"));
+    let active = show(unit, "ActiveState").unwrap_or_else(|e| format!("unknown ({e})"));
+    let acts = end_actions(created, alive, &load, &active);
+    if !created {
+        say(&format!(
+            "end: {unit}.scope was NOT created by this run (C never seen inside it): nothing stopped or reset"
+        ));
+    }
+    for a in acts {
+        say(&systemctl(a, unit));
     }
     let t0 = Instant::now();
     while matches!(c.try_wait(), Ok(None)) && t0.elapsed() < Duration::from_secs(10) {
@@ -188,7 +244,13 @@ pub fn host_scope_check(unit: &str, run: bool, say: &mut dyn FnMut(&str)) -> Res
     r
 }
 
-fn steps(unit: &str, c: &mut Child, cpid: u32, say: &mut dyn FnMut(&str)) -> Result<(), String> {
+fn steps(
+    unit: &str,
+    c: &mut Child,
+    cpid: u32,
+    created: &mut bool,
+    say: &mut dyn FnMut(&str),
+) -> Result<(), String> {
     use std::os::unix::process::ExitStatusExt;
     let uid = crate::resources::our_uid();
     let cstart = read_stat(cpid)
@@ -196,15 +258,14 @@ fn steps(unit: &str, c: &mut Child, cpid: u32, say: &mut dyn FnMut(&str)) -> Res
         .start_ticks;
     say(&format!("step 1: C = pid {cpid} (start {cstart})"));
     // 2. the record
-    let want = format!("/{unit}.scope");
     let t0 = Instant::now();
     let text = loop {
         let t = procfs::sys()
             .cgroup_text(cpid, Duration::from_secs(5))
             .map_err(|e| format!("step 2: /proc/{cpid}/cgroup: {e}"))?;
-        if t.lines()
-            .any(|l| l.starts_with("0::") && l.trim_end().ends_with(&want))
-        {
+        if names_unit(&t, unit) {
+            // our own unreaped child inside the unit: THIS run created it (round 12, m15-hc-stop)
+            *created = true;
             break t;
         }
         if t0.elapsed() > Duration::from_secs(10) {
@@ -405,6 +466,39 @@ mod tests {
         ] {
             assert!(!valid_check_unit(bad), "{bad}");
         }
+    }
+
+    /// procfix7 round 12 (gate15 m15-hc-stop): the end of a run never stops or resets a unit this run did not create.
+    #[test]
+    fn the_end_acts_only_on_a_unit_this_run_created() {
+        for (alive, load, active) in [
+            (true, "loaded", "active"),
+            (false, "loaded", "failed"),
+            (false, "not-found", "inactive"),
+        ] {
+            assert!(
+                end_actions(false, alive, load, active).is_empty(),
+                "{load} {active}"
+            );
+        }
+        assert_eq!(end_actions(true, true, "loaded", "active"), vec!["stop"]);
+        assert_eq!(
+            end_actions(true, false, "loaded", "failed"),
+            vec!["stop", "reset-failed"]
+        );
+        assert!(end_actions(true, false, "not-found", "inactive").is_empty());
+        let u = "gate-scopecheck-0123456789abcdef";
+        let inside = format!("0::/user.slice/user-1.slice/user@1.service/app.slice/{u}.scope\n");
+        assert!(names_unit(&inside, u));
+        assert!(!names_unit(
+            &format!("0::/user.slice/user-1.slice/user@1.service/app.slice/{u}x.scope\n"),
+            u
+        ));
+        assert!(!names_unit(
+            "0::/user.slice/user-1.slice/session-3.scope\n",
+            u
+        ));
+        assert!(!names_unit(&format!("1:name=systemd:/{u}.scope\n"), u));
     }
 
     /// Inside a private namespace (where the tests run) the check refuses before anything is started.

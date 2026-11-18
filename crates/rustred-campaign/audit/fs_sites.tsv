@@ -503,22 +503,25 @@ D	src/launch/guard.rs	3053	test			let _ = std::fs::remove_dir_all(&log);
 X	src/launch/guard.rs	3053	test			let _ = std::fs::remove_dir_all(&log);
 D	src/launch/guard.rs	3054	test			let _ = std::fs::remove_dir_all(&full);
 X	src/launch/guard.rs	3054	test			let _ = std::fs::remove_dir_all(&full);
-C	src/launch/host_check.rs	48	prod		safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported	Command::new("systemctl")
-C	src/launch/host_check.rs	68	prod		safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported	Command::new("systemctl")
-F	src/launch/host_check.rs	95	prod	cgroup	safe host check refusals: anything but Present (and ours) refuses before anything is started	match crate::fsx::presence("cgroup", Path::new("/sys/fs/cgroup/cgroup.controllers")) {
-F	src/launch/host_check.rs	101	prod	cgroup	safe host check refusals: anything but Present (and ours) refuses before anything is started	match crate::fsx::presence("cgroup", &root) {
-E	src/launch/host_check.rs	103	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if md.is_dir() && std::os::unix::fs::MetadataExt::uid(&md) == uid => {}
-K	src/launch/host_check.rs	131	prod		safe host check: report / error text naming cgroup.kill (no write)	cgroup.kill of that scope; stop {unit}.scope by its exact name if anything is left"
-C	src/launch/host_check.rs	137	prod		safe host check (coordinator tool, gate14 item 5): its ONE scope (unique unit gate-scopecheck-<16 hex>; every process in its own pid namespace); a spawn error is reported	let mut c = Command::new("systemd-run")
-W	src/launch/host_check.rs	167	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	let alive = matches!(c.try_wait(), Ok(None));
-W	src/launch/host_check.rs	175	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	while matches!(c.try_wait(), Ok(None)) && t0.elapsed() < Duration::from_secs(10) {
-W	src/launch/host_check.rs	180	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	match c.try_wait() {
-W	src/launch/host_check.rs	271	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	if !matches!(populated(&r.dir), Ok(true)) || !matches!(c.try_wait(), Ok(None)) {
-K	src/launch/host_check.rs	345	prod		safe host check: its ONE cgroup.kill = ScopeRef::kill_members of its own scope after the safety gate (every pid C itself or in its private pid namespace)	.map_err(|e| format!("step 6: cgroup.kill: {e}"))?;
-K	src/launch/host_check.rs	352	prod		safe host check: report / error text naming cgroup.kill (no write)	return Err("step 6: the scope is still populated 5 s after cgroup.kill".into());
-W	src/launch/host_check.rs	359	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	match c.try_wait() {
-K	src/launch/host_check.rs	364	prod		safe host check: report / error text naming cgroup.kill (no write)	Ok(None) => return Err("step 6: C still runs 5 s after cgroup.kill".into()),
-K	src/launch/host_check.rs	381	prod		safe host check: report / error text naming cgroup.kill (no write)	"step 6: cgroup.kill written: scope {emptied}, C killed by SIGKILL, unit LoadState {} ActiveState {}",
+C	src/launch/host_check.rs	50	prod		safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported	Command::new("systemctl")
+C	src/launch/host_check.rs	70	prod		safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported	Command::new("systemctl")
+F	src/launch/host_check.rs	97	prod	cgroup	safe host check refusals: anything but Present (and ours) refuses before anything is started	match crate::fsx::presence("cgroup", Path::new("/sys/fs/cgroup/cgroup.controllers")) {
+F	src/launch/host_check.rs	103	prod	cgroup	safe host check refusals: anything but Present (and ours) refuses before anything is started	match crate::fsx::presence("cgroup", &root) {
+E	src/launch/host_check.rs	105	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if md.is_dir() && std::os::unix::fs::MetadataExt::uid(&md) == uid => {}
+F	src/launch/host_check.rs	125	prod	cgroup	safe host check refusal (round 12 m15-hc-stop): only Absent lets the run start; Present or Unknown refuses (nothing started)	match crate::fsx::presence_lstat("cgroup", &d) {
+K	src/launch/host_check.rs	174	prod		safe host check: report / error text naming cgroup.kill (no write)	cgroup.kill of that scope; stop {unit}.scope by its exact name if anything is left"
+C	src/launch/host_check.rs	180	prod		safe host check (coordinator tool, gate14 item 5): its ONE scope (unique unit gate-scopecheck-<16 hex>; every process in its own pid namespace); a spawn error is reported	let mut c = Command::new("systemd-run")
+W	src/launch/host_check.rs	211	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	let alive = matches!(c.try_wait(), Ok(None));
+X	src/launch/host_check.rs	213	prod		safe host check end (round 12 m15-hc-stop): the unit counts as created by this run ONLY on a conclusive read naming it; a failed read = not created = nothing stopped or reset	&& alive
+X	src/launch/host_check.rs	214	prod		safe host check end (round 12 m15-hc-stop): the unit counts as created by this run ONLY on a conclusive read naming it; a failed read = not created = nothing stopped or reset	&& let Ok(t) = procfs::sys().cgroup_text(cpid, Duration::from_secs(5))
+W	src/launch/host_check.rs	231	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	while matches!(c.try_wait(), Ok(None)) && t0.elapsed() < Duration::from_secs(10) {
+W	src/launch/host_check.rs	236	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	match c.try_wait() {
+W	src/launch/host_check.rs	332	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	if !matches!(populated(&r.dir), Ok(true)) || !matches!(c.try_wait(), Ok(None)) {
+K	src/launch/host_check.rs	406	prod		safe host check: its ONE cgroup.kill = ScopeRef::kill_members of its own scope after the safety gate (every pid C itself or in its private pid namespace)	.map_err(|e| format!("step 6: cgroup.kill: {e}"))?;
+K	src/launch/host_check.rs	413	prod		safe host check: report / error text naming cgroup.kill (no write)	return Err("step 6: the scope is still populated 5 s after cgroup.kill".into());
+W	src/launch/host_check.rs	420	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	match c.try_wait() {
+K	src/launch/host_check.rs	425	prod		safe host check: report / error text naming cgroup.kill (no write)	Ok(None) => return Err("step 6: C still runs 5 s after cgroup.kill".into()),
+K	src/launch/host_check.rs	442	prod		safe host check: report / error text naming cgroup.kill (no write)	"step 6: cgroup.kill written: scope {emptied}, C killed by SIGKILL, unit LoadState {} ActiveState {}",
 V	src/launch/hunt.rs	173	prod		a trace switch (diagnostics)	if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
 X	src/launch/hunt.rs	682	prod		round 11: an exemption from the hand-off rule only on a conclusive read (a registered leader stat read under the registry lock); a failed read = no exemption (the ended entry stays a suspect)	if reg.contains(&s)
 X	src/launch/hunt.rs	683	prod		round 11: an exemption from the hand-off rule only on a conclusive read (a registered leader stat read under the registry lock); a failed read = no exemption (the ended entry stays a suspect)	&& let Ok(st) = crate::resources::read_stat(s)
@@ -1666,29 +1669,29 @@ R	tests/gate9_pf3.rs	54	test			let b = fs::read(format!("/proc/{pid}/environ")).
 X	tests/gate9_pf3.rs	54	test			let b = fs::read(format!("/proc/{pid}/environ")).ok()?;
 X	tests/gate9_pf3.rs	64	test			read_stat(pid).ok().is_some_and(|s| !s.is_dead())
 K	tests/gate9_pf3.rs	70	test			unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-W	tests/gate9_pf3.rs	155	test			(".wait()", &[]),
-K	tests/gate9_pf3.rs	168	test			("cgroup.kill", &["launch/cgroup.rs"]),
-C	tests/gate9_pf3.rs	175	test			("Command::new(", &["launch/real.rs", "cli/mod.rs"]),
-L	tests/gate9_pf3.rs	183	test			for e in fs::read_dir(&d).unwrap().flatten() {
-E	tests/gate9_pf3.rs	185	test			if p.is_dir() {
-R	tests/gate9_pf3.rs	195	test			let text = fs::read_to_string(f).unwrap();
-X	tests/gate9_pf3.rs	229	test			let planted =
-C	tests/gate9_pf3.rs	230	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-X	tests/gate9_pf3.rs	230	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-C	tests/gate9_pf3.rs	248	test			let mut c = std::process::Command::new("sh");
-X	tests/gate9_pf3.rs	251	test			.env_clear()
-V	tests/gate9_pf3.rs	252	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
-X	tests/gate9_pf3.rs	252	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
-D	tests/gate9_pf3.rs	295	test			fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
-C	tests/gate9_pf3.rs	311	test			let mut c = std::process::Command::new("sleep");
-L	tests/gate9_pf3.rs	353	test			let marked_now: Vec<u32> = fs::read_dir("/proc")
-L	tests/gate9_pf3.rs	355	test			.flatten()
-W	tests/gate9_pf3.rs	369	test			dcy.try_wait().unwrap().is_none(),
-W	tests/gate9_pf3.rs	375	test			old.try_wait().unwrap().is_none(),
-W	tests/gate9_pf3.rs	379	test			refused.try_wait().unwrap().is_none(),
-W	tests/gate9_pf3.rs	384	test			let _ = c.wait();
-W	tests/gate9_pf3.rs	387	test			let _ = old.wait();
-W	tests/gate9_pf3.rs	389	test			let _ = refused.wait();
+W	tests/gate9_pf3.rs	159	test			(".wait()", &[]),
+K	tests/gate9_pf3.rs	175	test			("cgroup.kill", &["launch/cgroup.rs", "launch/host_check.rs"]),
+C	tests/gate9_pf3.rs	183	test			"Command::new(",
+L	tests/gate9_pf3.rs	193	test			for e in fs::read_dir(&d).unwrap().flatten() {
+E	tests/gate9_pf3.rs	195	test			if p.is_dir() {
+R	tests/gate9_pf3.rs	205	test			let text = fs::read_to_string(f).unwrap();
+X	tests/gate9_pf3.rs	239	test			let planted =
+C	tests/gate9_pf3.rs	240	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+X	tests/gate9_pf3.rs	240	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+C	tests/gate9_pf3.rs	258	test			let mut c = std::process::Command::new("sh");
+X	tests/gate9_pf3.rs	261	test			.env_clear()
+V	tests/gate9_pf3.rs	262	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+X	tests/gate9_pf3.rs	262	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+D	tests/gate9_pf3.rs	305	test			fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
+C	tests/gate9_pf3.rs	321	test			let mut c = std::process::Command::new("sleep");
+L	tests/gate9_pf3.rs	363	test			let marked_now: Vec<u32> = fs::read_dir("/proc")
+L	tests/gate9_pf3.rs	365	test			.flatten()
+W	tests/gate9_pf3.rs	379	test			dcy.try_wait().unwrap().is_none(),
+W	tests/gate9_pf3.rs	385	test			old.try_wait().unwrap().is_none(),
+W	tests/gate9_pf3.rs	389	test			refused.try_wait().unwrap().is_none(),
+W	tests/gate9_pf3.rs	394	test			let _ = c.wait();
+W	tests/gate9_pf3.rs	397	test			let _ = old.wait();
+W	tests/gate9_pf3.rs	399	test			let _ = refused.wait();
 C	tests/int5_cli.rs	20	test			let o = Command::new(SUP).args(args).output().unwrap();
 D	tests/int5_cli.rs	59	test			std::fs::remove_file(&manifest).unwrap();
 E	tests/int5_cli.rs	66	test			assert!(!manifest.exists());
@@ -2196,10 +2199,12 @@ C	tests/proc_reaudit_regressions.rs	821	test			"Command::new(\"timeout\"",
 C	tests/proc_reaudit_regressions.rs	822	test			"Command::new(\"fuser\"",
 K	tests/proc_reaudit_regressions.rs	865	test			"launch/cgroup.rs" => pat == "cgroup.kill",
 K	tests/proc_reaudit_regressions.rs	868	test			"bin/rr_fake_child.rs" => pat == "kill(" && code.contains("libc::kill("),
-E	tests/proc_reaudit_regressions.rs	929	test			if !cfg.ledger_file.exists() {
-D	tests/proc_reaudit_regressions.rs	930	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
-E	tests/proc_reaudit_regressions.rs	936	test			if !p.exists() {
-D	tests/proc_reaudit_regressions.rs	937	test			std::fs::write(&p, b"").unwrap();
+C	tests/proc_reaudit_regressions.rs	873	test			pat == "cgroup.kill" || pat == "Command::new(\"systemctl\""
+K	tests/proc_reaudit_regressions.rs	873	test			pat == "cgroup.kill" || pat == "Command::new(\"systemctl\""
+E	tests/proc_reaudit_regressions.rs	935	test			if !cfg.ledger_file.exists() {
+D	tests/proc_reaudit_regressions.rs	936	test			std::fs::write(&cfg.ledger_file, b"").unwrap();
+E	tests/proc_reaudit_regressions.rs	942	test			if !p.exists() {
+D	tests/proc_reaudit_regressions.rs	943	test			std::fs::write(&p, b"").unwrap();
 K	tests/proc_signals.rs	13	test			assert_eq!(unsafe { libc::kill(libc::getpid(), sig) }, 0);
 V	tests/procfix10.rs	38	test			std::env::var_os("PATH").unwrap_or_default()
 X	tests/procfix10.rs	38	test			std::env::var_os("PATH").unwrap_or_default()
@@ -2369,29 +2374,29 @@ R	tests/procfix3_proc.rs	51	test			let b = fs::read(format!("/proc/{pid}/environ
 X	tests/procfix3_proc.rs	51	test			let b = fs::read(format!("/proc/{pid}/environ")).ok()?;
 X	tests/procfix3_proc.rs	61	test			read_stat(pid).ok().is_some_and(|s| !s.is_dead())
 K	tests/procfix3_proc.rs	67	test			unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-W	tests/procfix3_proc.rs	152	test			(".wait()", &[]),
-K	tests/procfix3_proc.rs	165	test			("cgroup.kill", &["launch/cgroup.rs"]),
-C	tests/procfix3_proc.rs	172	test			("Command::new(", &["launch/real.rs", "cli/mod.rs"]),
-L	tests/procfix3_proc.rs	180	test			for e in fs::read_dir(&d).unwrap().flatten() {
-E	tests/procfix3_proc.rs	182	test			if p.is_dir() {
-R	tests/procfix3_proc.rs	192	test			let text = fs::read_to_string(f).unwrap();
-X	tests/procfix3_proc.rs	226	test			let planted =
-C	tests/procfix3_proc.rs	227	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-X	tests/procfix3_proc.rs	227	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-C	tests/procfix3_proc.rs	245	test			let mut c = std::process::Command::new("sh");
-X	tests/procfix3_proc.rs	248	test			.env_clear()
-V	tests/procfix3_proc.rs	249	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
-X	tests/procfix3_proc.rs	249	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
-D	tests/procfix3_proc.rs	292	test			fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
-C	tests/procfix3_proc.rs	308	test			let mut c = std::process::Command::new("sleep");
-L	tests/procfix3_proc.rs	347	test			let marked_now: Vec<u32> = fs::read_dir("/proc")
-L	tests/procfix3_proc.rs	349	test			.flatten()
-W	tests/procfix3_proc.rs	363	test			dcy.try_wait().unwrap().is_none(),
-W	tests/procfix3_proc.rs	369	test			old.try_wait().unwrap().is_none(),
-W	tests/procfix3_proc.rs	373	test			refused.try_wait().unwrap().is_none(),
-W	tests/procfix3_proc.rs	389	test			let _ = c.wait();
-W	tests/procfix3_proc.rs	392	test			let _ = old.wait();
-W	tests/procfix3_proc.rs	394	test			let _ = refused.wait();
+W	tests/procfix3_proc.rs	155	test			(".wait()", &[]),
+K	tests/procfix3_proc.rs	171	test			("cgroup.kill", &["launch/cgroup.rs", "launch/host_check.rs"]),
+C	tests/procfix3_proc.rs	179	test			"Command::new(",
+L	tests/procfix3_proc.rs	189	test			for e in fs::read_dir(&d).unwrap().flatten() {
+E	tests/procfix3_proc.rs	191	test			if p.is_dir() {
+R	tests/procfix3_proc.rs	201	test			let text = fs::read_to_string(f).unwrap();
+X	tests/procfix3_proc.rs	235	test			let planted =
+C	tests/procfix3_proc.rs	236	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+X	tests/procfix3_proc.rs	236	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+C	tests/procfix3_proc.rs	254	test			let mut c = std::process::Command::new("sh");
+X	tests/procfix3_proc.rs	257	test			.env_clear()
+V	tests/procfix3_proc.rs	258	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+X	tests/procfix3_proc.rs	258	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+D	tests/procfix3_proc.rs	301	test			fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
+C	tests/procfix3_proc.rs	317	test			let mut c = std::process::Command::new("sleep");
+L	tests/procfix3_proc.rs	356	test			let marked_now: Vec<u32> = fs::read_dir("/proc")
+L	tests/procfix3_proc.rs	358	test			.flatten()
+W	tests/procfix3_proc.rs	372	test			dcy.try_wait().unwrap().is_none(),
+W	tests/procfix3_proc.rs	378	test			old.try_wait().unwrap().is_none(),
+W	tests/procfix3_proc.rs	382	test			refused.try_wait().unwrap().is_none(),
+W	tests/procfix3_proc.rs	398	test			let _ = c.wait();
+W	tests/procfix3_proc.rs	401	test			let _ = old.wait();
+W	tests/procfix3_proc.rs	403	test			let _ = refused.wait();
 E	tests/procfix3_site_ledger.rs	61	test			let md = fs::metadata(p).unwrap();
 R	tests/procfix3_site_ledger.rs	62	test			(md.dev(), md.ino(), fs::read(p).unwrap())
 D	tests/procfix3_site_ledger.rs	101	test			fs::write(&ledger, other.as_bytes()).unwrap();
