@@ -509,7 +509,13 @@ impl Hunt<'_> {
     /// strict full /proc listing (ppid == us), with what each entry was when its stat was read: alive, or ENDED (a zombie,
     /// or gone at the read). An ended entry may have HANDED OFF to a child born after the listing (a re-forking job), so
     /// it is never "absent": [`Self::handoff_suspects`]. Strict: a failed enumeration or stat read is an error.
+    /// procfix7 round 11 (gate14 m14-liveness): read under the REAP GATE (shared): the adopted-children reaper and the
+    /// leader reap cannot take an entry away between the listing and its stat read, so an ended entry of ours is a zombie
+    /// with its start time and session (no anonymous "gone" from our own reaps).
     fn snapshot_tops(&self, with_scan: bool) -> Result<Listing, String> {
+        let _gate = crate::resources::reap_gate()
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
         let mut kids = own_children().map_err(|e| format!("own children: {e}"))?;
         crate::resources::listing_hold();
         if with_scan {
@@ -612,24 +618,49 @@ impl Hunt<'_> {
     /// - a member this hunt stopped and killed, by pid AND start (stopped before it died: no fork after the stop);
     /// - (round 11) a process this hunt already saw ended in an earlier listing (`seen_ended`: its hand-off, if any,
     ///   happened before that sighting, and every later listing shows the successors);
-    /// - a process started before J's launch;
-    /// - a zombie of the supervisor's OWN session (its helpers; every job leader setsid's).
+    /// - a process started before J's launch, or (round 11) one this hunt classified conclusively as not J's and not to
+    ///   be walked (another attempt's marker, another uid, ...): its successors are not J's either;
+    /// - a zombie of the supervisor's OWN session (its helpers; every job leader setsid's);
+    /// - (round 11, gate14 m14-liveness) a zombie of ANOTHER job's session whose leader is held unreaped and was born no
+    ///   later than it ([`Self::other_leaders_session`]): it descends from that leader, not from J.
     ///
-    /// Everything else is a suspect: a gone entry (no identity), a zombie of J's session or of any other session. A suspect is recorded in `seen_ended` (the caller makes the round a change / the pass
+    /// Everything else is a suspect: a gone entry (no identity), a zombie of J's session, of a session that is no
+    /// registered leader's. A suspect is recorded in `seen_ended` (the caller makes the round a change / the pass
     /// inconclusive; later listings show its successors).
     fn ended_suspect(&mut self, pid: u32, start: Option<u64>, session: Option<u32>) -> bool {
         let Some(start) = start else { return true };
         if self.killed_member(pid, start)
             || self.seen_ended.contains(&(pid, start))
             || start < self.s.launch_ticks
+            || self.not_ours.get(&(pid, start)) == Some(&false)
         {
             return false;
         }
-        if session == Some(self.own_session) {
+        if let Some(sess) = session
+            && (sess == self.own_session || self.other_leaders_session(sess, start))
+        {
             return false;
         }
         self.seen_ended.insert((pid, start));
         true
+    }
+
+    /// procfix7 round 11 (gate14 m14-liveness): is `session` the session of ANOTHER job's leader, held unreaped (in the
+    /// registry: a registered leader is reaped only under the registry lock, so the stat read under it is that leader's),
+    /// born no later than `born` (the ended process's start)? Then the process was born while that leader held the
+    /// number `session` (a number in use as a session id is never given to a new process, so every session with that id
+    /// during the leader's life is the leader's own) and inherited the session from a member of it: it descends from that
+    /// leader, never from J (J's leader is the supervisor's child, as is every leader).
+    fn other_leaders_session(&self, session: u32, born: u64) -> bool {
+        if session == self.s.sid {
+            return false;
+        }
+        let reg = self.s.leaders.lock();
+        if !reg.contains(&session) {
+            return false;
+        }
+        matches!(crate::resources::read_stat(session),
+            Ok(st) if st.start_ticks <= born && st.ppid == me() && st.session == session)
     }
 
     /// procfix7 round 11 (gate14 G14-M1, W1): take one raw listing of `parent` into the round: an ended entry that may
