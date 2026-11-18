@@ -11,7 +11,8 @@ recorded as scope_acknowledged_ended from the kernel's record at the exit, the 3
 unproven_end) every criterion passes. Round 9 (gate13 m13-p5-lenient): a signal record that names a job of this
 campaign but not that job's leader fails P5 and the watcher's ABORT test. Round 9b: no tolerance after the attempt's
 finished record (gate13b m13b-p5-slack); the unproven_end notes as the named class "P5-unproven" (INFO, next to the
-strict P5); P1 names the supervisor's service unit and its end; P8 accounts for the step's own units."""
+strict P5); P1 names the supervisor's service unit and its end; P8 accounts for the step's own units. Round 14 (host step
+3, M5): on the RECORDED run B (fixtures/host-step-3) P5 names the 21 signals delivered but recorded only in the intent log."""
 
 import json
 import os
@@ -95,6 +96,110 @@ def round9(recs):
 
 def signals(recs):
     return [r for r in recs if r["event"]["kind"] == "signal_sent"]
+
+
+FIX3 = os.path.join(HERE, "fixtures", "host-step-3")
+CID3 = "host-fake-1.e8090c684f269eb5"
+
+
+def out_dir3(rewrite_ledger=None):
+    """procfix7 round 14 (M5): a WRITABLE copy of the RECORDED run B (fixtures/host-step-3: exit 71 in a user-manager
+    stall; 146 signals delivered, 125 in the ledger, the intents -126 .. -146 only in the intent log)."""
+    d = tempfile.mkdtemp(prefix="rr-grade3-")
+    for base, _dirs, files in os.walk(os.path.join(FIX3, "c")):
+        rel = os.path.relpath(base, FIX3)
+        os.makedirs(os.path.join(d, rel), exist_ok=True)
+        for f in files:
+            shutil.copyfile(os.path.join(base, f), os.path.join(d, rel, f))
+    for f in ("run.log", "scopes.peak", "units.seen"):
+        shutil.copyfile(os.path.join(FIX3, f), os.path.join(d, f))
+    for f in ("stopped.txt", "units.before", "units.after"):
+        open(os.path.join(d, f), "w").close()
+    for base, dirs, files in os.walk(d):
+        for x in dirs:
+            os.chmod(os.path.join(base, x), stat.S_IRWXU)
+        for x in files:
+            os.chmod(os.path.join(base, x), stat.S_IRUSR | stat.S_IWUSR)
+    if rewrite_ledger:
+        rewrite_ledger(d)
+    return d
+
+
+def run3(d):
+    return {k: (v, why) for k, v, why in G.grade(d, CID3, 71, 0, 0, 3, "--run",
+                                                  os.path.join(FIX, "CPU_LEDGER.extract.md"), 0, "/nonexistent")}
+
+
+class RunB(unittest.TestCase):
+    """procfix7 round 14 (host step 3, M5): P5 reads the supervisor's intent log, not only the ledger."""
+
+    def test_the_21_delivered_but_unrecorded_signals_of_run_b_are_a_named_p5_finding(self):
+        d = out_dir3()
+        try:
+            r = run3(d)
+        finally:
+            shutil.rmtree(d)
+        v, why = r["P5"]
+        self.assertEqual(v, "FAIL", why)
+        self.assertIn("146 delivered, 21 delivered but NOT recorded in the ledger", why)
+        self.assertIn("(0 not accounted for by this campaign's records", why)
+        self.assertIn("run.log 'not recorded' lines 4", why)
+        for k in range(126, 147):
+            self.assertIn(str(k), why)
+
+    def test_with_every_delivered_intent_recorded_the_intent_finding_is_gone(self):
+        def add_records(d):
+            # what M1 makes the supervisor write: a signal_sent for each of the 21 (and no "not recorded" lines)
+            seg = os.path.join(d, "c", "ledger", "segment-000001.jsonl")
+            with open(seg) as f:
+                recs = [json.loads(l) for l in f]
+            with open(os.path.join(d, "c", "log", "signal-intents.jsonl")) as f:
+                ints = [json.loads(l) for l in f]
+            have = {r["event"]["body"].get("by", "").split("[intent ")[-1].rstrip("]")
+                    for r in recs if r["event"]["kind"] == "signal_sent"}
+            seq = max(r["seq"] for r in recs)
+            for v in ints:
+                if v["kind"] == "intent" and v["id"] not in have:
+                    seq += 1
+                    recs.append({"seq": seq, "utc": v["utc"], "event": {"kind": "signal_sent", "body": {
+                        "job": v["label"].rsplit(":", 1)[0], "pid": v["pid"], "start_ticks": v.get("start_ticks"),
+                        "signal": v["signal"], "target": v["target"], "marker": v.get("marker"),
+                        "proof": v["proof"], "by": f"{v['by']} [intent {v['id']}]"}}})
+            with open(seg, "w") as f:
+                f.write("".join(json.dumps(r) + "\n" for r in recs))
+            log = os.path.join(d, "run.log")
+            with open(log) as f:
+                kept = [l for l in f if "delivered signal(s) not recorded" not in l]
+            with open(log, "w") as f:
+                f.write("".join(kept))
+        d = out_dir3(add_records)
+        try:
+            r = run3(d)
+        finally:
+            shutil.rmtree(d)
+        v, why = r["P5"]
+        self.assertIn("146 signal_sent (0 not accounted for", why)
+        self.assertIn("0 delivered but NOT recorded in the ledger, 0 without completion", why)
+        self.assertIn("run.log 'not recorded' lines 0", why)
+        # P5 still fails on run B's own scope_unverified_limit note: a separate finding
+        self.assertEqual(v, "FAIL", why)
+        self.assertIn("scope_unverified_limit", why)
+
+    def test_an_intent_without_completion_is_possibly_sent(self):
+        def cut_done(d):
+            p = os.path.join(d, "c", "log", "signal-intents.jsonl")
+            with open(p) as f:
+                lines = f.read().splitlines(keepends=True)
+            last = max(k for k, l in enumerate(lines) if '"kind":"done"' in l)
+            with open(p, "w") as f:
+                f.write("".join(lines[:last] + lines[last + 1:]))
+        d = out_dir3(cut_done)
+        try:
+            r = run3(d)
+        finally:
+            shutil.rmtree(d)
+        self.assertIn("1 without completion (POSSIBLY SENT)", r["P5"][1])
+        self.assertEqual(r["P5"][0], "FAIL")
 
 
 class Recorded(unittest.TestCase):

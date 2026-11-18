@@ -179,6 +179,54 @@ def signal_problems(raw, cid):
     return bad
 
 
+def intent_findings(out, raw):
+    """procfix7 round 14 (host step 3, M5): the supervisor's OWN intent log against the ledger. Sources: OUT/c/log/
+    signal-intents.jsonl and the tmpfs fallback that run.log names ("tmpfs fallback <path>", when it still exists).
+    Every intent the log marks DELIVERED must have a ledger signal_sent naming it (`[intent <id>]` in `by`); an intent
+    with no completion line is POSSIBLY SENT; a run.log line "delivered signal(s) not recorded" is a finding by itself.
+    Returns (delivered count, unrecorded ids, no-completion ids, run.log lines, the unrecorded intents as signal_sent
+    records for signal_problems, appended after the ledger's last seq in the log's order)."""
+    paths = [out + "/c/log/signal-intents.jsonl"]
+    log = slurp(out + "/run.log") if os.path.exists(out + "/run.log") else ""
+    m = re.search(r"tmpfs fallback (\S+\.jsonl)", log)
+    if m and os.path.exists(m[1]):
+        paths.append(m[1])
+    intents, done = {}, {}
+    order = []
+    for p in paths:
+        if not os.path.exists(p):
+            continue
+        for l in lines_of(p):
+            try:
+                v = json.loads(l)
+            except ValueError:
+                continue
+            i = v.get("id")
+            if not isinstance(i, str):
+                continue
+            if v.get("kind") == "intent" and i not in intents:
+                intents[i] = v
+                order.append(i)
+            elif v.get("kind") == "done":
+                done[i] = v.get("result")
+    bys = [str((e.get("body") or {}).get("by", "")) for _, _, e in raw if e.get("kind") == "signal_sent"]
+    recorded = {b.split("[intent ", 1)[1].rstrip("]") for b in bys if "[intent " in b}
+    delivered = [i for i in order if done.get(i) == "delivered"]
+    unrec = [i for i in delivered if i not in recorded]
+    nocomp = [i for i in order if i not in done and i not in recorded]
+    notrec = [l for l in log.splitlines() if "delivered signal(s) not recorded" in l]
+    last = max((seq for seq, _, _ in raw), default=0)
+    synth = []
+    for k, i in enumerate(unrec):
+        v = intents[i]
+        label = str(v.get("label") or "")
+        synth.append((last + 1 + k, v.get("utc"), {"kind": "signal_sent", "body": {
+            "job": label.rsplit(":", 1)[0] if label else None, "pid": v.get("pid"), "start_ticks": v.get("start_ticks"),
+            "signal": v.get("signal"), "target": v.get("target"), "marker": v.get("marker"), "proof": v.get("proof"),
+            "by": f"{v.get('by')} [intent {i}] (intent log only)"}}))
+    return len(delivered), unrec, nocomp, notrec, synth
+
+
 def note_marker(text):
     """The "marker" of a note body `<word> {json}` ("" when absent)."""
     try:
@@ -258,12 +306,18 @@ def grade(out, cid, ex, ver, marked, scopes_after, mode, ledger, off, ws):
     put("P3", (peak <= 8 and scopes_after == 0 and marked == 0) if host else (marked == 0),
         f"peak scopes {peak if host else 'n.a.'} (<= 8), scopes after {scopes_after if host else 'n.a.'}, A12 MARKED {marked}")
     put("P4", ver == 0, f"verify exit {ver}")
-    badsig = signal_problems(raw_records(out + "/c"), cid)
+    raw = raw_records(out + "/c")
+    # round 14 (M5): the intent log too; the delivered intents the ledger lacks are also checked as records
+    n_deliv, unrec, nocomp, notrec, synth = intent_findings(out, raw)
+    badsig = signal_problems(raw + synth, cid)
     ledger_text = "\n".join(slurp(f) for f in glob.glob(out + "/c/ledger/*.jsonl"))
     possibly = ledger_text.count("POSSIBLY SENT")
     badnotes = [n[:60] for n in notes if re.match(r"(scope_backstop_|final_sweep_vanished|final_sweep_unproven|end_unproven|unproven_end|unproven_at_exit|marked_survivor|descendants_alive|hidden_descendants|scope_unverified_limit)", n)]
-    put("P5", not badsig and possibly == 0 and not badnotes,
-        f"{len(sigs)} signal_sent ({len(badsig)} not accounted for by this campaign's records{': ' + '; '.join(badsig[:3]) if badsig else ''}), POSSIBLY SENT {possibly}, notes {badnotes or 'none'}")
+    put("P5", not badsig and possibly == 0 and not badnotes and not unrec and not nocomp and not notrec,
+        f"{len(sigs)} signal_sent ({len(badsig)} not accounted for by this campaign's records{': ' + '; '.join(badsig[:3]) if badsig else ''}), POSSIBLY SENT {possibly}, notes {badnotes or 'none'}; "
+        f"intent log: {n_deliv} delivered, {len(unrec)} delivered but NOT recorded in the ledger"
+        f"{' (' + ', '.join(i.rsplit('-', 1)[-1] for i in unrec[:30]) + ')' if unrec else ''}, {len(nocomp)} without completion (POSSIBLY SENT), "
+        f"run.log 'not recorded' lines {len(notrec)}")
     # procfix7 round 9b (gate13b): the unproven_end notes as a NAMED CLASS (INFO: the strict P5 above is unchanged)
     unproven, cleared_after = [], {}
     for i, n in enumerate(notes):
@@ -274,7 +328,7 @@ def grade(out, cid, ex, ver, marked, scopes_after, mode, ledger, off, ws):
     if unproven:
         cleared = [m for i, m in unproven if any(j > i for j in cleared_after.get(m, []))]
         others = [b for b in badnotes if not b.startswith("unproven_end")]
-        sole = not badsig and possibly == 0 and not others
+        sole = not badsig and possibly == 0 and not others and not unrec and not nocomp and not notrec
         put("P5-unproven", "INFO",
             f"{len(unproven)} unproven_end note(s) ({', '.join(m for _, m in unproven)}): {len(cleared)} of {len(unproven)} "
             f"cleared later (unverified_end_cleared of the same attempt); signals not accounted for {len(badsig)}, POSSIBLY "

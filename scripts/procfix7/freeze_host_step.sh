@@ -28,7 +28,7 @@ done
 # round 12 (gate15 nit): the fixtures too, against the sha256 list kept in git (every file, no extra file)
 ( cd "$H" && sha256sum -c --quiet "$WT/scripts/procfix7/host-tests/fixtures.sha256" ) \
   || { echo "freeze: $H/fixtures differ from scripts/procfix7/host-tests/fixtures.sha256"; exit 2; }
-diff <(cd "$H" && find fixtures/host-step-1 -type f | sort) <(awk '{print $2}' scripts/procfix7/host-tests/fixtures.sha256 | sort) \
+diff <(cd "$H" && find fixtures -type f | sort) <(awk '{print $2}' scripts/procfix7/host-tests/fixtures.sha256 | sort) \
   > /dev/null || { echo "freeze: $H/fixtures holds files the git list does not name"; exit 2; }
 nice -n 10 "$WS/plan/auto-campaign/implementer_ops/light_build.sh" procfix7 build -p rustred-campaign --release --bins
 RC=$WT/target/release/rr_campaign; FC=$WT/target/release/rr_fake_child; SC=$WT/target/release/rr_scope_check
@@ -50,7 +50,7 @@ mkdir "$F/bin" "$F/fixtures" "$F/rehearsal-fake-systemd"
 cp "$H"/host_step_fake1.sh "$H"/grade_host_step.py "$H"/p8_units.py "$H"/test_grade_host_step.py "$H"/test_p8_units.py \
    "$H"/host_scope_check.sh "$F/"
 cp "$H"/rehearsal-fake-systemd/systemd-run "$H"/rehearsal-fake-systemd/systemctl "$F/rehearsal-fake-systemd/"
-cp -r "$H/fixtures/host-step-1" "$F/fixtures/"
+cp -r "$H/fixtures/host-step-1" "$H/fixtures/host-step-3" "$F/fixtures/"
 cp "$RC" "$FC" "$SC" "$F/bin/"
 unshare -Urpf --mount-proc -- env -u RR_CAMPAIGN_JOB -u HELPERS REL="$F/bin" bash "$F/host_step_fake1.sh" --dry-run > "$F/dry-run.txt" 2>&1
 # round 12: the forking workload (B) too; its spec must carry the helpers
