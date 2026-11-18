@@ -866,6 +866,12 @@ fn tripwire(file: &str, text: &str) -> Vec<String> {
                 // The contract lane's fake child: kill of its own forked helpers (pid from its own fork, waited at once)
                 // and of itself; never a group or a broadcast.
                 "bin/rr_fake_child.rs" => pat == "kill(" && code.contains("libc::kill("),
+                // procfix7 round 11 (gate14 item 5): the coordinator's SAFE HOST CHECK (bin rr_scope_check, never run by
+                // the supervisor): `systemctl --user show / stop / reset-failed` of the ONE unit it created, by its exact
+                // name, and texts naming its one cgroup.kill (written by ScopeRef::kill_members in launch/cgroup.rs).
+                "launch/host_check.rs" => {
+                    pat == "cgroup.kill" || pat == "Command::new(\"systemctl\""
+                }
                 _ => false,
             };
             if !allowed {
