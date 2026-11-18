@@ -42,6 +42,8 @@ pub struct RrNodeWitness {
     pub wall_budget_s: f64,
     pub rows: bool,
     pub extra_env: Vec<(String, String)>,
+    /// the family file when the table header carries no `family_source`
+    pub family: Option<PathBuf>,
 }
 
 impl RrNodeWitness {
@@ -53,6 +55,7 @@ impl RrNodeWitness {
             wall_budget_s: 4.0 * 3600.0,
             rows: true,
             extra_env: vec![],
+            family: None,
         })
     }
 }
@@ -78,7 +81,7 @@ impl Lifter for RrNodeWitness {
             env.push(("RUSTRED_WEIGHT_CERT_ROWS".into(), "1".into()));
         }
         env.extend(self.extra_env.iter().cloned());
-        let args: Vec<String> = vec![
+        let mut args: Vec<String> = vec![
             "witness".into(),
             "--table".into(),
             input.display().to_string(),
@@ -89,6 +92,10 @@ impl Lifter for RrNodeWitness {
             "--case-budget".into(),
             self.case_budget_s.to_string(),
         ];
+        if let Some(f) = &self.family {
+            args.push("--family".into());
+            args.push(f.display().to_string());
+        }
         let run = child::run(
             &self.binary,
             &args,
@@ -595,5 +602,133 @@ pub fn certify_by_replacement(
         pieces: x.pieces,
         partition,
         log: x.log,
+    })
+}
+
+/// GIVEN PIECES (a candidate sub-table produced elsewhere, e.g. by an improve run): every piece is lifted again by the
+/// producer from its OWN record (its case), and the GIVEN piece's bytes are checked with that lift's certificate (binding
+/// equal only when the producer reproduces the piece's relation); open loci are reported, not branched (the candidate is
+/// what it is); then the partition proof against the replaced record. Typed outcome as the ladder's.
+#[allow(clippy::too_many_arguments)]
+pub fn certify_given_pieces(
+    header: &str,
+    charts: &[String],
+    original: &Value,
+    old_index: i64,
+    given: &[Value],
+    lifter: &dyn Lifter,
+    emitter: &Emitter,
+    cfg: &LadderConfig,
+    work: &Path,
+) -> Result<Report, String> {
+    std::fs::create_dir_all(work).map_err(|e| format!("{}: {e}", work.display()))?;
+    let x = Ctx {
+        header,
+        original,
+        old_index,
+        lifter,
+        emitter,
+        cfg,
+        work,
+        e_orig: branches_of(original),
+        pieces: vec![],
+        log: vec![],
+        attempts: 0,
+    };
+    let mut pieces = vec![];
+    let mut log = vec![];
+    let mut outcome = None;
+    for (k, p) in given.iter().enumerate() {
+        let tag = format!("given{k}");
+        let mut case = p.clone();
+        case["index"] = json!(900_000 + k as i64);
+        if let Some(o) = case.as_object_mut() {
+            o.remove("derivation");
+        }
+        let lift = match lifter.lift(header, &case, &work.join(format!("p{k}"))) {
+            Ok(l) => l,
+            Err(e) => {
+                outcome = Some(Outcome::LiftFailed {
+                    piece: tag.clone(),
+                    reason: e,
+                });
+                break;
+            }
+        };
+        let mut body = p.clone();
+        body["type"] = json!("rule");
+        body["index"] = json!(old_index + k as i64);
+        if let Some(o) = body.as_object_mut() {
+            o.remove("derivation");
+        }
+        let same = rustred_campaign_core::emission::body::body_ids(&body.to_string())
+            .ok()
+            .map(|i| i.relation_sha256)
+            == rustred_campaign_core::emission::body::body_ids(&lift.record.to_string())
+                .ok()
+                .map(|i| i.relation_sha256);
+        let ladder_info =
+            json!({"replaces": {"index": old_index}, "piece_tag": tag, "given": true});
+        let (em, tried) = emit_piece(&x, &body, &lift, &tag, false, None, &ladder_info)?;
+        let check_run = em.check.clone();
+        let rhs_terms = body["rhs"].as_array().map_or(0, Vec::len);
+        log.push(json!({"piece": tag, "index": old_index + k as i64, "fixed": body["fixed"], "equations": body["equations"],
+            "exceptions": body["exceptions"], "producer_reproduced_the_piece": same, "lift_seconds": lift.seconds,
+            "lift_peak_mb": lift.peak_mb, "certificates": lift.certs.len(), "certs_tried": tried,
+            "check_seconds": check_run.as_ref().map(|c| c.run.seconds), "check_peak_mb": check_run.as_ref().map(|c| c.run.peak_mb),
+            "class": em.classed.class.word(), "reason": em.classed.reason, "refused": em.refused,
+            "stages": em.summary.as_ref().map(|s| s.record_json()),
+            "open_loci": em.summary.as_ref().map(|s| s.open.iter().map(|o| o.factor.clone()).collect::<Vec<_>>()),
+            "rhs_terms": rhs_terms, "bytes": body.to_string().len()}));
+        let refused = em.line.is_none();
+        pieces.push(Piece {
+            tag: tag.clone(),
+            depth: 0,
+            record: body.clone(),
+            lift_seconds: lift.seconds,
+            lift_peak_mb: lift.peak_mb,
+            check_seconds: check_run.as_ref().map_or(0.0, |c| c.run.seconds),
+            check_peak_mb: check_run.as_ref().map_or(0.0, |c| c.run.peak_mb),
+            rhs_terms,
+            bytes: em.line.as_ref().map_or(0, String::len),
+            certs_tried: tried,
+            emission: em,
+        });
+        if refused && outcome.is_none() {
+            outcome = Some(Outcome::CheckFailed {
+                piece: tag,
+                reason: pieces
+                    .last()
+                    .and_then(|p| p.emission.refused.clone())
+                    .unwrap_or_default(),
+            });
+        }
+    }
+    // the partition proof always runs (it answers a question of its own even when a piece is refused)
+    let recs: Vec<Value> = pieces.iter().map(|p| p.record.clone()).collect();
+    let tmp = work.join("partition");
+    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
+    let partition = if recs.len() == given.len() {
+        Some(prove_partition(
+            header,
+            charts,
+            original,
+            &recs,
+            &tmp,
+            &cfg.witness_modes,
+        )?)
+    } else {
+        None
+    };
+    let outcome = match (outcome, &partition) {
+        (Some(o), _) => o,
+        (None, Some((true, _))) => Outcome::Closed,
+        _ => Outcome::PartitionFailed,
+    };
+    Ok(Report {
+        outcome,
+        pieces,
+        partition,
+        log,
     })
 }

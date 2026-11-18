@@ -13,7 +13,7 @@ pub mod replace;
 pub mod tablecheck;
 
 use emitter::{Checker, Emitter};
-use replace::{LadderConfig, Outcome, RrNodeWitness, certify_by_replacement};
+use replace::{LadderConfig, Outcome, RrNodeWitness, certify_by_replacement, certify_given_pieces};
 use rustred_campaign_core::economy::improve::{restate_marker, set_index};
 use rustred_campaign_core::emission::body::string_member;
 use rustred_campaign_core::emission::class::Policy;
@@ -181,6 +181,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut recover = true;
     let mut write_table = false;
     let (mut check_floor, mut check_ratio) = (None, None);
+    let mut given: Option<PathBuf> = None;
     let mut i = 0;
     while i < rest.len() {
         let mut one = false;
@@ -220,6 +221,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
                 )
             }
             "--family" => family = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--pieces" => given = Some(PathBuf::from(flag_value(rest, i)?)),
             "--check-floor" => {
                 check_floor = Some(
                     flag_value(rest, i)?
@@ -273,7 +275,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         .collect();
     let mut ck = Checker::new(&checker)?;
     ck.recover_rows = recover;
-    ck.family = family;
+    ck.family = family.clone();
     if let Some(f) = check_floor {
         ck.floor_s = f;
     }
@@ -285,16 +287,38 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let emitter = Emitter::new(ck, policy, &side, &out.join("work"))?;
     let mut lifter = RrNodeWitness::new(&rr_node)?;
     lifter.case_budget_s = case_budget;
-    let rep = certify_by_replacement(
-        &header,
-        &charts,
-        &original,
-        index,
-        &lifter,
-        &emitter,
-        &cfg,
-        &out.join("work"),
-    )?;
+    lifter.family = family;
+    let rep = match &given {
+        None => certify_by_replacement(
+            &header,
+            &charts,
+            &original,
+            index,
+            &lifter,
+            &emitter,
+            &cfg,
+            &out.join("work"),
+        )?,
+        Some(p) => {
+            let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let pieces: Vec<Value> = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str(l).map_err(|e| format!("{}: {e}", p.display())))
+                .collect::<Result<_, _>>()?;
+            certify_given_pieces(
+                &header,
+                &charts,
+                &original,
+                index,
+                &pieces,
+                &lifter,
+                &emitter,
+                &cfg,
+                &out.join("work"),
+            )?
+        }
+    };
     let closed = rep.outcome == Outcome::Closed;
     let orig_rhs = original["rhs"].as_array().map_or(0, Vec::len);
     let mut summary = json!({"schema": "rustred.campaign.emit-replace.v1", "table": table.display().to_string(), "rule": index,
