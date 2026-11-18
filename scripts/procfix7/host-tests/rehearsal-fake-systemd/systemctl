@@ -14,6 +14,12 @@
 #       unloaded; failed: stays failed (as systemd).
 #   systemctl --user reset-failed -- NAME.service      failed -> unloaded
 #   systemctl --user list-units ...                     prints nothing (no unit listing in a namespace rehearsal)
+#   systemctl --user show -p Version --value            (round 14: the supervisor's manager probe) "261 (REHEARSAL FAKE)"
+# procfix7 round 14 (host step 3): A MANAGER STALL. When the state directory holds a file `stall` with "START END" (epoch
+# seconds; written by host_step_fake1.sh --rehearse-ns from FAKE_MANAGER_STALL=after_s:dur_s), EVERY call made while
+# START <= now < END waits until END first (as the real user manager did in host step 3), logged in `stall.log`. The state
+# directory is $FAKE_SYSTEMD_DIR, or, for a caller that cleared its environment (the supervisor's probe), ./fake-systemd of
+# the caller's working directory (the supervisor runs in OUT).
 set -u
 if [ "${1:-}" = --version ]; then echo "systemctl REHEARSAL FAKE (procfix7 round 9b host-step rehearsal)"; exit 0; fi
 die() { echo "fake systemctl: $*" >&2; exit 1; }
@@ -22,7 +28,16 @@ die() { echo "fake systemctl: $*" >&2; exit 1; }
 # could signal, the host's processes): pid 1 must be a process of our own uid that is not systemd
 [ "$(stat -c %u /proc/1 2>/dev/null)" = "$(id -u)" ] && [ "$(cat /proc/1/comm 2>/dev/null)" != systemd ] \
   || die "refused outside a private pid namespace"
+if [ -z "${FAKE_SYSTEMD_DIR:-}" ] && [ -d "$PWD/fake-systemd" ]; then FAKE_SYSTEMD_DIR=$PWD/fake-systemd; fi
 [ -n "${FAKE_SYSTEMD_DIR:-}" ] || die "FAKE_SYSTEMD_DIR not set"
+if [ -s "$FAKE_SYSTEMD_DIR/stall" ]; then
+  read -r S0 S1 < "$FAKE_SYSTEMD_DIR/stall"
+  now=$(date +%s)
+  if [ "$now" -ge "$S0" ] && [ "$now" -lt "$S1" ]; then
+    echo "$(date -u +%FT%TZ) stalled $* for $((S1 - now)) s" >> "$FAKE_SYSTEMD_DIR/stall.log"
+    sleep $((S1 - now))
+  fi
+fi
 [ "${1:-}" = --user ] || die "only --user is emulated"; shift
 VERB=${1:-}; shift || true
 PROPS=(); VALUE=no; NAME=""; BLOCK=yes
@@ -39,6 +54,10 @@ while [ $# -gt 0 ]; do
   shift
 done
 [ "$VERB" = list-units ] && exit 0
+if [ "$VERB" = show ] && [ -z "$NAME" ] && [ "${PROPS[*]:-}" = Version ]; then
+  if [ "$VALUE" = yes ]; then echo "261 (REHEARSAL FAKE)"; else echo "Version=261 (REHEARSAL FAKE)"; fi
+  exit 0
+fi
 case "$NAME" in *.service) ;; *) die "a NAME.service is needed (got '$NAME')" ;; esac
 case "$NAME" in *[!A-Za-z0-9_.-]*) die "not a literal unit name: $NAME" ;; esac
 D=$FAKE_SYSTEMD_DIR/$NAME

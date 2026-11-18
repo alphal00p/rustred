@@ -548,6 +548,10 @@ pub fn manager_probe(allow_in_namespace: bool) -> Result<Duration, String> {
         for (k, v) in systemd_env() {
             c.env(k, v);
         }
+        // the supervisor's PATH as well (a rehearsal's fake `systemctl` is a script; the real one ignores it)
+        if let Some(p) = std::env::var_os("PATH") {
+            c.env("PATH", p);
+        }
         c.status().map_err(|e| format!("systemctl: {e}"))?
         // `c` and its copy of the write end are dropped here
     };

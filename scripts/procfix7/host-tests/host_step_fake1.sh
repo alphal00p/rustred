@@ -131,9 +131,21 @@ for f in "$WS/ops/PAUSE" "$WS/plan/auto-campaign/implementer_ops/PAUSE"; do
 done
 
 if [ "$MODE" = --rehearse-ns ]; then
-  LOCKS=$OUT/locks; LEDGER=$OUT/CPU_LEDGER.md; CONT=',"containment":"marker_only"'
+  # round 14 (host step 3, M3): the rehearsal probes the (fake) user manager too, so that a fake stall pauses launches
+  LOCKS=$OUT/locks; LEDGER=$OUT/CPU_LEDGER.md; CONT=',"containment":"marker_only","manager_probe":"on"'
 else
   LOCKS=$WS/ops/locks; LEDGER=$WS/ops/CPU_LEDGER.md; CONT=''
+fi
+# procfix7 round 14 (host step 3, M3): MANAGER_WAIT_LIMIT_S=<10-86400> (default: the spec's 900 s): how long the run waits
+# for a user manager that does not answer before its typed stop (exit 69)
+if [ -n "${MANAGER_WAIT_LIMIT_S:-}" ]; then
+  case "$MANAGER_WAIT_LIMIT_S" in *[!0-9]*) echo "MANAGER_WAIT_LIMIT_S must be an integer" >&2; exit 2 ;; esac
+  CONT="$CONT,\"manager_wait_limit_s\":$MANAGER_WAIT_LIMIT_S"
+fi
+# procfix7 round 14: FAKE_MANAGER_STALL=<after_s>:<dur_s> (--rehearse-ns only): the fake user manager stalls that long
+if [ -n "${FAKE_MANAGER_STALL:-}" ]; then
+  [ "$MODE" = --rehearse-ns ] || { echo "FAKE_MANAGER_STALL only with --rehearse-ns" >&2; exit 2; }
+  case "$FAKE_MANAGER_STALL" in [0-9]*:[0-9]*) ;; *) echo "FAKE_MANAGER_STALL must be <after_s>:<dur_s>" >&2; exit 2 ;; esac
 fi
 SITE=$(cat <<J
 {"schema":"rustred.campaign.site-policy.v1","tag":"rr-campaign",
@@ -203,6 +215,12 @@ if [ "$MODE" = --rehearse-ns ]; then
   mkdir -p "$LOCKS"
   for f in "$WS"/ops/locks/cpu.*; do : > "$LOCKS/$(basename "$f")"; done
   : > "$LEDGER"
+  if [ -n "${FAKE_MANAGER_STALL:-}" ]; then
+    mkdir -p "$FAKE_SYSTEMD_DIR"
+    now=$(date +%s); a=${FAKE_MANAGER_STALL%%:*}; b=${FAKE_MANAGER_STALL#*:}
+    echo "$((now + a)) $((now + a + b))" > "$FAKE_SYSTEMD_DIR/stall"
+    say "the fake user manager stalls from +${a} s for ${b} s ($FAKE_SYSTEMD_DIR/stall)"
+  fi
 fi
 echo "$SITE" > "$OUT/site.json"; echo "$SPEC" > "$OUT/spec.json"
 LEDGER_OFF=$(stat -c %s "$LEDGER")
