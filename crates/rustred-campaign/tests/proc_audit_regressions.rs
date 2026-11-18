@@ -1103,11 +1103,15 @@ fn b_c4_orphans_daemons_and_escapees() {
     let _g = serial();
     let dir = TempDir::new("b-c4");
     let mut l = launcher();
-    // (a) T2.
+    // (a) T2. procfix7 round 16 (gate17 nit m17-bc4: 5 of 48 runs under load, 8 of 48 at 041e7fe8 "timed out waiting
+    // for: pid file"): the job exited at once, and the end-of-job proof could kill its daemon before the daemon wrote its
+    // pid (correctly: a leftover); the job now waits (bounded, 10 s) until the daemon's pid file is there (written
+    // atomically) before it exits: the daemon is the same leftover, found by its marker, killed and reported
     let f = dir.path().join("d.pid");
     let script = format!(
-        "( setsid sh -c 'echo $$ > {}; exec sleep 20' & ); exit 0",
-        f.display()
+        "( setsid sh -c 'echo $$ > {f}.tmp && mv {f}.tmp {f}; exec sleep 20' & ); \
+         i=0; while [ ! -s {f} ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; exit 0",
+        f = f.display()
     );
     let mut h = l.launch(&sh(dir.path(), "t2", &script)).unwrap();
     let r = drive(&mut h);

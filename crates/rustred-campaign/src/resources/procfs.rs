@@ -1354,10 +1354,6 @@ struct StatFull {
     flags: u64,
 }
 
-/// procfix7 round 13 / 14: the pauses before the re-reads of a transiently unusable stat line (7.6 ms in all). The FIRST
-/// re-read is immediate: a task in EXIT_DEAD was gone at it in 115 of 115 recorded cases (S/r13/statprobe2.py), and a
-/// pause there lengthened every task listing that met an exiting thread (round 14: the completeness walk's "task
-/// listing incomplete" under thread churn, proc_reaudit_b rb_reuse).
 /// procfix7 round 15 (gate16 m16-tasks-retry): the pauses before the listings of a task list that the listing rule
 /// refused (the first listing has none): six listings, at most 3.6 ms.
 const TASKS_RELIST_PAUSES: [Duration; 6] = [
@@ -1369,6 +1365,10 @@ const TASKS_RELIST_PAUSES: [Duration; 6] = [
     Duration::from_millis(2),
 ];
 
+/// procfix7 round 13 / 14: the pauses before the re-reads of a transiently unusable stat line (7.6 ms in all). The FIRST
+/// re-read is immediate: a task in EXIT_DEAD was gone at it in 115 of 115 recorded cases (S/r13/statprobe2.py), and a
+/// pause there lengthened every task listing that met an exiting thread (round 14: the completeness walk's "task
+/// listing incomplete" under thread churn, proc_reaudit_b rb_reuse).
 const STAT_READ_PAUSES: [Duration; 6] = [
     Duration::ZERO,
     Duration::from_micros(100),

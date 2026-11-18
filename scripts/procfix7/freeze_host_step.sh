@@ -13,7 +13,11 @@
 set -euo pipefail
 WS=/shared/vhirschi/t3code/vakint_dev/p_integral_dev
 H=$WS/plan/auto-campaign/host-tests
-WT=$WS/wt/ac-procfix7
+# round 16 (gate17 nit m17-freeze-wt): the worktree and the light_build lane can be set for a reviewer's validation
+# (FREEZE_WT=<its worktree> FREEZE_LANE=<its lane> FROZEN_ROOT=<scratch>); defaults: this lane's
+WT=${FREEZE_WT:-$WS/wt/ac-procfix7}
+LANE=${FREEZE_LANE:-procfix7}
+case "$LANE" in ''|*[!a-z0-9_-]*) echo "freeze: FREEZE_LANE must be a plain lane name"; exit 2 ;; esac
 SUPERSEDES=${1:?give the superseded directories and why, as one argument}
 cd "$WT"
 [ -e "$WS/plan/auto-campaign/implementer_ops/PAUSE" ] && { echo "freeze: implementer PAUSE flag present"; exit 2; }
@@ -30,7 +34,7 @@ done
   || { echo "freeze: $H/fixtures differ from scripts/procfix7/host-tests/fixtures.sha256"; exit 2; }
 diff <(cd "$H" && find fixtures -type f | sort) <(awk '{print $2}' scripts/procfix7/host-tests/fixtures.sha256 | sort) \
   > /dev/null || { echo "freeze: $H/fixtures holds files the git list does not name"; exit 2; }
-nice -n 10 "$WS/plan/auto-campaign/implementer_ops/light_build.sh" procfix7 build -p rustred-campaign --release --bins
+nice -n 10 "$WS/plan/auto-campaign/implementer_ops/light_build.sh" "$LANE" build -p rustred-campaign --release --bins
 RC=$WT/target/release/rr_campaign; FC=$WT/target/release/rr_fake_child; SC=$WT/target/release/rr_scope_check
 # round 11 (gate14 m14-freeze): BOTH binaries are checked (rr_fake_child too)
 for b in "$RC" "$FC" "$SC"; do
@@ -83,10 +87,11 @@ diff <(find . -type f ! -name SHA256SUMS | sed 's|^\./||' | sort) <(awk '{print 
 chmod -R go-rwx,a-w "$F"
 chmod u+x,u-w "$F"/rehearsal-fake-systemd/*
 sha256sum -c --quiet SHA256SUMS
-T=$(mktemp -d "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/procfix7/tmp/freeze.XXXXXX")
+mkdir -p "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/$LANE/tmp"
+T=$(mktemp -d "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/$LANE/tmp/freeze.XXXXXX")
 TMPDIR=$T python3 -I -B test_p8_units.py
 TMPDIR=$T python3 -I -B test_grade_host_step.py
-case "$T" in /common/build-cache/vhirschi/p_integral_dev/implementer-scratch/procfix7/tmp/freeze.*) rmdir -- "$T" ;; esac
+case "$T" in /common/build-cache/vhirschi/p_integral_dev/implementer-scratch/"$LANE"/tmp/freeze.*) rmdir -- "$T" ;; esac
 [ "$(find "$F" \( -name '__pycache__' -o -name '*.pyc' \) | wc -l)" = 0 ] || { echo "freeze: a .pyc appeared"; exit 2; }
 echo "FROZEN: $F"
 echo "MANIFEST sha256: $(sha256sum MANIFEST | cut -c1-64)"

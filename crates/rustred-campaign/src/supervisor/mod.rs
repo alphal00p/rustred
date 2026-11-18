@@ -3601,7 +3601,8 @@ impl Supervisor {
 
     /// procfix7 round 15 (gate16 m16-start-clear): the start's clearing of the leftover list waits for a manager that
     /// ANSWERS: the gate open and its latest probe answered within the bound; a run that does not probe for its jobs
-    /// uses a probe of its own (one in flight at most, the same back-off) that never touches the launch gate.
+    /// uses a probe of its own (one in flight at most, the same back-off) that never touches the launch gate; with
+    /// `resources.manager_probe = "off"` (never a probe; round 16) it clears at once.
     fn tick_start_clear(&mut self) {
         if !self.start_clear {
             return;
@@ -3614,6 +3615,10 @@ impl Supervisor {
         }
         let answered = if self.gate.probing {
             self.gate.closed().is_none() && self.gate.answers() == Some(true)
+        } else if self.opts.spec.resources.manager_probe == "off" {
+            // round 16 (gate17 nit m17-off-probe): "off" means NO probe of the manager: cleared at once (each unit's
+            // reads bounded at 10 s, as before round 15)
+            true
         } else {
             let allow = self.opts.spec.resources.manager_probe == "on";
             let g = self
@@ -7997,8 +8002,6 @@ fn resource_classification(c: &classify::Classification, why: String) -> classif
     }
 }
 
-/// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
-/// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
 /// procfix7 round 15 (gate16 nit m16-paused-spam): the key of a "launching paused" line: the reasons, the manager gate's
 /// (at index `gate.0`) replaced by its text WITHOUT its running seconds (`gate.1`), so that only a real change of the
 /// reasons is a new line.
@@ -8014,6 +8017,8 @@ fn paused_key(reasons: &[String], gate: Option<(usize, &str)>) -> String {
         .join("; ")
 }
 
+/// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
+/// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
 fn is_resource_requeue(reason: &str) -> bool {
     // procfix7 round 15 (gate16 m16-15m-recovery): "(row 15m)" (never ran: the launcher ended while waiting for the user
     // manager) too, so that the count of resource ends in a row survives a restart
