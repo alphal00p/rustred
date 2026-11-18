@@ -6087,20 +6087,21 @@ impl Supervisor {
             let _ = std::fs::create_dir_all(&done);
             // procfix7 round 5: a request that cannot be READ stays where it is (applied next tick), never "unparsable"
             // and moved to done/ (that lost it)
-            let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
-                crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
-                crate::fsx::Read::Absent => continue,
-                crate::fsx::Read::Failed(e) => {
-                    self.log.line(
-                        "WARN",
-                        &format!(
-                            "control request {} not readable now ({e}): read again next tick",
-                            p.display()
-                        ),
-                    );
-                    continue;
-                }
-            };
+            let req: Option<ControlRequest> =
+                match control_of(crate::fsx::read("supervisor.control", &p)) {
+                    ControlRead::Read(r) => r,
+                    ControlRead::Absent => continue,
+                    ControlRead::Unreadable(e) => {
+                        self.log.line(
+                            "WARN",
+                            &format!(
+                                "control request {} not readable now ({e}): read again next tick",
+                                p.display()
+                            ),
+                        );
+                        continue;
+                    }
+                };
             // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals)
             if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve-terminals") {
                 self.apply_source_decision(r);
@@ -7453,6 +7454,24 @@ impl Supervisor {
     }
 }
 
+/// procfix7 round 16 (int8b-gate review of the tripwire-flagged lines, defect 3: on the integration line an unreadable
+/// control file was taken as "unparsable" and archived, the operator's request LOST): what a control file's read means.
+/// Only a file that was READ is a request (`Some`) or unparsable (`None`: refused, archived); an unreadable one stays
+/// where it is and is read again next tick; one gone meanwhile is skipped.
+enum ControlRead {
+    Read(Option<ControlRequest>),
+    Absent,
+    Unreadable(std::io::Error),
+}
+
+fn control_of(r: crate::fsx::Read<Vec<u8>>) -> ControlRead {
+    match r {
+        crate::fsx::Read::Content(b) => ControlRead::Read(serde_json::from_slice(&b).ok()),
+        crate::fsx::Read::Absent => ControlRead::Absent,
+        crate::fsx::Read::Failed(e) => ControlRead::Unreadable(e),
+    }
+}
+
 #[derive(serde::Deserialize, serde::Serialize, Debug, Clone)]
 pub struct ControlRequest {
     pub schema: String,
@@ -8489,6 +8508,25 @@ mod tests {
         assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
         assert!(!r.attention);
         assert!(is_resource_requeue("lost (row 15s)"));
+        // round 16 (int8b-gate defect 3): an unreadable control file is never "unparsable" (archived, lost): it is kept
+        let eio = std::io::Error::from_raw_os_error(libc::EIO);
+        assert!(matches!(
+            control_of(crate::fsx::Read::Failed(eio)),
+            ControlRead::Unreadable(_)
+        ));
+        assert!(matches!(
+            control_of(crate::fsx::Read::Absent),
+            ControlRead::Absent
+        ));
+        assert!(matches!(
+            control_of(crate::fsx::Read::Content(b"{not json".to_vec())),
+            ControlRead::Read(None)
+        ));
+        let ok = br#"{"schema":"s","id":"i","utc":"u","verb":"pause"}"#.to_vec();
+        assert!(matches!(
+            control_of(crate::fsx::Read::Content(ok)),
+            ControlRead::Read(Some(r)) if r.verb == "pause"
+        ));
         // round 15 (gate16 nit m16-paused-spam): the manager gate's running seconds are not a change of the reasons
         let r = |s: u64, other: &str| {
             vec![
