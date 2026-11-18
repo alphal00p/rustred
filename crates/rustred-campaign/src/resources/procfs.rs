@@ -602,8 +602,29 @@ impl ProcRoot {
     /// The thread ids of `pid` (the listing rule). Gone: the process is gone. procfix7 round 6 (G10-B1): the listing
     /// must contain the LEADER (tid == pid: it stays listed, a zombie included, until the group is reaped) and, when the
     /// kernel's atomic thread count (`Threads:`, read before and after) is the same both times, at least that many
-    /// threads; otherwise it is Unreadable ("task listing incomplete").
+    /// threads; otherwise it is Unreadable ("task listing incomplete"). procfix7 round 15 (gate16 m16-tasks-retry): a
+    /// listing refused by that rule is LISTED AGAIN, up to [`TASKS_RELIST_PAUSES`] (six listings, at most 3.6 ms of
+    /// pauses): a thread started while another ended during one listing (the count equal, the newcomer missed) is
+    /// listed by the next; the rule is the same for every listing, so no listing it refuses is ever accepted.
     pub fn tasks(&self, pid: u32) -> ProcResult<Vec<u32>> {
+        let mut why = String::new();
+        for (k, pause) in TASKS_RELIST_PAUSES.iter().enumerate() {
+            if k > 0 && !pause.is_zero() {
+                std::thread::sleep(*pause);
+            }
+            match self.tasks_once(pid) {
+                Err(ProcError::Unreadable(w)) if w.contains("task listing incomplete") => why = w,
+                r => return r,
+            }
+        }
+        unreadable(format!(
+            "{why} (refused at each of {} listings)",
+            TASKS_RELIST_PAUSES.len()
+        ))
+    }
+
+    /// One listing of [`Self::tasks`].
+    fn tasks_once(&self, pid: u32) -> ProcResult<Vec<u32>> {
         let before = self.status(pid).and_then(|s| s.threads());
         let v = self.numeric_listing(Kind::Tasks, Some(pid), &format!("{pid}/task"), &|t| {
             self.task_stat(pid, t).map(|s| s.start_ticks)
@@ -1337,6 +1358,17 @@ struct StatFull {
 /// re-read is immediate: a task in EXIT_DEAD was gone at it in 115 of 115 recorded cases (S/r13/statprobe2.py), and a
 /// pause there lengthened every task listing that met an exiting thread (round 14: the completeness walk's "task
 /// listing incomplete" under thread churn, proc_reaudit_b rb_reuse).
+/// procfix7 round 15 (gate16 m16-tasks-retry): the pauses before the listings of a task list that the listing rule
+/// refused (the first listing has none): six listings, at most 3.6 ms.
+const TASKS_RELIST_PAUSES: [Duration; 6] = [
+    Duration::ZERO,
+    Duration::ZERO,
+    Duration::from_micros(100),
+    Duration::from_micros(500),
+    Duration::from_millis(1),
+    Duration::from_millis(2),
+];
+
 const STAT_READ_PAUSES: [Duration; 6] = [
     Duration::ZERO,
     Duration::from_micros(100),
@@ -1576,6 +1608,8 @@ pub struct Faults {
     trunc_root: Option<usize>,
     /// The same for task listings (`proc_trunc_tasks_at:<n>`).
     trunc_tasks: Option<usize>,
+    /// procfix7 round 15 (m16-tasks-retry tests): only the first `n` task listings end after `keep` entries.
+    trunc_tasks_first: Option<(usize, std::sync::atomic::AtomicU64)>,
     /// procfix7 round 7 (gate11 m11-mut M6): `proc_hide_pid:<pid>`: that pid is missing from BOTH enumerations of the
     /// proc root listing AND from every children list (a process no listing and no walk shows: only a direct read of
     /// its own pid, the sweeps' seeds, can find it).
@@ -1709,11 +1743,26 @@ impl Faults {
         self
     }
 
+    /// procfix7 round 15: only the first `n` task listings end after `keep` entries (a transient incomplete listing).
+    pub fn truncate_tasks_first(mut self, keep: usize, n: u64) -> Self {
+        self.trunc_tasks_first = Some((keep, std::sync::atomic::AtomicU64::new(n)));
+        self
+    }
+
     /// The truncation of a listing of `kind` (tests), if any.
     fn trunc(&self, kind: Kind) -> Option<usize> {
         match kind {
             Kind::Listing => self.trunc_root,
-            Kind::Tasks => self.trunc_tasks,
+            Kind::Tasks => self.trunc_tasks.or_else(|| {
+                let (keep, left) = self.trunc_tasks_first.as_ref()?;
+                left.fetch_update(
+                    std::sync::atomic::Ordering::SeqCst,
+                    std::sync::atomic::Ordering::SeqCst,
+                    |n| n.checked_sub(1),
+                )
+                .ok()
+                .map(|_| *keep)
+            }),
             _ => None,
         }
     }
@@ -1860,6 +1909,21 @@ mod tests {
         }
         let r = ProcRoot::system().with_faults(Faults::new().truncate_tasks(full.len()));
         assert_eq!(r.tasks(pid).unwrap().len(), 4);
+        // procfix7 round 15 (gate16 m16-tasks-retry): a listing refused by the rule is listed again (six listings at
+        // most); an incomplete listing is never the answer
+        for n in 1..TASKS_RELIST_PAUSES.len() as u64 {
+            let r = ProcRoot::system().with_faults(Faults::new().truncate_tasks_first(2, n));
+            assert_eq!(
+                r.tasks(pid).unwrap(),
+                full,
+                "the first {n} listing(s) truncated"
+            );
+        }
+        let r = ProcRoot::system()
+            .with_faults(Faults::new().truncate_tasks_first(2, TASKS_RELIST_PAUSES.len() as u64));
+        assert!(
+            matches!(r.tasks(pid), Err(ProcError::Unreadable(w)) if w.contains("task listing incomplete") && w.contains("refused at each of 6 listings"))
+        );
         let _ = child.kill();
         let _ = child.wait();
     }
