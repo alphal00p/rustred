@@ -11,7 +11,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::fd::RawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,6 +32,65 @@ fn write_file(p: &Path, s: &str) -> io::Result<()> {
         .write(true)
         .open(p)?
         .write_all(s.as_bytes())
+}
+
+/// procfix7 round 11 (gate14 m14-scope-toctou): open a directory without following a symbolic link in its last component.
+fn open_dir_nofollow(p: &Path) -> io::Result<OwnedFd> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(p.as_os_str().as_bytes()).map_err(io::Error::other)?;
+    // SAFETY: open(2) of a NUL-terminated path; the descriptor is owned below.
+    let fd = unsafe {
+        libc::open(
+            c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a fresh descriptor we own.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// procfix7 round 11 (gate14 m14-scope-toctou): the directory `p` opened once and checked BY ITS DESCRIPTOR: a directory,
+/// owned by `uid`, with the recorded (dev, inode). Every later access goes through the returned descriptor.
+fn open_dir_checked(p: &Path, uid: u32, (dev, ino): (u64, u64)) -> io::Result<OwnedFd> {
+    let dir = open_dir_nofollow(p)?;
+    // SAFETY: fstat on our own open descriptor into a zeroed stat buffer.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    if unsafe { libc::fstat(dir.as_raw_fd(), &mut st) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if (st.st_mode & libc::S_IFMT) != libc::S_IFDIR
+        || st.st_uid != uid
+        || st.st_dev != dev
+        || st.st_ino != ino
+    {
+        return Err(io::Error::other(format!(
+            "{}: not the recorded directory",
+            p.display()
+        )));
+    }
+    Ok(dir)
+}
+
+/// Write `s` to `name` RELATIVE to the open directory `dir` (openat, O_NOFOLLOW): the file of THAT directory.
+fn write_at(dir: &OwnedFd, name: &std::ffi::CStr, s: &str) -> io::Result<()> {
+    // SAFETY: openat(2) relative to our open directory descriptor; the descriptor is owned below.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a fresh descriptor we own.
+    let mut f = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    f.write_all(s.as_bytes())
 }
 
 impl CgroupRoot {
@@ -464,6 +523,15 @@ fn user_manager_root(uid: u32) -> PathBuf {
     ))
 }
 
+/// procfix7 round 11 (gate14 m14-scope-parent): a user scope's directory is accepted ONLY where systemd puts it: directly
+/// in `app.slice` of our user manager (systemd >= 247) or directly at the user manager's root (the two places
+/// [`scope_candidates_in`] looks); never a deeper directory of the delegated subtree that merely carries the name.
+fn scope_parent_ok(dir: &Path, uid: u32) -> bool {
+    let root = user_manager_root(uid);
+    dir.parent()
+        .is_some_and(|p| p == root || p == root.join("app.slice"))
+}
+
 /// procfix7 round 9 (gate13 G13-M1): the KERNEL's record of the cgroup in which a job's leader EXITED, read from its own
 /// `/proc/<pid>/cgroup` while it is our UNREAPED zombie (its pid cannot be reused). A zombie cannot be moved between
 /// cgroups and keeps its last cgroup until it is reaped; when systemd has already stopped the scope and removed its
@@ -533,7 +601,7 @@ impl ScopeRef {
             return None;
         }
         let dir = Path::new("/sys/fs/cgroup").join(rel);
-        if !dir.starts_with(user_manager_root(uid)) {
+        if !dir.starts_with(user_manager_root(uid)) || !scope_parent_ok(&dir, uid) {
             return None;
         }
         let name = dir.file_name()?.to_str()?;
@@ -637,12 +705,22 @@ impl ScopeRef {
 
     /// `cgroup.kill` of the job's scope: kills every process in it. Only after the guarded hunt (never instead of it),
     /// and only while the directory is still the recorded one (dev, inode, owner) under our user manager.
+    /// procfix7 round 11 (gate14 m14-scope-toctou, m14-scope-parent): the check and the write go through ONE descriptor:
+    /// the directory is opened once (O_DIRECTORY | O_NOFOLLOW), the DESCRIPTOR is checked (fstat: a directory, owned by
+    /// our uid, the recorded (dev, inode)), and `cgroup.kill` is opened RELATIVE to it (openat, O_NOFOLLOW): a directory
+    /// removed and re-created under the same name between the check and the write is never written (a new cgroup has
+    /// a new inode number; the old one's kill file is gone with it). The parent must be exactly `app.slice` or the user
+    /// manager's root. What remains: the scope's MEMBERSHIP can change between the check and the write; only a process
+    /// of our uid can move a process into it (the user's delegated subtree), so the kill can reach only such a process.
     pub(crate) fn kill_members(&self) -> io::Result<()> {
         let uid = crate::resources::our_uid();
-        if !self.dir.starts_with(user_manager_root(uid)) || !self.still_same(uid)? {
+        if !self.dir.starts_with(user_manager_root(uid)) || !scope_parent_ok(&self.dir, uid) {
             return Err(io::Error::other("scope directory is not the recorded one"));
         }
-        kill_path(&self.dir)
+        let dir = open_dir_checked(&self.dir, uid, (self.dev, self.ino))?;
+        super::guard::cgroup_kill_logged(&self.dir, "job cgroup", || {
+            write_at(&dir, c"cgroup.kill", "1")
+        })
     }
 }
 
@@ -982,6 +1060,65 @@ mod tests {
             "/sys/fs/cgroup/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i9.scope",
         );
         assert!(dir.starts_with(user_manager_root(uid)));
+    }
+
+    /// procfix7 round 11 (gate14 m14-scope-parent): a scope directory only directly in app.slice or at the user manager's
+    /// root; (m14-scope-toctou) the kill's directory is checked by its DESCRIPTOR and its file opened relative to it,
+    /// never through a symbolic link; a directory re-created under the same name is refused.
+    #[test]
+    fn scope_kill_checks_the_exact_directory_by_its_descriptor() {
+        let uid = 4242;
+        let root = user_manager_root(uid);
+        assert!(scope_parent_ok(&root.join("app.slice/x.scope"), uid));
+        assert!(scope_parent_ok(&root.join("x.scope"), uid));
+        for bad in [
+            "app.slice/sub/x.scope",
+            "app.slice/x.scope/x.scope",
+            "session.slice/x.scope",
+            "a/b/c/x.scope",
+        ] {
+            assert!(!scope_parent_ok(&root.join(bad), uid), "{bad}");
+        }
+        assert!(!scope_parent_ok(Path::new("/sys/fs/cgroup/x.scope"), uid));
+        // a deeper directory carrying the exact name is refused by the record (the directory check aside)
+        let deep =
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/sub/run-p77-i5.scope\n";
+        assert_eq!(ScopeRef::from_leader_cgroup(deep, 77, uid, None), None);
+        // descriptor checks on a scratch directory of ours
+        let me = crate::resources::our_uid();
+        let base = std::env::temp_dir().join(format!("rr-scopefd-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let d = base.join("x.scope");
+        fs::create_dir_all(&d).unwrap();
+        let md = fs::metadata(&d).unwrap();
+        let rec = (md.dev(), md.ino());
+        let fd = open_dir_checked(&d, me, rec).expect("the recorded directory");
+        fs::write(d.join("cgroup.kill"), "").unwrap();
+        write_at(&fd, c"cgroup.kill", "1").unwrap();
+        assert_eq!(fs::read_to_string(d.join("cgroup.kill")).unwrap(), "1");
+        // another owner or another inode: refused
+        assert!(open_dir_checked(&d, me.wrapping_add(1), rec).is_err());
+        assert!(open_dir_checked(&d, me, (rec.0, rec.1 ^ 1)).is_err());
+        // the file a symbolic link: never written through it
+        let victim = base.join("victim");
+        fs::write(&victim, "untouched").unwrap();
+        fs::remove_file(d.join("cgroup.kill")).unwrap();
+        std::os::unix::fs::symlink(&victim, d.join("cgroup.kill")).unwrap();
+        assert!(write_at(&fd, c"cgroup.kill", "1").is_err());
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "untouched");
+        // the directory a symbolic link: not opened
+        let link = base.join("link.scope");
+        std::os::unix::fs::symlink(&d, &link).unwrap();
+        assert!(open_dir_nofollow(&link).is_err());
+        // re-created under the same name: a new inode, refused
+        drop(fd);
+        fs::remove_dir_all(&d).unwrap();
+        fs::create_dir_all(&d).unwrap();
+        let md2 = fs::metadata(&d).unwrap();
+        if (md2.dev(), md2.ino()) != rec {
+            assert!(open_dir_checked(&d, me, rec).is_err());
+        }
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// gate3 M5: deterministic, unique per (campaign, label), a valid unit name, and the scope belt accepts exactly it.
