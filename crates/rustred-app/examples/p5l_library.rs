@@ -539,6 +539,40 @@ fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
     out
 }
 
+/// 12d2: `text` durably at `output`: written to `<output>.tmp`, fsynced,
+/// renamed, and the parent directory fsynced; the first failing step is
+/// returned with its path.
+fn durable_write(output: &str, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    let tmp = format!("{output}.tmp");
+    let mut file =
+        std::fs::File::create(&tmp).map_err(|e| format!("creating {tmp} failed: {e}"))?;
+    file.write_all(text.as_bytes())
+        .map_err(|e| format!("writing {tmp} failed: {e}"))?;
+    file.sync_all()
+        .map_err(|e| format!("fsync of {tmp} failed: {e}"))?;
+    drop(file);
+    std::fs::rename(&tmp, output).map_err(|e| format!("renaming {tmp} to {output} failed: {e}"))?;
+    let parent = match std::path::Path::new(output).parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => std::path::PathBuf::from("."),
+    };
+    let dir = std::fs::File::open(&parent)
+        .map_err(|e| format!("opening directory {} failed: {e}", parent.display()))?;
+    dir.sync_all().map_err(|e| {
+        // the output is in place but not durable: withdraw it, so that a
+        // re-launch (which skips existing outputs) replays and commits again
+        let withdrawn = std::fs::remove_file(output).map_or_else(
+            |r| format!("; removing {output} failed too: {r}"),
+            |()| format!("; {output} withdrawn"),
+        );
+        format!(
+            "fsync of directory {} failed: {e}{withdrawn}",
+            parent.display()
+        )
+    })
+}
+
 fn reduce_files_cli(args: &[String]) {
     // 12d2: a resumable request keeps its final state and trace until its
     // output file is durably written (a failed write re-launches as a replay).
@@ -597,22 +631,11 @@ fn reduce_files_cli(args: &[String]) {
             Ok(reduction) => format_reduction(&library, reduction),
             Err(error) => format!("error: {error}\n"),
         };
-        let tmp = format!("{output}.tmp");
-        {
-            use std::io::Write;
-            let mut file = std::fs::File::create(&tmp).expect("write output");
-            file.write_all(text.as_bytes()).expect("write output");
-            file.sync_all().expect("sync output");
-        }
-        std::fs::rename(&tmp, output).expect("rename output");
-        if let Some(parent) = std::path::Path::new(output).parent()
-            && let Ok(dir) = std::fs::File::open(if parent.as_os_str().is_empty() {
-                std::path::Path::new(".")
-            } else {
-                parent
-            })
-        {
-            let _ = dir.sync_all();
+        // 12d2: write, fsync, rename, fsync of the directory; on ANY failure the
+        // resume files stay (no commit) and the process exits non-zero.
+        if let Err(error) = durable_write(output, &text) {
+            eprintln!("reduce-files: {error}; output NOT committed, resume state and trace kept");
+            std::process::exit(5);
         }
         rustred::reduction::commit_resume();
         let saved = if std::env::var("P_STEP_CACHE").is_ok() {

@@ -386,6 +386,20 @@ fn main() {
     // 12d2: resume files of a request stay until its lines are durably written.
     rustred::reduction::set_resume_caller_commit(true);
     let mut out = std::io::BufWriter::new(std::fs::File::create(&args[4]).unwrap());
+    {
+        // the output file's directory entry is durable before any commit
+        let parent = match std::path::Path::new(&args[4]).parent() {
+            Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+            _ => std::path::PathBuf::from("."),
+        };
+        if let Err(e) = std::fs::File::open(&parent).and_then(|d| d.sync_all()) {
+            eprintln!(
+                "p_key_batch: fsync of directory {} failed: {e}",
+                parent.display()
+            );
+            std::process::exit(5);
+        }
+    }
     let context = library.coefficient_context().clone();
     let inputs: Vec<Input> = std::fs::read_to_string(&args[2])
         .unwrap()
