@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 use super::cone::{
     Cone, ConeOptions, capped_dispatcher, cone_coverage, coverage_from_partition,
-    partition_for_cones_with, region_keys_each,
+    partition_for_cones_with, region_keys_each_pruned,
 };
 use crate::cover::{Dispatch, Dispatcher};
 use crate::key::NodeFrame;
@@ -211,8 +211,7 @@ pub fn record_liveness(
                     // a key of the element where the record applies but is not first match: enumerate the element instead
                 }
                 _ => {
-                    exhausted = false;
-                    continue;
+                    // emptiness not decided: enumerate the element (exact) instead of giving up on it (2026-11-17)
                 }
             }
         }
@@ -222,7 +221,7 @@ pub fn record_liveness(
                 found = Some(k.to_vec());
             }
         };
-        let sized = region_keys_each(&el.region(), cone, enum_cap, &mut push);
+        let sized = region_keys_each_pruned(&el.region(), cone, enum_cap, &mut push);
         if let Some(k) = found {
             return Liveness::Live(k);
         }
@@ -270,7 +269,7 @@ pub fn record_first_match_counts(
                 *counts.entry(shell(k)).or_insert(0u64) += 1;
             }
         };
-        if region_keys_each(&el.region(), &fp.cone, enum_cap, &mut push).is_none() {
+        if region_keys_each_pruned(&el.region(), &fp.cone, enum_cap, &mut push).is_none() {
             complete = false;
         }
     }

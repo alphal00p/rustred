@@ -860,3 +860,91 @@ fn first_match_counts_per_shell_equal_brute_force() {
         assert_eq!(&got, w, "record {pos}");
     }
 }
+
+/// The PRUNED enumerator visits region points, not the bounding box: a 4-parameter simplex (C(S+4,4) points) inside a box of
+/// (S+1)^4 points is enumerated completely with a cap below the box size (where `region_keys_each` gives up), and equals brute
+/// force and the box enumerator wherever the latter fits.
+#[test]
+fn pruned_enumeration_is_exact_and_capped_by_points_not_by_the_box() {
+    use rustred_campaign_core::loci::region::Region;
+    use rustred_campaign_core::parametric::cone::{region_keys_each, region_keys_each_pruned};
+    use rustred_campaign_core::partition::exact::Affine;
+    let f = NodeFrame::without_header_lines_first(4, 3);
+    let e = |i: usize, c: i128, a: i128| {
+        let mut coef = vec![0i128; 4];
+        coef[i] = a;
+        Affine { coef, c }
+    };
+    // x_i = 1 + t_i (lines 0..2), x3 = -t3 (numerator), t_i >= 0
+    let reg = Region {
+        k: 4,
+        x: vec![e(0, 1, 1), e(1, 1, 1), e(2, 1, 1), e(3, 0, -1)],
+        cons: (0..4).map(|i| e(i, 0, 1)).collect(),
+        names: (0..4).map(|i| format!("t{i}")).collect(),
+    };
+    let s = 12i64;
+    let cone = Cone::excess_simplex(&f, s);
+    let mut want = Vec::new();
+    for a in 0..=s as i32 {
+        for b in 0..=s as i32 {
+            for c in 0..=s as i32 {
+                for d in 0..=s as i32 {
+                    let k = vec![1 + a, 1 + b, 1 + c, -d];
+                    if cone.contains(&k) {
+                        want.push(k);
+                    }
+                }
+            }
+        }
+    }
+    want.sort();
+    assert_eq!(want.len(), 1820); // C(16, 4)
+    let cap = 5_000; // > 1,820 points, < 13^4 = 28,561 box points
+    assert!(region_keys_each(&reg, &cone, cap, &mut |_| {}).is_none());
+    let mut got = Vec::new();
+    region_keys_each_pruned(&reg, &cone, cap, &mut |k| got.push(k.to_vec())).unwrap();
+    got.sort();
+    assert_eq!(got, want);
+    let mut boxed = Vec::new();
+    region_keys_each(&reg, &cone, 1_000_000, &mut |k| boxed.push(k.to_vec())).unwrap();
+    boxed.sort();
+    assert_eq!(boxed, want);
+    // the cap counts points: below the point count the enumeration reports itself incomplete
+    assert!(region_keys_each_pruned(&reg, &cone, 1_000, &mut |_| {}).is_none());
+}
+
+/// First-match counts are COMPLETE when the gap element's bounding box exceeds the enumeration cap but its points do not
+/// (the T162 rule 987 case: 156,066 counted of 658,008 before the fix), and equal brute force.
+#[test]
+fn first_match_counts_are_complete_when_the_box_exceeds_the_cap() {
+    use rustred_campaign_core::parametric::prune::record_first_match_counts;
+    use std::collections::BTreeMap;
+    let f = NodeFrame::without_header_lines_first(3, 2);
+    let mut r0 = rec(3);
+    r0.bounds.push("n0-3"); // n0 >= 3
+    let r1 = rec(3); // the rest
+    let d = disp(&f, &[r0, r1]);
+    let region = Cone::excess_simplex(&f, 20);
+    let o = ConeOptions::default();
+    let shell = |k: &[i32]| -> i64 { i64::from(k[0]) - 1 + i64::from(k[1]) - 1 - i64::from(k[2]) };
+    let mut want: Vec<BTreeMap<i64, u64>> = vec![BTreeMap::new(); 2];
+    for a in 1..=22 {
+        for b in 1..=22 {
+            for x in -21..=0 {
+                let k = vec![a, b, x];
+                if region.contains(&k) {
+                    if let Ok(Dispatch::Covered(r)) = d.first_match(&k) {
+                        *want[r.record].entry(shell(&k)).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+    }
+    // 1,771 points in the cone, a 21^3 = 9,261-point box: cap 3,000 lies between
+    for (pos, w) in want.iter().enumerate() {
+        let (got, complete) =
+            record_first_match_counts(&d, &f, &region, pos, &o, 3_000, &shell).unwrap();
+        assert!(complete, "record {pos}");
+        assert_eq!(&got, w, "record {pos}");
+    }
+}

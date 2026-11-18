@@ -24,6 +24,8 @@ pub mod engine;
 pub mod instantiate;
 pub mod span;
 pub mod stream;
+#[cfg(feature = "wcert")]
+pub mod wcert;
 
 /// Run `f`, turning a kernel refusal (`core::die`) or any other panic into `Err(message)`.
 pub fn guarded<T>(f: impl FnOnce() -> T) -> Result<T, String> {
