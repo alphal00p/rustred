@@ -287,6 +287,10 @@ pub fn gate_beside(
             emitted.display()
         ));
     }
+    // the flow writes its own table later (through its transaction): its directory may not exist yet
+    if let Some(d) = emitted.parent() {
+        std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
+    }
     let plain_path = emitted.with_extension("plain.jsonl");
     std::fs::write(&plain_path, plain).map_err(|e| format!("{}: {e}", plain_path.display()))?;
     let work = emitted.with_extension("emit-work");
