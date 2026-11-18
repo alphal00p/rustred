@@ -422,16 +422,25 @@ fn v0_rows_recovered_over_the_generator_is_whole_domain() {
     let st = stored(RHS_OK, r#"[["-1+n0"], ["-2+n0"]]"#, "");
     // without recovery: identity over the carried rows only
     let rec = run_ok(&st, cert.as_bytes(), Some(&rows()));
-    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_NOT_INDEPENDENTLY_VERIFIED");
+    assert_eq!(
+        field(&rec, &["rows", "verdict"]),
+        "ROWS_NOT_INDEPENDENTLY_VERIFIED"
+    );
     assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
     // with recovery but no generator: still not verified
     let rec = run_bytes_side(&st, cert.as_bytes(), None, &recover_side()).unwrap();
-    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_NOT_INDEPENDENTLY_VERIFIED");
+    assert_eq!(
+        field(&rec, &["rows", "verdict"]),
+        "ROWS_NOT_INDEPENDENTLY_VERIFIED"
+    );
     assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
     // with recovery and the generator: rows verified, identity on the ORDINARY rows, whole domain
     let rec = run_bytes_side(&st, cert.as_bytes(), Some(&rows()), &recover_side()).unwrap();
     eprintln!("{rec}");
-    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_VERIFIED_BY_RECOVERY");
+    assert_eq!(
+        field(&rec, &["rows", "verdict"]),
+        "ROWS_VERIFIED_BY_RECOVERY"
+    );
     assert_eq!(field(&rec, &["rows", "recovery", "recovered"]), "2");
     assert_eq!(field(&rec, &["identity", "verdict"]), "IDENTITY_EXACT");
     assert_eq!(field(&rec, &["binding", "verdict"]), "BINDING_EQUAL");
@@ -451,7 +460,10 @@ fn v0_rows_outside_the_ibp_span_are_not_verified() {
     let st = stored(RHS_OK, r#"[["-1+n0"], ["-2+n0"]]"#, "");
     let rec = run_bytes_side(&st, cert.as_bytes(), Some(&rows()), &recover_side()).unwrap();
     eprintln!("{rec}");
-    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_NOT_INDEPENDENTLY_VERIFIED");
+    assert_eq!(
+        field(&rec, &["rows", "verdict"]),
+        "ROWS_NOT_INDEPENDENTLY_VERIFIED"
+    );
     assert_eq!(field(&rec, &["rows", "recovery", "recovered"]), "1");
     assert_eq!(field(&rec, &["rows", "recovery", "failed"]), "2");
     assert_eq!(field(&rec, &["identity", "verdict"]), "IDENTITY_EXACT");
@@ -471,7 +483,10 @@ fn recovered_combination_denominators_join_the_factor_list() {
     let st = stored(RHS_OK, r#"[["-1+n0"], ["-2+n0"]]"#, "");
     let rec = run_bytes_side(&st, cert.as_bytes(), Some(&rows()), &recover_side()).unwrap();
     eprintln!("{rec}");
-    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_VERIFIED_BY_RECOVERY");
+    assert_eq!(
+        field(&rec, &["rows", "verdict"]),
+        "ROWS_VERIFIED_BY_RECOVERY"
+    );
     assert_eq!(field(&rec, &["identity", "verdict"]), "IDENTITY_EXACT");
     assert_eq!(verdict_of(&rec, "-4+n0"), "OPEN");
     assert_eq!(field(&rec, &["class"]), "OPEN_LOCI");

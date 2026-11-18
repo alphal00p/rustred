@@ -8,6 +8,7 @@
 //! - [`class`]: class words, the check summary, [`class::class_of`], the [`class::Policy`].
 //! - [`ladder`]: open loci and new branches -> child cases, piece exception bookkeeping, the partition proof.
 //! - [`validate`]: the record-level part of `rr_campaign table-check`.
+//!
 //! The process part (running the producer and the checker as children, writing tables) is
 //! `rustred_campaign::emission`.
 pub mod body;
@@ -95,7 +96,9 @@ pub struct Parts {
 /// The `derivation` member (small: sha256s, verdict words, class, evidence references).
 pub fn derivation(p: &Parts) -> Value {
     let check = match &p.check {
-        Ok((tool, out, s)) => json!({"tool_sha256": tool, "output_sha256": out, "stages": s.record_json()}),
+        Ok((tool, out, s)) => {
+            json!({"tool_sha256": tool, "output_sha256": out, "stages": s.record_json()})
+        }
         Err(why) => json!({"ran": false, "reason": why}),
     };
     let mut class = json!({"word": p.classed.class.word(), "evidence": p.classed.evidence});

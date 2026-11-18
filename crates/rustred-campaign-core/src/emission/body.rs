@@ -7,6 +7,7 @@
 //!   order (the checker's `domain_sha256`);
 //! - `body_sha256`     = sha256 of `chart \n case \n relation_sha256 \n domain_sha256` (case = the record's `case` text,
 //!   `null` when absent).
+//!
 //! Invariant under: the `index` number (renumbering), whitespace, member order of the record, every member other than
 //! chart / case / target / rhs / fixed / equations / exceptions / domain_bounds (origin, seeds, provenance, the
 //! `derivation` member itself). Changed by: any change of a coefficient TEXT, of the target, of the domain members, of
@@ -34,7 +35,10 @@ pub struct Member {
 
 /// The top-level members of a JSON object line: (key, byte range of the value), in file order.
 pub fn top_level_members(line: &str) -> Result<Vec<(String, Range<usize>)>, String> {
-    Ok(members(line)?.into_iter().map(|m| (m.key, m.value)).collect())
+    Ok(members(line)?
+        .into_iter()
+        .map(|m| (m.key, m.value))
+        .collect())
 }
 
 /// The top-level members of a JSON object line with their key offsets, in file order.
@@ -124,7 +128,8 @@ fn value_end(b: &[u8], i: usize) -> Result<usize, String> {
         }
         Some(_) => {
             let mut k = i;
-            while k < b.len() && !matches!(b[k], b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r') {
+            while k < b.len() && !matches!(b[k], b',' | b'}' | b']' | b' ' | b'\t' | b'\n' | b'\r')
+            {
                 k += 1;
             }
             Ok(k)
@@ -207,7 +212,11 @@ pub struct BodyIds {
 /// The identity hashes of a rule line (with or without a `derivation` member: it is never part of the body).
 pub fn body_ids(line: &str) -> Result<BodyIds, String> {
     let m = top_level_members(line)?;
-    let get = |k: &str| m.iter().find(|(n, _)| n == k).map(|(_, r)| &line[r.clone()]);
+    let get = |k: &str| {
+        m.iter()
+            .find(|(n, _)| n == k)
+            .map(|(_, r)| &line[r.clone()])
+    };
     let list = |keys: &[&str]| -> Result<String, String> {
         let mut s = String::from("[");
         for (i, k) in keys.iter().enumerate() {
@@ -220,9 +229,8 @@ pub fn body_ids(line: &str) -> Result<BodyIds, String> {
         Ok(s)
     };
     let relation_sha256 = sha256_hex(list(&["target", "rhs"])?.as_bytes());
-    let domain_sha256 = sha256_hex(
-        list(&["fixed", "equations", "exceptions", "domain_bounds"])?.as_bytes(),
-    );
+    let domain_sha256 =
+        sha256_hex(list(&["fixed", "equations", "exceptions", "domain_bounds"])?.as_bytes());
     let text = |k: &str| -> String {
         match get(k) {
             Some(r) if r.starts_with('"') => unescape(&r[1..r.len() - 1]),
@@ -252,10 +260,18 @@ pub fn strip_derivation(line: &str) -> Result<(String, Option<String>), String> 
     let raw = line[m[pos].value.clone()].to_string();
     let out = if pos > 0 {
         // from the end of the previous value (its comma included) to the end of this value
-        format!("{}{}", &line[..m[pos - 1].value.end], &line[m[pos].value.end..])
+        format!(
+            "{}{}",
+            &line[..m[pos - 1].value.end],
+            &line[m[pos].value.end..]
+        )
     } else if pos + 1 < m.len() {
         // first member: up to the next member's key
-        format!("{}{}", &line[..m[pos].key_start], &line[m[pos + 1].key_start..])
+        format!(
+            "{}{}",
+            &line[..m[pos].key_start],
+            &line[m[pos + 1].key_start..]
+        )
     } else {
         // the only member
         format!("{}{}", &line[..m[pos].key_start], &line[m[pos].value.end..])

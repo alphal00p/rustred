@@ -4,6 +4,7 @@
 //! - [`emitter`]: the emitter (check on the bytes being written, class, policy, derivation member, side files);
 //! - [`replace`]: certify by replacement (lift, emit, ladder over open loci and new branches, partition proof);
 //! - [`tablecheck`]: `rr_campaign table-check`.
+//!
 //! CLI: `rr_campaign emit-replace ...` ([`emit_replace_cmd`]) and `rr_campaign table-check ...` ([`tablecheck::cmd`]).
 pub mod child;
 pub mod emitter;
@@ -13,8 +14,8 @@ pub mod tablecheck;
 use emitter::{Checker, Emitter};
 use replace::{LadderConfig, Outcome, RrNodeWitness, certify_by_replacement};
 use rustred_campaign_core::economy::improve::{restate_marker, set_index};
-use rustred_campaign_core::emission::class::Policy;
 use rustred_campaign_core::emission::body::string_member;
+use rustred_campaign_core::emission::class::Policy;
 use rustred_campaign_core::emission::side_dir;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -58,7 +59,9 @@ pub fn read_record(
         rr.read_line(&mut l).map_err(|e| e.to_string())?;
         let l = l.trim_end().to_string();
         if !is_rule(&l) || !has_index(&l) {
-            return Err(format!("offset {o} is not the rule record with index {index}"));
+            return Err(format!(
+                "offset {o} is not the rule record with index {index}"
+            ));
         }
         return Ok((header, charts, l));
     }
@@ -66,7 +69,10 @@ pub fn read_record(
     loop {
         line.clear();
         if r.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
-            return Err(format!("{}: no rule record with index {index}", table.display()));
+            return Err(format!(
+                "{}: no rule record with index {index}",
+                table.display()
+            ));
         }
         if is_rule(&line) {
             let l = line.trim_end().to_string();
@@ -96,7 +102,8 @@ pub fn write_replaced_table(
         }
         Some(string_member(l, "chart").unwrap_or_default())
     };
-    for l in std::io::BufReader::new(std::fs::File::open(table).map_err(|e| e.to_string())?).lines() {
+    for l in std::io::BufReader::new(std::fs::File::open(table).map_err(|e| e.to_string())?).lines()
+    {
         let l = l.map_err(|e| e.to_string())?;
         if let Some(c) = rule_chart(&l) {
             *per_chart.entry(c).or_default() += 1;
@@ -115,7 +122,8 @@ pub fn write_replaced_table(
     };
     let mut pos: BTreeMap<String, i64> = BTreeMap::new();
     let mut replaced = false;
-    for l in std::io::BufReader::new(std::fs::File::open(table).map_err(|e| e.to_string())?).lines() {
+    for l in std::io::BufReader::new(std::fs::File::open(table).map_err(|e| e.to_string())?).lines()
+    {
         let l = l.map_err(|e| e.to_string())?;
         match rule_chart(&l) {
             Some(c) => {
@@ -145,7 +153,10 @@ pub fn write_replaced_table(
         return Err(format!("no rule with index {index} in chart {chart}"));
     }
     std::fs::rename(&tmp, out).map_err(|e| e.to_string())?;
-    Ok((sha.finish_hex(), std::fs::metadata(out).map(|m| m.len()).unwrap_or(0)))
+    Ok((
+        sha.finish_hex(),
+        std::fs::metadata(out).map(|m| m.len()).unwrap_or(0),
+    ))
 }
 
 fn flag_value(rest: &[String], i: usize) -> Result<String, String> {
@@ -173,15 +184,39 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         let mut one = false;
         match rest[i].as_str() {
             "--table" => table = Some(PathBuf::from(flag_value(rest, i)?)),
-            "--rule" => index = Some(flag_value(rest, i)?.parse().map_err(|_| "--rule: an index")?),
-            "--offset" => offset = Some(flag_value(rest, i)?.parse().map_err(|_| "--offset: bytes")?),
+            "--rule" => {
+                index = Some(
+                    flag_value(rest, i)?
+                        .parse()
+                        .map_err(|_| "--rule: an index")?,
+                )
+            }
+            "--offset" => {
+                offset = Some(
+                    flag_value(rest, i)?
+                        .parse()
+                        .map_err(|_| "--offset: bytes")?,
+                )
+            }
             "--rr-node" => rr_node = Some(PathBuf::from(flag_value(rest, i)?)),
             "--checker" => checker = Some(PathBuf::from(flag_value(rest, i)?)),
             "--out" => out = Some(PathBuf::from(flag_value(rest, i)?)),
-            "--max-depth" => cfg.max_depth = flag_value(rest, i)?.parse().map_err(|_| "--max-depth")?,
-            "--max-pieces" => cfg.max_pieces = flag_value(rest, i)?.parse().map_err(|_| "--max-pieces")?,
-            "--case-budget" => case_budget = flag_value(rest, i)?.parse().map_err(|_| "--case-budget")?,
-            "--cone" => cfg.cone_s = Some(flag_value(rest, i)?.parse().map_err(|_| "--cone: the simplex bound")?),
+            "--max-depth" => {
+                cfg.max_depth = flag_value(rest, i)?.parse().map_err(|_| "--max-depth")?
+            }
+            "--max-pieces" => {
+                cfg.max_pieces = flag_value(rest, i)?.parse().map_err(|_| "--max-pieces")?
+            }
+            "--case-budget" => {
+                case_budget = flag_value(rest, i)?.parse().map_err(|_| "--case-budget")?
+            }
+            "--cone" => {
+                cfg.cone_s = Some(
+                    flag_value(rest, i)?
+                        .parse()
+                        .map_err(|_| "--cone: the simplex bound")?,
+                )
+            }
             "--family" => family = Some(PathBuf::from(flag_value(rest, i)?)),
             "--policy" => {
                 let p = flag_value(rest, i)?;
@@ -214,7 +249,12 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let (header, charts, line) = read_record(&table, index, offset)?;
     let original: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
     let hv: Value = serde_json::from_str(&header).map_err(|e| format!("header: {e}"))?;
-    cfg.is_line = hv["mask"].as_str().unwrap_or_default().chars().map(|c| c == '1').collect();
+    cfg.is_line = hv["mask"]
+        .as_str()
+        .unwrap_or_default()
+        .chars()
+        .map(|c| c == '1')
+        .collect();
     let mut ck = Checker::new(&checker)?;
     ck.recover_rows = recover;
     ck.family = family;
@@ -223,7 +263,16 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let emitter = Emitter::new(ck, policy, &side, &out.join("work"))?;
     let mut lifter = RrNodeWitness::new(&rr_node)?;
     lifter.case_budget_s = case_budget;
-    let rep = certify_by_replacement(&header, &charts, &original, index, &lifter, &emitter, &cfg, &out.join("work"))?;
+    let rep = certify_by_replacement(
+        &header,
+        &charts,
+        &original,
+        index,
+        &lifter,
+        &emitter,
+        &cfg,
+        &out.join("work"),
+    )?;
     let closed = rep.outcome == Outcome::Closed;
     let orig_rhs = original["rhs"].as_array().map_or(0, Vec::len);
     let mut summary = json!({"schema": "rustred.campaign.emit-replace.v1", "table": table.display().to_string(), "rule": index,
@@ -257,7 +306,8 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         if write_table {
             let chart = original["chart"].as_str().unwrap_or_default().to_string();
             let (sha, bytes) = write_replaced_table(&table, &cand, index, &chart, &lines)?;
-            summary["candidate_table"] = json!({"path": cand.display().to_string(), "sha256": sha, "bytes": bytes});
+            summary["candidate_table"] =
+                json!({"path": cand.display().to_string(), "sha256": sha, "bytes": bytes});
         }
     }
     let text = serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?;

@@ -5,12 +5,12 @@
 //! ladder CLOSES with every piece admitted by the policy; every other end is a typed outcome.
 use super::child;
 use super::emitter::{Candidate, Emission, Emitter};
+use rustred_campaign_core::emission::body::sha256_hex;
 use rustred_campaign_core::emission::class::{ConeEvidence, Kind, Liveness, Origin};
 use rustred_campaign_core::emission::ladder::{
     BranchPlan, PartCheck, branch_key, branch_texts, branches_of, child_record, fixed_of,
     locus_keys_in_simplex, open_locus_branch, plan_branch, prove_partition, union_branches,
 };
-use rustred_campaign_core::emission::body::sha256_hex;
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -67,7 +67,10 @@ impl Lifter for RrNodeWitness {
         let cert_dir = dir.join("cert");
         let out = dir.join("w");
         let mut env: Vec<(String, String)> = vec![
-            ("RUSTRED_WEIGHT_CERT_DIR".into(), cert_dir.display().to_string()),
+            (
+                "RUSTRED_WEIGHT_CERT_DIR".into(),
+                cert_dir.display().to_string(),
+            ),
             ("RUSTRED_WEIGHT_CERT_CHECK".into(), "1".into()),
             ("RUSTRED_WEIGHT_CERT_RULE".into(), idx.to_string()),
         ];
@@ -86,17 +89,29 @@ impl Lifter for RrNodeWitness {
             "--case-budget".into(),
             self.case_budget_s.to_string(),
         ];
-        let run = child::run(&self.binary, &args, &env, dir, "witness", self.wall_budget_s)?;
+        let run = child::run(
+            &self.binary,
+            &args,
+            &env,
+            dir,
+            "witness",
+            self.wall_budget_s,
+        )?;
         if !run.ok() {
             return Err(format!(
                 "rr_node witness exit {:?}{}: {}",
                 run.code,
-                if run.over_budget { " (over budget)" } else { "" },
+                if run.over_budget {
+                    " (over budget)"
+                } else {
+                    ""
+                },
                 run.stderr_tail(400)
             ));
         }
         let table = out.join(format!("r{idx}")).join("F.table.jsonl");
-        let text = std::fs::read_to_string(&table).map_err(|e| format!("{}: {e}", table.display()))?;
+        let text =
+            std::fs::read_to_string(&table).map_err(|e| format!("{}: {e}", table.display()))?;
         let record: Value = text
             .lines()
             .filter_map(|l| serde_json::from_str::<Value>(l).ok())
@@ -109,7 +124,10 @@ impl Lifter for RrNodeWitness {
             .collect();
         certs.sort();
         // the certificate of the FINAL rule first when the producer marks it (engine fix E1), else every file
-        if let Some(k) = certs.iter().position(|p| p.file_name().is_some_and(|n| n == "cert-final.json")) {
+        if let Some(k) = certs
+            .iter()
+            .position(|p| p.file_name().is_some_and(|n| n == "cert-final.json"))
+        {
             let f = certs.remove(k);
             certs.insert(0, f);
         }
@@ -191,9 +209,15 @@ impl Outcome {
             Outcome::Closed => json!({"outcome": "closed"}),
             Outcome::DepthExceeded { open } => json!({"outcome": "depth_exceeded", "open": open}),
             Outcome::TooManyPieces => json!({"outcome": "too_many_pieces"}),
-            Outcome::CurveLocus { factor, keys } => json!({"outcome": "curve_locus", "factor": factor, "keys_in_cone": keys}),
-            Outcome::LiftFailed { piece, reason } => json!({"outcome": "lift_failed", "piece": piece, "reason": reason}),
-            Outcome::CheckFailed { piece, reason } => json!({"outcome": "check_failed", "piece": piece, "reason": reason}),
+            Outcome::CurveLocus { factor, keys } => {
+                json!({"outcome": "curve_locus", "factor": factor, "keys_in_cone": keys})
+            }
+            Outcome::LiftFailed { piece, reason } => {
+                json!({"outcome": "lift_failed", "piece": piece, "reason": reason})
+            }
+            Outcome::CheckFailed { piece, reason } => {
+                json!({"outcome": "check_failed", "piece": piece, "reason": reason})
+            }
             Outcome::PartitionFailed => json!({"outcome": "partition_failed"}),
         }
     }
@@ -239,7 +263,13 @@ struct Ctx<'a> {
 }
 
 /// The piece body: the lifted record with the piece's case, the original's domain bounds and the full exception set.
-fn piece_body(lifted: &Value, case: &Value, exc: &[Vec<String>], original: &Value, index: i64) -> Value {
+fn piece_body(
+    lifted: &Value,
+    case: &Value,
+    exc: &[Vec<String>],
+    original: &Value,
+    index: i64,
+) -> Value {
     let mut r = lifted.clone();
     r["type"] = json!("rule");
     r["index"] = json!(index);
@@ -332,7 +362,15 @@ fn run_piece(
     let (mut em, mut tried);
     loop {
         let body = piece_body(&lift.record, &case, &exc, x.original, x.old_index);
-        (em, tried) = emit_piece(x, &body, &lift, &format!("{tag}-r{rounds}"), !curves.is_empty(), cone.clone(), &ladder_info)?;
+        (em, tried) = emit_piece(
+            x,
+            &body,
+            &lift,
+            &format!("{tag}-r{rounds}"),
+            !curves.is_empty(),
+            cone.clone(),
+            &ladder_info,
+        )?;
         rounds += 1;
         let Some(s) = em.summary.clone() else { break };
         if rounds > 8 {
@@ -385,7 +423,11 @@ fn run_piece(
         if let Some((f, _)) = curves.first() {
             return Ok(Some(Outcome::CurveLocus {
                 factor: f.clone(),
-                keys: x.log.last().and_then(|l| l["curve_keys"].as_u64()).unwrap_or(0),
+                keys: x
+                    .log
+                    .last()
+                    .and_then(|l| l["curve_keys"].as_u64())
+                    .unwrap_or(0),
             }));
         }
         return Ok(Some(Outcome::CheckFailed {
@@ -407,7 +449,12 @@ fn run_piece(
         emission: em,
     });
     // children: every NEW branch of this piece (the lift's own and the open loci) not known above
-    let known: BTreeSet<String> = x.e_orig.iter().chain(inherited.iter()).map(|b| branch_key(b)).collect();
+    let known: BTreeSet<String> = x
+        .e_orig
+        .iter()
+        .chain(inherited.iter())
+        .map(|b| branch_key(b))
+        .collect();
     let mut news: Vec<Vec<String>> = vec![];
     for b in e_new.iter().chain(open_branches.iter()) {
         if !known.contains(&branch_key(b)) && !news.iter().any(|n| branch_key(n) == branch_key(b)) {
@@ -434,9 +481,19 @@ fn run_piece(
     }
     let mut done: Vec<Vec<String>> = vec![];
     for (b, plan) in children {
-        let inh: Vec<Vec<String>> = inherited.iter().cloned().chain(done.iter().cloned()).collect();
+        let inh: Vec<Vec<String>> = inherited
+            .iter()
+            .cloned()
+            .chain(done.iter().cloned())
+            .collect();
         let child = child_record(&case, &plan, &inh)?;
-        if let Some(o) = run_piece(x, &child, &inh, depth + 1, &format!("{tag}/{}", b.join("&")))? {
+        if let Some(o) = run_piece(
+            x,
+            &child,
+            &inh,
+            depth + 1,
+            &format!("{tag}/{}", b.join("&")),
+        )? {
             return Ok(Some(o));
         }
         done.push(b);
@@ -467,7 +524,9 @@ fn curve_evidence(
         .iter()
         .map(|k| format!("{}\n", serde_json::to_string(k).unwrap_or_default()))
         .collect();
-    let sha = x.emitter.put_side(rustred_campaign_core::emission::AREA_KEYS, text.as_bytes())?;
+    let sha = x
+        .emitter
+        .put_side(rustred_campaign_core::emission::AREA_KEYS, text.as_bytes())?;
     if let Some(l) = x.log.last_mut() {
         l["curve_keys"] = json!(all.len());
     }
@@ -483,6 +542,7 @@ fn curve_evidence(
     }))
 }
 
+#[allow(clippy::too_many_arguments)]
 /// Run the ladder on `original` (a rule record of the table whose header is `header`, at index `old_index`).
 pub fn certify_by_replacement(
     header: &str,
@@ -521,9 +581,14 @@ pub fn certify_by_replacement(
             let recs: Vec<Value> = x.pieces.iter().map(|p| p.record.clone()).collect();
             let tmp = work.join("partition");
             std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
-            let (ok, checks) = prove_partition(header, charts, original, &recs, &tmp, &cfg.witness_modes)?;
+            let (ok, checks) =
+                prove_partition(header, charts, original, &recs, &tmp, &cfg.witness_modes)?;
             partition = Some((ok, checks));
-            if ok { Outcome::Closed } else { Outcome::PartitionFailed }
+            if ok {
+                Outcome::Closed
+            } else {
+                Outcome::PartitionFailed
+            }
         }
     };
     Ok(Report {

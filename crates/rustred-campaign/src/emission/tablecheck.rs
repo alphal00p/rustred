@@ -45,10 +45,9 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
         )),
         None => None,
     };
-    let work = a
-        .work
-        .clone()
-        .unwrap_or_else(|| std::env::temp_dir().join(format!("table-check-{}", std::process::id())));
+    let work = a.work.clone().unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("table-check-{}", std::process::id()))
+    });
     let mut with_cert = 0usize;
     for (ln, l) in std::io::BufReader::new(f).lines().enumerate() {
         let l = l.map_err(|e| format!("line {}: {e}", ln + 1))?;
@@ -71,14 +70,23 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
         let alias = |i: i64| classes.get(&i).copied();
         let mut verdict = check_record(&l, position, &lookup, &alias);
         // recheck: the checker again on the record's own bytes with its stored certificate
-        if let (Some(ck), Some(out), Some(cs)) =
-            (&a.recheck, &verdict.check_output, &verdict.certificate_sha256)
-        {
+        if let (Some(ck), Some(out), Some(cs)) = (
+            &a.recheck,
+            &verdict.check_output,
+            &verdict.certificate_sha256,
+        ) {
             with_cert += 1;
-            if (with_cert - 1) % a.every.max(1) == 0 {
+            if (with_cert - 1).is_multiple_of(a.every.max(1)) {
                 let (body, _) = strip_derivation(&l)?;
                 let cert = side.join(side_rel(AREA_CERT, cs));
-                let r = run_checker(ck, &header, &body, &cert, &work.join(format!("r{position}")), ck.budget(0.0))?;
+                let r = run_checker(
+                    ck,
+                    &header,
+                    &body,
+                    &cert,
+                    &work.join(format!("r{position}")),
+                    ck.budget(0.0),
+                )?;
                 rechecked += 1;
                 match r.output {
                     Some(o) => {
@@ -94,7 +102,9 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
         classes.insert(verdict.index, class);
         *counts.entry(class.word().to_string()).or_default() += 1;
         if let Some(m) = manifest.as_mut() {
-            let d = strip_derivation(&l)?.1.and_then(|r| serde_json::from_str::<Value>(&r).ok());
+            let d = strip_derivation(&l)?
+                .1
+                .and_then(|r| serde_json::from_str::<Value>(&r).ok());
             let row = json!({"chart": chart, "position": position, "index": verdict.index, "body_sha256": verdict.body_sha256,
                 "kind": verdict.kind.map(|k| k.word()), "class": class.word(), "certificate_sha256": verdict.certificate_sha256,
                 "check_output_sha256": d.as_ref().and_then(|d| d["check"]["output_sha256"].as_str().map(str::to_string)),
@@ -132,7 +142,11 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut recover = true;
     let mut family = None;
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
             "--table" => a.table = val(i)?.into(),

@@ -5,7 +5,9 @@
 //! output was made on another relation / domain / certificate, or when its stated class is not the one `class_of`
 //! derives from the stored evidence.
 use super::body::{body_ids, sha256_hex, strip_derivation};
-use super::class::{CheckSummary, ClassWord, ConeEvidence, Evidence, Kind, Origin, SampleEvidence, class_of};
+use super::class::{
+    CheckSummary, ClassWord, ConeEvidence, Evidence, Kind, Origin, SampleEvidence, class_of,
+};
 use super::{AREA_CERT, AREA_CHECK, AREA_POLICY, AREA_PROV, SCHEMA};
 use serde_json::Value;
 
@@ -78,7 +80,8 @@ pub fn check_record(
         }
     };
     if d["schema"].as_str() != Some(SCHEMA) {
-        v.problems.push(format!("derivation schema {}", d["schema"]));
+        v.problems
+            .push(format!("derivation schema {}", d["schema"]));
         return v;
     }
     let ids = match body_ids(&body) {
@@ -108,23 +111,24 @@ pub fn check_record(
             return v;
         }
     };
-    let fetch = |area: &str, sha: &str, what: &str, problems: &mut Vec<String>| -> Option<Vec<u8>> {
-        match side(area, sha) {
-            None => {
-                problems.push(format!("{what} {sha} missing beside the table"));
-                None
+    let fetch =
+        |area: &str, sha: &str, what: &str, problems: &mut Vec<String>| -> Option<Vec<u8>> {
+            match side(area, sha) {
+                None => {
+                    problems.push(format!("{what} {sha} missing beside the table"));
+                    None
+                }
+                Some(b) if sha256_hex(&b) != sha => {
+                    problems.push(format!("{what} {sha}: the file has another sha256"));
+                    None
+                }
+                Some(b) => Some(b),
             }
-            Some(b) if sha256_hex(&b) != sha => {
-                problems.push(format!("{what} {sha}: the file has another sha256"));
-                None
-            }
-            Some(b) => Some(b),
-        }
-    };
-    if let Some(p) = d["producer"].as_object() {
-        if let Some(sha) = p.get("provenance_sha256").and_then(Value::as_str) {
-            fetch(AREA_PROV, sha, "provenance", &mut v.problems);
-        }
+        };
+    if let Some(p) = d["producer"].as_object()
+        && let Some(sha) = p.get("provenance_sha256").and_then(Value::as_str)
+    {
+        fetch(AREA_PROV, sha, "provenance", &mut v.problems);
     }
     if let Some(sha) = d["policy"]["sha256"].as_str() {
         fetch(AREA_POLICY, sha, "policy", &mut v.problems);
@@ -135,51 +139,51 @@ pub fn check_record(
         v.certificate_sha256 = Some(sha.clone());
     }
     let mut summary: Option<CheckSummary> = None;
-    if let Some(out_sha) = d["check"]["output_sha256"].as_str() {
-        if let Some(b) = fetch(AREA_CHECK, out_sha, "check output", &mut v.problems) {
-            let text = String::from_utf8_lossy(&b).trim().to_string();
-            match CheckSummary::parse(&text) {
-                Ok(s) => {
-                    if s.relation_sha256 != ids.relation_sha256 {
-                        v.problems.push(
-                            "the check output was made on another relation (target + rhs)".into(),
-                        );
-                    }
-                    if s.domain_sha256 != ids.domain_sha256 {
-                        v.problems
-                            .push("the check output was made on another domain".into());
-                    }
-                    if cert_sha.as_deref() != Some(s.cert_sha256.as_str()) {
-                        v.problems
-                            .push("the check output was made with another certificate".into());
-                    }
-                    if d["check"]["stages"] != s.record_json() {
-                        v.problems.push(format!(
-                            "stated stages {} differ from the stored check output {}",
-                            d["check"]["stages"],
-                            s.record_json()
-                        ));
-                    }
-                    summary = Some(s);
+    if let Some(out_sha) = d["check"]["output_sha256"].as_str()
+        && let Some(b) = fetch(AREA_CHECK, out_sha, "check output", &mut v.problems)
+    {
+        let text = String::from_utf8_lossy(&b).trim().to_string();
+        match CheckSummary::parse(&text) {
+            Ok(s) => {
+                if s.relation_sha256 != ids.relation_sha256 {
+                    v.problems.push(
+                        "the check output was made on another relation (target + rhs)".into(),
+                    );
                 }
-                Err(e) => v.problems.push(format!("check output: {e}")),
+                if s.domain_sha256 != ids.domain_sha256 {
+                    v.problems
+                        .push("the check output was made on another domain".into());
+                }
+                if cert_sha.as_deref() != Some(s.cert_sha256.as_str()) {
+                    v.problems
+                        .push("the check output was made with another certificate".into());
+                }
+                if d["check"]["stages"] != s.record_json() {
+                    v.problems.push(format!(
+                        "stated stages {} differ from the stored check output {}",
+                        d["check"]["stages"],
+                        s.record_json()
+                    ));
+                }
+                summary = Some(s);
             }
-            v.check_output = Some(text);
+            Err(e) => v.problems.push(format!("check output: {e}")),
         }
+        v.check_output = Some(text);
     }
     let ev = Evidence {
         cone: serde_json::from_value::<ConeEvidence>(d["class"]["cone"].clone()).ok(),
         sample: serde_json::from_value::<SampleEvidence>(d["class"]["sample"].clone()).ok(),
         exact_at_key: d["class"]["exact_at_key"].as_bool(),
-        alias_target: d["class"]["alias_of"]
-            .as_i64()
-            .and_then(|i| alias_class(i)),
+        alias_target: d["class"]["alias_of"].as_i64().and_then(alias_class),
         sealed: d["class"]["sealed"].as_bool(),
     };
     let derived = class_of(kind, origin, summary.as_ref(), &ev);
     let stated = d["class"]["word"].as_str().and_then(ClassWord::from_word);
     match stated {
-        None => v.problems.push(format!("class word {}", d["class"]["word"])),
+        None => v
+            .problems
+            .push(format!("class word {}", d["class"]["word"])),
         Some(c) if c != derived.class => v.problems.push(format!(
             "stated class '{}' but the stored evidence gives '{}'",
             c.word(),

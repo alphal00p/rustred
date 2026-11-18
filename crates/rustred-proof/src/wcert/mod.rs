@@ -889,9 +889,10 @@ fn check(
     let mut trace: Option<Vec<(Rf, Vec<(Pat, Rf)>)>> = None;
     let mut comp_dens: Vec<Poly> = vec![];
     let mut row_dens: Vec<Poly> = vec![];
-    let engine_owned: Option<EngineRows> = if matches!(cert.form, Form::V1Ordinary | Form::V1Composed)
-        || (cert.form == Form::V0Rows && side.recover_rows)
-    {
+    let engine_owned: Option<EngineRows> =
+        if matches!(cert.form, Form::V1Ordinary | Form::V1Composed)
+            || (cert.form == Form::V0Rows && side.recover_rows)
+        {
             engine_fn()
         } else {
             None
@@ -931,14 +932,17 @@ fn check(
             if side.recover_rows {
                 match &engine_rows {
                     None => {
-                        rows_detail = format!("{rows_detail}; recovery requested but this binary has no ordinary-row generator (engine feature / family)");
+                        rows_detail = format!(
+                            "{rows_detail}; recovery requested but this binary has no ordinary-row generator (engine feature / family)"
+                        );
                         row_dens = carried_dens;
                     }
                     Some(er) => {
                         let rec = recover::recover(&vars, &cert.sources, &parsed, &weights, er);
                         recovery_json = Some(rec.json());
                         if rec.complete() {
-                            let (tr2, missing) = trace_from_triples(&vars, arity, er, &rec.triples)?;
+                            let (tr2, missing) =
+                                trace_from_triples(&vars, arity, er, &rec.triples)?;
                             if missing == 0 {
                                 rows_v = RowsV::Verified;
                                 rows_recovered = true;
@@ -950,7 +954,9 @@ fn check(
                                 comp_dens = rec.dens;
                                 trace = Some(tr2);
                             } else {
-                                rows_detail = format!("{rows_detail}; recovery named {missing} ordinary rows the generator lacks");
+                                rows_detail = format!(
+                                    "{rows_detail}; recovery named {missing} ordinary rows the generator lacks"
+                                );
                                 row_dens = carried_dens;
                             }
                         } else {

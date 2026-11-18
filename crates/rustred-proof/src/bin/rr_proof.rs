@@ -157,6 +157,7 @@ fn engine_rows(_table: &str, _family: Option<&str>) -> Result<EngineRows, String
 }
 
 #[cfg(feature = "wcert")]
+#[allow(clippy::too_many_arguments)]
 fn weight_cert(
     cert: &str,
     table: &str,
@@ -194,6 +195,7 @@ fn weight_cert(
     }
 }
 #[cfg(not(feature = "wcert"))]
+#[allow(clippy::too_many_arguments)]
 fn weight_cert(
     _: &str,
     _: &str,

@@ -817,7 +817,9 @@ impl ImproveSource {
         // refused replacement keeps the old rule (its reason is recorded with the untried notes)
         if let Some(es) = self.cfg.emission.clone() {
             let side = rustred_campaign_core::emission::side_dir(
-                &self.cdir.join(format!("{base}/improved.r{run}{sfx}.table.jsonl")),
+                &self
+                    .cdir
+                    .join(format!("{base}/improved.r{run}{sfx}.table.jsonl")),
             );
             let work = self.cdir.join(format!("{base}/emission-work.r{run}{sfx}"));
             let mut ck = crate::emission::emitter::Checker::new(Path::new(&es.checker))?;
@@ -843,7 +845,11 @@ impl ImproveSource {
             for (idx, lines) in repl.clone() {
                 let run_dir = chosen
                     .get(&idx)
-                    .and_then(|c| per_rule.get(&idx).and_then(|v| v.iter().find(|a| &a.cand == c)))
+                    .and_then(|c| {
+                        per_rule
+                            .get(&idx)
+                            .and_then(|v| v.iter().find(|a| &a.cand == c))
+                    })
                     .and_then(|a| st.jobs.get(&a.job).and_then(|j| j.run_dir.clone()));
                 let certs: Vec<PathBuf> = run_dir
                     .map(|d| Path::new(&d).join(&es.cert_dir))

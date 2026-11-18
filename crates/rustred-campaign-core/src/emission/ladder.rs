@@ -81,9 +81,9 @@ fn one_slot_linear(p: &Poly) -> Option<(usize, i128, i128)> {
 }
 
 fn is_linear(p: &Poly) -> bool {
-    p.terms()
-        .iter()
-        .all(|(m, _)| m.iter().map(|(_, e)| *e).sum::<u32>() <= 1 && m.iter().all(|(v, _)| *v != D_VAR))
+    p.terms().iter().all(|(m, _)| {
+        m.iter().map(|(_, e)| *e).sum::<u32>() <= 1 && m.iter().all(|(v, _)| *v != D_VAR)
+    })
 }
 
 /// Plan one branch on a piece whose fixed slots are `fixed`.
@@ -134,7 +134,10 @@ pub fn plan_branch(branch: &[String], fixed: &[Option<i64>]) -> Result<BranchPla
 
 /// An OPEN locus of a check (its d-coefficient generators, stored frame, fixed slots substituted) as a branch: the
 /// first generator that fixes a slot, or that is a linear equation; a curve otherwise.
-pub fn open_locus_branch(generators: &[String], fixed: &[Option<i64>]) -> Result<BranchPlan, String> {
+pub fn open_locus_branch(
+    generators: &[String],
+    fixed: &[Option<i64>],
+) -> Result<BranchPlan, String> {
     let mut best: Option<(BranchPlan, String)> = None;
     for g in generators {
         match plan_branch(std::slice::from_ref(g), fixed)? {
@@ -174,7 +177,10 @@ pub fn branches_of(rec: &Value) -> Vec<Vec<String>> {
         .into_iter()
         .flatten()
         .map(|b| match b {
-            Value::Array(a) => a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect(),
+            Value::Array(a) => a
+                .iter()
+                .filter_map(|x| x.as_str().map(str::to_string))
+                .collect(),
             Value::String(t) => vec![t.clone()],
             o => vec![o.to_string()],
         })
@@ -232,10 +238,7 @@ pub fn coordinate_case_text(fixed: &[Option<i64>]) -> String {
             None => "None".into(),
         })
         .collect();
-    format!(
-        "Coordinate(CoordinateCase {{ fixed: [{}] }})",
-        f.join(", ")
-    )
+    format!("Coordinate(CoordinateCase {{ fixed: [{}] }})", f.join(", "))
 }
 
 /// The fixed vector of a record.
@@ -248,7 +251,11 @@ pub fn fixed_of(rec: &Value) -> Vec<Option<i64>> {
 
 /// The CHILD case record of a branch plan: the parent with the slots fixed (target and case text rewritten) or the
 /// equation appended; `exceptions` set to `inherited`; rhs emptied (the child is lifted, not copied).
-pub fn child_record(parent: &Value, plan: &BranchPlan, inherited: &[Vec<String>]) -> Result<Value, String> {
+pub fn child_record(
+    parent: &Value,
+    plan: &BranchPlan,
+    inherited: &[Vec<String>],
+) -> Result<Value, String> {
     let mut r = parent.clone();
     let mut fixed = fixed_of(parent);
     match plan {
@@ -347,7 +354,12 @@ pub fn conjunction(x: &Value, y: &Value) -> Result<Option<Value>, String> {
     Ok(Some(z))
 }
 
-fn write_mini(path: &std::path::Path, header: &str, charts: &[String], recs: &[Value]) -> Result<(), String> {
+fn write_mini(
+    path: &std::path::Path,
+    header: &str,
+    charts: &[String],
+    recs: &[Value],
+) -> Result<(), String> {
     let mut s = String::new();
     s.push_str(header);
     s.push('\n');
@@ -366,22 +378,35 @@ fn write_mini(path: &std::path::Path, header: &str, charts: &[String], recs: &[V
         s.push_str(&r.to_string());
         s.push('\n');
     }
-    s.push_str(&json!({"type": "end", "charts": charts.len(), "rules": recs.len(), "residuals": 0}).to_string());
+    s.push_str(
+        &json!({"type": "end", "charts": charts.len(), "rules": recs.len(), "residuals": 0})
+            .to_string(),
+    );
     s.push('\n');
     std::fs::write(path, s).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 fn liveness(path: &std::path::Path, pos: usize, witness: bool) -> Result<(String, String), String> {
-    let tf = read_table_file(path, ReadOptions { rhs: RhsMode::Skip }).map_err(|e| format!("{e:?}"))?;
-    let frame = NodeFrame::from_header(tf.header.as_ref().ok_or("no header")?).map_err(|e| format!("{e:?}"))?;
+    let tf =
+        read_table_file(path, ReadOptions { rhs: RhsMode::Skip }).map_err(|e| format!("{e:?}"))?;
+    let frame = NodeFrame::from_header(tf.header.as_ref().ok_or("no header")?)
+        .map_err(|e| format!("{e:?}"))?;
     let opts = DomainOptions {
         witness,
         ..DomainOptions::default()
     };
-    let t = Table::from_table_file("t", path.display().to_string(), &tf, opts).map_err(|e| format!("{e:?}"))?;
+    let t = Table::from_table_file("t", path.display().to_string(), &tf, opts)
+        .map_err(|e| format!("{e:?}"))?;
     let d = Dispatcher::new(vec![t], vec![0]).map_err(|e| format!("{e:?}"))?;
     Ok(
-        match record_liveness(&d, &frame, &Cone::orthant(), pos, &ConeOptions::default(), 1_000_000) {
+        match record_liveness(
+            &d,
+            &frame,
+            &Cone::orthant(),
+            pos,
+            &ConeOptions::default(),
+            1_000_000,
+        ) {
             PLive::Dead => ("dead".into(), String::new()),
             PLive::Live(k) => ("live".into(), format!("witness key {k:?}")),
             PLive::Undecided(y) => ("undecided".into(), y),
@@ -421,19 +446,34 @@ pub fn prove_partition(
         for (i, r) in std::iter::once(original).chain(pieces.iter()).enumerate() {
             write_mini(&p("control"), header, charts, std::slice::from_ref(r))?;
             let v = liveness(&p("control"), 0, witness)?;
-            push(format!("control: record {i} alone (live)"), v, "live", &mut controls);
+            push(
+                format!("control: record {i} alone (live)"),
+                v,
+                "live",
+                &mut controls,
+            );
         }
         let mut recs: Vec<Value> = pieces.to_vec();
         recs.push(original.clone());
         write_mini(&p("cover"), header, charts, &recs)?;
         let v = liveness(&p("cover"), k, witness)?;
-        push("cover: original after the pieces".into(), v, "dead", &mut dead_ok);
+        push(
+            "cover: original after the pieces".into(),
+            v,
+            "dead",
+            &mut dead_ok,
+        );
         let mut recs = vec![original.clone()];
         recs.extend(pieces.iter().cloned());
         write_mini(&p("contained"), header, charts, &recs)?;
         for i in 0..k {
             let v = liveness(&p("contained"), 1 + i, witness)?;
-            push(format!("contained: piece {i} after the original"), v, "dead", &mut dead_ok);
+            push(
+                format!("contained: piece {i} after the original"),
+                v,
+                "dead",
+                &mut dead_ok,
+            );
         }
         for i in 0..k {
             for j in i + 1..k {
@@ -447,7 +487,12 @@ pub fn prove_partition(
                     Some(z) => {
                         write_mini(&p("meet"), header, charts, &[z])?;
                         let v = liveness(&p("meet"), 0, witness)?;
-                        push(format!("disjoint: pieces {i} and {j}"), v, "dead", &mut dead_ok);
+                        push(
+                            format!("disjoint: pieces {i} and {j}"),
+                            v,
+                            "dead",
+                            &mut dead_ok,
+                        );
                     }
                 }
             }

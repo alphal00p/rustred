@@ -19,6 +19,11 @@ use std::sync::Mutex;
 
 static ONE_CHECKER: Mutex<()> = Mutex::new(());
 
+/// m -> [(offsets, coefficient text)]
+type Rows = Vec<(i64, Vec<(Vec<i64>, String)>)>;
+/// (m, terms)
+type Row = (i64, Vec<(Vec<i64>, String)>);
+
 const FAMILY: &str = "I(\n  name(KITE),\n  loops(k1,k2),\n  externals(q),\n  dimension(d),\n  prop(D1,(k1)^2,1),\n  prop(D2,(k2)^2,1),\n  prop(D3,(k1-q)^2,1),\n  prop(D4,(k2-q)^2,1),\n  prop(D5,(k1-k2)^2,1),\n  gram(q,q,1)\n)\n";
 
 fn checker_bin() -> Option<PathBuf> {
@@ -44,7 +49,7 @@ fn tmpdir(name: &str) -> PathBuf {
 }
 
 /// The checker's own ordinary rows of the kite: m -> [(offsets, coefficient text)].
-fn rows(bin: &Path, dir: &Path) -> Vec<(i64, Vec<(Vec<i64>, String)>)> {
+fn rows(bin: &Path, dir: &Path) -> Rows {
     let fam = dir.join("kite.family.sym");
     std::fs::write(&fam, FAMILY).unwrap();
     let out = std::process::Command::new(bin)
@@ -52,7 +57,11 @@ fn rows(bin: &Path, dir: &Path) -> Vec<(i64, Vec<(Vec<i64>, String)>)> {
         .arg(&fam)
         .output()
         .unwrap();
-    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
     let mut v = vec![];
     for l in String::from_utf8_lossy(&out.stdout).lines() {
         let r: Value = serde_json::from_str(l).unwrap();
@@ -60,7 +69,12 @@ fn rows(bin: &Path, dir: &Path) -> Vec<(i64, Vec<(Vec<i64>, String)>)> {
             .as_array()
             .unwrap()
             .iter()
-            .map(|t| (offsets(t[0].as_str().unwrap()), t[1].as_str().unwrap().to_string()))
+            .map(|t| {
+                (
+                    offsets(t[0].as_str().unwrap()),
+                    t[1].as_str().unwrap().to_string(),
+                )
+            })
             .collect();
         v.push((r["m"].as_i64().unwrap(), terms));
     }
@@ -82,9 +96,13 @@ fn offsets(p: &str) -> Vec<i64> {
 
 /// An ordinary row whose coefficient of the unshifted integral depends on d (a target coefficient without index-only
 /// loci), and its terms.
-fn pick_row(rows: &[(i64, Vec<(Vec<i64>, String)>)]) -> (i64, Vec<(Vec<i64>, String)>) {
+fn pick_row(rows: &[Row]) -> Row {
     rows.iter()
-        .find(|(_, t)| t.iter().any(|(o, c)| o.iter().all(|x| *x == 0) && c.contains('d')) && t.len() >= 3)
+        .find(|(_, t)| {
+            t.iter()
+                .any(|(o, c)| o.iter().all(|x| *x == 0) && c.contains('d'))
+                && t.len() >= 3
+        })
         .cloned()
         .expect("a row with a d-dependent diagonal term")
 }
@@ -119,7 +137,10 @@ fn rule_and_cert(
     exceptions: Value,
     index: i64,
 ) -> (Value, Value) {
-    let (_, ct) = terms.iter().find(|(o, _)| o.iter().all(|x| *x == 0)).unwrap();
+    let (_, ct) = terms
+        .iter()
+        .find(|(o, _)| o.iter().all(|x| *x == 0))
+        .unwrap();
     let ct = at(ct, n0v);
     let target = pat(&[0, 0, 0, 0, 0], n0v);
     let rhs: Vec<Value> = terms
@@ -129,12 +150,17 @@ fn rule_and_cert(
         .collect();
     let fixed = json!([n0v, null, null, null, null]);
     let case = match n0v {
-        Some(v) => format!("Coordinate(CoordinateCase {{ fixed: [Some({v}), None, None, None, None] }})"),
+        Some(v) => {
+            format!("Coordinate(CoordinateCase {{ fixed: [Some({v}), None, None, None, None] }})")
+        }
         None => "Coordinate(CoordinateCase { fixed: [None, None, None, None, None] })".to_string(),
     };
     let rec = json!({"type": "rule", "chart": "11111", "index": index, "case": case, "fixed": fixed, "equations": [],
         "target": target, "rhs": rhs, "exceptions": exceptions, "recenter": [0, 0, 0, 0, 0], "lift_seconds": 0.01});
-    let row: Vec<Value> = terms.iter().map(|(o, c)| json!([pat(o, n0v), format!("({})*({})", at(c, n0v), w)])).collect();
+    let row: Vec<Value> = terms
+        .iter()
+        .map(|(o, c)| json!([pat(o, n0v), format!("({})*({})", at(c, n0v), w)]))
+        .collect();
     let cert = json!({"schema": "rustred.weight-cert.v1", "basis": "ordinary", "case": case, "target": target,
         "ordinary_terms": [{"seed": pat(&[0, 0, 0, 0, 0], n0v), "m": m, "w": w}], "row": row});
     (rec, cert)
@@ -143,7 +169,13 @@ fn rule_and_cert(
 fn emitter(bin: &Path, dir: &Path) -> Emitter {
     let mut c = Checker::new(bin).unwrap();
     c.floor_s = 300.0;
-    Emitter::new(c, Policy::default(), &side_dir(&dir.join("t.table.jsonl")), &dir.join("work")).unwrap()
+    Emitter::new(
+        c,
+        Policy::default(),
+        &side_dir(&dir.join("t.table.jsonl")),
+        &dir.join("work"),
+    )
+    .unwrap()
 }
 
 fn candidate(rec: &Value, cert: &Value, dir: &Path, tag: &str) -> Candidate {
@@ -155,7 +187,10 @@ fn candidate(rec: &Value, cert: &Value, dir: &Path, tag: &str) -> Candidate {
         kind: Kind::Lifted,
         origin: Origin::Lift,
         cert: Some(cp),
-        provenance: Some(("test-producer".into(), json!({"tool": "scripted test lifter"}))),
+        provenance: Some((
+            "test-producer".into(),
+            json!({"tool": "scripted test lifter"}),
+        )),
         lift_seconds: 0.01,
         ladder: None,
         cone: None,
@@ -199,22 +234,39 @@ fn correct_certificate_gives_whole_domain_and_the_validator_accepts_and_rechecks
     let (m, terms) = pick_row(&r);
     let (rec, cert) = rule_and_cert(&terms, m, "1", None, json!([]), 0);
     let em = emitter(&bin, &dir);
-    let e = em.emit(&candidate(&rec, &cert, &dir, "ok"), Liveness::Live, false).unwrap();
-    assert_eq!(e.classed.class, ClassWord::WholeDomain, "{:?} {:?}", e.classed, e.summary);
+    let e = em
+        .emit(&candidate(&rec, &cert, &dir, "ok"), Liveness::Live, false)
+        .unwrap();
+    assert_eq!(
+        e.classed.class,
+        ClassWord::WholeDomain,
+        "{:?} {:?}",
+        e.classed,
+        e.summary
+    );
     let line = e.line.expect("admitted");
-    assert!(line.len() - rec.to_string().len() < 1024, "derivation member under 1 kB");
-    let t = write_table(&dir, &[line.clone()]);
+    assert!(
+        line.len() - rec.to_string().len() < 1024,
+        "derivation member under 1 kB"
+    );
+    let t = write_table(&dir, std::slice::from_ref(&line));
     let (s, ok) = check_table(&t, &bin, true);
     assert!(ok, "{s}");
     assert_eq!(s["rechecked"], json!(1));
     let manifest = std::fs::read_to_string(t.with_extension("manifest.jsonl")).unwrap();
-    assert!(manifest.contains("\"class\":\"whole domain\""), "{manifest}");
+    assert!(
+        manifest.contains("\"class\":\"whole domain\""),
+        "{manifest}"
+    );
     // THE VALIDATOR CATCHES A HAND-EDITED CLASS and an edited stage
     let weak = line.replace("\"word\":\"whole domain\"", "\"word\":\"sampled\"");
     let (s, ok) = check_table(&write_table(&dir, &[weak]), &bin, false);
     assert!(!ok, "{s}");
     assert!(s.to_string().contains("stated class"), "{s}");
-    let staged = line.replace("\"identity\":\"IDENTITY_EXACT\"", "\"identity\":\"IDENTITY_NOT_CHECKABLE\"");
+    let staged = line.replace(
+        "\"identity\":\"IDENTITY_EXACT\"",
+        "\"identity\":\"IDENTITY_NOT_CHECKABLE\"",
+    );
     let (_, ok) = check_table(&write_table(&dir, &[staged]), &bin, false);
     assert!(!ok);
     // a table with a record WITHOUT a derivation is refused
@@ -232,9 +284,14 @@ fn corrupted_weight_is_refused() {
     let (rec, mut cert) = rule_and_cert(&terms, m, "1", None, json!([]), 0);
     cert["ordinary_terms"][0]["w"] = json!("2");
     let em = emitter(&bin, &dir);
-    let e = em.emit(&candidate(&rec, &cert, &dir, "bad"), Liveness::Live, false).unwrap();
+    let e = em
+        .emit(&candidate(&rec, &cert, &dir, "bad"), Liveness::Live, false)
+        .unwrap();
     assert_eq!(e.classed.class, ClassWord::None);
-    assert!(e.line.is_none(), "a live lifted record with class none is refused");
+    assert!(
+        e.line.is_none(),
+        "a live lifted record with class none is refused"
+    );
     assert!(e.refused.is_some());
     assert_eq!(e.summary.as_ref().unwrap().identity, "IDENTITY_FAIL");
     let refused = std::fs::read_to_string(em.side.join("refused.jsonl")).unwrap();
@@ -253,9 +310,13 @@ fn certificate_of_a_twin_with_another_domain_is_refused() {
     let (x, cert) = rule_and_cert(&terms, m, "1/(n0-3)", None, json!([["-3+n0"]]), 0);
     let (y, _) = rule_and_cert(&terms, m, "1/(n0-3)", None, json!([]), 0);
     let em = emitter(&bin, &dir);
-    let ex = em.emit(&candidate(&x, &cert, &dir, "x"), Liveness::Live, false).unwrap();
+    let ex = em
+        .emit(&candidate(&x, &cert, &dir, "x"), Liveness::Live, false)
+        .unwrap();
     assert_eq!(ex.classed.class, ClassWord::WholeDomain, "{:?}", ex.summary);
-    let ey = em.emit(&candidate(&y, &cert, &dir, "y"), Liveness::Live, false).unwrap();
+    let ey = em
+        .emit(&candidate(&y, &cert, &dir, "y"), Liveness::Live, false)
+        .unwrap();
     assert_eq!(ey.summary.as_ref().unwrap().checker_class, "OPEN_LOCI");
     assert_eq!(ey.classed.class, ClassWord::None);
     assert!(ey.line.is_none());
@@ -280,8 +341,19 @@ impl Lifter for Scripted {
     fn lift(&self, _header: &str, case: &Value, dir: &Path) -> Result<Lift, String> {
         std::fs::create_dir_all(dir).unwrap();
         let n0 = case["fixed"][0].as_i64();
-        let w = if n0.is_some() { &self.w_fixed } else { &self.w_free };
-        let (rec, cert) = rule_and_cert(&self.terms, self.m, w, n0, json!([]), case["index"].as_i64().unwrap());
+        let w = if n0.is_some() {
+            &self.w_fixed
+        } else {
+            &self.w_free
+        };
+        let (rec, cert) = rule_and_cert(
+            &self.terms,
+            self.m,
+            w,
+            n0,
+            json!([]),
+            case["index"].as_i64().unwrap(),
+        );
         let cp = dir.join("cert.json");
         std::fs::write(&cp, cert.to_string()).unwrap();
         Ok(Lift {
@@ -314,12 +386,17 @@ fn open_locus_becomes_a_ladder_of_two_pieces_that_partition_the_domain() {
         witness_modes: vec![false],
         ..Default::default()
     };
-    let rep = certify_by_replacement(&header(), &[], &orig, 7, &lifter, &em, &cfg, &dir.join("l")).unwrap();
+    let rep = certify_by_replacement(&header(), &[], &orig, 7, &lifter, &em, &cfg, &dir.join("l"))
+        .unwrap();
     assert_eq!(rep.outcome, Outcome::Closed, "{:?}", rep.log);
     assert_eq!(rep.pieces.len(), 2);
     assert_eq!(rep.pieces[0].record["exceptions"], json!([["-3+n0"]]));
     assert_eq!(rep.pieces[1].record["fixed"][0], json!(3));
-    assert!(rep.pieces.iter().all(|p| p.emission.classed.class == ClassWord::WholeDomain));
+    assert!(
+        rep.pieces
+            .iter()
+            .all(|p| p.emission.classed.class == ClassWord::WholeDomain)
+    );
     assert!(rep.partition.as_ref().unwrap().0);
     let lines = rep.lines(7).unwrap();
     assert!(lines[1].contains("\"index\":8"));
@@ -358,7 +435,12 @@ fn a_ladder_that_does_not_close_within_its_depth_writes_nothing() {
         witness_modes: vec![false],
         ..Default::default()
     };
-    let rep = certify_by_replacement(&header(), &[], &orig, 0, &lifter, &em, &cfg, &dir.join("l")).unwrap();
-    assert!(matches!(rep.outcome, Outcome::DepthExceeded { .. }), "{:?}", rep.outcome);
+    let rep = certify_by_replacement(&header(), &[], &orig, 0, &lifter, &em, &cfg, &dir.join("l"))
+        .unwrap();
+    assert!(
+        matches!(rep.outcome, Outcome::DepthExceeded { .. }),
+        "{:?}",
+        rep.outcome
+    );
     assert!(rep.lines(0).is_err(), "nothing is written as whole domain");
 }

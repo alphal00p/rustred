@@ -139,11 +139,20 @@ impl CheckSummary {
             }
         }
         let mut open = vec![];
-        for l in v.get("loci").and_then(Value::as_array).into_iter().flatten() {
+        for l in v
+            .get("loci")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
             if l.get("verdict").and_then(Value::as_str) == Some("OPEN") {
                 let coefficients = l["argument"]["generators"]
                     .as_array()
-                    .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str().map(str::to_string))
+                            .collect()
+                    })
                     .unwrap_or_default();
                 open.push(OpenLocus {
                     factor: s(l, &["factor"]),
@@ -265,11 +274,14 @@ pub fn check_reason(c: &CheckSummary) -> String {
 
 /// THE CLASS FUNCTION: derived from the record's kind, its origin, the check bound to its body and the other evidence.
 /// Never reads a producer claim; `Sampled` is never returned for `Origin::Lift`.
-pub fn class_of(kind: Kind, origin: Origin, check: Option<&CheckSummary>, ev: &Evidence) -> Classed {
-    let cone_ok = |e: &Option<ConeEvidence>| {
-        e.as_ref()
-            .is_some_and(|c| c.complete && c.proven == c.keys)
-    };
+pub fn class_of(
+    kind: Kind,
+    origin: Origin,
+    check: Option<&CheckSummary>,
+    ev: &Evidence,
+) -> Classed {
+    let cone_ok =
+        |e: &Option<ConeEvidence>| e.as_ref().is_some_and(|c| c.complete && c.proven == c.keys);
     match kind {
         Kind::Lifted | Kind::Legacy => {
             if let Some(c) = check {
@@ -418,7 +430,10 @@ impl Policy {
             return if c.class != ClassWord::None || self.dead_allow_none {
                 Ok(())
             } else {
-                Err(format!("policy {}: a dead record with class none is refused", self.name))
+                Err(format!(
+                    "policy {}: a dead record with class none is refused",
+                    self.name
+                ))
             };
         }
         let allowed = match origin {

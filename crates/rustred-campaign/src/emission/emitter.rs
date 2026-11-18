@@ -4,7 +4,9 @@
 //! the checker's output to the body (relation, domain, certificate sha256), the class from `class_of`, the policy, the
 //! `derivation` member, and the side files (content-addressed: certificate, check output, provenance, policy).
 use super::child::{self, ChildRun};
-use rustred_campaign_core::emission::body::{BodyIds, attach_derivation, body_ids, sha256_hex, strip_derivation};
+use rustred_campaign_core::emission::body::{
+    BodyIds, attach_derivation, body_ids, sha256_hex, strip_derivation,
+};
 use rustred_campaign_core::emission::class::{
     CheckSummary, Classed, ConeEvidence, Kind, Liveness, Origin, Policy, SampleEvidence, class_of,
 };
@@ -101,7 +103,10 @@ pub fn run_checker(
     let ids = body_ids(body)?;
     let cert_sha = child::file_sha256(cert)?;
     let summary = if run.over_budget {
-        Err(format!("budget_exceeded ({:.1} s > {budget_s:.1} s)", run.seconds))
+        Err(format!(
+            "budget_exceeded ({:.1} s > {budget_s:.1} s)",
+            run.seconds
+        ))
     } else {
         match &output {
             None => Err(format!(
@@ -185,7 +190,12 @@ pub struct Emitter {
 }
 
 impl Emitter {
-    pub fn new(checker: Checker, policy: Policy, side: &Path, work: &Path) -> Result<Emitter, String> {
+    pub fn new(
+        checker: Checker,
+        policy: Policy,
+        side: &Path,
+        work: &Path,
+    ) -> Result<Emitter, String> {
         let text = serde_json::to_vec(&policy).map_err(|e| e.to_string())?;
         let e = Emitter {
             checker,
@@ -221,12 +231,24 @@ impl Emitter {
         budget_s: f64,
         tag: &str,
     ) -> Result<CheckRun, String> {
-        run_checker(&self.checker, header, body, cert, &self.work.join(tag), budget_s)
+        run_checker(
+            &self.checker,
+            header,
+            body,
+            cert,
+            &self.work.join(tag),
+            budget_s,
+        )
     }
 
     /// EMIT one candidate: check, class, policy, derivation. `liveness` of the record at its position (Unknown =
     /// live); `curves_only`: every open locus of the check is a curve the ladder cannot branch.
-    pub fn emit(&self, c: &Candidate, liveness: Liveness, curves_only: bool) -> Result<Emission, String> {
+    pub fn emit(
+        &self,
+        c: &Candidate,
+        liveness: Liveness,
+        curves_only: bool,
+    ) -> Result<Emission, String> {
         let (body, _) = strip_derivation(&c.line)?;
         let ids = body_ids(&body)?;
         let mut certificate = None;
@@ -253,7 +275,13 @@ impl Emitter {
                     .unwrap_or_else(|| "unreadable".into());
                 let cert_sha = self.put_side(AREA_CERT, &bytes)?;
                 certificate = Some((cert_sha, bytes.len() as u64, form));
-                let r = self.check(&c.header, &body, cert, self.checker.budget(c.lift_seconds), &c.tag)?;
+                let r = self.check(
+                    &c.header,
+                    &body,
+                    cert,
+                    self.checker.budget(c.lift_seconds),
+                    &c.tag,
+                )?;
                 let out = match &r.output {
                     Some(o) => Some(self.put_side(AREA_CHECK, o.as_bytes())?),
                     None => None,
@@ -301,10 +329,13 @@ impl Emitter {
         };
         let d = derivation(&parts);
         let sample_keys = c.sample.as_ref().map_or(0, |s| s.keys);
-        let (line, refused) = match self
-            .policy
-            .admit(c.origin, liveness, &classed, curves_only, sample_keys)
-        {
+        let (line, refused) = match self.policy.admit(
+            c.origin,
+            liveness,
+            &classed,
+            curves_only,
+            sample_keys,
+        ) {
             Ok(()) => (Some(attach_derivation(&body, &d)?), None),
             Err(e) => {
                 let rec = json!({"body_sha256": ids.body_sha256, "tag": c.tag, "reason": e, "derivation": d});

@@ -234,7 +234,9 @@ pub fn recover(
         };
         let key: Key = (
             *k,
-            seed.iter().map(|&(s, v)| if s { None } else { Some(v) }).collect(),
+            seed.iter()
+                .map(|&(s, v)| if s { None } else { Some(v) })
+                .collect(),
         );
         let mut sol: Option<Vec<(i64, Rf)>> = None;
         if let Some((s0, c0)) = cache.get(&key) {
@@ -255,13 +257,22 @@ pub fn recover(
             }
         }
         if sol.is_none() {
-            match solve(vars, &inst, target, &mut rec.max_equations, &mut rec.max_unknowns) {
+            match solve(
+                vars,
+                &inst,
+                target,
+                &mut rec.max_equations,
+                &mut rec.max_unknowns,
+            ) {
                 Ok(c) => match verify(vars, &inst, &c, target) {
                     None => {
                         cache.insert(key, (seed.clone(), c.clone()));
                         sol = Some(c);
                     }
-                    Some(why) => fail(&mut rec, format!("{label}: solver result not verified: {why}")),
+                    Some(why) => fail(
+                        &mut rec,
+                        format!("{label}: solver result not verified: {why}"),
+                    ),
                 },
                 Err(e) => fail(&mut rec, format!("{label}: {e}")),
             }
