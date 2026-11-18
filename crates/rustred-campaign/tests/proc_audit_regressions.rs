@@ -33,6 +33,7 @@ use rustred_campaign::resources::{
 };
 use std::collections::BTreeSet;
 use std::fs;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -95,18 +96,40 @@ fn decoy_session(script: &str, marker_value: Option<&str>) -> Child {
 }
 
 /// Spawn `make()` until the child gets pid `want` (ns_last_pid = want - 1 before each try). Namespace only.
+/// procfix7 round 14: bounded by TIME (60 s, a 10-ms pause after a failed try), no longer by 200 back-to-back tries:
+/// a task of this namespace that takes `want` between the write and the spawn (a thread of this test process, a process
+/// of a job) holds it for its whole life, and 200 tries could all fall inside that life ("could not force pid 45": 2 of
+/// 312 full runs under load in round 14, at a422bfa9 and 39043e23; the holder was not caught in 1,300 runs, a failure
+/// now names it).
 fn force_pid(want: u32, mut make: impl FnMut() -> Child) -> Child {
     require_namespace();
-    for _ in 0..200 {
+    let t0 = Instant::now();
+    loop {
         fs::write("/proc/sys/kernel/ns_last_pid", (want - 1).to_string()).unwrap();
         let mut c = make();
         if c.id() == want {
             return c;
         }
+        let holder = fs::read_to_string(format!("/proc/{want}/status"))
+            .map(|s| {
+                s.lines()
+                    .filter(|l| {
+                        ["Name:", "State:", "Tgid:", "PPid:"]
+                            .iter()
+                            .any(|p| l.starts_with(p))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_else(|e| format!("none ({e})"));
         let _ = c.kill();
         let _ = c.wait();
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "could not force pid {want} within 60 s (held by: {holder})"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
-    panic!("could not force pid {want}");
 }
 
 /// Kill a decoy's orphaned member (our descendant, in our namespace) after checking its start time.
@@ -386,10 +409,21 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     let dir = TempDir::new("a-m1");
     let mut l = launcher();
     let gfile = dir.path().join("g.pid");
-    // The loop of short foreground sleeps makes the shell reap the ended background group (so its number is free).
+    let fifo = dir.path().join("g.fifo");
+    // procfix7 round 14 (round 13's suite: "timed out waiting for: job-control group seen", 1 failure in 24 suites): the
+    // group was `sleep 2`, a group that lived 2 s of WALL CLOCK, and the test needed a scan of the sampler (every 0.2 s)
+    // and a poll of its own (every 0.1 s) inside those 2 s; a group that ended unseen is never seen. A host stall that
+    // keeps this test process off the CPU for ~2 s breaks that: the failure fell inside the host's user-manager stall of
+    // 2026-11-18 05:07-05:14Z (HOST-STEP-3-ANALYSIS 1.1). The product was not involved: 624 full runs of this binary under
+    // load (48 in parallel, load 150-199) at a422bfa9, 39043e23 and 041e7fe8 saw the group in 9 error-free scans every
+    // time (the stat re-read of procfs.rs and the walk's back-off never cost a scan), and this process held off the CPU
+    // for 2.5 s at the group's birth fails the old test at every one of those commits. A TIMING ASSUMPTION of the test,
+    // removed: the group now lives until the handle has named it. Its member (`cat` of a FIFO) ends when the test closes
+    // the FIFO; the shell reaps it at once (`wait`: its number is free) and becomes the job's `sleep` (no later fork).
     let script = format!(
-        "set -m; sleep 2 & echo $! > {}; while :; do sleep 0.2; wait $! 2>/dev/null; done",
-        gfile.display()
+        "mkfifo {f}; set -m; cat {f} > /dev/null & echo $! > {g}; wait $!; exec sleep 600",
+        f = fifo.display(),
+        g = gfile.display()
     );
     let mut h = l.launch(&sh(dir.path(), "m1", &script)).unwrap();
     let sid = h.identity().pid;
@@ -397,6 +431,15 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     wait_until("job-control group seen", LONG, || {
         h.poll().unwrap();
         h.usage().is_some_and(|u| u.groups.contains(&g))
+    });
+    // The handle's last usage names g. The group ends now: a non-blocking open of the FIFO for writing succeeds once its
+    // reader (the group's member) has it open (before: ENXIO, tried again); closing it at once gives the reader EOF.
+    wait_until("the group's FIFO opened for writing", LONG, || {
+        fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .is_ok()
     });
     wait_until("group ended and reaped", LONG, || {
         read_stat(g).ok().is_none()
