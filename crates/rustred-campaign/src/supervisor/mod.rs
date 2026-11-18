@@ -6615,7 +6615,10 @@ impl Supervisor {
         // round 15 (gate16 nit m16-paused-spam): the gate's reason without its running seconds is the log's key
         let mut gate_key = None;
         if let Some((since, why)) = self.gate.closed() {
-            gate_key = Some(format!("the user manager does not answer ({why})"));
+            gate_key = Some((
+                b.reasons.len(),
+                format!("the user manager does not answer ({why})"),
+            ));
             b.reasons.push(format!(
                 "the user manager does not answer ({why}; {} s): no launch",
                 since.elapsed().as_secs()
@@ -6642,21 +6645,7 @@ impl Supervisor {
         let joined = b.reasons.join("; ");
         // round 15 (gate16 nit m16-paused-spam): logged when the reasons change (the manager gate's running seconds
         // are not a change) and, while they stay, at most once a minute (was: every second during a manager stall)
-        let key = match &gate_key {
-            Some(k) => b
-                .reasons
-                .iter()
-                .map(|r| {
-                    if r.starts_with(k.as_str()) {
-                        k.clone()
-                    } else {
-                        r.clone()
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("; "),
-            None => joined.clone(),
-        };
+        let key = paused_key(&b.reasons, gate_key.as_ref().map(|(i, k)| (*i, k.as_str())));
         let reminder = !key.is_empty()
             && self
                 .last_block_logged
@@ -7989,6 +7978,21 @@ fn resource_classification(c: &classify::Classification, why: String) -> classif
 
 /// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
 /// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
+/// procfix7 round 15 (gate16 nit m16-paused-spam): the key of a "launching paused" line: the reasons, the manager gate's
+/// (at index `gate.0`) replaced by its text WITHOUT its running seconds (`gate.1`), so that only a real change of the
+/// reasons is a new line.
+fn paused_key(reasons: &[String], gate: Option<(usize, &str)>) -> String {
+    reasons
+        .iter()
+        .enumerate()
+        .map(|(i, r)| match gate {
+            Some((g, k)) if g == i => k,
+            _ => r.as_str(),
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 fn is_resource_requeue(reason: &str) -> bool {
     // procfix7 round 15 (gate16 m16-15m-recovery): "(row 15m)" (never ran: the launcher ended while waiting for the user
     // manager) too, so that the count of resource ends in a row survives a restart
@@ -8483,6 +8487,18 @@ mod tests {
         assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
         assert!(!r.attention);
         assert!(is_resource_requeue("lost (row 15s)"));
+        // round 15 (gate16 nit m16-paused-spam): the manager gate's running seconds are not a change of the reasons
+        let r = |s: u64, other: &str| {
+            vec![
+                "cpu policy: no free core".to_string(),
+                format!("the user manager does not answer (probe; {s} s): no launch"),
+                other.to_string(),
+            ]
+        };
+        let g = Some((1, "the user manager does not answer (probe)"));
+        assert_eq!(paused_key(&r(53, "x"), g), paused_key(&r(54, "x"), g));
+        assert_ne!(paused_key(&r(53, "x"), g), paused_key(&r(53, "y"), g));
+        assert_eq!(paused_key(&r(53, "x"), None), r(53, "x").join("; "));
         // round 15 (gate16 m16-15m-recovery): a never-ran end counts at recovery as at run time
         assert!(is_resource_requeue("lost (row 15m)") && !is_resource_requeue("lost (row 15n)"));
         let mut map = BTreeMap::new();
