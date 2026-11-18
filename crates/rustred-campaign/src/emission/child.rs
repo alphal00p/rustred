@@ -36,6 +36,12 @@ impl ChildRun {
     }
 }
 
+/// Environment variable naming a LICENCE-SLOT WRAPPER (e.g. implementer_ops/sym_slot_wait.sh): when set, every child
+/// runs as `<wrapper> bash -c 'touch "$RR_SLOT_MARK"; exec "$@"' _ <program> <args>`, so each Symbolica-linked step
+/// takes a slot of its own (SYMBOLICA_SLOTS.md, addition 2026-11-18T21:55Z) and the wall budget starts when the slot is
+/// held (the mark file appears), not while the step waits for it.
+pub const SLOT_WRAPPER_ENV: &str = "RR_EMISSION_SLOT_WRAPPER";
+
 /// Run `program args` in `dir` with extra environment `env`; stdout / stderr to `<dir>/<name>.out|.err`.
 pub fn run(
     program: &Path,
@@ -50,9 +56,30 @@ pub fn run(
     let err = dir.join(format!("{name}.err"));
     let fo = std::fs::File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let fe = std::fs::File::create(&err).map_err(|e| format!("{}: {e}", err.display()))?;
-    let mut cmd = Command::new(program);
-    cmd.args(args)
-        .current_dir(dir)
+    let wrapper = std::env::var(SLOT_WRAPPER_ENV)
+        .ok()
+        .filter(|w| !w.is_empty());
+    let mark = dir.join(format!("{name}.slot"));
+    let _ = std::fs::remove_file(&mark);
+    let mut cmd = match &wrapper {
+        Some(w) => {
+            let mut c = Command::new(w);
+            c.arg("bash")
+                .arg("-c")
+                .arg("touch \"$RR_SLOT_MARK\"; exec \"$@\"")
+                .arg("_")
+                .arg(program)
+                .args(args)
+                .env("RR_SLOT_MARK", &mark);
+            c
+        }
+        None => {
+            let mut c = Command::new(program);
+            c.args(args);
+            c
+        }
+    };
+    cmd.current_dir(dir)
         .stdin(Stdio::null())
         .stdout(fo)
         .stderr(fe)
@@ -60,7 +87,8 @@ pub fn run(
     for (k, v) in env {
         cmd.env(k, v);
     }
-    let t0 = Instant::now();
+    let mut t0 = Instant::now();
+    let mut started = wrapper.is_none();
     let child = cmd
         .spawn()
         .map_err(|e| format!("spawn {}: {e}", program.display()))?;
@@ -90,7 +118,12 @@ pub fn run(
         if r < 0 {
             return Err(format!("wait4 {pid}: {}", std::io::Error::last_os_error()));
         }
-        if !over && t0.elapsed().as_secs_f64() > budget_s {
+        if !started && mark.exists() {
+            // the slot is held: the budget starts now
+            t0 = Instant::now();
+            started = true;
+        }
+        if started && !over && t0.elapsed().as_secs_f64() > budget_s {
             over = true;
             term_at = Some(Instant::now());
             // the process group THIS module created (process_group(0) above): never a foreign process

@@ -31,6 +31,8 @@ use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub const SCHEMA: &str = "rustred.legacy-import.v1";
+/// The delivery word of the sub-class "whole domain by a proof object of the identical statement at another position".
+pub const IDENTICAL_WORD: &str = "whole domain, by identical statement";
 
 /// What one verdict row says about exactness.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -676,6 +678,18 @@ pub fn decide(
         ClassWord::None
     };
     d.word = match d.class {
+        // implementer's decision 2026-11-18T22:00Z: a proof object of the identical statement at ANOTHER position is a
+        // visible sub-class, counted apart, until the checker has run on the record's own bytes
+        ClassWord::WholeDomain
+            if d.proof.as_ref().is_some_and(|p| p.binding.starts_with("identical")) =>
+        {
+            let p = d.proof.as_ref().expect("proof");
+            format!(
+                "{IDENTICAL_WORD} at {} index {}",
+                if p.row.keyed_by == KeyedBy::Reference { "reference" } else { "table" },
+                p.row.index
+            )
+        }
         ClassWord::WholeDomain => "whole domain".into(),
         _ if d.dead == Some(true) => "dead in cone".into(),
         ClassWord::EveryKeyInCone => "every first-match key in cone".into(),

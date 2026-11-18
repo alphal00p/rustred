@@ -250,6 +250,9 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
     let mut refused: Vec<Value> = vec![];
     let mut contradictions: Vec<u64> = vec![];
     let mut identical: Vec<Value> = vec![];
+    // reference index -> table position (to name the identical statement's own position in this table)
+    let mut pos_of_ref: BTreeMap<i64, u64> = BTreeMap::new();
+    let mut deferred_identical: Vec<(u64, i64)> = vec![];
     let mut rules = 0u64;
     let mut buf = Vec::new();
     loop {
@@ -298,6 +301,9 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
             .copied()
             .filter(|r| !own_ptr.contains(&(*r as *const _)))
             .collect();
+        if let Some(dp) = dp {
+            pos_of_ref.insert(dp, position);
+        }
         let counts = ld.counts.get(&position);
         let d = decide(
             &rec,
@@ -329,10 +335,21 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
         if let Some(b) = &binding
             && b.starts_with("identical")
         {
-            identical.push(json!({"position": position, "binding": b, "source": d.proof.as_ref().map(|p| &p.row.source)}));
+            let p = d.proof.as_ref().expect("proof");
+            if p.row.keyed_by == KeyedBy::Reference {
+                deferred_identical.push((position, p.row.index));
+            }
+            identical.push(json!({"position": position, "binding": b, "source": p.row.source,
+                                  "row_index": p.row.index, "word": d.word}));
         }
         *words
-            .entry(if d.word.starts_with("sampled") { "sampled N keys".into() } else { d.word.clone() })
+            .entry(if d.word.starts_with("sampled") {
+                "sampled N keys".into()
+            } else if d.word.starts_with(legacy::IDENTICAL_WORD) {
+                legacy::IDENTICAL_WORD.to_string()
+            } else {
+                d.word.clone()
+            })
             .or_default() += 1;
         *by_class.entry(c.class.word().to_string()).or_default() += 1;
         *bindings
@@ -390,6 +407,14 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
         }
     }
     classes.flush().map_err(|e| e.to_string())?;
+    // the identical statements' own positions in this table (reference index -> position), known after the scan
+    for x in identical.iter_mut() {
+        if let (Some(p), Some(ix)) = (x["position"].as_u64(), x["row_index"].as_i64())
+            && deferred_identical.contains(&(p, ix))
+        {
+            x["identical_statement_position"] = json!(pos_of_ref.get(&ix));
+        }
+    }
     let table_sha = hasher.finish_hex();
     // position-only count rows must have been made on THIS table
     let mut errors: Vec<String> = vec![];
@@ -415,7 +440,8 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
     }
     let summary = json!({"schema": "rustred.campaign.legacy-import.summary.v1", "table": a.table.display().to_string(),
         "table_sha256": table_sha, "config": a.config.display().to_string(), "cone_bound": cone_bound, "rules": rules,
-        "by_word": words, "by_class": by_class, "by_binding": bindings, "identical_statement": identical,
+        "by_word": words, "by_class": by_class,
+        "summary_line": summary_line(&words, &identical), "by_binding": bindings, "identical_statement": identical,
         "contradictions": contradictions, "refused": refused.len(), "refusals": refused.iter().take(50).collect::<Vec<_>>(),
         "errors": errors, "sources": ld.sources, "policy": policy.name, "policy_sha256": policy_sha,
         "written_table": (a.write_table && ok).then(|| out_table.display().to_string()),
@@ -427,6 +453,33 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
     )
     .map_err(|e| e.to_string())?;
     Ok((summary, ok))
+}
+
+/// The one-line summary: the identical-statement sub-class is named and counted APART from `whole domain`.
+fn summary_line(words: &BTreeMap<String, u64>, identical: &[Value]) -> String {
+    let g = |k: &str| words.get(k).copied().unwrap_or(0);
+    let id: Vec<String> = identical
+        .iter()
+        .map(|x| {
+            format!(
+                "{} <- position {}",
+                x["position"],
+                x["identical_statement_position"]
+                    .as_u64()
+                    .map_or_else(|| format!("index {}", x["row_index"]), |p| p.to_string())
+            )
+        })
+        .collect();
+    format!(
+        "whole domain {} (+ {} whole domain BY IDENTICAL STATEMENT at another position, not yet on their own bytes: {}), every first-match key in cone {}, sampled N keys {}, dead in cone {}, none {}",
+        g("whole domain"),
+        g(legacy::IDENTICAL_WORD),
+        if id.is_empty() { "-".into() } else { id.join(", ") },
+        g("every first-match key in cone"),
+        g("sampled N keys"),
+        g("dead in cone"),
+        g("none")
+    )
 }
 
 /// CLI: `legacy-import --table T --config C --out DIR [--write-table] [--policy FILE]`. Exit 0 imported, 3 refused.

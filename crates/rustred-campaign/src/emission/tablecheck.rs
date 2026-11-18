@@ -35,6 +35,7 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     let mut pos: BTreeMap<String, u64> = BTreeMap::new();
     let mut classes: BTreeMap<i64, ClassWord> = BTreeMap::new();
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
+    let mut subclasses: BTreeMap<String, u64> = BTreeMap::new();
     let mut refused: Vec<Value> = vec![];
     let mut n_refused = 0u64;
     let mut rules = 0u64;
@@ -101,6 +102,10 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
         let class = verdict.class.unwrap_or(ClassWord::None);
         classes.insert(verdict.index, class);
         *counts.entry(class.word().to_string()).or_default() += 1;
+        // the visible sub-class (implementer 2026-11-18T22:00Z): whole domain by an identical statement elsewhere
+        if l.contains("\"binding\":\"identical statement") {
+            *subclasses.entry("whole domain, by identical statement".to_string()).or_default() += 1;
+        }
         if let Some(m) = manifest.as_mut() {
             let d = strip_derivation(&l)?
                 .1
@@ -109,6 +114,8 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
                 "kind": verdict.kind.map(|k| k.word()), "class": class.word(), "certificate_sha256": verdict.certificate_sha256,
                 "check_output_sha256": d.as_ref().and_then(|d| d["check"]["output_sha256"].as_str().map(str::to_string)),
                 "liveness": d.as_ref().and_then(|d| d["class"]["legacy"]["liveness"]["verdict"].as_str().map(str::to_string)),
+                "subclass": d.as_ref().and_then(|d| d["class"]["legacy"]["proof_object"]["binding"].as_str())
+                    .filter(|b| b.starts_with("identical")).map(|b| format!("whole domain, by {b}")),
                 "accepted": verdict.ok()});
             writeln!(m, "{row}").map_err(|e| e.to_string())?;
         }
@@ -125,7 +132,7 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     let ok = n_refused == 0 && rules > 0;
     Ok((
         json!({"schema": "rustred.campaign.table-check.v1", "table": a.table.display().to_string(),
-            "side": side.display().to_string(), "rules": rules, "refused": n_refused, "classes": counts,
+            "side": side.display().to_string(), "rules": rules, "refused": n_refused, "classes": counts, "subclasses": subclasses,
             "rechecked": rechecked, "verdict": if ok { "ACCEPTED" } else { "REFUSED" }, "refusals": refused}),
         ok,
     ))
