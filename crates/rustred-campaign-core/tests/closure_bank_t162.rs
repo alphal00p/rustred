@@ -9,6 +9,7 @@
 //! --ignored --nocapture`.
 
 mod closure_common;
+mod inputs;
 
 use std::path::PathBuf;
 
@@ -46,7 +47,7 @@ impl FactSource for LiftAll {
 #[ignore = "needs the bank-conv tables; run with --ignored in release"]
 fn t162_bank_box_b_closure() {
     let Ok(prio) = std::fs::read_to_string(PRIO) else {
-        println!("SKIP: {PRIO} missing");
+        inputs::missing(format_args!("SKIP: {PRIO} missing"));
         return;
     };
     let prio: serde_json::Value = serde_json::from_str(&prio).unwrap();

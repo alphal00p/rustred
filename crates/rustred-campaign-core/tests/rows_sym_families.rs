@@ -5,6 +5,7 @@
 //! exactly); a planted wrong element is refused; one-term rules made of a symmetry relation pass with the group and fail
 //! without; on a node with a multi-term numerator map (L3a), the expanded mode decides a rule the engine mode cannot.
 
+mod inputs;
 mod rows_common;
 
 use std::sync::Arc;
@@ -49,7 +50,7 @@ fn rows_sym_m2_groups_supplied_verified_cross_checked() {
     let mut seen = 0;
     for name in ["TOY2kite", "L3a", "L4a", "T281", "T194"] {
         let Some((fam, sym)) = node(name) else {
-            println!("SKIP {name}");
+            inputs::missing(format_args!("SKIP {name}"));
             continue;
         };
         let supplied = SymGroup::from_cfix_json(&sym, &fam).unwrap();

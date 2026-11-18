@@ -8,6 +8,7 @@
 //! Synthetic tables only (lane rule L8). The frozen engine path is test data (env `RUSTRED_FROZEN_RR_NODE` overrides
 //! it); the engine-backed tests say SKIPPED when it is absent.
 
+mod inputs;
 use std::path::{Path, PathBuf};
 
 use rustred_campaign_core::cover::{Assurance, CreditBasis, Dispatch, Dispatcher, RuleRef, Table};
@@ -989,7 +990,9 @@ fn gen_record(g: &mut Rng, mask: &[bool], index: usize) -> String {
 #[test]
 fn pf4_differential_core_vs_frozen_engine_with_bounds_and_patterns() {
     let Some(bin) = rr_node() else {
-        eprintln!("SKIPPED: no frozen rr_node (set RUSTRED_FROZEN_RR_NODE)");
+        inputs::missing(format_args!(
+            "SKIPPED: no frozen rr_node (set RUSTRED_FROZEN_RR_NODE)"
+        ));
         return;
     };
     let dir = scratch("diff");
@@ -1081,7 +1084,7 @@ fn pf4_differential_core_vs_frozen_engine_with_bounds_and_patterns() {
 #[test]
 fn pf4_engine_cross_check_catches_a_misread_table() {
     let Some(bin) = rr_node() else {
-        eprintln!("SKIPPED: no frozen rr_node");
+        inputs::missing(format_args!("SKIPPED: no frozen rr_node"));
         return;
     };
     let dir = scratch("misread");
@@ -1140,7 +1143,7 @@ fn pf4_assembly_full_retirement_needs_the_engine_check() {
         tables_in_force,
     };
     let Some(bin) = rr_node() else {
-        eprintln!("SKIPPED: no frozen rr_node");
+        inputs::missing(format_args!("SKIPPED: no frozen rr_node"));
         return;
     };
     let dir = scratch("asm");

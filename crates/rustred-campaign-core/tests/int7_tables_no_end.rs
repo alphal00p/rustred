@@ -8,6 +8,7 @@
 //! Constructed tables on the toy sunset (tests/import5_common).
 
 mod import5_common;
+mod inputs;
 use import5_common::*;
 
 use import::ImportError;
@@ -181,7 +182,10 @@ fn a_real_loadable_table_through_the_real_resolution() {
     });
     let res = std::path::PathBuf::from(res);
     let Ok(text) = std::fs::read_to_string(&res) else {
-        eprintln!("SKIP: no resolution file at {}", res.display());
+        inputs::missing(format_args!(
+            "SKIP: no resolution file at {}",
+            res.display()
+        ));
         return;
     };
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();
@@ -199,7 +203,9 @@ fn a_real_loadable_table_through_the_real_resolution() {
         .collect();
     cands.sort();
     let Some((_, table)) = cands.first().cloned() else {
-        eprintln!("SKIP: no loadable table of the resolution on disk");
+        inputs::missing(format_args!(
+            "SKIP: no loadable table of the resolution on disk"
+        ));
         return;
     };
     let d = scratch("int7noendreal");

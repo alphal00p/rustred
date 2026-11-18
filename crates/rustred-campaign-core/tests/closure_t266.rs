@@ -8,6 +8,7 @@
 //! `light_build.sh loop test -p rustred-campaign-core --release --test closure_t266 -- --ignored --nocapture`.
 
 mod closure_common;
+mod inputs;
 
 use std::io::BufReader;
 use std::path::PathBuf;
@@ -171,7 +172,10 @@ fn t266_tier_k_closure() {
     let dir = PathBuf::from(k3_common::HO).join("t266-jointest9");
     let (cases, keys) = (dir.join("cases.jsonl"), dir.join("F.keys.jsonl.gz"));
     if !cases.is_file() || !keys.is_file() {
-        println!("SKIP: T266 inputs not found under {}", dir.display());
+        inputs::missing(format_args!(
+            "SKIP: T266 inputs not found under {}",
+            dir.display()
+        ));
         return;
     }
     let t0 = Instant::now();

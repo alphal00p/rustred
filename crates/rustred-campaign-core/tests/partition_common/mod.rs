@@ -25,7 +25,9 @@ pub fn fx() -> Option<PathBuf> {
     if d.is_dir() {
         Some(d)
     } else {
-        println!("SKIP: no fixture directory (set RUSTRED_CAMPAIGN_FIXTURES)");
+        crate::inputs::missing(format_args!(
+            "SKIP: no fixture directory (set RUSTRED_CAMPAIGN_FIXTURES)"
+        ));
         None
     }
 }

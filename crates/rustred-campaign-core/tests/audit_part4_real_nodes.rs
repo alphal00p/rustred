@@ -4,6 +4,7 @@
 //! `light_build.sh <lane> test -p rustred-campaign-core --release --test audit_part4_real_nodes -- --ignored
 //! --nocapture --test-threads 1`. Memory: the scope's MemoryMax kills the binary beyond 2 GB (that is the Q2 check).
 
+mod inputs;
 mod partition_common;
 
 use std::time::Instant;
@@ -143,7 +144,7 @@ fn p4_q2_t266_minting_default_work() {
         std::env::var("RUSTRED_T266_SOURCES").unwrap_or("/common/ben/sym-investigation".into()),
     );
     if !dir.join("h11b/out/rules266_nf.json").is_file() {
-        println!("SKIP: T266 sources not found");
+        inputs::missing(format_args!("SKIP: T266 sources not found"));
         return;
     }
     let (l, frame) = t266(&dir);

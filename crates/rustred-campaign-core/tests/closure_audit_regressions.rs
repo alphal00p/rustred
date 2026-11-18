@@ -3,6 +3,7 @@
 //! test per finding id. Default suite (synthetic node: arity 4, lines 0,1; numerators 2,3).
 
 mod closure_common;
+mod inputs;
 
 use closure_common::answer_facts;
 use rustred_campaign_core::closure::{

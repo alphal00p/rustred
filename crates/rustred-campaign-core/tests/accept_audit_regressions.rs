@@ -4,6 +4,7 @@
 //! Run: `light_build.sh acceptfix test -p rustred-campaign-core --release --test accept_audit_regressions`.
 
 mod accept_common;
+mod inputs;
 
 use std::path::{Path, PathBuf};
 
@@ -70,7 +71,7 @@ struct Toy {
 
 fn toy() -> Option<Toy> {
     if !available(TOY) {
-        println!("SKIP {TOY}");
+        inputs::missing(format_args!("SKIP {TOY}"));
         return None;
     }
     let node = load_node(TOY);

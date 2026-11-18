@@ -13,6 +13,7 @@
 //! Env: RUSTRED_T211_MIN, RUSTRED_SPACED_TABLES (comma-separated), RUSTRED_IMPORT_SCRATCH (scratch dir),
 //! RUSTRED_LEDGER_TABLES (file: one table path per line), RUSTRED_SWEEP_MAX_BYTES (default 5e9), RUSTRED_SWEEP_THREADS.
 
+mod inputs;
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -193,7 +194,7 @@ fn env_path(var: &str, default: &str) -> PathBuf {
 fn t211_min_has_943_rule_records() {
     let p = env_path("RUSTRED_T211_MIN", &format!("{MIN}/T211/F.table.jsonl"));
     if !p.is_file() {
-        println!("SKIP: {} missing", p.display());
+        inputs::missing(format_args!("SKIP: {} missing", p.display()));
         return;
     }
     let mut serde_rules = 0usize;
@@ -240,7 +241,7 @@ fn spaced_real_tables_equal_their_compact_reencoding() {
     let d = scratch("spaced");
     for p in &list {
         if !p.is_file() {
-            println!("SKIP: {} missing", p.display());
+            inputs::missing(format_args!("SKIP: {} missing", p.display()));
             continue;
         }
         // the file is really spaced somewhere
@@ -276,7 +277,7 @@ fn load_sweep_of_the_ledger_tables() {
         "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/import5/ledger_tables.txt",
     );
     let Ok(text) = std::fs::read_to_string(&list) else {
-        println!("SKIP: {} missing", list.display());
+        inputs::missing(format_args!("SKIP: {} missing", list.display()));
         return;
     };
     let max: u64 = std::env::var("RUSTRED_SWEEP_MAX_BYTES")

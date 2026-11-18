@@ -5,6 +5,7 @@
 //! I(1^9) + I(D4 = 0); planted wrong coefficients. SKIPs without the Symbolica licence (source WS/ops/env.sh).
 
 mod common;
+mod inputs;
 
 use common::*;
 use rustred_campaign_algebra::SymbolicaAlgebra;
@@ -77,7 +78,7 @@ fn import_symmetry_relations_symbolica_equals_independent() {
     let mut n_ok = 0;
     for (fam_path, chart, rels) in cases {
         let Ok(src) = std::fs::read_to_string(&fam_path) else {
-            println!("SKIP {fam_path}");
+            inputs::missing(format_args!("SKIP {fam_path}"));
             continue;
         };
         let fam = Family::parse(&src).unwrap();

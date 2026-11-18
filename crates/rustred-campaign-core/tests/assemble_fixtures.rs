@@ -5,6 +5,7 @@
 //! Run: `light_build.sh accept test -p rustred-campaign-core --release --test assemble_fixtures -- --nocapture`.
 
 mod accept_common;
+mod inputs;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -34,7 +35,7 @@ const DOMAINCHECK: &str =
 
 fn engine_out(table: &Path, keys: &[Key], dir: &Path) -> Option<String> {
     if !Path::new(DOMAINCHECK).is_file() {
-        println!("SKIP engine: {DOMAINCHECK} missing");
+        inputs::missing(format_args!("SKIP engine: {DOMAINCHECK} missing"));
         return None;
     }
     let kf = dir.join("keys.txt");
@@ -149,7 +150,7 @@ fn closure_on_file(node: &Node, table: &Path) -> (u64, u64, BTreeSet<String>) {
 
 fn assemble_node(name: &str) {
     if !available(name) {
-        println!("SKIP {name}");
+        inputs::missing(format_args!("SKIP {name}"));
         return;
     }
     let node = load_node(name);

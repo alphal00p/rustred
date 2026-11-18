@@ -8,6 +8,7 @@
 //! `light_build.sh <lane> test -p rustred-campaign-core --release --test closure_t178_raw38 -- --ignored --nocapture`.
 
 mod closure_common;
+mod inputs;
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
@@ -86,7 +87,7 @@ fn run(disp: &Dispatcher, tag: &str) -> (ClosureSummary, BTreeMap<(String, i64),
 #[ignore = "needs RUSTRED_CAMPAIGN_FIXTURES and the 38 raw T178B tables; run with --ignored in release"]
 fn t178b_raw38_closure_witness_on() {
     let Some(fx) = std::env::var_os("RUSTRED_CAMPAIGN_FIXTURES").map(PathBuf::from) else {
-        println!("SKIP: RUSTRED_CAMPAIGN_FIXTURES not set");
+        inputs::missing(format_args!("SKIP: RUSTRED_CAMPAIGN_FIXTURES not set"));
         return;
     };
     let cfg: serde_json::Value = serde_json::from_str(
@@ -119,7 +120,7 @@ fn t178b_raw38_closure_witness_on() {
         .unwrap();
         let rp = raw_table_path(name);
         if !rp.is_file() {
-            println!("SKIP: {} missing", rp.display());
+            inputs::missing(format_args!("SKIP: {} missing", rp.display()));
             return;
         }
         let raw = read_table_file(&rp, ReadOptions::default()).unwrap();

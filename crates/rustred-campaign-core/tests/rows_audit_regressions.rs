@@ -3,6 +3,7 @@
 //! (LA3_handwritten.sym, 3 loops, 9 slots): a TRUE rule (one IBP row solved for its top term) and a FALSE copy with an
 //! extra term `1*I(Z)` whose column is scaleless in the generic convention but not on the face n_j = 0.
 
+mod inputs;
 mod rows_common;
 
 use rows_common::face::*;

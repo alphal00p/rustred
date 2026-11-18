@@ -7,6 +7,7 @@
 //! legit-invisible (Established, identical on the served set), safe side (not established, identical), undetected.
 //! The default test is a seeded reduced campaign; `mutation_baseline_replay_full` (ignored, release) runs all rules.
 
+mod inputs;
 mod rows_common;
 
 use std::collections::BTreeMap;

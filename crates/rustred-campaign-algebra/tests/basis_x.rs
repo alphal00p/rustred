@@ -4,6 +4,7 @@
 //! and the seven reclist nodes of addendum 3 (rank at d = 4 against generic, null directions, order of the zero of det,
 //! pole orders of the inverse). Every disagreement is printed and fails the test. Needs the Symbolica licence.
 
+mod inputs;
 use rustred_campaign_algebra::licensed;
 use rustred_campaign_algebra::valuation::basis::{MasterMap, check_master_map};
 use rustred_campaign_algebra::valuation::{D0, Valuation};
@@ -12,7 +13,9 @@ use std::path::Path;
 
 fn go() -> bool {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent (source WS/ops/env.sh)");
+        inputs::missing(format_args!(
+            "SKIP: Symbolica licence absent (source WS/ops/env.sh)"
+        ));
         return false;
     }
     true
@@ -42,7 +45,7 @@ fn helper(rel: &str) -> Option<Value> {
             Some(serde_json::from_slice(&b).unwrap_or_else(|e| panic!("{}: {e}", p.display())))
         }
         Err(_) => {
-            eprintln!("SKIP (test data absent): {}", p.display());
+            inputs::missing(format_args!("SKIP (test data absent): {}", p.display()));
             None
         }
     }

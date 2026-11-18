@@ -7,6 +7,7 @@
 #[path = "../src/coef_facts.rs"]
 #[allow(dead_code)]
 mod coef_facts;
+mod inputs;
 
 use coef_facts::{SymbolicaRecordFacts, fact_line, for_each_pair, parse_requests};
 use rustred_campaign_algebra::SymbolicaAlgebra;
@@ -30,7 +31,7 @@ fn backend() -> Option<SymbolicaRecordFacts> {
     match SymbolicaAlgebra::new() {
         Ok(a) => Some(SymbolicaRecordFacts::new(a).with_threads(2)),
         Err(e) => {
-            eprintln!("SKIP: {e}");
+            inputs::missing(format_args!("SKIP: {e}"));
             None
         }
     }

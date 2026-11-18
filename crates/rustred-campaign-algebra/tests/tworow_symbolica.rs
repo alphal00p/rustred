@@ -4,6 +4,7 @@
 //! core's `tworow_real` test). SKIPs without the Symbolica licence (source WS/ops/env.sh).
 
 mod common;
+mod inputs;
 
 use std::io::BufRead;
 use std::path::Path;

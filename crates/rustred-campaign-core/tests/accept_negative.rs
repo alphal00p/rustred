@@ -4,6 +4,7 @@
 //! Run: `light_build.sh accept test -p rustred-campaign-core --release --test accept_negative`.
 
 mod accept_common;
+mod inputs;
 
 use std::cmp::Ordering;
 
@@ -28,7 +29,7 @@ struct Ctx {
 
 fn ctx(name: &str, ko: &str, w: usize) -> Option<Ctx> {
     if !available(name) {
-        println!("SKIP {name}");
+        inputs::missing(format_args!("SKIP {name}"));
         return None;
     }
     let node = load_node(name);

@@ -6,6 +6,7 @@
 //! a truncated screen of order 3), TADIC_MAX_SECONDS.
 
 mod common;
+mod inputs;
 
 use std::io::Write;
 

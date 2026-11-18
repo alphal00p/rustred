@@ -5,6 +5,7 @@
 //! Rules: the 7 clean F6 rules (k3 fixtures) and rules built from exact IBP rows of T001c (arity 5, eps lines),
 //! LA3_handwritten (9) and bubu (14). `#[ignore]` (release, minutes): `-- --ignored`.
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;

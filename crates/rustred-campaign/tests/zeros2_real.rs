@@ -5,6 +5,7 @@
 //! Spawns nothing. Environment: ZEROS2_SPEC (import spec), ZEROS2_PROOFS (comma-separated proof files), ZEROS2_OUT
 //! (summary JSON), ZEROS2_TIER (`K` default | `C`), ZEROS2_THREADS (default 4), ZEROS2_ROWS (spill file of the check).
 
+mod inputs;
 use rustred_campaign::closeloop::zeros;
 use rustred_campaign_core::closure::{CoefFact, FactSource, Tier};
 use rustred_campaign_core::import::check::check_streamed;
@@ -19,7 +20,7 @@ use std::time::Instant;
 #[ignore]
 fn zero_proofs_cover_the_positive_numerator_edges_of_a_spec() {
     let Ok(spec_path) = std::env::var("ZEROS2_SPEC") else {
-        eprintln!("SKIP: ZEROS2_SPEC not set");
+        inputs::missing(format_args!("SKIP: ZEROS2_SPEC not set"));
         return;
     };
     let proofs: Vec<PathBuf> = std::env::var("ZEROS2_PROOFS")

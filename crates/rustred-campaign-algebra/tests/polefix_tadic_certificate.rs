@@ -3,6 +3,7 @@
 //! Systems with known p* by construction (the audit's chain, t = d - 4). Needs the licence; SKIPS without it.
 
 mod common;
+mod inputs;
 
 use rustred_campaign_algebra::tadic::SymbolicaTadic;
 use rustred_campaign_algebra::tadic::check::{

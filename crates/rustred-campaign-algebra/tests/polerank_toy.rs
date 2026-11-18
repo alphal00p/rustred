@@ -4,6 +4,7 @@
 //! Gamma(1+x) Gamma(1-x) = pi x / sin(pi x); catalogue rows parsed by Symbolica. Needs the Symbolica licence (skips
 //! without it, like every test of this crate). Test data only (L8).
 
+mod inputs;
 use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::polerank::{
     Dependences, DepthTable, Exchange, Fp, RankData, TerminalMap, cell_rank, row_products,
@@ -77,7 +78,7 @@ fn combos(keys: &[(i128, i128)], m: usize, seeds: &[u64]) -> Vec<Value> {
 #[test]
 fn ranks_known_by_construction() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let lau = SymbolicaLaurent::new("4").unwrap();
@@ -142,7 +143,7 @@ fn ranks_known_by_construction() {
 #[test]
 fn typed_not_decided_cases() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let lau = SymbolicaLaurent::new("4").unwrap();
@@ -199,7 +200,7 @@ fn typed_not_decided_cases() {
 #[test]
 fn a_cell_touching_an_unmapped_terminal_is_incomplete_never_counted() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let lau = SymbolicaLaurent::new("4").unwrap();
@@ -226,7 +227,7 @@ fn a_cell_touching_an_unmapped_terminal_is_incomplete_never_counted() {
 #[test]
 fn exchanged_basis_violations_are_an_observation_with_proportionality_and_candidate() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let alg = SymbolicaAlgebra::new().unwrap();
@@ -266,7 +267,7 @@ fn exchanged_basis_violations_are_an_observation_with_proportionality_and_candid
 #[test]
 fn gamma_unit_is_pi_x_over_sin_pi_x() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let p = P[0].0;
@@ -303,7 +304,7 @@ fn gamma_unit_is_pi_x_over_sin_pi_x() {
 #[test]
 fn catalogue_rows_are_parsed_by_symbolica() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let _alg = SymbolicaAlgebra::new().unwrap();

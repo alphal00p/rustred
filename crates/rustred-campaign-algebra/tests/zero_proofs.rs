@@ -8,6 +8,7 @@
 #[path = "../src/coef_facts.rs"]
 #[allow(dead_code)]
 mod coef_facts;
+mod inputs;
 #[path = "../src/zero_proofs.rs"]
 #[allow(dead_code)]
 mod zero_proofs;
@@ -33,7 +34,7 @@ fn alg() -> Option<SymbolicaAlgebra> {
     match SymbolicaAlgebra::new() {
         Ok(a) => Some(a),
         Err(e) => {
-            eprintln!("SKIP: {e}");
+            inputs::missing(format_args!("SKIP: {e}"));
             None
         }
     }

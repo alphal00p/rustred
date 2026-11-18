@@ -1,6 +1,7 @@
 //! R46 (symmetry rows in the seed system, orbits first, terminal merge) and addendum 3 (capability data, tight layer
 //! caps): a synthetic toy with a 2-element symmetry group.
 
+mod inputs;
 mod ladder_common;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -314,7 +315,7 @@ fn kk(v: [i32; 5]) -> Key {
 #[test]
 fn orbit_reduction_image_service_and_own_search_fallback() {
     let Some((_fam, vg)) = toy2kite_verified() else {
-        eprintln!("SKIP: {TOY2KITE} absent");
+        inputs::missing(format_args!("SKIP: {TOY2KITE} absent"));
         return;
     };
     let lines = vec![true; 5];
@@ -409,7 +410,7 @@ fn reaudit_b_m2_false_element_is_refused_before_any_image_credit() {
         SlotImage, SymElement, SymGroup, verify_group,
     };
     let Ok(fam) = std::fs::read_to_string(format!("{TOY2KITE}/family.sym")) else {
-        eprintln!("SKIP: {TOY2KITE} absent");
+        inputs::missing(format_args!("SKIP: {TOY2KITE} absent"));
         return;
     };
     let fam = Family::parse(&fam).unwrap();
@@ -447,7 +448,7 @@ fn reaudit_b_m2_false_element_is_refused_before_any_image_credit() {
 #[test]
 fn terminal_merge_needs_a_verified_group() {
     let Some((_fam, vg)) = toy2kite_verified() else {
-        eprintln!("SKIP: {TOY2KITE} absent");
+        inputs::missing(format_args!("SKIP: {TOY2KITE} absent"));
         return;
     };
     let cmp = NodeComparator::legacy(5, None).unwrap();
@@ -499,7 +500,7 @@ fn reaudit_a_m6_inconsistent_descent_never_panics_in_terminal_merge() {
 fn symmetry_json_fixture_parses_if_present() {
     let path = "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/fixtures/campaign-20261114/small/m2-slice/L3a/SYMMETRY.json";
     let Ok(text) = std::fs::read_to_string(path) else {
-        eprintln!("SKIP: {path} absent");
+        inputs::optional(format_args!("SKIP: {path} absent"));
         return;
     };
     let v: serde_json::Value = serde_json::from_str(&text).unwrap();

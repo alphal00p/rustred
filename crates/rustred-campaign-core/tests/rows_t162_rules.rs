@@ -9,6 +9,7 @@
 //! Also (default run): the k3 near-corner fixture F4: of the 16 covers the checker verified, the rules without
 //! symmetry rows must PASS at their key; the ones with symmetry rows are UNKNOWN (needs symmetry rows).
 
+mod inputs;
 mod rows_common;
 
 use std::collections::HashMap;
@@ -31,7 +32,7 @@ fn checker(files: &[&str]) -> HashMap<(u64, i64), CheckerRecord> {
     let mut m = HashMap::new();
     for f in files {
         let Ok(t) = std::fs::read_to_string(format!("{W}/{f}")) else {
-            println!("SKIP: {W}/{f} not readable");
+            inputs::missing(format_args!("SKIP: {W}/{f} not readable"));
             return HashMap::new();
         };
         for l in t.lines() {
@@ -67,7 +68,7 @@ fn agree(export: &str, checker_files: &[&str], expect_records: usize) {
     assert_eq!(ck.len(), expect_records, "{export}: checker records");
     let path = format!("{HO}/t162-faces/{export}");
     let Ok(f) = std::fs::File::open(&path) else {
-        println!("SKIP: {path}");
+        inputs::missing(format_args!("SKIP: {path}"));
         return;
     };
     let fam = t162_family();
@@ -209,7 +210,7 @@ fn rows_f4_nearcorner_verified_covers() {
         es.sort_by_key(|e| e["rule_line0"].as_u64().unwrap());
         let path = format!("{HO}/t162-faces/{file}");
         let Ok(f) = std::fs::File::open(&path) else {
-            println!("SKIP: {path}");
+            inputs::missing(format_args!("SKIP: {path}"));
             return;
         };
         let mut rd = BufReader::with_capacity(1 << 20, f);

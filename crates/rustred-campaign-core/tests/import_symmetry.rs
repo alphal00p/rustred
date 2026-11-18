@@ -5,6 +5,7 @@
 //! Symbolica backend runs the same function in crate rustred-campaign-algebra). Test data: the handoff family files
 //! (read-only), T178's 4 supplied relations, T162's I(1^9; n9 = -1) = I(1^9) + I(D4 = 0); planted wrong relations.
 
+mod inputs;
 use rustred_campaign_core::import;
 use rustred_campaign_core::independent_algebra::Independent;
 use rustred_campaign_core::replay_base::family::Family;
@@ -108,7 +109,7 @@ fn presented_family_text_reorders_props_and_relabels() {
 fn t162_symmetry_relation_n9_verified_and_planted_ones_refused() {
     let p = ho().join("t162-bank/family/T162-presented-P3.sym");
     let Ok(src) = std::fs::read_to_string(&p) else {
-        println!("SKIP: {} missing", p.display());
+        inputs::missing(format_args!("SKIP: {} missing", p.display()));
         return;
     };
     let fam = Family::parse(&src).unwrap();
@@ -151,7 +152,9 @@ fn t178_supplied_symmetry_relations_verified_by_rederivation() {
     let sym = ws.join("SCRATCHPAD/t178-close/data/symrules.table.jsonl");
     let piece = ws.join("SCRATCHPAD/t178/regenB/R0/try1/node/F.table.jsonl");
     if !fam.is_file() || !sym.is_file() || !piece.is_file() {
-        println!("SKIP: T178 family / relations / frame table missing");
+        inputs::missing(format_args!(
+            "SKIP: T178 family / relations / frame table missing"
+        ));
         return;
     }
     let tmp = std::env::temp_dir().join(format!("import-sym-{}", std::process::id()));
@@ -275,7 +278,7 @@ fn t266_per_slot_numerator_purity_reproduces_the_checkers_image() {
     use rustred_campaign_core::symmetry::CreditPolicy;
     let table = ws().join("SCRATCHPAD/t266/jointest9/F.table.jsonl");
     if !table.is_file() {
-        println!("SKIP: {} missing", table.display());
+        inputs::missing(format_args!("SKIP: {} missing", table.display()));
         return;
     }
     let h = import::lines::read_header("jointest9", &table).unwrap();

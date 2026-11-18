@@ -4,6 +4,7 @@
 //! declare `sym_rows` (fa001, f1003, bp010, bp002) and the 12 near-corner covers of F4 now decided; the control
 //! "without symmetry rows" fails; a planted wrong group element is refused.
 
+mod inputs;
 mod rows_common;
 
 use std::io::BufReader;
@@ -223,7 +224,7 @@ fn rows_sym_t162_f4_nearcorner_covers() {
         es.sort_by_key(|e| e["rule_line0"].as_u64().unwrap());
         let path = format!("{HO}/t162-faces/{file}");
         let Ok(f) = std::fs::File::open(&path) else {
-            println!("SKIP: {path}");
+            inputs::missing(format_args!("SKIP: {path}"));
             return;
         };
         let mut rd = BufReader::with_capacity(1 << 20, f);

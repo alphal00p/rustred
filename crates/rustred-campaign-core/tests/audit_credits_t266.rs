@@ -12,6 +12,7 @@
 //! momenta) and by the expanded symmetry row; our image's top terms are strictly below the key; the checker's image
 //! dispatches to the record the checker names.
 
+mod inputs;
 use rustred_campaign_core::closure::{NoFacts, Sectors, Tier};
 use rustred_campaign_core::cover::Dispatch;
 use rustred_campaign_core::import;
@@ -125,7 +126,7 @@ fn audit_credits_t266_samples_vs_checker() {
         "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/audit-credits/index",
     );
     if !table.is_file() || !run.is_dir() || !statement.is_file() {
-        println!("SKIP: T266 inputs missing");
+        inputs::missing(format_args!("SKIP: T266 inputs missing"));
         return;
     }
     let t0 = std::time::Instant::now();

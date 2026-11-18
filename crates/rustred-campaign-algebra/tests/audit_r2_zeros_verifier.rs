@@ -11,6 +11,7 @@
 //! tests/audit_r2_zeros_forgery.rs f3 in crate rustred-campaign).
 //! Needs the Symbolica licence (`source WS/ops/env.sh`); SKIPS without it. Toy table only (arity 3, mask 110).
 
+mod inputs;
 use rustred_campaign_algebra::SymbolicaAlgebra;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -22,7 +23,7 @@ fn licensed() -> bool {
     match SymbolicaAlgebra::new() {
         Ok(_) => true,
         Err(e) => {
-            eprintln!("SKIP: {e}");
+            inputs::missing(format_args!("SKIP: {e}"));
             false
         }
     }

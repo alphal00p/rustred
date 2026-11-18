@@ -6,6 +6,7 @@
 //! dual certificate) and the claimed relation's pole order is compared with p*. Tests SKIP without the licence.
 
 mod common;
+mod inputs;
 
 use rustred_campaign_algebra::tadic::SymbolicaTadic;
 use rustred_campaign_algebra::tadic::check::check_result;

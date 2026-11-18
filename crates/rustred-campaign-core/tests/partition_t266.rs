@@ -6,6 +6,7 @@
 //! Both `#[ignore]`: `light_build.sh part test -p rustred-campaign-core --release --test partition_t266 --
 //! --ignored --nocapture`.
 
+mod inputs;
 use std::io::BufRead;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -26,7 +27,7 @@ fn src_dir() -> Option<PathBuf> {
     if p.join("h11b/out/rules266_nf.json").is_file() {
         Some(p)
     } else {
-        println!("SKIP: T266 sources not found");
+        inputs::missing(format_args!("SKIP: T266 sources not found"));
         None
     }
 }

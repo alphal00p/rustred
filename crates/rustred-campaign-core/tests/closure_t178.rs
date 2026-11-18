@@ -7,6 +7,7 @@
 //! Run in release: `light_build.sh loop test -p rustred-campaign-core --release --test closure_t178 -- --nocapture`.
 
 mod closure_common;
+mod inputs;
 
 use std::collections::{HashMap, HashSet};
 

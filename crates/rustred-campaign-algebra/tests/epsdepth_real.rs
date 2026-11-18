@@ -9,6 +9,7 @@
 //!   EPSDEPTH_CACHE_MB      parsed-record cache budget (default 4096)
 //! Needs the Symbolica licence (`source WS/ops/env.sh`).
 
+mod inputs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -48,7 +49,7 @@ fn rss_mb() -> u64 {
 #[ignore]
 fn real_node_composed_profiles() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (Some(spec_path), Some(stmt), Some(out)) = (
@@ -56,7 +57,9 @@ fn real_node_composed_profiles() {
         env("EPSDEPTH_STATEMENT_DIR"),
         env("EPSDEPTH_OUT"),
     ) else {
-        eprintln!("SKIP: EPSDEPTH_IMPORT_SPEC / EPSDEPTH_STATEMENT_DIR / EPSDEPTH_OUT not set");
+        inputs::missing(format_args!(
+            "SKIP: EPSDEPTH_IMPORT_SPEC / EPSDEPTH_STATEMENT_DIR / EPSDEPTH_OUT not set"
+        ));
         return;
     };
     let t0 = Instant::now();

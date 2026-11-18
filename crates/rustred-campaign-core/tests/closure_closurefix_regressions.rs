@@ -11,6 +11,7 @@
 //! Fixture names and numbers are TEST DATA only (L8).
 
 mod accept_common;
+mod inputs;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -41,7 +42,7 @@ fn credit_policy_only_from_a_verified_group() {
             std::fs::read_to_string(dir.join("family.sym")),
             std::fs::read_to_string(dir.join("SYMMETRY.json")),
         ) else {
-            println!("SKIP {name}");
+            inputs::missing(format_args!("SKIP {name}"));
             continue;
         };
         let fam = Family::parse(&fam).unwrap();
@@ -152,7 +153,7 @@ fn credit_policy_only_from_a_verified_group() {
 fn m7_tier_k_reports_the_core_blocked_keys_on_a_witness_absent_table() {
     let name = "T281";
     if !available(name) {
-        println!("SKIP {name}: fixture slice not readable");
+        inputs::missing(format_args!("SKIP {name}: fixture slice not readable"));
         return;
     }
     let node = load_node(name);

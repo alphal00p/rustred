@@ -5,6 +5,7 @@
 //! Symbolica licence; SKIPS without it.
 
 mod common;
+mod inputs;
 
 use rustred_campaign_algebra::epsdepth::SymbolicaLaurent;
 use rustred_campaign_algebra::regbasis::series::{

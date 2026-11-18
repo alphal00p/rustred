@@ -13,6 +13,7 @@
 //! - No diagnostic accept (`diagnostic_records`) ever reaches the ledger as a value that lets records be taken.
 
 mod adapters_support;
+mod inputs;
 use adapters_support::*;
 
 use rustred_campaign::adapters::job::{JobAdapter, RunOptions, run_attempt, sha256_hex};
@@ -136,7 +137,7 @@ macro_rules! setup {
     ($tag:expr) => {{
         require_namespace();
         let Some(frame) = frame_table() else {
-            eprintln!("SKIP: frame table absent");
+            inputs::missing(format_args!("SKIP: frame table absent"));
             return;
         };
         (serial(), Root::new($tag), frame)
@@ -196,7 +197,9 @@ fn a_resealed_relation_with_a_duplicated_term_is_refused() {
     let mut v: Value = serde_json::from_str(&lines[j]).unwrap();
     let rhs = v["rhs"].as_array().unwrap().clone();
     if rhs.len() < 2 {
-        eprintln!("SKIP: no shipped relation with two terms on this import");
+        inputs::missing(format_args!(
+            "SKIP: no shipped relation with two terms on this import"
+        ));
         return;
     }
     let honest = rhs.clone();

@@ -45,7 +45,7 @@ pub fn f6_line(o: &Oracle, case: &Value) -> Option<String> {
             let len = case["byte_len"].as_u64().unwrap() as usize;
             use std::io::{Read, Seek, SeekFrom};
             let Ok(mut f) = std::fs::File::open(&path) else {
-                println!("SKIP: {path} not readable");
+                crate::inputs::missing(format_args!("SKIP: {path} not readable"));
                 return None;
             };
             f.seek(SeekFrom::Start(off)).unwrap();

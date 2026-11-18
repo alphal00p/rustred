@@ -4,6 +4,7 @@
 //! `light_build.sh loop test -p rustred-campaign-core --release --test closure_ec2 -- --ignored --nocapture`.
 
 mod closure_common;
+mod inputs;
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -26,7 +27,10 @@ const RR_PROOF: &str =
 fn ec2_facts_feed_tier_c() {
     let raw = PathBuf::from(k3_common::HO).join("t178-orderB/bodies/R0_try1.F.table.jsonl");
     if !raw.is_file() || !PathBuf::from(RR_PROOF).is_file() {
-        println!("SKIP: {} or {RR_PROOF} missing", raw.display());
+        inputs::missing(format_args!(
+            "SKIP: {} or {RR_PROOF} missing",
+            raw.display()
+        ));
         return;
     }
     let tf = read_table_file(

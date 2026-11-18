@@ -3,6 +3,7 @@
 //! caught. Fixtures: RUSTRED_CAMPAIGN_FIXTURES/tadicjob (SHA256SUMS; default the implementer scratch path); skips
 //! without them or without the Symbolica licence. Test data only (L8).
 
+mod inputs;
 use rustred_campaign_algebra::polerank::nodeexact::{NodeTable, compare};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use std::path::PathBuf;
@@ -18,11 +19,11 @@ fn dir() -> Option<PathBuf> {
 #[test]
 fn exact_composition_equals_every_replayed_residue() {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent");
+        inputs::missing(format_args!("SKIP: Symbolica licence absent"));
         return;
     }
     let Some(d) = dir() else {
-        eprintln!("SKIP: fixtures tadicjob absent");
+        inputs::missing(format_args!("SKIP: fixtures tadicjob absent"));
         return;
     };
     let alg = SymbolicaAlgebra::new().unwrap();

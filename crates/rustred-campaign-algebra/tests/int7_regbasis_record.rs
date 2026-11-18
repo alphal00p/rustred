@@ -3,6 +3,7 @@
 //! a sealed record gives the map; an ALTERED record (one entry of `M` changed after sealing), an unsealed one and one of
 //! another schema are refused. Needs the Symbolica licence (`source WS/ops/env.sh`); SKIPS without it.
 
+mod inputs;
 use rustred_campaign_algebra::epsdepth::{BasisMap, SymbolicaExact, SymbolicaLaurent};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::regbasis::record::{RECORD_SCHEMA, seal};
@@ -11,7 +12,9 @@ use serde_json::json;
 #[test]
 fn an_altered_regular_basis_record_is_refused_and_a_sealed_one_is_read() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence (source WS/ops/env.sh)");
+        inputs::missing(format_args!(
+            "SKIP: no Symbolica licence (source WS/ops/env.sh)"
+        ));
         return;
     }
     let alg = SymbolicaAlgebra::new().unwrap();

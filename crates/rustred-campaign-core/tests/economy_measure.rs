@@ -2,6 +2,7 @@
 //! streaming per-rule measure (the `monomials` field is used, coefficients are not parsed), node accumulation and the
 //! total order.
 
+mod inputs;
 use std::io::BufRead;
 
 use rustred_campaign_core::economy::{NodeMeasure, RuleMeasure};
@@ -13,7 +14,7 @@ fn r0_table_measure() {
     });
     let path = format!("{base}/T178B/raw/R0_try1.F.table.jsonl");
     let Ok(f) = std::fs::File::open(&path) else {
-        eprintln!("SKIP: {path} absent");
+        inputs::missing(format_args!("SKIP: {path} absent"));
         return;
     };
     let mut node = NodeMeasure::default();

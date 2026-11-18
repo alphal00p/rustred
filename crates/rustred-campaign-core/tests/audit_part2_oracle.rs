@@ -8,6 +8,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
+mod inputs;
 use std::collections::BTreeSet;
 
 use rustred_campaign_core::cover::{Dispatcher, RuleRef, Table};
@@ -1832,7 +1833,7 @@ fn t266_load() -> Option<(DomainList, NodeFrame)> {
     );
     let path = dir.join("h11b/out/rules266_nf.json");
     if !path.is_file() {
-        println!("SKIP: T266 sources not found");
+        inputs::missing(format_args!("SKIP: T266 sources not found"));
         return None;
     }
     let v: serde_json::Value =

@@ -4,6 +4,7 @@
 //! of kind node-basis uses), and the screen reads rank_T at d0 against the generic dims. A constructed report, then the
 //! real route E reports of this lane when present (scratch, skipped otherwise). Pure: spawns nothing.
 
+mod inputs;
 use rustred_campaign_contract::arith::{parse_prime_list, parse_rational_list};
 use rustred_campaign_contract::node_basis::{NodeBasisArgs, check_results};
 use rustred_campaign_core::poles::basis::{node_basis_from_symmasters, screen_of_node_basis};
@@ -134,7 +135,9 @@ fn real_route_e_reports() {
     for (tag, terms) in cases {
         let p = format!("{base}/{tag}/OUT.json");
         let Ok(b) = std::fs::read(&p) else {
-            eprintln!("SKIP (not run yet): {p}");
+            inputs::missing(format_args!(
+                "route E output {p} (the real run is recorded; its outputs are evidence)"
+            ));
             continue;
         };
         let doc: Value = serde_json::from_slice(&b).unwrap();

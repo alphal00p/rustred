@@ -510,7 +510,9 @@ pub fn t162_bank_table() -> Option<Table> {
         ))
         .collect();
     let Some(p) = cands.iter().find(|p| p.is_file()) else {
-        println!("SKIP: no RULE-PREDICATES2440.json found (tried {cands:?})");
+        crate::inputs::missing(format_args!(
+            "SKIP: no RULE-PREDICATES2440.json found (tried {cands:?})"
+        ));
         return None;
     };
     let p = verified_path(p, RULE_PREDICATES_SHA);
@@ -556,7 +558,10 @@ pub fn t178_tables() -> Option<(Vec<String>, Vec<Table>, NodeFrame)> {
         }
     };
     if !cfg.is_file() {
-        println!("SKIP: no T178B case exports found ({})", cfg.display());
+        crate::inputs::missing(format_args!(
+            "SKIP: no T178B case exports found ({})",
+            cfg.display()
+        ));
         return None;
     }
     let cfg = verified_path(&cfg, &manifest["T178B/cfg_t178_regenB.json"]);

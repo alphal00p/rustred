@@ -20,6 +20,7 @@
 //! R0 bodies = R0_try1 bodies, vanishing of numerator-raising terms. They are used as inputs where the README says
 //! so and are never asserted here as checker facts.
 
+mod inputs;
 mod k3_common;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -932,7 +933,11 @@ fn k3_f6_span_cases_data_and_record_hashes() {
                     source += 1;
                 }
                 Err(e) => {
-                    println!("SKIP {}: {} unreadable ({e})", x["id"], p.display());
+                    inputs::missing(format_args!(
+                        "SKIP {}: {} unreadable ({e})",
+                        x["id"],
+                        p.display()
+                    ));
                     skipped += 1;
                 }
             }
