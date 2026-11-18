@@ -301,7 +301,7 @@ fc_step() {
     exact)
       D=$run/exact; mkdir -p "$D"
       $TS $T exact --tables "$FC_CAND_FILES" --config "$cfg_exact_config" --positions "$PR/$N.positions.jsonl" --side-dirs "${cfg_side_dirs:-}" \
-        --out "$D/$N.exact" > "$D/exact.log" 2>&1 || rc=$?
+        --cone-bound "${cfg_region#simplex:}" ${cfg_reference_index:+--reference-index "$cfg_reference_index"} --out "$D/$N.exact" > "$D/exact.log" 2>&1 || rc=$?
       ;;
     imp_plain|imp_shared)
       local form=${s#imp_} set file sd args

@@ -1,0 +1,70 @@
+{
+ "note": "T162 exactness evidence, STRICT binding (2026-11-18, after TRICKS 67): helper VH A (producer, all 3,680 f0bd7e76 records) and B (reviewer final), keyed by f0bd7e76 position; lane exact162 T162-exactness (merge 1), keyed by candidate index with its own domain hash; face verdict tables as proof objects",
+ "evidence": [
+  {
+   "name": "helper VH t162-table-A-exact",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t162-table-A-exact.records.tsv",
+   "keyed_by": "reference",
+   "index_col": "index",
+   "hash_col": "target_rhs_sha256",
+   "hash_form": "list",
+   "class_col": "class",
+   "detail_cols": [
+    "detail"
+   ],
+   "proof_object_col": "proof_object"
+  },
+  {
+   "name": "helper VH t162-table-B-exact (reviewer, final)",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t162-table-B-exact.records.tsv",
+   "keyed_by": "reference",
+   "index_col": "table_index",
+   "hash_col": "target_rhs_sha256",
+   "hash_form": "list",
+   "class_col": "class_final",
+   "detail_cols": [
+    "detail_B",
+    "final_source"
+   ]
+  },
+  {
+   "name": "lane exact162 T162-exactness (MANIFEST ad31061377f02a698f58170ac8d45f46202de43e41acb0f888481220afa95cb0)",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/exact162/deliver/T162-exactness/class_table.evidence.tsv",
+   "keyed_by": "candidate",
+   "candidate_file": 0,
+   "index_col": "table_index",
+   "hash_col": "target_rhs_sha256",
+   "hash_form": "list",
+   "domain_col": "domain_sha256",
+   "class_col": "class",
+   "detail_cols": []
+  }
+ ],
+ "proof_objects": [
+  {
+   "doc": "t162-faces.part1",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t162-faces.part1.md",
+   "key_col": "record",
+   "exact_col": "3 exactness"
+  },
+  {
+   "doc": "t162-faces.part2",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t162-faces.part2.md",
+   "key_col": "record",
+   "exact_col": "4"
+  }
+ ],
+ "watch_dispatch_positions": [
+  2920,
+  2912,
+  3567,
+  2515,
+  2464,
+  3523,
+  2448,
+  3418,
+  1497,
+  1847,
+  2926
+ ]
+}

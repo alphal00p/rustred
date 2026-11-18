@@ -1,0 +1,55 @@
+{
+ "note": "T178 exactness evidence (helper VH lanes 23-1: A = producer over all 5,263 v2 records incl. post-snapshot objects verified by B2; B = reviewer, index-anchored on A's hash); MERGE 1 (2026-11-17): + lane exact162 T178-exactness (rule 1509 = v2 5244)",
+ "evidence": [
+  {
+   "name": "helper VH t178-exact-A (producer, final incl. post-snapshot, B2-verified)",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t178-exact-A.records.tsv",
+   "comment": "#",
+   "index_col": "index",
+   "hash_col": "target_rhs_sha256_v2",
+   "hash_form": "dict_sorted",
+   "class_col": "result"
+  },
+  {
+   "name": "helper VH t178-exact-B (reviewer)",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/helper-share/verdicts-VH/t178-exact-B.records.tsv",
+   "comment": "#",
+   "index_col": "record",
+   "class_col": "combined_review_class"
+  },
+  {
+   "name": "lane exact162 T178-exactness (MANIFEST sha256 285be30d42640eb66cf94cdc347de5c96620904de6984093225364b6580eb7a1; per-key proofs, verified by lane parametric 2026-11-17)",
+   "path": "/common/build-cache/vhirschi/p_integral_dev/implementer-scratch/exact162/deliver/T178-exactness/class_table.evidence.tsv",
+   "index_col": "dispatch_position_f0bd7e76",
+   "hash_col": "target_rhs_sha256",
+   "hash_form": "list",
+   "class_col": "class"
+  }
+ ],
+ "categories": {
+  "whole": [
+   "^E-WHOLE",
+   "^POINT",
+   "^SYM",
+   "^FACE-VERDICT",
+   "^whole domain"
+  ],
+  "per_key": [
+   "^E-KEYS",
+   "^per-key certificates",
+   "^K[0-9]+ ",
+   "^every first-match key in cone",
+   "^sampled [0-9]+ keys"
+  ]
+ },
+ "watch_dispatch_positions": [
+  5128,
+  5131,
+  5132,
+  5179,
+  5180,
+  5184,
+  5244
+ ],
+ "watch_note": "TRICKS 53: 5128, 5131, 5132, 5179, 5180, 5184 exact per key to D + r 32; 5244 on arrivals + probabilistic evidence"
+}

@@ -1516,6 +1516,114 @@ pub fn region_keys_each(
     }
 }
 
+/// Every key of a lattice region inside a cone, enumerated DEPTH-FIRST over the parameters: a prefix is cut as soon as one
+/// constraint (all are affine `a t + b >= 0`) cannot hold any more for the best values of the remaining parameters over their
+/// ranges, so only points of the region are reached. Unlike [`region_keys_each`], `cap` bounds the number of REGION POINTS
+/// visited, not the bounding box: a simplex of a million keys inside a 10^8 box is enumerated (2026-11-17: a 5-parameter gap
+/// element of D + r <= 39 was skipped by the box cap and a first-match count came out a lower bound). `None` = unreadable
+/// ranges / overflow / more than `cap` points.
+pub fn region_keys_each_pruned(
+    region: &Region,
+    cone: &Cone,
+    cap: u64,
+    f: &mut dyn FnMut(&[i32]),
+) -> Option<()> {
+    let reg = with_cone(region, cone)?;
+    let k = reg.k;
+    let mut lo = vec![0i128; k];
+    let mut hi = vec![0i128; k];
+    for j in 0..k {
+        let (l, h) = reg.range_of(j).ok()?;
+        lo[j] = l?;
+        hi[j] = h?;
+        if lo[j] > hi[j] {
+            return Some(());
+        }
+    }
+    // suf[c][j] = max over t_j..t_{k-1} in their ranges of sum_{i >= j} a_ci t_i (the best the rest can add)
+    let mut suf = vec![vec![0i128; k + 1]; reg.cons.len()];
+    for (ci, c) in reg.cons.iter().enumerate() {
+        for j in (0..k).rev() {
+            let a = c.coef.get(j).copied().unwrap_or(0);
+            let m = a.checked_mul(lo[j])?.max(a.checked_mul(hi[j])?);
+            suf[ci][j] = suf[ci][j + 1].checked_add(m)?;
+        }
+    }
+    struct Walk<'a> {
+        reg: &'a Region,
+        cone: &'a Cone,
+        lo: Vec<i128>,
+        hi: Vec<i128>,
+        suf: Vec<Vec<i128>>,
+        t: Vec<i128>,
+        points: u64,
+        cap: u64,
+    }
+    fn walk(w: &mut Walk, depth: usize, partial: &[i128], f: &mut dyn FnMut(&[i32])) -> Option<()> {
+        for (ci, p) in partial.iter().enumerate() {
+            if p.checked_add(w.suf[ci][depth])? < 0 {
+                return Some(());
+            }
+        }
+        if depth == w.t.len() {
+            w.points += 1;
+            if w.points > w.cap {
+                return None;
+            }
+            let key: Option<Vec<i32>> = w
+                .reg
+                .x
+                .iter()
+                .map(|a| {
+                    let v = a
+                        .coef
+                        .iter()
+                        .zip(&w.t)
+                        .try_fold(a.c, |acc, (c, x)| acc.checked_add(c.checked_mul(*x)?))?;
+                    i32::try_from(v).ok()
+                })
+                .collect();
+            if let Some(key) = key
+                && w.cone.contains(&key)
+            {
+                f(&key);
+            }
+            return Some(());
+        }
+        for v in w.lo[depth]..=w.hi[depth] {
+            w.t[depth] = v;
+            let next: Option<Vec<i128>> = partial
+                .iter()
+                .enumerate()
+                .map(|(ci, p)| {
+                    p.checked_add(
+                        w.reg.cons[ci]
+                            .coef
+                            .get(depth)
+                            .copied()
+                            .unwrap_or(0)
+                            .checked_mul(v)?,
+                    )
+                })
+                .collect();
+            walk(w, depth + 1, &next?, f)?;
+        }
+        Some(())
+    }
+    let start: Vec<i128> = reg.cons.iter().map(|c| c.c).collect();
+    let mut w = Walk {
+        reg: &reg,
+        cone,
+        lo,
+        hi,
+        suf,
+        t: vec![0i128; k],
+        points: 0,
+        cap,
+    };
+    walk(&mut w, 0, &start, f)
+}
+
 /// Per-slot box `(lo, hi)` of a region (`None` = unbounded): exact for a cell; for a lattice region the interval image of
 /// its parameter ranges under `x = x0 + M t` (a SUPERSET of the slot range). `None` on overflow / unreadable ranges.
 pub fn slot_box(el: &GapElement) -> Option<Vec<(Option<i64>, Option<i64>)>> {
