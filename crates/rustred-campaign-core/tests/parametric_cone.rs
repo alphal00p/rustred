@@ -932,10 +932,10 @@ fn first_match_counts_are_complete_when_the_box_exceeds_the_cap() {
         for b in 1..=22 {
             for x in -21..=0 {
                 let k = vec![a, b, x];
-                if region.contains(&k) {
-                    if let Ok(Dispatch::Covered(r)) = d.first_match(&k) {
-                        *want[r.record].entry(shell(&k)).or_insert(0) += 1;
-                    }
+                if region.contains(&k)
+                    && let Ok(Dispatch::Covered(r)) = d.first_match(&k)
+                {
+                    *want[r.record].entry(shell(&k)).or_insert(0) += 1;
                 }
             }
         }

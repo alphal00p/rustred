@@ -3659,7 +3659,7 @@ fn chain_walk() {
         "stub_steps": stub_steps, "stub_keys": stub_keys, "records_used_all": used, "open_keys": open,
         "point_relations": points.len(), "point_steps": point_steps, "keys_out": std::env::var("PARAMETRIC_CHAIN_KEYS_OUT").ok(),
         "unvisited_frontier": frontier.len()});
-    drop(put);
+    // `put`'s borrow of keys_w ends at its last use (no drop needed: a closure has no Drop)
     if let Some(mut w) = keys_w {
         use std::io::Write;
         w.flush().unwrap();
