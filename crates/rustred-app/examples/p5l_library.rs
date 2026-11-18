@@ -769,9 +769,25 @@ fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
     inputs
 }
 
+/// 12d2: the regular file behind stdout (`None` for a pipe, terminal, ...).
+fn stdout_file() -> Option<std::path::PathBuf> {
+    let path = std::fs::read_link("/proc/self/fd/1").ok()?;
+    std::fs::metadata(&path).ok()?.is_file().then_some(path)
+}
+
 fn reduce_file_cli(args: &[String]) {
-    // 12d2: the resume files stay until the result is printed and flushed.
+    // 12d2: the resume files stay until the result is printed to a regular
+    // file and that file and its directory are fsynced; a resumable request
+    // whose stdout is not a regular file (pipe, terminal) is refused up front:
+    // its output could not be made durable (use reduce-files).
     rustred::reduction::set_resume_caller_commit(true);
+    if std::env::var_os("RUSTRED_RESUME_DIR").is_some() && stdout_file().is_none() {
+        eprintln!(
+            "reduce-file: RUSTRED_RESUME_DIR is set but stdout is not a regular file: the output could not be made \
+             durable before the resume files are released; redirect stdout to a file or use reduce-files"
+        );
+        std::process::exit(2);
+    }
     let (library, _) = load(&args[0], false);
     let pruning = target_keep_from_env();
     let context = library.coefficient_context();
@@ -817,6 +833,25 @@ fn reduce_file_cli(args: &[String]) {
             eprintln!("reduce-file: writing the result failed ({e}); resume state and trace kept");
             std::process::exit(4);
         }
+    }
+    if let Some(path) = stdout_file() {
+        // fsync of the file behind fd 1 (same inode) and of its directory
+        let file_sync = std::fs::File::open(&path).and_then(|f| f.sync_all());
+        let dir = path
+            .parent()
+            .map_or_else(|| std::path::PathBuf::from("."), |p| p.to_path_buf());
+        let dir_sync = std::fs::File::open(&dir).and_then(|d| d.sync_all());
+        if let Err(e) = file_sync.and(dir_sync) {
+            eprintln!(
+                "reduce-file: fsync of the output {} or its directory failed ({e}); resume state and trace kept",
+                path.display()
+            );
+            std::process::exit(5);
+        }
+    } else if std::env::var_os("RUSTRED_RESUME_DIR").is_some() {
+        // checked at the start; stdout changed under us: keep the resume files
+        eprintln!("reduce-file: stdout is no longer a regular file; resume state and trace kept");
+        std::process::exit(5);
     }
     rustred::reduction::commit_resume();
 }
