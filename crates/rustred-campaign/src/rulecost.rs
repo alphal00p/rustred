@@ -855,7 +855,7 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         ));
     }
     if !level_lines.is_empty() {
-        per_key.push_str("\n");
+        per_key.push('\n');
         per_key.push_str(&level_lines.join("\n"));
     }
     Ok(format!(
