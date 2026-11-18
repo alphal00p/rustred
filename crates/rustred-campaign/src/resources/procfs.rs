@@ -644,45 +644,31 @@ impl ProcRoot {
             Some(t) => format!("{pid}/task/{t}/stat"),
             None => format!("{pid}/stat"),
         };
-        let mut b = self.read_file(Kind::Stat, Some(pid), &rel)?;
-        // An empty read (a task being released): read again; only ENOENT / ESRCH makes it Gone.
-        for _ in 0..2 {
-            if !b.is_empty() {
-                break;
+        // procfix7 round 13 (host step, safe host check step 4: 3 of 10,000 member listings failed "unparsable"): a stat
+        // line can be TRANSIENTLY unusable (empty while the task is released; a task in EXIT_DEAD prints state X with
+        // ppid 0 and pgrp / session -1, which the u32 fields reject; a torn read). Such a read is never "gone" and never
+        // a hard error at once: it is read again (bounded, STAT_READ_PAUSES); ENOENT / ESRCH on a later read is Gone (the
+        // task ended), a usable line is the answer, and a line still unusable after the bound is Unreadable (callers:
+        // inconclusive, never "absent").
+        let mut why = String::new();
+        for (k, pause) in std::iter::once(Duration::ZERO)
+            .chain(STAT_READ_PAUSES.iter().copied())
+            .enumerate()
+        {
+            if k > 0 {
+                std::thread::sleep(pause);
             }
-            std::thread::sleep(Duration::from_millis(1));
-            b = self.read_file(Kind::Stat, Some(pid), &rel)?;
+            let b = self.read_file(Kind::Stat, Some(pid), &rel)?;
+            match parse_stat_bytes(pid, &b) {
+                Ok(sf) => return Ok(sf),
+                Err(w) => why = w,
+            }
         }
-        if b.is_empty() {
-            return unreadable(format!("{}: empty", self.what(&rel)));
-        }
-        if b.last() != Some(&b'\n') {
-            return unreadable(format!(
-                "{}: torn read ({} bytes, no line end)",
-                self.what(&rel),
-                b.len()
-            ));
-        }
-        let text = String::from_utf8_lossy(&b);
-        let st = parse_stat(pid, &text, page_size())
-            .ok_or_else(|| ProcError::Unreadable(format!("{}: unparsable", self.what(&rel))))?;
-        let fields: Vec<&str> = text
-            .rfind(')')
-            .and_then(|c| text.get(c + 2..))
-            .map(|t| t.split_whitespace().collect())
-            .unwrap_or_default();
-        let env = match (
-            fields.get(47).and_then(|v| v.parse::<u64>().ok()),
-            fields.get(48).and_then(|v| v.parse::<u64>().ok()),
-        ) {
-            (Some(s), Some(e)) => Some((s, e)),
-            _ => None,
-        };
-        let flags = fields
-            .get(6)
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or(0);
-        Ok(StatFull { st, env, flags })
+        unreadable(format!(
+            "{}: {why} (after {} reads)",
+            self.what(&rel),
+            STAT_READ_PAUSES.len() + 1
+        ))
     }
 
     /// `/proc/<pid>/status`, complete.
@@ -1337,6 +1323,56 @@ struct StatFull {
     flags: u64,
 }
 
+/// procfix7 round 13: the pauses before the re-reads of a transiently unusable stat line (about 8 ms in all).
+const STAT_READ_PAUSES: [Duration; 5] = [
+    Duration::from_micros(200),
+    Duration::from_micros(500),
+    Duration::from_millis(1),
+    Duration::from_millis(2),
+    Duration::from_millis(4),
+];
+
+/// procfix7 round 13: one raw `/proc/<pid>/stat` read judged: Ok(the stat, the environment bounds, the flags) or Err(why it
+/// cannot be used NOW: empty, torn, a task in EXIT_DEAD (state X: pgrp / session -1), unparsable). `comm` may contain
+/// spaces, parentheses and newlines: the fields start after the LAST ')' ([`parse_stat`]).
+fn parse_stat_bytes(pid: u32, b: &[u8]) -> Result<StatFull, String> {
+    if b.is_empty() {
+        return Err("empty".into());
+    }
+    if b.last() != Some(&b'\n') {
+        return Err(format!("torn read ({} bytes, no line end)", b.len()));
+    }
+    let text = String::from_utf8_lossy(b);
+    let Some(st) = parse_stat(pid, &text, page_size()) else {
+        let exiting = text
+            .rfind(')')
+            .and_then(|c| text.get(c + 2..))
+            .is_some_and(|t| t.starts_with('X'));
+        return Err(if exiting {
+            "exiting (state X: pgrp / session -1, the task is being released)".into()
+        } else {
+            "unparsable".into()
+        });
+    };
+    let fields: Vec<&str> = text
+        .rfind(')')
+        .and_then(|c| text.get(c + 2..))
+        .map(|t| t.split_whitespace().collect())
+        .unwrap_or_default();
+    let env = match (
+        fields.get(47).and_then(|v| v.parse::<u64>().ok()),
+        fields.get(48).and_then(|v| v.parse::<u64>().ok()),
+    ) {
+        (Some(s), Some(e)) => Some((s, e)),
+        _ => None,
+    };
+    let flags = fields
+        .get(6)
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+    Ok(StatFull { st, env, flags })
+}
+
 /// `PF_KTHREAD` of the stat flags: a kernel thread (no environment, never a window).
 const PF_KTHREAD: u64 = 0x0020_0000;
 
@@ -1901,6 +1937,80 @@ mod tests {
             }
         }
         eprintln!("{}", table.join("\n"));
+    }
+
+    /// procfix7 round 13 (the host's safe check, step 4: "/proc/<pid>/stat: unparsable" for 3 of 10,000 member listings):
+    /// RECORDED lines of every transient state, judged by the pure parser. The X line is from a churn in a private
+    /// namespace (S/r13/statprobe.py: 86 of 809,006 reads): a task in EXIT_DEAD prints ppid 0, pgrp -1, session -1.
+    #[test]
+    fn transient_stat_lines_are_never_a_stat_and_comm_is_parsed_after_the_last_paren() {
+        let x = b"77 (sleep) X 0 -1 -1 0 -1 4227084 387 0 0 0 0 0 0 0 20 0 0 0 301157215 0 0 0 0 0 0 0 0 0 0 0 0 1 0 0 17 11 0 0 0 0 0 0 0 0 0 0 0 0 0\n";
+        assert!(matches!(parse_stat_bytes(77, x), Err(w) if w.starts_with("exiting (state X")));
+        assert_eq!(parse_stat_bytes(77, b"").err(), Some("empty".to_string()));
+        assert!(
+            matches!(parse_stat_bytes(77, b"77 (sleep) S 1 77 77 0"), Err(w) if w.starts_with("torn read"))
+        );
+        assert_eq!(
+            parse_stat_bytes(1, b"1 (x) S 0\n").err(),
+            Some("unparsable".to_string())
+        );
+        // a zombie: a usable line (state Z, ids kept)
+        let z = b"4242 (sh) Z 1 4242 4242 0 -1 4228108 100 0 0 0 3 2 0 0 20 0 1 0 301000000 0 0 18446744073709551615 0 0 0 0 0 0 0 0 0 0 0 0 17 5 0 0 0 0 0 0 0 0 0 0 0 0 0\n";
+        let st = parse_stat_bytes(4242, z).unwrap().st;
+        assert_eq!(
+            (st.state, st.ppid, st.session, st.start_ticks, st.cpu_ticks),
+            ('Z', 1, 4242, 301000000, 5)
+        );
+        assert!(st.is_dead());
+        // comm with spaces, parentheses, ") " and a newline: the fields start after the LAST ')'
+        for (comm, line) in [
+            (
+                "a) b (c)",
+                "55 (a) b (c)) S 1 55 55 0 -1 0 0 0 0 0 1 1 0 0 20 0 1 0 77 0 9\n",
+            ),
+            (
+                "x\ny",
+                "56 (x\ny) S 1 56 56 0 -1 0 0 0 0 0 1 1 0 0 20 0 1 0 78 0 9\n",
+            ),
+            (
+                ") S 2 2 2",
+                "57 () S 2 2 2) S 1 57 57 0 -1 0 0 0 0 0 1 1 0 0 20 0 1 0 79 0 9\n",
+            ),
+        ] {
+            let st = parse_stat_bytes(1, line.as_bytes()).unwrap().st;
+            assert_eq!(st.comm, comm, "{line:?}");
+            assert_eq!((st.state, st.ppid), ('S', 1), "{line:?}");
+        }
+    }
+
+    /// procfix7 round 13: a stat that stays unusable for the whole bound is Unreadable (never Gone, never a stat); a
+    /// missing entry is Gone at once.
+    #[test]
+    fn a_stat_unusable_for_the_whole_bound_is_unreadable_and_a_missing_one_is_gone() {
+        let d = std::env::temp_dir().join(format!("rr-procfs-x-{}-{}", me(), now_ticks()));
+        std::fs::create_dir_all(d.join("77")).unwrap();
+        std::fs::write(
+            d.join("77/stat"),
+            "77 (sleep) X 0 -1 -1 0 -1 4227084 387 0 0 0 0 0 0 0 20 0 0 0 301157215 0 0 0\n",
+        )
+        .unwrap();
+        let r = ProcRoot::at(&d);
+        let t0 = std::time::Instant::now();
+        match r.stat(77) {
+            Err(ProcError::Unreadable(w)) => {
+                assert!(
+                    w.contains("exiting (state X") && w.contains("after 6 reads"),
+                    "{w}"
+                )
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            t0.elapsed() >= Duration::from_millis(7),
+            "the bound was not waited"
+        );
+        assert_eq!(r.stat(78), Err(ProcError::Gone));
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     /// A fake tree: missing entries are Gone, the proc root is never Gone, a torn stat is Unreadable.

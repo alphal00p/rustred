@@ -675,36 +675,39 @@ R	src/resources/procfs.rs	266	wrapper		wrapper (owns the rule: Absent only on EN
 E	src/resources/procfs.rs	339	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::metadata(self.path(rel)).map_err(|e| classify(&e, &what))
 L	src/resources/procfs.rs	352	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
 O	src/resources/procfs.rs	382	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	libc::open(
-R	src/resources/procfs.rs	797	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::File::open(self.path(&rel))
-L	src/resources/procfs.rs	1191	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel))
-L	src/resources/procfs.rs	1223	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
-V	src/resources/procfs.rs	1678	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-X	src/resources/procfs.rs	1678	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-C	src/resources/procfs.rs	1711	test			let out = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1712	test			.args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
-V	src/resources/procfs.rs	1713	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1713	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-C	src/resources/procfs.rs	1758	test			let _ = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1758	test			let _ = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1759	test			.args(["-c", &format!("kill -KILL {daemon}")])
-V	src/resources/procfs.rs	1760	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1760	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-C	src/resources/procfs.rs	1774	test			let mut child = std::process::Command::new("python3")
-X	src/resources/procfs.rs	1779	test			])
-V	src/resources/procfs.rs	1780	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1780	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-W	src/resources/procfs.rs	1814	test			let _ = child.wait();
-D	src/resources/procfs.rs	1911	test			std::fs::write(
-D	src/resources/procfs.rs	1919	test			std::fs::write(d.join("5/stat"), "5 (x) S 1 5 5 0 -1 0 0 0").unwrap();
-D	src/resources/procfs.rs	1927	test			let _ = std::fs::remove_dir_all(&d);
-X	src/resources/procfs.rs	1927	test			let _ = std::fs::remove_dir_all(&d);
-D	src/resources/procfs.rs	1983	test			std::fs::write(
-D	src/resources/procfs.rs	1988	test			std::fs::write(
-D	src/resources/procfs.rs	1994	test			std::fs::write(
-D	src/resources/procfs.rs	1999	test			std::fs::write(
-X	src/resources/procfs.rs	2020	test			}
-D	src/resources/procfs.rs	2021	test			let _ = std::fs::remove_dir_all(&d);
-X	src/resources/procfs.rs	2021	test			let _ = std::fs::remove_dir_all(&d);
+R	src/resources/procfs.rs	783	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::File::open(self.path(&rel))
+L	src/resources/procfs.rs	1177	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel))
+L	src/resources/procfs.rs	1209	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
+V	src/resources/procfs.rs	1714	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+X	src/resources/procfs.rs	1714	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+C	src/resources/procfs.rs	1747	test			let out = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1748	test			.args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+V	src/resources/procfs.rs	1749	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1749	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+C	src/resources/procfs.rs	1794	test			let _ = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1794	test			let _ = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1795	test			.args(["-c", &format!("kill -KILL {daemon}")])
+V	src/resources/procfs.rs	1796	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1796	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+C	src/resources/procfs.rs	1810	test			let mut child = std::process::Command::new("python3")
+X	src/resources/procfs.rs	1815	test			])
+V	src/resources/procfs.rs	1816	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1816	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+W	src/resources/procfs.rs	1850	test			let _ = child.wait();
+D	src/resources/procfs.rs	1992	test			std::fs::write(
+D	src/resources/procfs.rs	2013	test			let _ = std::fs::remove_dir_all(&d);
+X	src/resources/procfs.rs	2013	test			let _ = std::fs::remove_dir_all(&d);
+D	src/resources/procfs.rs	2021	test			std::fs::write(
+D	src/resources/procfs.rs	2029	test			std::fs::write(d.join("5/stat"), "5 (x) S 1 5 5 0 -1 0 0 0").unwrap();
+D	src/resources/procfs.rs	2037	test			let _ = std::fs::remove_dir_all(&d);
+X	src/resources/procfs.rs	2037	test			let _ = std::fs::remove_dir_all(&d);
+D	src/resources/procfs.rs	2093	test			std::fs::write(
+D	src/resources/procfs.rs	2098	test			std::fs::write(
+D	src/resources/procfs.rs	2104	test			std::fs::write(
+D	src/resources/procfs.rs	2109	test			std::fs::write(
+X	src/resources/procfs.rs	2130	test			}
+D	src/resources/procfs.rs	2131	test			let _ = std::fs::remove_dir_all(&d);
+X	src/resources/procfs.rs	2131	test			let _ = std::fs::remove_dir_all(&d);
 C	src/resources/scan.rs	848	test			let mut child = std::process::Command::new("setsid")
 W	src/resources/scan.rs	894	test			child.wait().unwrap();
 V	src/supervisor/failpoint.rs	35	prod		test builds only (failpoints; release builds refuse the variable)	match std::env::var(FAILPOINT_ENV) {
