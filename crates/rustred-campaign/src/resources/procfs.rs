@@ -659,7 +659,7 @@ impl ProcRoot {
             .chain(STAT_READ_PAUSES.iter().copied())
             .enumerate()
         {
-            if k > 0 {
+            if k > 0 && !pause.is_zero() {
                 std::thread::sleep(pause);
             }
             let b = self.read_file(Kind::Stat, Some(pid), &rel)?;
@@ -1333,9 +1333,13 @@ struct StatFull {
     flags: u64,
 }
 
-/// procfix7 round 13: the pauses before the re-reads of a transiently unusable stat line (about 8 ms in all).
-const STAT_READ_PAUSES: [Duration; 5] = [
-    Duration::from_micros(200),
+/// procfix7 round 13 / 14: the pauses before the re-reads of a transiently unusable stat line (7.6 ms in all). The FIRST
+/// re-read is immediate: a task in EXIT_DEAD was gone at it in 115 of 115 recorded cases (S/r13/statprobe2.py), and a
+/// pause there lengthened every task listing that met an exiting thread (round 14: the completeness walk's "task
+/// listing incomplete" under thread churn, proc_reaudit_b rb_reuse).
+const STAT_READ_PAUSES: [Duration; 6] = [
+    Duration::ZERO,
+    Duration::from_micros(100),
     Duration::from_micros(500),
     Duration::from_millis(1),
     Duration::from_millis(2),
@@ -2010,7 +2014,7 @@ mod tests {
         match r.stat(77) {
             Err(ProcError::Unreadable(w)) => {
                 assert!(
-                    w.contains("exiting (state X") && w.contains("after 6 reads"),
+                    w.contains("exiting (state X") && w.contains("after 7 reads"),
                     "{w}"
                 )
             }
