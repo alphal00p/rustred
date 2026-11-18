@@ -509,13 +509,7 @@ impl Hunt<'_> {
     /// strict full /proc listing (ppid == us), with what each entry was when its stat was read: alive, or ENDED (a zombie,
     /// or gone at the read). An ended entry may have HANDED OFF to a child born after the listing (a re-forking job), so
     /// it is never "absent": [`Self::handoff_suspects`]. Strict: a failed enumeration or stat read is an error.
-    /// procfix7 round 11 (gate14 m14-liveness): read under the REAP GATE (shared): the adopted-children reaper and the
-    /// leader reap cannot take an entry away between the listing and its stat read, so an ended entry of ours is a zombie
-    /// with its start time and session (no anonymous "gone" from our own reaps).
     fn snapshot_tops(&self, with_scan: bool) -> Result<Listing, String> {
-        let _gate = crate::resources::reap_gate()
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
         let mut kids = own_children().map_err(|e| format!("own children: {e}"))?;
         crate::resources::listing_hold();
         if with_scan {
@@ -596,10 +590,21 @@ impl Hunt<'_> {
 
     /// procfix7 round 10 (gate13c G13c-M1): the ENDED entries of a raw listing that may have handed off to a successor
     /// born after the listing ([`Self::ended_suspect`]; records each in `seen_ended`).
+    /// Round 11: the other leaders' sessions of the listing are read ONCE under the registry lock.
     fn handoff_suspects(&mut self, l: &Listing) -> Vec<u32> {
+        if l.ended.is_empty() {
+            return Vec::new();
+        }
+        let leaders =
+            self.other_leader_starts(l.ended.iter().filter_map(|(_, i)| i.map(|(_, s)| s)));
         let mut out = Vec::new();
         for &(pid, info) in &l.ended {
-            if self.ended_suspect(pid, info.map(|(s, _)| s), info.map(|(_, sess)| sess)) {
+            if self.ended_suspect_with(
+                pid,
+                info.map(|(s, _)| s),
+                info.map(|(_, sess)| sess),
+                &leaders,
+            ) {
                 out.push(pid);
             }
         }
@@ -622,12 +627,24 @@ impl Hunt<'_> {
     ///   be walked (another attempt's marker, another uid, ...): its successors are not J's either;
     /// - a zombie of the supervisor's OWN session (its helpers; every job leader setsid's);
     /// - (round 11, gate14 m14-liveness) a zombie of ANOTHER job's session whose leader is held unreaped and was born no
-    ///   later than it ([`Self::other_leaders_session`]): it descends from that leader, not from J.
+    ///   later than it ([`Self::other_leader_starts`]): it descends from that leader, not from J.
     ///
     /// Everything else is a suspect: a gone entry (no identity), a zombie of J's session, of a session that is no
     /// registered leader's. A suspect is recorded in `seen_ended` (the caller makes the round a change / the pass
     /// inconclusive; later listings show its successors).
     fn ended_suspect(&mut self, pid: u32, start: Option<u64>, session: Option<u32>) -> bool {
+        let leaders = self.other_leader_starts(session.into_iter());
+        self.ended_suspect_with(pid, start, session, &leaders)
+    }
+
+    /// [`Self::ended_suspect`] with the other leaders' sessions already read ([`Self::other_leader_starts`]).
+    fn ended_suspect_with(
+        &mut self,
+        pid: u32,
+        start: Option<u64>,
+        session: Option<u32>,
+        leaders: &BTreeMap<u32, u64>,
+    ) -> bool {
         let Some(start) = start else { return true };
         if self.killed_member(pid, start)
             || self.seen_ended.contains(&(pid, start))
@@ -637,7 +654,7 @@ impl Hunt<'_> {
             return false;
         }
         if let Some(sess) = session
-            && (sess == self.own_session || self.other_leaders_session(sess, start))
+            && (sess == self.own_session || leaders.get(&sess).is_some_and(|&l| l <= start))
         {
             return false;
         }
@@ -645,28 +662,40 @@ impl Hunt<'_> {
         true
     }
 
-    /// procfix7 round 11 (gate14 m14-liveness): is `session` the session of ANOTHER job's leader, held unreaped (in the
-    /// registry: a registered leader is reaped only under the registry lock, so the stat read under it is that leader's),
-    /// born no later than `born` (the ended process's start)? Then the process was born while that leader held the
-    /// number `session` (a number in use as a session id is never given to a new process, so every session with that id
-    /// during the leader's life is the leader's own) and inherited the session from a member of it: it descends from that
-    /// leader, never from J (J's leader is the supervisor's child, as is every leader).
-    fn other_leaders_session(&self, session: u32, born: u64) -> bool {
-        if session == self.s.sid {
-            return false;
+    /// procfix7 round 11 (gate14 m14-liveness): read under ONE registry lock (a registered leader is reaped only under it,
+    /// so each stat read under it is that leader's): for every given session other than J's and ours that is a
+    /// registered leader's (our child, leading its own session), that leader's start time. A zombie of such a session
+    /// born NO EARLIER than that leader is exempt ([`Self::ended_suspect`]): it was born while the leader held the number
+    /// (a number in use as a session id is never given to a new process, so every session with that id during the
+    /// leader's life is the leader's own) and inherited the session from a member of it: it descends from that leader,
+    /// never from J (J's leader is the supervisor's child, as is every leader).
+    fn other_leader_starts(&self, sessions: impl Iterator<Item = u32>) -> BTreeMap<u32, u64> {
+        let want: BTreeSet<u32> = sessions
+            .filter(|&s| s != self.s.sid && s != self.own_session)
+            .collect();
+        let mut out = BTreeMap::new();
+        if want.is_empty() {
+            return out;
         }
         let reg = self.s.leaders.lock();
-        if !reg.contains(&session) {
-            return false;
+        for s in want {
+            if reg.contains(&s)
+                && let Ok(st) = crate::resources::read_stat(s)
+                && st.ppid == me()
+                && st.session == s
+            {
+                out.insert(s, st.start_ticks);
+            }
         }
-        matches!(crate::resources::read_stat(session),
-            Ok(st) if st.start_ticks <= born && st.ppid == me() && st.session == session)
+        out
     }
 
     /// procfix7 round 11 (gate14 L14-1): our children list keeps changing (a fast relay re-parented to us): the round
     /// cannot conclude, but every live child that any read names is still a candidate to STOP (a stopped relay hop cannot
     /// fork, so the list settles). Candidates only: nothing is concluded from this union.
-    fn unstable_top_candidates(&self, queue: &mut Vec<Cand>) {
+    /// Only candidates not examined yet (pid AND start): a list that keeps changing because OTHER jobs' orphans come and
+    /// go costs one classification per new child, not one per child and round.
+    fn unstable_top_candidates(&self, examined: &BTreeMap<u32, u64>, queue: &mut Vec<Cand>) {
         let me = me();
         let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
         for pid in crate::resources::own_children_candidates() {
@@ -675,6 +704,7 @@ impl Hunt<'_> {
             }
             if let Ok(st) = crate::resources::read_stat(pid)
                 && !st.is_dead()
+                && examined.get(&pid) != Some(&st.start_ticks)
             {
                 queue.push((pid, Some(me), st.start_ticks));
             }
@@ -707,9 +737,14 @@ impl Hunt<'_> {
     /// procfix7 round 11 (gate14 G14-M1, W1): the stability check that ends the fixed point. EVERY list the hunt follows
     /// is read again: ours, every stopped member's and every walked process's; each must still exist, show no new ended
     /// entry that may have handed off and no live entry that was not examined (by pid AND start). Ok(None): stable.
+    ///
+    /// Round 11 (liveness, gate14 m14-liveness): a live entry that appeared during the round is classified HERE; one that
+    /// is conclusively NOT the job's and not walked (another job's orphan, another uid, ...) cannot hide a member (its
+    /// descendants are not the job's either: the classification rules) and is taken as examined; anything else (the
+    /// job's, walked, inconclusive, found dead, another start time) makes the round unstable as before.
     fn unstable_reason(
         &mut self,
-        examined: &BTreeMap<u32, u64>,
+        examined: &mut BTreeMap<u32, u64>,
         parents: &[(u32, u64)],
     ) -> Result<Option<String>, String> {
         let mut lists: Vec<(u32, Listing)> = Vec::new();
@@ -729,8 +764,25 @@ impl Hunt<'_> {
                     "children {ended:?} of {p} ended during the round (hand-off?)"
                 )));
             }
-            if let Some((c, _)) = l.live.iter().find(|(c, s)| examined.get(c) != Some(s)) {
-                return Ok(Some(format!("child {c} of {p} appeared during the round")));
+            for (&c, &cs) in &l.live {
+                if examined.get(&c) == Some(&cs) {
+                    continue;
+                }
+                let class = self.classify(c, Some(*p)).0;
+                self.trace_class(c, Some(*p), &class);
+                match class {
+                    Class::NotOurs {
+                        descend: false,
+                        unattributed,
+                        facts,
+                    } if facts.as_ref().is_none_or(|f| f.stat.start_ticks == cs) => {
+                        if unattributed && let Some(f) = &facts {
+                            self.note_unattributed(f);
+                        }
+                        examined.insert(c, cs);
+                    }
+                    _ => return Ok(Some(format!("child {c} of {p} appeared during the round"))),
+                }
             }
         }
         Ok(None)
@@ -800,7 +852,7 @@ impl Hunt<'_> {
                     Ok(t) => self.take_listing(me(), &t, &examined, &mut queue, &mut changed),
                     Err(e) => {
                         // round 11 (gate14 L14-1): nothing is concluded, but the listed children are still stopped
-                        self.unstable_top_candidates(&mut queue);
+                        self.unstable_top_candidates(&examined, &mut queue);
                         inconclusive = Some(e);
                     }
                 },
@@ -1018,7 +1070,7 @@ impl Hunt<'_> {
                 .map(|(p, m)| (*p, m.facts.stat.start_ticks))
                 .chain(walked.iter().map(|(p, st)| (*p, *st)))
                 .collect();
-            match self.unstable_reason(&examined, &parents) {
+            match self.unstable_reason(&mut examined, &parents) {
                 Ok(None) => return Ok(known),
                 Ok(Some(why)) => last_reason = why,
                 Err(e) => last_reason = e,

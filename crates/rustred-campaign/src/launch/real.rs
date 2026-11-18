@@ -2152,11 +2152,6 @@ impl RealChild {
     /// Reap the leader (under the registry lock) and untrack, after a verified-empty job.
     fn reap_and_untrack(&mut self) {
         if let Some(mut c) = self.child.take() {
-            // procfix7 round 11 (gate14 m14-liveness): the reap gate (exclusive), then the registry: no hunt's listing of
-            // our children sees this leader vanish before its stat read
-            let gate = crate::resources::reap_gate()
-                .write()
-                .unwrap_or_else(|p| p.into_inner());
             let mut reg = self.leaders.lock();
             if self.exit.is_some() {
                 #[allow(clippy::let_underscore_must_use)]
@@ -2165,7 +2160,6 @@ impl RealChild {
             }
             reg.remove(&self.sid);
             drop(reg);
-            drop(gate);
             reap_in_background(c);
         }
         self.reaped = true;

@@ -36,7 +36,7 @@ pub(crate) use children::listing_hold;
 pub use children::set_listing_hold;
 pub(crate) use children::{
     FactRead, MarkerFact, ProcFacts, children_of, own_children, own_children_by_scan,
-    own_children_candidates, read_proc_facts, reap_gate, start_reaper, strict_listing_counted,
+    own_children_candidates, read_proc_facts, start_reaper, strict_listing_counted,
 };
 pub use children::{ReaperStats, reaper_stats, request_reap};
 pub use lineage::{HiddenProcess, describe_hidden};

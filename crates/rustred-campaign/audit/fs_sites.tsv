@@ -296,69 +296,97 @@ D	src/fsx.rs	576	test			let _ = std::fs::remove_dir_all(&d);
 X	src/fsx.rs	576	test			let _ = std::fs::remove_dir_all(&d);
 R	src/launch/cgroup.rs	27	prod		io::Result returned (every caller propagates or matches it)	fs::read_to_string(p)
 O	src/launch/cgroup.rs	31	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	OpenOptions::new()
-F	src/launch/cgroup.rs	61	prod	cgroup	probe: only a proven memory.max makes the root usable; Unknown = not usable (sampling)	let ok = crate::fsx::presence("cgroup", &probe.join("memory.max")).is_present()
-O	src/launch/cgroup.rs	62	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	&& OpenOptions::new()
-X	src/launch/cgroup.rs	64	prod		probe: only a proven writable cgroup.procs makes the root usable; an error = not usable (no cgroup: conservative)	.open(probe.join("cgroup.procs"))
-D	src/launch/cgroup.rs	68	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
-X	src/launch/cgroup.rs	68	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
-F	src/launch/cgroup.rs	87	prod	cgroup	auto: Unknown / Absent / Failed -> Err (propagated)	let meta = crate::fsx::presence("cgroup", &own)
-E	src/launch/cgroup.rs	88	prod		auto: error propagated (? / map_err)	.metadata()
-F	src/launch/cgroup.rs	106	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence("cgroup", &leaf) {
-O	src/launch/cgroup.rs	153	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	OpenOptions::new()
-D	src/launch/cgroup.rs	166	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
-X	src/launch/cgroup.rs	166	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
-F	src/launch/cgroup.rs	199	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cgroup", &self.dir.join("memory.events")) {
-K	src/launch/cgroup.rs	212	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	let _ = kill_path(&self.dir);
-D	src/launch/cgroup.rs	232	prod		D-B: job cgroup after its session is empty: rmdir (the kernel refuses a populated cgroup)	let _ = fs::remove_dir(&self.dir);
-X	src/launch/cgroup.rs	232	prod		D-B: job cgroup after its session is empty: rmdir (the kernel refuses a populated cgroup)	let _ = fs::remove_dir(&self.dir);
-E	src/launch/cgroup.rs	286	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	match crate::fsx::presence("cgroup", &dir).metadata() {
-F	src/launch/cgroup.rs	286	prod	cgroup	auto: Unknown / Absent / Failed -> Err (propagated)	match crate::fsx::presence("cgroup", &dir).metadata() {
-K	src/launch/cgroup.rs	311	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	"cgroup.kill",
-F	src/launch/cgroup.rs	316	prod	cgroup	tracking probe: Unknown = the candidate is not used	.all(|f| crate::fsx::presence("cgroup", &probe.join(f)).is_present())
-O	src/launch/cgroup.rs	317	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	&& OpenOptions::new()
-X	src/launch/cgroup.rs	319	prod		probe: only a proven writable cgroup.procs makes the root usable; an error = not usable (no cgroup: conservative)	.open(probe.join("cgroup.procs"))
-D	src/launch/cgroup.rs	323	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
-X	src/launch/cgroup.rs	323	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
-O	src/launch/cgroup.rs	354	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	match OpenOptions::new()
-D	src/launch/cgroup.rs	366	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
-X	src/launch/cgroup.rs	366	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
-F	src/launch/cgroup.rs	408	prod	cgroup	auto: Unknown / Absent / Failed -> Err (propagated)	for e in crate::fsx::list_required("cgroup", dir)? {
-E	src/launch/cgroup.rs	409	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if e.file_type.is_dir() {
-K	src/launch/cgroup.rs	418	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	pub(super) fn kill_path(dir: &Path) -> io::Result<()> {
-K	src/launch/cgroup.rs	421	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	write_file(&dir.join("cgroup.kill"), "1")
-K	src/launch/cgroup.rs	426	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	pub(super) fn freeze_and_kill_path(dir: &Path, wait: std::time::Duration) -> io::Result<()> {
-K	src/launch/cgroup.rs	443	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	kill_path(dir)
-F	src/launch/cgroup.rs	566	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", dir) {
-E	src/launch/cgroup.rs	568	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok((md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino())))
-K	src/launch/cgroup.rs	642	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	kill_path(&self.dir)
-F	src/launch/cgroup.rs	722	prod	cgroup	auto: explicit Unknown / Failed arm	let md = match crate::fsx::presence_lstat("cgroup", &dir) {
-E	src/launch/cgroup.rs	729	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if !md.file_type().is_dir() || md.uid() != uid {
-K	src/launch/cgroup.rs	739	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	write_file(&dir.join("cgroup.kill"), "1")
-F	src/launch/cgroup.rs	760	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", &dir) {
-E	src/launch/cgroup.rs	763	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(md) if md.file_type().is_dir() && md.uid() == uid => {
-X	src/launch/cgroup.rs	801	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	matches!(
-F	src/launch/cgroup.rs	802	prod	cgroup	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::presence_lstat("cgroup", recorded),
-X	src/launch/cgroup.rs	803	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::Presence::Absent
-X	src/launch/cgroup.rs	804	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	) && matches!(
-F	src/launch/cgroup.rs	805	prod	cgroup	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::presence_lstat("cgroup", parent),
-E	src/launch/cgroup.rs	806	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(m) if m.is_dir()
-D	src/launch/cgroup.rs	877	test			let _ = std::fs::remove_dir_all(&root);
-X	src/launch/cgroup.rs	877	test			let _ = std::fs::remove_dir_all(&root);
-D	src/launch/cgroup.rs	884	test			std::fs::write(deep.join("cgroup.procs"), "").unwrap();
-D	src/launch/cgroup.rs	885	test			std::fs::write(deep.join("child").join("cgroup.procs"), "").unwrap();
-D	src/launch/cgroup.rs	886	test			std::fs::write(deep.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
-D	src/launch/cgroup.rs	887	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
-K	src/launch/cgroup.rs	887	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
-R	src/launch/cgroup.rs	897	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
-K	src/launch/cgroup.rs	897	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
-D	src/launch/cgroup.rs	901	test			std::fs::write(deep.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
-D	src/launch/cgroup.rs	902	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
-K	src/launch/cgroup.rs	902	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
-R	src/launch/cgroup.rs	908	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
-K	src/launch/cgroup.rs	908	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
-D	src/launch/cgroup.rs	913	test			std::fs::remove_dir_all(&deep).unwrap();
-D	src/launch/cgroup.rs	922	test			let _ = std::fs::remove_dir_all(&root);
-X	src/launch/cgroup.rs	922	test			let _ = std::fs::remove_dir_all(&root);
+O	src/launch/cgroup.rs	43	prod		round 11 m14-scope-toctou: open_dir_nofollow opens the scope directory O_DIRECTORY|O_NOFOLLOW; an error is returned (no cgroup.kill is written)	libc::open(
+F	src/launch/cgroup.rs	120	prod	cgroup	probe: only a proven memory.max makes the root usable; Unknown = not usable (sampling)	let ok = crate::fsx::presence("cgroup", &probe.join("memory.max")).is_present()
+O	src/launch/cgroup.rs	121	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	&& OpenOptions::new()
+X	src/launch/cgroup.rs	123	prod		probe: only a proven writable cgroup.procs makes the root usable; an error = not usable (no cgroup: conservative)	.open(probe.join("cgroup.procs"))
+D	src/launch/cgroup.rs	127	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
+X	src/launch/cgroup.rs	127	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
+F	src/launch/cgroup.rs	146	prod	cgroup	auto: Unknown / Absent / Failed -> Err (propagated)	let meta = crate::fsx::presence("cgroup", &own)
+E	src/launch/cgroup.rs	147	prod		auto: error propagated (? / map_err)	.metadata()
+F	src/launch/cgroup.rs	165	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence("cgroup", &leaf) {
+O	src/launch/cgroup.rs	212	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	OpenOptions::new()
+D	src/launch/cgroup.rs	225	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
+X	src/launch/cgroup.rs	225	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
+F	src/launch/cgroup.rs	258	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cgroup", &self.dir.join("memory.events")) {
+K	src/launch/cgroup.rs	271	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	let _ = kill_path(&self.dir);
+D	src/launch/cgroup.rs	291	prod		D-B: job cgroup after its session is empty: rmdir (the kernel refuses a populated cgroup)	let _ = fs::remove_dir(&self.dir);
+X	src/launch/cgroup.rs	291	prod		D-B: job cgroup after its session is empty: rmdir (the kernel refuses a populated cgroup)	let _ = fs::remove_dir(&self.dir);
+E	src/launch/cgroup.rs	345	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	match crate::fsx::presence("cgroup", &dir).metadata() {
+F	src/launch/cgroup.rs	345	prod	cgroup	auto: Unknown / Absent / Failed -> Err (propagated)	match crate::fsx::presence("cgroup", &dir).metadata() {
+K	src/launch/cgroup.rs	370	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	"cgroup.kill",
+F	src/launch/cgroup.rs	375	prod	cgroup	tracking probe: Unknown = the candidate is not used	.all(|f| crate::fsx::presence("cgroup", &probe.join(f)).is_present())
+O	src/launch/cgroup.rs	376	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	&& OpenOptions::new()
+X	src/launch/cgroup.rs	378	prod		probe: only a proven writable cgroup.procs makes the root usable; an error = not usable (no cgroup: conservative)	.open(probe.join("cgroup.procs"))
+D	src/launch/cgroup.rs	382	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
+X	src/launch/cgroup.rs	382	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&probe);
+O	src/launch/cgroup.rs	413	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	match OpenOptions::new()
+D	src/launch/cgroup.rs	425	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
+X	src/launch/cgroup.rs	425	prod		D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory	let _ = fs::remove_dir(&dir);
+F	src/launch/cgroup.rs	467	prod	cgroup	auto: Unknown / Absent / Failed -> Err (propagated)	for e in crate::fsx::list_required("cgroup", dir)? {
+E	src/launch/cgroup.rs	468	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if e.file_type.is_dir() {
+K	src/launch/cgroup.rs	477	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	pub(super) fn kill_path(dir: &Path) -> io::Result<()> {
+K	src/launch/cgroup.rs	480	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	write_file(&dir.join("cgroup.kill"), "1")
+K	src/launch/cgroup.rs	485	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	pub(super) fn freeze_and_kill_path(dir: &Path, wait: std::time::Duration) -> io::Result<()> {
+K	src/launch/cgroup.rs	502	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	kill_path(dir)
+F	src/launch/cgroup.rs	634	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", dir) {
+E	src/launch/cgroup.rs	636	prod		auto: on a Metadata / FileType / Presence (not a path probe)	Ok((md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino())))
+K	src/launch/cgroup.rs	722	prod		round 11 m14-scope-toctou: the scope belt writes cgroup.kill only through the directory descriptor checked by fstat (dir, our uid, recorded dev+inode), inside guard::cgroup_kill_logged (intent + delivery logged)	write_at(&dir, c"cgroup.kill", "1")
+F	src/launch/cgroup.rs	803	prod	cgroup	auto: explicit Unknown / Failed arm	let md = match crate::fsx::presence_lstat("cgroup", &dir) {
+E	src/launch/cgroup.rs	810	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if !md.file_type().is_dir() || md.uid() != uid {
+K	src/launch/cgroup.rs	820	prod		cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)	write_file(&dir.join("cgroup.kill"), "1")
+F	src/launch/cgroup.rs	841	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::presence_lstat("cgroup", &dir) {
+E	src/launch/cgroup.rs	844	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(md) if md.file_type().is_dir() && md.uid() == uid => {
+X	src/launch/cgroup.rs	882	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	matches!(
+F	src/launch/cgroup.rs	883	prod	cgroup	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::presence_lstat("cgroup", recorded),
+X	src/launch/cgroup.rs	884	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::Presence::Absent
+X	src/launch/cgroup.rs	885	prod		recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	) && matches!(
+F	src/launch/cgroup.rs	886	prod	cgroup	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)	crate::fsx::presence_lstat("cgroup", parent),
+E	src/launch/cgroup.rs	887	prod		auto: on a Metadata / FileType / Presence (not a path probe)	crate::fsx::Presence::Present(m) if m.is_dir()
+D	src/launch/cgroup.rs	959	test			let _ = std::fs::remove_dir_all(&root);
+X	src/launch/cgroup.rs	959	test			let _ = std::fs::remove_dir_all(&root);
+D	src/launch/cgroup.rs	963	test			std::fs::write(dir.join("cgroup.procs"), "4194305\n").unwrap();
+D	src/launch/cgroup.rs	964	test			std::fs::write(dir.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+E	src/launch/cgroup.rs	965	test			let md = std::fs::metadata(&dir).unwrap();
+D	src/launch/cgroup.rs	977	test			std::fs::write(dir.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+D	src/launch/cgroup.rs	979	test			let _ = std::fs::remove_dir_all(&root);
+X	src/launch/cgroup.rs	979	test			let _ = std::fs::remove_dir_all(&root);
+D	src/launch/cgroup.rs	989	test			let _ = std::fs::remove_dir_all(&root);
+X	src/launch/cgroup.rs	989	test			let _ = std::fs::remove_dir_all(&root);
+D	src/launch/cgroup.rs	996	test			std::fs::write(deep.join("cgroup.procs"), "").unwrap();
+D	src/launch/cgroup.rs	997	test			std::fs::write(deep.join("child").join("cgroup.procs"), "").unwrap();
+D	src/launch/cgroup.rs	998	test			std::fs::write(deep.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+D	src/launch/cgroup.rs	999	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+K	src/launch/cgroup.rs	999	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+R	src/launch/cgroup.rs	1009	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+K	src/launch/cgroup.rs	1009	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+D	src/launch/cgroup.rs	1013	test			std::fs::write(deep.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+D	src/launch/cgroup.rs	1014	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+K	src/launch/cgroup.rs	1014	test			std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+R	src/launch/cgroup.rs	1020	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+K	src/launch/cgroup.rs	1020	test			std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+D	src/launch/cgroup.rs	1025	test			std::fs::remove_dir_all(&deep).unwrap();
+D	src/launch/cgroup.rs	1034	test			let _ = std::fs::remove_dir_all(&root);
+X	src/launch/cgroup.rs	1034	test			let _ = std::fs::remove_dir_all(&root);
+D	src/launch/cgroup.rs	1090	test			let _ = fs::remove_dir_all(&base);
+X	src/launch/cgroup.rs	1090	test			let _ = fs::remove_dir_all(&base);
+E	src/launch/cgroup.rs	1093	test			let md = fs::metadata(&d).unwrap();
+D	src/launch/cgroup.rs	1096	test			fs::write(d.join("cgroup.kill"), "").unwrap();
+K	src/launch/cgroup.rs	1096	test			fs::write(d.join("cgroup.kill"), "").unwrap();
+K	src/launch/cgroup.rs	1097	test			write_at(&fd, c"cgroup.kill", "1").unwrap();
+R	src/launch/cgroup.rs	1098	test			assert_eq!(fs::read_to_string(d.join("cgroup.kill")).unwrap(), "1");
+K	src/launch/cgroup.rs	1098	test			assert_eq!(fs::read_to_string(d.join("cgroup.kill")).unwrap(), "1");
+D	src/launch/cgroup.rs	1104	test			fs::write(&victim, "untouched").unwrap();
+D	src/launch/cgroup.rs	1105	test			fs::remove_file(d.join("cgroup.kill")).unwrap();
+K	src/launch/cgroup.rs	1105	test			fs::remove_file(d.join("cgroup.kill")).unwrap();
+K	src/launch/cgroup.rs	1106	test			std::os::unix::fs::symlink(&victim, d.join("cgroup.kill")).unwrap();
+K	src/launch/cgroup.rs	1107	test			assert!(write_at(&fd, c"cgroup.kill", "1").is_err());
+R	src/launch/cgroup.rs	1108	test			assert_eq!(fs::read_to_string(&victim).unwrap(), "untouched");
+D	src/launch/cgroup.rs	1115	test			fs::remove_dir_all(&d).unwrap();
+E	src/launch/cgroup.rs	1117	test			let md2 = fs::metadata(&d).unwrap();
+X	src/launch/cgroup.rs	1120	test			}
+D	src/launch/cgroup.rs	1121	test			let _ = fs::remove_dir_all(&base);
+X	src/launch/cgroup.rs	1121	test			let _ = fs::remove_dir_all(&base);
 O	src/launch/guard.rs	320	prod		the intent log: create(true) + append, never truncated (O_APPEND)	let file = std::fs::OpenOptions::new()
 O	src/launch/guard.rs	321	prod		the intent log: create(true) + append, never truncated (O_APPEND)	.create(true)
 F	src/launch/guard.rs	417	prod	guard.fallback	decides only an extra directory sync: Unknown counts as new (synced)	let new = !crate::fsx::presence_lstat("guard.fallback", &path).is_present();
@@ -475,12 +503,32 @@ D	src/launch/guard.rs	3053	test			let _ = std::fs::remove_dir_all(&log);
 X	src/launch/guard.rs	3053	test			let _ = std::fs::remove_dir_all(&log);
 D	src/launch/guard.rs	3054	test			let _ = std::fs::remove_dir_all(&full);
 X	src/launch/guard.rs	3054	test			let _ = std::fs::remove_dir_all(&full);
-V	src/launch/hunt.rs	149	prod		a trace switch (diagnostics)	if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
-K	src/launch/hunt.rs	533	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
-K	src/launch/hunt.rs	765	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	&& guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL).delivered()
-K	src/launch/hunt.rs	776	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	let _ = super::cgroup::kill_path(cg);
-K	src/launch/hunt.rs	781	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	let v = guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, Some(&self.s.leaders));
-K	src/launch/hunt.rs	1124	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	&& super::cgroup::freeze_and_kill_path(cg, Duration::from_secs(1)).is_err()
+C	src/launch/host_check.rs	48	prod		safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported	Command::new("systemctl")
+C	src/launch/host_check.rs	68	prod		safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported	Command::new("systemctl")
+F	src/launch/host_check.rs	95	prod	cgroup	safe host check refusals: anything but Present (and ours) refuses before anything is started	match crate::fsx::presence("cgroup", Path::new("/sys/fs/cgroup/cgroup.controllers")) {
+F	src/launch/host_check.rs	101	prod	cgroup	safe host check refusals: anything but Present (and ours) refuses before anything is started	match crate::fsx::presence("cgroup", &root) {
+E	src/launch/host_check.rs	103	prod		auto: on a Metadata / FileType / Presence (not a path probe)	if md.is_dir() && std::os::unix::fs::MetadataExt::uid(&md) == uid => {}
+K	src/launch/host_check.rs	131	prod		safe host check: report / error text naming cgroup.kill (no write)	cgroup.kill of that scope; stop {unit}.scope by its exact name if anything is left"
+C	src/launch/host_check.rs	137	prod		safe host check (coordinator tool, gate14 item 5): its ONE scope (unique unit gate-scopecheck-<16 hex>; every process in its own pid namespace); a spawn error is reported	let mut c = Command::new("systemd-run")
+W	src/launch/host_check.rs	167	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	let alive = matches!(c.try_wait(), Ok(None));
+W	src/launch/host_check.rs	175	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	while matches!(c.try_wait(), Ok(None)) && t0.elapsed() < Duration::from_secs(10) {
+W	src/launch/host_check.rs	180	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	match c.try_wait() {
+W	src/launch/host_check.rs	271	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	if !matches!(populated(&r.dir), Ok(true)) || !matches!(c.try_wait(), Ok(None)) {
+K	src/launch/host_check.rs	345	prod		safe host check: its ONE cgroup.kill = ScopeRef::kill_members of its own scope after the safety gate (every pid C itself or in its private pid namespace)	.map_err(|e| format!("step 6: cgroup.kill: {e}"))?;
+K	src/launch/host_check.rs	352	prod		safe host check: report / error text naming cgroup.kill (no write)	return Err("step 6: the scope is still populated 5 s after cgroup.kill".into());
+W	src/launch/host_check.rs	359	prod		safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run	match c.try_wait() {
+K	src/launch/host_check.rs	364	prod		safe host check: report / error text naming cgroup.kill (no write)	Ok(None) => return Err("step 6: C still runs 5 s after cgroup.kill".into()),
+K	src/launch/host_check.rs	381	prod		safe host check: report / error text naming cgroup.kill (no write)	"step 6: cgroup.kill written: scope {emptied}, C killed by SIGKILL, unit LoadState {} ActiveState {}",
+V	src/launch/hunt.rs	173	prod		a trace switch (diagnostics)	if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
+X	src/launch/hunt.rs	682	prod		round 11: an exemption from the hand-off rule only on a conclusive read (a registered leader stat read under the registry lock); a failed read = no exemption (the ended entry stays a suspect)	if reg.contains(&s)
+X	src/launch/hunt.rs	683	prod		round 11: an exemption from the hand-off rule only on a conclusive read (a registered leader stat read under the registry lock); a failed read = no exemption (the ended entry stays a suspect)	&& let Ok(st) = crate::resources::read_stat(s)
+X	src/launch/hunt.rs	704	prod		round 11 (L14-1): stop CANDIDATES only on an unstable children read (never a proof; the round stays inconclusive): a failed read adds no candidate	}
+X	src/launch/hunt.rs	705	prod		round 11 (L14-1): stop CANDIDATES only on an unstable children read (never a proof; the round stays inconclusive): a failed read adds no candidate	if let Ok(st) = crate::resources::read_stat(pid)
+K	src/launch/hunt.rs	831	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
+K	src/launch/hunt.rs	1104	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	&& guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL).delivered()
+K	src/launch/hunt.rs	1115	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	let _ = super::cgroup::kill_path(cg);
+K	src/launch/hunt.rs	1120	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	let v = guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, Some(&self.s.leaders));
+K	src/launch/hunt.rs	1551	prod		the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created	&& super::cgroup::freeze_and_kill_path(cg, Duration::from_secs(1)).is_err()
 E	src/launch/idlock.rs	69	prod		auto: fstat of a descriptor this code holds (no path probe)	self.file.metadata(),
 F	src/launch/idlock.rs	70	prod	idlock	removal proof (dev + inode of the held descriptor): Unknown = not removed	crate::fsx::presence_lstat("idlock", &self.path),
 D	src/launch/idlock.rs	78	prod		D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)	let _ = fs::remove_file(&self.path);
@@ -494,39 +542,39 @@ O	src/launch/idlock.rs	165	prod		the id lock file: create(true), truncate(false)
 O	src/launch/idlock.rs	168	prod		auto: error propagated (? / map_err)	.create(true)
 R	src/launch/idlock.rs	183	prod		the holder pid for the refusal message only (the refusal does not depend on it)	let _ = file.read_to_string(&mut s);
 D	src/launch/idlock.rs	197	prod		D-E: set_len(0) of the id lock file whose flock this process holds (diagnostic content)	let _ = file.set_len(0);
-V	src/launch/mod.rs	412	prod		the launch environment passed to a child (copied variables; an unset one is not passed)	if let Some(v) = std::env::var_os(k) {
-X	src/launch/mod.rs	513	prod		no I/O call: a match on an enum value (the statement window reaches an I/O name below)	matches!(self, UsageReading::Fresh { .. })
+V	src/launch/mod.rs	414	prod		the launch environment passed to a child (copied variables; an unset one is not passed)	if let Some(v) = std::env::var_os(k) {
+X	src/launch/mod.rs	515	prod		no I/O call: a match on an enum value (the statement window reaches an I/O name below)	matches!(self, UsageReading::Fresh { .. })
 K	src/launch/real.rs	27	prod		signals through the guard (pinned group / pidfd with the identity checklist)	self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,
 V	src/launch/real.rs	219	prod		PATH search for systemd-run / true (execvp semantics)	let path = std::env::var_os("PATH")?;
 E	src/launch/real.rs	224	prod		PATH search: an entry that cannot be checked is skipped (execvp semantics); only a proven regular file is taken	.find(|p| crate::fsx::presence("real.program", p).is_file())
 F	src/launch/real.rs	224	prod	real.program	PATH search: an entry that cannot be checked is skipped (execvp semantics); only a proven regular file is taken	.find(|p| crate::fsx::presence("real.program", p).is_file())
 V	src/launch/real.rs	230	prod		the user manager address for systemd-run (unset = derived from the uid, typed probe)	match std::env::var_os("XDG_RUNTIME_DIR") {
 V	src/launch/real.rs	237	prod		the user manager address for systemd-run (unset = derived from the uid, typed probe)	if let Some(d) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS") {
-C	src/launch/real.rs	363	prod		procfix7 round 8b: systemctl --user show / reset-failed of THIS campaign's scope by its exact name (bounded 10 s, cleared environment); show only reads; reset-failed unloads a FAILED unit after its result was read; never inside a namespace	let mut c = Command::new(&exe);
-C	src/launch/real.rs	416	prod		procfix7 round 8b: systemctl --user show / reset-failed of THIS campaign's scope by its exact name (bounded 10 s, cleared environment); show only reads; reset-failed unloads a FAILED unit after its result was read; never inside a namespace	let mut c = Command::new(&exe);
-C	src/launch/real.rs	527	prod		scope_evidence_check (rr_campaign scope-check, the host pre-flight, round 9): ONE systemd-run --user --scope around true, our own child, exit observed by waitid WNOWAIT, reaped by try_wait; no signal on this path; spawn errors typed (FAIL)	let mut cmd = Command::new(&exe);
-W	src/launch/real.rs	611	prod		scope_evidence_check: reaps OUR OWN child after its exit was observed (waitid WNOWAIT); the result is printed; an error leaves the zombie to be reaped when the CLI exits (no decision depends on it)	let reaped = child.try_wait();
-V	src/launch/real.rs	671	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-X	src/launch/real.rs	671	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-V	src/launch/real.rs	690	prod		TEST BUILDS ONLY (cfg(debug_assertions); release: None): the scope_exit failpoint; unset / non-UTF-8 = no override	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
-X	src/launch/real.rs	690	prod		TEST BUILDS ONLY (cfg(debug_assertions); release: None): the scope_exit failpoint; unset / non-UTF-8 = no override (a test switch, not a file fact)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
-V	src/launch/real.rs	712	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-X	src/launch/real.rs	712	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-C	src/launch/real.rs	766	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let mut c = Command::new(&exe2);
-W	src/launch/real.rs	1186	prod		waitid / try_wait of an own child (peek_exit typed; a zombie probe child)	libc::waitid(
-C	src/launch/real.rs	1359	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let mut c = Command::new(crate::resources::procfs::SELF_EXE);
-C	src/launch/real.rs	1373	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	None => Command::new(&prog),
-V	src/launch/real.rs	1381	prod		the job environment (contract variables; an unset one is not passed)	match std::env::var_os(name) {
-O	src/launch/real.rs	1397	prod		auto: error propagated (? / map_err)	OpenOptions::new()
-O	src/launch/real.rs	1398	prod		auto: error propagated (? / map_err)	.create(true)
-K	src/launch/real.rs	1511	prod		signals through the guard (pinned group / pidfd with the identity checklist)	signal_pinned_group(&leaders, pid, libc::SIGKILL)
-K	src/launch/real.rs	2001	prod		signals through the guard (pinned group / pidfd with the identity checklist)	&& signal_pinned_group(&self.leaders, self.sid, sig).delivered()
-W	src/launch/real.rs	2127	prod		waitid / try_wait of an own child (peek_exit typed; a zombie probe child)	let _ = c.try_wait(); // a zombie: immediate
-X	src/launch/real.rs	2220	prod		procfix8-ok: an unreadable cgroup text leaves the scope unknown for now (read again at the next sample)	if let Ok(text) =
-F	src/launch/real.rs	2253	prod	cgroup	auto: explicit Unknown / Failed arm	crate::fsx::read_to_string("cgroup", &dir.join("memory.current"))
-F	src/launch/real.rs	2258	prod	cgroup	auto: explicit Unknown / Failed arm	let oom = match crate::fsx::read_to_string("cgroup", &dir.join("memory.events")) {
-K	src/launch/real.rs	2677	prod		signals through the guard (pinned group / pidfd with the identity checklist)	let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);
-C	src/launch/real.rs	2853	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let e = std::process::Command::new(prog)
+C	src/launch/real.rs	381	prod		procfix7 round 8b: systemctl --user show / reset-failed of THIS campaign's scope by its exact name (bounded 10 s, cleared environment); show only reads; reset-failed unloads a FAILED unit after its result was read; never inside a namespace	let mut c = Command::new(&exe);
+C	src/launch/real.rs	434	prod		procfix7 round 8b: systemctl --user show / reset-failed of THIS campaign's scope by its exact name (bounded 10 s, cleared environment); show only reads; reset-failed unloads a FAILED unit after its result was read; never inside a namespace	let mut c = Command::new(&exe);
+C	src/launch/real.rs	545	prod		scope_evidence_check (rr_campaign scope-check, the host pre-flight, round 9): ONE systemd-run --user --scope around true, our own child, exit observed by waitid WNOWAIT, reaped by try_wait; no signal on this path; spawn errors typed (FAIL)	let mut cmd = Command::new(&exe);
+W	src/launch/real.rs	648	prod		scope_evidence_check: reaps OUR OWN child after its exit was observed (waitid WNOWAIT); the result is printed; an error leaves the zombie to be reaped when the CLI exits (no decision depends on it)	let reaped = child.try_wait();
+V	src/launch/real.rs	703	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+X	src/launch/real.rs	703	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+V	src/launch/real.rs	722	prod		TEST BUILDS ONLY (cfg(debug_assertions); release: None): the scope_exit failpoint; unset / non-UTF-8 = no override	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+X	src/launch/real.rs	722	prod		TEST BUILDS ONLY (cfg(debug_assertions); release: None): the scope_exit failpoint; unset / non-UTF-8 = no override (a test switch, not a file fact)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+V	src/launch/real.rs	744	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+X	src/launch/real.rs	744	prod		test builds only (failpoint scope_pending:1; cfg(debug_assertions))	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+C	src/launch/real.rs	798	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let mut c = Command::new(&exe2);
+W	src/launch/real.rs	1218	prod		waitid / try_wait of an own child (peek_exit typed; a zombie probe child)	libc::waitid(
+C	src/launch/real.rs	1391	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let mut c = Command::new(crate::resources::procfs::SELF_EXE);
+C	src/launch/real.rs	1405	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	None => Command::new(&prog),
+V	src/launch/real.rs	1413	prod		the job environment (contract variables; an unset one is not passed)	match std::env::var_os(name) {
+O	src/launch/real.rs	1429	prod		auto: error propagated (? / map_err)	OpenOptions::new()
+O	src/launch/real.rs	1430	prod		auto: error propagated (? / map_err)	.create(true)
+K	src/launch/real.rs	1543	prod		signals through the guard (pinned group / pidfd with the identity checklist)	signal_pinned_group(&leaders, pid, libc::SIGKILL)
+K	src/launch/real.rs	2033	prod		signals through the guard (pinned group / pidfd with the identity checklist)	&& signal_pinned_group(&self.leaders, self.sid, sig).delivered()
+W	src/launch/real.rs	2159	prod		waitid / try_wait of an own child (peek_exit typed; a zombie probe child)	let _ = c.try_wait(); // a zombie: immediate
+X	src/launch/real.rs	2252	prod		procfix8-ok: an unreadable cgroup text leaves the scope unknown for now (read again at the next sample)	if let Ok(text) =
+F	src/launch/real.rs	2285	prod	cgroup	auto: explicit Unknown / Failed arm	crate::fsx::read_to_string("cgroup", &dir.join("memory.current"))
+F	src/launch/real.rs	2290	prod	cgroup	auto: explicit Unknown / Failed arm	let oom = match crate::fsx::read_to_string("cgroup", &dir.join("memory.events")) {
+K	src/launch/real.rs	2709	prod		signals through the guard (pinned group / pidfd with the identity checklist)	let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);
+C	src/launch/real.rs	2885	prod		the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec	let e = std::process::Command::new(prog)
 V	src/launch/sweep.rs	135	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
 X	src/launch/sweep.rs	135	prod		test builds only (failpoint hooks)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
 K	src/launch/sweep.rs	495	prod		signals through the guard (pidfd + identity checklist)	match guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None) {
@@ -611,49 +659,49 @@ D	src/resources/lineage.rs	547	test			let _ = std::fs::remove_dir_all(&self.0);
 X	src/resources/lineage.rs	547	test			let _ = std::fs::remove_dir_all(&self.0);
 D	src/resources/lineage.rs	809	test			std::fs::remove_dir_all(f.0.join("2001")).unwrap();
 X	src/resources/marked.rs	97	prod		marker PARSE (a malformed marker is not this campaign's), no I/O	Self::new(c, a).ok()
-D	src/resources/marked.rs	523	test			std::fs::write(
-D	src/resources/marked.rs	544	test			std::fs::remove_file(root.join("101/status")).unwrap();
-D	src/resources/marked.rs	552	test			let _ = std::fs::remove_dir_all(&root);
-X	src/resources/marked.rs	552	test			let _ = std::fs::remove_dir_all(&root);
-D	src/resources/marked.rs	595	test			let _ = std::fs::remove_dir_all(&root);
-X	src/resources/marked.rs	595	test			let _ = std::fs::remove_dir_all(&root);
-F	src/resources/mod.rs	356	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cgroup", p) {
-C	src/resources/mod.rs	618	test			let mut child = std::process::Command::new("sleep")
-W	src/resources/mod.rs	635	test			child.wait().unwrap();
+D	src/resources/marked.rs	525	test			std::fs::write(
+D	src/resources/marked.rs	546	test			std::fs::remove_file(root.join("101/status")).unwrap();
+D	src/resources/marked.rs	554	test			let _ = std::fs::remove_dir_all(&root);
+X	src/resources/marked.rs	554	test			let _ = std::fs::remove_dir_all(&root);
+D	src/resources/marked.rs	597	test			let _ = std::fs::remove_dir_all(&root);
+X	src/resources/marked.rs	597	test			let _ = std::fs::remove_dir_all(&root);
+F	src/resources/mod.rs	359	prod	cgroup	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("cgroup", p) {
+C	src/resources/mod.rs	621	test			let mut child = std::process::Command::new("sleep")
+W	src/resources/mod.rs	638	test			child.wait().unwrap();
 R	src/resources/procfs.rs	266	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let mut f = std::fs::File::open(self.path(rel)).map_err(|e| classify(&e, &what))?;
 E	src/resources/procfs.rs	339	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::metadata(self.path(rel)).map_err(|e| classify(&e, &what))
 L	src/resources/procfs.rs	352	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
 O	src/resources/procfs.rs	382	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	libc::open(
 R	src/resources/procfs.rs	797	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::fs::File::open(self.path(&rel))
-L	src/resources/procfs.rs	1175	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel))
-L	src/resources/procfs.rs	1207	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
-V	src/resources/procfs.rs	1662	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-X	src/resources/procfs.rs	1662	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
-C	src/resources/procfs.rs	1695	test			let out = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1696	test			.args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
-V	src/resources/procfs.rs	1697	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1697	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-C	src/resources/procfs.rs	1742	test			let _ = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1742	test			let _ = std::process::Command::new("sh")
-X	src/resources/procfs.rs	1743	test			.args(["-c", &format!("kill -KILL {daemon}")])
-V	src/resources/procfs.rs	1744	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1744	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-C	src/resources/procfs.rs	1758	test			let mut child = std::process::Command::new("python3")
-X	src/resources/procfs.rs	1763	test			])
-V	src/resources/procfs.rs	1764	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-X	src/resources/procfs.rs	1764	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
-W	src/resources/procfs.rs	1798	test			let _ = child.wait();
-D	src/resources/procfs.rs	1895	test			std::fs::write(
-D	src/resources/procfs.rs	1903	test			std::fs::write(d.join("5/stat"), "5 (x) S 1 5 5 0 -1 0 0 0").unwrap();
-D	src/resources/procfs.rs	1911	test			let _ = std::fs::remove_dir_all(&d);
-X	src/resources/procfs.rs	1911	test			let _ = std::fs::remove_dir_all(&d);
-D	src/resources/procfs.rs	1967	test			std::fs::write(
-D	src/resources/procfs.rs	1972	test			std::fs::write(
-D	src/resources/procfs.rs	1978	test			std::fs::write(
+L	src/resources/procfs.rs	1191	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel))
+L	src/resources/procfs.rs	1223	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = std::fs::read_dir(self.path(rel)).map_err(|e| classify(&e, &what))?;
+V	src/resources/procfs.rs	1678	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+X	src/resources/procfs.rs	1678	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+C	src/resources/procfs.rs	1711	test			let out = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1712	test			.args(["-c", "setsid sleep 30 </dev/null >/dev/null 2>&1 & echo $!"])
+V	src/resources/procfs.rs	1713	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1713	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+C	src/resources/procfs.rs	1758	test			let _ = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1758	test			let _ = std::process::Command::new("sh")
+X	src/resources/procfs.rs	1759	test			.args(["-c", &format!("kill -KILL {daemon}")])
+V	src/resources/procfs.rs	1760	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1760	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+C	src/resources/procfs.rs	1774	test			let mut child = std::process::Command::new("python3")
+X	src/resources/procfs.rs	1779	test			])
+V	src/resources/procfs.rs	1780	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+X	src/resources/procfs.rs	1780	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default())
+W	src/resources/procfs.rs	1814	test			let _ = child.wait();
+D	src/resources/procfs.rs	1911	test			std::fs::write(
+D	src/resources/procfs.rs	1919	test			std::fs::write(d.join("5/stat"), "5 (x) S 1 5 5 0 -1 0 0 0").unwrap();
+D	src/resources/procfs.rs	1927	test			let _ = std::fs::remove_dir_all(&d);
+X	src/resources/procfs.rs	1927	test			let _ = std::fs::remove_dir_all(&d);
 D	src/resources/procfs.rs	1983	test			std::fs::write(
-X	src/resources/procfs.rs	2004	test			}
-D	src/resources/procfs.rs	2005	test			let _ = std::fs::remove_dir_all(&d);
-X	src/resources/procfs.rs	2005	test			let _ = std::fs::remove_dir_all(&d);
+D	src/resources/procfs.rs	1988	test			std::fs::write(
+D	src/resources/procfs.rs	1994	test			std::fs::write(
+D	src/resources/procfs.rs	1999	test			std::fs::write(
+X	src/resources/procfs.rs	2020	test			}
+D	src/resources/procfs.rs	2021	test			let _ = std::fs::remove_dir_all(&d);
+X	src/resources/procfs.rs	2021	test			let _ = std::fs::remove_dir_all(&d);
 C	src/resources/scan.rs	848	test			let mut child = std::process::Command::new("setsid")
 W	src/resources/scan.rs	894	test			child.wait().unwrap();
 V	src/supervisor/failpoint.rs	35	prod		test builds only (failpoints; release builds refuse the variable)	match std::env::var(FAILPOINT_ENV) {
@@ -676,64 +724,64 @@ R	src/supervisor/mod.rs	2095	prod		typed match (RecoveryRead::Data / Absent / Ot
 X	src/supervisor/mod.rs	2814	prod		an OUTCOME counts as present unless PROVEN absent (Presence::Absent only): never "not spawned" from an unread file	let outcome_absent = matches!(
 F	src/supervisor/mod.rs	2815	prod	supervisor.outcome	only a PROVEN absent OUTCOME is "not spawned"; Unknown counts as present (execution unknown)	crate::fsx::presence_lstat("supervisor.outcome", &layout.outcome()),
 F	src/supervisor/mod.rs	2851	prod	supervisor.sentinel	explicit Absent arm only; other arms read further (Unknown -> recovery_read_failed)	match crate::fsx::presence_lstat("supervisor.sentinel", &sentinel) {
-F	src/supervisor/mod.rs	3712	prod	real.program	auto: explicit Unknown / Failed arm	let bytes = match crate::fsx::presence("real.program", path) {
-X	src/supervisor/mod.rs	4139	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	4141	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-D	src/supervisor/mod.rs	4287	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
-D	src/supervisor/mod.rs	4323	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
-F	src/supervisor/mod.rs	5624	prod	supervisor.control	auto: explicit Unknown / Failed arm	let entries = match crate::fsx::list("supervisor.control", &dir) {
-E	src/supervisor/mod.rs	5640	prod		auto: on a Metadata / FileType / Presence (not a path probe)	.filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
-X	src/supervisor/mod.rs	5656	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(&done);
-F	src/supervisor/mod.rs	5659	prod	supervisor.control	auto: explicit Unknown / Failed arm	let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
-X	src/supervisor/mod.rs	5660	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
-D	src/supervisor/mod.rs	5681	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-D	src/supervisor/mod.rs	5691	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-D	src/supervisor/mod.rs	5709	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
-X	src/supervisor/mod.rs	5738	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	5740	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-F	src/supervisor/mod.rs	6022	prod	workdir	auto: explicit Unknown / Failed arm	let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
-X	src/supervisor/mod.rs	6230	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
-D	src/supervisor/mod.rs	6232	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
-D	src/supervisor/mod.rs	7023	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::fsx::rename_noreplace(p, &target) {
-F	src/supervisor/mod.rs	7051	prod	supervisor.control	auto: Unknown / Absent / Failed -> Err (propagated)	let mut n = crate::fsx::list_required("supervisor.control", &dir)
-O	src/supervisor/mod.rs	7059	prod		auto: no-clobber create (O_EXCL)	match std::fs::OpenOptions::new()
-O	src/supervisor/mod.rs	7061	prod		auto: no-clobber create (O_EXCL)	.create_new(true)
-R	src/supervisor/mod.rs	7104	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
-X	src/supervisor/mod.rs	7104	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
-R	src/supervisor/mod.rs	7278	prod		auto: error propagated (? / map_err)	f.read_to_end(&mut b)
-O	src/supervisor/mod.rs	7291	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
-O	src/supervisor/mod.rs	7293	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
-D	src/supervisor/mod.rs	7294	prod		auto: error propagated (? / map_err)	.truncate(true)
-R	src/supervisor/mod.rs	7302	prod		auto: error propagated (? / map_err)	std::fs::File::open(&dir)?.sync_all()
-O	src/supervisor/mod.rs	7638	test			let mut f = std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7646	test			let _ = std::fs::remove_dir_all(&l.root);
-X	src/supervisor/mod.rs	7646	test			let _ = std::fs::remove_dir_all(&l.root);
-D	src/supervisor/mod.rs	7688	test			std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
-D	src/supervisor/mod.rs	7693	test			std::fs::copy(l2.root.join(&rel), &copy).unwrap();
-D	src/supervisor/mod.rs	7694	test			std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
-D	src/supervisor/mod.rs	7701	test			std::fs::remove_file(l3.root.join(&rel)).unwrap();
-O	src/supervisor/mod.rs	7705	test			std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7709	test			.set_len(10)
-D	src/supervisor/mod.rs	7722	test			let _ = std::fs::remove_dir_all(&d.root);
-X	src/supervisor/mod.rs	7722	test			let _ = std::fs::remove_dir_all(&d.root);
-O	src/supervisor/mod.rs	7744	test			let mut f = std::fs::OpenOptions::new()
-D	src/supervisor/mod.rs	7755	test			std::fs::rename(other.table(), l.table()).unwrap();
-D	src/supervisor/mod.rs	7760	test			let _ = std::fs::remove_dir_all(&l.root);
-X	src/supervisor/mod.rs	7760	test			let _ = std::fs::remove_dir_all(&l.root);
-D	src/supervisor/mod.rs	7761	test			let _ = std::fs::remove_dir_all(&other.root);
-X	src/supervisor/mod.rs	7761	test			let _ = std::fs::remove_dir_all(&other.root);
-D	src/supervisor/mod.rs	7924	test			let _ = std::fs::remove_dir_all(&d);
-X	src/supervisor/mod.rs	7924	test			let _ = std::fs::remove_dir_all(&d);
-X	src/supervisor/mod.rs	7964	test			}
-D	src/supervisor/mod.rs	7965	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
-X	src/supervisor/mod.rs	7965	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
-D	src/supervisor/mod.rs	8071	test			let _ = std::fs::remove_dir_all(&full);
-X	src/supervisor/mod.rs	8071	test			let _ = std::fs::remove_dir_all(&full);
+F	src/supervisor/mod.rs	3739	prod	real.program	auto: explicit Unknown / Failed arm	let bytes = match crate::fsx::presence("real.program", path) {
+X	src/supervisor/mod.rs	4166	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	4168	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+D	src/supervisor/mod.rs	4314	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
+D	src/supervisor/mod.rs	4350	prod		auto: error propagated (? / map_err)	crate::fsx::rename_noreplace(run_dir, &aside)
+F	src/supervisor/mod.rs	5651	prod	supervisor.control	auto: explicit Unknown / Failed arm	let entries = match crate::fsx::list("supervisor.control", &dir) {
+E	src/supervisor/mod.rs	5667	prod		auto: on a Metadata / FileType / Presence (not a path probe)	.filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
+X	src/supervisor/mod.rs	5683	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(&done);
+F	src/supervisor/mod.rs	5686	prod	supervisor.control	auto: explicit Unknown / Failed arm	let req: Option<ControlRequest> = match crate::fsx::read("supervisor.control", &p) {
+X	src/supervisor/mod.rs	5687	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
+D	src/supervisor/mod.rs	5708	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+D	src/supervisor/mod.rs	5718	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+D	src/supervisor/mod.rs	5736	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)	let _ = archive_control(&p, &done, &name);
+X	src/supervisor/mod.rs	5765	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	5767	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+F	src/supervisor/mod.rs	6049	prod	workdir	auto: explicit Unknown / Failed arm	let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
+X	src/supervisor/mod.rs	6257	prod		the directory of the write below, which reports its own error (disk full -> 75)	let _ = std::fs::create_dir_all(d);
+D	src/supervisor/mod.rs	6259	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
+D	src/supervisor/mod.rs	7055	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::fsx::rename_noreplace(p, &target) {
+F	src/supervisor/mod.rs	7083	prod	supervisor.control	auto: Unknown / Absent / Failed -> Err (propagated)	let mut n = crate::fsx::list_required("supervisor.control", &dir)
+O	src/supervisor/mod.rs	7091	prod		auto: no-clobber create (O_EXCL)	match std::fs::OpenOptions::new()
+O	src/supervisor/mod.rs	7093	prod		auto: no-clobber create (O_EXCL)	.create_new(true)
+R	src/supervisor/mod.rs	7136	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
+X	src/supervisor/mod.rs	7136	prod		procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)	let b = std::fs::read(layout.job_spec()).ok()?;
+R	src/supervisor/mod.rs	7310	prod		auto: error propagated (? / map_err)	f.read_to_end(&mut b)
+O	src/supervisor/mod.rs	7323	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
+O	src/supervisor/mod.rs	7325	prod		the supervisor log: create(true) + append (diagnostics)	.create(true)
+D	src/supervisor/mod.rs	7326	prod		auto: error propagated (? / map_err)	.truncate(true)
+R	src/supervisor/mod.rs	7334	prod		auto: error propagated (? / map_err)	std::fs::File::open(&dir)?.sync_all()
+O	src/supervisor/mod.rs	7670	test			let mut f = std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7678	test			let _ = std::fs::remove_dir_all(&l.root);
+X	src/supervisor/mod.rs	7678	test			let _ = std::fs::remove_dir_all(&l.root);
+D	src/supervisor/mod.rs	7720	test			std::fs::rename(other.root.join(&rel), l.root.join(&rel)).unwrap();
+D	src/supervisor/mod.rs	7725	test			std::fs::copy(l2.root.join(&rel), &copy).unwrap();
+D	src/supervisor/mod.rs	7726	test			std::fs::rename(&copy, l2.root.join(&rel)).unwrap();
+D	src/supervisor/mod.rs	7733	test			std::fs::remove_file(l3.root.join(&rel)).unwrap();
+O	src/supervisor/mod.rs	7737	test			std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7741	test			.set_len(10)
+D	src/supervisor/mod.rs	7754	test			let _ = std::fs::remove_dir_all(&d.root);
+X	src/supervisor/mod.rs	7754	test			let _ = std::fs::remove_dir_all(&d.root);
+O	src/supervisor/mod.rs	7776	test			let mut f = std::fs::OpenOptions::new()
+D	src/supervisor/mod.rs	7787	test			std::fs::rename(other.table(), l.table()).unwrap();
+D	src/supervisor/mod.rs	7792	test			let _ = std::fs::remove_dir_all(&l.root);
+X	src/supervisor/mod.rs	7792	test			let _ = std::fs::remove_dir_all(&l.root);
+D	src/supervisor/mod.rs	7793	test			let _ = std::fs::remove_dir_all(&other.root);
+X	src/supervisor/mod.rs	7793	test			let _ = std::fs::remove_dir_all(&other.root);
+D	src/supervisor/mod.rs	7956	test			let _ = std::fs::remove_dir_all(&d);
+X	src/supervisor/mod.rs	7956	test			let _ = std::fs::remove_dir_all(&d);
+X	src/supervisor/mod.rs	7996	test			}
+D	src/supervisor/mod.rs	7997	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
+X	src/supervisor/mod.rs	7997	test			let mut f = std::fs::File::create(d.join("filler")).ok()?;
+D	src/supervisor/mod.rs	8103	test			let _ = std::fs::remove_dir_all(&full);
+X	src/supervisor/mod.rs	8103	test			let _ = std::fs::remove_dir_all(&full);
 F	src/supervisor/orphans.rs	109	prod	supervisor.dirs	canonical_root: a log annotation only (the raw path when unresolvable); nothing decided	crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())
 X	src/supervisor/orphans.rs	109	prod		canonical_root: a log annotation only (the raw path when unresolvable); nothing decided	crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())
-R	src/supervisor/spec.rs	398	prod		auto: error propagated (? / map_err)	let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
-F	src/supervisor/spec.rs	516	prod	supervisor.dirs	auto: error propagated (? / map_err)	let c = crate::fsx::canonical("supervisor.dirs", cdir).map_err(|e| {
-F	src/supervisor/spec.rs	522	prod	supervisor.dirs	auto: error propagated (? / map_err)	let s = crate::fsx::canonical("supervisor.dirs", src).map_err(|e| {
+R	src/supervisor/spec.rs	405	prod		auto: error propagated (? / map_err)	let bytes = std::fs::read(path).map_err(|e| format!("read {}: {e}", path.display()))?;
+F	src/supervisor/spec.rs	523	prod	supervisor.dirs	auto: error propagated (? / map_err)	let c = crate::fsx::canonical("supervisor.dirs", cdir).map_err(|e| {
+F	src/supervisor/spec.rs	529	prod	supervisor.dirs	auto: error propagated (? / map_err)	let s = crate::fsx::canonical("supervisor.dirs", src).map_err(|e| {
 F	src/supervisor/workdir.rs	30	prod	workdir	is_external: an unresolvable path counts as EXTERNAL (the conservative branch: an external work dir is identified before any use)	crate::fsx::canonical("workdir", work_root),
 F	src/supervisor/workdir.rs	31	prod	workdir	is_external: an unresolvable path counts as EXTERNAL (the conservative branch: an external work dir is identified before any use)	crate::fsx::canonical("workdir", cdir),
 R	src/supervisor/workdir.rs	43	prod		typed match (claim / identity: NotFound, mismatch, other errors refuse)	match std::fs::read_to_string(&p) {
@@ -1527,6 +1575,22 @@ D	tests/gate13_uid.rs	36	test			std::fs::write(p.join("status"), format!("Name:\
 D	tests/gate13_uid.rs	54	test			std::fs::write(d.join(format!("{me}/stat")), stat_line(me, 900, 50)).unwrap();
 D	tests/gate13_uid.rs	87	test			let _ = std::fs::remove_dir_all(&d);
 X	tests/gate13_uid.rs	87	test			let _ = std::fs::remove_dir_all(&d);
+R	tests/gate14_adversary.rs	65	test			fs::read(p)
+X	tests/gate14_adversary.rs	65	test			fs::read(p)
+V	tests/gate14_adversary.rs	73	test			std::env::var(k).unwrap_or_else(|_| d.to_string())
+X	tests/gate14_adversary.rs	73	test			std::env::var(k).unwrap_or_else(|_| d.to_string())
+V	tests/gate14_adversary.rs	81	test			match std::env::var("RR_PROC_HELPER").as_deref() {
+V	tests/gate14_adversary.rs	150	test			let counter = std::env::var("RR_RELAY_COUNTER").unwrap();
+V	tests/gate14_adversary.rs	151	test			let stop = std::env::var("RR_G14_STOP").unwrap();
+O	tests/gate14_adversary.rs	182	test			let fd = unsafe { libc::open(cpath.as_ptr(), libc::O_WRONLY | libc::O_CREAT, 0o600) };
+W	tests/gate14_adversary.rs	252	test			let r = unsafe { libc::waitpid(-1, &mut st, 0) };
+D	tests/gate14_adversary.rs	347	test			fs::write(&stop, b"").unwrap();
+V	tests/gate14_adversary.rs	372	test			let budget = std::env::var("RR_G14T_BUDGET_S")
+X	tests/gate14_adversary.rs	372	test			let budget = std::env::var("RR_G14T_BUDGET_S")
+V	tests/gate14_liveness.rs	23	test			std::env::var(k).unwrap_or_else(|_| d.to_string())
+X	tests/gate14_liveness.rs	23	test			std::env::var(k).unwrap_or_else(|_| d.to_string())
+R	tests/gate14_liveness.rs	96	test			let e: f64 = std::fs::read_to_string(&end)
+X	tests/gate14_liveness.rs	96	test			let e: f64 = std::fs::read_to_string(&end)
 D	tests/gate7_lineage.rs	30	test			std::fs::write(
 D	tests/gate7_lineage.rs	37	test			std::fs::write(
 D	tests/gate7_lineage.rs	47	test			let _ = std::fs::remove_dir_all(&self.0);
@@ -2260,6 +2324,13 @@ R	tests/procfix13_scope_settle.rs	118	test			let log = std::fs::read_to_string(t
 X	tests/procfix13_scope_settle.rs	118	test			let log = std::fs::read_to_string(t.path.join("systemctl.log")).unwrap_or_default();
 R	tests/procfix13_scope_settle.rs	209	test			let sup_log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
 X	tests/procfix13_scope_settle.rs	209	test			let sup_log = std::fs::read_to_string(d.with_extension("log")).unwrap_or_default();
+V	tests/procfix14_handoff.rs	55	test			if std::env::var("RR_PROC_HELPER").as_deref() == Ok("relay") {
+V	tests/procfix14_handoff.rs	63	test			let pause: u32 = std::env::var("RR_RELAY_PAUSE_US")
+X	tests/procfix14_handoff.rs	63	test			let pause: u32 = std::env::var("RR_RELAY_PAUSE_US")
+V	tests/procfix14_handoff.rs	67	test			let counter = std::env::var("RR_RELAY_COUNTER").unwrap();
+O	tests/procfix14_handoff.rs	70	test			let fd = unsafe { libc::open(c.as_ptr(), libc::O_WRONLY | libc::O_CREAT, 0o600) };
+R	tests/procfix14_handoff.rs	93	test			fs::read(p)
+X	tests/procfix14_handoff.rs	93	test			fs::read(p)
 R	tests/procfix3_item0.rs	48	test			let log_bytes = std::fs::read(cdir.with_extension("log"))
 W	tests/procfix3_item0.rs	68	test			if c.try_wait().unwrap().is_none() {
 D	tests/procfix3_item0.rs	75	test			let _ = std::fs::remove_dir_all(&dir);
@@ -2818,16 +2889,18 @@ E	tests/sup_common/mod.rs	579	test			.find(|f| f.is_file())
 R	tests/sup_faults.rs	71	test			let full = std::fs::read_to_string(d.with_extension("log")).unwrap();
 E	tests/sup_faults.rs	93	test			d.join("ledger").exists()
 R	tests/sup_faults.rs	144	test			let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap();
-E	tests/sup_faults.rs	160	test			d.join("ledger").exists()
-R	tests/sup_faults.rs	192	test			let dead_owner = std::fs::read(&owner_file).unwrap();
-D	tests/sup_faults.rs	252	test			std::fs::write(&owner_file, dead_owner).unwrap();
-W	tests/sup_faults.rs	260	test			d1.try_wait().unwrap().is_none(),
-W	tests/sup_faults.rs	264	test			d2.try_wait().unwrap().is_none(),
-W	tests/sup_faults.rs	274	test			let _ = d1.wait();
-W	tests/sup_faults.rs	275	test			let _ = d2.wait();
-D	tests/sup_faults.rs	283	test			std::fs::copy(FAKE, &copy).unwrap();
-E	tests/sup_faults.rs	291	test			d.join("ledger").exists()
-O	tests/sup_faults.rs	306	test			std::fs::OpenOptions::new()
+R	tests/sup_faults.rs	162	test			let forked = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
+X	tests/sup_faults.rs	162	test			let forked = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
+E	tests/sup_faults.rs	193	test			d.join("ledger").exists()
+R	tests/sup_faults.rs	225	test			let dead_owner = std::fs::read(&owner_file).unwrap();
+D	tests/sup_faults.rs	285	test			std::fs::write(&owner_file, dead_owner).unwrap();
+W	tests/sup_faults.rs	293	test			d1.try_wait().unwrap().is_none(),
+W	tests/sup_faults.rs	297	test			d2.try_wait().unwrap().is_none(),
+W	tests/sup_faults.rs	307	test			let _ = d1.wait();
+W	tests/sup_faults.rs	308	test			let _ = d2.wait();
+D	tests/sup_faults.rs	316	test			std::fs::copy(FAKE, &copy).unwrap();
+E	tests/sup_faults.rs	324	test			d.join("ledger").exists()
+O	tests/sup_faults.rs	339	test			std::fs::OpenOptions::new()
 V	tests/sup_i1.rs	22	test			let runs: u64 = std::env::var("RR_SUP_I1_RUNS")
 X	tests/sup_i1.rs	22	test			let runs: u64 = std::env::var("RR_SUP_I1_RUNS")
 V	tests/sup_i1.rs	51	test			let first: u64 = std::env::var("RR_SUP_I1_FIRST")

@@ -24,8 +24,6 @@
 //!
 //! Always at the end: if C still runs or the unit is still loaded, `systemctl --user stop <U>.scope` (the exact name), and
 //! `reset-failed <U>.scope` if it failed (the exact name this check created). No pattern, no other pid, no other unit.
-#![allow(clippy::disallowed_methods)] // a host tool outside the supervisor: its reads are reported, never collapsed
-
 use super::cgroup::{ScopeRef, populated, procs_recursive, user_manager_root};
 use crate::resources::{Bounded, procfs, read_stat, run_bounded};
 use std::path::Path;
@@ -306,8 +304,14 @@ fn steps(unit: &str, c: &mut Child, cpid: u32, say: &mut dyn FnMut(&str)) -> Res
     let ns = procfs::sys()
         .pid_ns_ino(child)
         .map_err(|e| format!("step 5: ns of C's child: {e}"))?;
-    if procfs::sys().pid_ns_ino(cpid).ok() == Some(ns) {
-        return Err("step 5: C's child shares C's pid namespace: ABORT, nothing written".into());
+    match procfs::sys().pid_ns_ino(cpid) {
+        Ok(n) if n == ns => {
+            return Err(
+                "step 5: C's child shares C's pid namespace: ABORT, nothing written".into(),
+            );
+        }
+        Ok(_) => {}
+        Err(e) => return Err(format!("step 5: ns of C: {e}: ABORT, nothing written")),
     }
     let members = procs_recursive(&r.dir).map_err(|e| format!("step 5: cgroup.procs: {e}"))?;
     let mut inside = 0usize;
