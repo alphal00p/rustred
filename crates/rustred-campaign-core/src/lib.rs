@@ -66,3 +66,5 @@ pub mod parametric;
 // lane arrivals (interfaces/arrivals.md): certified arrival sets per DAG edge (REQUEST TO I-INT, int8 stage 2; also
 // reachable as `import::arrivals`)
 pub mod arrivals;
+// lane gencheck (interfaces/emission-check.md): the emission contract (granted by the implementer 2026-11-18)
+pub mod emission;
