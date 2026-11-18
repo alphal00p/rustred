@@ -25,6 +25,8 @@ use crate::stream::Rows;
 
 /// Outcome of the recovery over all weighted sources.
 pub struct Recovery {
+    /// the rule's case is affine: rows were restricted to its plane
+    pub on_plane: bool,
     /// (seed, ordinary row m, w_j * c_jm) for every weighted source j and every nonzero c_jm.
     pub triples: Vec<(Pat, i64, Rf)>,
     /// Denominators (non-constant) of every recovered c_jm.
@@ -51,7 +53,7 @@ impl Recovery {
     }
     pub fn json(&self) -> String {
         format!(
-            "{{\"weighted_sources\":{},\"recovered\":{},\"by_cache\":{},\"failed\":{},\"failed_first\":[{}],\"max_equations\":{},\"max_unknowns\":{},\"denominators\":{},\"modulo_zero_rows\":{},\"zero_terms_dropped\":{},\"seconds\":{:.3},\"method\":\"exact: A_j = sum_m c_jm O_m(seed_j) solved by Symbolica Matrix::solve_any over Q(n,d) with this tool's ordinary rows, then verified term by term (Symbolica is_zero)\"}}",
+            "{{\"weighted_sources\":{},\"recovered\":{},\"by_cache\":{},\"failed\":{},\"failed_first\":[{}],\"max_equations\":{},\"max_unknowns\":{},\"denominators\":{},\"on_case_plane\":{},\"modulo_zero_rows\":{},\"zero_terms_dropped\":{},\"seconds\":{:.3},\"method\":\"exact: A_j = sum_m c_jm O_m(seed_j) solved by Symbolica Matrix::solve_any over Q(n,d) with this tool's ordinary rows, then verified term by term (Symbolica is_zero)\"}}",
             self.sources,
             self.recovered,
             self.by_cache,
@@ -64,6 +66,7 @@ impl Recovery {
             self.max_equations,
             self.max_unknowns,
             self.dens.len(),
+            self.on_plane,
             self.modulo_zero_rows,
             self.zero_terms_dropped,
             self.seconds
@@ -194,6 +197,34 @@ fn solve(
     Ok(out)
 }
 
+/// A coefficient restricted to an AFFINE case plane: every dependent slot replaced by its form (raw frame).
+pub fn on_plane(r: &Rf, forms: &[(usize, Poly)]) -> Option<Rf> {
+    if forms.is_empty() {
+        return Some(r.clone());
+    }
+    let num = alg::subst_poly_forms(&r.numerator, forms);
+    let den = alg::subst_poly_forms(&r.denominator, forms);
+    if den.is_zero() {
+        return None;
+    }
+    Some(alg::rebuild(num, den, true))
+}
+
+/// Terms restricted to the plane (terms whose coefficient vanishes there dropped); None when a denominator vanishes.
+pub fn terms_on_plane(terms: &[(Pat, Rf)], forms: &[(usize, Poly)]) -> Option<Vec<(Pat, Rf)>> {
+    if forms.is_empty() {
+        return Some(terms.to_vec());
+    }
+    let mut out = Vec::with_capacity(terms.len());
+    for (p, c) in terms {
+        let c2 = on_plane(c, forms)?;
+        if !c2.is_zero() {
+            out.push((p.clone(), c2));
+        }
+    }
+    Some(out)
+}
+
 /// The class map of STATED records: an integral -> None (in a zero sector) or Some((class representative, sign flip)).
 pub type ClassMap<'a> = &'a dyn Fn(&Pat) -> Option<(Pat, bool)>;
 
@@ -230,9 +261,11 @@ pub fn recover(
     weights: &[(usize, Rf)],
     er: &Rows,
     modmap: Option<ClassMap<'_>>,
+    forms: &[(usize, Poly)],
 ) -> Recovery {
     let t0 = Instant::now();
     let mut rec = Recovery {
+        on_plane: !forms.is_empty(),
         triples: vec![],
         dens: vec![],
         sources: weights.len(),
@@ -268,6 +301,31 @@ pub fn recover(
                 continue;
             }
         };
+        // AFFINE case: the rule (and the producer's rows) hold on the case plane: every coefficient restricted to it
+        let (inst, target) = if forms.is_empty() {
+            (inst, target.clone())
+        } else {
+            let mut i2 = vec![];
+            let mut bad = false;
+            for (m, terms) in &inst {
+                match terms_on_plane(terms, forms) {
+                    Some(t) if !t.is_empty() => i2.push((*m, t)),
+                    Some(_) => {}
+                    None => bad = true,
+                }
+            }
+            match (terms_on_plane(target, forms), bad) {
+                (Some(t), false) => (i2, t),
+                _ => {
+                    fail(
+                        &mut rec,
+                        format!("{label}: a denominator vanishes on the case plane"),
+                    );
+                    continue;
+                }
+            }
+        };
+        let target = &target;
         let key: Key = (
             *k,
             seed.iter()

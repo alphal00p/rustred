@@ -888,6 +888,7 @@ fn check(
     let mut rows_modulo_zero = false;
     let mut identity_modulo_zero = false;
     let mut modulo_with_actions = false;
+    let mut plane_forms: Vec<(usize, Poly)> = vec![];
     let mut row_mapped: Option<Vec<(Pat, Rf)>> = None;
     // trace terms: list of (weight, row terms) to combine
     let mut trace: Option<Vec<(Rf, Vec<(Pat, Rf)>)>> = None;
@@ -973,8 +974,31 @@ fn check(
                             && t0.is_some();
                         let mref: Option<recover::ClassMap<'_>> =
                             if use_map { Some(&class_fn) } else { None };
-                        let rec =
-                            recover::recover(&vars, &cert.sources, &parsed, &weights, er, mref);
+                        // AFFINE case: the dependent slots' forms in the RAW lift frame (stored m = raw n - t)
+                        let raw_forms: Vec<(usize, Poly)> = match &t0 {
+                            Some(t) if !rule.equations.is_empty() => {
+                                let shifts: Vec<(usize, i64)> =
+                                    (0..arity).map(|i| (Vars::slot(i), -t[i])).collect();
+                                let mut out = vec![];
+                                for (v, f) in loci::dependent_forms(&vars, &rule)? {
+                                    let fr = alg::shift_rf(&Rf::from(f), &shifts).numerator;
+                                    let c = vars.affine(t[v - 1], &[]);
+                                    out.push((v, &fr + &c));
+                                }
+                                out
+                            }
+                            _ => vec![],
+                        };
+                        let rec = recover::recover(
+                            &vars,
+                            &cert.sources,
+                            &parsed,
+                            &weights,
+                            er,
+                            mref,
+                            &raw_forms,
+                        );
+                        plane_forms = raw_forms.clone();
                         let modulo = rec.modulo_zero_rows > 0;
                         recovery_json = Some(rec.json());
                         if rec.complete() {
@@ -1123,10 +1147,32 @@ fn check(
             identity_detail = "the certificate carries no trace rows the tool can form".into();
         }
         Some(tr) => {
-            let (ok, nints, diffs) = match (&row_mapped, identity_modulo_zero) {
+            let base_row: &Vec<(Pat, Rf)> = match (&row_mapped, identity_modulo_zero) {
                 // modulo the stated records (rows recovered modulo them): the row mapped to its classes too
-                (Some(r2), true) => identity(&vars, tr, r2),
-                _ => identity(&vars, tr, &row),
+                (Some(r2), true) => r2,
+                _ => &row,
+            };
+            let (ok, nints, diffs) = if plane_forms.is_empty() {
+                identity(&vars, tr, base_row)
+            } else {
+                // AFFINE case: the identity restricted to the case plane (weights, rows and the row)
+                let tr2: Option<Vec<(Rf, Vec<(Pat, Rf)>)>> = tr
+                    .iter()
+                    .map(|(w, terms)| {
+                        Some((
+                            recover::on_plane(w, &plane_forms)?,
+                            recover::terms_on_plane(terms, &plane_forms)?,
+                        ))
+                    })
+                    .collect();
+                match (tr2, recover::terms_on_plane(base_row, &plane_forms)) {
+                    (Some(t2), Some(r2)) => identity(&vars, &t2, &r2),
+                    _ => (
+                        false,
+                        0,
+                        vec!["a denominator vanishes on the case plane".to_string()],
+                    ),
+                }
             };
             identity_verdict = if ok {
                 "IDENTITY_EXACT"
