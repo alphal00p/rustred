@@ -5,7 +5,10 @@
 //! spilled ops (`ops.bin`). A later request with the same fingerprint
 //! restores it and continues with the next phase; the spilled ops are cut
 //! back to the saved count. `RUSTRED_RESUME_STOP_AFTER_PHASE=<n>` stops a
-//! request after saving at phase n (tests).
+//! request after saving at phase n (tests). The sequential and the pipelined
+//! scheduler (several threads) record the same trace and write the same state
+//! file (pending keys in compact-form order), so a state saved at one thread
+//! count resumes at any other.
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

@@ -1973,7 +1973,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     tail: TailOptions,
 ) -> Result<RawOutput<A::Weight>, K::Error> {
     let limits = kernel.limits();
-    // vk5l-physrun resume state (`resume`): one-thread runs without a tail.
+    // vk5l-physrun resume state (`resume`): runs without a tail, sequential
+    // or pipelined (both record the sequential trace, so a state saved at one
+    // thread count continues at any other).
     let resume_dir = if tail.enabled {
         None
     } else {
@@ -2544,14 +2546,21 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
     for condition in &state.nonzero_conditions {
         resume::put_coefficient(&mut w, condition);
     }
-    let entries: Vec<_> = state.frontier.iter().collect();
-    w.len(entries.len());
-    let mut bytes = Vec::new();
-    for (scheduled, weight) in entries {
-        bytes.clear();
+    // 4A: pending keys in the order of their compact form, so that the state
+    // file is a function of the request and the phase only, not of the
+    // frontier layout or hasher (which differ between one thread and the
+    // pipelined scheduler). The restore re-admits them in any order.
+    let mut entries = Vec::with_capacity(state.frontier.iter().count());
+    for (scheduled, weight) in state.frontier.iter() {
+        let mut bytes = Vec::new();
         if !K::tail_encode(&scheduled.key, &mut bytes) || kernel.tail_key(&bytes).is_none() {
             return Err("a pending key has no decodable compact form".to_owned());
         }
+        entries.push((bytes, weight));
+    }
+    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    w.len(entries.len());
+    for (bytes, weight) in entries {
         w.len(bytes.len());
         w.raw(&bytes);
         weights.resume_put_weight(weight, &mut w);

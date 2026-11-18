@@ -1979,7 +1979,12 @@ impl OrderedWeights for ModularRecorder {
         dir: &std::path::Path,
         ops: Option<u64>,
     ) -> Result<bool, ReductionError> {
-        if self.multi_inputs.is_some() || self.shared.is_some() || !self.ops.is_empty() {
+        // 4A: the prestage table (`shared`, > 1 thread) is only a cache of
+        // the workers; the recorder still interns every coefficient into its
+        // own table in the sequential order, and that table is the state.
+        // After a restore the table starts empty and its ids resolve through
+        // the restored entries to the same references.
+        if self.multi_inputs.is_some() || !self.ops.is_empty() {
             return Ok(false);
         }
         self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(

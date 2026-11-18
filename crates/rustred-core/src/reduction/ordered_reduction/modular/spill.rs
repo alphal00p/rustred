@@ -2,7 +2,8 @@
 //! file as they are recorded (append-only, 8 B per op), and read back by
 //! mmap for the replay, so that the forward pass and the replay hold no
 //! in-memory copy of the trace. `RUSTRED_TRACE_SPILL_DIR=<dir>` enables it
-//! (one-thread recorded requests without tail rewrites or layered mode);
+//! (recorded requests on the sequential or pipelined scheduler, without
+//! tail rewrites or layered mode);
 //! the directory must be off snapshotted file systems (e.g. /common).
 use std::fs::File;
 use std::io::Write;
