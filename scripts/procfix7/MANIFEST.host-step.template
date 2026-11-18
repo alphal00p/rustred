@@ -5,9 +5,7 @@ SUPERSEDES @SUPERSEDES@. Do not use those.
 Source: branch ac/procfix7 commit @COMMIT@ (WS/wt/ac-procfix7), release build (light_build.sh, 0 warnings;
 RR_CAMPAIGN_FAILPOINT and "TEST BUILD" absent from bin/rr_campaign, bin/rr_fake_child and bin/rr_scope_check). Host-tests: copies of WS/plan/auto-campaign/host-tests/
 (also in git: scripts/procfix7/host-tests/). No .pyc is shipped; every python3 call uses -I -B. Made by
-scripts/procfix7/freeze_host_step.sh. PRODUCT = e07c7d88 as reviewed (gate 17 CLEAN, notes/implementer.gate17.md; release
-binaries byte-identical to the reviewer's build); @COMMIT@ = e07c7d88 plus THIS MANIFEST TEXT only (the source, Cargo.lock
-and host-tests trees are those of e07c7d88).
+scripts/procfix7/freeze_host_step.sh.
 
 THE SUPERVISOR IS A DETACHED systemd USER SERVICE with an exact name: the script runs
   setsid systemd-run --user --wait --collect --unit=hoststep-fake1-<HHMMSS> -p Type=exec -p KillMode=mixed
@@ -88,17 +86,10 @@ its session is alive in the supervisor's tree, below any number of WALKED marker
 conclusive passes; it says nothing about descendants of a process the hunt does not walk, nor about a marker-less process
 that re-sets the marker for new children (out of scope since procfix3).
 
-KNOWN, NOT IN THIS PACKAGE (gate 17, notes/implementer.gate17.md: CLEAN with 2 minors, fixed after this package):
-- m17-gone-sticky: a scope launch seen PENDING once whose leader then execs WITHOUT the user manager's move (a systemd-run
-  that breaks its own move-before-exec order, or a third cgroup) AND whose main thread then ends while other threads run
-  reads as "gone" at every later look: the 10-s rule never fires for it; the gate closes after 5 s and the run stops with
-  exit 69 after 900 s (wrong cause), or, if the job ends first, a job that ran is requeued as "never ran". EFFECT ON THIS
-  HOST RUN: NONE on the two workloads: systemd-run 261 moves before it execs, and the fake children of (A) and (B) are
-  single-threaded (their helpers are processes).
-- m17-units-takeover: `bin/rr_campaign units clear <OUT>/c` run after a supervisor CRASH (a stale LOCK.json) takes over
-  the stale lock and removes LOCK.json: the restart then writes no lock_takeover record and loses the stale owner's token
-  orphans as recovery seeds (the lock code never signals: no foreign action). EFFECT ON THIS HOST RUN: NONE on the two
-  workloads (neither runs `units clear`); after a crash, restart FIRST (its recovery and sweeps run), `units clear` after.
+KNOWN, NOT IN THIS PACKAGE:
+- (fixed IN this package, round 16; the frozen 20261118T1214Z package lacks them) gate 17's minors: m17-gone-sticky (a
+  gone executable link with a live worker thread is now Unverified: the 10-s rule applies) and m17-units-takeover
+  (`units clear` after a crashed supervisor refuses and leaves its lock record to the next start).
 - the NOT TESTED points of gate 15 (below, verbatim).
 - run at a quiet hour: the user systemd manager of this host has recurring stalls (01:10Z, 04:47Z, 05:07Z, 05:24Z on
   2026-11-18): a stall now PAUSES launches (gate) and ends after 900 s closed with exit 69 = manager unavailable, which is
