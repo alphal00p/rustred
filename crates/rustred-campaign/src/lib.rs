@@ -24,3 +24,5 @@ pub mod supervisor;
 pub mod tui;
 // lane closeloop (interfaces/closeloop.md)
 pub mod closeloop;
+// lane gencheck (interfaces/emission-check.md): the emission path (granted by the implementer 2026-11-18)
+pub mod emission;

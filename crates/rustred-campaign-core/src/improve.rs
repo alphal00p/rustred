@@ -1392,6 +1392,11 @@ pub struct ImproveConfig {
     pub common_args: Vec<String>,
     #[serde(default)]
     pub job: crate::economy::genchoice::JobPolicy,
+    /// Lane gencheck (interfaces/emission-check.md): every replacement line is EMITTED (checked on its bytes with the
+    /// certificate its job wrote, classed, admitted by the policy) before the improved table is written; refused
+    /// replacements keep the old rule. Absent = the writer of before (NOT routed through the emission contract).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emission: Option<crate::emission::Settings>,
 }
 
 impl ImproveConfig {

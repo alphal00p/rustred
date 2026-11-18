@@ -812,6 +812,111 @@ impl ImproveSource {
                 pole_new.insert(idx, (sc, cand));
             }
         }
+        // EMISSION (lane gencheck, interfaces/emission-check.md): when configured, every replacement line is checked on
+        // its own bytes with the certificate its job wrote, classed and admitted by the policy BEFORE it is written; a
+        // refused replacement keeps the old rule (its reason is recorded with the untried notes)
+        if let Some(es) = self.cfg.emission.clone() {
+            let side = rustred_campaign_core::emission::side_dir(
+                &self.cdir.join(format!("{base}/improved.r{run}{sfx}.table.jsonl")),
+            );
+            let work = self.cdir.join(format!("{base}/emission-work.r{run}{sfx}"));
+            let mut ck = crate::emission::emitter::Checker::new(Path::new(&es.checker))?;
+            ck.recover_rows = es.recover_rows;
+            ck.family = es.family.as_ref().map(PathBuf::from);
+            if let Some(f) = es.floor_s {
+                ck.floor_s = f;
+            }
+            let em = crate::emission::emitter::Emitter::new(
+                ck,
+                es.policy.clone().unwrap_or_default(),
+                &side,
+                &work,
+            )?;
+            let header = std::io::BufReader::new(
+                std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+            )
+            .lines()
+            .next()
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+            for (idx, lines) in repl.clone() {
+                let run_dir = chosen
+                    .get(&idx)
+                    .and_then(|c| per_rule.get(&idx).and_then(|v| v.iter().find(|a| &a.cand == c)))
+                    .and_then(|a| st.jobs.get(&a.job).and_then(|j| j.run_dir.clone()));
+                let certs: Vec<PathBuf> = run_dir
+                    .map(|d| Path::new(&d).join(&es.cert_dir))
+                    .and_then(|d| std::fs::read_dir(d).ok())
+                    .map(|rd| {
+                        let mut v: Vec<PathBuf> = rd
+                            .filter_map(|e| e.ok().map(|e| e.path()))
+                            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+                            .collect();
+                        v.sort();
+                        v
+                    })
+                    .unwrap_or_default();
+                let mut out_lines = vec![];
+                let mut refused: Option<String> = None;
+                for (k, l) in lines.iter().enumerate() {
+                    let tries: Vec<Option<PathBuf>> = if certs.is_empty() {
+                        vec![None]
+                    } else {
+                        certs.iter().cloned().map(Some).collect()
+                    };
+                    let mut got = None;
+                    let mut last = String::new();
+                    for (t, cert) in tries.into_iter().enumerate() {
+                        let c = crate::emission::emitter::Candidate {
+                            header: header.clone(),
+                            line: l.clone(),
+                            kind: rustred_campaign_core::emission::class::Kind::Lifted,
+                            origin: rustred_campaign_core::emission::class::Origin::Lift,
+                            cert,
+                            provenance: None,
+                            lift_seconds: 0.0,
+                            ladder: None,
+                            cone: None,
+                            sample: None,
+                            tag: format!("r{idx}-l{k}-c{t}"),
+                        };
+                        let e = em.emit(
+                            &c,
+                            rustred_campaign_core::emission::class::Liveness::Unknown,
+                            false,
+                        )?;
+                        match e.line {
+                            Some(x) => {
+                                got = Some(x);
+                                break;
+                            }
+                            None => last = e.refused.unwrap_or_default(),
+                        }
+                    }
+                    match got {
+                        Some(x) => out_lines.push(x),
+                        None => {
+                            refused = Some(last);
+                            break;
+                        }
+                    }
+                }
+                match refused {
+                    None => {
+                        repl.insert(idx, out_lines);
+                    }
+                    Some(why) => {
+                        repl.remove(&idx);
+                        let c = chosen.remove(&idx).unwrap_or_default();
+                        untried
+                            .entry(idx)
+                            .or_default()
+                            .push(format!("{c}: emission refused ({why})"));
+                    }
+                }
+            }
+        }
         // the derivations of this run's candidates (every rule each job sealed), one file per run
         let der_rel = format!("{base}/derivations.r{run}{sfx}.jsonl");
         let mut der_bytes = Vec::new();

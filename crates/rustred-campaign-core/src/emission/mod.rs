@@ -47,6 +47,31 @@ pub fn side_rel(area: &str, sha256: &str) -> String {
     format!("{area}/{sha256}.{ext}")
 }
 
+fn yes() -> bool {
+    true
+}
+fn default_cert_dir() -> String {
+    "out/wcert".into()
+}
+
+/// Emission settings of a rule-producing flow (improve config `emission`): the checker, where a job's certificates are
+/// (relative to its run directory; the producer must write them there), the policy (default: the contract's).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Settings {
+    pub checker: String,
+    #[serde(default = "yes")]
+    pub recover_rows: bool,
+    #[serde(default = "default_cert_dir")]
+    pub cert_dir: String,
+    #[serde(default)]
+    pub policy: Option<class::Policy>,
+    #[serde(default)]
+    pub family: Option<String>,
+    #[serde(default)]
+    pub floor_s: Option<f64>,
+}
+
 /// The parts of a `derivation` member (everything bulky lives in the side directory, referenced by sha256).
 #[derive(Clone, Debug)]
 pub struct Parts {

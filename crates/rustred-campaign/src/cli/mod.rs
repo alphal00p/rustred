@@ -138,6 +138,27 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        // lane gencheck (interfaces/emission-check.md): the emission validator and certify-by-replacement
+        "table-check" => match crate::emission::tablecheck::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 2 }
+            }
+            Err(e) => {
+                errln!("table-check: {e}");
+                exit::USAGE
+            }
+        },
+        "emit-replace" => match crate::emission::emit_replace_cmd(rest) {
+            Ok((t, closed)) => {
+                outln!("{t}");
+                if closed { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("emit-replace: {e}");
+                exit::USAGE
+            }
+        },
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK

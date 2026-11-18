@@ -186,6 +186,14 @@ pub fn py_compact(raw: &str) -> Result<String, String> {
     Ok(out)
 }
 
+/// The text of a top-level STRING member of a record line (None when absent or not a string): member order free.
+pub fn string_member(line: &str, key: &str) -> Option<String> {
+    let m = members(line).ok()?;
+    let r = &m.iter().find(|x| x.key == key)?.value;
+    let t = &line[r.clone()];
+    t.starts_with('"').then(|| unescape(&t[1..t.len() - 1]))
+}
+
 /// The identity of a rule record's body.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BodyIds {

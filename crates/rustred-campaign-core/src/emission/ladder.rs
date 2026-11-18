@@ -455,3 +455,99 @@ pub fn prove_partition(
     }
     Ok((dead_ok && controls, out))
 }
+
+// ------------------------------------------------------------------------------------------------ curve loci in a cone
+
+/// The keys of `rec`'s domain (fixed slots, equations, exception branches, `domain_bounds`) inside the excess simplex
+/// `D + r <= s` of the chart orthant (`is_line[i]`: slot i is a line, >= 1; else a numerator, <= 0) on which every
+/// generator (d-free polynomial text, the record's frame) vanishes. Returns (keys, complete, keys visited): complete is
+/// false when more than `cap` domain keys would have to be visited. The keys of a curve locus that the ladder cannot
+/// branch: their per-key proofs give the cone class (TRICKS 69 (d): a locus without keys in the cone is a statement
+/// about the cone only).
+pub fn locus_keys_in_simplex(
+    rec: &Value,
+    generators: &[String],
+    is_line: &[bool],
+    s: i64,
+    cap: u64,
+) -> Result<(Vec<Vec<i32>>, bool, u64), String> {
+    let fixed = fixed_of(rec);
+    let n = fixed.len();
+    if is_line.len() != n {
+        return Err(format!("frame of {} slots, record of {n}", is_line.len()));
+    }
+    let gens: Vec<Poly> = generators
+        .iter()
+        .map(|g| Poly::parse(g, n, false).map_err(|e| format!("generator {g}: {e:?}")))
+        .collect::<Result<_, _>>()?;
+    let bound = |k: &str, i: usize| rec["domain_bounds"][k].get(i).and_then(Value::as_i64);
+    let mut base = vec![0i32; n];
+    let mut used = 0i64;
+    let mut free = vec![];
+    for i in 0..n {
+        match fixed[i] {
+            Some(v) => {
+                let e = if is_line[i] { v - 1 } else { -v };
+                if e < 0 {
+                    return Ok((vec![], true, 0)); // outside the chart orthant
+                }
+                used += e;
+                base[i] = v as i32;
+            }
+            None => free.push(i),
+        }
+    }
+    let mut keys = vec![];
+    let mut visited = 0u64;
+    let mut complete = true;
+    if used > s {
+        return Ok((keys, true, 0));
+    }
+    // iterative enumeration of excess vectors over the free slots with sum <= s - used
+    let mut ex = vec![0i64; free.len()];
+    let budget = s - used;
+    loop {
+        let total: i64 = ex.iter().sum();
+        if total <= budget {
+            let mut key = base.clone();
+            for (j, &i) in free.iter().enumerate() {
+                key[i] = if is_line[i] { 1 + ex[j] } else { -ex[j] } as i32;
+            }
+            let in_bounds = (0..n).all(|i| {
+                bound("min", i).is_none_or(|lo| i64::from(key[i]) >= lo)
+                    && bound("max", i).is_none_or(|hi| i64::from(key[i]) <= hi)
+            });
+            if in_bounds && crate::economy::improve::serves_key(rec, &key)? {
+                visited += 1;
+                if visited > cap {
+                    complete = false;
+                    break;
+                }
+                let mut on = true;
+                for g in &gens {
+                    if !g.is_zero_at(&key).map_err(|e| format!("{e:?}"))? {
+                        on = false;
+                        break;
+                    }
+                }
+                if on {
+                    keys.push(key);
+                }
+            }
+        }
+        // next excess vector (odometer with the simplex bound)
+        let mut j = 0;
+        loop {
+            if j == ex.len() {
+                return Ok((keys, complete, visited));
+            }
+            ex[j] += 1;
+            if ex.iter().sum::<i64>() <= budget {
+                break;
+            }
+            ex[j] = 0;
+            j += 1;
+        }
+    }
+    Ok((keys, complete, visited))
+}
