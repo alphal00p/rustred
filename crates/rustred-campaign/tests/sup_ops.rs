@@ -34,9 +34,7 @@ fn pause_flag_blocks_launching() {
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, res));
     let d = t.cdir("run");
     let mut c = start(&spec_p, &d, &[], &[]);
-    wait_until("ledger", Duration::from_secs(60), || {
-        d.join("ledger").exists()
-    });
+    wait_until("ledger", Duration::from_secs(60), || ledger_ready(&d));
     std::thread::sleep(Duration::from_secs(3));
     assert_eq!(launches(&d), 0, "launched while the pause flag exists");
     // An IDLE live supervisor (nothing launches, the ledger does not move) still rewrites heartbeat.json at least
@@ -84,9 +82,7 @@ fn control_requests_are_applied_and_logged() {
     let d = t.cdir("run");
     let ds = d.to_string_lossy().into_owned();
     let mut c = start(&spec_p, &d, &[], &[]);
-    wait_until("ledger", Duration::from_secs(60), || {
-        d.join("ledger").exists()
-    });
+    wait_until("ledger", Duration::from_secs(60), || ledger_ready(&d));
     // skip an item far down the queue (open), then pause.
     let last = "N0.i0018.L0";
     assert_eq!(cli(&["control", &ds, "skip", last]).0, 0);

@@ -402,7 +402,7 @@ fn an_interrupt_between_layers_never_walks_a_finished_layer_again() {
     );
     // the first layer is frozen and recorded while the pass sleeps before the second
     wait_until("layer 0 recorded", Duration::from_secs(120), || {
-        c.join("ledger").is_dir() && layer_inputs(&c).len() == 1
+        ledger_ready(&c) && layer_inputs(&c).len() == 1
     });
     signal(&ch, libc::SIGTERM);
     let code = wait(&mut ch, Duration::from_secs(120));

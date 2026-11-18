@@ -469,6 +469,17 @@ pub fn mix(x: u64) -> u64 {
     z ^ (z >> 31)
 }
 
+/// True once `cdir` holds a READABLE ledger: its `ledger/MANIFEST.json` is installed. `Ledger::create` makes the
+/// `ledger/` directory first and installs MANIFEST last (after the commit mark, the first segment, the genesis record
+/// and a directory sync), so a test that waits for the DIRECTORY and then reads (records / state / count) can meet
+/// `NotALedger` in between: a window that grows with fsync latency (t266run_fake failed so in int8's gate run,
+/// 1 of 3 runs alone under load). Every wait for a live supervisor's ledger goes through this.
+pub fn ledger_ready(cdir: &Path) -> bool {
+    cdir.join("ledger")
+        .join(rustred_campaign::ledger::MANIFEST_FILE)
+        .is_file()
+}
+
 /// Count of ledger records matching a predicate.
 pub fn count(cdir: &Path, f: impl Fn(&Event) -> bool) -> usize {
     records(cdir).iter().filter(|r| f(&r.event)).count()

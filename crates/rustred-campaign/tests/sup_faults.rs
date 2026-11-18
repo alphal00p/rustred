@@ -89,7 +89,7 @@ fn children_ignoring_sigterm_are_killed_after_the_grace() {
     let d = t.cdir("run");
     let mut c = start(&spec_p, &d, &[], &[]);
     wait_until("a running job", Duration::from_secs(120), || {
-        d.join("ledger").exists()
+        ledger_ready(&d)
             && count(&d, |e| {
                 matches!(
                     e,
@@ -156,7 +156,7 @@ fn second_supervisor_refused_stale_lock_taken_over_decoys_survive() {
     let d = t.cdir("run");
     let mut a = start(&spec_p, &d, &[], &[]);
     wait_until("first launches", Duration::from_secs(120), || {
-        d.join("ledger").exists()
+        ledger_ready(&d)
             && count(&d, |e| {
                 matches!(
                     e,
@@ -287,7 +287,7 @@ fn changed_binary_is_refused_then_marks_rows_stale() {
     let d = t.cdir("run");
     let mut c = start(&spec_p, &d, &[], &[]);
     wait_until("some accepted rules", Duration::from_secs(120), || {
-        d.join("ledger").exists()
+        ledger_ready(&d)
             && count(&d, |e| {
                 matches!(
                     e,

@@ -491,7 +491,7 @@ fn unrouted(cdir: &Path) -> Vec<String> {
 fn wait_state(cdir: &Path, limit: Duration, pred: impl Fn(&CampaignState) -> bool) -> bool {
     let t0 = std::time::Instant::now();
     while t0.elapsed() < limit {
-        if cdir.join("ledger").is_dir() && pred(&state(cdir)) {
+        if ledger_ready(cdir) && pred(&state(cdir)) {
             return true;
         }
         std::thread::sleep(Duration::from_millis(100));
