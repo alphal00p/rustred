@@ -357,3 +357,24 @@ fn rule_cost_measure_weighs_calls_cost_and_children_and_stays_opt_in() {
         29_000 + 140_000 + 70 + 3_600
     );
 }
+
+#[test]
+fn same_sector_children_are_the_keys_handed_back_to_the_owner() {
+    let v: Value = serde_json::from_str(&record(
+        0,
+        [Some(1), None, None, None, None],
+        &[
+            ("I(n0-1,n1,n2,n3,n4)", "-1"),   // drops line 0: another owner
+            ("I(n0,n1-1,n2,n3,n4+1)", "n1"), // stays when n1 >= 2
+            ("I(1,n1,n2,n3-1,n4)", "1"),     // stays when n3 >= 2
+            ("I(n0,n1,n2", "1"),             // unreadable: skipped
+        ],
+        3,
+    ))
+    .unwrap();
+    let c = same_sector_children(&v, &[1, 2, 1, 2, -1]).unwrap();
+    assert_eq!(c, vec![vec![1, 1, 1, 2, 0], vec![1, 2, 1, 1, -1]]);
+    let c = same_sector_children(&v, &[1, 1, 1, 1, 0]).unwrap();
+    assert!(c.is_empty(), "n1 = n3 = 1: both shifted lines drop");
+    assert!(same_sector_children(&json!({"type": "rule"}), &[1]).is_none());
+}

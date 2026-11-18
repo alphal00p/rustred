@@ -932,3 +932,56 @@ pub fn calls_from_profile(
         })
         .collect()
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// one level of same-sector children (the score's NEW-key term, interfaces/rule-cost.md 4)
+// ---------------------------------------------------------------------------------------------------------------
+
+/// The value at `key` of one rhs integral slot text (`n<k>`, `n<k>+s`, `n<k>-s` or an integer); None if unreadable.
+fn slot_at(text: &str, key: &[i32]) -> Option<i32> {
+    let t = text.trim();
+    if let Ok(v) = t.parse::<i32>() {
+        return Some(v);
+    }
+    let rest = t.strip_prefix('n')?;
+    let split = rest.find(['+', '-']).unwrap_or(rest.len());
+    let (k, off) = rest.split_at(split);
+    let k: usize = k.parse().ok()?;
+    let off: i32 = if off.is_empty() {
+        0
+    } else {
+        off.replace('+', "").parse().ok()?
+    };
+    Some(key.get(k)? + off)
+}
+
+/// The children of the rule record `v` (table_dump.v1: `chart` 0/1 slot string, `rhs` = `[[integral, coefficient]]`)
+/// at `key` that stay in the rule's sector (every chart line >= 1): the keys a step would hand back to the SAME owner.
+/// Unreadable rhs integrals are skipped; None when the record has no rhs or chart.
+pub fn same_sector_children(v: &Value, key: &[i32]) -> Option<Vec<Vec<i32>>> {
+    let rhs = v.get("rhs")?.as_array()?;
+    let chart: Vec<bool> = v
+        .get("chart")?
+        .as_str()?
+        .chars()
+        .map(|c| c == '1')
+        .collect();
+    let mut out = Vec::new();
+    for term in rhs {
+        let Some(inner) = term
+            .get(0)
+            .and_then(Value::as_str)
+            .and_then(|s| s.trim().strip_prefix("I("))
+            .and_then(|s| s.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let child: Option<Vec<i32>> = inner.split(',').map(|x| slot_at(x, key)).collect();
+        let Some(child) = child else { continue };
+        if child.len() == chart.len() && child.iter().zip(&chart).all(|(&n, &line)| !line || n >= 1)
+        {
+            out.push(child);
+        }
+    }
+    Some(out)
+}

@@ -538,14 +538,17 @@ pub fn rule_cost_cmd(args: &[String]) -> Result<String, String> {
 }
 
 /// `rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl]
-/// [--keys K.jsonl [--table-to-presentation P0,P1,..]]`: the `rule_cost`
+/// [--keys K.jsonl [--table-to-presentation P0,P1,..] [--one-level]]`: the `rule_cost`
 /// features and scores of table records (interfaces/rule-cost.md 4), one JSON line per rule: today's predicted ns per
 /// application (per-term specialisation, the measured defaults or `M`), the ESTIMATE for an engine with a
 /// per-application coefficient cache ([`rc::RuleCostModel::cached`]), calls and score. With `--keys` (lines
 /// `{"key": [..]}` in the OWNER PRESENTATION's slots, mapped to the table's slots by `--table-to-presentation`, identity
 /// when absent): each key goes to the FIRST rule of the table (file order) that serves it ([`improve::serves_key`]:
 /// face, equations, exception branches), and each rule line counts `keys_served`; the summary gives the mean predicted
-/// ns per served key, today and cached. Reads the table line by line; runs no child. Returns a one-line summary.
+/// ns per served key, today and cached. `--one-level` also prices the SAME-SECTOR children of each key's rule at that
+/// key (the keys a step hands back to the same owner: NEW keys unless already pending) at the predicted cost of the
+/// rule that first-matches each child (ONE level: the children's own children are not followed; merges are ignored);
+/// a second pass over the table. Reads the table line by line; runs no child. Returns a one-line summary.
 pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
     let Some(table) = arg(args, "--table") else {
         return Err(
@@ -610,6 +613,18 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         }
         None => vec![],
     };
+    let levels: usize = match arg(args, "--levels") {
+        Some(v) => v.parse().map_err(|_| format!("--levels {v}"))?,
+        None => 0,
+    };
+    let one_level = levels > 0 || args.iter().any(|a| a == "--one-level");
+    if one_level && keys.is_empty() {
+        return Err("--one-level / --levels need --keys".into());
+    }
+    // per key: its rule's row and predicted ns (today, cached); the same-sector children of that rule at the key
+    let mut key_row: Vec<Option<usize>> = vec![None; keys.len()];
+    let mut key_own: Vec<(f64, f64)> = vec![(0.0, 0.0); keys.len()];
+    let mut children: Vec<(usize, Vec<i32>)> = Vec::new();
     let mut open: Vec<usize> = (0..keys.len()).collect();
     let (mut served_today, mut served_cached, mut served) = (0f64, 0f64, 0usize);
     let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
@@ -621,12 +636,19 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
             continue;
         };
         let mut keys_served = 0usize;
+        let mut served_here = Vec::new();
         if !open.is_empty() {
             let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
             let mut still = Vec::with_capacity(open.len());
             for k in open {
                 if rustred_campaign_core::economy::improve::serves_key(&v, &keys[k])? {
                     keys_served += 1;
+                    served_here.push(k);
+                    if one_level {
+                        for c in rc::same_sector_children(&v, &keys[k]).unwrap_or_default() {
+                            children.push((k, c));
+                        }
+                    }
                 } else {
                     still.push(k);
                 }
@@ -640,6 +662,10 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         let today = model.per_application_ns(r.monomials, r.cost.as_ref());
         let cache = cached.per_application_ns(r.monomials, r.cost.as_ref());
         let calls = model.calls_of(&r.chart, r.index);
+        for &k in &served_here {
+            key_row[k] = Some(out_lines.len());
+            key_own[k] = (today, cache);
+        }
         served += keys_served;
         served_today += keys_served as f64 * today;
         served_cached += keys_served as f64 * cache;
@@ -662,12 +688,150 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
             .to_string(),
         );
     }
+    // pass 2 (--one-level): each same-sector child to its first serving rule, priced at that rule's prediction
+    let mut child_cost: Vec<(f64, f64, usize)> = vec![(0.0, 0.0, 0); keys.len()];
+    let mut unserved_children = 0usize;
+    if one_level && !children.is_empty() {
+        let mut open: Vec<usize> = (0..children.len()).collect();
+        let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
+        for line in std::io::BufRead::lines(std::io::BufReader::new(f)) {
+            if open.is_empty() {
+                break;
+            }
+            let line = line.map_err(|e| format!("{table}: {e}"))?;
+            let Some(r) = TableRule::from_line(&line)? else {
+                continue;
+            };
+            let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            let (today, cache) = (
+                model.per_application_ns(r.monomials, r.cost.as_ref()),
+                cached.per_application_ns(r.monomials, r.cost.as_ref()),
+            );
+            let mut still = Vec::with_capacity(open.len());
+            for c in open {
+                let (parent, child) = &children[c];
+                let child_frame: Vec<i32> = child.clone();
+                if rustred_campaign_core::economy::improve::serves_key(&v, &child_frame)? {
+                    let e = &mut child_cost[*parent];
+                    e.0 += today;
+                    e.1 += cache;
+                    e.2 += 1;
+                } else {
+                    still.push(c);
+                }
+            }
+            open = still;
+        }
+        unserved_children = open.len();
+    }
+    if one_level {
+        // per row: mean one-level ns over the keys it served
+        let mut per_row: BTreeMap<usize, (f64, f64, f64, usize)> = BTreeMap::new();
+        for k in 0..keys.len() {
+            if let Some(row) = key_row[k] {
+                let e = per_row.entry(row).or_default();
+                e.0 += key_own[k].0 + child_cost[k].0;
+                e.1 += key_own[k].1 + child_cost[k].1;
+                e.2 += child_cost[k].2 as f64;
+                e.3 += 1;
+            }
+        }
+        for (row, (t, c, ch, n)) in per_row {
+            let mut v: Value = serde_json::from_str(&out_lines[row]).map_err(|e| e.to_string())?;
+            v["one_level_today_ns_per_key"] = json!(t / n as f64);
+            v["one_level_cached_ns_estimate_per_key"] = json!(c / n as f64);
+            v["same_sector_children_per_key"] = json!(ch / n as f64);
+            out_lines[row] = v.to_string();
+        }
+    }
+    // --levels N: the same-sector sub-tree N levels deep, each DISTINCT key stepped once (a key met again is a merge into
+    // a pending key, not a new step), each step at its first-matching rule's prediction
+    let mut level_lines = Vec::new();
+    if levels > 0 {
+        let mut seen: std::collections::BTreeSet<Vec<i32>> = keys.iter().cloned().collect();
+        let mut frontier: Vec<Vec<i32>> = Vec::new();
+        for (_, c) in &children {
+            if seen.insert(c.clone()) {
+                frontier.push(c.clone());
+            }
+        }
+        let merged0 = children.len() - frontier.len();
+        let (mut total_today, mut total_cached) = (served_today, served_cached);
+        for level in 1..=levels {
+            if frontier.is_empty() {
+                break;
+            }
+            let mut open: Vec<usize> = (0..frontier.len()).collect();
+            let mut next: Vec<Vec<i32>> = Vec::new();
+            let (mut lt, mut lc, mut stepped, mut produced) = (0f64, 0f64, 0usize, 0usize);
+            let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
+            for line in std::io::BufRead::lines(std::io::BufReader::new(f)) {
+                if open.is_empty() {
+                    break;
+                }
+                let line = line.map_err(|e| format!("{table}: {e}"))?;
+                let Some(r) = TableRule::from_line(&line)? else {
+                    continue;
+                };
+                let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+                let mut still = Vec::with_capacity(open.len());
+                let mut here = Vec::new();
+                for k in open {
+                    if rustred_campaign_core::economy::improve::serves_key(&v, &frontier[k])? {
+                        here.push(k);
+                    } else {
+                        still.push(k);
+                    }
+                }
+                open = still;
+                if here.is_empty() {
+                    continue;
+                }
+                let (today, cache) = (
+                    model.per_application_ns(r.monomials, r.cost.as_ref()),
+                    cached.per_application_ns(r.monomials, r.cost.as_ref()),
+                );
+                for k in here {
+                    stepped += 1;
+                    lt += today;
+                    lc += cache;
+                    if level < levels {
+                        for c in rc::same_sector_children(&v, &frontier[k]).unwrap_or_default() {
+                            produced += 1;
+                            if seen.insert(c.clone()) {
+                                next.push(c);
+                            }
+                        }
+                    }
+                }
+            }
+            total_today += lt;
+            total_cached += lc;
+            level_lines.push(format!(
+                "level {level}: {stepped} distinct keys stepped ({} with no rule), predicted {:.3} s today / {:.3} s cached; {produced} same-sector children produced, {} new",
+                open.len(),
+                lt * 1e-9,
+                lc * 1e-9,
+                next.len()
+            ));
+            frontier = next;
+        }
+        level_lines.insert(
+            0,
+            format!(
+                "LEVELS {levels}: {} keys at level 0 ({merged0} level-1 children merged into keys already met); total predicted {:.3} s today, {:.3} s cached",
+                keys.len(),
+                total_today * 1e-9,
+                total_cached * 1e-9
+            ),
+        );
+    }
     let text = out_lines.join("\n") + if out_lines.is_empty() { "" } else { "\n" };
     match arg(args, "--out") {
         Some(o) => std::fs::write(&o, &text).map_err(|e| format!("{o}: {e}"))?,
         None => print!("{text}"),
     }
-    let per_key = if keys.is_empty() {
+    let mut per_key = if keys.is_empty() {
         String::new()
     } else {
         format!(
@@ -678,6 +842,22 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
             served_cached * 1e-9 / served.max(1) as f64
         )
     };
+    if one_level {
+        let (t, c, n): (f64, f64, usize) = child_cost
+            .iter()
+            .fold((0.0, 0.0, 0), |a, x| (a.0 + x.0, a.1 + x.1, a.2 + x.2));
+        let s = served.max(1) as f64;
+        per_key.push_str(&format!(
+            "; ONE LEVEL (own + same-sector children at their first-matching rule): today {:.4} s, cached estimate {:.4} s per served key, {:.1} same-sector children per key ({unserved_children} children with no rule)",
+            (served_today + t) * 1e-9 / s,
+            (served_cached + c) * 1e-9 / s,
+            n as f64 / s
+        ));
+    }
+    if !level_lines.is_empty() {
+        per_key.push_str("\n");
+        per_key.push_str(&level_lines.join("\n"));
+    }
     Ok(format!(
         "rule-score: {n} rules, score today {:.3} s, cached estimate {:.3} s (calls x ns per application){per_key}",
         today_sum * 1e-9,

@@ -246,5 +246,37 @@ fn rule_score_reads_records_and_estimates_the_cached_engine() {
         ),
         (Some(2), Some(0))
     );
+    // one level: the key [1,2,2,1,0] meets rule 0, whose two children stay in the sector and meet rule 0 again
+    std::fs::write(dir.join("k1.jsonl"), "{\"key\": [1, 2, 2, 1, 0]}\n").unwrap();
+    let k1 = dir.join("k1.jsonl").display().to_string();
+    let o = out.display().to_string();
+    let summary = rule_score_cmd(&a(&["--keys", &k1, "--one-level", "--out", &o])).unwrap();
+    assert!(
+        summary.contains("ONE LEVEL") && summary.contains("2.0 same-sector children per key"),
+        "{summary}"
+    );
+    let first = std::fs::read_to_string(&out).unwrap();
+    let l0: Value = serde_json::from_str(first.lines().next().unwrap()).unwrap();
+    let own = l0["today_ns"].as_f64().unwrap();
+    let one = l0["one_level_today_ns_per_key"].as_f64().unwrap();
+    assert!((one - 3.0 * own).abs() < 1e-6 * own, "{one} vs 3 x {own}");
+    assert!(
+        rule_score_cmd(&a(&["--one-level"])).is_err(),
+        "one level needs keys"
+    );
+    // levels: [1,2,2,1,0] -> children [1,1,2,1,0], [1,2,1,1,0]; each has ONE same-sector child [1,1,1,1,0] (met twice: one step)
+    let summary = rule_score_cmd(&a(&["--keys", &k1, "--levels", "3", "--out", &o])).unwrap();
+    assert!(
+        summary.contains("level 1: 2 distinct keys stepped"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("2 same-sector children produced, 1 new"),
+        "{summary}"
+    );
+    assert!(
+        summary.contains("level 2: 1 distinct keys stepped"),
+        "{summary}"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
