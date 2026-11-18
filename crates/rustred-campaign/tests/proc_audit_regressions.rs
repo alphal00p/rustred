@@ -95,6 +95,19 @@ fn decoy_session(script: &str, marker_value: Option<&str>) -> Child {
     c.spawn().unwrap()
 }
 
+/// Wait for a decoy of ours (a setsid'd child spawned OUTSIDE the launcher). procfix7 round 15 (1 of 100 full runs under
+/// load: a_c1_decoy_with_other_campaign_marker_survives, "No child processes"): the launcher's process-wide
+/// adopted-children reaper may take such a child's exit status first (its documented contract, resources/children.rs:
+/// every zombie child that is not a registered leader and not in our own session is reaped by exact pid); the wait then
+/// fails with ECHILD and the decoy is gone just the same. Any other error fails the test.
+fn wait_decoy(c: &mut Child) {
+    match c.wait() {
+        Ok(_) => {}
+        Err(e) if e.raw_os_error() == Some(libc::ECHILD) => {}
+        Err(e) => panic!("wait for decoy {}: {e}", c.id()),
+    }
+}
+
 /// Spawn `make()` until the child gets pid `want` (ns_last_pid = want - 1 before each try). Namespace only.
 /// procfix7 round 14: bounded by TIME (60 s, a 10-ms pause after a failed try), no longer by 200 back-to-back tries:
 /// a task of this namespace that takes `want` between the write and the spawn (a thread of this test process, a process
@@ -298,7 +311,7 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     let members = rustred_campaign::resources::scan_sessions_now(&sids);
     assert_eq!(members[&id.pid].members.len(), 2, "decoy session intact");
     d.kill().unwrap();
-    d.wait().unwrap();
+    wait_decoy(&mut d);
     for m in &members[&id.pid].members {
         if m.pid != id.pid {
             kill_decoy_member(m.pid, m.start_ticks);
@@ -309,7 +322,7 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     let pidfile = dir.path().join("member.pid");
     let script = format!("sleep 600 & echo $! > {}; exit 0", pidfile.display());
     let mut lead = force_pid(id2.pid, || decoy_session(&script, None));
-    lead.wait().unwrap();
+    wait_decoy(&mut lead);
     let member = read_pid_file(&pidfile);
     let mstart = read_stat(member).unwrap().start_ticks;
     let r = second
@@ -395,7 +408,7 @@ fn a_c1_decoy_with_other_campaign_marker_survives() {
     );
     for mut d in [other, other_attempt] {
         d.kill().unwrap();
-        d.wait().unwrap();
+        wait_decoy(&mut d);
     }
     drop(dir);
 }
@@ -448,7 +461,7 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     let mfile = dir.path().join("dm.pid");
     let dscript = format!("sleep 600 & echo $! > {}; exit 0", mfile.display());
     let mut dl = force_pid(g, || decoy_session(&dscript, None));
-    dl.wait().unwrap();
+    wait_decoy(&mut dl);
     let dm = read_pid_file(&mfile);
     let dstart = read_stat(dm).unwrap().start_ticks;
     assert_eq!(read_stat(dm).unwrap().pgrp, g, "decoy member is in group g");
@@ -1058,7 +1071,7 @@ fn b_c3_leaderless_session_with_older_record_is_refused() {
     );
     let lead_pid = lead.id();
     let lead_start = read_stat(lead_pid).unwrap().start_ticks;
-    lead.wait().unwrap();
+    wait_decoy(&mut lead);
     let m = read_pid_file(&f);
     let mstart = read_stat(m).unwrap().start_ticks;
     let rec = ProcessIdentity {
