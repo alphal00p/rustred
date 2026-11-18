@@ -7914,7 +7914,12 @@ fn resource_classification(c: &classify::Classification, why: String) -> classif
 /// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
 /// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
 fn is_resource_requeue(reason: &str) -> bool {
-    reason.ends_with("(row 15)") || reason.ends_with("(row 15b)") || reason.ends_with("(row 15s)")
+    // procfix7 round 15 (gate16 m16-15m-recovery): "(row 15m)" (never ran: the launcher ended while waiting for the user
+    // manager) too, so that the count of resource ends in a row survives a restart
+    reason.ends_with("(row 15)")
+        || reason.ends_with("(row 15b)")
+        || reason.ends_with("(row 15s)")
+        || reason.ends_with("(row 15m)")
 }
 
 fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
@@ -8402,6 +8407,17 @@ mod tests {
         assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
         assert!(!r.attention);
         assert!(is_resource_requeue("lost (row 15s)"));
+        // round 15 (gate16 m16-15m-recovery): a never-ran end counts at recovery as at run time
+        assert!(is_resource_requeue("lost (row 15m)") && !is_resource_requeue("lost (row 15n)"));
+        let mut map = BTreeMap::new();
+        let rq = |r: &str| Event::Job {
+            job: "j".into(),
+            attempt: 1,
+            ev: JobEvent::Requeue { reason: r.into() },
+        };
+        fold_resource_ends(&mut map, &rq("lost (row 15m)"));
+        fold_resource_ends(&mut map, &rq("lost (row 15m)"));
+        assert_eq!(map.get("j"), Some(&2));
         // another exit code with a report: not a refused barrier
         let ev = evidence(WaitStatus::Exited(1));
         assert_eq!(barrier_refused(Some("eof"), &ev), None);
