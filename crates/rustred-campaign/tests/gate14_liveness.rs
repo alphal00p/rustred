@@ -74,7 +74,7 @@ fn g14_liveness_honest_fork_heavy_jobs() {
             let script = match kind.as_str() {
                 "pipe" => &pipe,
                 "orphan" => &orphan,
-                _ if launched % 2 == 0 => &pipe,
+                _ if launched.is_multiple_of(2) => &pipe,
                 _ => &orphan,
             };
             let end = dir.path().join(format!("j{launched}.end"));
