@@ -16,6 +16,7 @@ pub mod alg;
 pub mod canon;
 pub mod json;
 pub mod loci;
+pub mod recover;
 #[cfg(test)]
 mod tests;
 
@@ -43,6 +44,8 @@ pub struct WcertArgs {
     pub zero_sectors: Option<String>,
     /// file with the `symmetry_group` record of the rule's chart (idem)
     pub symmetry_group: Option<String>,
+    /// v0+rows: recover each carried row as a combination of this tool's ordinary rows (recover.rs; needs the generator)
+    pub recover_rows: bool,
 }
 
 /// The stored rule line and where it was found.
@@ -540,6 +543,34 @@ fn seed_rf(c: &Rf, seed: &Pat) -> Result<Rf, String> {
     alg::subst_rf(&alg::shift_rf(c, &shifts), &values)
 }
 
+/// Trace rows (w, terms) on the generator's ordinary rows for (seed, m, w) triples; returns the number of triples whose
+/// row index the generator does not have.
+fn trace_from_triples(
+    vars: &Vars,
+    arity: usize,
+    er: &Rows,
+    triples: &[(Pat, i64, Rf)],
+) -> Result<(Vec<(Rf, Vec<(Pat, Rf)>)>, usize), String> {
+    let mut tr = vec![];
+    let mut missing = 0usize;
+    for (seed, m, w) in triples {
+        let Some(op) = er.get(m) else {
+            missing += 1;
+            continue;
+        };
+        let mut terms = vec![];
+        for (off, a) in op {
+            if off.len() < arity {
+                return Err("ordinary row arity below the rule's".into());
+            }
+            let c = seed_aff(vars, seed, a)?;
+            terms.push((seed_term(seed, &off[..arity]), Rf::from(c)));
+        }
+        tr.push((w.clone(), terms));
+    }
+    Ok((tr, missing))
+}
+
 /// Rows of the tool's generator (source_row lines) or None.
 pub struct RowSource<'a> {
     pub engine: Option<&'a EngineRows>,
@@ -584,6 +615,7 @@ pub fn run(args: &WcertArgs, engine: &dyn Fn() -> Option<EngineRows>) -> Result<
     let side = Side {
         zero_sectors: args.zero_sectors.clone(),
         symmetry_group: args.symmetry_group.clone(),
+        recover_rows: args.recover_rows,
     };
     let mut rec = check(&stored, &bytes, engine, &args.table, &args.cert, &side)?;
     rec.put("seconds_load", format!("{t_load:.3}"));
@@ -639,6 +671,8 @@ pub fn run_bytes_side(
 pub struct Side {
     pub zero_sectors: Option<String>,
     pub symmetry_group: Option<String>,
+    /// v0+rows: recover the carried rows over the generator's ordinary rows (recover.rs)
+    pub recover_rows: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -849,12 +883,15 @@ fn check(
     let mut rows_v = RowsV::NotVerified;
     let mut rows_detail: String;
     let mut basis_word = "eliminated";
+    let mut recovery_json: Option<String> = None;
+    let mut rows_recovered = false;
     // trace terms: list of (weight, row terms) to combine
     let mut trace: Option<Vec<(Rf, Vec<(Pat, Rf)>)>> = None;
     let mut comp_dens: Vec<Poly> = vec![];
     let mut row_dens: Vec<Poly> = vec![];
-    let engine_owned: Option<EngineRows> =
-        if matches!(cert.form, Form::V1Ordinary | Form::V1Composed) {
+    let engine_owned: Option<EngineRows> = if matches!(cert.form, Form::V1Ordinary | Form::V1Composed)
+        || (cert.form == Form::V0Rows && side.recover_rows)
+    {
             engine_fn()
         } else {
             None
@@ -872,6 +909,8 @@ fn check(
             rows_detail = "v0+rows: the carried trace rows are rows of the producer's eliminated basis instantiated at seeds; no composition onto ordinary IBP rows is carried, so they are not verified as IBP identities".into();
             let rows = cert.rows.as_ref().unwrap();
             let mut tr = vec![];
+            let mut parsed: Vec<Vec<(Pat, Rf)>> = vec![vec![]; rows.len()];
+            let mut carried_dens: Vec<Poly> = vec![];
             for (j, w) in &weights {
                 let Some(rj) = rows.get(*j) else { continue };
                 let mut terms = vec![];
@@ -881,13 +920,51 @@ fn check(
                     }
                     let c = vars.rf(t).map_err(|e| format!("carried row {j}: {e}"))?;
                     if !c.denominator.is_constant() {
-                        row_dens.push(c.denominator.clone());
+                        carried_dens.push(c.denominator.clone());
                     }
                     terms.push((p.clone(), c));
                 }
+                parsed[*j] = terms.clone();
                 tr.push((w.clone(), terms));
             }
             trace = Some(tr);
+            if side.recover_rows {
+                match &engine_rows {
+                    None => {
+                        rows_detail = format!("{rows_detail}; recovery requested but this binary has no ordinary-row generator (engine feature / family)");
+                        row_dens = carried_dens;
+                    }
+                    Some(er) => {
+                        let rec = recover::recover(&vars, &cert.sources, &parsed, &weights, er);
+                        recovery_json = Some(rec.json());
+                        if rec.complete() {
+                            let (tr2, missing) = trace_from_triples(&vars, arity, er, &rec.triples)?;
+                            if missing == 0 {
+                                rows_v = RowsV::Verified;
+                                rows_recovered = true;
+                                basis_word = "ordinary (recovered from the carried rows)";
+                                rows_detail = format!(
+                                    "v0+rows: every weighted carried row RECOVERED as an exact combination of this tool's ordinary IBP rows at its seed ({}); the identity below is checked on the ordinary rows; the combination denominators join the factor list",
+                                    engine.map(|e| e.note.clone()).unwrap_or_default()
+                                );
+                                comp_dens = rec.dens;
+                                trace = Some(tr2);
+                            } else {
+                                rows_detail = format!("{rows_detail}; recovery named {missing} ordinary rows the generator lacks");
+                                row_dens = carried_dens;
+                            }
+                        } else {
+                            rows_detail = format!(
+                                "{rows_detail}; recovery INCOMPLETE: {} of {} weighted rows not recovered",
+                                rec.failed_count, rec.sources
+                            );
+                            row_dens = carried_dens;
+                        }
+                    }
+                }
+            } else {
+                row_dens = carried_dens;
+            }
         }
         Form::V1Ordinary | Form::V1Composed => {
             basis_word = "ordinary";
@@ -936,23 +1013,7 @@ fn check(
                             }
                         }
                     }
-                    let mut tr = vec![];
-                    let mut missing = 0usize;
-                    for (seed, m, w) in triples {
-                        let Some(op) = er.get(&m) else {
-                            missing += 1;
-                            continue;
-                        };
-                        let mut terms = vec![];
-                        for (off, a) in op {
-                            if off.len() < arity {
-                                return Err("ordinary row arity below the rule's".into());
-                            }
-                            let c = seed_aff(&vars, &seed, a)?;
-                            terms.push((seed_term(&seed, &off[..arity]), Rf::from(c)));
-                        }
-                        tr.push((w, terms));
-                    }
+                    let (tr, missing) = trace_from_triples(&vars, arity, er, &triples)?;
                     if missing > 0 {
                         rows_v = RowsV::Fail;
                         rows_detail = format!(
@@ -975,6 +1036,7 @@ fn check(
         rows_detail = format!("CERT_MALFORMED: {}", malformed.join("; "));
     }
     let rows_verdict = match rows_v {
+        RowsV::Verified if rows_recovered => "ROWS_VERIFIED_BY_RECOVERY",
         RowsV::Verified => "ROWS_VERIFIED",
         RowsV::NotVerified => "ROWS_NOT_INDEPENDENTLY_VERIFIED",
         RowsV::Fail => "ROWS_FAIL",
@@ -982,10 +1044,11 @@ fn check(
     o.put(
         "rows",
         format!(
-            "{{\"verdict\":{},\"basis\":{},\"detail\":{}}}",
+            "{{\"verdict\":{},\"basis\":{},\"detail\":{},\"recovery\":{}}}",
             jstr(rows_verdict),
             jstr(basis_word),
-            jstr(&rows_detail)
+            jstr(&rows_detail),
+            recovery_json.as_deref().unwrap_or("null")
         ),
     );
     secs.push(("rows".into(), ta.elapsed().as_secs_f64()));

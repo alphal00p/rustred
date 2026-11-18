@@ -394,6 +394,89 @@ fn v1_without_a_generator_is_not_checkable() {
     assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
 }
 
+// ---------------------------------------------------------------- row recovery (lane gencheck, recover.rs)
+
+fn recover_side() -> Side {
+    Side {
+        recover_rows: true,
+        ..Default::default()
+    }
+}
+
+fn v0_rows_cert(sources: &str, weights: &str, carried: &str) -> String {
+    format!(
+        r#"{{"schema":"rustred.weight-cert.v0","case":"toy","target":"I(n0,n1)","sources":{sources},"weights":{weights},"row":{ROW},"rows":{carried}}}"#
+    )
+}
+
+#[test]
+fn v0_rows_recovered_over_the_generator_is_whole_domain() {
+    // carried A_0 = O_0 + n0 O_1 (a polynomial combination, as the engine's preconditioner builds), A_1 = O_1;
+    // w_0 = 1/(d-2n0), w_1 = 1/(n0-1) - n0/(d-2n0): sum w A = W_0 O_0 + W_1 O_1 = ROW
+    let carried = r#"[[["I(n0,n1)","d-2*n0+n0*n1"],["I(n0+1,n1)","n0"],["I(n0,n1-1)","1"],["I(n0-1,n1+1)","n0^2-n0"]],[["I(n0,n1)","n1"],["I(n0-1,n1+1)","n0-1"]]]"#;
+    let cert = v0_rows_cert(
+        r#"[{"basis_row":3,"seed":"I(n0,n1)"},{"basis_row":4,"seed":"I(n0,n1)"}]"#,
+        r#"[{"j":0,"w":"1/(d-2*n0)"},{"j":1,"w":"1/(n0-1)-n0/(d-2*n0)"}]"#,
+        carried,
+    );
+    let st = stored(RHS_OK, r#"[["-1+n0"], ["-2+n0"]]"#, "");
+    // without recovery: identity over the carried rows only
+    let rec = run_ok(&st, cert.as_bytes(), Some(&rows()));
+    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_NOT_INDEPENDENTLY_VERIFIED");
+    assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
+    // with recovery but no generator: still not verified
+    let rec = run_bytes_side(&st, cert.as_bytes(), None, &recover_side()).unwrap();
+    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_NOT_INDEPENDENTLY_VERIFIED");
+    assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
+    // with recovery and the generator: rows verified, identity on the ORDINARY rows, whole domain
+    let rec = run_bytes_side(&st, cert.as_bytes(), Some(&rows()), &recover_side()).unwrap();
+    eprintln!("{rec}");
+    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_VERIFIED_BY_RECOVERY");
+    assert_eq!(field(&rec, &["rows", "recovery", "recovered"]), "2");
+    assert_eq!(field(&rec, &["identity", "verdict"]), "IDENTITY_EXACT");
+    assert_eq!(field(&rec, &["binding", "verdict"]), "BINDING_EQUAL");
+    assert_eq!(field(&rec, &["class"]), "WHOLE_DOMAIN");
+}
+
+#[test]
+fn v0_rows_outside_the_ibp_span_are_not_verified() {
+    // A_1 = O_1 + X and A_2 = X (X = I(n0+3,n1), not an IBP identity) with weights W_1 and -W_1: the carried-row identity
+    // is EXACT, so without recovery only the rows stage stands between this certificate and a whole-domain class
+    let carried = r#"[[["I(n0,n1)","d-2*n0"],["I(n0+1,n1)","n0"],["I(n0,n1-1)","1"]],[["I(n0,n1)","n1"],["I(n0-1,n1+1)","n0-1"],["I(n0+3,n1)","1"]],[["I(n0+3,n1)","1"]]]"#;
+    let cert = v0_rows_cert(
+        r#"[{"basis_row":0,"seed":"I(n0,n1)"},{"basis_row":1,"seed":"I(n0,n1)"},{"basis_row":2,"seed":"I(n0,n1)"}]"#,
+        r#"[{"j":0,"w":"1/(d-2*n0)"},{"j":1,"w":"1/(n0-1)"},{"j":2,"w":"-1/(n0-1)"}]"#,
+        carried,
+    );
+    let st = stored(RHS_OK, r#"[["-1+n0"], ["-2+n0"]]"#, "");
+    let rec = run_bytes_side(&st, cert.as_bytes(), Some(&rows()), &recover_side()).unwrap();
+    eprintln!("{rec}");
+    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_NOT_INDEPENDENTLY_VERIFIED");
+    assert_eq!(field(&rec, &["rows", "recovery", "recovered"]), "1");
+    assert_eq!(field(&rec, &["rows", "recovery", "failed"]), "2");
+    assert_eq!(field(&rec, &["identity", "verdict"]), "IDENTITY_EXACT");
+    assert_eq!(field(&rec, &["class"]), "NOT_WHOLE_DOMAIN");
+}
+
+#[test]
+fn recovered_combination_denominators_join_the_factor_list() {
+    // A_0 = O_0 / (n0-3) with w_0 = (n0-3)/(d-2n0): the combination has a pole at raw n0 = 3, i.e. stored n0 = 4 (the
+    // factors are reported in the stored frame, translation n = m + (-1, 0)), inside the domain -> OPEN
+    let carried = r#"[[["I(n0,n1)","(d-2*n0)/(n0-3)"],["I(n0+1,n1)","n0/(n0-3)"],["I(n0,n1-1)","1/(n0-3)"]],[["I(n0,n1)","n1"],["I(n0-1,n1+1)","n0-1"]]]"#;
+    let cert = v0_rows_cert(
+        r#"[{"basis_row":0,"seed":"I(n0,n1)"},{"basis_row":1,"seed":"I(n0,n1)"}]"#,
+        r#"[{"j":0,"w":"(n0-3)/(d-2*n0)"},{"j":1,"w":"1/(n0-1)"}]"#,
+        carried,
+    );
+    let st = stored(RHS_OK, r#"[["-1+n0"], ["-2+n0"]]"#, "");
+    let rec = run_bytes_side(&st, cert.as_bytes(), Some(&rows()), &recover_side()).unwrap();
+    eprintln!("{rec}");
+    assert_eq!(field(&rec, &["rows", "verdict"]), "ROWS_VERIFIED_BY_RECOVERY");
+    assert_eq!(field(&rec, &["identity", "verdict"]), "IDENTITY_EXACT");
+    assert_eq!(verdict_of(&rec, "-4+n0"), "OPEN");
+    assert_eq!(field(&rec, &["class"]), "OPEN_LOCI");
+}
+
 // ---------------------------------------------------------------- real certificates (test data, env)
 
 fn env_path(k: &str) -> Option<String> {
@@ -542,6 +625,7 @@ fn binding_modulo_zero_sectors_and_symmetry() {
     let side = Side {
         zero_sectors: Some(zs.clone()),
         symmetry_group: Some(sg.clone()),
+        ..Default::default()
     };
     // without the records: the integral sets differ
     let rec = run_ok(&stored("-3-n0"), cert.as_bytes(), None);

@@ -7,7 +7,7 @@
 //!   rr_proof --mode instance-span --table F.table.jsonl --rule N [--offset BYTES] [--cert F.cert.jsonl]
 //!            (--key n0=1,n1=2,... | --keys FILE)+ [--drop-zero-sectors] [--max-primes 40] [--max-points K] [--emit-certs DIR] [--symmetry auto|on|off] [--symmetry-group FILE] [--symrows FILE [--symrows-only]]
 //!   rr_proof --mode weight-cert --cert CERT.json --table F.table.jsonl --rule N [--offset BYTES]
-//!            [--zero-sectors FILE] [--symmetry-group FILE]   (feature wcert;
+//!            [--zero-sectors FILE] [--symmetry-group FILE] [--recover-rows]   (feature wcert;
 //!            independent check of a weight certificate, plan/auto-campaign/interfaces/weight-cert-check.md)
 //!   common:  [--rows engine|cert] [--family F.family.sym] [--out results.jsonl] [--ignore-exceptions]
 //!
@@ -163,6 +163,7 @@ fn weight_cert(
     rows_src: &str,
     family: Option<&str>,
     side: (Option<String>, Option<String>),
+    recover_rows: bool,
 ) -> String {
     let args = rustred_proof::wcert::WcertArgs {
         cert: cert.to_string(),
@@ -171,6 +172,7 @@ fn weight_cert(
         offset,
         zero_sectors: side.0,
         symmetry_group: side.1,
+        recover_rows,
     };
     let rows = || -> Option<EngineRows> {
         if rows_src != "engine" {
@@ -198,6 +200,7 @@ fn weight_cert(
     _: &str,
     _: Option<&str>,
     _: (Option<String>, Option<String>),
+    _: bool,
 ) -> String {
     rustred_proof::error_record("UNSUPPORTED: built without the wcert feature")
 }
@@ -254,6 +257,7 @@ fn main() {
     };
     let mut family: Option<String> = None;
     let mut zero_sectors: Option<String> = None;
+    let mut recover_rows = false;
     let mut out: Option<String> = None;
     let mut kmod: Option<usize> = None;
     let mut kex: Option<usize> = None;
@@ -307,6 +311,10 @@ fn main() {
                 pa.drop_zero_sectors = true;
                 flag = true;
             }
+            "--recover-rows" => {
+                recover_rows = true;
+                flag = true;
+            }
             "--symrows-only" => {
                 pa.symrows_only = true;
                 flag = true;
@@ -333,6 +341,7 @@ fn main() {
             &rows_src,
             family.as_deref(),
             (zero_sectors.clone(), pa.symmetry_group.clone()),
+            recover_rows,
         );
         let code = if line.contains("\"verdict\":\"ERROR\"")
             || line.contains("\"verdict\":\"UNSUPPORTED\"")
