@@ -445,7 +445,8 @@ fn cmd_scope_check(rest: &[String]) -> i32 {
 /// failed: reset-failed; active / activating / deactivating with its cgroup absent or `populated 0`: stopped (an empty
 /// scope); populated: never stopped (kept: the restart's marker backstop handles its processes). Never a pattern.
 /// procfix7 round 15 (gate16 m16-units-lock): it takes the CAMPAIGN LOCK (refused, exit 1 "refused: the campaign lock
-/// is not free", while a supervisor holds it); a unit found not loaded leaves the list only when found so again 15 min
+/// is not free", while a supervisor holds it); round 16 (gate17 m17-units-takeover): refused too, the stale record left
+/// in place, after a supervisor that did not end cleanly (run the campaign first); a unit found not loaded leaves the list only when found so again 15 min
 /// later (m16-not-loaded-early). Exit 0: the list is empty afterwards; 1: entries are kept (named) or refused; 2: usage;
 /// 3: no such directory.
 fn cmd_units(rest: &[String]) -> i32 {
@@ -468,13 +469,38 @@ fn cmd_units(rest: &[String]) -> i32 {
         .into_iter()
         .chain(rest.iter().cloned())
         .collect();
-    let (lock, _) = match crate::lock::acquire(cdir, &clock, &argv) {
+    let (lock, outcome) = match crate::lock::acquire(cdir, &clock, &argv) {
         Ok(x) => x,
         Err(e) => {
             errln!("refused: the campaign lock is not free ({e}); stop the supervisor first");
             return exit::REFUSED;
         }
     };
+    // round 16 (gate17 m17-units-takeover): never CONSUME a stale lock (a supervisor that did not end cleanly): its owner
+    // record is the evidence the next start turns into a lock_takeover record and its token orphans into recovery's
+    // seeds. The previous record is written back (our release then leaves it: it names another token) and nothing is
+    // cleared: the campaign's own start (recovery, sweeps) comes first
+    if let crate::lock::LockOutcome::TookOver {
+        previous, reason, ..
+    } = &outcome
+    {
+        let back = crate::atomic::write_json_atomic(&cdir.join(crate::lock::OWNER_FILE), previous);
+        errln!(
+            "refused: {} holds the lock record of a supervisor that did not end cleanly (pid {}, {reason:?}); run the campaign first (its start records the takeover and sweeps that supervisor's orphans), then `units clear`{}",
+            cdir.display(),
+            previous.identity.pid,
+            match &back {
+                Ok(()) => String::new(),
+                Err(e) => format!(
+                    "; WARNING: its lock record could not be restored ({e}): the next start sees no stale lock"
+                ),
+            }
+        );
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): round 16: the restored record names another token, so the release leaves it in place
+        let _ = lock.release();
+        return exit::REFUSED;
+    }
     let code = units_clear_locked(cdir);
     #[allow(clippy::let_underscore_must_use)]
     // ignored-ok (procfix7): round 15: the kernel releases the flock at exit anyway; a LOCK.json left in place is stale
