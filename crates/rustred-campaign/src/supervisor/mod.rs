@@ -5178,7 +5178,9 @@ impl Supervisor {
                         }
                         // round 15 (gate16 m16-pending-exit-race): the launcher ended between this tick's poll and the
                         // look: the previous look's evidence stands (pending_since and the 10-s window unchanged); the
-                        // next poll sees the end and classifies it from the kernel's record of its exit cgroup
+                        // next poll sees the end and classifies it from the kernel's record of its exit cgroup. Round 16
+                        // (gate17 m17-gone-sticky): Gone only when the whole thread group ended; a live process whose
+                        // leader thread ended is Unverified (the arm below: the 10-s rule applies)
                         crate::launch::LaunchState::Gone => {}
                         _ => ch.pending_since = None,
                     }

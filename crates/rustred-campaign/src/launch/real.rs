@@ -887,8 +887,26 @@ pub enum LaunchState {
     Unverified(String),
     /// procfix7 round 15 (gate16 m16-pending-exit-race): the leader ENDED during the look (a read says gone: the pinned
     /// zombie has no executable link): this look decides nothing; the previous look's evidence stands, and the end is
-    /// classified at the next poll from the kernel's record of the cgroup it exited in.
+    /// classified at the next poll from the kernel's record of the cgroup it exited in. Round 16 (gate17
+    /// m17-gone-sticky): only when the WHOLE thread group ended (the kernel counts <= 1 thread: the zombie leader); a
+    /// live process whose leader thread ended has no executable link either, and that look is `Unverified`
+    /// ([`gone_exe_state`]).
     Gone,
+}
+
+/// procfix7 round 16 (gate17 m17-gone-sticky): the state of a look whose executable read said GONE, from the kernel's
+/// thread count of the leader (`Threads:`, read after it): <= 1 (the zombie leader only) or the process gone = `Gone`
+/// (the launcher ended); more = a LIVE process whose leader thread ended (workers run on) = `Unverified` (the 10-s rule
+/// applies, as for any job condition); an unreadable count = `Unverified`.
+pub fn gone_exe_state(threads: crate::resources::ProcResult<u32>) -> LaunchState {
+    match threads {
+        Ok(n) if n <= 1 => LaunchState::Gone,
+        Ok(n) => LaunchState::Unverified(format!(
+            "the leader thread ended while the kernel counts {n} threads: the process runs on"
+        )),
+        Err(crate::resources::ProcError::Gone) => LaunchState::Gone,
+        Err(e) => LaunchState::Unverified(format!("thread count of the leader: {e}")),
+    }
 }
 
 /// procfix7 round 14 (M2): the pure decision from the two kernel reads (unit-tested on recorded inputs). `exe`: the
@@ -2115,7 +2133,10 @@ impl RealChild {
         };
         let exe = match root.exe(self.sid) {
             Ok(e) => e,
-            Err(crate::resources::ProcError::Gone) => return LaunchState::Gone,
+            // round 16 (gate17 m17-gone-sticky): "gone" only when the whole thread group ended
+            Err(crate::resources::ProcError::Gone) => {
+                return gone_exe_state(root.status(self.sid).and_then(|s| s.threads()));
+            }
             Err(e) => return LaunchState::Unverified(format!("exe of the leader: {e}")),
         };
         launch_state_from(&exe, &text, &launcher, &own)
@@ -3205,8 +3226,67 @@ mod tests {
         let cg = root.cgroup_text(pid, Duration::from_secs(5)).unwrap();
         assert!(cg.lines().any(|l| l.starts_with("0::")), "{cg}");
         assert_eq!(root.exe(pid), Err(crate::resources::ProcError::Gone));
+        // round 16 (gate17 m17-gone-sticky): the whole group ended: the decision after a gone exe is Gone
+        assert_eq!(
+            gone_exe_state(root.status(pid).and_then(|s| s.threads())),
+            LaunchState::Gone
+        );
         c.wait().unwrap();
         assert_eq!(root.exe(pid), Err(crate::resources::ProcError::Gone));
+        assert_eq!(
+            gone_exe_state(Err(crate::resources::ProcError::Gone)),
+            LaunchState::Gone
+        );
+    }
+
+    /// procfix7 round 16 (gate17 m17-gone-sticky): a LIVE process whose leader (main) thread ended by the raw exit
+    /// syscall while a worker runs: its executable link reads as gone at every look, the kernel counts 2 threads: the
+    /// look is Unverified (the 10-s rule applies), never Gone. One child (python3, our own), killed at the end; only
+    /// inside a private pid namespace (rule L10).
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn a_live_process_whose_leader_thread_ended_is_unverified_not_gone() {
+        if !in_private_namespace() {
+            return;
+        }
+        // 60 = SYS_exit on x86_64: ends the calling (main) thread only; the worker sleeps 60 s
+        let src = "import ctypes, threading, time\n\
+                   t = threading.Thread(target=time.sleep, args=(60,)); t.start()\n\
+                   ctypes.CDLL(None).syscall(60, 0)\n";
+        let mut c = std::process::Command::new("python3")
+            .args(["-I", "-c", src])
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .spawn()
+            .unwrap();
+        let pid = c.id();
+        let root = crate::resources::procfs::sys();
+        let t0 = Instant::now();
+        while !root
+            .status(pid)
+            .is_ok_and(|s| s.state().ok() == Some('Z') && s.threads().is_ok_and(|n| n >= 2))
+        {
+            assert!(
+                t0.elapsed() < Duration::from_secs(20),
+                "never a zombie leader with a live worker"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        for look in 0..3 {
+            assert_eq!(
+                root.exe(pid),
+                Err(crate::resources::ProcError::Gone),
+                "look {look}"
+            );
+            let st = gone_exe_state(root.status(pid).and_then(|s| s.threads()));
+            assert!(
+                matches!(&st, LaunchState::Unverified(w) if w.contains("the leader thread ended")),
+                "look {look}: {st:?}"
+            );
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        assert!(matches!(gone_exe_state(Ok(2)), LaunchState::Unverified(_)));
+        c.kill().unwrap();
+        c.wait().unwrap();
     }
 
     /// procfix7 round 14 (host step 3, M2): the pending decision on RECORDED inputs (host step 3: the supervisor's
