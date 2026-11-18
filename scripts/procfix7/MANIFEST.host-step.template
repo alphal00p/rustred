@@ -41,6 +41,26 @@ THE TWO WORKLOADS (round 12; the same script, the same grader, P1-P8 as in RUNBO
   after resources.unproven_end_limit_s = 600 s the attempt gets the note `unproven_end` (processes named, lease released,
   the run ends exit 8): that note FAILs P5.
 
+THE USER MANAGER (round 14, host step 3: run B ended exit 71 during a 4-minute stall of the user manager that the run
+did not cause; reports/HOST-STEP-3-ANALYSIS.md). Now a HOST condition, never a verdict about the scope mechanism or a job:
+- a scope launch whose launcher (systemd-run) is still in the supervisor's own cgroup is PENDING (decided from the kernel:
+  /proc/<leader>/exe, then /proc/<leader>/cgroup; no manager call): the job has not started; it is never killed by the
+  10-s rule and never counted toward the limit of 3; a launcher that gives up while pending is "never ran" (retried);
+- THE GATE: while a launch is pending longer than 5 s or the manager probe (ONE `systemctl --user show -p Version
+  --value`, at most one in flight, every 30 s; 5-60 s back-off while closed) does not answer within 5 s, NO job is
+  launched (log "launching paused: the user manager does not answer"; notes manager_unresponsive / manager_answered);
+  running jobs go on; scope reads are deferred to the exit. Closed longer than resources.manager_wait_limit_s (default
+  900 s; MANAGER_WAIT_LIMIT_S=<s> sets it) the run drains and stops with EXIT 69 ("manager unavailable": run the same
+  command once the manager answers), not 71;
+- LEFTOVER UNITS: units of this campaign that could not be confirmed cleared (a launcher ended while its request may
+  still be queued; a unit not read / still active / failed and not reset at the exit) are listed in
+  <OUT>/c/units.leftover.json and cleared by exact name at the next start, at the exit when the manager answers, and by
+  `bin/rr_campaign units clear <OUT>/c` (only names of this campaign recorded by its ledger; state read first; failed:
+  reset-failed; active with an empty cgroup: stopped; populated: never stopped);
+- a stop decision (limit, recovery, manager) no longer disables the ledger: every signal delivered during the drain is
+  recorded (run B: 21 were only in the intent log);
+- our manager calls are logged per minute ("user-manager calls in the last 60 s: systemd-run N, show N, ...").
+
 THE END-OF-JOB PROOF (round 10 gate13c G13c-M1; round 11 gate14 G14-M1; wording round 12 gate15 m15-manifest; RUNBOOK
 2.10): the hunt follows the supervisor's own children, every member it stopped, and every WALKED process: a live process
 OF OUR UID, started after the job, outside every job session and without the job's marker (never signalled). It never
@@ -89,6 +109,9 @@ attempt); signals not accounted for 0, POSSIBLY SENT 0, other P5 notes none: the
 If that line says k == N, 0 unaccounted signals and "ONLY on these notes", the FAIL of P5 is a proof-completeness FAIL,
 not a signal or containment one: the coordinator decides whether to accept it. Any other P5-unproven text: a real FAIL.
 For workload (B) the expected P5 is a plain PASS: 0 unproven_end notes (rehearsal of this directory: see RUNBOOK).
+Round 14 (M5): P5 also reads the supervisor's own intent log (OUT/c/log/signal-intents.jsonl and its tmpfs fallback):
+its line ends "intent log: N delivered, K delivered but NOT recorded in the ledger (ids), M without completion (POSSIBLY
+SENT), run.log 'not recorded' lines L"; P5 FAILs unless K = M = L = 0 (run B as recorded: K = 21, ids 126-146).
 
 Contents:
   host_step_fake1.sh        the host step (RUNBOOK 1.7): --dry-run / --run / --rehearse-ns / --grade; the pre-flight
@@ -101,6 +124,8 @@ Contents:
   rehearsal-fake-systemd/   systemd-run / systemctl FAKES for --rehearse-ns ONLY (refused outside a private user AND pid
                             namespace; the script refuses them for --run / --dry-run)
   fixtures/host-step-1/     host step 1's ledger, run.log, scopes.peak, site/spec, CPU-ledger lines, units seen
+  fixtures/host-step-3/     run B's ledger, intent log, run.log, scopes.peak, units seen, site/spec, pass.txt (the
+                            grader's round-14 P5 test)
   bin/rr_campaign           release, @COMMIT@ (sha256 @RC_SHA@)
   bin/rr_fake_child         release, @COMMIT@ (sha256 @FC_SHA@)
   bin/rr_scope_check        release, @COMMIT@ (sha256 @SC_SHA@)
