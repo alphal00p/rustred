@@ -194,24 +194,42 @@ fn solve(
     Ok(out)
 }
 
-/// Drop the terms whose integral is in a zero sector; returns the number dropped.
-fn drop_zero(terms: &mut Vec<(Pat, Rf)>, zero: &dyn Fn(&Pat) -> bool) -> usize {
-    let n = terms.len();
-    terms.retain(|(p, _)| !zero(p));
-    n - terms.len()
+/// The class map of STATED records: an integral -> None (in a zero sector) or Some((class representative, sign flip)).
+pub type ClassMap<'a> = &'a dyn Fn(&Pat) -> Option<(Pat, bool)>;
+
+/// Terms mapped to their classes (coefficients merged per representative, negated on a sign flip, zero-sector terms and
+/// zero sums dropped); returns the mapped terms and how many terms were dropped or moved.
+pub fn map_terms(vars: &Vars, terms: &[(Pat, Rf)], m: ClassMap<'_>) -> (Vec<(Pat, Rf)>, usize) {
+    let mut acc: HashMap<Pat, Rf> = HashMap::new();
+    let mut changed = 0usize;
+    for (p, c) in terms {
+        match m(p) {
+            None => changed += 1,
+            Some((q, neg)) => {
+                if &q != p || neg {
+                    changed += 1;
+                }
+                let e = acc.entry(q).or_insert_with(|| vars.zero_rf());
+                *e = if neg { &*e - c } else { &*e + c };
+            }
+        }
+    }
+    let mut out: Vec<(Pat, Rf)> = acc.into_iter().filter(|(_, c)| !c.is_zero()).collect();
+    out.sort_by(|a, b| a.0.cmp(&b.0));
+    (out, changed)
 }
 
 /// Recover every weighted carried row. `sources[j]` = (basis row, seed); `rows[j]` = the carried row of source j (terms
-/// already parsed); `weights` = (j, w_j), nonzero. `zero`: when given (a STATED zero-sector record, raw frame), a row
-/// that is not recovered exactly is tried again with every zero-sector integral dropped on both sides (the producer's
-/// eliminated rows drop them); such rows are counted in `modulo_zero_rows`.
+/// already parsed); `weights` = (j, w_j), nonzero. `modmap`: when given (the class map of STATED zero-sector / symmetry
+/// records, raw frame), a row that is not recovered exactly is tried again with every integral mapped to its class on both
+/// sides (the producer's eliminated rows drop zero sectors and may use symmetry); such rows count in `modulo_zero_rows`.
 pub fn recover(
     vars: &Vars,
     sources: &[(i64, Pat)],
     rows: &[Vec<(Pat, Rf)>],
     weights: &[(usize, Rf)],
     er: &Rows,
-    zero: Option<&dyn Fn(&Pat) -> bool>,
+    modmap: Option<ClassMap<'_>>,
 ) -> Recovery {
     let t0 = Instant::now();
     let mut rec = Recovery {
@@ -292,15 +310,17 @@ pub fn recover(
                 },
                 Err(e) => why = e,
             }
-            if let (true, Some(z)) = (sol.is_none(), zero) {
-                // modulo the stated zero sectors: drop their integrals on both sides and solve again
-                let mut t2 = target.clone();
-                let mut dropped = drop_zero(&mut t2, z);
-                let mut inst2 = inst.clone();
-                for (_, terms) in inst2.iter_mut() {
-                    dropped += drop_zero(terms, z);
+            if let (true, Some(z)) = (sol.is_none(), modmap) {
+                // modulo the stated records: every integral mapped to its class on both sides, solved again
+                let (t2, mut dropped) = map_terms(vars, target, z);
+                let mut inst2 = vec![];
+                for (m, terms) in &inst {
+                    let (t, d) = map_terms(vars, terms, z);
+                    dropped += d;
+                    if !t.is_empty() {
+                        inst2.push((*m, t));
+                    }
                 }
-                inst2.retain(|(_, t)| !t.is_empty());
                 match solve(
                     vars,
                     &inst2,
@@ -313,8 +333,8 @@ pub fn recover(
                         rec.zero_terms_dropped += dropped;
                         sol = Some(c);
                     }
-                    Ok(_) => why = format!("{why}; modulo zero sectors: not verified"),
-                    Err(e) => why = format!("{why}; modulo zero sectors: {e}"),
+                    Ok(_) => why = format!("{why}; modulo the stated records: not verified"),
+                    Err(e) => why = format!("{why}; modulo the stated records: {e}"),
                 }
             }
             if sol.is_none() {

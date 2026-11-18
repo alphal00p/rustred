@@ -178,6 +178,7 @@ impl CheckSummary {
         self.rows == "ROWS_VERIFIED"
             || self.rows == "ROWS_VERIFIED_BY_RECOVERY"
             || self.rows == "ROWS_VERIFIED_BY_RECOVERY_MODULO_ZERO_SECTORS"
+            || self.rows == "ROWS_VERIFIED_BY_RECOVERY_MODULO_STATED_RECORDS"
     }
     pub fn identity_exact(&self) -> bool {
         self.identity == "IDENTITY_EXACT"
