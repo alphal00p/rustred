@@ -38,13 +38,14 @@
 #            around `true`; it signals nothing) must PASS, else nothing starts (exit 2; OUT/scope-check.txt).
 #
 # WHAT IT STARTS: the pre-flight's scope, then one rr_campaign supervisor as the service above, which starts its fake jobs
-#   (each in its own rr-<campaign id>-* scope on the host). WHAT IT SIGNALS: nothing itself. WHAT IT STOPS: nothing; on an
+#   (each in its own rr-<campaign id>-* scope on the host). WHAT IT SIGNALS: nothing itself (--rehearse-ns with
+#   FAKE_TRIPLE_STOP: three stop requests to its own supervisor inside the namespace). WHAT IT STOPS: nothing; on an
 #   ABORT condition (a signal_sent / scope_killed record not accounted for by this campaign, a dead or silent watcher, a
 #   unit that cannot be observed for 5 min) it files `rr_campaign control OUT/c stop` (a request), never a kill.
 #   Read-only: WS/ops/locks (the supervisor takes flocks there on --run), the held files, the pause flags.
 set -u
 WS=/shared/vhirschi/t3code/vakint_dev/p_integral_dev
-usage() { sed -n '2,44p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,45p' "$0" | sed 's/^# \{0,1\}//'; }
 # procfix7 round 8b: EVERYTHING runs from main(), which bash parses in full before it starts; install a new version only
 # as a new file (a frozen copy in a dated directory), never by editing a file that may be running.
 # alive PID: the process exists and is not a zombie
@@ -147,6 +148,14 @@ if [ -n "${FAKE_MANAGER_STALL:-}" ]; then
   [ "$MODE" = --rehearse-ns ] || { echo "FAKE_MANAGER_STALL only with --rehearse-ns" >&2; exit 2; }
   case "$FAKE_MANAGER_STALL" in [0-9]*:[0-9]*) ;; *) echo "FAKE_MANAGER_STALL must be <after_s>:<dur_s>" >&2; exit 2 ;; esac
 fi
+# procfix7 round 15 (gate16 M16-1): FAKE_TRIPLE_STOP=<after_s> (--rehearse-ns only): that long after the start, THREE stop
+# requests to the supervisor (SIGTERM to its exact pid, its command line checked, 50 ms apart): the documented "exit now"
+# (the third request) while jobs run, so that the EXIT PASS commits (the deliveries of the jobs dropped at the exit) and P4
+# (`verify`) shows whether the progress files follow those records. The run then ends with the stop code (P1 FAIL by design)
+if [ -n "${FAKE_TRIPLE_STOP:-}" ]; then
+  [ "$MODE" = --rehearse-ns ] || { echo "FAKE_TRIPLE_STOP only with --rehearse-ns" >&2; exit 2; }
+  case "$FAKE_TRIPLE_STOP" in ''|*[!0-9]*) echo "FAKE_TRIPLE_STOP must be an integer (seconds)" >&2; exit 2 ;; esac
+fi
 SITE=$(cat <<J
 {"schema":"rustred.campaign.site-policy.v1","tag":"rr-campaign",
  "lock_dir":"$LOCKS","lock_name":"cpu.{n}",
@@ -241,6 +250,17 @@ for _ in $(seq 600); do
 done
 { echo "started $(date -u +%FT%TZ)"; systemctl --user show --property=Id,InvocationID,MainPID,ControlGroup,ExecMainStartTimestamp -- "$SVC" 2>&1; } > "$OUT/supervisor.unit.start"
 say "service $SVC: $(tr '\n' ' ' < "$OUT/supervisor.unit.start")"
+if [ "$MODE" = --rehearse-ns ] && [ -n "${FAKE_TRIPLE_STOP:-}" ]; then
+  ( sleep "$FAKE_TRIPLE_STOP"
+    p=$(cat "$FAKE_SYSTEMD_DIR/$SVC/main.pid" 2>/dev/null)
+    if [ -n "$p" ] && alive "$p" && tr '\0' ' ' < "/proc/$p/cmdline" 2>/dev/null | grep -q "^$RC run "; then
+      for _ in 1 2 3; do kill -TERM "$p"; sleep 0.05; done
+      echo "FAKE_TRIPLE_STOP $(date -u +%FT%TZ): three SIGTERMs to the supervisor (pid $p)" >> "$OUT/triple_stop.txt"
+    else
+      echo "FAKE_TRIPLE_STOP $(date -u +%FT%TZ): the supervisor's pid was not found running: nothing sent" >> "$OUT/triple_stop.txt"
+    fi ) &
+  say "FAKE_TRIPLE_STOP: three stop requests at +${FAKE_TRIPLE_STOP} s ($OUT/triple_stop.txt)"
+fi
 follow_and_grade
 }
 
