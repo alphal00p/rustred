@@ -167,7 +167,7 @@ fn flag_value(rest: &[String], i: usize) -> Result<String, String> {
 
 /// `rr_campaign emit-replace --table T --rule N [--offset B] --rr-node BIN --checker BIN --out DIR [--max-depth 6]
 /// [--max-pieces 16] [--case-budget S] [--cone S] [--policy FILE] [--family F] [--no-recover-rows] [--write-table]
-/// [--witness-off]`: certify rule N of T by replacement; writes DIR/report.json, DIR/cand.emission/ (side files) and,
+/// [--witness-off] [--check-floor S] [--check-ratio R]` (check budget = max(floor, ratio x lift seconds), default 120 s / 1): certify rule N of T by replacement; writes DIR/report.json, DIR/cand.emission/ (side files) and,
 /// when the ladder closed, DIR/pieces.jsonl, DIR/pieces.mini.table.jsonl and (with --write-table) DIR/cand.table.jsonl.
 pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let (mut table, mut out, mut rr_node, mut checker) = (None, None, None, None);
@@ -179,6 +179,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut family = None;
     let mut recover = true;
     let mut write_table = false;
+    let (mut check_floor, mut check_ratio) = (None, None);
     let mut i = 0;
     while i < rest.len() {
         let mut one = false;
@@ -218,6 +219,20 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
                 )
             }
             "--family" => family = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--check-floor" => {
+                check_floor = Some(
+                    flag_value(rest, i)?
+                        .parse::<f64>()
+                        .map_err(|_| "--check-floor: seconds")?,
+                )
+            }
+            "--check-ratio" => {
+                check_ratio = Some(
+                    flag_value(rest, i)?
+                        .parse::<f64>()
+                        .map_err(|_| "--check-ratio: a number")?,
+                )
+            }
             "--policy" => {
                 let p = flag_value(rest, i)?;
                 let t = std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}"))?;
@@ -258,6 +273,12 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut ck = Checker::new(&checker)?;
     ck.recover_rows = recover;
     ck.family = family;
+    if let Some(f) = check_floor {
+        ck.floor_s = f;
+    }
+    if let Some(r) = check_ratio {
+        ck.ratio = r;
+    }
     let cand = out.join("cand.table.jsonl");
     let side = side_dir(&cand);
     let emitter = Emitter::new(ck, policy, &side, &out.join("work"))?;
