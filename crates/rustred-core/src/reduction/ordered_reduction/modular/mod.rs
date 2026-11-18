@@ -22,7 +22,9 @@
 //! - `ModularSampled` replays it at sample points and interpolates every
 //!   terminal per prime (`sampled.rs`, `replay.rs`);
 //! - `ModularPolynomial` replays it with weights in `Z_p(d)`, several primes
-//!   per replay (`polynomial/`).
+//!   per replay (`polynomial/`);
+//! - `Tadic` (helper-vh2) replays it with truncated Laurent series in
+//!   `d - d0` over `F_p` and returns the series, never lifted (`tadic.rs`).
 //!
 //! All parallel work runs on the request's executor (`executor.rs`): inline
 //! for one thread, else a private pool.
@@ -37,6 +39,7 @@ mod replay;
 mod sampled;
 mod simd;
 mod spill;
+pub(super) mod tadic;
 
 use std::collections::BTreeMap;
 use std::hash::{BuildHasher, Hasher};
@@ -54,7 +57,7 @@ use self::polynomial::{BasisBuilder, PolynomialSource};
 use self::sampled::SampledSource;
 use super::OrderedWeights;
 use super::arithmetic::{
-    ModularCommon, OrderedWeightArithmetic, PolynomialOptions, SampledOptions,
+    ModularCommon, OrderedWeightArithmetic, PolynomialOptions, SampledOptions, TadicOptions,
 };
 use super::composition::{ComposedTerminals, OrderedTerminalComposer};
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
@@ -91,6 +94,8 @@ pub(crate) enum Lifter {
     Sampled(SampledOptions),
     /// Replays over `Z_p(d)`.
     Polynomial(PolynomialOptions),
+    /// helper-vh2: series replays at `d0`, never lifted.
+    Tadic(TadicOptions),
 }
 
 impl Lifter {
@@ -104,6 +109,7 @@ impl Lifter {
             OrderedWeightArithmetic::ModularPolynomial(common, polynomial) => {
                 Some((common, Self::Polynomial(polynomial)))
             }
+            OrderedWeightArithmetic::Tadic(common, tadic) => Some((common, Self::Tadic(tadic))),
         }
     }
 
@@ -111,6 +117,7 @@ impl Lifter {
         match self {
             Self::Sampled(options) => options.validate(),
             Self::Polynomial(options) => options.validate(),
+            Self::Tadic(options) => options.validate(),
         }
     }
 
@@ -118,6 +125,7 @@ impl Lifter {
         match self {
             Self::Sampled(_) => "modular_sampled",
             Self::Polynomial(_) => "modular_polynomial",
+            Self::Tadic(_) => "tadic",
         }
     }
 }
@@ -227,6 +235,53 @@ impl Trace {
 }
 
 impl Trace {
+    /// helper-vh2: the slot discipline on which the replays agree. The
+    /// sampled replay COPIES a slot on `Pop` and leaves an erased slot as it
+    /// was; the polynomial and t-adic replays TAKE it (empty = exact zero).
+    /// They agree iff no slot is read (`Add`, `Pop`, `Cancel`; terminals:
+    /// `TermAdd`, `TermCancel`, or being an output) after its `Pop`/erasure
+    /// and before a `New`/`Init` (`TermNew`) overwrites it. A slot never
+    /// written reads as zero in every replay. Returns the first violation.
+    pub(super) fn slot_discipline(&self, outputs: &[usize]) -> Result<(), String> {
+        // 0 = never written, 1 = live, 2 = taken (popped or erased).
+        let mut weights = vec![0u8; self.slots];
+        let mut terminals = vec![0u8; self.terminal_slots];
+        for (index, op) in self.ops.iter().enumerate() {
+            let slot = op.slot();
+            let tag = op.tag();
+            let state = match tag {
+                OpTag::TermNew | OpTag::TermAdd | OpTag::TermCancel => terminals.get_mut(slot),
+                _ => weights.get_mut(slot),
+            }
+            .ok_or_else(|| format!("op {index} ({tag:?}) names slot {slot} beyond the trace"))?;
+            match tag {
+                OpTag::Init | OpTag::New | OpTag::TermNew => *state = 1,
+                OpTag::Add | OpTag::TermAdd => {
+                    if *state == 2 {
+                        return Err(format!(
+                            "op {index} ({tag:?}) accumulates into slot {slot} after its pop/erasure"
+                        ));
+                    }
+                    *state = 1;
+                }
+                OpTag::Pop | OpTag::Cancel | OpTag::TermCancel => {
+                    if *state == 2 {
+                        return Err(format!(
+                            "op {index} ({tag:?}) reads slot {slot} after its pop/erasure"
+                        ));
+                    }
+                    *state = 2;
+                }
+            }
+        }
+        for &slot in outputs {
+            if terminals.get(slot) == Some(&2) {
+                return Err(format!("output terminal {slot} was erased before the end"));
+            }
+        }
+        Ok(())
+    }
+
     /// rr-par diagnostics: the dataflow structure of the trace. A step is a
     /// `Pop` with the products that follow it; it can run once every write
     /// (`Init`, `New`, `Add`) into the popped value has run. Reports the
@@ -471,6 +526,24 @@ pub(crate) struct ModularStatistics {
     /// composed attempt. The other counters are those of the raw lift.
     pub composition_fallback: bool,
     pub composition_fallback_seconds: f64,
+    /// helper-vh2 `Tadic`: trace operations the precision plan skipped (no
+    /// output reads their value), the largest and smallest planned absolute
+    /// precision, and the longest series (coefficients) of the replays.
+    pub tadic_dead_ops: usize,
+    pub tadic_max_need: i32,
+    pub tadic_min_need: i32,
+    pub tadic_max_length: usize,
+    /// helper-vh2 `Tadic` certificate: recorded erasures (`Cancel` + `TermCancel` ops) of the trace, all
+    /// re-checked at the check points of every prime; histogram `(valuation at d0, live product ops)` of the step
+    /// coefficients the plan met (the precision losses: a valuation `-k` costs `k` orders); digest of the plan's
+    /// need per operation.
+    pub tadic_erasures: usize,
+    pub tadic_valuation_histogram: Vec<(i32, usize)>,
+    pub tadic_plan_digest: Option<u64>,
+    /// helper-vh2 B3: recordings behind the replays (1: one trace for every
+    /// seed and weight vector) and one JSON object per (vector, seed) replay.
+    pub tadic_recordings: usize,
+    pub tadic_variant_records: Vec<String>,
 }
 
 impl ModularStatistics {
@@ -495,6 +568,10 @@ impl ModularStatistics {
                 "\"composition_coefficients\":{},\"composition_cpu_seconds\":{:.6},",
                 "\"composition_plan_seconds\":{:.6},\"composition_points\":{},",
                 "\"composition_fallback\":{},\"composition_fallback_seconds\":{:.6},",
+                "\"tadic_dead_ops\":{},\"tadic_max_need\":{},\"tadic_min_need\":{},",
+                "\"tadic_max_length\":{},",
+                "\"tadic_erasures\":{},\"tadic_valuation_histogram\":[{}],\"tadic_plan_digest\":{},",
+                "\"tadic_recordings\":{},\"tadic_variants\":[{}],",
                 "\"replay_phase_cpu_seconds\":[{}],\"replay_phase_volume\":[{}]}}"
             ),
             self.arithmetic,
@@ -548,6 +625,20 @@ impl ModularStatistics {
             self.composition_points,
             self.composition_fallback,
             self.composition_fallback_seconds,
+            self.tadic_dead_ops,
+            self.tadic_max_need,
+            self.tadic_min_need,
+            self.tadic_max_length,
+            self.tadic_erasures,
+            self.tadic_valuation_histogram
+                .iter()
+                .map(|(valuation, ops)| format!("[{valuation},{ops}]"))
+                .collect::<Vec<_>>()
+                .join(","),
+            self.tadic_plan_digest
+                .map_or("null".into(), |digest| format!("\"{digest:016x}\"")),
+            self.tadic_recordings,
+            self.tadic_variant_records.join(","),
             self.replay_phase_cpu_seconds
                 .iter()
                 .map(|(phase, seconds)| format!(
@@ -611,6 +702,9 @@ pub(crate) struct ModularRecorder {
     /// Channel replay: the probe values of the k-th admitted input
     /// (Σ λ_c · probe(input of channel c)), in admission order.
     multi_probes: std::collections::VecDeque<[Fe; PROBES]>,
+    /// helper-vh2 B3: seeds and weight vectors the t-adic replay of this
+    /// one recording serves (`None`: the request's seed and weights).
+    tadic_variants: Option<tadic::TadicVariants>,
 }
 
 /// rr-par2: shards of [`SharedIntern`] (low bits of an id).
@@ -791,6 +885,10 @@ impl ModularRecorder {
 
     /// rr-par2: create (or drop) the table the workers intern step
     /// coefficients into (`OrderedTuning::prestage`); before any step.
+    pub(crate) fn set_tadic_variants(&mut self, variants: Option<tadic::TadicVariants>) {
+        self.tadic_variants = variants;
+    }
+
     pub(crate) fn set_prestage(&mut self, prestage: bool) {
         self.shared = prestage.then(|| {
             std::sync::Arc::new(SharedIntern {
@@ -843,6 +941,7 @@ impl ModularRecorder {
             terminal_slots: 0,
             lookups: 0,
             started: Instant::now(),
+            tadic_variants: None,
             modular_round: None,
             par_replay: false,
             shared: None,
@@ -1013,6 +1112,7 @@ impl ModularRecorder {
             multi_inputs: None,
             multi_probes: Default::default(),
             spill: None,
+            tadic_variants: None,
         }
     }
 
@@ -1082,7 +1182,7 @@ impl ModularRecorder {
                     })
                 })
                 .collect();
-            out.push(copy.finish(channel_terms, None)?);
+            out.push(copy.finish(channel_terms, None, None)?);
         }
         Ok(out)
     }
@@ -1243,10 +1343,14 @@ impl ModularRecorder {
     /// Evaluate the trace modulo primes and lift the live terminal
     /// accumulators over Q, or, when `composer` supplies a plan for them,
     /// only their composition (compose before lift, `composition.rs`).
+    /// helper-vh2 `Tadic`: replay the series of the live terminals to
+    /// `tadic_targets` (per terminal in key order; default: the order of the
+    /// options) and return them unlifted.
     pub(crate) fn finish(
         mut self,
         terms: BTreeMap<IntegralKey, ModularWeight>,
         composer: Option<&dyn OrderedTerminalComposer>,
+        tadic_targets: Option<&[i32]>,
     ) -> Result<(Finished, ModularStatistics), ReductionError> {
         crate::prof!(FinPrepare);
         let record_seconds = self.started.elapsed().as_secs_f64();
@@ -1306,7 +1410,8 @@ impl ModularRecorder {
         drop(std::mem::take(&mut self.entry_refs));
         drop(std::mem::take(&mut self.entry_hashes));
         let ops = self.take_op_store()?;
-        let trace = Trace {
+        #[allow(unused_mut)] // re-pointed by the t-adic weight vectors (helper-vh2 B3)
+        let mut trace = Trace {
             ops,
             constants,
             polynomials,
@@ -1351,6 +1456,60 @@ impl ModularRecorder {
         }
         let keys: Vec<IntegralKey> = terms.keys().cloned().collect();
         let slots: Vec<usize> = terms.values().map(|w| w.slot as usize).collect();
+        // helper-vh2: copy-on-pop (sampled) and take-on-pop (polynomial,
+        // t-adic) replays agree only under this discipline; checked on every
+        // trace in debug builds, and always before a t-adic replay below.
+        #[cfg(debug_assertions)]
+        if let Err(violation) = trace.slot_discipline(&slots) {
+            panic!("trace slot discipline violated: {violation}");
+        }
+        if let Lifter::Tadic(options) = self.lifter {
+            trace.slot_discipline(&slots).map_err(|violation| {
+                error(format!("the t-adic replay refuses the trace: {violation}"))
+            })?;
+            // helper-vh2: no composition, no lift. TODO(helper-vh2): a saved
+            // application's composer (compose before lift) could be applied
+            // to the series exactly as `PLibrary::reduce_tadic` applies its
+            // basis rows; refused for now (fail closed).
+            if let Some(composer) = composer
+                && composer.plan(&keys)?.is_some()
+            {
+                return Err(error(
+                    "the t-adic arithmetic does not compose terminals before a lift",
+                ));
+            }
+            let targets: Vec<i32> = match tadic_targets {
+                Some(targets) if targets.len() == keys.len() => targets.to_vec(),
+                Some(_) => return Err(error("t-adic targets differ from the live terminals")),
+                None => vec![options.order; keys.len()],
+            };
+            let outputs: Vec<(usize, i32)> =
+                slots.iter().copied().zip(targets.iter().copied()).collect();
+            let executor = Executor::new(self.common.threads)?;
+            let variants = self.tadic_variants.take().unwrap_or_default();
+            statistics.tadic_recordings = 1;
+            let images = tadic::variant_images(
+                &mut trace,
+                &outputs,
+                &options,
+                self.common.seed,
+                &variants,
+                self.common.max_primes,
+                &executor,
+                &mut statistics,
+            )?;
+            statistics.pool_threads = executor.pool_threads();
+            (statistics.job_threads, statistics.jobs_on_caller_only) = executor.job_threads();
+            return Ok((
+                Finished::Tadic(tadic::TadicTerminals {
+                    d0: options.d0,
+                    terminals: keys,
+                    targets,
+                    images,
+                }),
+                statistics,
+            ));
+        }
         // The caller's plan for the live terminals, if it composes them.
         let planning = Instant::now();
         let plan = match composer {
@@ -1450,6 +1609,8 @@ impl ModularRecorder {
                     }
                     lifted
                 }
+                // Returned before any lift (above).
+                Lifter::Tadic(_) => Err(error("the t-adic arithmetic is never lifted")),
             };
         let attempt = Instant::now();
         let before = program.is_some().then(|| statistics.clone());
@@ -1538,6 +1699,8 @@ pub(crate) enum Finished {
     Terminals(BTreeMap<IntegralKey, Coefficient>),
     /// The composed outputs of the caller's plan.
     Composed(ComposedTerminals),
+    /// helper-vh2: the series of the live terminals (`Tadic`).
+    Tadic(tadic::TadicTerminals),
 }
 
 /// fwd-opt: the probe values of one weight or coefficient (layered mode).
@@ -1816,7 +1979,12 @@ impl OrderedWeights for ModularRecorder {
         dir: &std::path::Path,
         ops: Option<u64>,
     ) -> Result<bool, ReductionError> {
-        if self.multi_inputs.is_some() || self.shared.is_some() || !self.ops.is_empty() {
+        // 4A: the prestage table (`shared`, > 1 thread) is only a cache of
+        // the workers; the recorder still interns every coefficient into its
+        // own table in the sequential order, and that table is the state.
+        // After a restore the table starts empty and its ids resolve through
+        // the restored entries to the same references.
+        if self.multi_inputs.is_some() || !self.ops.is_empty() {
             return Ok(false);
         }
         self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(

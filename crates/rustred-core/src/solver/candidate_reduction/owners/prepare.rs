@@ -8,10 +8,10 @@ use crate::solver::FiniteCasePolicy;
 
 use super::super::CandidateReductionError;
 use super::super::preparation::shared::{
-    prepare_batch_from, prepare_family, prepare_shifted_p_family, validate_solution_order,
+    StreamedRule, prepare_batch_from, prepare_family, prepare_shifted_p_family, prepare_terms,
+    term_interner_with, validate_solution_order,
 };
 use super::model::*;
-use crate::solver::SectorRule;
 
 impl<const N: usize> CandidateOwnerContext<N> {
     pub fn try_new(
@@ -63,6 +63,28 @@ impl<const N: usize> CandidateOwnerContext<N> {
     }
 }
 
+impl<const N: usize> CandidateOwnerContext<N> {
+    /// batch 12c: the prepared right-hand side of a lazily loaded rule with
+    /// target `target`, exactly as the owner's eager preparation prepares it
+    /// (same checks, same admission, this context's limits); `denominators`
+    /// (the rule's prepared dispatch denominators) are shared.
+    pub(crate) fn prepare_rule_body(
+        &self,
+        target: &crate::solver::Integral<N>,
+        terms: crate::solver::ExactRow<N>,
+        denominators: &[Arc<crate::algebra::IndexedPolynomial>],
+    ) -> Result<Vec<crate::solver::PreparedTerm<N>>, CandidateReductionError> {
+        let mut interner = term_interner_with(denominators);
+        prepare_terms(
+            &self.shared.context,
+            target,
+            terms,
+            self.limits,
+            &mut interner,
+        )
+    }
+}
+
 impl<const N: usize> CandidateOwnerPrograms<N> {
     pub fn try_new(
         context: Arc<CandidateOwnerContext<N>>,
@@ -80,10 +102,10 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
     /// (t162-export: a multi-GB payload is never held in restored form next
     /// to its prepared form). `input.solution.rules` must be empty; the rules
     /// come from `rules`, in order. Same checks, same prepared owner.
-    pub(crate) fn try_new_streamed(
+    pub(crate) fn try_new_streamed<R: Into<StreamedRule<N>>>(
         context: Arc<CandidateOwnerContext<N>>,
         input: CandidateOwnerInput<N>,
-        rules: impl IntoIterator<Item = Result<SectorRule<N>, CandidateReductionError>>,
+        rules: impl IntoIterator<Item = Result<R, CandidateReductionError>>,
     ) -> Result<Self, CandidateReductionError> {
         if !input.solution.rules.is_empty() {
             return Err(CandidateReductionError::InvalidInput(
@@ -114,11 +136,11 @@ impl<const N: usize> CandidateOwnerPrograms<N> {
 }
 
 /// The checks and preparation of one owner input (its rules from `rules`).
-fn insert_owner<const N: usize>(
+fn insert_owner<const N: usize, R: Into<StreamedRule<N>>>(
     owners: &mut BTreeMap<[bool; N], Arc<PreparedOwner<N>>>,
     context: &CandidateOwnerContext<N>,
     input: CandidateOwnerInput<N>,
-    rules: impl IntoIterator<Item = Result<SectorRule<N>, CandidateReductionError>>,
+    rules: impl IntoIterator<Item = Result<R, CandidateReductionError>>,
 ) -> Result<(), CandidateReductionError> {
     if owners.contains_key(&input.sector) {
         return Err(CandidateReductionError::InvalidInput(

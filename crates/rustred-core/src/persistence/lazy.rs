@@ -251,6 +251,34 @@ impl LazyDecodedCoefficientTable {
                 .is_some(),
         ))
     }
+    /// batch 12c (lazy rule bodies): for an on-demand factored / shared
+    /// section, the identity of coefficient `id`'s denominator
+    /// ([`super::factored::OnDemandFactoredSection::denominator_key`]) and the
+    /// denominator itself, decoded without the numerator; `None` for every
+    /// other form (the caller then reads the whole coefficient).
+    pub(crate) fn denominator_key(
+        &self,
+        id: CoefficientId,
+    ) -> Result<Option<Vec<u8>>, BinaryIoError> {
+        match &self.factored {
+            Some(FactoredAccess::OnDemand(section)) => {
+                section.denominator_key(id.index()).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    /// See [`Self::denominator_key`].
+    pub(crate) fn denominator(
+        &self,
+        id: CoefficientId,
+    ) -> Result<Option<crate::algebra::CoefficientPolynomial>, BinaryIoError> {
+        match &self.factored {
+            Some(FactoredAccess::OnDemand(section)) => section.denominator(id.index()).map(Some),
+            _ => Ok(None),
+        }
+    }
+
     pub fn coefficient(&self, id: CoefficientId) -> Result<Arc<Coefficient>, BinaryIoError> {
         self.coefficient_with_admission(id, |_| Ok(()))
     }
@@ -266,6 +294,14 @@ impl LazyDecodedCoefficientTable {
         if let Some(factored) = &self.factored {
             if id.index() >= factored.len() {
                 return Err(BinaryIoError::Invalid("coefficient ID is outside table"));
+            }
+            if !self.retain {
+                // batch 12c: nothing is cached, so no lock is needed (the
+                // on-demand section caches its dictionary entries itself):
+                // lazy rule bodies restore on several threads at once.
+                let value = Arc::new(factored.get(id.index())?);
+                admit(&value)?;
+                return Ok(value);
             }
             let mut imported = self
                 .imported

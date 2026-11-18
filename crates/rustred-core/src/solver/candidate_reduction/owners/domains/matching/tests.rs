@@ -44,7 +44,7 @@ fn rule(ordinal: usize) -> PreparedRule<3> {
         fixed: [None; 3],
         equalities: vec![],
         exceptions: vec![],
-        rhs: vec![],
+        rhs: vec![].into(),
     }
 }
 fn poly(c: &IndexedCoefficientContext, v: IndexedCoefficient) -> IndexedPolynomial {

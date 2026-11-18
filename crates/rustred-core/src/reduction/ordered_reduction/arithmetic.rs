@@ -1,7 +1,8 @@
 //! Public selection of the Ordered scheduler's weight arithmetic.
 //!
 //! The canonical text form (`FromStr`/`Display`) is
-//! `exact | modular_sampled[:key=value,...] | modular_polynomial[:key=value,...]`
+//! `exact | modular_sampled[:key=value,...] | modular_polynomial[:key=value,...]
+//! | tadic[:key=value,...]`
 //! with keys equal to the field names of [`ModularCommon`] and of the mode's
 //! options; `modular` is an alias of `modular_sampled`. `Display` prints the
 //! fields that differ from their defaults; the alternate form (`{:#}`) prints
@@ -37,6 +38,19 @@ pub enum OrderedWeightArithmetic {
     /// erasure is checked to be exactly zero modulo each prime, and the
     /// per-prime images are lifted with the shared modular driver.
     ModularPolynomial(ModularCommon, PolynomialOptions),
+    /// helper-vh2: record the trace once as the modular modes do, then replay
+    /// it with weights that are truncated Laurent series in `t = d - d0` over
+    /// `F_p` (`modular/tadic.rs`). The result is NOT an exact rational
+    /// function: per output terminal and prime, the Laurent coefficients
+    /// modulo `p` through a proved absolute precision. Only adapters that
+    /// accept series outputs run it (`OrderedKernel::accepts_tadic`, the
+    /// propagator library's `reduce_tadic`); every other caller fails closed.
+    /// `ModularCommon::threads` replays primes in parallel; `seed` draws the
+    /// primes and the erasure-check points; `max_primes` bounds the primes
+    /// drawn; `verification_primes` is unused; `cross_check_exact` runs the
+    /// exact arithmetic in the same pass and compares the Laurent expansion
+    /// of every exact terminal with its series.
+    Tadic(ModularCommon, TadicOptions),
 }
 
 /// Options shared by both modular arithmetics (the lift over Q).
@@ -91,6 +105,63 @@ pub struct PolynomialOptions {
     /// the polynomial part (`Factorized`) or numerator (`Dense`) of a
     /// weight; requests beyond it fail closed.
     pub max_degree: usize,
+}
+
+/// Parameters of [`OrderedWeightArithmetic::Tadic`] (helper-vh2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TadicOptions {
+    /// Expansion point: `t = d - d0`.
+    pub d0: i64,
+    /// Target absolute precision of every output: the coefficients of
+    /// `t^k`, `k < order`, are known (`0`: the polar part; `1`: the polar
+    /// part and the constant term). Callers that compose the terminals
+    /// further (the library's basis rows) raise the target per terminal by
+    /// the poles of the composition, so that `order` holds for the final
+    /// outputs.
+    pub order: i32,
+    /// Usable primes to replay (one series per output and prime).
+    pub primes: usize,
+    /// Fresh points per prime at which every recorded erasure is checked
+    /// (a numeric replay, as `ModularSampled` checks erasures).
+    pub check_points: usize,
+    /// Also expand every erased weight to this absolute precision and
+    /// require its known coefficients to vanish (`None`: points only).
+    pub erasure_check_order: Option<i32>,
+    /// Most coefficients of one weight (fail closed beyond it).
+    pub max_length: usize,
+}
+
+impl Default for TadicOptions {
+    fn default() -> Self {
+        Self {
+            d0: 4,
+            order: 1,
+            primes: 1,
+            check_points: 2,
+            erasure_check_order: None,
+            max_length: 1 << 12,
+        }
+    }
+}
+
+impl TadicOptions {
+    pub(crate) fn validate(&self) -> Result<(), String> {
+        if self.primes == 0 {
+            return Err("tadic primes must be positive".into());
+        }
+        if self.check_points == 0 {
+            return Err("tadic check_points must be positive".into());
+        }
+        if self.max_length == 0 {
+            return Err("tadic max_length must be positive".into());
+        }
+        // Planned precisions are stored as i16 (see `modular/tadic.rs`).
+        let in_range = |value: i32| (-16_000..=16_000).contains(&value);
+        if !in_range(self.order) || !self.erasure_check_order.is_none_or(in_range) {
+            return Err("tadic order and erasure_check_order must be in -16000..=16000".into());
+        }
+        Ok(())
+    }
 }
 
 /// Weight representation of [`OrderedWeightArithmetic::ModularPolynomial`].
@@ -159,6 +230,7 @@ impl OrderedWeightArithmetic {
             Self::Exact => "exact",
             Self::ModularSampled(..) => "modular_sampled",
             Self::ModularPolynomial(..) => "modular_polynomial",
+            Self::Tadic(..) => "tadic",
         }
     }
 
@@ -166,7 +238,9 @@ impl OrderedWeightArithmetic {
     pub fn common(&self) -> Option<&ModularCommon> {
         match self {
             Self::Exact => None,
-            Self::ModularSampled(common, _) | Self::ModularPolynomial(common, _) => Some(common),
+            Self::ModularSampled(common, _)
+            | Self::ModularPolynomial(common, _)
+            | Self::Tadic(common, _) => Some(common),
         }
     }
 
@@ -177,7 +251,10 @@ impl OrderedWeightArithmetic {
 
     /// The same arithmetic with `threads` workers; `Exact` is unchanged.
     pub fn with_threads(mut self, threads: usize) -> Self {
-        if let Self::ModularSampled(common, _) | Self::ModularPolynomial(common, _) = &mut self {
+        if let Self::ModularSampled(common, _)
+        | Self::ModularPolynomial(common, _)
+        | Self::Tadic(common, _) = &mut self
+        {
             common.threads = threads;
         }
         self
@@ -195,6 +272,10 @@ impl OrderedWeightArithmetic {
             Self::ModularPolynomial(common, polynomial) => {
                 common.validate()?;
                 polynomial.validate()
+            }
+            Self::Tadic(common, tadic) => {
+                common.validate()?;
+                tadic.validate()
             }
         }
     }
@@ -342,6 +423,34 @@ fn assign_polynomial(
     Ok(true)
 }
 
+fn parse_i32(key: &str, value: &str) -> Result<i32, String> {
+    value
+        .parse::<i32>()
+        .map_err(|e| format!("{key}={value}: {e}"))
+}
+
+fn assign_tadic(tadic: &mut TadicOptions, key: &str, value: &str) -> Result<bool, String> {
+    match key {
+        "d0" => {
+            tadic.d0 = value
+                .parse::<i64>()
+                .map_err(|e| format!("{key}={value}: {e}"))?
+        }
+        "order" => tadic.order = parse_i32(key, value)?,
+        "primes" => tadic.primes = parse_count(key, value)?,
+        "check_points" => tadic.check_points = parse_count(key, value)?,
+        "erasure_check_order" => {
+            tadic.erasure_check_order = match value.to_ascii_lowercase().as_str() {
+                "none" => None,
+                _ => Some(parse_i32(key, value)?),
+            }
+        }
+        "max_length" => tadic.max_length = parse_count(key, value)?,
+        _ => return Ok(false),
+    }
+    Ok(true)
+}
+
 fn parse(text: &str) -> Result<OrderedWeightArithmetic, String> {
     let text = text.trim();
     let (mode, options) = match text.split_once(':') {
@@ -400,10 +509,24 @@ fn parse(text: &str) -> Result<OrderedWeightArithmetic, String> {
             }
             OrderedWeightArithmetic::ModularPolynomial(common, polynomial)
         }
+        "tadic" => {
+            let (mut common, mut tadic) = (ModularCommon::default(), TadicOptions::default());
+            for (key, value) in &items {
+                if !assign_common(&mut common, key, value)?
+                    && !assign_tadic(&mut tadic, key, value)?
+                {
+                    return Err(format!(
+                        "unknown tadic option {key:?}; expected one of {COMMON_KEYS}, \
+                         d0, order, primes, check_points, erasure_check_order, max_length"
+                    ));
+                }
+            }
+            OrderedWeightArithmetic::Tadic(common, tadic)
+        }
         _ => {
             return Err(format!(
-                "unknown mode {mode:?}; expected exact, modular_sampled[:key=value,...] \
-                 or modular_polynomial[:key=value,...]"
+                "unknown mode {mode:?}; expected exact, modular_sampled[:key=value,...], \
+                 modular_polynomial[:key=value,...] or tadic[:key=value,...]"
             ));
         }
     };
@@ -484,6 +607,21 @@ impl Items {
                     defaults.denominators.name(),
                 );
                 items.push("max_degree", polynomial.max_degree, defaults.max_degree);
+            }
+            OrderedWeightArithmetic::Tadic(common, tadic) => {
+                let defaults = TadicOptions::default();
+                let check = |order: Option<i32>| order.map_or("none".to_owned(), |o| o.to_string());
+                items.common(common);
+                items.push("d0", tadic.d0, defaults.d0);
+                items.push("order", tadic.order, defaults.order);
+                items.push("primes", tadic.primes, defaults.primes);
+                items.push("check_points", tadic.check_points, defaults.check_points);
+                items.push(
+                    "erasure_check_order",
+                    check(tadic.erasure_check_order),
+                    check(defaults.erasure_check_order),
+                );
+                items.push("max_length", tadic.max_length, defaults.max_length);
             }
         }
         items.items
@@ -630,6 +768,51 @@ mod tests {
             OrderedWeightArithmetic::Exact.with_threads(9),
             OrderedWeightArithmetic::Exact
         );
+    }
+
+    #[test]
+    fn tadic_text_round_trips() {
+        assert_eq!(
+            parse("tadic"),
+            OrderedWeightArithmetic::Tadic(ModularCommon::default(), TadicOptions::default())
+        );
+        let tadic = parse(
+            "tadic:d0=-3,order=0,primes=3,check_points=4,erasure_check_order=2,max_length=99,threads=2",
+        );
+        assert_eq!(
+            tadic,
+            OrderedWeightArithmetic::Tadic(
+                ModularCommon {
+                    threads: 2,
+                    ..Default::default()
+                },
+                TadicOptions {
+                    d0: -3,
+                    order: 0,
+                    primes: 3,
+                    check_points: 4,
+                    erasure_check_order: Some(2),
+                    max_length: 99,
+                }
+            )
+        );
+        for arithmetic in [tadic, parse("tadic:erasure_check_order=none")] {
+            assert_eq!(parse(&arithmetic.to_string()), arithmetic);
+            assert_eq!(parse(&format!("{arithmetic:#}")), arithmetic);
+        }
+        assert_eq!(tadic.name(), "tadic");
+        assert_eq!(tadic.threads(), 2);
+        for (text, reason) in [
+            ("tadic:primes=0", "primes must be positive"),
+            ("tadic:order=99999", "must be in"),
+            ("tadic:lanes=2", "unknown tadic option"),
+        ] {
+            let error = text
+                .parse::<OrderedWeightArithmetic>()
+                .expect_err(text)
+                .to_string();
+            assert!(error.contains(reason), "{text}: {error}");
+        }
     }
 
     #[test]

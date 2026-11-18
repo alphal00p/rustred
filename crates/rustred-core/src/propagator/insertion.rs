@@ -308,9 +308,23 @@ impl InsertionStep {
                     let weights = self.kernel_weights(alpha, beta, rank, limits)?;
                     keys.emit(&table, &weights, limits, output)
                 };
+                // vk5l-physrun: the direct computation from the prepared
+                // weights (the coefficients of `direct`, fwd-opt), for a full
+                // memo and the memo off; `direct` stays the check reference.
+                let direct_fast = |output: &mut PStepOut| -> Result<(), PError> {
+                    if !super::kernel::fast_weights_enabled() {
+                        return direct(output);
+                    }
+                    crate::prof!(InsertionCompute);
+                    let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                    let prepared = self.prepared_weights(alpha, beta, rank, limits)?;
+                    let weights = keys.weights_prepared(&table, &prepared, limits)?;
+                    keys.emit_owned(&table, weights, output);
+                    Ok(())
+                };
                 let mode = step_memo::mode();
                 if mode == MemoMode::Off {
-                    direct(&mut output)?;
+                    direct_fast(&mut output)?;
                 } else {
                     // The weights are a function of the two line powers (the
                     // sign of `negate` included) and the numerators.
@@ -349,8 +363,8 @@ impl InsertionStep {
                         Some(memo) => step_memo::coefficients_of(&memo, |values| {
                             keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
                         }),
-                        // The shared memo is full: compute directly.
-                        None => direct(&mut output)?,
+                        // The memo is full: compute directly.
+                        None => direct_fast(&mut output)?,
                     }
                     if mode == MemoMode::Check {
                         let mut reference = PStepOut::default();
@@ -372,6 +386,21 @@ thread_local! {
     static PREPARED: std::cell::RefCell<
         std::collections::HashMap<(u64, i64, i64, u32), std::rc::Rc<PreparedWeights>>,
     > = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// helper-vh2 B3: prepared kernel weights held by this thread.
+pub(crate) fn prepared_entries() -> usize {
+    PREPARED.with(|cache| cache.borrow().len())
+}
+
+/// helper-vh2 B3: drop this thread's prepared kernel weights.
+pub(crate) fn release_prepared() -> usize {
+    PREPARED.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let entries = cache.len();
+        *cache = std::collections::HashMap::new();
+        entries
+    })
 }
 
 /// Most prepared kernel weights kept per thread (cleared when full).

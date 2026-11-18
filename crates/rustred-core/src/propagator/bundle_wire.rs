@@ -54,7 +54,8 @@ pub const FEATURES_CANDIDATE_BUNDLE_SCHEMA: &str = "rustred.generated-candidates
 /// The provenance line naming the reader features a payload requires.
 pub const REQUIRED_FEATURES_MARKER: &str = "\nrequired_features ";
 /// Reader features this build implements.
-pub const KNOWN_PAYLOAD_FEATURES: [&str; 2] = ["slot_aliases", "positioned_recipes"];
+pub const KNOWN_PAYLOAD_FEATURES: [&str; 3] =
+    ["slot_aliases", "positioned_recipes", "alias_equations"];
 
 /// The features a payload's provenance text requires (none without the line).
 pub fn required_features(family_source: &str) -> Vec<String> {
@@ -813,6 +814,20 @@ pub fn validate_sectors<E: From<BundleWireError>>(
 pub trait CoefficientSource {
     fn coefficient_count(&self) -> usize;
     fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError>;
+    /// batch 12c: the identity of `id`'s denominator when the source can read
+    /// denominators alone ([`Self::denominator_owned`]); `None` otherwise.
+    fn denominator_key(&self, _id: CoefficientId) -> Result<Option<Vec<u8>>, BinaryIoError> {
+        Ok(None)
+    }
+    /// batch 12c: `id`'s denominator without its numerator, equal to the
+    /// denominator of [`Self::coefficient_owned`]; `None` when the source
+    /// cannot read it alone.
+    fn denominator_owned(
+        &self,
+        _id: CoefficientId,
+    ) -> Result<Option<CoefficientPolynomial>, BinaryIoError> {
+        Ok(None)
+    }
 }
 
 impl CoefficientSource for DecodedCoefficientTable {
@@ -831,6 +846,15 @@ impl CoefficientSource for LazyDecodedCoefficientTable {
     fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
         Ok(self.coefficient(id)?.as_ref().clone())
     }
+    fn denominator_key(&self, id: CoefficientId) -> Result<Option<Vec<u8>>, BinaryIoError> {
+        LazyDecodedCoefficientTable::denominator_key(self, id)
+    }
+    fn denominator_owned(
+        &self,
+        id: CoefficientId,
+    ) -> Result<Option<CoefficientPolynomial>, BinaryIoError> {
+        self.denominator(id)
+    }
 }
 
 impl<T: CoefficientSource> CoefficientSource for Arc<T> {
@@ -839,6 +863,15 @@ impl<T: CoefficientSource> CoefficientSource for Arc<T> {
     }
     fn coefficient_owned(&self, id: CoefficientId) -> Result<Coefficient, BinaryIoError> {
         self.as_ref().coefficient_owned(id)
+    }
+    fn denominator_key(&self, id: CoefficientId) -> Result<Option<Vec<u8>>, BinaryIoError> {
+        self.as_ref().denominator_key(id)
+    }
+    fn denominator_owned(
+        &self,
+        id: CoefficientId,
+    ) -> Result<Option<CoefficientPolynomial>, BinaryIoError> {
+        self.as_ref().denominator_owned(id)
     }
 }
 
@@ -979,6 +1012,81 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
         record: &RuleRecord,
         sector: &[bool; N],
     ) -> Result<SectorRule<N>, BundleWireError> {
+        let mut rule = self.rule_head(record, sector)?;
+        rule.candidate.rhs = self.rhs(record)?;
+        Ok(rule)
+    }
+
+    /// batch 12c (lazy rule bodies): the right-hand side of `record`, as
+    /// [`Self::rule`] restores it.
+    pub fn rhs(&self, record: &RuleRecord) -> Result<Vec<Term<N, Coefficient>>, BundleWireError> {
+        record
+            .rhs
+            .iter()
+            .map(|term| {
+                Ok(Term {
+                    integral: integral(&term.integral)?,
+                    coefficient: self.coefficient(term.coefficient)?,
+                })
+            })
+            .collect()
+    }
+
+    /// batch 12c: the distinct denominators of `record`'s right-hand side in
+    /// first-appearance order, each the `coefficient.denominator` of
+    /// [`Self::rhs`]; read without the numerators where the table can.
+    pub fn rhs_denominators(
+        &self,
+        record: &RuleRecord,
+    ) -> Result<Vec<CoefficientPolynomial>, BundleWireError> {
+        let mut by_key: std::collections::HashSet<Vec<u8>> = std::collections::HashSet::new();
+        let mut by_id: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        let mut out: Vec<CoefficientPolynomial> = Vec::new();
+        let mut seen: std::collections::HashSet<CoefficientPolynomial> =
+            std::collections::HashSet::new();
+        for term in &record.rhs {
+            if !by_id.insert(term.coefficient) {
+                continue;
+            }
+            let id = CoefficientId::try_from_index(term.coefficient as usize)
+                .map_err(BundleWireError::binary)?;
+            let key = self
+                .table
+                .denominator_key(id)
+                .map_err(BundleWireError::binary)?;
+            if let Some(key) = &key
+                && by_key.contains(key)
+            {
+                continue;
+            }
+            let denominator = match self
+                .table
+                .denominator_owned(id)
+                .map_err(BundleWireError::binary)?
+            {
+                // the denominator of `coefficient` unchanged (no rearranging)
+                Some(denominator) if denominator.variables().as_slice() == self.variables => {
+                    denominator
+                }
+                _ => self.coefficient(term.coefficient)?.denominator,
+            };
+            if let Some(key) = key {
+                by_key.insert(key);
+            }
+            if seen.insert(denominator.clone()) {
+                out.push(denominator);
+            }
+        }
+        Ok(out)
+    }
+
+    /// batch 12c: [`Self::rule`] without its right-hand side (empty `rhs`):
+    /// case, target, sources and exception branches.
+    pub fn rule_head(
+        &self,
+        record: &RuleRecord,
+        sector: &[bool; N],
+    ) -> Result<SectorRule<N>, BundleWireError> {
         validate_rule(record, record.target.values.len())?;
         if !crate::fits_storage(record.target.values.len(), N) {
             return Err(BundleWireError::input(
@@ -998,16 +1106,7 @@ impl<S: CoefficientSource, const N: usize> Restore<'_, S, N> {
                 "candidate target is not canonical for its case",
             ));
         }
-        let rhs = record
-            .rhs
-            .iter()
-            .map(|term| {
-                Ok(Term {
-                    integral: integral(&term.integral)?,
-                    coefficient: self.coefficient(term.coefficient)?,
-                })
-            })
-            .collect::<Result<_, BundleWireError>>()?;
+        let rhs = Vec::new();
         let sources = record
             .sources
             .iter()

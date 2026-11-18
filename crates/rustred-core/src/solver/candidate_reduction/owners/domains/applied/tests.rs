@@ -63,7 +63,7 @@ fn rule(ordinal: usize, rhs: Vec<PreparedTerm<3>>) -> PreparedRule<3> {
         fixed: [None; 3],
         equalities: vec![],
         exceptions: vec![],
-        rhs,
+        rhs: rhs.into(),
     }
 }
 #[derive(Debug)]

@@ -175,8 +175,9 @@ impl<const N: usize> CandidateRoutedCompletedTrace<'_, N> {
                 workers,
                 Some(self.budget),
                 Some(self.census_limits),
-                (self.completed_work != 0)
-                    .then_some(super::scheduler::CompletedBaseline::Memory(&self.membership)),
+                (self.completed_work != 0).then_some(super::scheduler::CompletedBaseline::Memory(
+                    &self.membership,
+                )),
                 cancellation,
                 &mut observer,
             )

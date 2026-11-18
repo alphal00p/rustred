@@ -32,6 +32,7 @@ pub use model::{
     HomogeneousMasterCoefficient, HomogeneousMasterDecomposition, MasterDecomposition,
     ReductionLimits, ReductionStatistics,
 };
+pub(crate) use ordered_reduction::coefficient_valuation;
 pub use ordered_reduction::inspection::{
     OrderedFrontierEntry, OrderedKeyStage, OrderedPhaseBoundary, OrderedPhaseDescriptor,
     OrderedPhaseEvent, OrderedPhaseInspector,
@@ -47,7 +48,9 @@ pub use ordered_reduction::{
     OrderedCompositionPlan, OrderedCompositionStage, OrderedProfile, OrderedSchedulerOptions,
     OrderedTailTable, OrderedTailTableStatistics, OrderedTerminalComposer,
     OrderedTerminalComposerSlot, OrderedWeightArithmetic, ParseOrderedWeightArithmeticError,
-    PolynomialDenominators, PolynomialOptions, SampledOptions,
+    PolynomialDenominators, PolynomialOptions, SampledOptions, TADIC_PRECISION_FAILURE, TadicImage,
+    TadicOptions, TadicSeries, TadicTerminals, TadicVariants, add_series, expand_coefficient,
+    is_precision_failure, scale_series,
 };
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,

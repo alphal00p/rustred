@@ -1776,7 +1776,7 @@ fn cmd_laporta(mut a: Args) -> i32 {
 }
 
 /// Every subcommand `main` dispatches (reported by `rr_node --capabilities`).
-const VERBS: [&str; 24] = [
+const VERBS: [&str; 25] = [
     "generate",
     "probe",
     "variants",
@@ -1801,6 +1801,7 @@ const VERBS: [&str; 24] = [
     "domaincheck",
     "job",
     "version",
+    "tadic",
 ];
 
 /// `rr_node --capabilities`: see the header.
@@ -1930,6 +1931,115 @@ fn cmd_reduce(mut a: Args) -> i32 {
         r.stats["seconds"].as_f64().unwrap_or(0.0)
     );
     i32::from(!ok)
+}
+
+/// `rr_node tadic` (helper-vh2): node-level t-adic reduction of ONE candidate table (no package): the rules are
+/// applied as by `rr_node reduce` (same rule choice, stop at the masters and at the node's exits), every weight is a
+/// truncated Laurent series in t = d - d0 modulo a 63-bit prime with a planned precision (node::mastermap::tadic).
+/// `--requests FILE`: one input per line `<key>\t[weight]\t[label]` (key `I(..)` or comma list; consecutive lines
+/// with one label = ONE weighted request; unlabelled lines are single requests, weight 1 by default), or
+/// `--keys K1;K2` (single requests). Options: `--d0 4 --order 1 --primes 2 --max-primes 8 --seed 0 --max-length 4096
+/// --no-lower --masters K1;K2`. Writes rustred.node-tadic.v1 to `--out`; on a typed failure writes
+/// `{"schema": ..., "error": {"code": "TADIC_*", "message": ...}}` and exits 3 (usage errors exit 2).
+fn cmd_tadic(mut a: Args) -> i32 {
+    use rustred::node::mastermap::tadic::{NODE_TADIC_SCHEMA, NodeRequest, NodeTadicOptions};
+    let table = a.need("--table");
+    let out = a.need("--out");
+    let masters = a.take("--masters");
+    let mut requests: Vec<NodeRequest> = vec![];
+    if let Some(path) = a.take("--requests") {
+        let text = std::fs::read_to_string(&path).unwrap_or_else(|e| die(&format!("{path}: {e}")));
+        let mut last_label: Option<String> = None;
+        for line in text.lines() {
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut cols = line.split('\t');
+            let key = rustred::node::mastermap::parse_key(cols.next().unwrap_or(""))
+                .unwrap_or_else(|e| die(&e));
+            let weight: i64 = cols
+                .next()
+                .map(str::trim)
+                .filter(|w| !w.is_empty())
+                .map_or(1, |w| {
+                    w.parse()
+                        .unwrap_or_else(|_| die(&format!("bad weight {w}")))
+                });
+            let label = cols
+                .next()
+                .map(str::trim)
+                .filter(|g| !g.is_empty())
+                .map(str::to_owned);
+            match (&label, &last_label) {
+                (Some(l), Some(m)) if l == m => {
+                    requests.last_mut().unwrap().inputs.push((key, weight))
+                }
+                _ => requests.push(NodeRequest {
+                    label: label
+                        .clone()
+                        .unwrap_or_else(|| rustred::node::mastermap::key_text(&key)),
+                    inputs: vec![(key, weight)],
+                }),
+            }
+            last_label = label;
+        }
+    }
+    if let Some(keys) = a.take("--keys") {
+        for key in keys_arg(&keys) {
+            requests.push(NodeRequest {
+                label: rustred::node::mastermap::key_text(&key),
+                inputs: vec![(key, 1)],
+            });
+        }
+    }
+    let mut opt = NodeTadicOptions::default();
+    if let Some(v) = a.parse("--d0") {
+        opt.d0 = v;
+    }
+    if let Some(v) = a.parse("--order") {
+        opt.order = v;
+    }
+    if let Some(v) = a.parse("--primes") {
+        opt.primes = v;
+    }
+    if let Some(v) = a.parse("--max-primes") {
+        opt.max_primes = v;
+    }
+    if let Some(v) = a.parse("--seed") {
+        opt.seed = v;
+    }
+    if let Some(v) = a.parse("--max-length") {
+        opt.max_length = v;
+    }
+    opt.keep_lower = !a.flag("--no-lower");
+    a.done();
+    let mut t = load_table(&table, masters);
+    match t.reduce_tadic(&requests, &opt) {
+        Ok(doc) => {
+            write_json(&out, &doc);
+            eprintln!(
+                "[tadic] {} requests, {} keys, {} edges, {:.3}s -> {out}",
+                requests.len(),
+                doc["stats"]["keys"],
+                doc["stats"]["edges"],
+                doc["stats"]["seconds"].as_f64().unwrap_or(0.0)
+            );
+            0
+        }
+        Err(e) => {
+            let (code, message) = match e.split_once(": ") {
+                Some((c, m)) if c.starts_with("TADIC_") => (c.to_string(), m.to_string()),
+                _ => ("TADIC_INTERNAL".to_string(), e.clone()),
+            };
+            write_json(
+                &out,
+                &serde_json::json!({"schema": NODE_TADIC_SCHEMA, "table": table,
+                    "error": {"code": code, "message": message}}),
+            );
+            eprintln!("rr_node tadic: {e}");
+            3
+        }
+    }
 }
 
 fn map_options(a: &mut Args) -> rustred::node::mastermap::MapOptions {
@@ -2259,7 +2369,7 @@ fn main() {
     let mut items: Vec<String> = std::env::args().skip(1).collect();
     if items.is_empty() {
         die(
-            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|first-match|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|job|version|--capabilities ... (see the source header)",
+            "usage: rr_node generate|probe|variants|descent|replay|cover-index|obligations|join|predict|oracle|affine|witness|locus-rank|symmetry|first-match|solve-recipe|reduce|mastermap|mapcheck|symmasters|laporta|domaincheck|tadic|job|version|--capabilities ... (see the source header)",
         );
     }
     let cmd = items.remove(0);
@@ -2279,6 +2389,7 @@ fn main() {
         "witness" => cmd_witness(a),
         "locus-rank" => cmd_locus_rank(a),
         "reduce" => cmd_reduce(a),
+        "tadic" => cmd_tadic(a),
         "mastermap" => cmd_mastermap(a),
         "mapcheck" => cmd_mapcheck(a),
         "symmasters" => cmd_symmasters(a),

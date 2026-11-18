@@ -104,7 +104,8 @@ fn rule(
             shift,
             denominator: poly(c, &c.integer(1)).into(),
             coefficient: coefficient.into(),
-        }],
+        }]
+        .into(),
     }
 }
 #[derive(Default, Debug)]

@@ -441,6 +441,38 @@ pub(crate) struct PEngine {
 }
 
 impl PEngine {
+    /// helper-vh2 B3: lazily built per-library state held by the engine:
+    /// prepared routes and authenticated orbits (built / cells).
+    pub(crate) fn retained(&self) -> serde_json::Value {
+        let built = |cells: &mut dyn Iterator<Item = bool>| cells.filter(|b| *b).count();
+        serde_json::json!({
+            "routes_prepared": built(&mut self.routes.values().map(|c| c.get().is_some())),
+            "routes": self.routes.len(),
+            "owner_orbits": built(&mut self.orbits.values().map(|c| c.get().is_some())),
+            "route_orbits": built(&mut self.route_orbits.values().map(|c| c.get().is_some())),
+            "presentation_orbits": built(&mut self.presentation_orbits.iter().map(|c| c.get().is_some())),
+        })
+    }
+
+    /// helper-vh2 B3: drop every prepared route and orbit (rebuilt on use;
+    /// they are pure functions of the library). Returns the cells dropped.
+    pub(crate) fn release(&mut self) -> usize {
+        let mut dropped = 0;
+        for cell in self.routes.values_mut() {
+            dropped += usize::from(cell.take().is_some());
+        }
+        for cell in self.orbits.values_mut() {
+            dropped += usize::from(cell.take().is_some());
+        }
+        for cell in self.route_orbits.values_mut() {
+            dropped += usize::from(cell.take().is_some());
+        }
+        for cell in &mut self.presentation_orbits {
+            dropped += usize::from(cell.take().is_some());
+        }
+        dropped
+    }
+
     pub(crate) fn new(library: &PLibrary) -> Result<Self, PError> {
         let shapes: Vec<Shape> = library
             .presentations()
@@ -851,6 +883,8 @@ impl PEngine {
         mut inspector: Option<&mut dyn PInspector>,
         retain: bool,
         outside: &mut BTreeSet<super::library::POutsideKey>,
+        tadic: Option<Option<u8>>,
+        tadic_variants: Option<crate::reduction::TadicVariants>,
     ) -> Result<OrderedOutput, PError> {
         // p requests run the p profile (M5 batch 2) unless the caller chose one.
         let scheduler = scheduler.resolve_profile(OrderedProfile::P);
@@ -902,6 +936,8 @@ impl PEngine {
             },
             inspector,
             outside: BTreeSet::new(),
+            tadic,
+            tadic_variants,
         };
         let output = run_with_step_cache_and_options(
             &mut kernel,
@@ -1051,7 +1087,7 @@ pub(crate) mod light {
 /// contribution. `RUSTRED_P_CANON_CACHE=off` disables it,
 /// `RUSTRED_P_CANON_CACHE=<b>` sets 2^b entries per thread (default 2^13).
 /// Errors are not cached (computed again). Value-neutral.
-mod canon_cache {
+pub(crate) mod canon_cache {
     use std::cell::RefCell;
     use std::sync::OnceLock;
 
@@ -1076,6 +1112,22 @@ mod canon_cache {
 
     thread_local! {
         static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    /// helper-vh2 B3: (slots, filled) of this thread's cache.
+    pub(crate) fn occupancy() -> (usize, usize) {
+        CACHE.with(|cache| {
+            let cache = cache.borrow();
+            (
+                cache.entries.len(),
+                cache.entries.iter().filter(|e| e.is_some()).count(),
+            )
+        })
+    }
+
+    /// helper-vh2 B3: drop this thread's cache.
+    pub(crate) fn release() {
+        CACHE.with(|cache| cache.borrow_mut().entries = Vec::new());
     }
 
     /// The cache size of this thread: `RUSTRED_P_CANON_CACHE` when set;
@@ -1165,7 +1217,7 @@ mod canon_cache {
 /// packed key). A key reached from many parents has its position computed
 /// once per cache residency. Same switch as [`canon_cache`]
 /// (`RUSTRED_P_CANON_CACHE`). Errors are not cached. Value-neutral.
-mod order_cache {
+pub(crate) mod order_cache {
     use std::cell::RefCell;
     use std::hash::BuildHasher;
 
@@ -1186,6 +1238,22 @@ mod order_cache {
 
     thread_local! {
         static CACHE: RefCell<Cache> = RefCell::new(Cache::default());
+    }
+
+    /// helper-vh2 B3: (slots, filled) of this thread's cache.
+    pub(crate) fn occupancy() -> (usize, usize) {
+        CACHE.with(|cache| {
+            let cache = cache.borrow();
+            (
+                cache.entries.len(),
+                cache.entries.iter().filter(|e| e.is_some()).count(),
+            )
+        })
+    }
+
+    /// helper-vh2 B3: drop this thread's cache.
+    pub(crate) fn release() {
+        CACHE.with(|cache| cache.borrow_mut().entries = Vec::new());
     }
 
     pub(super) fn lookup(
@@ -3115,6 +3183,12 @@ struct PKernel<'l, 'r> {
     inspector: Option<&'r mut dyn PInspector>,
     /// vk5l WP2: keys of boxed nodes outside their certified sets, met so far.
     outside: BTreeSet<super::library::POutsideKey>,
+    /// helper-vh2: `Some` when the caller (`PLibrary::reduce_tadic`) reads
+    /// t-adic series; `Some(Some(loops))` when it maps the terminals onto the
+    /// masters (the targets are then raised by the poles of the basis rows).
+    tadic: Option<Option<u8>>,
+    /// helper-vh2 B3: seeds and weight vectors of the one recording.
+    tadic_variants: Option<crate::reduction::TadicVariants>,
 }
 
 impl PKernel<'_, '_> {
@@ -3277,6 +3351,36 @@ impl OrderedKernel for PKernel<'_, '_> {
             Some(census) => census.popped(phase, kind, id, hash),
             None => Ok(()),
         }
+    }
+
+    fn accepts_tadic(&self) -> bool {
+        self.tadic.is_some()
+    }
+
+    /// helper-vh2: `order` minus the lowest valuation at `d0` of the exact
+    /// multipliers `PLibrary::reduce_tadic` applies to the terminal.
+    fn tadic_targets(
+        &self,
+        terminals: &[IntegralKey],
+        options: &crate::reduction::TadicOptions,
+    ) -> Result<Vec<i32>, PError> {
+        let loops = self.tadic.flatten();
+        let library = self.stepper.library;
+        terminals
+            .iter()
+            .map(|key| {
+                let (terminal, tag) = self
+                    .stepper
+                    .engine
+                    .decode_terminal(key, library.terminal_limit())?;
+                let lowest = library.tadic_row_valuation(loops, terminal, &tag, options.d0)?;
+                Ok(options.order - lowest)
+            })
+            .collect()
+    }
+
+    fn tadic_variants(&self) -> Option<crate::reduction::TadicVariants> {
+        self.tadic_variants.clone()
     }
 
     /// p5l-library-3: the Custom programs of lazy payloads are not used by

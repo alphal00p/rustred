@@ -617,6 +617,11 @@ pub struct SlotAliasRecord {
     pub max: Vec<Option<i64>>,
     pub child: Vec<AliasSlot>,
     pub coefficient: i64,
+    /// batch 12c: the affine case's equations (a T162 line alias): each `[c, a_0, .., a_{arity-1}]` holds
+    /// `c + sum_s a_s n_s = 0` on presentation slots; empty for a coordinate case (absent in older payloads, whose
+    /// bytes are unchanged). A payload with such an alias requires the reader feature `alias_equations`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub equations: Vec<Vec<i64>>,
 }
 
 impl SlotAliasRecord {
@@ -635,6 +640,18 @@ impl SlotAliasRecord {
                 return None;
             }
         }
+        if !self.equations.iter().all(|equation| {
+            equation.len() == powers.len() + 1
+                && equation[1..]
+                    .iter()
+                    .zip(powers)
+                    .try_fold(equation[0], |sum, (&a, &n)| {
+                        sum.checked_add(a.checked_mul(n)?)
+                    })
+                    == Some(0)
+        }) {
+            return None;
+        }
         Some(
             self.child
                 .iter()
@@ -645,6 +662,43 @@ impl SlotAliasRecord {
                 .collect(),
         )
     }
+}
+
+/// helper-vh2 B3: the kinds of provenance line (the word after the newline) this reader understands in the
+/// `family_source` of an IMPORTED payload (first line `imported ...`). Each kind is read by its own `*_of_source`
+/// function, which finds its marker and ignores every other line: a line of a kind added by a later importer would
+/// therefore be skipped silently (as `slot_aliases` was by readers before 8be0df7f). [`check_provenance_kinds`]
+/// refuses such a payload instead.
+pub const PROVENANCE_KINDS: [&str; 6] = [
+    "boxed_node",
+    "certified_keys",
+    "recipes",
+    "slot_aliases",
+    "required_features",
+    "slot_order",
+];
+
+/// helper-vh2 B3: fail closed on an imported payload whose provenance holds a line of a kind this reader does not
+/// understand ([`PROVENANCE_KINDS`]); a payload that is not imported (its provenance is free text, e.g. a family
+/// definition) is not checked.
+pub fn check_provenance_kinds(family_source: &str) -> Result<(), PError> {
+    let mut lines = family_source.split('\n');
+    if !lines
+        .next()
+        .is_some_and(|first| first.starts_with("imported"))
+    {
+        return Ok(());
+    }
+    for line in lines {
+        let kind = line.split(' ').next().unwrap_or("");
+        if !PROVENANCE_KINDS.contains(&kind) {
+            return Err(PError::MalformedLibrary(format!(
+                "custom payload: provenance line of unknown kind {kind:?} (this reader knows {PROVENANCE_KINDS:?}); \
+                 refused instead of skipped: the payload needs a newer reader"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The slot-permuted alias records of a payload are one provenance line after this marker (JSON array of
@@ -683,14 +737,40 @@ fn slot_alias_record(
             "a slot-permuted rule must have exactly one right-hand-side term",
         ));
     }
-    if !case_text(record)?.starts_with("Coordinate(")
-        || !record["equations"].as_array().is_some_and(Vec::is_empty)
+    let equation_texts = record["equations"]
+        .as_array()
+        .ok_or_else(|| malformed("rule equations"))?;
+    let case = case_text(record)?;
+    let case_ok = if equation_texts.is_empty() {
+        case.starts_with("Coordinate(")
+    } else {
+        case.starts_with("Affine(")
+    };
+    if !case_ok
         || !record["exceptions"].as_array().is_some_and(Vec::is_empty)
         || !matches!(record["dispatch"].as_str(), None | Some("Partition"))
     {
         return Err(refuse(
-            "a slot-permuted rule must be a coordinate case without equations or exceptions, Partition",
+            "a slot-permuted rule must be a coordinate case, or an affine case with linear equations, without \
+             exceptions, Partition",
         ));
+    }
+    // batch 12c: the affine case's equations, linear in the table slots' indices, moved to presentation slots
+    let mut equations = Vec::with_capacity(equation_texts.len());
+    for text in equation_texts {
+        let text = text.as_str().ok_or_else(|| malformed("rule equation"))?;
+        let linear = parse_linear(text, arity).ok_or_else(|| {
+            refuse(&format!(
+                "equation {text:?} is not linear in n0..n{}",
+                arity - 1
+            ))
+        })?;
+        let mut presented = vec![0_i64; arity + 1];
+        presented[0] = linear[0];
+        for (slot, &a) in linear[1..].iter().enumerate() {
+            presented[1 + slot_map[slot]] = a;
+        }
+        equations.push(presented);
     }
     let target = parse_key(str_field(record, "target")?, arity)?;
     if target
@@ -788,7 +868,54 @@ fn slot_alias_record(
         max: permuted(max, slot_map),
         child: child_presented,
         coefficient,
+        equations,
     })
+}
+
+/// batch 12c: `c + sum_s a_s n_s` of a linear text such as `n9+2*n1-1` or `n1-10*n5+9` as `[c, a_0, ..]`
+/// (`None` for anything else: products of indices, powers, fractions, symbols other than `n<s>`).
+fn parse_linear(text: &str, arity: usize) -> Option<Vec<i64>> {
+    let mut out = vec![0_i64; arity + 1];
+    let compact: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if compact.is_empty() {
+        return None;
+    }
+    let mut terms: Vec<(i64, &str)> = Vec::new();
+    let (mut sign, mut start) = (1_i64, 0_usize);
+    let bytes = compact.as_bytes();
+    for at in 0..=bytes.len() {
+        if at == bytes.len() || ((bytes[at] == b'+' || bytes[at] == b'-') && at > 0) {
+            terms.push((sign, &compact[start..at]));
+            if at < bytes.len() {
+                sign = if bytes[at] == b'-' { -1 } else { 1 };
+                start = at + 1;
+            }
+        } else if at == 0 && (bytes[0] == b'+' || bytes[0] == b'-') {
+            sign = if bytes[0] == b'-' { -1 } else { 1 };
+            start = 1;
+        }
+    }
+    for (sign, term) in terms {
+        let (factor, symbol) = match term.split_once('*') {
+            Some((a, b)) if a.starts_with('n') => (b, Some(a)),
+            Some((a, b)) => (a, Some(b)),
+            None if term.starts_with('n') => ("1", Some(term)),
+            None => (term, None),
+        };
+        let factor: i64 = factor.parse().ok()?;
+        let value = sign.checked_mul(factor)?;
+        match symbol {
+            None => out[0] = out[0].checked_add(value)?,
+            Some(symbol) => {
+                let slot: usize = symbol.strip_prefix('n')?.parse().ok()?;
+                if slot >= arity {
+                    return None;
+                }
+                out[1 + slot] = out[1 + slot].checked_add(value)?;
+            }
+        }
+    }
+    Some(out)
 }
 
 /// Per-slot optional bounds.
@@ -3058,6 +3185,12 @@ fn import_table_impl<R: std::io::BufRead, W: std::io::Write>(
     if !alias_records.is_empty() {
         features.push("slot_aliases");
     }
+    if alias_records
+        .iter()
+        .any(|alias| !alias.equations.is_empty())
+    {
+        features.push("alias_equations");
+    }
     if recipe_bundle.as_ref().is_some_and(|bundle| {
         bundle
             .records
@@ -3283,6 +3416,38 @@ pub fn slot_map_text(imported: &ImportedOwner) -> BTreeMap<String, usize> {
 }
 
 #[cfg(test)]
+mod provenance_kind_tests {
+    use super::*;
+    use crate::propagator::recipes::RECIPES_MARKER;
+
+    #[test]
+    fn imported_provenance_with_an_unknown_line_kind_is_refused() {
+        let known = format!(
+            "imported from T.sym (table_dump.v1), table family T, p-table-import v3{BOXED_NODE_MARKER}{{}}\
+             {CERTIFIED_KEYS_MARKER}AAAA{RECIPES_MARKER}BBBB{SLOT_ALIASES_MARKER}[]{SLOT_ORDER_MARKER}[0,1]"
+        );
+        assert!(check_provenance_kinds(&known).is_ok());
+        assert!(check_provenance_kinds(&format!("imported{SLOT_ORDER_MARKER}[]")).is_ok());
+        // batch 12a's reader-feature line (schema v4) is understood
+        let features = crate::propagator::bundle_wire::REQUIRED_FEATURES_MARKER;
+        assert!(
+            check_provenance_kinds(&format!(
+                "imported x{SLOT_ALIASES_MARKER}[]{features}slot_aliases{SLOT_ORDER_MARKER}[0,1]"
+            ))
+            .is_ok()
+        );
+        // a later importer's line kind: refused, never skipped
+        let unknown = format!("{known}\nalias_faces [1,2,3]");
+        let error = check_provenance_kinds(&unknown).unwrap_err();
+        assert!(format!("{error}").contains("alias_faces"), "{error}");
+        // an empty extra line is also not understood
+        assert!(check_provenance_kinds(&format!("{known}\n")).is_err());
+        // a payload that is not imported carries free text (a family definition): not checked
+        assert!(check_provenance_kinds("I(\n  name(T),\n  loops(k1)\n)").is_ok());
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -3381,6 +3546,100 @@ mod tests {
         twice["rhs"] = serde_json::json!([["I(1,n2,1,1,n2,1,1,1,n9,1,0,0,0,0,0,0,0,0,0,0)", "1"]]);
         assert!(
             slot_alias_record(&twice, 5240, &chart, &fixed, &min, &max, arity, &identity).is_err()
+        );
+    }
+
+    /// batch 12c: a slot-permuted alias with AFFINE case equations (T162 line alias, table index 3680): accepted,
+    /// equations moved to presentation slots, the alias applies only ON the line; linear parsing refuses non-linear
+    /// text; the record round-trips, and an alias without equations serialises as before (no field).
+    #[test]
+    fn slot_permuted_alias_with_case_equations_t162_3680() {
+        let record: Value = serde_json::from_str(r#"{"chart":"11111111100000000000","dispatch":"Partition",
+            "domain_bounds":{"max":null,"min":[null,null,2,null,null,2,null,null,null,null,null,null,null,null,null,null,null,null,null,null]},
+            "equations":["n9+2*n1-1","n7-n1+n5-1","n1-10*n5+9"],"exceptions":[],
+            "fixed":[1,null,null,1,1,null,1,null,1,null,0,0,0,0,0,0,0,0,0,0],"index":3680,"kind":"symmetry_alias",
+            "rhs":[["I(n5,1,1,1,n1,1,n2,1,n7,n9,0,0,0,0,0,0,0,0,0,0)","1"]],
+            "symmetry_origin":{"rhs_slot_maps":[[5,null,null,null,1,null,2,null,7,9,null,null,null,null,null,null,null,null,null,null]]},
+            "target":"I(1,n1,n2,1,1,n5,1,n7,1,n9,0,0,0,0,0,0,0,0,0,0)","type":"rule",
+            "case":"Affine(AffineCase { face: CoordinateCase { fixed: [] }, equations: [n9+2*n1-1, n7-n1+n5-1, n1-10*n5+9] })"}"#).unwrap();
+        let arity = 20;
+        let identity: Vec<usize> = (0..arity).collect();
+        let fixed: Vec<Option<i64>> = (record["fixed"].as_array().unwrap().iter())
+            .map(Value::as_i64)
+            .collect();
+        let (min, max) = bounds_of_record(&record, arity).unwrap();
+        let chart = mask_bits("11111111100000000000").unwrap();
+        let alias =
+            slot_alias_record(&record, 3680, &chart, &fixed, &min, &max, arity, &identity).unwrap();
+        assert_eq!(alias.coefficient, 1);
+        assert_eq!(alias.equations.len(), 3);
+        // on the line: n5 = 2, n1 = 10 n5 - 9 = 11, n7 = n1 - n5 + 1 = 10, n9 = 1 - 2 n1 = -21
+        let key = [
+            1, 11, 3, 1, 1, 2, 1, 10, 1, -21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        ];
+        assert_eq!(
+            alias.image(&key).unwrap(),
+            vec![
+                2, 1, 1, 1, 11, 1, 3, 1, 10, -21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+            ]
+        );
+        let mut off = key;
+        off[7] = 11;
+        assert!(alias.image(&off).is_none(), "off the line");
+        // a permuted presentation moves the equations with the slots
+        let swap: Vec<usize> = (0..arity)
+            .map(|s| match s {
+                1 => 2,
+                2 => 1,
+                s => s,
+            })
+            .collect();
+        let moved =
+            slot_alias_record(&record, 3680, &chart, &fixed, &min, &max, arity, &swap).unwrap();
+        assert_eq!(
+            moved.equations[2][1 + 2],
+            1,
+            "n1 of the table is presentation slot 2"
+        );
+        // round trip; the old form (no equations) has no field
+        let text = serde_json::to_string(&vec![alias.clone()]).unwrap();
+        assert!(text.contains("equations"));
+        let line = format!("imported{SLOT_ALIASES_MARKER}{text}{SLOT_ORDER_MARKER}{{}}");
+        assert_eq!(slot_aliases_of_source(&line).unwrap(), vec![alias]);
+        let plain = SlotAliasRecord {
+            equations: vec![],
+            ..moved
+        };
+        assert!(!serde_json::to_string(&plain).unwrap().contains("equations"));
+        // linear parsing
+        assert_eq!(
+            parse_linear("n9+2*n1-1", 10).unwrap(),
+            vec![-1, 0, 2, 0, 0, 0, 0, 0, 0, 0, 1]
+        );
+        assert_eq!(parse_linear("-n1*3 + 4", 3).unwrap(), vec![4, 0, -3, 0]);
+        for bad in ["n1*n2", "n1^2", "d-4", "n1/2", "", "n7"] {
+            assert!(parse_linear(bad, 5).is_none(), "{bad}");
+        }
+        // still refused: exceptions, or an affine case text without equations
+        let mut exceptions = record.clone();
+        exceptions["exceptions"] = serde_json::json!([["n1-3"]]);
+        assert!(
+            slot_alias_record(
+                &exceptions,
+                3680,
+                &chart,
+                &fixed,
+                &min,
+                &max,
+                arity,
+                &identity
+            )
+            .is_err()
+        );
+        let mut empty = record.clone();
+        empty["equations"] = serde_json::json!([]);
+        assert!(
+            slot_alias_record(&empty, 3680, &chart, &fixed, &min, &max, arity, &identity).is_err()
         );
     }
 
@@ -4046,6 +4305,91 @@ mod tests {
     /// a key, else the first parametric rule that applies (also outside the
     /// box), else OutsideBox. The box keys left to the parametric rules are
     /// stepped at load; a parametric rule leaving the box is refused there.
+    /// The payload with its coefficient section in the SHARED form
+    /// (`p-import-table --coef-form shared`), other sections unchanged.
+    fn shared_form(payload: &[u8]) -> Vec<u8> {
+        use crate::persistence::{
+            BinarySection, DecodedCoefficientTable, SectionTag, encode_program,
+            encode_shared_table, inspect_program,
+        };
+        let limits = crate::persistence::BinaryIoLimits::default();
+        let envelope = inspect_program(payload, limits).unwrap();
+        let table = DecodedCoefficientTable::import_generated(
+            envelope.section(SectionTag::SYMBOLICA_STATE).unwrap(),
+            envelope.section(SectionTag::COEFFICIENTS).unwrap(),
+            limits,
+        )
+        .unwrap();
+        let shared = encode_shared_table(&table.into_coefficients().unwrap()).unwrap();
+        let sections: Vec<BinarySection<'_>> = (envelope.sections().iter())
+            .map(|section| BinarySection {
+                tag: section.tag,
+                bytes: if section.tag == SectionTag::COEFFICIENTS {
+                    &shared
+                } else {
+                    section.bytes
+                },
+            })
+            .collect();
+        encode_program(envelope.kind(), &sections, limits).unwrap()
+    }
+
+    /// batch 12c (on-demand step 3): lazy rule bodies (restored and prepared
+    /// at a rule's first selection) reduce every key exactly as the eager
+    /// preparation of the whole chart, point and parametric rules, expanded
+    /// and shared coefficient forms; bodies are loaded only for selected rules.
+    #[test]
+    fn lazy_rule_bodies_reduce_like_the_eager_preparation() {
+        use super::super::custom::{RULE_BODIES_OVERRIDE, replay_custom_payload};
+        let cases: [(String, &[[i64; 5]]); 2] = [
+            (
+                kite_table(false, None, &[]),
+                &[
+                    [2, 1, 1, 1, 1],
+                    [1, 2, 1, 1, 1],
+                    [1, 1, 2, 1, 1],
+                    [1, 1, 1, 1, 2],
+                    [1, 1, 1, 1, 1],
+                ],
+            ),
+            (
+                mixed_kite_table("I(n0-1,1,1,1,1)", false),
+                &[[2, 1, 1, 1, 1], [3, 1, 1, 1, 1], [1, 2, 1, 1, 1]],
+            ),
+        ];
+        for (text, keys) in cases {
+            let imported = import_table(&text, &kite_graph(), &kite_options(false)).unwrap();
+            for payload in [imported.payload.clone(), shared_form(&imported.payload)] {
+                for key in keys {
+                    let seed = [permuted(key, &imported.slot_map)];
+                    let run = |lazy: bool| {
+                        RULE_BODIES_OVERRIDE.with(|cell| cell.set(Some(lazy)));
+                        let out = replay_custom_payload(
+                            &imported.presentation,
+                            &payload,
+                            &imported.meta,
+                            &seed,
+                        );
+                        RULE_BODIES_OVERRIDE.with(|cell| cell.set(None));
+                        // everything but the wall time
+                        let out = out.map(|replays| {
+                            (replays.into_iter())
+                                .map(|mut replay| {
+                                    replay.seconds = 0.0;
+                                    replay
+                                })
+                                .collect::<Vec<_>>()
+                        });
+                        format!("{out:?}")
+                    };
+                    let eager = run(false);
+                    assert!(!eager.contains("Err"), "{eager}");
+                    assert_eq!(run(true), eager, "key {key:?}");
+                }
+            }
+        }
+    }
+
     #[test]
     fn a_boxed_node_may_carry_point_rules_and_parametric_rules() {
         let text = mixed_kite_table("I(n0-1,1,1,1,1)", false);

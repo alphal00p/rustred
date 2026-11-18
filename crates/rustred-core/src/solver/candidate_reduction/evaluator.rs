@@ -351,9 +351,9 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         }
         // Test every original denominator before coefficient cancellation
         // or RHS coalescing. An undefined formula is not a zero identity.
-        for term in &rule.rhs {
+        for denominator in rule.rhs.dispatch_denominators() {
             let denominator = self.context.specialize_polynomial_sealed(
-                &term.denominator,
+                denominator,
                 target.powers(),
                 self.limits.indexed_algebra,
             )?;
@@ -374,7 +374,7 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
         nonzero: &mut impl FnMut(&CoefficientPolynomial),
     ) -> Result<BTreeMap<IntegralKey, Coefficient>, CandidateReductionError> {
         let mut result = BTreeMap::new();
-        for term in &rule.rhs {
+        for term in rule.rhs.terms()? {
             let Some((child, coefficient)) = self.specialize_term(rule, term, target, nonzero)?
             else {
                 continue;
@@ -435,7 +435,7 @@ impl<'a, const N: usize> CandidateEvaluator<'a, N> {
                 .diagnostic_limit(self.limits.max_rule_applications),
         )?;
         let mut terms = BTreeMap::from([(target.clone(), self.context.base().one())]);
-        for term in &rule.rhs {
+        for term in rule.rhs.terms()? {
             let Some((child, coefficient)) =
                 self.specialize_term(rule, term, target, &mut nonzero)?
             else {

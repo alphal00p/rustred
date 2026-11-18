@@ -1,6 +1,7 @@
 //! Common admission for legacy single-owner and immutable owner-library users.
 use super::super::model::{
-    CandidateFamilyAdmission, CandidateReductionError, PreparedRule, PreparedTerm,
+    CandidateFamilyAdmission, CandidateReductionError, LazyRuleBody, PreparedRule, PreparedTerm,
+    RuleBody, RuleBodyLoader,
 };
 use crate::algebra::{IndexedCoefficient, IndexedCoefficientContext, IndexedPolynomial};
 use crate::family::{IntegralFamily, IntegralKey};
@@ -328,7 +329,7 @@ pub(in crate::solver::candidate_reduction) fn prepare_records<const N: usize>(
 /// stored once (`Arc`), so the loaded form of a table grows with its distinct
 /// values, not with its RHS terms. Interning only shares equal values.
 #[derive(Default)]
-struct TermInterner {
+pub(crate) struct TermInterner {
     coefficients: HashSet<Arc<IndexedCoefficient>>,
     denominators: HashSet<Arc<IndexedPolynomial>>,
 }
@@ -340,6 +341,88 @@ fn intern<T: Hash + Eq>(set: &mut HashSet<Arc<T>>, value: T) -> Arc<T> {
     let value = Arc::new(value);
     set.insert(Arc::clone(&value));
     value
+}
+
+/// batch 12c: a rule for [`prepare_batch_from`]: restored whole, or restored
+/// without its right-hand side, which a [`RuleBodyLoader`] gives at first
+/// use ([`LazyRuleBody`]).
+pub(crate) enum StreamedRule<const N: usize> {
+    Full(SectorRule<N>),
+    Lazy(SectorRule<N>, LazyRhs<N>),
+}
+
+impl<const N: usize> From<SectorRule<N>> for StreamedRule<N> {
+    fn from(rule: SectorRule<N>) -> Self {
+        Self::Full(rule)
+    }
+}
+
+/// batch 12c: the lazy right-hand side of a [`StreamedRule::Lazy`]; the
+/// denominators are raw (distinct, first-appearance order) and are prepared
+/// with the batch.
+pub(crate) struct LazyRhs<const N: usize> {
+    pub loader: Arc<dyn RuleBodyLoader<N>>,
+    pub index: usize,
+    pub len: usize,
+    pub duplicate_shifts: usize,
+    pub denominators: Vec<crate::algebra::CoefficientPolynomial>,
+}
+
+/// The prepared right-hand side of a rule with target `target` (the eager
+/// preparation, and a lazy body's load): layout and shift checks, admission,
+/// coefficients and denominators interned in `interner`.
+pub(crate) fn prepare_terms<const N: usize>(
+    context: &IndexedCoefficientContext,
+    target: &Integral<N>,
+    terms: Vec<crate::solver::Term<N, crate::algebra::Coefficient>>,
+    limits: ReductionLimits,
+    interner: &mut TermInterner,
+) -> Result<Vec<PreparedTerm<N>>, CandidateReductionError> {
+    let mut rhs = Vec::with_capacity(terms.len());
+    for term in terms {
+        if term
+            .integral
+            .powers()
+            .iter()
+            .zip(target.powers())
+            .any(|(child, target)| child.is_symbolic() != target.is_symbolic())
+        {
+            return Err(CandidateReductionError::InvalidInput(
+                "candidate RHS changes symbolic versus fixed coordinate layout".into(),
+            ));
+        }
+        let denominator = context.admit_storage_polynomial_result_with_limits(
+            term.coefficient.denominator.clone(),
+            limits.exact_algebra,
+        )?;
+        let coefficient =
+            context.admit_storage_result_with_limits(term.coefficient, limits.exact_algebra)?;
+        let mut shift = [0_i8; N];
+        for (i, out) in shift.iter_mut().enumerate() {
+            *out = i8::try_from(i64::from(term.integral[i].value()) - i64::from(target[i].value()))
+                .map_err(|_| {
+                    CandidateReductionError::InvalidInput(
+                        "candidate RHS shift exceeds the i8 storage of a prepared term".into(),
+                    )
+                })?;
+        }
+        rhs.push(PreparedTerm {
+            shift,
+            coefficient: intern(&mut interner.coefficients, coefficient),
+            denominator: intern(&mut interner.denominators, denominator),
+        });
+    }
+    rhs.shrink_to_fit();
+    Ok(rhs)
+}
+
+/// batch 12c: a term interner seeded with prepared denominators (a lazy
+/// body shares its dispatch denominators).
+pub(crate) fn term_interner_with(denominators: &[Arc<IndexedPolynomial>]) -> TermInterner {
+    TermInterner {
+        coefficients: HashSet::new(),
+        denominators: denominators.iter().cloned().collect(),
+    }
 }
 
 /// Shared native conversion for complete records and source-bound partial jobs.
@@ -365,10 +448,13 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch<const N: usize>(
 /// [`prepare_batch`] over rules restored one at a time (t162-export): each
 /// source rule is dropped once prepared, so the restored form of the whole
 /// batch is never held next to the prepared one.
-pub(in crate::solver::candidate_reduction) fn prepare_batch_from<const N: usize>(
+pub(in crate::solver::candidate_reduction) fn prepare_batch_from<
+    const N: usize,
+    R: Into<StreamedRule<N>>,
+>(
     shared: &PreparedFamily<N>,
     sector: [bool; N],
-    source_rules: impl IntoIterator<Item = Result<SectorRule<N>, CandidateReductionError>>,
+    source_rules: impl IntoIterator<Item = Result<R, CandidateReductionError>>,
     residuals: Vec<Integral<N>>,
     limits: ReductionLimits,
     ordinal: &mut usize,
@@ -409,7 +495,10 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch_from<const N: usize>
     }
     let mut prepared = Vec::new();
     for rule in source_rules {
-        let rule = rule?;
+        let (rule, lazy) = match rule?.into() {
+            StreamedRule::Full(rule) => (rule, None),
+            StreamedRule::Lazy(rule, lazy) => (rule, Some(lazy)),
+        };
         let candidate = rule.candidate;
         if !candidate.case.is_in_sector(&sector) || candidate.target != candidate.case.integral() {
             return Err(CandidateReductionError::InvalidInput(
@@ -446,43 +535,41 @@ pub(in crate::solver::candidate_reduction) fn prepare_batch_from<const N: usize>
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let mut rhs = Vec::new();
-        for term in candidate.rhs {
-            if term
-                .integral
-                .powers()
-                .iter()
-                .zip(candidate.target.powers())
-                .any(|(child, target)| child.is_symbolic() != target.is_symbolic())
-            {
-                return Err(CandidateReductionError::InvalidInput(
-                    "candidate RHS changes symbolic versus fixed coordinate layout".into(),
-                ));
+        let rhs = match lazy {
+            None => RuleBody::eager(prepare_terms(
+                context,
+                &candidate.target,
+                candidate.rhs,
+                limits,
+                &mut interner,
+            )?),
+            Some(lazy) => {
+                if !candidate.rhs.is_empty() {
+                    return Err(CandidateReductionError::InvalidInput(
+                        "a lazy candidate rule carries its terms in its body only".into(),
+                    ));
+                }
+                let denominators = lazy
+                    .denominators
+                    .into_iter()
+                    .map(|denominator| {
+                        context
+                            .admit_storage_polynomial_result_with_limits(
+                                denominator,
+                                limits.exact_algebra,
+                            )
+                            .map(|denominator| intern(&mut interner.denominators, denominator))
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                RuleBody::lazy(LazyRuleBody {
+                    loader: lazy.loader,
+                    index: lazy.index,
+                    len: lazy.len,
+                    duplicate_shifts: lazy.duplicate_shifts,
+                    denominators,
+                })
             }
-            let denominator = context.admit_storage_polynomial_result_with_limits(
-                term.coefficient.denominator.clone(),
-                limits.exact_algebra,
-            )?;
-            let coefficient =
-                context.admit_storage_result_with_limits(term.coefficient, limits.exact_algebra)?;
-            let mut shift = [0_i8; N];
-            for (i, out) in shift.iter_mut().enumerate() {
-                *out = i8::try_from(
-                    i64::from(term.integral[i].value()) - i64::from(candidate.target[i].value()),
-                )
-                .map_err(|_| {
-                    CandidateReductionError::InvalidInput(
-                        "candidate RHS shift exceeds the i8 storage of a prepared term".into(),
-                    )
-                })?;
-            }
-            rhs.push(PreparedTerm {
-                shift,
-                coefficient: intern(&mut interner.coefficients, coefficient),
-                denominator: intern(&mut interner.denominators, denominator),
-            });
-        }
-        rhs.shrink_to_fit();
+        };
         prepared.push(PreparedRule {
             ordinal: *ordinal,
             dispatch_policy: rule.dispatch_policy,

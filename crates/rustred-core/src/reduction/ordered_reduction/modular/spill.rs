@@ -2,7 +2,8 @@
 //! file as they are recorded (append-only, 8 B per op), and read back by
 //! mmap for the replay, so that the forward pass and the replay hold no
 //! in-memory copy of the trace. `RUSTRED_TRACE_SPILL_DIR=<dir>` enables it
-//! (one-thread recorded requests without tail rewrites or layered mode);
+//! (recorded requests on the sequential or pipelined scheduler, without
+//! tail rewrites or layered mode);
 //! the directory must be off snapshotted file systems (e.g. /common).
 use std::fs::File;
 use std::io::Write;
@@ -194,6 +195,22 @@ impl Drop for OpStore {
         if let Self::Mapped { ptr, len, path } = self {
             unsafe { libc::munmap((*ptr).cast_mut().cast(), *len * std::mem::size_of::<Op>()) };
             let _ = std::fs::remove_file(&*path);
+        }
+    }
+}
+
+impl OpStore {
+    /// batch 12t: mutable ops (the t-adic replay re-points the recorded input
+    /// ops per weight vector); a mapped store is first copied into memory
+    /// (the mapping and its spill file are released).
+    pub(super) fn to_mut(&mut self) -> &mut Vec<Op> {
+        if let Self::Mapped { .. } = self {
+            let ops: Vec<Op> = std::ops::Deref::deref(self).to_vec();
+            *self = Self::Memory(ops);
+        }
+        match self {
+            Self::Memory(ops) => ops,
+            Self::Mapped { .. } => unreachable!("copied into memory above"),
         }
     }
 }
