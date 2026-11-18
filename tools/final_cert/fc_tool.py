@@ -21,7 +21,7 @@ Subcommands (all write JSON; a failed criterion exits 3, a usage / input error 2
   onerun      run the one-level reduces on the engine
   manifest    sha256 + bytes of every file of a delivery directory
 """
-import argparse, csv, glob, hashlib, json, os, random, re, subprocess, sys, time
+import argparse, collections, csv, glob, hashlib, json, os, random, re, subprocess, sys, time
 
 FAIL = 3
 
@@ -309,19 +309,79 @@ def cmd_impcheck(a):
 
 
 # --------------------------------------------------------------------------------------------------------------- exact
-def load_evidence(spec):
-    """spec = JSON list of {path, comment?, index_col, hash_col?, class_col, name}: rows -> (index, hash, class)."""
+VACUOUS_RE = re.compile(r'vacuous|DEAD in cone|dead at D ?\+ ?r|NOT-RUN-DEAD|out of scope: dead|\b0 first-match keys', re.I)
+WHOLE_CLASS_RE = re.compile(r'^(E-WHOLE|POINT|SYM(\+POINT)?|whole domain)\b')
+WHOLE_TEXT_RE = re.compile(r'PROVED whole domain|\(E-WHOLE[:)]')
+PER_KEY_CLASS_RE = re.compile(r'^(E-KEYS|per-key certificates|K[0-9]+ |every first-match key in cone|sampled [0-9]+ keys|FACE-VERDICT)')
+
+
+def classify_evidence(cls, detail, cone_bound):
+    """ONE evidence row -> (kind, n): kind in whole / every / sampled / vacuous / none (n = sampled keys).
+    Rules (2026-11-18, after TRICKS 67): a vacuous or dead verdict is NO evidence of exactness; 'whole' only from a whole-domain
+    proof object (class E-WHOLE / POINT / SYM / the class words 'whole domain', or a proof object whose exactness item says
+    'PROVED whole domain'); a per-key, sampled or face-restricted verdict yields at most 'every first-match key in cone';
+    a summary word ('FACE-VERDICT', 'PASS') without its exactness statement yields nothing."""
+    text = cls + ' || ' + detail
+    if VACUOUS_RE.search(text):
+        return 'vacuous', None
+    if WHOLE_CLASS_RE.search(cls):
+        return 'whole', None
+    if cls.startswith('FACE-VERDICT') and WHOLE_TEXT_RE.search(detail) and not re.search(r'every FM key|FM keys\b|first-match key', detail):
+        return 'whole', None
+    if PER_KEY_CLASS_RE.search(cls):
+        pk = per_key_class(detail + ' || ' + cls, cone_bound)
+        if pk == 'every first-match key in cone':
+            return 'every', None
+        if isinstance(pk, tuple):
+            return 'sampled', pk[1]
+    return 'none', None
+
+
+def load_proof_objects(cfg):
+    """Markdown verdict tables -> {(doc, record): exactness statement} (the exactness item a summary class refers to)."""
+    out = {}
+    for po in cfg.get('proof_objects', []):
+        hdr = None
+        for line in open(po['path']):
+            if not line.startswith('|'):
+                hdr = None
+                continue
+            cells = [c.strip() for c in line.strip().strip('|').split('|')]
+            if hdr is None:
+                hdr = cells
+                continue
+            if set(''.join(cells)) <= set('-: '):
+                continue
+            row = dict(zip(hdr, cells))
+            if po['key_col'] in row and po['exact_col'] in row:
+                out[(po['doc'], row[po['key_col']])] = row[po['exact_col']]
+    return out
+
+
+def load_evidence(cfg, cone_bound):
+    """Evidence rows with their identity: (keyed_by, index), class, the configured detail fields + the referenced proof object's
+    exactness statement, and the row's own hash / domain when the source gives them."""
+    pobj = load_proof_objects(cfg)
     out = []
-    for e in spec:
+    for e in cfg['evidence']:
         lines = [l for l in open(e['path']) if not (e.get('comment') and l.startswith(e['comment']))]
-        rows = list(csv.DictReader(lines, delimiter='\t'))
-        for r in rows:
+        for r in csv.DictReader(lines, delimiter='\t'):
             try:
                 idx = int(r[e['index_col']])
             except (KeyError, ValueError):
-                continue
-            out.append({'source': e['name'], 'index': idx, 'hash': r.get(e['hash_col']) if e.get('hash_col') else None, 'form': e.get('hash_form', 'list'),
-                        'class': (r.get(e['class_col']) or '').strip()})
+                raise SystemExit('evidence %s: row without a usable %s: %s' % (e['name'], e['index_col'], dict(list(r.items())[:3])))
+            cls = (r.get(e['class_col']) or '').strip()
+            detail = ' | '.join((r.get(c) or '') for c in e.get('detail_cols', []))
+            po = (r.get(e['proof_object_col']) or '').strip() if e.get('proof_object_col') else ''
+            if po:
+                doc, _, rec = po.partition(' ')
+                if (doc, rec) in pobj:
+                    detail += ' || proof object %s: %s' % (po, pobj[(doc, rec)])
+            kind, n = classify_evidence(cls, detail, cone_bound)
+            out.append({'source': e['name'], 'keyed_by': e.get('keyed_by', 'reference'), 'file': e.get('candidate_file', 0), 'index': idx,
+                        'hash': (r.get(e['hash_col']) or None) if e.get('hash_col') else None, 'form': e.get('hash_form', 'list'),
+                        'domain': (r.get(e['domain_col']) or None) if e.get('domain_col') else None,
+                        'class': cls, 'detail': detail[:400], 'kind': kind, 'n': n})
     return out
 
 
@@ -335,41 +395,51 @@ def target_rhs_hash(v, form):
     raise SystemExit('unknown hash form %s' % form)
 
 
-def category(cls, cats):
-    for name in ('whole', 'per_key'):
-        if any(re.search(p, cls) for p in cats[name]):
-            return name
-    return 'not_proven'
+RANK = {'whole': 3, 'every': 2, 'sampled': 1, 'none': 0, 'vacuous': -1}
+
+
+def bind_record(rec, rows_own, rows_rel, ref):
+    """The evidence of ONE candidate record. rec: {'file','table_index','dp','hashes':{form:h},'domain'}.
+    OWN-position rows (reference rows at the record's dispatch position; candidate-keyed rows at its table index) bind iff the
+    target + rhs hash AND the domain hash are equal (the row's own values, else the reference record's at that position).
+    Rows of OTHER positions with equal target + rhs and domain (a twin) bind ONLY when they are a whole-domain proof object.
+    Returns (bound rows with status, best kind, n, deciding row, own_vacuous)."""
+    bound = []
+    for r in rows_own:
+        h = r['hash'] or (ref.get(r['index'], {}).get(r['form']) if r['keyed_by'] == 'reference' else None)
+        d = r['domain'] or (ref.get(r['index'], {}).get('domain') if r['keyed_by'] == 'reference' else None)
+        ok = h is not None and h == rec['hashes'].get(r['form']) and d is not None and d == rec['domain']
+        bound.append(dict(r, status='own' if ok else 'stale (hash or domain differs)'))
+    for r in rows_rel:
+        d = r['domain'] or (ref.get(r['index'], {}).get('domain') if r['keyed_by'] == 'reference' else None)
+        if d != rec['domain']:
+            continue
+        bound.append(dict(r, status='twin: whole-domain proof object of the same relation and domain' if r['kind'] == 'whole' else 'twin: IGNORED (not a whole-domain proof)'))
+    use = [r for r in bound if r['status'] == 'own' or r['status'].startswith('twin: whole')]
+    best = max((r for r in use if r['kind'] != 'vacuous'), key=lambda r: (RANK[r['kind']], r['n'] or 0), default=None)
+    own_vacuous = any(r['status'] == 'own' and r['kind'] == 'vacuous' for r in bound)
+    return bound, (best['kind'] if best else 'none'), (best['n'] if best else None), best, own_vacuous
 
 
 def cmd_exact(a):
-    """Per record of the final table(s): target_rhs_sha256 = sha256(json.dumps([target, rhs], separators=(',', ':'))) (helper VH's
-    re-binding hash) and domain_sha256; evidence rows bind by HASH (hash column) or by INDEX when the evidence's own anchor hash at
-    that index equals the record's hash; the best category wins (whole > per_key > not_proven); new records (no evidence) and the
-    watch list are reported; side files of the size lane (weight / derivation data) are matched by hash when given."""
+    """Per record of the final table(s): the STRICT evidence binding (see bind_record / classify_evidence) against the configured
+    evidence sources; reference identities (target + rhs in both forms, domain) per reference position from --reference-index.
+    Writes <out>.jsonl (per record: hashes, domain, bound evidence rows with their status, best kind, deciding row) and a summary."""
     cfg = json.load(open(a.config))
-    cats = cfg['categories']
-    ev = load_evidence(cfg['evidence'])
-    by_hash, anchor = {}, {}
-    forms = sorted({e.get('hash_form', 'list') for e in cfg['evidence']} | {'list'})
+    cone_bound = a.cone_bound
+    ev = load_evidence(cfg, cone_bound)
+    ref = {int(k): v for k, v in json.load(open(a.reference_index))['records'].items()} if a.reference_index else {}
+    forms = sorted({r['form'] for r in ev} | {'list'})
+    own_ref, own_cand, by_id = {}, {}, {}
     for r in ev:
-        if r['hash']:
-            by_hash.setdefault((r['form'], r['hash']), []).append(r)
-            anchor.setdefault(r['index'], set()).add((r['form'], r['hash']))
-    by_index = {}
-    for r in ev:
-        by_index.setdefault(r['index'], []).append(r)
-    side = {}
-    for d in (a.side_dirs or '').split(':'):
-        if not d or not os.path.isdir(d):
-            continue
-        for p in sorted(glob.glob(os.path.join(d, '**', '*.json*'), recursive=True)):
-            try:
-                txt = open(p, errors='replace').read(1 << 22)
-            except OSError:
-                continue
-            for h in set(re.findall(r'[0-9a-f]{64}', txt)):
-                side.setdefault(h, set()).add(p)
+        if r['keyed_by'] == 'reference':
+            own_ref.setdefault(r['index'], []).append(r)
+            h = r['hash'] or ref.get(r['index'], {}).get(r['form'])
+        else:
+            own_cand.setdefault((r['file'], r['index']), []).append(r)
+            h = r['hash']
+        if h:
+            by_id.setdefault((r['form'], h), []).append(r)
     rows = []
     for fi, path in enumerate(a.tables.split(':')):
         with open(path, 'rb') as f:
@@ -380,51 +450,39 @@ def cmd_exact(a):
                 if not is_rule(v):
                     continue
                 o = v.get('origin') or {}
-                hs = {f: target_rhs_hash(v, f) for f in forms}
-                th = hs['list']
+                hs = {fm: target_rhs_hash(v, fm) for fm in forms}
                 dh = hashlib.sha256(json.dumps([v.get('fixed'), v.get('equations'), v.get('exceptions'), v.get('domain_bounds')], separators=(',', ':')).encode()).hexdigest()
                 dp = o.get('dispatch_position')
-                mine = {(f, h) for f, h in hs.items()}
-                hits = [dict(r, bound='hash') for f, h in hs.items() for r in by_hash.get((f, h), [])]
-                if dp is not None:
-                    hits += [dict(r, bound='index') for r in by_index.get(dp, []) if not r['hash'] and mine & anchor.get(dp, set())]
-                best = max(hits, key=lambda r: ('not_proven', 'per_key', 'whole').index(category(r['class'], cats)), default=None)
-                changed = not any(by_hash.get(x) for x in mine)
+                rec = {'file': fi, 'table_index': v['index'], 'dp': dp, 'hashes': hs, 'domain': dh}
+                own = (own_ref.get(dp, []) if dp is not None else []) + own_cand.get((fi, v['index']), [])
+                own_ids = {id(r) for r in own}
+                rel = [r for fm, h in hs.items() for r in by_id.get((fm, h), []) if id(r) not in own_ids]
+                bound, kind, n, best, own_vac = bind_record(rec, own, rel, ref)
                 rows.append({'file': fi, 'table_index': v['index'], 'dispatch_position': dp, 'bytes': len(raw), 'target': v['target'],
-                             'target_rhs_sha256': th, 'target_rhs_sha256_forms': hs, 'domain_sha256': dh, 'changed_vs_evidence': changed,
-                             'class': best['class'] if best else None, 'class_source': best['source'] if best else None,
-                             'bound_by': best['bound'] if best else None, 'category': category(best['class'], cats) if best else 'not_proven',
-                             'evidence_rows': len(hits), 'side_files': sorted(side.get(th, []))[:5],
-                             'witness_loci': None if 'witness_loci' not in v else len(v['witness_loci'] or []),
-                             'derivation': (o.get('derivation') or {}).get('kind') if isinstance(o.get('derivation'), dict) else o.get('derivation')})
-    watch = set(cfg.get('watch_dispatch_positions', []))
+                             'target_rhs_sha256': hs['list'], 'target_rhs_sha256_forms': hs, 'domain_sha256': dh,
+                             'kind': kind, 'n': n, 'class': best['class'] if best else None, 'class_source': best['source'] if best else None,
+                             'class_detail': best['detail'] if best else None, 'bound_by': best['status'] if best else None, 'own_vacuous': own_vac,
+                             'evidence': [{k: r[k] for k in ('source', 'keyed_by', 'index', 'class', 'kind', 'n', 'status')} for r in bound],
+                             'changed_vs_evidence': not any(r['status'] == 'own' for r in bound)})
     with open(a.out + '.jsonl', 'w') as g:
         for r in rows:
             g.write(json.dumps(r) + '\n')
-    cnt = {}
-    for r in rows:
-        cnt[r['category']] = cnt.get(r['category'], 0) + 1
-    summ = {'records': len(rows), 'by_category': cnt,
-            'bytes_by_category': {c: sum(r['bytes'] for r in rows if r['category'] == c) for c in cnt},
-            'changed_vs_evidence': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'category', 'side_files')} for r in rows if r['changed_vs_evidence']],
-            'not_proven': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'class', 'changed_vs_evidence', 'side_files')} for r in rows if r['category'] == 'not_proven'],
-            'per_key': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'class')} for r in rows if r['category'] == 'per_key'],
-            'watch_list': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'class', 'category', 'changed_vs_evidence')} for r in rows if r['dispatch_position'] in watch],
-            'watch_missing': sorted(watch - {r['dispatch_position'] for r in rows}),
+    cnt = collections.Counter(r['kind'] for r in rows)
+    watch = set(cfg.get('watch_dispatch_positions', []))
+    summ = {'records': len(rows), 'by_kind': dict(cnt), 'cone_bound': cone_bound,
+            'twins_ignored': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position')} | {'twins': [e for e in r['evidence'] if e['status'].startswith('twin: IGNORED')]}
+                              for r in rows if any(e['status'].startswith('twin: IGNORED') for e in r['evidence'])],
+            'stale_own_rows': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position')} for r in rows if any(e['status'].startswith('stale') for e in r['evidence'])],
+            'own_vacuous': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position')} for r in rows if r['own_vacuous']],
+            'no_own_evidence': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position', 'kind')} for r in rows if r['changed_vs_evidence']],
+            'watch_list': [{k: r[k] for k in ('file', 'table_index', 'dispatch_position', 'kind', 'n', 'class')} for r in rows if r['dispatch_position'] in watch],
             'evidence': [{'name': e['name'], 'path': e['path'], 'sha256': sha256_file(e['path'])} for e in cfg['evidence']],
-            'side_dirs': a.side_dirs, 'side_files_seen': len({p for s in side.values() for p in s}),
-            'categories': cats, 'hash_rule': 'target_rhs_sha256 = sha256(json.dumps([target, rhs], separators=(",", ":"))); per evidence source also its own form (target_rhs_sha256_forms)'}
+            'reference_index': a.reference_index,
+            'rules': 'own position: target + rhs AND domain equal; a twin (other position, same relation + domain) transfers only a whole-domain proof object; '
+                     'vacuous / dead verdicts are no evidence; whole only from a whole-domain proof object'}
     dump(summ, a.out + '.summary.json')
-    print(json.dumps({'records': len(rows), 'by_category': cnt, 'changed': len(summ['changed_vs_evidence']), 'not_proven': len(summ['not_proven']),
-                      'watch': [(w['dispatch_position'], w['category']) for w in summ['watch_list']]}))
-    # the positions the targeted liveness must decide: changed records and records without a whole-domain / per-key proof
-    pos = {}
-    for l in open(a.positions):
-        p = json.loads(l)
-        if p['file'] is not None:
-            pos[(p['file'], p['table_index'])] = p['position']
-    sel = sorted(pos[(r['file'], r['table_index'])] for r in rows if r['changed_vs_evidence'] or r['category'] != 'whole')
-    dump(sel, a.out + '.live_positions.json')
+    print(json.dumps({'records': len(rows), 'by_kind': dict(cnt), 'twins_ignored': len(summ['twins_ignored']), 'stale': len(summ['stale_own_rows']),
+                      'own_vacuous': len(summ['own_vacuous']), 'no_own_evidence': len(summ['no_own_evidence'])}))
     return 0
 
 
@@ -822,6 +880,12 @@ def per_key_class(blob, cone_bound):
         return ('sampled', int(m.group(1)))
     if re.search(r'ALL [\d,]+ first-match keys of cone %d\b' % cone_bound, blob) or re.search(r'all fm keys', blob):
         return 'every first-match key in cone'
+    m = re.search(r'at every FM key D ?\+ ?r ?<= ?(\d+)', blob)
+    if m and int(m.group(1)) >= cone_bound:
+        return 'every first-match key in cone'
+    m = re.search(r'FULL: EXACT_IN_SPAN_AT_KEY ([\d,]+)/([\d,]+) FM keys', blob)
+    if m and m.group(1) == m.group(2):
+        return 'every first-match key in cone'
     m = re.search(r'ALL [\d,]+ first-match keys (?:with|of) D \+ r <= (\d+)', blob)
     if m and int(m.group(1)) >= cone_bound:
         return 'every first-match key in cone'
@@ -835,27 +899,30 @@ def per_key_class(blob, cone_bound):
     return None
 
 
+def decide_class(kind, n, liveness, own_vacuous):
+    """(class, words, contradiction) of one rule from its bound evidence kind and its liveness in the region."""
+    if kind == 'whole':
+        cls, words = 'whole domain', 'whole domain'
+    elif liveness == 'dead':
+        cls, words = 'dead in cone', 'dead in cone'
+    elif kind == 'every':
+        cls, words = 'every first-match key in cone', 'every first-match key in cone'
+    elif kind == 'sampled':
+        cls, words = 'sampled N keys', 'sampled %d keys' % n
+    else:
+        cls, words = 'none', 'none'
+    return cls, words, bool(own_vacuous) and liveness == 'live'
+
+
 def cmd_classes(a):
     """Per rule ONE exactness class in the coordinator's words (whole domain / every first-match key in cone / sampled N keys /
-    dead in cone / none), from the exactness binding (evidence re-read for the key counts), the liveness in the region and the
-    optional first-match counts; written into the run and the delivery (classes file, VERIFIER_SPEC section, summary metadata,
-    MANIFEST re-issued)."""
+    dead in cone / none) from the STRICT evidence binding (cmd_exact) and the liveness in the region:
+    whole domain <- a bound whole-domain proof object; else dead in cone <- the rule is dead in the region; else every / sampled N
+    <- the best bound per-key evidence of the rule's OWN position; else none.
+    FAILS (exit 3, nothing written to a delivery) when a rule LIVE in the region has a vacuous / dead verdict at its own position
+    (the evidence contradicts the liveness). Writes the class files to --outdir (default <run>/exact); with --deliver also into the
+    delivery (classes files, VERIFIER_SPEC section, summary metadata) and re-issues its MANIFEST."""
     env = run_env(a.run); N = env['cfg_node']
-    cfgx = json.load(open(a.config or env['cfg_exact_config']))   # a merge passes the evidence configuration its `exact` binding used
-    cone_bound = int(re.search(r'simplex:(\d+)', env['cfg_region']).group(1))
-    # every evidence row's full text, by (form, hash) and by index
-    blobs_h, blobs_i = {}, {}
-    for e in cfgx['evidence']:
-        lines = [l for l in open(e['path']) if not (e.get('comment') and l.startswith(e['comment']))]
-        for r in csv.DictReader(lines, delimiter='\t'):
-            text = ' | '.join('%s=%s' % (k, v) for k, v in r.items() if v)
-            item = (text, e['name'], (r.get(e['class_col']) or '').strip())
-            if e.get('hash_col') and r.get(e['hash_col']):
-                blobs_h.setdefault((e.get('hash_form', 'list'), r[e['hash_col']]), []).append(item)
-            try:
-                blobs_i.setdefault(int(r[e['index_col']]), []).append(item)
-            except (KeyError, ValueError):
-                pass
     live = {}
     lp = os.path.join(a.run, 'live', N + '.liveness.jsonl')
     if os.path.exists(lp):
@@ -868,48 +935,35 @@ def cmd_classes(a):
         for l in open(a.counts):
             r = json.loads(l)
             counts[(r.get('file'), r.get('table_index'))] = r
-            # a lanefile row (liveness with its basis) fills the run's liveness where that step has no verdict
             if r.get('liveness') in ('live', 'dead') and live.get((r['file'], r['table_index']), {}).get('live') not in ('live', 'dead'):
                 live[(r['file'], r['table_index'])] = {'live': r['liveness'], 'basis': r.get('basis')}
-    out, tally, open_live = [], {}, []
-    for l in open(os.path.join(a.run, 'exact', N + '.exact.jsonl')):
+    out, tally, open_live, contradictions = [], {}, [], []
+    src = a.exact or os.path.join(a.run, 'exact', N + '.exact.jsonl')
+    for l in open(src):
         r = json.loads(l)
         key = (r['file'], r['table_index'])
         lv = live.get(key, {}).get('live')
-        items = (sum((blobs_h.get((f, h), []) for f, h in r['target_rhs_sha256_forms'].items()), [])
-                 + (blobs_i.get(r['dispatch_position'], []) if r['dispatch_position'] is not None and r['bound_by'] == 'index' else []))
-        blob = ' || '.join(t for t, _, _ in items)
-        # the evidence row that decides a per-key class (every > sampled with the most keys): reported as the rule's evidence
-        decided = None
-        for t_, name_, cls_ in items:
-            pk_ = per_key_class(t_, cone_bound)
-            rank = 2 if pk_ == 'every first-match key in cone' else (1 + pk_[1] / 1e12 if isinstance(pk_, tuple) else 0)
-            if rank and (decided is None or rank > decided[0]):
-                decided = (rank, name_, cls_)
-        if r['category'] == 'whole':
-            cls, n = 'whole domain', None
-        elif lv == 'dead':
-            cls, n = 'dead in cone', None
-        else:
-            pk = per_key_class(blob, cone_bound) if r['category'] == 'per_key' else None
-            if pk == 'every first-match key in cone':
-                cls, n = pk, None
-            elif isinstance(pk, tuple):
-                cls, n = 'sampled N keys', pk[1]
-            else:
-                cls, n = 'none', None
-        words = cls.replace('N', str(n)) if cls == 'sampled N keys' else cls
+        cls, words, contra = decide_class(r['kind'], r['n'], lv, r.get('own_vacuous'))
+        if contra:
+            contradictions.append({'file': r['file'], 'table_index': r['table_index'], 'dispatch_position': r['dispatch_position'],
+                                   'own_evidence': [e for e in r['evidence'] if e['status'] == 'own']})
         c = counts.get(key, {})
         row = {'file': r['file'], 'table_index': r['table_index'], 'dispatch_position': r['dispatch_position'], 'bytes': r['bytes'],
-               'target_rhs_sha256': r['target_rhs_sha256'], 'exactness_class': words,
-               'evidence_class': decided[2] if decided and cls in ('every first-match key in cone', 'sampled N keys') else r['class'],
-               'evidence_source': decided[1] if decided and cls in ('every first-match key in cone', 'sampled N keys') else r['class_source'], 'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
+               'target_rhs_sha256': r['target_rhs_sha256'], 'domain_sha256': r['domain_sha256'], 'exactness_class': words,
+               'evidence_class': r['class'], 'evidence_source': r['class_source'], 'evidence_binding': r['bound_by'],
+               'liveness_in_cone': lv if lv else ('not run (whole domain)' if cls == 'whole domain' else 'not run'),
                'liveness_basis': live.get(key, {}).get('basis', 'run liveness step' if lv else None),
                'fm_keys_in_cone': c.get('fm_keys'), 'fm_keys_by_shell': c.get('fm_keys_by_shell'), 'fm_count_complete': c.get('fm_count_complete')}
         out.append(row); tally[cls] = tally.get(cls, 0) + 1
         if cls == 'none' and lv in ('live', 'undecided', None):
             open_live.append(row)
-    rd = os.path.join(a.run, 'exact')
+    rd = a.outdir or os.path.join(a.run, 'exact')
+    os.makedirs(rd, exist_ok=True)
+    if contradictions:
+        dump({'contradictions': contradictions}, os.path.join(rd, N + '.exact_classes.CONTRADICTIONS.json'))
+        print('FAIL: %d rule(s) LIVE in %s carry a vacuous / dead verdict at their own position: %s' % (len(contradictions), env['cfg_region'],
+              [x['table_index'] for x in contradictions][:20]))
+        return FAIL
     with open(os.path.join(rd, N + '.exact_classes.jsonl'), 'w') as g:
         for row in out:
             g.write(json.dumps(row) + '\n')
@@ -921,13 +975,15 @@ def cmd_classes(a):
     summ = {'region': env['cfg_region'], 'words': list(CLASS_WORDS), 'by_class': tally, 'records': len(out),
             'none_live_or_undecided': [{k: x[k] for k in ('file', 'table_index', 'dispatch_position', 'bytes', 'evidence_class', 'liveness_in_cone')} for x in open_live],
             'status': ('EXACTNESS OPEN: see %s' % a.open_lane) if open_live else 'every rule live in the cone has an exactness class other than none',
-            'rule': 'whole domain if the re-bound evidence proves the identity on the whole domain; else dead in cone if record_liveness proves'
-                    ' it never first match in the region; else every first-match key in cone / sampled N keys from the per-key evidence; else none'}
+            'rule': 'whole domain only from a bound whole-domain proof object; else dead in cone if the rule is dead in the region; else every '
+                    'first-match key in cone / sampled N keys from per-key evidence bound at the rule own position (target + rhs and domain equal); '
+                    'else none. A twin (same relation and domain at another position) transfers only a whole-domain proof object; vacuous / dead '
+                    'verdicts are no evidence, and a live rule with one at its own position fails the step.'}
     dump(summ, os.path.join(rd, N + '.exact_classes.summary.json'))
     print(json.dumps({k: v for k, v in summ.items() if k != 'none_live_or_undecided'}), len(open_live))
     if a.deliver:
+        import shutil
         for f in (N + '.exact_classes.jsonl', N + '.exact_classes.tsv', N + '.exact_classes.summary.json'):
-            import shutil
             shutil.copy2(os.path.join(rd, f), os.path.join(a.deliver, 'exact', f))
         sp = os.path.join(a.deliver, 'summary.json')
         sj = json.load(open(sp)); sj['exactness_classes'] = {'file': 'exact/%s.exact_classes.tsv' % N, 'by_class': tally, 'status': summ['status'],
@@ -936,14 +992,13 @@ def cmd_classes(a):
         vs = os.path.join(a.deliver, 'VERIFIER_SPEC.md')
         txt = open(vs).read()
         cut = txt.find('\n## Per-rule exactness class')
-        if cut >= 0:   # a re-run replaces its own earlier section (always the last one appended)
+        if cut >= 0:
             open(vs, 'w').write(txt[:cut] + '\n')
         L = ['', '## Per-rule exactness class (%s; region %s)' % ('; '.join(CLASS_WORDS).replace('N keys', '<N> keys'), env['cfg_region']),
-             'File `exact/%s.exact_classes.tsv` (and .jsonl): per rule its class, the evidence class text it rests on, its liveness in the region.' % N,
+             'File `exact/%s.exact_classes.tsv` (and .jsonl): per rule its class, the evidence it rests on and how it is bound, its liveness in the region.' % N,
+             'Rule: %s' % summ['rule'],
              'Counts: %s.' % ', '.join('%s %d' % (k, v) for k, v in sorted(tally.items())),
              '**%s**' % summ['status']]
-        if open_live:
-            L.append('Rules with class "none" that are live (or undecided / not run) in %s: %d (listed in exact/%s.exact_classes.summary.json).' % (env['cfg_region'], len(open_live), N))
         if a.note:
             L += ['', '### Run notes', open(a.note).read().strip() if os.path.isfile(a.note) else a.note]
         open(vs, 'a').write('\n'.join(L) + '\n')
@@ -993,8 +1048,9 @@ def cmd_lanefile(a):
         q = pos[p]; r = ex[(q['file'], q['table_index'])]; dp = r['dispatch_position']
         hc = ref.get(str(dp)) if dp is not None else None
         row = {'position': p, 'file': q['file'], 'table_index': q['table_index'], 'dispatch_position': dp, 'target': r['target'],
-               'target_rhs_sha256': r['target_rhs_sha256'], 'bytes': r['bytes'], 'evidence_class': r['class'], 'evidence_category': r['category'],
+               'target_rhs_sha256': r['target_rhs_sha256'], 'bytes': r['bytes'], 'evidence_class': r['class'],
                'reference_fm_count': None if hc is None else int(hc), 'region': env['cfg_region']}
+        row['evidence_category'] = r.get('kind', r.get('category'))
         c = counted.get(p)
         if c is not None and c['live'] == 'live' and 'fm_keys' in c:
             row.update(liveness='live', basis='counted', witness=c.get('witness'), fm_keys=c['fm_keys'], fm_keys_by_shell=c['fm_keys_by_shell'],
@@ -1265,8 +1321,9 @@ def main():
     p = sp.add_parser('termcheck'); p.add_argument('--file', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('b1check'); p.add_argument('--summary', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('impcheck'); p.add_argument('--dir', required=True); p.add_argument('--terminals', required=True)
-    p = sp.add_parser('exact'); p.add_argument('--tables', required=True); p.add_argument('--config', required=True); p.add_argument('--positions', required=True)
-    p.add_argument('--side-dirs', default=''); p.add_argument('--out', required=True)
+    p = sp.add_parser('exact'); p.add_argument('--tables', required=True); p.add_argument('--config', required=True); p.add_argument('--positions', default='')
+    p.add_argument('--side-dirs', default=''); p.add_argument('--reference-index', default=''); p.add_argument('--cone-bound', type=int, required=True)
+    p.add_argument('--out', required=True)
     p = sp.add_parser('livecompile'); p.add_argument('--positions', required=True); p.add_argument('--shards', required=True); p.add_argument('--selected', default='')
     p.add_argument('--region', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('fmkeys'); p.add_argument('--arrivals', default=''); p.add_argument('--n', type=int, default=20000); p.add_argument('--seed', type=int, default=20261117)
@@ -1285,7 +1342,7 @@ def main():
     p = sp.add_parser('candcheck'); p.add_argument('--candidate', required=True); p.add_argument('--reference', required=True); p.add_argument('--sub', default='')
     p.add_argument('--replace-index', type=int, default=None); p.add_argument('--terminals', required=True); p.add_argument('--out', required=True)
     p = sp.add_parser('classes'); p.add_argument('--run', required=True); p.add_argument('--deliver', default=''); p.add_argument('--counts', default='')
-    p.add_argument('--open-lane', default='exact162'); p.add_argument('--note', default=''); p.add_argument('--config', default='')
+    p.add_argument('--open-lane', default='exact162'); p.add_argument('--note', default=''); p.add_argument('--exact', default=''); p.add_argument('--outdir', default='')
     p = sp.add_parser('lanefile'); p.add_argument('--run', required=True); p.add_argument('--counts', required=True); p.add_argument('--ref-counts', default='')
     p.add_argument('--first-changed', type=int, required=True); p.add_argument('--corrections', default=''); p.add_argument('--out', required=True)
     p = sp.add_parser('concat'); p.add_argument('--tables', required=True); p.add_argument('--out', required=True)
