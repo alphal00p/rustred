@@ -529,6 +529,8 @@ pub struct Supervisor {
     deferred_source_retries: Vec<String>,
     last_disk_check: Option<Instant>,
     last_block_log: String,
+    /// round 15: when the "launching paused" line was last written (a reminder at most once a minute).
+    last_block_logged: Option<Instant>,
     last_wait_log: String,
     boot_id: String,
     started_at: Instant,
@@ -1538,6 +1540,7 @@ impl Supervisor {
             deferred_source_retries: Vec::new(),
             last_disk_check: None,
             last_block_log: String::new(),
+            last_block_logged: None,
             last_wait_log: String::new(),
             boot_id,
             started_at: Instant::now(),
@@ -6609,7 +6612,10 @@ impl Supervisor {
             b.reasons
                 .push("process sampler stale (> 30 s): no launch".into());
         }
+        // round 15 (gate16 nit m16-paused-spam): the gate's reason without its running seconds is the log's key
+        let mut gate_key = None;
         if let Some((since, why)) = self.gate.closed() {
+            gate_key = Some(format!("the user manager does not answer ({why})"));
             b.reasons.push(format!(
                 "the user manager does not answer ({why}; {} s): no launch",
                 since.elapsed().as_secs()
@@ -6634,14 +6640,37 @@ impl Supervisor {
             );
         }
         let joined = b.reasons.join("; ");
-        if joined != self.last_block_log {
+        // round 15 (gate16 nit m16-paused-spam): logged when the reasons change (the manager gate's running seconds
+        // are not a change) and, while they stay, at most once a minute (was: every second during a manager stall)
+        let key = match &gate_key {
+            Some(k) => b
+                .reasons
+                .iter()
+                .map(|r| {
+                    if r.starts_with(k.as_str()) {
+                        k.clone()
+                    } else {
+                        r.clone()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; "),
+            None => joined.clone(),
+        };
+        let reminder = !key.is_empty()
+            && self
+                .last_block_logged
+                .is_some_and(|t| t.elapsed() >= Duration::from_secs(60));
+        if key != self.last_block_log || reminder {
             if !joined.is_empty() {
                 self.log
                     .line("INFO", &format!("launching paused: {joined}"));
+                self.last_block_logged = Some(Instant::now());
             } else if !self.last_block_log.is_empty() {
                 self.log.line("INFO", "launching resumed");
+                self.last_block_logged = None;
             }
-            self.last_block_log = joined;
+            self.last_block_log = key;
         }
         b
     }

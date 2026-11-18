@@ -300,8 +300,10 @@ fn one_run(l: &mut RealLauncher, dir: &Path, i: usize, t: &mut Tally) {
     if r.verification.is_verified() {
         if c2 > c1 {
             what = format!("VIOLATION: Verified while the relay runs ({c1} -> {c2} hops)");
-            t.violations
-                .push(format!("run {i}: first report {:?} ({c1} -> {c2})", r.verification));
+            t.violations.push(format!(
+                "run {i}: first report {:?} ({c1} -> {c2})",
+                r.verification
+            ));
         } else {
             what = format!("Verified, relay stopped ({c1} hops)");
             t.verified_clean += 1;
@@ -328,9 +330,11 @@ fn one_run(l: &mut RealLauncher, dir: &Path, i: usize, t: &mut Tally) {
         std::thread::sleep(Duration::from_secs(1));
         let c4 = relay_count(&cf);
         if c4 > c3 {
-            what = format!("VIOLATION: Unverified, then CLEARED while the relay runs ({c3} -> {c4})");
-            t.violations
-                .push(format!("run {i}: cleared after {after:?} while running ({c3} -> {c4})"));
+            what =
+                format!("VIOLATION: Unverified, then CLEARED while the relay runs ({c3} -> {c4})");
+            t.violations.push(format!(
+                "run {i}: cleared after {after:?} while running ({c3} -> {c4})"
+            ));
         } else {
             what = format!("Unverified, then cleared after {after:?}, relay stopped ({c3} hops)");
             t.unverified_then_cleared_clean += 1;
@@ -363,7 +367,9 @@ fn one_run(l: &mut RealLauncher, dir: &Path, i: usize, t: &mut Tally) {
 #[ignore = "gate14 audit test: run explicitly (--ignored --exact) inside a private pid namespace"]
 fn g14_marked_relay_below_a_markerless_subreaper_is_never_verified_while_it_runs() {
     if std::process::id() != 1 {
-        eprintln!("SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)");
+        eprintln!(
+            "SKIPPED: spawns and signals processes: only inside a private pid namespace (rule L10)"
+        );
         return;
     }
     let _g = serial();
