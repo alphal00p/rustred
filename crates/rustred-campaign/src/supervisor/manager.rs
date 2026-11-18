@@ -391,6 +391,7 @@ fn clear_one(unit: &str, campaign_id: &str, recorded: Option<&BTreeSet<String>>)
     }
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
 #[cfg(test)]
 mod tests {
     use super::*;
