@@ -172,9 +172,14 @@ fn list_from(d: &std::path::Path, name: &str) -> String {
 
 /// One of the campaign's real loadable tables (T228, Astra's workspace, read only) through the campaign's real
 /// resolution file: refused without the override, loaded (classify-only) with it, the load names the resolution.
-/// Skipped (message) where the files are not on disk; the resolution path from RUSTRED_TABLES_NO_END_RESOLUTION or the
-/// campaign's default.
+/// The resolution path from RUSTRED_TABLES_NO_END_RESOLUTION or the campaign's default.
+/// int8 (int/10, 2026-11-18): IGNORED. Since 2026-11-15T11:27Z the campaign's resolution file has no entry with status
+/// `flagged_astra_workspace` (every no-end table got an end record), so this test passed VACUOUSLY (its skip message was
+/// captured) in every suite since; the override path itself is covered by
+/// `a_table_without_end_loads_only_through_the_named_list_and_every_refusal_says_why`. Run with --ignored against a
+/// resolution that lists a loadable table on disk; a missing input FAILS.
 #[test]
+#[ignore = "real data: the campaign resolution has had no flagged_astra_workspace entry since 2026-11-15 (see doc)"]
 fn a_real_loadable_table_through_the_real_resolution() {
     let res = std::env::var("RUSTRED_TABLES_NO_END_RESOLUTION").unwrap_or_else(|_| {
         "/shared/vhirschi/t3code/vakint_dev/p_integral_dev/plan/auto-campaign/reports/TABLES-NO-END.resolution.json"
