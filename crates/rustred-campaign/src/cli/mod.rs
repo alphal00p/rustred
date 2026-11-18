@@ -31,7 +31,7 @@ pub const USAGE: &str = "usage:
       (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)
   rr_campaign rule-cost --spec SPEC.json --dir DIR [--aggregate-only]
       (lane rulecost: application cost per rule through the engine probe p_rule_cost; interfaces/rule-cost.md 3)
-  rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl]
+  rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl] [--keys K.jsonl [--table-to-presentation P,..]]
       (lane rulecost: rule_cost features and scores of table records, today and with a coefficient cache; interfaces/rule-cost.md 4)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).

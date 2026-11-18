@@ -537,11 +537,15 @@ pub fn rule_cost_cmd(args: &[String]) -> Result<String, String> {
     ))
 }
 
-/// `rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl]`: the `rule_cost`
+/// `rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl]
+/// [--keys K.jsonl [--table-to-presentation P0,P1,..]]`: the `rule_cost`
 /// features and scores of table records (interfaces/rule-cost.md 4), one JSON line per rule: today's predicted ns per
 /// application (per-term specialisation, the measured defaults or `M`), the ESTIMATE for an engine with a
-/// per-application coefficient cache ([`rc::RuleCostModel::cached`]), calls and score. Reads the table line by line;
-/// runs no child. Returns a one-line summary.
+/// per-application coefficient cache ([`rc::RuleCostModel::cached`]), calls and score. With `--keys` (lines
+/// `{"key": [..]}` in the OWNER PRESENTATION's slots, mapped to the table's slots by `--table-to-presentation`, identity
+/// when absent): each key goes to the FIRST rule of the table (file order) that serves it ([`improve::serves_key`]:
+/// face, equations, exception branches), and each rule line counts `keys_served`; the summary gives the mean predicted
+/// ns per served key, today and cached. Reads the table line by line; runs no child. Returns a one-line summary.
 pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
     let Some(table) = arg(args, "--table") else {
         return Err(
@@ -565,6 +569,49 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         ),
         None => None,
     };
+    let t2p: Vec<usize> = match arg(args, "--table-to-presentation") {
+        Some(list) => list
+            .split(',')
+            .map(|x| {
+                x.trim()
+                    .parse()
+                    .map_err(|_| format!("--table-to-presentation {x}"))
+            })
+            .collect::<Result<_, String>>()?,
+        None => vec![],
+    };
+    let keys: Vec<Vec<i32>> = match arg(args, "--keys") {
+        Some(p) => {
+            let text = std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}"))?;
+            let mut keys = Vec::new();
+            for l in text.lines().filter(|l| !l.trim().is_empty()) {
+                let v: Value = serde_json::from_str(l).map_err(|e| format!("{p}: {e}"))?;
+                let pres: Vec<i32> = v
+                    .get("key")
+                    .and_then(Value::as_array)
+                    .ok_or_else(|| format!("{p}: a line without key"))?
+                    .iter()
+                    .map(|x| {
+                        x.as_i64()
+                            .map(|n| n as i32)
+                            .ok_or("a key entry is not an integer")
+                    })
+                    .collect::<Result<_, _>>()?;
+                let key: Vec<i32> = (0..pres.len())
+                    .map(|i| {
+                        pres.get(t2p.get(i).copied().unwrap_or(i))
+                            .copied()
+                            .unwrap_or(0)
+                    })
+                    .collect();
+                keys.push(key);
+            }
+            keys
+        }
+        None => vec![],
+    };
+    let mut open: Vec<usize> = (0..keys.len()).collect();
+    let (mut served_today, mut served_cached, mut served) = (0f64, 0f64, 0usize);
     let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
     let mut out_lines = Vec::new();
     let (mut n, mut today_sum, mut cached_sum) = (0u64, 0f64, 0f64);
@@ -573,6 +620,19 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         let Some(r) = TableRule::from_line(&line)? else {
             continue;
         };
+        let mut keys_served = 0usize;
+        if !open.is_empty() {
+            let v: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+            let mut still = Vec::with_capacity(open.len());
+            for k in open {
+                if rustred_campaign_core::economy::improve::serves_key(&v, &keys[k])? {
+                    keys_served += 1;
+                } else {
+                    still.push(k);
+                }
+            }
+            open = still;
+        }
         if include.as_ref().is_some_and(|s| !s.contains(&r.index)) {
             continue;
         }
@@ -580,6 +640,9 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         let today = model.per_application_ns(r.monomials, r.cost.as_ref());
         let cache = cached.per_application_ns(r.monomials, r.cost.as_ref());
         let calls = model.calls_of(&r.chart, r.index);
+        served += keys_served;
+        served_today += keys_served as f64 * today;
+        served_cached += keys_served as f64 * cache;
         n += 1;
         today_sum += calls * today;
         cached_sum += calls * cache;
@@ -594,7 +657,7 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
                 "distinct_denominators": fe.distinct_denominators,
                 "distinct_denominator_monomials": fe.distinct_denominator_monomials,
                 "max_coefficient_bytes": fe.max_coefficient_bytes, "distinct_coefficient_bytes": fe.distinct_coefficient_bytes,
-                "today_ns": today, "cached_ns_estimate": cache, "calls": calls,
+                "today_ns": today, "cached_ns_estimate": cache, "calls": calls, "keys_served": keys_served,
                 "score_today": calls * today, "score_cached_estimate": calls * cache})
             .to_string(),
         );
@@ -604,8 +667,19 @@ pub fn rule_score_cmd(args: &[String]) -> Result<String, String> {
         Some(o) => std::fs::write(&o, &text).map_err(|e| format!("{o}: {e}"))?,
         None => print!("{text}"),
     }
+    let per_key = if keys.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "; keys {} served {served} unserved {}: mean predicted per served key today {:.4} s, cached estimate {:.4} s",
+            keys.len(),
+            open.len(),
+            served_today * 1e-9 / served.max(1) as f64,
+            served_cached * 1e-9 / served.max(1) as f64
+        )
+    };
     Ok(format!(
-        "rule-score: {n} rules, score today {:.3} s, cached estimate {:.3} s (calls x ns per application)",
+        "rule-score: {n} rules, score today {:.3} s, cached estimate {:.3} s (calls x ns per application){per_key}",
         today_sum * 1e-9,
         cached_sum * 1e-9
     ))

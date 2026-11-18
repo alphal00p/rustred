@@ -217,5 +217,34 @@ fn rule_score_reads_records_and_estimates_the_cached_engine() {
     assert_eq!(line["sharing"], 2.0);
     assert!(line["cached_ns_estimate"].as_f64().unwrap() < line["today_ns"].as_f64().unwrap());
     assert!(rule_score_cmd(&["--model".to_string()]).is_err());
+    // keys go to the first serving rule (file order); presentation slots mapped to table slots
+    std::fs::write(
+        dir.join("k.jsonl"),
+        "{\"key\": [2, 1, 1, 1, 0]}\n{\"key\": [1, 1, 2, 1, -1]}\n",
+    )
+    .unwrap();
+    let k = dir.join("k.jsonl").display().to_string();
+    let summary = rule_score_cmd(&a(&[
+        "--keys",
+        &k,
+        "--table-to-presentation",
+        "1,0,2,3,4",
+        "--out",
+        &out.display().to_string(),
+    ]))
+    .unwrap();
+    assert!(summary.contains("keys 2 served 2 unserved 0"), "{summary}");
+    let lines: Vec<Value> = std::fs::read_to_string(&out)
+        .unwrap()
+        .lines()
+        .map(|l| serde_json::from_str(l).unwrap())
+        .collect();
+    assert_eq!(
+        (
+            lines[0]["keys_served"].as_u64(),
+            lines[1]["keys_served"].as_u64()
+        ),
+        (Some(2), Some(0))
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
