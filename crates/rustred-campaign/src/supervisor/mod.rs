@@ -5193,7 +5193,11 @@ impl Supervisor {
         }
         for msg in poll_dead {
             self.note(format!("poll_failures {{\"message\":{msg:?}}}"));
-            self.dirs_gone(msg);
+            // procfix7 round 15 (gate16 m16-poll-stop): a STOP DECISION (exit 70 as before), no longer a dead ledger:
+            // the drain's and the exit's signals are recorded before they are sent while the ledger is writable (round
+            // 14 M1's rule); the ledger's own failures keep theirs
+            self.log.line("ERROR", &msg);
+            self.decide_stop(RunExit::Internal(msg));
             self.signals.handle.request_stop();
         }
         for (idx, report) in finished.into_iter().rev() {

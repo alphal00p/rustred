@@ -475,6 +475,45 @@ fn g10_m10_5_a_child_that_cannot_be_polled_is_a_typed_end() {
         "{}",
         log_tail(&d)
     );
+    // procfix7 round 15 (gate16 m16-poll-stop): a stop decision, the ledger usable: every delivered signal (the drain's,
+    // the exit's) has its ledger record, and the progress states the ledger's end (gate 16: 8 delivered, 0 recorded)
+    let dec = notes(&d, "stop_decided ");
+    assert_eq!(dec.len(), 1, "{dec:?}");
+    assert!(dec[0].contains("\"exit\":70"), "{dec:?}");
+    let intents = std::fs::read_to_string(d.join("log/signal-intents.jsonl")).unwrap_or_default();
+    let delivered: Vec<String> = intents
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|v| v["kind"] == "done" && v["result"] == "delivered")
+        .filter_map(|v| v["id"].as_str().map(str::to_string))
+        .collect();
+    let bys: Vec<String> = records(&d)
+        .into_iter()
+        .filter_map(|r| match r.event {
+            rustred_campaign::ledger::Event::SignalSent { by, .. } => Some(by),
+            _ => None,
+        })
+        .collect();
+    let missing: Vec<&String> = delivered
+        .iter()
+        .filter(|id| !bys.iter().any(|b| b.contains(&format!("[intent {id}]"))))
+        .collect();
+    eprintln!(
+        "PF10 m10-5: {} delivered, {} recorded",
+        delivered.len(),
+        bys.len()
+    );
+    assert!(
+        !delivered.is_empty(),
+        "the drain signalled the unobservable jobs"
+    );
+    assert!(missing.is_empty(), "delivered, not recorded: {missing:?}");
+    assert!(
+        !std::fs::read_to_string(d.with_extension("log"))
+            .unwrap_or_default()
+            .contains("not recorded")
+    );
+    assert_eq!(verify(&d), 0, "verify after the poll-failure stop");
 }
 
 /// A crashed session whose first job left a marked daemon (setsid sleep): (spec, cdir, daemon pid).
