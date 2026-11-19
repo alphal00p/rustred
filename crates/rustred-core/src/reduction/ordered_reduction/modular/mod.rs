@@ -1927,6 +1927,15 @@ impl OrderedWeights for ModularRecorder {
     }
 
     fn phase_started(&mut self, phase: usize) {
+        // A restore inside a phase (saved mid-phase) starts the same phase
+        // again: its start was recorded already (diagnostics only).
+        if self
+            .phase_starts
+            .last()
+            .is_some_and(|&(last, _)| last == phase)
+        {
+            return;
+        }
         let count = self.op_count();
         self.phase_starts.push((phase, count));
     }
