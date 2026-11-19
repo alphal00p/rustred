@@ -156,7 +156,8 @@ pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
 /// library with it off keeps the step caches it had before; the library
 /// identity ([`library::PLibrary::identity`]) never carries it.
 /// 4: Route images stay in the key's sector unless `RUSTRED_P_ORBIT_ACROSS`
-/// (scope marker `-across`).
+/// (scope marker `-across`); a boxed owner's key moves only onto an image in
+/// its certified key set.
 pub const P_ORBIT_CANON_VERSION: u32 = 4;
 /// Whether a new [`library::PLibrary`] canonicalises keys under orbits
 /// ([`library::PLibrary::set_orbit_canonicalization`]). Off: the reduction

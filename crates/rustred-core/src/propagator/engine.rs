@@ -2710,9 +2710,16 @@ impl<'l> PStepper<'l> {
         let Some(mut best_order) = order(powers) else {
             return Ok(None);
         };
+        // A boxed owner's key moves only onto an image in its certified key
+        // set (T266-STUDY 7.1: the least image of 334,249 moved keys lies
+        // outside it, where the table does not serve).
+        let certified = |image: &[i64]| match owner.program(self.library) {
+            Ok(OwnerProgram::Lane(lane)) => lane.certified_contains(image),
+            _ => None,
+        };
         let mut best: Option<(Vec<i64>, bool)> = None;
         for (image, negative) in images {
-            if shape.support(&image) != slot.support {
+            if shape.support(&image) != slot.support || certified(&image) == Some(false) {
                 continue;
             }
             let Some(image_order) = order(&image) else {
