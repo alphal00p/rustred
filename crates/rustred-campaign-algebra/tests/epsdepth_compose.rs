@@ -2,6 +2,7 @@
 //! `Series<Q>`); needs the Symbolica licence (`source WS/ops/env.sh`), skips otherwise.
 //! t = d - 4 throughout unless stated.
 
+mod inputs;
 use rustred_campaign_algebra::epsdepth::{SymbolicaExact, SymbolicaLaurent, TextReduction};
 use rustred_campaign_algebra::{SymbolicaAlgebra, licensed};
 use rustred_campaign_core::epsdepth::{
@@ -13,7 +14,9 @@ use symbolica::domains::rational::Rational;
 
 fn setup(d0: &str) -> Option<TextReduction> {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence (source WS/ops/env.sh)");
+        inputs::missing(format_args!(
+            "SKIP: no Symbolica licence (source WS/ops/env.sh)"
+        ));
         return None;
     }
     let alg = SymbolicaAlgebra::new().ok()?;

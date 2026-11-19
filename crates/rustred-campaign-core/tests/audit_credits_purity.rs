@@ -13,6 +13,7 @@
 //! Families: a two-loop sunset (inline), the m2 fixture nodes, the handoff families (T162, T178, T266 presented from
 //! the jointest9 header) and the 283-family set (charts from the family flags). Nothing here is node-specific code.
 
+mod inputs;
 use rustred_campaign_core::closure::{NoFacts, RuleBodies, Sectors, Tier};
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::CaseDomain;
@@ -430,7 +431,7 @@ fn audit_credits_per_slot_purity_small_families() {
     for name in ["TOY2kite", "L3a", "L4a", "T194", "T281"] {
         let p = m2.join(name).join("family.sym");
         let Ok(text) = std::fs::read_to_string(&p) else {
-            println!("SKIP {}", p.display());
+            inputs::missing(format_args!("SKIP {}", p.display()));
             continue;
         };
         // the m2 tables use the mask of the header (lines first); the family flags agree
@@ -447,7 +448,7 @@ fn audit_credits_per_slot_purity_small_families() {
         ("T266", ho.join("families/T266.sym")),
     ] {
         let Ok(text) = std::fs::read_to_string(&p) else {
-            println!("SKIP {}", p.display());
+            inputs::missing(format_args!("SKIP {}", p.display()));
             continue;
         };
         let chart = flags(&text);
@@ -472,7 +473,7 @@ fn audit_credits_t266_presented_frame() {
     let table = ws().join("SCRATCHPAD/t266/jointest9/F.table.jsonl");
     let fam_p = ws().join("handoff/sym-investigation-for-ben/families/T266.sym");
     if !table.is_file() || !fam_p.is_file() {
-        println!("SKIP: T266 data missing");
+        inputs::missing(format_args!("SKIP: T266 data missing"));
         return;
     }
     let h = import::lines::read_header("jointest9", &table).unwrap();
@@ -523,7 +524,7 @@ fn audit_credits_t266_presented_frame() {
 fn audit_credits_per_slot_purity_283_families() {
     let dir = ws().join("handoff/sym-investigation-for-ben/families-283");
     let Ok(rd) = std::fs::read_dir(&dir) else {
-        println!("SKIP {}", dir.display());
+        inputs::missing(format_args!("SKIP {}", dir.display()));
         return;
     };
     let mut files: Vec<PathBuf> = rd

@@ -4,6 +4,7 @@
 //! both primes at two generic points and at the three applicable census keys. The shell diagnostic (seeds +- e_i) on
 //! the doubled coefficient also fails (inventory D2: "also with shell: 45,750 rows").
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;

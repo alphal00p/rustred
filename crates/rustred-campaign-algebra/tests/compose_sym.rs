@@ -7,6 +7,7 @@ mod common;
 #[path = "../src/compose_sym.rs"]
 #[allow(dead_code)]
 mod compose_sym;
+mod inputs;
 
 use common::licensed_or_skip;
 use compose_sym::{Rd, SymQd};

@@ -2,6 +2,7 @@
 //! (ENOSPC with a short write, EROFS, EIO), hand-forged records, swapped / deleted / foreign segments, a copied
 //! campaign directory, the two lock layers, concurrent readers during rotation, and (process tests, run with
 //! LIGHT_PIDNS=1) concurrent appender processes and a real full / read-only tmpfs in a private mount namespace.
+mod inputs;
 mod ledger_support;
 
 use std::collections::BTreeMap;
@@ -1016,7 +1017,9 @@ fn a2_child_appender() {
 fn a2_concurrent_appender_processes() {
     let _serial = serial();
     if !in_pidns() {
-        eprintln!("skipped: run with LIGHT_PIDNS=1 (spawns children)");
+        inputs::optional(format_args!(
+            "skipped: run with LIGHT_PIDNS=1 (spawns children)"
+        ));
         return;
     }
     let base = scratch("a2-procs");
@@ -1228,7 +1231,9 @@ fn a2_real_fs_inner() {
 fn a2_real_full_and_readonly_fs() {
     let _serial = serial();
     if !in_pidns() {
-        eprintln!("skipped: run with LIGHT_PIDNS=1 (spawns a child in a private mount namespace)");
+        inputs::optional(format_args!(
+            "skipped: run with LIGHT_PIDNS=1 (spawns a child in a private mount namespace)"
+        ));
         return;
     }
     let base = scratch("a2-realfs");

@@ -1,6 +1,7 @@
 //! Independent audit `audit-rows3`: tests for checker paths that SURVIVED source mutation (WS/notes/implementer.reaudit-rows3.md,
 //! mutation table). Each test names the mutants it kills. They pass on the checker as delivered.
 
+mod inputs;
 mod rows_common;
 
 use std::cell::Cell;

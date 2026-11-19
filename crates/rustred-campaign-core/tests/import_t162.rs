@@ -11,6 +11,7 @@
 //! p_integral_dev/bank-conv), scratch `RUSTRED_IMPORT_SCRATCH`.
 //! Run: `light_build.sh import test -p rustred-campaign-core --release --test import_t162 -- --ignored --nocapture`.
 
+mod inputs;
 use rustred_campaign_core::import;
 
 use std::path::{Path, PathBuf};
@@ -208,7 +209,7 @@ fn t162_reproduction_of_the_hand_statement() {
     let (ws, large) = (ws(), large());
     let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
     if !stmt.join("keys.jsonl").is_file() || !large.join("20261114c/SHA256SUMS").is_file() {
-        println!("SKIP: T162 material missing");
+        inputs::missing(format_args!("SKIP: T162 material missing"));
         return;
     }
     assert_eq!(verify_sums(&stmt), (3, 3));
@@ -324,7 +325,7 @@ fn t162_only_ours_keys_and_their_predecessor_terms() {
     let (ws, large) = (ws(), large());
     let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
     if !stmt.join("keys.jsonl").is_file() || !large.join("20261114c/SHA256SUMS").is_file() {
-        println!("SKIP: T162 material missing");
+        inputs::missing(format_args!("SKIP: T162 material missing"));
         return;
     }
     let mut sv = build_spec(&ws, &large, &stmt);
@@ -420,7 +421,7 @@ fn t162_only_ours_key_predecessor_coefficients_exact() {
     let ws = ws();
     let table = ws.join("SCRATCHPAD/t162-box/runs/sc-c005/node/F.table.jsonl");
     if !table.is_file() {
-        println!("SKIP: {} missing", table.display());
+        inputs::missing(format_args!("SKIP: {} missing", table.display()));
         return;
     }
     let target = [1, 7, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
@@ -525,7 +526,7 @@ fn t162_canonical_set_0623z_reproduction() {
     let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
     let own = large.join("t162box-20261114d");
     if !stmt.join("keys.jsonl").is_file() || !own.join("SHA256SUMS").is_file() {
-        println!("SKIP: T162 canonical material missing");
+        inputs::missing(format_args!("SKIP: T162 canonical material missing"));
         return;
     }
     assert_eq!(verify_sums(&stmt), (3, 3));
@@ -771,7 +772,7 @@ fn t162_leftovers_verified_credits_and_exact_facts() {
     let stmt = ws.join("SCRATCHPAD/t162-box/runs/statement-closure-20261114T0623Z");
     let own = large.join("t162box-20261114d");
     if !stmt.join("keys.jsonl").is_file() || !own.join("SHA256SUMS").is_file() {
-        println!("SKIP: T162 canonical material missing");
+        inputs::missing(format_args!("SKIP: T162 canonical material missing"));
         return;
     }
     let st: Value =

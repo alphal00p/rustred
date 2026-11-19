@@ -6,6 +6,7 @@
 //! Run (release, ~1 min): `light_build.sh part test -p rustred-campaign-core --release --test partition_t178b --
 //! --ignored --nocapture`.
 
+mod inputs;
 mod partition_common;
 
 use std::collections::BTreeSet;
@@ -288,7 +289,7 @@ fn t178b_five_empty_domains_proved_empty() {
     use rustred_campaign_core::partition::{Emptiness, is_empty};
     use rustred_campaign_core::record::RuleRecord;
     let Some(k3) = k3() else {
-        println!("SKIP: no k3 tree");
+        inputs::missing(format_args!("SKIP: no k3 tree"));
         return;
     };
     let v: serde_json::Value = serde_json::from_str(
@@ -495,7 +496,7 @@ fn t178b_raw38_dispatch_mode_409_uncovered_39_blocked() {
             )
         });
     if !root.is_dir() {
-        println!("SKIP: no raw T178B tables");
+        inputs::missing(format_args!("SKIP: no raw T178B tables"));
         return;
     }
     let cfg: serde_json::Value = serde_json::from_str(

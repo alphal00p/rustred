@@ -177,6 +177,9 @@ pub struct TadicAdapter {
     /// The frozen binaries the jobs pin (package level, node level) with their SHA-256.
     pub package_binary: (PathBuf, String),
     pub node_binary: (PathBuf, String),
+    /// The reader features the pinned binaries implement, as the spec DECLARES them (their frozen manifest or
+    /// `version --json`; TRICKS 65 residual): a package / table that requires one not listed is refused at planning.
+    pub reader_features: Vec<String>,
     pub licence_env: Option<String>,
     /// Test stand: the fake child emulates the kind.
     pub fake: Option<FakeScript>,
@@ -643,6 +646,31 @@ impl JobAdapter for TadicAdapter {
                         )));
                     }
                 }
+            }
+            // TRICKS 65 residual: the input's own required reader features against the pinned binary's declared ones
+            let (input, required) = match &r.level {
+                TadicLevel::Package { path, .. } => (
+                    path.join("library.json").display().to_string(),
+                    super::reader_features::required_by_package(path),
+                ),
+                TadicLevel::Node { table, .. } => (
+                    table.display().to_string(),
+                    super::reader_features::required_by_table(table),
+                ),
+            };
+            let required = required.map_err(AdapterError::Io)?;
+            let missing = super::reader_features::missing(&self.reader_features, &required);
+            if !missing.is_empty() {
+                let program = match &r.level {
+                    TadicLevel::Package { .. } => &self.package_binary.0,
+                    TadicLevel::Node { .. } => &self.node_binary.0,
+                };
+                return Err(AdapterError::ReaderFeatures {
+                    program: program.display().to_string(),
+                    input,
+                    missing,
+                    supported: self.reader_features.clone(),
+                });
             }
             let content = self.content_of(r);
             out.push(JobPlan {

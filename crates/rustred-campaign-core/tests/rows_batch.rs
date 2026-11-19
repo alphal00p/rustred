@@ -2,6 +2,7 @@
 //! and an unreadable line; one output line per rule in input order; deterministic for the same input and options
 //! (only `cost.seconds` may differ).
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;

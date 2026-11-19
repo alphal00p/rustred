@@ -9,6 +9,7 @@
 //! forms are COMPARED (printed), and the one the notes name (n0 <= n2 for element 2 on T162 face S0-2-8) is asserted.
 //! Skips (with a message) when the fixture tree is absent.
 
+mod inputs;
 mod regionfit_common;
 
 use regionfit_common::{check_record, summary};
@@ -22,7 +23,10 @@ fn root() -> Option<PathBuf> {
     });
     let r = PathBuf::from(base).join("regionfit");
     if !r.join("MANIFEST.sha256").exists() {
-        eprintln!("SKIP: no regionfit fixtures under {}", r.display());
+        inputs::missing(format_args!(
+            "SKIP: no regionfit fixtures under {}",
+            r.display()
+        ));
         return None;
     }
     // manifest check

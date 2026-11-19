@@ -2,6 +2,7 @@
 //! (counts only; comparison data, skipped when absent). The import-side check of a sealed certificate is lane
 //! symfix's (import::supplied_verify route (b)). Test data: the lanes' scratch records (read-only).
 
+mod inputs;
 use rustred_campaign_core::symcert::producers;
 use std::path::PathBuf;
 
@@ -23,7 +24,7 @@ fn readers_on_the_producers_records() {
         );
         assert_eq!(terms, 37_228, "the lane's total of the best relations");
     } else {
-        println!("SKIP tworow: {} missing", f8.display());
+        inputs::missing(format_args!("SKIP tworow: {} missing", f8.display()));
     }
     let r1 = s.join("repairflow/runs/t162v3-r1b");
     if let (Ok(t), Ok(v)) = (
@@ -34,7 +35,7 @@ fn readers_on_the_producers_records() {
         assert_eq!(c.len(), 6_297);
         assert_eq!(c.iter().filter(|x| !x.plain).count(), 117);
     } else {
-        println!("SKIP composites T162");
+        inputs::missing(format_args!("SKIP composites T162"));
     }
     let acc = s.join("symjob/real/accepted");
     if let (Ok(t), Ok(v)) = (
@@ -44,6 +45,6 @@ fn readers_on_the_producers_records() {
         let c = producers::composites(&t, &v).unwrap();
         assert_eq!(c.iter().filter(|x| !x.plain).count(), 44);
     } else {
-        println!("SKIP composites T178");
+        inputs::missing(format_args!("SKIP composites T178"));
     }
 }

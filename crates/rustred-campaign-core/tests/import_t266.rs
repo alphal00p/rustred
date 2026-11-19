@@ -19,6 +19,7 @@
 //! Env: `RUSTRED_IMPORT_SCRATCH` (default /common/build-cache/$USER/p_integral_dev/implementer-scratch/import3),
 //! `RUSTRED_IMPORT_INDEX_DIR` (default <scratch>/index).
 
+mod inputs;
 use rustred_campaign_core::import;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -359,7 +360,7 @@ fn t266_jointest9_index_and_strict_load() {
     let sv = spec_value();
     let table = sv["sources"][0]["path"].as_str().unwrap().to_string();
     if !Path::new(&table).is_file() {
-        println!("SKIP: {table} missing");
+        inputs::missing(format_args!("SKIP: {table} missing"));
         return;
     }
     let t0 = std::time::Instant::now();
@@ -439,7 +440,7 @@ fn t266_jointest9_walk_vs_delivery() {
     let sv0 = spec_value();
     let table = sv0["sources"][0]["path"].as_str().unwrap().to_string();
     if !Path::new(&table).is_file() || !Path::new(RUN).is_dir() {
-        println!("SKIP: T266 material missing");
+        inputs::missing(format_args!("SKIP: T266 material missing"));
         return;
     }
     let t00 = std::time::Instant::now();
@@ -755,7 +756,7 @@ fn t266_recipe_steps_map_onto_explicit_recipes() {
     use import::recipe_steps::{RecipeForm, assignment_lines, parse_step, recipes_for_steps};
     let p = Path::new("/common/ben/sym-investigation/k7/runs/jointest9-full/deliver/solves.jsonl");
     if !p.is_file() {
-        println!("SKIP: {} missing", p.display());
+        inputs::missing(format_args!("SKIP: {} missing", p.display()));
         return;
     }
     assert_eq!(
@@ -833,7 +834,7 @@ fn t266_recipe_requests_vs_checker_attempts() {
         RecipeForm, assignment_lines, explicit_seeds, parse_step, recipes_for_steps,
     };
     if !Path::new(RUN).is_dir() {
-        println!("SKIP: {RUN} missing");
+        inputs::missing(format_args!("SKIP: {RUN} missing"));
         return;
     }
     let del = read_delivery();

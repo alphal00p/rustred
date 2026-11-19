@@ -3,6 +3,7 @@
 //! fails: then drop the workaround named in the test (crate rustred-campaign-algebra, src/backend.rs) and this test.
 
 mod common;
+mod inputs;
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 

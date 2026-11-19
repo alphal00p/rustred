@@ -6,6 +6,7 @@
 //! Family: LA3_handwritten.sym (3 loops, 9 slots, chart 111111100), the TRUE rule = one IBP row solved for its top term
 //! (the audit-A construction of tests/rows_common/face.rs, rebuilt here for any `Family` object).
 
+mod inputs;
 mod rows_common;
 
 use std::cell::Cell;

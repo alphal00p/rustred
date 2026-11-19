@@ -5,6 +5,7 @@
 //! Run: `light_build.sh accept test -p rustred-campaign-core --release --test accept_fixtures -- --nocapture`.
 
 mod accept_common;
+mod inputs;
 
 use accept_common::*;
 use rustred_campaign_core::accept::{AcceptVerdict, Check, RequiredEvidence};
@@ -29,7 +30,7 @@ fn kos(node: &str) -> Vec<String> {
 
 fn check_node(name: &str) {
     if !available(name) {
-        println!("SKIP {name}: fixture missing");
+        inputs::missing(format_args!("SKIP {name}: fixture missing"));
         return;
     }
     let node = load_node(name);

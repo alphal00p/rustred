@@ -4,6 +4,7 @@
 //! prints one table row: case | side | expected | triage class | stage | outlier. SKIPs without the Symbolica licence.
 
 mod common;
+mod inputs;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};

@@ -4,6 +4,7 @@
 //! envelope / loci point lists (716 -> 685 -> 310, 416 -> 216) when `h13/out/s1_points.json` is readable.
 
 mod closure_common;
+mod inputs;
 
 use std::collections::HashSet;
 
@@ -124,7 +125,7 @@ fn t178_safe_symmetry_list() {
             assert_eq!((keys.len(), wc, ad), want);
         }
     } else {
-        println!("SKIP envelope/loci lists: {S1} not readable");
+        inputs::missing(format_args!("SKIP envelope/loci lists: {S1} not readable"));
     }
 
     // the closure with credits as a dispatch fallback: the box's 75 credited, 334 box keys open (keys-only status)

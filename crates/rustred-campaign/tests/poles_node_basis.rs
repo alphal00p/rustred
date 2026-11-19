@@ -4,6 +4,7 @@
 //! of kind node-basis uses), and the screen reads rank_T at d0 against the generic dims. A constructed report, then the
 //! real route E reports of this lane when present (scratch, skipped otherwise). Pure: spawns nothing.
 
+mod inputs;
 use rustred_campaign_contract::arith::{parse_prime_list, parse_rational_list};
 use rustred_campaign_contract::node_basis::{NodeBasisArgs, check_results};
 use rustred_campaign_core::poles::basis::{node_basis_from_symmasters, screen_of_node_basis};
@@ -131,12 +132,18 @@ fn real_route_e_reports() {
             ],
         ),
     ];
+    // int8 (int/10): a case whose run never finished (no OUT.json: t162-P / -R / -T on this host) is an ANNOUNCED skip;
+    // at least one case must be checked, so the test can never pass vacuously
+    let mut checked = 0usize;
     for (tag, terms) in cases {
         let p = format!("{base}/{tag}/OUT.json");
         let Ok(b) = std::fs::read(&p) else {
-            eprintln!("SKIP (not run yet): {p}");
+            inputs::optional(format_args!(
+                "route E case {tag}: no OUT.json at {p} (run not finished)"
+            ));
             continue;
         };
+        checked += 1;
         let doc: Value = serde_json::from_slice(&b).unwrap();
         let primes: Vec<String> = doc["samples"]
             .as_array()
@@ -154,5 +161,10 @@ fn real_route_e_reports() {
             "{tag}: contract reader OK ({} samples, {} dims, end verdict {}); screen {s}",
             sum.samples, sum.dims, sum.verdict
         );
+    }
+    if checked == 0 {
+        inputs::missing(format_args!(
+            "route E outputs under {base}: no case has an OUT.json"
+        ));
     }
 }

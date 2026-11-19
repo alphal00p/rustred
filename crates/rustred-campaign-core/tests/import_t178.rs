@@ -17,6 +17,7 @@
 //! `RUSTRED_IMPORT_SCRATCH` (default /common/build-cache/$USER/p_integral_dev/implementer-scratch/import).
 //! Run: `light_build.sh import test -p rustred-campaign-core --release --test import_t178 -- --ignored --nocapture`.
 
+mod inputs;
 use rustred_campaign_core::import;
 
 use std::collections::BTreeMap;
@@ -278,59 +279,27 @@ fn build_spec(ws: &Path, stmt: &Path, pins: &BTreeMap<String, String>) -> Value 
         "sources": sources})
 }
 
-/// The bound per-key proofs of lane t178-bind (test data; `RUSTRED_T178_PROOFS` overrides the directory).
-fn proofs_dir() -> PathBuf {
-    std::env::var_os("RUSTRED_T178_PROOFS")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| {
-            PathBuf::from(
-                "/common/build-cache/vhirschi/p_integral_dev/t178-close/proofs-bound-20261114T091622Z",
-            )
-        })
-}
-const PROOFS_SHA256: &str = "66f3022f09178891fab64e71be1ddb8517131f4268ce59558607de190a6ecbbe";
-
-/// Verify the proofs' manifest of canonical rule lines ourselves: every line at (path, offset, bytes) hashes to its
-/// record_sha256; returns the manifest digests by class.
-fn verify_manifest(dir: &Path) -> BTreeMap<String, Vec<String>> {
-    use std::io::{Read, Seek, SeekFrom};
-    let mut by_class: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    let mut files: BTreeMap<String, std::fs::File> = BTreeMap::new();
-    for l in std::fs::read_to_string(dir.join("manifest.rules.jsonl"))
-        .unwrap()
-        .lines()
-    {
-        let v: Value = serde_json::from_str(l).unwrap();
-        let path = v["path"].as_str().unwrap().to_string();
-        let f = files
-            .entry(path.clone())
-            .or_insert_with(|| std::fs::File::open(&path).unwrap());
-        let mut buf = vec![0u8; v["bytes"].as_u64().unwrap() as usize];
-        f.seek(SeekFrom::Start(v["offset"].as_u64().unwrap()))
-            .unwrap();
-        f.read_exact(&mut buf).unwrap();
-        let mut h = rustred_campaign_core::closure::sha256::Sha256::new();
-        h.update(&buf);
-        let sha = v["record_sha256"].as_str().unwrap().to_string();
-        assert_eq!(h.finish_hex(), sha, "manifest line {} at {path}", v["name"]);
-        by_class
-            .entry(v["class"].as_str().unwrap_or("?").to_string())
-            .or_default()
-            .push(sha);
-    }
-    by_class
-}
+// int8 (int/10, 2026-11-18): the third phase "lift_with_per_key_proof WITH the bound per-key proofs of lane t178-bind"
+// (t178-close/proofs-bound-20261114T091622Z, proofs sha256 66f3022f...) is REMOVED. Those proofs were per-key proofs of the
+// OLD boxed T178 table (statement 2026-11-14); their proofs.jsonl was deleted by a clean-up on 2026-11-18 (only the manifest
+// set survives in WS/handoff/sym-investigation-for-ben/t178-close/) and is not to be regenerated (coordinator's ruling).
+// The current delivery's evidence (T178-final: exactness classes keyed by the hash of target + rhs of ITS tables
+// core.table.jsonl / beyond.table.jsonl) binds to other records than this statement's 138 pinned tables, so it cannot
+// stand in. The phase ran SILENTLY skipped once its directory was gone (gated on the manifest existing): never again.
+// Last run WITH it: f75febc3, 2026-11-18T06:49Z: key sets equal 335,306 = 335,306, same server 335,306, differences {}.
 
 #[test]
 #[ignore = "big data: the T178 hand statement and its material; run with --ignored in release"]
 fn t178_reproduction_of_the_hand_statement() {
     let ws = ws();
     let Some((stmt, stmt_sha, pins)) = pinned_statement(&ws) else {
-        println!("SKIP: services file (pinned T178 statement) missing");
+        inputs::missing(format_args!(
+            "SKIP: services file (pinned T178 statement) missing"
+        ));
         return;
     };
     if !stmt.join("statement.jsonl").is_file() {
-        println!("SKIP: {} missing", stmt.display());
+        inputs::missing(format_args!("SKIP: {} missing", stmt.display()));
         return;
     }
     assert_eq!(
@@ -349,36 +318,15 @@ fn t178_reproduction_of_the_hand_statement() {
     .unwrap();
     let hand = read_hand_statement(&stmt.join("statement.jsonl"), &hand_format(), 20).unwrap();
     assert_eq!(hand.rows.len(), 335_306);
-    let pdir = proofs_dir();
-    let manifest = pdir
-        .join("manifest.rules.jsonl")
-        .is_file()
-        .then(|| verify_manifest(&pdir));
-    if let Some(m) = &manifest {
-        println!(
-            "T178 proofs manifest: every canonical line hashes to its record_sha256; rules by class {:?}",
-            m.iter()
-                .map(|(k, v)| (k.clone(), v.len()))
-                .collect::<BTreeMap<_, _>>()
-        );
-    }
-    let runs: Vec<(&str, bool)> = if manifest.is_some() {
-        vec![
-            ("block", false),
-            ("lift_with_per_key_proof", false),
-            ("lift_with_per_key_proof", true),
-        ]
-    } else {
-        vec![("block", false), ("lift_with_per_key_proof", false)]
-    };
-    for (policy, with_proofs) in runs {
+    // (policy, expected comparison): both reproduced in every run since int8 round 3 (pinned statement v1.0.3)
+    let runs: [(&str, bool, u64); 2] = [
+        ("block", false, 335_221),
+        ("lift_with_per_key_proof", true, 335_226),
+    ];
+    for (policy, want_equal, want_same_server) in runs {
         let t0 = std::time::Instant::now();
         let mut sv = spec_v.clone();
         sv["policies"]["elided"] = json!(policy);
-        if with_proofs {
-            sv["evidence"] = json!({"proofs":[{"path": pdir.join("proofs.jsonl").display().to_string(),
-                                               "sha256": PROOFS_SHA256}]});
-        }
         let spec = TableSetSpec::from_json(&pin_ev(&sv)).unwrap();
         let set = load(&spec, Path::new("/")).unwrap();
         let t_load = t0.elapsed().as_secs_f64();
@@ -388,16 +336,6 @@ fn t178_reproduction_of_the_hand_statement() {
             summary_in_box(&stmt),
             "start = the statement's in-box keys"
         );
-        if let Some(m) = &manifest {
-            // the spec imports exactly the manifest's canonical byte copies (never the re-written mixed copies)
-            for (class, shas) in m {
-                let found = shas.iter().filter(|h| set.find_sha(h).is_some()).count();
-                println!(
-                    "T178 manifest class {class}: {} rules, {found} imported with that record_sha256",
-                    shas.len()
-                );
-            }
-        }
         let ev = Evidence::from_spec(&set, Path::new("/")).unwrap();
         let res = check(
             &set,
@@ -408,7 +346,7 @@ fn t178_reproduction_of_the_hand_statement() {
             },
         )
         .unwrap();
-        let tag = if with_proofs { "-proofs" } else { "" };
+        let tag = "";
         let dir = out.join(format!("statement-{policy}{tag}"));
         let timing = json!({"load_s": t_load, "check_s": res.seconds, "vm_hwm_kb": vm_hwm_kb()});
         write_statement(&set, &ev, &res, &dir, Some(timing)).unwrap();
@@ -461,6 +399,13 @@ fn t178_reproduction_of_the_hand_statement() {
         for d in cmp.differences.iter().take(12) {
             println!("  diff {:?}", d);
         }
+        // int8 (int/10): the comparison is ASSERTED, not only printed
+        assert_eq!(cmp.key_sets_equal, want_equal, "[{policy}] key sets equal");
+        assert_eq!(
+            cmp.same_server as u64, want_same_server,
+            "[{policy}] same server"
+        );
+        assert!(cmp.terminals_equal, "[{policy}] terminals equal");
     }
 }
 
@@ -473,12 +418,14 @@ fn t178_reproduction_of_the_hand_statement() {
 fn t178_recipe_variant_solve_requests() {
     let ws = ws();
     let Some((stmt, _, pins)) = pinned_statement(&ws) else {
-        println!("SKIP: services file (pinned T178 statement) missing");
+        inputs::missing(format_args!(
+            "SKIP: services file (pinned T178 statement) missing"
+        ));
         return;
     };
     let rdir = ws.join("SCRATCHPAD/engine-line/t178");
     if !stmt.join("statement.jsonl").is_file() || !rdir.join("index.json").is_file() {
-        println!("SKIP: material missing");
+        inputs::missing(format_args!("SKIP: material missing"));
         return;
     }
     let mut sv = build_spec(&ws, &stmt, &pins);

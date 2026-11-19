@@ -3,6 +3,7 @@
 //! lines for one (record, term, locus), even identical ones. Needs the Symbolica licence (`source WS/ops/env.sh`);
 //! SKIPS without it. Toy table only (arity 3, mask 110).
 
+mod inputs;
 use rustred_campaign_algebra::SymbolicaAlgebra;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
@@ -14,7 +15,7 @@ fn licensed() -> bool {
     match SymbolicaAlgebra::new() {
         Ok(_) => true,
         Err(e) => {
-            eprintln!("SKIP: {e}");
+            inputs::missing(format_args!("SKIP: {e}"));
             false
         }
     }

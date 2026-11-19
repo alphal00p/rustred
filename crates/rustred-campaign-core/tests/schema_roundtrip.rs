@@ -3,6 +3,7 @@
 //! Also runs the ONE validator, `schemas/validate.py`, on every example and fixture and its mutation tests
 //! (`schemas/test_validate.py`): skipped with a printed reason only when no `python3` is on PATH.
 
+mod inputs;
 use rustred_campaign_core::schema::canon::{canonical_json, has_duplicate_keys};
 use rustred_campaign_core::schema::{
     accept, control, item, job, progress, registry, spec, terminals,
@@ -115,7 +116,9 @@ fn python() -> Option<&'static str> {
     match Command::new("python3").arg("--version").output() {
         Ok(o) if o.status.success() => Some("python3"),
         _ => {
-            println!("SKIPPED: no python3 on PATH, the validator tests cannot run");
+            inputs::optional(format_args!(
+                "SKIPPED: no python3 on PATH, the validator tests cannot run"
+            ));
             None
         }
     }

@@ -2,6 +2,7 @@
 //!
 //! Toy node: 2 lines + 2 numerators, terminals T1 = corner, T2 = a dotted corner, composed coefficients given exactly.
 
+mod inputs;
 use std::collections::HashMap;
 
 use rustred_campaign_algebra::licensed;
@@ -100,7 +101,7 @@ fn run(
 #[test]
 fn toy_dependent_terminals_regular_set_found() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (bx, keys) = band(2);
@@ -189,7 +190,7 @@ fn toy2(k: &[i32]) -> Option<Vec<String>> {
 #[test]
 fn rank_two_failure_of_a_rank_one_basis() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (_, keys) = band(2);
@@ -246,7 +247,7 @@ fn rank_two_failure_of_a_rank_one_basis() {
 #[test]
 fn permutation_invariance() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (_, keys) = band(2);
@@ -306,7 +307,7 @@ fn toy_index(k: &[i32]) -> Option<Vec<String>> {
 #[test]
 fn index_dependent_poles() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (_, keys) = band(2);
@@ -332,7 +333,7 @@ fn index_dependent_poles() {
 #[test]
 fn rational_d0() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (_, keys) = band(1);
@@ -362,7 +363,7 @@ fn rational_d0() {
 #[test]
 fn hermite_lattice_basics() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let tv = t_vars();
@@ -420,7 +421,7 @@ fn toy_tower(k: &[i32]) -> Option<Vec<String>> {
 #[test]
 fn tower_test_z_per_rank() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let spec = RegBasisSpec::default();
@@ -484,7 +485,7 @@ fn tower_test_z_per_rank() {
 #[test]
 fn needs_on_published_masters_and_eps_box() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (_, keys) = band(1);
@@ -540,7 +541,7 @@ fn adapter_on_epsdepth_text_reduction() {
     use rustred_campaign_core::epsdepth::ComposeParams;
     use rustred_campaign_core::regbasis::Compose;
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (x, y, z) = (vec![1, 2, 0, 0], vec![1, 1, -1, 0], vec![1, 1, 0, -1]);
@@ -646,7 +647,7 @@ fn need_read_off_a_map() {
     use rustred_campaign_algebra::regbasis::need::need_from_map;
     use rustred_campaign_algebra::valuation::D0;
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     // X = M_X L with M_X = [[1, 0], [1, d-4]]: M_X^-1 = [[1, 0], [-1/(d-4), 1/(d-4)]]
@@ -678,7 +679,7 @@ fn need_read_off_a_map() {
 #[test]
 fn given_sets_preferred_and_freedom() {
     if !licensed() {
-        eprintln!("SKIP: no Symbolica licence");
+        inputs::missing(format_args!("SKIP: no Symbolica licence"));
         return;
     }
     let (_, keys) = band(2);

@@ -8,6 +8,7 @@
 //! boxes: T162 54,714 / 990; T178 409 uncovered, per-piece wins, 1,381 used records.
 
 mod box_common;
+mod inputs;
 mod k3_common;
 
 use std::collections::{BTreeMap, HashSet};

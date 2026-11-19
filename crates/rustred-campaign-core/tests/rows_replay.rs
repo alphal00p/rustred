@@ -4,6 +4,7 @@
 //! locus rule with affine case equations from the engine's own test data (T225, engine node/testdata
 //! locus_r38_gf1.table.jsonl, family text embedded in its header).
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;

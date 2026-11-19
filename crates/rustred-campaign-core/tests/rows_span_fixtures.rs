@@ -7,6 +7,7 @@
 //! not_in_case); FAIL for every corrupted control (C1 fail, every covered_regular key span_fail). Plan WP-I2 final
 //! version: a rule that declares `sym_rows` is UNKNOWN (needs symmetry rows): fa001, f1003, bp010, bp002 here.
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;

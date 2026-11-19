@@ -3,6 +3,7 @@
 //! coefficient as its own value, typed errors, and INDEX-DEPENDENT poles decided at the key (TRICKS item 9).
 //! Needs the Symbolica licence (`source WS/ops/env.sh`); SKIPS without it.
 
+mod inputs;
 use rustred_campaign_algebra::licensed;
 use rustred_campaign_algebra::valuation::{
     Coefficient, D0, Valuation, ValuationError, order_at_key, order_of_ratio, order_of_text,
@@ -10,7 +11,9 @@ use rustred_campaign_algebra::valuation::{
 
 fn go() -> bool {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent (source WS/ops/env.sh)");
+        inputs::missing(format_args!(
+            "SKIP: Symbolica licence absent (source WS/ops/env.sh)"
+        ));
         return false;
     }
     true

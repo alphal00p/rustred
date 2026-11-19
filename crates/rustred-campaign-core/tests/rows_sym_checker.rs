@@ -3,6 +3,7 @@
 //! same verdicts here with the T162 group derived from the family (cross-checked against the checker's 12 maps).
 //! `#[ignore]` (release): `-- --ignored`.
 
+mod inputs;
 mod rows_common;
 
 use std::io::{BufRead, BufReader};
@@ -15,7 +16,7 @@ use rustred_campaign_core::ibp_rows::{
 fn run(file: &str, max_lines: usize) -> (usize, usize, usize, usize) {
     let path = format!("{HO}/t162-faces/{file}");
     let Ok(f) = std::fs::File::open(&path) else {
-        println!("SKIP {path}");
+        inputs::missing(format_args!("SKIP {path}"));
         return (0, 0, 0, 0);
     };
     let fam = t162_family();

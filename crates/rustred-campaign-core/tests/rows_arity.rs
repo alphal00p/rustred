@@ -7,6 +7,7 @@
 //! n and d (an identity by construction). Each must PASS at two generic points and at an integer key, at both primes,
 //! with the mutation control rejected; its coefficient x2 copy and a shifted-RHS copy must FAIL.
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;

@@ -7,6 +7,7 @@
 //!   the served-key set): killed here;
 //! - the traced certificate entry points (the `Both` mode's record of record) record without changing the run.
 
+mod inputs;
 mod rows_common;
 
 use rows_common::face::{face, served};

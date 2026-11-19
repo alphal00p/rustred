@@ -6,6 +6,7 @@
 //!
 //! Run: `light_build.sh part test -p rustred-campaign-core --release --test partition_t162 -- --ignored --nocapture`.
 
+mod inputs;
 mod partition_common;
 
 use std::collections::{BTreeMap, BTreeSet};

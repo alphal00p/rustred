@@ -1,6 +1,7 @@
 //! Planted negatives and tier semantics on a synthetic node (arity 4: lines 0,1; numerators 2,3), default test run.
 
 mod closure_common;
+mod inputs;
 
 use closure_common::answer_facts;
 use rustred_campaign_core::closure::{

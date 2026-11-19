@@ -13,6 +13,7 @@
 //! default) gives byte-identical results: the policy digest is unchanged and nothing of the stage appears.
 
 mod closeloop_support;
+mod inputs;
 mod sup_common;
 
 use closeloop_support::{blake3_file, sha256_file};
@@ -236,7 +237,7 @@ fn statement(cdir: &Path) -> std::collections::BTreeMap<String, Value> {
 macro_rules! setup_or_skip {
     () => {{
         let Some(frame) = frame_table() else {
-            eprintln!("SKIP: frame table absent");
+            inputs::missing(format_args!("SKIP: frame table absent"));
             return;
         };
         (serial(), frame)

@@ -10,6 +10,7 @@
 //! `LIGHT_PIDNS=1 light_build.sh symjob test -p rustred-campaign --test symcomp_fake`
 
 mod adapters_support;
+mod inputs;
 use adapters_support::*;
 
 use rustred_campaign::adapters::job::{Ended, JobAdapter, RunOptions, run_attempt};
@@ -168,7 +169,7 @@ macro_rules! setup {
     ($tag:expr) => {{
         require_namespace();
         let Some(frame) = frame_table() else {
-            eprintln!("SKIP: frame table absent");
+            inputs::missing(format_args!("SKIP: frame table absent"));
             return;
         };
         (serial(), Root::new($tag), frame)

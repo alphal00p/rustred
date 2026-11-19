@@ -4,6 +4,7 @@
 //! are printed. Every test SKIPs without the Symbolica licence (source WS/ops/env.sh).
 
 mod common;
+mod inputs;
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -195,7 +196,7 @@ fn both_checker_agreed_sample() {
     ] {
         let path = format!("{HO}/t162-faces/{file}");
         if !std::path::Path::new(&path).exists() {
-            println!("SKIP: {path}");
+            inputs::missing(format_args!("SKIP: {path}"));
             return;
         }
         let (_, rules) = table_rules(&path, 20, max);

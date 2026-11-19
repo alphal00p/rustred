@@ -77,7 +77,10 @@ pub fn t178() -> Option<T178> {
     k3_common::oracle()?;
     let (names, tables, _frame) = k3_common::t178_tables()?;
     if !keys_dir().is_dir() {
-        println!("SKIP: no T178 key files at {}", keys_dir().display());
+        crate::inputs::missing(format_args!(
+            "SKIP: no T178 key files at {}",
+            keys_dir().display()
+        ));
         return None;
     }
     let disp = Dispatcher::new(tables.clone(), (0..tables.len()).collect()).unwrap();

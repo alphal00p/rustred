@@ -3,6 +3,7 @@
 //! from the normalised and the unnormalised form (TRICKS 12(a)), index-dependent rule poles judged per key (TRICKS 9),
 //! and the `rustred.campaign.pole-relation.v1` record. Needs the Symbolica licence; SKIPS without it.
 
+mod inputs;
 use rustred_campaign_algebra::licensed;
 use rustred_campaign_algebra::valuation::D0;
 use rustred_campaign_algebra::valuation::relation::{
@@ -13,7 +14,9 @@ use serde_json::{Value, json};
 
 fn go() -> bool {
     if !licensed() {
-        eprintln!("SKIP: Symbolica licence absent (source WS/ops/env.sh)");
+        inputs::missing(format_args!(
+            "SKIP: Symbolica licence absent (source WS/ops/env.sh)"
+        ));
         return false;
     }
     true

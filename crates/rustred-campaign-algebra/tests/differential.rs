@@ -6,6 +6,7 @@
 //! Every test SKIPs without the Symbolica licence (source WS/ops/env.sh).
 
 mod common;
+mod inputs;
 
 use common::*;
 use rustred_campaign_algebra::SymbolicaAlgebra;

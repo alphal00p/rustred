@@ -14,6 +14,7 @@ pub mod proof;
 // lane coreseed: kind pole-regular-at (rr_poles regular-at as a diagnostic legacy child)
 pub mod poleat;
 // lane wireflow (g): kind regular-basis (rr_regbasis, diagnostic legacy child)
+pub mod reader_features;
 pub mod regbasis;
 pub mod solve_recipe;
 // lane symjob: kind symmetry-composite (rr_rf_symflow as a legacy child; import verification of its relations)

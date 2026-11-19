@@ -3,6 +3,7 @@
 //! d0 other than 4, a real IBP system, and the engine row-span equality (item 2). Tests SKIP without the licence.
 
 mod common;
+mod inputs;
 
 use std::collections::HashSet;
 
@@ -412,7 +413,7 @@ fn tadic_real_ibp_system_row_order_invariance() {
     }
     let fam_path = format!("{}/T178.sym", recipe_fixtures());
     let Ok(text) = std::fs::read_to_string(&fam_path) else {
-        println!("SKIP: {fam_path} absent");
+        inputs::missing(format_args!("SKIP: {fam_path} absent"));
         return;
     };
     let fam = Family::parse(&text).expect("family");
@@ -484,7 +485,7 @@ fn tadic_engine_row_span_equality_on_a_recipe() {
     }
     let dir = recipe_fixtures();
     let Ok(text) = std::fs::read_to_string(format!("{dir}/T178.sym")) else {
-        println!("SKIP: fixtures absent");
+        inputs::missing(format_args!("SKIP: fixtures absent"));
         return;
     };
     let fam = Family::parse(&text).expect("family");

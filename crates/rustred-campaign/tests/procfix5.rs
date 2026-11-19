@@ -11,6 +11,7 @@
 mod closeloop_support;
 #[path = "sup_common/mod.rs"]
 mod common;
+mod inputs;
 
 use common::*;
 use rustred_campaign::ledger::{Event, JobEvent};
@@ -323,7 +324,9 @@ fn m2_file_size_limit_is_disk_full_never_sigxfsz() {
 #[test]
 fn real_children_need_scope_containment_unless_marker_only() {
     if !rustred_campaign::launch::in_private_namespace() {
-        eprintln!("SKIPPED: only meaningful inside a private namespace (no systemd scope there)");
+        inputs::optional(format_args!(
+            "SKIPPED: only meaningful inside a private namespace (no systemd scope there)"
+        ));
         return;
     }
     let _g = serial();

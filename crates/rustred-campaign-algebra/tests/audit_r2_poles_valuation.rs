@@ -5,6 +5,7 @@
 //! Tests SKIP without the Symbolica licence (as the crate's other tests).
 
 mod common;
+mod inputs;
 
 use rustred_campaign_algebra::valuation::relation::{is_regular_at, pole_order_of};
 use rustred_campaign_algebra::valuation::{

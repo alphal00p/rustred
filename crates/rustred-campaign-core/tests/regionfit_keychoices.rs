@@ -2,6 +2,7 @@
 //! constructed records, and the REAL T178 I1 record (371 unserved arrival keys vs the hand tables; rr_rf_symflow
 //! f0b25bbb run t178-i1-fix1, rhs stripped in the fixture copy). Skips the real part without the fixture tree.
 
+mod inputs;
 mod regionfit_common;
 
 use regionfit_common::{check_record, summary};
@@ -111,7 +112,7 @@ fn fixture() -> Option<PathBuf> {
     let r = PathBuf::from(base).join("regionfit");
     let p = r.join("T178keychoices/choices.rhs-stripped.jsonl");
     if !p.exists() {
-        eprintln!("SKIP: no {}", p.display());
+        inputs::missing(format_args!("SKIP: no {}", p.display()));
         return None;
     }
     let man = std::fs::read_to_string(r.join("MANIFEST.sha256")).unwrap();

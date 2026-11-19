@@ -9,6 +9,7 @@
 //!
 //! The engine replay path itself is used unchanged for integer keys (`replay_base::rows::rows_for_p`, a copy).
 
+mod inputs;
 mod rows_common;
 
 use rows_common::*;
