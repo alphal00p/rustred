@@ -323,6 +323,20 @@ const VERIFICATION_POINTS_SALT: u64 = 0x7665_7269_6670;
 /// are all stored is not replayed; the values enter the interpolation exactly
 /// as fresh ones (and the lift's verification prime stays). A line of another
 /// binding, or an altered line, is refused (hard error naming the file).
+///
+/// Failure handling (third gate): a write or fsync error of the store stops
+/// the replay loudly, naming the file, with the store and the saved state
+/// kept (a restart re-imports what was stored); so does a low disk
+/// (`RUSTRED_RESUME_DISK_MIN_GB`, default 50, or the `RUSTRED_DISK_LOW_FLAG`
+/// file) before a batch is appended. A final line without its newline (a
+/// torn write) is dropped at open, logged, and cut from the file.
+///
+/// Limits: re-import is per point, but a replay job is re-imported only when
+/// ALL its points are stored, so a restart with another batch size or thread
+/// count replays the partially stored jobs in full. The line digests are
+/// integrity checks against damage, not authentication: a forged value with
+/// a recomputed digest is used (the lift's verification prime still checks
+/// the result).
 pub(super) struct PointStore {
     path: std::path::PathBuf,
     binding: String,
@@ -331,6 +345,9 @@ pub(super) struct PointStore {
     pub(super) imported: usize,
     /// Batches appended by this process (test hook).
     appended: usize,
+    /// Low-disk rule, read at open: minimum free GB and the flag file.
+    disk_min_gb: u64,
+    disk_flag: Option<std::path::PathBuf>,
 }
 
 impl PointStore {
@@ -338,7 +355,31 @@ impl PointStore {
         let path = dir.join("samples.jsonl");
         let binding = blake3::Hash::from_bytes(binding).to_hex().to_string();
         let mut points = std::collections::HashMap::new();
-        if let Ok(text) = std::fs::read_to_string(&path) {
+        if let Ok(bytes) = std::fs::read(&path) {
+            // A torn tail (a short write: the final line lacks its newline)
+            // is dropped and cut from the file before new lines are appended.
+            let complete = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
+            if complete < bytes.len() {
+                eprintln!(
+                    "rustred replay: sample store {}: dropped a torn final line ({} bytes without a newline)",
+                    path.display(),
+                    bytes.len() - complete
+                );
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .open(&path)
+                    .and_then(|file| {
+                        file.set_len(complete as u64)?;
+                        file.sync_data()
+                    })
+                    .map_err(|e| {
+                        super::error(format!(
+                            "sample store {}: cannot cut its torn final line: {e}",
+                            path.display()
+                        ))
+                    })?;
+            }
+            let text = String::from_utf8_lossy(&bytes[..complete]);
             for (n, line) in text.lines().enumerate() {
                 let refuse = |why: &str| {
                     super::error(format!(
@@ -377,6 +418,11 @@ impl PointStore {
             points,
             imported: 0,
             appended: 0,
+            disk_min_gb: std::env::var("RUSTRED_RESUME_DISK_MIN_GB")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(50),
+            disk_flag: std::env::var_os("RUSTRED_DISK_LOW_FLAG").map(std::path::PathBuf::from),
         })
     }
 
@@ -402,7 +448,22 @@ impl PointStore {
         })
     }
 
-    fn append(&mut self, field: &Zp64, points: &[Fe], batch: &ReplayBatch, columns: &[usize]) {
+    fn append(
+        &mut self,
+        field: &Zp64,
+        points: &[Fe],
+        batch: &ReplayBatch,
+        columns: &[usize],
+    ) -> Result<(), ReductionError> {
+        if let Some(dir) = self.path.parent()
+            && store_disk_low(dir, self.disk_min_gb, self.disk_flag.as_deref())
+        {
+            return Err(super::error(format!(
+                "sample store {}: stopped on low disk before appending (RUSTRED_RESUME_DISK_MIN_GB / \
+                 RUSTRED_DISK_LOW_FLAG); the store and the saved state are kept, restart to resume",
+                self.path.display()
+            )));
+        }
         let width = points.len();
         let prime = field.get_prime();
         let xs: Vec<u64> = points.iter().map(|x| field::to_u64(field, x)).collect();
@@ -427,15 +488,40 @@ impl PointStore {
         }
         let line = format!("{body}\t{}\n", blake3::hash(body.as_bytes()).to_hex());
         use std::io::Write;
-        if let Ok(mut file) = std::fs::OpenOptions::new()
+        std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)
-        {
-            let _ = file.write_all(line.as_bytes());
-            let _ = file.sync_data();
-        }
+            .and_then(|mut file| {
+                file.write_all(line.as_bytes())?;
+                file.sync_data()
+            })
+            .map_err(|e| {
+                super::error(format!(
+                    "sample store {}: write failed: {e}; the store and the saved state are kept \
+                     (a torn final line is dropped at restart), restart to resume",
+                    self.path.display()
+                ))
+            })
     }
+}
+
+/// The store's filesystem has less than `RUSTRED_RESUME_DISK_MIN_GB` (default
+/// 50) GB available, or `RUSTRED_DISK_LOW_FLAG` names an existing file (the
+/// same rule as memfix's `resume::disk_low`; to be merged into it).
+fn store_disk_low(dir: &std::path::Path, min_gb: u64, flag: Option<&std::path::Path>) -> bool {
+    if flag.is_some_and(std::path::Path::exists) {
+        return true;
+    }
+    let Ok(path) = std::ffi::CString::new(dir.as_os_str().as_encoded_bytes()) else {
+        return false;
+    };
+    // SAFETY: statvfs on a NUL-terminated path into a zeroed struct.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return false;
+    }
+    (stat.f_bavail as u64).saturating_mul(stat.f_frsize as u64) < min_gb.saturating_mul(1 << 30)
 }
 
 pub(super) struct SampledSource<'a> {
@@ -626,7 +712,7 @@ impl<'a> SampledSource<'a> {
                 .map_err(|_| super::error("sample store poisoned"))?;
             for (owner, points, batch) in &replayed {
                 if let Some(batch) = batch {
-                    store.append(&samples[*owner].field, points, batch, self.columns());
+                    store.append(&samples[*owner].field, points, batch, self.columns())?;
                     store.appended += 1;
                 }
             }
@@ -959,6 +1045,100 @@ impl<'a> ImageSource for SampledSource<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn store_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("rr-store-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn one_batch(field: &Zp64) -> (Vec<Fe>, ReplayBatch) {
+        let points: Vec<Fe> = (3..7).map(|x| field.to_element(x)).collect();
+        let values = (0..2 * points.len())
+            .map(|v| field.to_element(v as u64 + 11))
+            .collect();
+        let batch = ReplayBatch {
+            values,
+            good: vec![true; points.len()],
+            cancel_checks: 0,
+        };
+        (points, batch)
+    }
+
+    /// Third gate (a): ENOSPC on the store's write is a loud error naming the
+    /// file (the store is `/dev/full`).
+    #[test]
+    fn a_full_disk_stops_the_store_loudly() {
+        let dir = store_dir("enospc");
+        let mut store = PointStore::open(&dir, [7; 32]).unwrap();
+        // Writes to /dev/full fail with ENOSPC (opened only for the append:
+        // reading it never ends).
+        std::os::unix::fs::symlink("/dev/full", dir.join("samples.jsonl")).unwrap();
+        store.disk_min_gb = 0;
+        store.disk_flag = None;
+        let field = Zp64::new(4611686018427387847);
+        let (points, batch) = one_batch(&field);
+        let error = store
+            .append(&field, &points, &batch, &[0, 1])
+            .expect_err("ENOSPC must be an error")
+            .to_string();
+        assert!(
+            error.contains("samples.jsonl") && error.contains("write failed"),
+            "{error}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Third gate (b): a torn final line is dropped (and cut), the complete
+    /// lines are kept, and later appends start on a clean line.
+    #[test]
+    fn a_torn_final_line_is_dropped_not_refused() {
+        let dir = store_dir("torn");
+        let field = Zp64::new(4611686018427387847);
+        let (points, batch) = one_batch(&field);
+        let mut store = PointStore::open(&dir, [7; 32]).unwrap();
+        (store.disk_min_gb, store.disk_flag) = (0, None);
+        store.append(&field, &points, &batch, &[0, 1]).unwrap();
+        let path = dir.join("samples.jsonl");
+        let whole = std::fs::read(&path).unwrap();
+        // A short write of a second line.
+        let mut torn = whole.clone();
+        torn.extend_from_slice(&whole[..whole.len() / 2]);
+        std::fs::write(&path, &torn).unwrap();
+        let mut store = PointStore::open(&dir, [7; 32]).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), whole, "torn tail cut");
+        assert!(
+            store.lookup(&field, &points, &[0, 1]).is_some(),
+            "complete line kept"
+        );
+        let other: Vec<Fe> = (8..12).map(|x| field.to_element(x)).collect();
+        (store.disk_min_gb, store.disk_flag) = (0, None);
+        store.append(&field, &other, &batch, &[0, 1]).unwrap();
+        let mut store = PointStore::open(&dir, [7; 32]).unwrap();
+        assert!(store.lookup(&field, &other, &[0, 1]).is_some());
+        assert!(store.lookup(&field, &points, &[0, 1]).is_some());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The low-disk flag stops the store before it appends.
+    #[test]
+    fn a_low_disk_flag_stops_the_store_before_appending() {
+        let dir = store_dir("lowdisk");
+        let flag = dir.join("DISK_LOW");
+        std::fs::write(&flag, "").unwrap();
+        let field = Zp64::new(4611686018427387847);
+        let (points, batch) = one_batch(&field);
+        let mut store = PointStore::open(&dir, [7; 32]).unwrap();
+        store.disk_flag = Some(flag);
+        let error = store
+            .append(&field, &points, &batch, &[0, 1])
+            .expect_err("low disk must stop")
+            .to_string();
+        assert!(error.contains("low disk"), "{error}");
+        assert!(!dir.join("samples.jsonl").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn batches_fill_whole_waves_within_the_width_bounds() {
