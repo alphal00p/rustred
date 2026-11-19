@@ -23,6 +23,17 @@ fn sup_spec(t: &Tmp) -> std::path::PathBuf {
     write_spec(t, "spec.json", &spec(t, syn, res))
 }
 
+/// procfix7 round 20 (gate R-C, the flaky case: int/10-land2 gave exit 10 at 1500 ms: the resume had ENDED before the
+/// removal, so the premise "removed DURING a resume" was not met; gate 7: 2 of 6): the removal test's campaign HOLDS the
+/// resume in progress: every synthetic case runs 4-6 s, so the two SIGTERM-drained sessions before it accept a few items at
+/// most (each drains its running cases), the resume has work, and none of its cases can end before 4 s: at the removal
+/// moments (400 ms, 1500 ms) the resume is in progress and not finished, on any host (a slow host only makes it later).
+fn sup_spec_held(t: &Tmp) -> std::path::PathBuf {
+    let res = serde_json::json!({"mem_total": "300M"});
+    let syn = serde_json::json!({"items": 40, "case_ms": [4000, 6000]});
+    write_spec(t, "spec-held.json", &spec(t, syn, res))
+}
+
 /// What a campaign directory looks like afterwards (no panics: the directory may be half gone).
 #[derive(Debug)]
 #[allow(dead_code)] // printed with {:?}
@@ -60,7 +71,11 @@ fn look(cdir: &Path, code: i32, essential_gone: bool) -> Seen {
 /// Two SIGTERM-interrupted sessions (delays as in sup_i1 run 46 would be on a fast host), then a resume during which
 /// `remove_dir_all(temp path)` + `create_dir_all(temp path)` runs `remove_after` into the session (what the colliding
 /// `Tmp::new` did).
-fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Seen {
+///
+/// procfix7 round 20: `Err` = the PREMISE was not met: the resume had already ended (its exit code) when the removal was
+/// due. That outcome is reported as such and is never a pass of the property (the removal test holds the resume in
+/// progress, `sup_spec_held`, so it does not occur there).
+fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Result<Seen, String> {
     let dir = t.cdir(&format!("run-{}", remove_after.as_millis()));
     for delay in [700u64, 900] {
         let mut c = start(spec_p, &dir, &[], &[]);
@@ -72,6 +87,14 @@ fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Seen
     }
     let mut c = start(spec_p, &dir, &[], &[]);
     std::thread::sleep(remove_after);
+    // the premise: the resume is still in progress when the removal starts
+    if c.try_wait().unwrap().is_some() {
+        let code = wait(&mut c, Duration::from_secs(5));
+        return Err(format!(
+            "PREMISE NOT MET: the resume had already ended (exit {code}) {} ms after its start, before the removal",
+            remove_after.as_millis()
+        ));
+    }
     let _ = std::fs::remove_dir_all(&dir);
     let essential_gone = !dir.exists()
         || !dir.join("ledger").exists()
@@ -79,16 +102,17 @@ fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Seen
         || !dir.join(rustred_campaign::lock::LOCK_FILE).exists();
     let _ = std::fs::remove_file(dir.with_extension("log"));
     let code = wait(&mut c, Duration::from_secs(600));
-    look(&dir, code, essential_gone)
+    Ok(look(&dir, code, essential_gone))
 }
 
 #[test]
 fn campaign_directory_removed_during_a_resume_is_never_exit_0() {
     let _g = serial();
     let t = Tmp::new("rm0");
-    let spec_p = sup_spec(&t);
+    let spec_p = sup_spec_held(&t);
     for ms in [400u64, 1500] {
-        let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms));
+        let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms))
+            .unwrap_or_else(|e| panic!("removal after {ms} ms: {e}"));
         eprintln!("removal after {ms} ms: {s:?}");
         if s.essential_gone {
             // the directory (or a part the supervisor checks) was removed: its typed end, never 0
@@ -132,8 +156,10 @@ fn observe_removal_during_resume() {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
     for ms in delays {
-        let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms));
-        eprintln!("ITEM0 removal after {ms} ms: {s:?}");
+        match removal_during_resume(&t, &spec_p, Duration::from_millis(ms)) {
+            Ok(s) => eprintln!("ITEM0 removal after {ms} ms: {s:?}"),
+            Err(e) => eprintln!("ITEM0 removal after {ms} ms: {e}"),
+        }
     }
 }
 
