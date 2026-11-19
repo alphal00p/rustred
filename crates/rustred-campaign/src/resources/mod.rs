@@ -355,18 +355,7 @@ fn cgroup_headroom() -> io::Result<Option<u64>> {
     let mut best: Option<u64> = None;
     // procfix7 round 5: a level's file that is proven absent (the root has none) or says "max" sets no limit; a file
     // that cannot be read or holds anything else is an ERROR (never "no limit": admission would over-admit)
-    let read = |p: &Path| -> io::Result<Option<u64>> {
-        match crate::fsx::read_to_string("cgroup", p) {
-            crate::fsx::Read::Content(t) if t.trim() == "max" => Ok(None),
-            crate::fsx::Read::Content(t) => t.trim().parse::<u64>().map(Some).map_err(|e| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
-            }),
-            crate::fsx::Read::Absent => Ok(None),
-            crate::fsx::Read::Failed(e) => {
-                Err(io::Error::new(e.kind(), format!("{}: {e}", p.display())))
-            }
-        }
-    };
+    let read = cgroup_memory_value;
     loop {
         if let Some(max) = read(&path.join("memory.max"))? {
             let Some(current) = read(&path.join("memory.current"))? else {
@@ -387,23 +376,41 @@ fn cgroup_headroom() -> io::Result<Option<u64>> {
 
 /// lane wireflow (zerosfix finding): the smallest `memory.max` over this process's cgroup-v2 ancestry (None: no limit
 /// found): what the cgroup headroom can be at most (the supervisor's start check and the admission ceiling).
-pub fn cgroup_limit() -> Option<u64> {
-    let cgroups = fs::read_to_string("/proc/self/cgroup").ok()?;
-    let group = cgroups.lines().find_map(|s| s.strip_prefix("0::"))?;
+///
+/// procfix7 round 19 (landing; int8b-gate review (ii) resources/mod.rs:388 / 394): in the form of [`cgroup_headroom`]: an
+/// unreadable `/proc/self/cgroup`, or a `memory.max` that cannot be read or parsed, is an ERROR (it was "no limit at
+/// that level": the smallest limit could be missed); a level whose file is proven absent (the root) or says "max" sets
+/// no limit; a host without the unified line has none.
+pub fn cgroup_limit() -> io::Result<Option<u64>> {
+    let group = match procfs::sys().self_cgroup_v2()? {
+        procfs::CgroupLine::Path(g) => g,
+        procfs::CgroupLine::NoUnified => return Ok(None),
+    };
     let root = Path::new("/sys/fs/cgroup");
     let mut path = root.join(group.trim_start_matches('/'));
     let mut best: Option<u64> = None;
     loop {
-        if let Ok(max) = fs::read_to_string(path.join("memory.max"))
-            && let Ok(max) = max.trim().parse::<u64>()
-        {
+        if let Some(max) = cgroup_memory_value(&path.join("memory.max"))? {
             best = Some(best.map_or(max, |b| b.min(max)));
         }
         if path == root || !path.pop() {
             break;
         }
     }
-    best
+    Ok(best)
+}
+
+/// One cgroup-v2 memory file (`memory.max` / `memory.current`): proven absent or "max" -> None; a number -> Some; a file
+/// that cannot be read or holds anything else -> an ERROR (procfix7 round 5; shared by the two walks, round 19).
+fn cgroup_memory_value(p: &Path) -> io::Result<Option<u64>> {
+    match crate::fsx::read_to_string("cgroup", p) {
+        crate::fsx::Read::Content(t) if t.trim() == "max" => Ok(None),
+        crate::fsx::Read::Content(t) => t.trim().parse::<u64>().map(Some).map_err(|e| {
+            io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
+        }),
+        crate::fsx::Read::Absent => Ok(None),
+        crate::fsx::Read::Failed(e) => Err(io::Error::new(e.kind(), format!("{}: {e}", p.display()))),
+    }
 }
 
 /// Read host memory now. /proc/meminfo does not block like per-pid files do (guarded_run.py measured it), so this

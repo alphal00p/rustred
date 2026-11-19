@@ -1378,7 +1378,16 @@ impl Supervisor {
         // lane wireflow (zerosfix finding): the most admission can ever see here; a configuration under which nothing
         // can ever be admitted is a TYPED refusal at start, not a silent wait
         if let Ok(m) = host_memory() {
-            let lim = crate::resources::cgroup_limit();
+            // procfix7 round 19 (landing): a cgroup limit that cannot be read is a TYPED refusal at start (it was "no
+            // limit": a job that can never fit would wait silently instead of being refused)
+            let lim = match crate::resources::cgroup_limit() {
+                Ok(l) => l,
+                Err(e) => {
+                    let why = format!("admission: the cgroup memory limit cannot be read: {e}");
+                    log.line("ERROR", &why);
+                    return Err(RunExit::Refused(why));
+                }
+            };
             admission.host_ceiling_bytes = Some(admission::host_ceiling(
                 m.mem_total,
                 lim,
