@@ -4,6 +4,7 @@
 //! `{"node", "import_spec", "import_base", "terminals": [[..]] | null, "spec": {termmin spec}, "program": "<rr_node>",
 //!   "invocation": "contract" | "verb", "family", "order": "<name>" | {order JSON}, "cpus": [..] | null (HELD_CPUS),
 //!   "work_root", "out_dir", "check_threads", "wall_cap_s", "extra_solved": [..]}`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::termmin::direct::{DirectConfig, run_direct};

@@ -6,6 +6,7 @@
 //!
 //! Run: `cargo test --release -p rustred-campaign --test ledger_damage -- --ignored --nocapture`; a smoke subset
 //! runs in debug.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

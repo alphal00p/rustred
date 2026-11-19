@@ -28,7 +28,12 @@ pub const USAGE: &str = "usage:
   rr_campaign derivations --run-dir JOBDIR --engine RR_NODE --out OUT.jsonl
       (lane sizegen: the effective derivation of every rule a finished generate job sealed; TRICKS 31 / 35)
   rr_campaign poles-choose --choice CHOICE.json --scores SCORES.jsonl [--policy POLES.json] --out OUT.json
-      (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)";
+      (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)
+  rr_campaign scope-check [--unit NAME]     (host only: ONE transient systemd scope around `true`, as a job's; checks the evidence
+                                             a job that ends before its first check is recorded from; exit 0 = PASS; signals nothing)
+  rr_campaign units clear CDIR              (the campaign's leftover systemd units, CDIR/units.leftover.json: each by its exact
+                                             name, its state read first: reset-failed if failed, stopped only if its cgroup is
+                                             empty; never a pattern; run while no supervisor runs on CDIR)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
 macro_rules! outln {
@@ -138,6 +143,8 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        "scope-check" => cmd_scope_check(rest),
+        "units" => cmd_units(rest),
         "-h" | "--help" | "help" => {
             outln!("{USAGE}");
             exit::OK
@@ -288,11 +295,18 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             return exit::USAGE;
         }
     };
-    let bytes_digest = f
-        .spec
-        .as_ref()
-        .and_then(|p| std::fs::read(p).ok())
-        .map(|b| blake3::hash(&b).to_hex().to_string());
+    // procfix7 round 5: the spec file's bytes digest; an unreadable spec stops typed (never "no older digest")
+    let bytes_digest = match f.spec.as_ref() {
+        None => None,
+        Some(p) => match crate::fsx::read("cli", p) {
+            crate::fsx::Read::Content(b) => Some(blake3::hash(&b).to_hex().to_string()),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => {
+                errln!("spec {}: {e}", p.display());
+                return io_exit(&e);
+            }
+        },
+    };
     let (mut spec, digest, cdir) = match load_spec(&f) {
         Ok(x) => x,
         Err((c, m)) => {
@@ -362,38 +376,62 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
         accept_truncation_to: f.accept_truncation_to,
         quiet_stderr: Some(Arc::clone(&quiet)),
     };
-    let r = supervisor::run_with(opts, &mut |started| {
-        if !with_dashboard {
-            return;
+    // procfix7 round 5 (gate9 m9-clock): a panic of the control thread (std's Instant / SystemTime panic when
+    // clock_gettime fails; any other bug) is a TYPED end, exit 70 with the reason in the log, never exit 101.
+    let panic_cdir = cdir.clone();
+    let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        #[cfg(debug_assertions)]
+        if crate::supervisor::failpoint::Failpoints::from_env().armed("test_panic") {
+            panic!("TEST BUILD failpoint test_panic");
         }
-        // The dashboard runs on its OWN thread (its file reading on its reader thread): the control loop is never
-        // blocked by rendering. Ctrl-C in raw mode = `request_stop()` on the supervisor's stop handle.
-        quiet.store(true, Ordering::SeqCst);
-        let controls = crate::tui::SupervisorControls {
-            handle: started.handle.clone(),
-            grace_s: started.grace_s,
-            done: Arc::clone(&done),
-        };
-        let source: Arc<dyn crate::tui::ProgressSource> =
-            Arc::new(crate::tui::DirSource::new(cdir.clone()));
-        let o = dash_opts.clone();
-        let q = Arc::clone(&quiet);
-        let (tx, rx) = std::sync::mpsc::channel();
-        if std::thread::Builder::new()
-            .name("dashboard".into())
-            .spawn(move || {
-                let reason = crate::tui::run_dashboard(source, &controls, &o);
-                // Terminal restored: later supervisor log lines go to stderr again (unless it is gone: see below).
-                if reason != crate::tui::ExitReason::Hangup {
-                    q.store(false, Ordering::SeqCst);
-                }
-                let _ = tx.send(reason);
-            })
-            .is_ok()
-        {
-            dash = Some(rx);
+        supervisor::run_with(opts, &mut |started| {
+            if !with_dashboard {
+                return;
+            }
+            // The dashboard runs on its OWN thread (its file reading on its reader thread): the control loop is never
+            // blocked by rendering. Ctrl-C in raw mode = `request_stop()` on the supervisor's stop handle.
+            quiet.store(true, Ordering::SeqCst);
+            let controls = crate::tui::SupervisorControls {
+                handle: started.handle.clone(),
+                grace_s: started.grace_s,
+                done: Arc::clone(&done),
+            };
+            let source: Arc<dyn crate::tui::ProgressSource> =
+                Arc::new(crate::tui::DirSource::new(cdir.clone()));
+            let o = dash_opts.clone();
+            let q = Arc::clone(&quiet);
+            let (tx, rx) = std::sync::mpsc::channel();
+            if std::thread::Builder::new()
+                .name("dashboard".into())
+                .spawn(move || {
+                    let reason = crate::tui::run_dashboard(source, &controls, &o);
+                    // Terminal restored: later supervisor log lines go to stderr again (unless it is gone: see below).
+                    if reason != crate::tui::ExitReason::Hangup {
+                        q.store(false, Ordering::SeqCst);
+                    }
+                    let _ = tx.send(reason);
+                })
+                .is_ok()
+            {
+                dash = Some(rx);
+            }
+        })
+    }));
+    let r = match run {
+        Ok(r) => r,
+        Err(payload) => {
+            let what = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "a panic without a message".into());
+            let msg = format!(
+                "internal error: the supervisor panicked ({what}); nothing more was decided; run the same command (its recovery checks what this session left)"
+            );
+            crate::supervisor::Log::open(&panic_cdir).line("ERROR", &msg);
+            supervisor::RunExit::Internal(msg)
         }
-    });
+    };
     done.store(true, Ordering::SeqCst);
     // procfix3 (gate-B M2): a dashboard whose terminal is gone or blocked (a write to a tty nobody reads waits for
     // ever) must not hold the process: wait for it at most 10 s; the terminal output is then skipped (log file only).
@@ -404,6 +442,12 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
             Ok(_) => {}
             Err(_) => terminal_ok = false,
         }
+    }
+    // procfix7 round 5: test builds with `fsx_count:1`: the number of fsx helper calls of this run (the property test
+    // of tests/procfix9.rs injects at every one of them)
+    if let Some(n) = crate::fsx::calls_counted() {
+        eprintln!("TEST BUILD fsx helper calls: {n}");
+        eprintln!("TEST BUILD fsx sites: {:?}", crate::fsx::site_counts());
     }
     if !terminal_ok {
         let mut log = crate::supervisor::Log::open(&cdir);
@@ -447,8 +491,159 @@ fn cmd_run(argv: &[String], rest: &[String]) -> i32 {
 }
 
 /// One pre-flight line.
+/// procfix7 round 5: the typed end of a CLI verb whose file system read failed (71 for a resource limit, else 70).
+fn io_exit(e: &std::io::Error) -> i32 {
+    match e.raw_os_error() {
+        Some(libc::EMFILE | libc::ENFILE | libc::ENOMEM | libc::EAGAIN) => exit::RESOURCES,
+        _ => exit::INTERNAL,
+    }
+}
+
+/// procfix7 round 5: does `cdir` hold a campaign (its ledger's manifest)? Err: (exit code, message) when that cannot be
+/// checked: never "no campaign".
+fn campaign_present(cdir: &Path) -> Result<bool, (i32, String)> {
+    match crate::ledger::manifest_state(cdir) {
+        Ok(p) => Ok(p),
+        Err(crate::ledger::LedgerError::Io { path, op, source }) => Err((
+            io_exit(&source),
+            format!("{op} on {} failed: {source}", path.display()),
+        )),
+        Err(e) => Err((exit::REFUSED, format!("{e}"))),
+    }
+}
+
 fn pf(out: &mut impl Write, status: &str, what: &str) {
     let _ = writeln!(out, "{status:<7} {what}");
+}
+
+/// procfix7 round 9 (gate13 G13-M1): `scope-check [--unit NAME]`: [`crate::launch::scope_evidence_check`] (the host
+/// step's pre-flight against the REAL systemd-run). Exit 0 = PASS, 1 = FAIL, 2 = usage.
+fn cmd_scope_check(rest: &[String]) -> i32 {
+    let unit = match rest {
+        [] => None,
+        [flag, name] if flag == "--unit" => Some(name.as_str()),
+        _ => {
+            errln!("scope-check takes at most --unit NAME\n{USAGE}");
+            return exit::USAGE;
+        }
+    };
+    let c = crate::launch::scope_evidence_check(unit);
+    for l in &c.lines {
+        outln!("scope-check {}: {l}", c.unit);
+    }
+    if c.pass { exit::OK } else { 1 }
+}
+
+/// procfix7 round 14 (host step 3, M4): `rr_campaign units clear <dir>`: the operator's command for the campaign's
+/// leftover-unit list (`<dir>/units.leftover.json`): each unit by its EXACT name, only a name of THIS campaign
+/// (`rr-<campaign id>-...-<16 hex>`) that its ledger recorded at a launch, its state read first; not loaded: done;
+/// failed: reset-failed; active / activating / deactivating with its cgroup absent or `populated 0`: stopped (an empty
+/// scope); populated: never stopped (kept: the restart's marker backstop handles its processes). Never a pattern.
+/// procfix7 round 15 (gate16 m16-units-lock): it takes the CAMPAIGN LOCK (refused, exit 1 "refused: the campaign lock
+/// is not free", while a supervisor holds it); round 16 (gate17 m17-units-takeover): refused too, the stale record left
+/// in place, after a supervisor that did not end cleanly (run the campaign first); a unit found not loaded leaves the list only when found so again 15 min
+/// later (m16-not-loaded-early). Exit 0: the list is empty afterwards; 1: entries are kept (named) or refused; 2: usage;
+/// 3: no such directory.
+fn cmd_units(rest: &[String]) -> i32 {
+    let [verb, dir] = rest else {
+        errln!("units takes: clear <campaign dir>\n{USAGE}");
+        return exit::USAGE;
+    };
+    if verb != "clear" {
+        errln!("units takes: clear <campaign dir>\n{USAGE}");
+        return exit::USAGE;
+    }
+    let cdir = Path::new(dir);
+    if !crate::fsx::presence("cli", cdir).is_dir() {
+        errln!("{}: not a directory", cdir.display());
+        return exit::NOT_FOUND;
+    }
+    // round 15 (gate16 m16-units-lock): never beside a supervisor of the directory (it rewrites the same list)
+    let clock = crate::clock::SystemClock::new();
+    let argv: Vec<String> = ["rr_campaign".to_string(), "units".to_string()]
+        .into_iter()
+        .chain(rest.iter().cloned())
+        .collect();
+    let (lock, outcome) = match crate::lock::acquire(cdir, &clock, &argv) {
+        Ok(x) => x,
+        Err(e) => {
+            errln!("refused: the campaign lock is not free ({e}); stop the supervisor first");
+            return exit::REFUSED;
+        }
+    };
+    // round 16 (gate17 m17-units-takeover): never CONSUME a stale lock (a supervisor that did not end cleanly): its owner
+    // record is the evidence the next start turns into a lock_takeover record and its token orphans into recovery's
+    // seeds. The previous record is written back (our release then leaves it: it names another token) and nothing is
+    // cleared: the campaign's own start (recovery, sweeps) comes first
+    if let crate::lock::LockOutcome::TookOver {
+        previous, reason, ..
+    } = &outcome
+    {
+        let back = crate::atomic::write_json_atomic(&cdir.join(crate::lock::OWNER_FILE), previous);
+        errln!(
+            "refused: {} holds the lock record of a supervisor that did not end cleanly (pid {}, {reason:?}); run the campaign first (its start records the takeover and sweeps that supervisor's orphans), then `units clear`{}",
+            cdir.display(),
+            previous.identity.pid,
+            match &back {
+                Ok(()) => String::new(),
+                Err(e) => format!(
+                    "; WARNING: its lock record could not be restored ({e}): the next start sees no stale lock"
+                ),
+            }
+        );
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): round 16: the restored record names another token, so the release leaves it in place
+        let _ = lock.release();
+        return exit::REFUSED;
+    }
+    let code = units_clear_locked(cdir);
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): round 15: the kernel releases the flock at exit anyway; a LOCK.json left in place is stale
+    let _ = lock.release();
+    code
+}
+
+/// `units clear` under the campaign lock.
+fn units_clear_locked(cdir: &Path) -> i32 {
+    let (st, _) = match crate::ledger::replay_state(cdir) {
+        Ok(x) => x,
+        Err(e) => {
+            errln!(
+                "{}: the ledger cannot be read ({e}): nothing done",
+                cdir.display()
+            );
+            return 1;
+        }
+    };
+    let Some(cid) = crate::supervisor::identity::recorded_id(&st) else {
+        errln!(
+            "{}: the ledger records no campaign id: nothing done",
+            cdir.display()
+        );
+        return 1;
+    };
+    let recorded = crate::supervisor::manager::recorded_scope_units(cdir);
+    match crate::supervisor::manager::clear_leftovers(
+        cdir,
+        &cid,
+        recorded.as_ref(),
+        crate::supervisor::manager::epoch_now(),
+    ) {
+        Ok(done) => {
+            if done.is_empty() {
+                outln!("units clear {}: no leftover unit", cdir.display());
+            }
+            let kept = done.iter().filter(|c| !c.done).count();
+            for c in &done {
+                outln!("units clear {}.scope: {}", c.unit, c.action);
+            }
+            if kept == 0 { exit::OK } else { 1 }
+        }
+        Err(e) => {
+            errln!("units clear {}: {e}", cdir.display());
+            1
+        }
+    }
 }
 
 fn cmd_preflight(rest: &[String]) -> i32 {
@@ -679,6 +874,18 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
     }
     match crate::lock::read_owner(cdir) {
         Ok(Some(o)) => match crate::lock::liveness(&o.identity) {
+            // procfix8: an owner whose liveness cannot be read is not "ok" (the run would refuse the lock)
+            crate::lock::Liveness::Unknown(w) => {
+                pf(
+                    out,
+                    "REFUSE",
+                    &format!(
+                        "the recorded owner pid {} cannot be judged ({w}); check it, then run again",
+                        o.identity.pid
+                    ),
+                );
+                refuse(exit::PF_LOCK, &mut code);
+            }
             crate::lock::Liveness::Alive => {
                 pf(
                     out,
@@ -705,11 +912,19 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
             refuse(exit::PF_LOCK, &mut code);
         }
     }
-    if cdir
-        .join("ledger")
-        .join(crate::ledger::MANIFEST_FILE)
-        .exists()
-    {
+    let present = match campaign_present(cdir) {
+        Ok(p) => p,
+        Err((c, m)) => {
+            pf(
+                out,
+                "REFUSE",
+                &format!("campaign directory cannot be checked: {m}"),
+            );
+            refuse(c, &mut code);
+            false
+        }
+    };
+    if present {
         pf(
             out,
             "ok",
@@ -743,7 +958,11 @@ pub fn preflight(spec: &CampaignSpec, digest: &str, cdir: &Path, out: &mut impl 
 
 fn existing_ancestor(p: &Path) -> PathBuf {
     let mut q = p.to_path_buf();
-    while !q.exists() {
+    // procfix7 round 5: walk up only past PROVEN absent components (an unreadable one stops the walk)
+    while matches!(
+        crate::fsx::presence("cli", &q),
+        crate::fsx::Presence::Absent
+    ) {
         match q.parent() {
             Some(x) => q = x.to_path_buf(),
             None => break,
@@ -789,8 +1008,10 @@ pub(crate) fn version_line(p: &Path) -> Result<String, String> {
     }
     let mut s = String::new();
     use std::io::Read;
+    // procfix7 round 5: a failed read of the child's answer is an error (never a partial or empty version line)
     if let Some(mut o) = child.stdout.take() {
-        let _ = o.read_to_string(&mut s);
+        o.read_to_string(&mut s)
+            .map_err(|e| format!("version --json: reading the answer: {e}"))?;
     }
     Ok(s)
 }
@@ -925,11 +1146,7 @@ pub fn write_control_payload(
     reason: Option<&str>,
     payload: Option<serde_json::Value>,
 ) -> Result<PathBuf, (i32, String)> {
-    if !cdir
-        .join("ledger")
-        .join(crate::ledger::MANIFEST_FILE)
-        .exists()
-    {
+    if !campaign_present(cdir)? {
         return Err((
             exit::NOT_FOUND,
             format!("no campaign in {}", cdir.display()),
@@ -975,11 +1192,25 @@ fn cmd_rebuild_manifest(rest: &[String]) -> i32 {
     };
     let cdir = Path::new(cdir);
     let ldir = crate::ledger::ledger_dir(cdir);
-    if !ldir.is_dir() {
-        errln!("no ledger directory in {}", cdir.display());
-        return exit::NOT_FOUND;
+    match crate::fsx::presence("cli", &ldir) {
+        crate::fsx::Presence::Present(m) if m.is_dir() => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {
+            errln!("no ledger directory in {}", cdir.display());
+            return exit::NOT_FOUND;
+        }
+        crate::fsx::Presence::Unknown(e) => {
+            errln!("{} cannot be checked: {e}", ldir.display());
+            return io_exit(&e);
+        }
     }
-    if ldir.join(crate::ledger::MANIFEST_FILE).exists() {
+    let present = match campaign_present(cdir) {
+        Ok(p) => p,
+        Err((c, m)) => {
+            errln!("{m}");
+            return c;
+        }
+    };
+    if present {
         errln!(
             "refused: {} exists; nothing to rebuild",
             ldir.join(crate::ledger::MANIFEST_FILE).display()
@@ -1033,13 +1264,16 @@ fn cmd_verify(rest: &[String]) -> i32 {
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
-    if !cdir
-        .join("ledger")
-        .join(crate::ledger::MANIFEST_FILE)
-        .exists()
-    {
-        errln!("no campaign in {}", cdir.display());
-        return exit::NOT_FOUND;
+    match campaign_present(cdir) {
+        Ok(true) => {}
+        Ok(false) => {
+            errln!("no campaign in {}", cdir.display());
+            return exit::NOT_FOUND;
+        }
+        Err((c, m)) => {
+            errln!("{m}");
+            return c;
+        }
     }
     match crate::progress::verify(cdir) {
         Ok(r) => {
@@ -1110,11 +1344,18 @@ fn cmd_status(rest: &[String]) -> i32 {
         return exit::USAGE;
     };
     let cdir = Path::new(cdir);
-    if !cdir
+    let progress_file = cdir
         .join(crate::progress::PROGRESS_DIR)
-        .join("campaign.json")
-        .exists()
-    {
+        .join("campaign.json");
+    let have = match crate::fsx::presence("cli", &progress_file) {
+        crate::fsx::Presence::Present(_) => true,
+        crate::fsx::Presence::Absent => false,
+        crate::fsx::Presence::Unknown(e) => {
+            errln!("{} cannot be checked: {e}", progress_file.display());
+            return io_exit(&e);
+        }
+    };
+    if !have {
         errln!(
             "no progress file {}",
             cdir.join(crate::progress::PROGRESS_DIR)

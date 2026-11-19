@@ -8,6 +8,7 @@
 //!
 //! "Fails before": each test names the behaviour of the code before the second fix package (70947c6b + supervisor lane)
 //! that it catches; the port of re-audit B's harness (tests/proc_reaudit_b.rs) reproduces the same on the old code.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;
@@ -53,18 +54,19 @@ fn cfg(f: impl FnOnce(&mut RealConfig)) -> RealConfig {
 }
 
 fn launcher_with(f: impl FnOnce(&mut RealConfig)) -> RealLauncher {
-    RealLauncher::with_config(sampler(), cfg(f))
+    RealLauncher::try_with_config(sampler(), cfg(f))
+        .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 /// Live (not dead) process with this start time? (A dead main thread with a live thread counts as alive.)
 fn alive(pid: u32, start: u64) -> bool {
-    read_stat(pid).ok().flatten().is_some_and(|s| {
+    read_stat(pid).ok().is_some_and(|s| {
         s.start_ticks == start
             && (!s.is_dead()
-                || rustred_campaign::resources::live_thread(pid)
-                    .ok()
-                    .flatten()
-                    .is_some())
+                || matches!(
+                    rustred_campaign::resources::live_thread(pid),
+                    Ok(rustred_campaign::resources::LiveThread::Found(..))
+                ))
     })
 }
 
@@ -76,7 +78,7 @@ fn read_pid_file(p: &Path) -> u32 {
 }
 
 fn start_of(pid: u32) -> u64 {
-    read_stat(pid).unwrap().unwrap().start_ticks
+    read_stat(pid).unwrap().start_ticks
 }
 
 /// SIGKILL a process of the test's own making (our descendant in our namespace) after checking its start time.
@@ -96,7 +98,7 @@ fn my_zombies() -> Vec<u32> {
     let mut out = Vec::new();
     for e in fs::read_dir("/proc").unwrap().flatten() {
         if let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok())
-            && let Ok(Some(s)) = read_stat(pid)
+            && let Ok(s) = read_stat(pid)
             && s.ppid == me
             && s.state == 'Z'
         {
@@ -190,6 +192,7 @@ fn site_cfg_raw(root: &Path, cpu: usize) -> SiteConfig {
         idle_min: 0.0,
         max_cores: 1,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     }
 }
@@ -279,17 +282,22 @@ fn idlock_helper() {
         cap_preference: CapPreference::NoSystemd,
         ..RealConfig::default()
     };
-    let t = match RealLauncher::try_with_config(sampler(), c.clone()) {
+    let t = match RealLauncher::try_with_config(sampler(), c) {
         Ok(_) => "accepted".to_string(),
         Err(LauncherError::IdLock(e)) => format!("refused: {e}"),
         Err(e) => format!("error: {e}"),
     };
-    let w = RealLauncher::with_config(sampler(), c);
-    let line = format!(
-        "{t}\nwith_config id={} replaced={:?}\n",
-        w.config().campaign_id,
-        w.setup().campaign_id_replaced
-    );
+    // procfix7 round 19: the silent `with_config` (which ran on an ad-hoc id here) is gone; `RealLauncher::new` (the
+    // process's own ad-hoc id) still works beside the refused campaign id
+    let adhoc = match RealLauncher::new(sampler()) {
+        Ok(l) => format!(
+            "new: own ad-hoc id {} lock {:?}",
+            l.config().campaign_id,
+            l.id_lock_path()
+        ),
+        Err(e) => format!("new: error: {e}"),
+    };
+    let line = format!("{t}\n{adhoc}\n");
     fs::write(out.join("idlock.tmp"), line).unwrap();
     fs::rename(out.join("idlock.tmp"), out.join("idlock.txt")).unwrap();
 }
@@ -544,8 +552,8 @@ fn rb_m2_a_second_process_with_the_same_id_is_refused_and_signals_nothing() {
     let t = run_helper("h1");
     assert!(t.starts_with("refused:") && t.contains("in use"), "{t}");
     assert!(
-        t.contains("replaced=Some"),
-        "with_config replaces the id: {t}"
+        t.contains("new: own ad-hoc id adhoc-") && t.contains("lock Some("),
+        "the helper's own ad-hoc launcher holds its own lock: {t}"
     );
     assert!(
         matches!(j.poll().unwrap(), ChildProgress::Running),
@@ -864,6 +872,12 @@ fn tripwire(file: &str, text: &str) -> Vec<String> {
                 // The contract lane's fake child: kill of its own forked helpers (pid from its own fork, waited at once)
                 // and of itself; never a group or a broadcast.
                 "bin/rr_fake_child.rs" => pat == "kill(" && code.contains("libc::kill("),
+                // procfix7 round 11 (gate14 item 5): the coordinator's SAFE HOST CHECK (bin rr_scope_check, never run by
+                // the supervisor): `systemctl --user show / stop / reset-failed` of the ONE unit it created, by its exact
+                // name, and texts naming its one cgroup.kill (written by ScopeRef::kill_members in launch/cgroup.rs).
+                "launch/host_check.rs" => {
+                    pat == "cgroup.kill" || pat == "Command::new(\"systemctl\""
+                }
                 _ => false,
             };
             if !allowed {

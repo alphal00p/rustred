@@ -1,5 +1,6 @@
 //! Process-level regression tests of audits A and B (lane contractfix), each citing its finding id. Run them in a
 //! private pid namespace: `LIGHT_PIDNS=1 light_build.sh <lane> test -p rustred-campaign --test fake_child_audit`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod fake_child_common;
 use fake_child_common::*;

@@ -1,0 +1,167 @@
+FROZEN HOST-STEP HAND-OVER (lane procfix7, @UTC@). Never edited after creation; a later version goes to a NEW dated
+directory. Directory: @DIR@
+SUPERSEDES @SUPERSEDES@. Do not use those.
+
+Source: branch ac/procfix7 commit @COMMIT@ (WS/wt/ac-procfix7), release build (light_build.sh, 0 warnings;
+RR_CAMPAIGN_FAILPOINT and "TEST BUILD" absent from bin/rr_campaign, bin/rr_fake_child and bin/rr_scope_check). Host-tests: copies of WS/plan/auto-campaign/host-tests/
+(also in git: scripts/procfix7/host-tests/). No .pyc is shipped; every python3 call uses -I -B. Made by
+scripts/procfix7/freeze_host_step.sh.
+
+THE SUPERVISOR IS A DETACHED systemd USER SERVICE with an exact name: the script runs
+  setsid systemd-run --user --wait --collect --unit=hoststep-fake1-<HHMMSS> -p Type=exec -p KillMode=mixed
+    -p TimeoutStopSec=infinity -p MemoryMax=8G -p MemorySwapMax=0 -p "UnsetEnvironment=RR_CAMPAIGN_JOB RR_CAMPAIGN_FAILPOINT"
+    -p StandardError=append:OUT/run.log -p StandardOutput=append:OUT/supervisor.stdout --working-directory=OUT
+    --setenv=PATH=<the launching shell's PATH> --setenv=HOME=<HOME> [--setenv=TMPDIR=<TMPDIR if set>]
+    -- bin/rr_campaign run --spec OUT/spec.json --plain          (dry-run.txt prints it in full)
+  - the unit's main process IS the supervisor (systemd makes it its own session leader); its jobs start their own sessions
+    and their own rr-<id>-* scopes;
+  - the --wait client runs in its own session (output OUT/launcher.log) and reports systemd's exit status of the unit
+    (P1 needs exit 0 AND systemd's "code=exited, status=0"; a death by signal is 128 + the signal, never 0);
+  - follow: systemctl --user status hoststep-fake1-<HHMMSS>.service (exact name in OUT/supervisor.unit; unloaded when it
+    ends: --collect); if the launching script ended early: REL=<dir>/bin OUT=<OUT> bash <dir>/host_step_fake1.sh --grade
+    (follows the same unit by name, waits up to 30 s for the client's end report, then grades);
+  - stop: <dir>/bin/rr_campaign control OUT/c stop (a request; the watcher's ABORT files exactly this), or
+    systemctl --user stop hoststep-fake1-<HHMMSS>.service (SIGTERM to the supervisor = the same graceful stop, exit 143,
+    P1 FAIL; systemd never escalates against the supervisor: TimeoutStopSec=infinity). KillMode=mixed: at a stop systemd
+    sends SIGTERM to the supervisor only; once the supervisor has EXITED (a stop or a normal end) systemd sends SIGKILL to
+    whatever is still in the SERVICE's own cgroup: only descendants of the supervisor that never moved into a job scope
+    (its own systemctl helpers, a job's systemd-run client before its scope move). The jobs' scopes are separate units
+    and are never touched by it; no foreign process can be in that cgroup.
+
+THE TWO WORKLOADS (round 12; the same script, the same grader, P1-P8 as in RUNBOOK 1.7, P5 STRICT for both):
+  (A) NON-FORKING, as host step 2: HELPERS unset (= 0): the fake jobs fork nothing.
+  (B) HONESTLY FORKING: HELPERS=2: every rule job forks 2 compliant helpers inside its own scope (same session and group,
+      PR_SET_PDEATHSIG; one ends on its own after 150 ms, one is killed by the job itself at its end: spec field
+      synthetic.honest_helpers = 2; dry-run-fork.txt shows the spec). Nothing may outlive its job: any unproven end FAILs P5.
+  Order: the safe host scope check (below) first, then (A) if not yet run on this host, then (B). One at a time.
+  RUN ON A HOST THAT IS NOT CPU-STARVED (the end-of-job proof's latency grows with starvation: gate 15 measured proofs up to
+  ~126 s on a starved test host; rehearsals here: p99 2.2 s).
+  DEFAULT LIMITS (nothing in the shipped spec changes them): an end not proven within verify_timeout = 120 s is reported
+  Unverified and stays in quarantine (re-hunted; `unverified_end_cleared` when proven later: not a FAIL by itself);
+  after resources.unproven_end_limit_s = 600 s the attempt gets the note `unproven_end` (processes named, lease released,
+  the run ends exit 8): that note FAILs P5.
+
+THE USER MANAGER (round 14, host step 3: run B ended exit 71 during a 4-minute stall of the user manager that the run
+did not cause; reports/HOST-STEP-3-ANALYSIS.md). Now a HOST condition, never a verdict about the scope mechanism or a job:
+- a scope launch whose launcher (systemd-run) is still in the supervisor's own cgroup is PENDING (decided from the kernel:
+  /proc/<leader>/cgroup, then /proc/<leader>/exe; no manager call): the job has not started; it is never killed by the
+  10-s rule and never counted toward the limit of 3; a launcher that gives up while pending is "never ran" (retried);
+- THE GATE: while a launch is pending longer than 5 s or the manager probe (ONE `systemctl --user show -p Version
+  --value`, at most one in flight, every 30 s; 5-60 s back-off while closed) does not answer within 5 s, NO job is
+  launched (log "launching paused: the user manager does not answer"; notes manager_unresponsive / manager_answered);
+  running jobs go on; scope reads are deferred to the exit. Closed longer than resources.manager_wait_limit_s (default
+  900 s; MANAGER_WAIT_LIMIT_S=<s> sets it) the run drains and stops with EXIT 69 ("manager unavailable": run the same
+  command once the manager answers), not 71;
+- LEFTOVER UNITS: units of this campaign that could not be confirmed cleared (a launcher ended while its request may
+  still be queued; a unit not read / still active / failed and not reset at the exit) are listed in
+  <OUT>/c/units.leftover.json and cleared by exact name at the next start, at the exit when the manager answers, and by
+  `bin/rr_campaign units clear <OUT>/c` (only names of this campaign recorded by its ledger; state read first; failed:
+  reset-failed; active with an empty cgroup: stopped; populated: never stopped);
+- a stop decision (limit, recovery, manager; since round 15 also 100 failed polls of a child) no longer disables the
+  ledger: every signal delivered during the drain is recorded (run B: 21 were only in the intent log); since round 15
+  (gate16 M16-1) the exit pass's records (at-exit scope notes, leftover notes, deliveries of jobs dropped at the exit)
+  come BEFORE the last progress write (P4 `verify` 0 after a stall too). Not covered: after the ledger's OWN failure
+  (disk full, a directory removed or replaced) or a panic a delivered signal is in the intent log only (P5 names it;
+  the next start reconciles it);
+- round 15 (gate16 minors): the pending decision reads the leader's cgroup first, its executable second; a launcher
+  that ends while the manager does not answer is never counted; a leftover unit whose cgroup is not found is kept (never
+  stopped); "not loaded" leaves the list only when found so again >= 15 min later; the start's clearing waits for an
+  answering manager; `units clear` refuses while a supervisor holds the campaign lock;
+- our manager calls are logged per minute ("user-manager calls in the last 60 s: systemd-run N, show N, ...").
+
+THE END-OF-JOB PROOF (round 10 gate13c G13c-M1; round 11 gate14 G14-M1; wording round 12 gate15 m15-manifest; RUNBOOK
+2.10): the hunt follows the supervisor's own children, every member it stopped, and every WALKED process: a live process
+OF OUR UID, started after the job, outside every job session and without the job's marker (never signalled). It never
+follows the descendants of a process it does not walk (a process classified as not the job's: another uid, another
+attempt's or campaign's marker, the supervisor's own session, older than the job). At every level it follows, a listed
+process that ended between the listing and its examination, and may have handed off to a successor born after the
+listing, is never counted as absent: the fixed point looks again, and a proof pass that sees one (or a walked process that
+ended, or a walked list that changed) is inconclusive. Exempt only by a conclusive fact: a member the hunt stopped and
+killed (pid AND start time); a zombie already seen ended in an earlier listing of the same hunt; a process started before
+the job; a zombie of the supervisor's own session; a process classified as not the job's AND not walked; a zombie of
+another job's session whose leader is held unreaped AND was born no later than it. A gone entry (no start time) is always
+a suspect. A scope still populated with no live member listed gets cgroup.kill. A proof that stays inconclusive ends as an
+unverified / unproven end (P5), never as a proven one. What a proof says: no marked process of the job and no member of
+its session is alive in the supervisor's tree, below any number of WALKED marker-less processes of our uid, at two
+conclusive passes; it says nothing about descendants of a process the hunt does not walk, nor about a marker-less process
+that re-sets the marker for new children (out of scope since procfix3).
+
+KNOWN, NOT IN THIS PACKAGE:
+- (fixed IN this package, round 16; the frozen 20261118T1214Z package lacks them) gate 17's minors: m17-gone-sticky (a
+  gone executable link with a live worker thread is now Unverified: the 10-s rule applies) and m17-units-takeover
+  (`units clear` after a crashed supervisor refuses and leaves its lock record to the next start).
+- the NOT TESTED points of gate 15 (below, verbatim).
+- run at a quiet hour: the user systemd manager of this host has recurring stalls (01:10Z, 04:47Z, 05:07Z, 05:24Z on
+  2026-11-18): a stall now PAUSES launches (gate) and ends after 900 s closed with exit 69 = manager unavailable, which is
+  a HOST condition, not a failure of the step.
+
+NOT TESTED, read only (gate 15, notes/implementer.gate15.md, verbatim): "GATE 15: CLEAN (no blocker, no major), with a
+COVERAGE GAP: the adversary extensions 1(a)-(e) and the walked-path decoy tests were NOT written (the assistant's safety
+layer stopped that test code); those parts rest on reading only." The untested points (the implementer's brief, round
+12): its extended relay tests (two levels of subreapers, self-re-forking subreaper, session change per hop, zombie
+thread-group leader, the four weak points named in round 11: gone entries under W1, the closing check's on-the-spot
+acceptance of a child classified as not the job's, the seen-ended rule, the equal-tick case of the other-leader session
+exemption) and its walked-list decoy tests were NOT written.
+
+KNOWN LIMIT L15-1 (RUNBOOK 2.10): a marked fork chain that forks and exits with no pause (0 us per hop), re-parented to
+the supervisor, can stay unstoppable for the hunt (gate 15: never stopped in 105 s in a namespace without a scope): the
+job stays Unverified, then `unproven_end` after 600 s, exit 8, the processes named; the exit is never held. On the host
+the job's own scope ends it: the hunt's scope belt writes cgroup.kill to that scope after the guarded kill (a chain stays
+in the scope of the job that forked it). The forking workload (B) has no such chain.
+
+THE SAFE HOST SCOPE CHECK (round 11, gate14 item 5; round 12 m15-hc-stop): from this directory, on the host, outside any
+job: `bash host_scope_check.sh --dry-run` (refusals and plan; nothing started), then `bash host_scope_check.sh --run`:
+a NEW random unit name gate-scopecheck-<16 hex from /dev/urandom> each time (a name already loaded, or whose scope
+directory exists, is refused); ONE scope of that name whose processes all live in their own private pid namespace; the
+belt's record and live_members() checked read-only; a safety gate (every pid in that scope is its own unshare or inside
+its private namespace, else ABORT without writing); ONE cgroup.kill of that scope; that exact unit stopped / reset-failed
+if anything is left, and ONLY if this run created it (its own child was seen inside it); PASS only when every step held
+and the unit is no longer loaded. Report: OUT/report.txt (path printed). bin/rr_scope_check is release-built from the
+same commit; scope-check-refusal.txt shows it refusing inside a namespace (made by the freeze). It signals nothing else,
+uses no pattern, and touches no other unit.
+
+HOW TO READ P5: P5 stays STRICT: any unproven_end note FAILs it. When unproven_end notes exist, pass.txt carries an extra
+line "P5-unproven INFO: N unproven_end note(s) (<attempts>): k of N cleared later (unverified_end_cleared of the same
+attempt); signals not accounted for 0, POSSIBLY SENT 0, other P5 notes none: the strict P5 FAILs ONLY on these notes".
+If that line says k == N, 0 unaccounted signals and "ONLY on these notes", the FAIL of P5 is a proof-completeness FAIL,
+not a signal or containment one: the coordinator decides whether to accept it. Any other P5-unproven text: a real FAIL.
+For workload (B) the expected P5 is a plain PASS: 0 unproven_end notes (rehearsal of this directory: see RUNBOOK).
+Round 14 (M5): P5 also reads the supervisor's own intent log (OUT/c/log/signal-intents.jsonl and its tmpfs fallback):
+its line ends "intent log: N delivered, K delivered but NOT recorded in the ledger (ids), M without completion (POSSIBLY
+SENT), run.log 'not recorded' lines L"; P5 FAILs unless K = M = L = 0 (run B as recorded: K = 21, ids 126-146).
+
+Contents:
+  host_step_fake1.sh        the host step (RUNBOOK 1.7): --dry-run / --run / --rehearse-ns / --grade; the pre-flight
+                            bin/rr_campaign scope-check (--run only) must PASS before anything starts; HELPERS=<0-8>
+  host_scope_check.sh       the safe host scope check (runs bin/rr_scope_check with a random unit name)
+  grade_host_step.py        P1-P8 + the P5-unproven INFO line
+  p8_units.py               P8 (this campaign's rr-<id>-* units and the step's own units, by exact name)
+  test_p8_units.py          (python3 -I -B test_p8_units.py)
+  test_grade_host_step.py   on the RECORDED host step 1 (fixtures/host-step-1, read-only here)   (python3 -I -B ...)
+  rehearsal-fake-systemd/   systemd-run / systemctl FAKES for --rehearse-ns ONLY (refused outside a private user AND pid
+                            namespace; the script refuses them for --run / --dry-run)
+  fixtures/host-step-1/     host step 1's ledger, run.log, scopes.peak, site/spec, CPU-ledger lines, units seen
+  fixtures/host-step-3/     run B's ledger, intent log, run.log, scopes.peak, units seen, site/spec, pass.txt (the
+                            grader's round-14 P5 test)
+  bin/rr_campaign           release, @COMMIT@ (sha256 @RC_SHA@)
+  bin/rr_fake_child         release, @COMMIT@ (sha256 @FC_SHA@)
+  bin/rr_scope_check        release, @COMMIT@ (sha256 @SC_SHA@)
+  dry-run.txt               the --dry-run output of workload (A) (made inside a private namespace)
+  dry-run-fork.txt          the --dry-run output of workload (B), HELPERS=2 (made inside a private namespace)
+  scope-check-refusal.txt   bin/rr_scope_check refusing inside a private namespace (made by the freeze)
+  SHA256SUMS                sha256 of EVERY other file of this directory (MANIFEST included)
+
+Commands (from any clean shell; the SERVICE needs no pane or session, the grading needs the launching script or a later
+--grade):
+  cd @DIR@ && sha256sum -c SHA256SUMS && python3 -I -B test_p8_units.py && python3 -I -B test_grade_host_step.py
+  bash @DIR@/host_scope_check.sh --dry-run
+  bash @DIR@/host_scope_check.sh --run                                   # the safe host check: PASS before (B)
+  REL=@DIR@/bin bash @DIR@/host_step_fake1.sh --dry-run                  # workload (A)
+  REL=@DIR@/bin bash @DIR@/host_step_fake1.sh --run
+  HELPERS=2 REL=@DIR@/bin bash @DIR@/host_step_fake1.sh --dry-run        # workload (B), forking
+  HELPERS=2 REL=@DIR@/bin bash @DIR@/host_step_fake1.sh --run
+Pass criteria: RUNBOOK 1.7 P1-P8 as the script writes them to OUT/pass.txt.
+WHAT ONLY THE HOST RUN SHOWS (a namespace has no systemd; the rehearsal emulates the unit with the fakes): the real unit's
+creation, environment (manager's + PATH/HOME), Type=exec start, --wait exit-status propagation and --collect unload, the
+jobs' scopes created from inside the service's cgroup, P3's scope counts, P8's unit accounting, KillMode=mixed /
+TimeoutStopSec=infinity on a real stop, the scope belt's cgroup.kill.

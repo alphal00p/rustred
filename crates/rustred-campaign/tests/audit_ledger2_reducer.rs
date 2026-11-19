@@ -5,6 +5,7 @@
 //! Deterministic attack tests: stale verdicts versus replays of older evidence.
 //!
 //! `RR_A2_SEEDS=200 RR_A2_STEPS=3000 cargo test --release --test audit_ledger2_reducer -- --nocapture`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::collections::{BTreeMap, BTreeSet};

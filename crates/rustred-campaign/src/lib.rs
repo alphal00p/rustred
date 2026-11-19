@@ -10,6 +10,7 @@ pub mod cli;
 pub mod clock;
 pub mod cpu_policy;
 pub mod export;
+pub mod fsx;
 pub mod launch;
 pub mod ledger;
 pub mod lock;

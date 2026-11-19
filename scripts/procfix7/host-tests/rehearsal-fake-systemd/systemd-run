@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# REHEARSAL FAKE of `systemd-run` (lane procfix7 round 9b). ONLY for `host_step_fake1.sh --rehearse-ns`, inside a PRIVATE
+# user+pid namespace (it refuses elsewhere): there the real systemd-run would reach the HOST's user manager through
+# /run/user/<uid> and start the step's supervisor on the host. It emulates the one form the step uses:
+#   systemd-run --version
+#   systemd-run --user --wait --collect --unit=NAME [--description=TEXT] [-p K=V]... [--setenv=K=V]...
+#               [--working-directory=DIR] -- CMD ARG...
+# as a "service": state in $FAKE_SYSTEMD_DIR/NAME.service/ (props, main.pid, exit); CMD runs in its OWN SESSION (it is
+# the session leader, as under systemd), with ONLY the --setenv variables (a service does not inherit the caller's
+# environment; UnsetEnvironment= is then moot), cwd DIR, stdout / stderr appended to StandardOutput= / StandardError=
+# append:FILE; returns once CMD has been exec'd (Type=exec). A waiter records the exit (code 1 = exited, 2 = killed by a
+# signal; status) for `systemctl show`. MemoryMax=, KillMode=, TimeoutStopSec=, RemainAfterExit= are recorded (the last
+# two are honoured by the fake systemctl). --wait (round 9b): this client then stays until the service ended and returns
+# its exit status as systemd-run does (exited: the status; killed by SIGHUP / SIGINT / SIGTERM / SIGPIPE: 0, systemd's
+# "clean" signals for a service; any other signal: 1), after the terse lines "Finished with result: R" and "Main processes
+# terminated with: code=exited|killed, status=N"; the service survives this client. --collect: the ended unit is
+# unloaded whatever its result. NOT emulated: cgroups (MemoryMax, ControlGroup), the user manager's own environment,
+# journal, D-Bus. Signals nothing.
+set -u
+if [ "${1:-}" = --version ]; then echo "systemd-run REHEARSAL FAKE (procfix7 round 9b host-step rehearsal)"; exit 0; fi
+die() { echo "fake systemd-run: $*" >&2; exit 1; }
+[ "$(tr -s ' ' < /proc/self/uid_map | sed 's/^ //')" != "0 0 4294967295" ] || die "refused outside a private user namespace"
+# procfix7 round 10 (gate13c O-fake): and outside a private PID namespace (a user-only namespace would still see, and
+# could signal, the host's processes): pid 1 must be a process of our own uid that is not systemd
+[ "$(stat -c %u /proc/1 2>/dev/null)" = "$(id -u)" ] && [ "$(cat /proc/1/comm 2>/dev/null)" != systemd ] \
+  || die "refused outside a private pid namespace"
+[ -n "${FAKE_SYSTEMD_DIR:-}" ] || die "FAKE_SYSTEMD_DIR not set"
+[ "${1:-}" = --user ] || die "only --user is emulated"; shift
+NAME=""; WD=/; ENVS=(); PROPS=(); WAIT=no; COLLECT=no
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --unit=*) NAME=${1#--unit=} ;;
+    --description=*) ;;
+    --wait) WAIT=yes ;;
+    --collect) COLLECT=yes ;;
+    -p) PROPS+=("$2"); shift ;;
+    --setenv=*) ENVS+=("${1#--setenv=}") ;;
+    --working-directory=*) WD=${1#--working-directory=} ;;
+    --) shift; break ;;
+    *) die "unsupported argument $1" ;;
+  esac
+  shift
+done
+[ -n "$NAME" ] && [ $# -gt 0 ] || die "need --unit=NAME and a command"
+case "$NAME" in *[!A-Za-z0-9_.-]*) die "not a literal unit name: $NAME" ;; esac
+D=$FAKE_SYSTEMD_DIR/$NAME.service
+[ -e "$D" ] && die "Unit $NAME.service was already loaded (the fake never reuses a name)"
+mkdir -p "$D" || die "cannot create $D"
+OUTF=/dev/null; ERRF=/dev/null
+: > "$D/props"
+[ "$COLLECT" = yes ] && echo "CollectMode=inactive-or-failed" >> "$D/props"
+for p in "${PROPS[@]}"; do
+  echo "$p" >> "$D/props"
+  case "$p" in
+    StandardOutput=append:*) OUTF=${p#StandardOutput=append:} ;;
+    StandardError=append:*) ERRF=${p#StandardError=append:} ;;
+  esac
+done
+head -c 16 /dev/urandom | od -An -tx1 | tr -d ' \n' > "$D/invocation"
+# the waiter: a python3 fork + setsid + exec (the main process is its own session leader, as under systemd) and a waitpid
+# that distinguishes an exit status from a signal (a shell's $? cannot: 143 = exit 143 or SIGTERM)
+PY3=$(command -v python3) || die "python3 not on PATH"
+{
+  echo '#!/usr/bin/env bash'
+  printf 'cd %q || exit 200\n' "$WD"
+  printf 'exec %q -I -B -c %q %q %q %q' "$PY3" '
+import os, sys
+d, outf, errf, argv = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:]
+pid = os.fork()
+if pid == 0:
+    os.setsid()
+    o = os.open(outf, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    e = os.open(errf, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+    os.dup2(o, 1); os.dup2(e, 2)
+    env = dict(kv.split("=", 1) for kv in argv[:argv.index("--")])
+    cmd = argv[argv.index("--") + 1:]
+    os.execve(cmd[0], cmd, env)
+open(d + "/main.pid.tmp", "w").write(str(pid)); os.replace(d + "/main.pid.tmp", d + "/main.pid")
+_, st = os.waitpid(pid, 0)
+r = "1 %d" % os.WEXITSTATUS(st) if os.WIFEXITED(st) else "2 %d" % os.WTERMSIG(st)
+open(d + "/exit.tmp", "w").write(r + "\n"); os.replace(d + "/exit.tmp", d + "/exit")
+' "$D" "$OUTF" "$ERRF"
+  for e in "${ENVS[@]}"; do printf ' %q' "$e"; done
+  printf ' --'
+  for a in "$@"; do printf ' %q' "$(command -v -- "$a" 2>/dev/null || echo "$a")"; break; done
+  shift_args=("${@:2}")
+  for a in "${shift_args[@]}"; do printf ' %q' "$a"; done
+  echo
+} > "$D/run.sh"
+bash "$D/run.sh" < /dev/null > /dev/null 2>&1 &
+disown
+for _ in $(seq 200); do [ -s "$D/main.pid" ] && break; sleep 0.05; done
+[ -s "$D/main.pid" ] || die "the service did not start"
+echo "Running as unit: $NAME.service; invocation ID: $(cat "$D/invocation")" >&2
+[ "$WAIT" = yes ] || exit 0
+until [ -s "$D/exit" ]; do sleep 0.2; done
+read -r code status < "$D/exit"
+if [ "$code" = 1 ]; then
+  [ "$status" = 0 ] && res=success || res=exit-code
+  echo "Finished with result: $res" >&2
+  echo "Main processes terminated with: code=exited, status=$status" >&2
+  exit "$status"
+fi
+echo "Finished with result: signal" >&2
+echo "Main processes terminated with: code=killed, status=$status" >&2
+case "$status" in 1|2|13|15) exit 0 ;; *) exit 1 ;; esac

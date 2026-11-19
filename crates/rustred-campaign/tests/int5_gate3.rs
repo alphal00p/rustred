@@ -11,6 +11,7 @@
 //!   result other than the reference; a resumed run equals the reference;
 //! - M3: a helper thread that cannot be started is a typed resource failure, not a timeout;
 //! - m3: the site's CPU-ledger and lock files are never created, and bad site configurations are refused.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -479,6 +480,7 @@ fn site_files_are_never_created_and_bad_site_configs_are_refused() {
         idle_min: 0.0,
         max_cores: 1,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     };
     // the ledger does not exist: refused, not created

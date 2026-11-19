@@ -18,6 +18,7 @@
 //!
 //! Each scenario passes when its output has no `| FAIL` result line, the driver's SUMMARY shows decoys_dead=0,
 //! marked_orphans_missed=0 and driver_signals=none, and no churn decoy was killed by a signal.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_reaudit_b/driver.rs"]
 mod driver;
@@ -37,7 +38,7 @@ use std::time::{Duration, Instant};
 pub const CAMP: &str = "rbcamp";
 
 pub fn stat(pid: u32) -> Option<ProcStat> {
-    read_stat(pid).ok().flatten()
+    read_stat(pid).ok()
 }
 
 /// Live (not zombie / dead) process with this start time? (A dead main thread with a live thread counts as alive.)
@@ -45,10 +46,10 @@ pub fn alive(pid: u32, start: u64) -> bool {
     stat(pid).is_some_and(|s| {
         s.start_ticks == start
             && (!s.is_dead()
-                || rustred_campaign::resources::live_thread(pid)
-                    .ok()
-                    .flatten()
-                    .is_some())
+                || matches!(
+                    rustred_campaign::resources::live_thread(pid),
+                    Ok(rustred_campaign::resources::LiveThread::Found(..))
+                ))
     })
 }
 
@@ -172,19 +173,31 @@ fn rb_entry() {
     }
 }
 
+/// The scenario logs of THIS test run: a NEW directory `run-<UTC>-<token>` (procfix7 round 18, int9 gate: the logs went
+/// to one FIXED directory, so concurrent runs of different lanes overwrote each other's evidence), created once per
+/// test-binary process under the base: RB_LOG_DIR, else the shared reaudit-b log directory when its parent exists, else
+/// the temp dir. Every scenario prints its log path.
 fn log_dir() -> PathBuf {
-    if let Some(d) = std::env::var_os("RB_LOG_DIR") {
-        return PathBuf::from(d);
-    }
-    let user = std::env::var("USER").unwrap_or_else(|_| "vhirschi".into());
-    let d = PathBuf::from(format!(
-        "/common/build-cache/{user}/p_integral_dev/implementer-scratch/procfix2/reaudit-b"
-    ));
-    if d.parent().is_some_and(Path::exists) {
-        let _ = std::fs::create_dir_all(&d);
-        return d;
-    }
-    std::env::temp_dir()
+    static DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    DIR.get_or_init(|| {
+        let base = match std::env::var_os("RB_LOG_DIR") {
+            Some(d) => PathBuf::from(d),
+            None => {
+                let user = std::env::var("USER").unwrap_or_else(|_| "vhirschi".into());
+                let d = PathBuf::from(format!(
+                    "/common/build-cache/{user}/p_integral_dev/implementer-scratch/procfix2/reaudit-b"
+                ));
+                if d.parent().is_some_and(Path::exists) {
+                    d
+                } else {
+                    std::env::temp_dir()
+                }
+            }
+        };
+        let stamp = utc().replace([':', '-'], "");
+        unique_dir_in(&base, &format!("run-{stamp}"))
+    })
+    .clone()
 }
 
 /// Run one scenario in a fresh nested private namespace; returns its output (also written to the log directory).
@@ -203,7 +216,8 @@ fn run_scenario(scen: &str, extra_env: &[(&str, &str)], timeout: Duration) -> St
     let _g = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
     // lane int5: a new TMPDIR-rooted directory unique on the host (never the pid: it is 1 in the namespace)
     let run = unique_temp_dir(&format!("rr-reaudit-b-{scen}"));
-    // A private runtime directory per scenario: the host-wide campaign-id lock of "rbcamp" is then private to it.
+    // A private runtime directory per scenario (the id lock itself is scenario-private since procfix7 round 18: every
+    // launcher of the scenario takes it in `<run>/idlock`, sup.rs `lock_dir`).
     let xdg = run.join("xdg");
     {
         use std::os::unix::fs::DirBuilderExt;
@@ -494,10 +508,14 @@ fn rb_prop() {
 /// root), and created with `create_dir` (a directory it did not create is never reused or removed).
 #[allow(dead_code)]
 pub fn unique_temp_dir(prefix: &str) -> std::path::PathBuf {
+    unique_dir_in(&std::env::temp_dir(), prefix)
+}
+
+/// A NEW directory `<base>/<prefix>-<token>` unique on the host (see [`unique_temp_dir`]).
+pub fn unique_dir_in(base: &Path, prefix: &str) -> std::path::PathBuf {
     use std::sync::atomic::{AtomicU64, Ordering};
     static SEQ: AtomicU64 = AtomicU64::new(0);
-    let base = std::env::temp_dir();
-    std::fs::create_dir_all(&base).unwrap();
+    std::fs::create_dir_all(base).unwrap();
     let ns = std::fs::read_link("/proc/self/ns/pid")
         .map(|l| l.to_string_lossy().into_owned())
         .unwrap_or_default();

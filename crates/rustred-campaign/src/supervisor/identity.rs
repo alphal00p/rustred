@@ -48,7 +48,9 @@ pub fn nonce(cdir: &Path) -> Result<String, String> {
 /// The marker campaign id of `cdir` (validated for the launcher's charset).
 pub fn campaign_marker_id(cdir: &Path, campaign: &str) -> Result<String, String> {
     let n = nonce(cdir)?;
-    let md = std::fs::metadata(cdir).map_err(|e| format!("{}: {e}", cdir.display()))?;
+    let md = crate::fsx::presence("supervisor.dirs", cdir)
+        .metadata()
+        .map_err(|e| format!("{}: {e}", cdir.display()))?;
     let h = blake3::hash(format!("{n}|{}|{}", md.dev(), md.ino()).as_bytes()).to_hex();
     let prefix: String = campaign
         .chars()

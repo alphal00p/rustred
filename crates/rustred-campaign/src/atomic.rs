@@ -175,10 +175,20 @@ pub fn write_atomic_with(
         op: "name",
         source: io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"),
     })?;
-    if mode == Mode::NoClobber && fs::symlink_metadata(path).is_ok() {
-        return Err(AtomicError::Exists {
-            path: path.to_path_buf(),
-        });
+    // procfix7 round 5: an unreadable target is an error, never "absent" (the hard-link install below refuses an
+    // existing target anyway)
+    if mode == Mode::NoClobber {
+        match crate::fsx::presence_lstat("atomic.target", path) {
+            crate::fsx::Presence::Absent => {}
+            crate::fsx::Presence::Present(_) => {
+                return Err(AtomicError::Exists {
+                    path: path.to_path_buf(),
+                });
+            }
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(AtomicError::from_io(path, "stat target", e));
+            }
+        }
     }
     let parent = parent_of(path);
     let mut attempt = 0u64;
@@ -241,14 +251,15 @@ pub fn sync_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Deletes leftover temporaries of this module in `dir` (names `.<x>.rr-tmp-<pid>-<n>`). Returns the count.
+/// procfix7 round 5: only after a COMPLETE listing; each removal's proof is read from the entry itself (a regular file,
+/// not a symlink, with this module's temporary name) in a directory the caller holds (the ledger directory under the
+/// campaign lock and its flock).
 pub fn remove_stale_temporaries(dir: &Path) -> io::Result<usize> {
     let mut n = 0;
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        let s = name.to_string_lossy();
-        if s.starts_with('.') && s.contains(".rr-tmp-") && entry.file_type()?.is_file() {
-            fs::remove_file(entry.path())?;
+    for entry in crate::fsx::list_required("atomic.listing", dir)? {
+        let s = entry.name_lossy();
+        if s.starts_with('.') && s.contains(".rr-tmp-") && entry.file_type.is_file() {
+            fs::remove_file(&entry.path)?;
             n += 1;
         }
     }
@@ -285,6 +296,7 @@ pub fn blake3_file(path: &Path) -> io::Result<(u64, String)> {
     Ok((n, h.finalize().to_hex().to_string()))
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

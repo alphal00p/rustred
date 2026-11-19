@@ -1,5 +1,6 @@
 //! Lane closeloop3 (closeloop2's request "FOR THE LEDGER OWNER"; interfaces/closeloop.md 16.5): a node registered with
 //! `spec.start_target: boxed` is BOXED from its first ledger record. Pure reducer tests (no process, no file).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod ledger_support;
 

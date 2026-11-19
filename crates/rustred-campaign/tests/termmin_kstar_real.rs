@@ -7,6 +7,7 @@
 //!   "key_budget_s"}`.
 //! Writes `out_dir/report.json`: per recipe the adapter row, the sealed record's verdict / sizes / digests / proof,
 //! and the containment of each explicit list in the generic family at the key.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::termmin::direct::{DirectConfig, solve_recipe_once};
@@ -112,6 +113,7 @@ fn real_explicit_and_mixed_shell_solves_at_one_key() {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );

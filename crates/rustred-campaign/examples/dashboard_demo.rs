@@ -1,5 +1,6 @@
 //! Demo host of the campaign dashboard (lane I-TUI). The implementation is shared with the pseudo-terminal test:
 //! `tests/tui_support/demo.rs` (usage there; `dashboard_demo --fixture midrun`, `dashboard_demo CDIR`).
+#![allow(clippy::disallowed_methods)] // a demo program
 
 #[path = "../tests/tui_support/demo.rs"]
 mod demo;

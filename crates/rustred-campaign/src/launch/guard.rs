@@ -45,9 +45,10 @@
 //! audit A M4, also checked). Group numbers of OTHER groups (from a scan) are never signalled as groups (audit A M1):
 //! their members are signalled one by one through the checklist.
 
+use crate::resources::procfs::{self, ProcError, ProcRoot};
 use crate::resources::{
-    CampaignMarker, InvalidPid, Leaders, MARKER_VAR, MarkedProcess, ProcessIdentity, ValidPid,
-    boot_id, marker_in_environ, our_uid, page_size, parse_stat, run_bounded,
+    CampaignMarker, InvalidPid, Leaders, LiveThread, MARKER_VAR, MarkedProcess, ProcessIdentity,
+    ValidPid, boot_id, live_thread_at, marker_in_environ, our_uid, run_bounded,
 };
 use serde::Serialize;
 use std::io;
@@ -298,6 +299,10 @@ struct IntentLog {
     next: u64,
     /// procfix6 (gate5 m3): an intent write of this log failed for lack of space.
     disk_full: bool,
+    /// procfix7 (gate6 m3-a): the tmpfs FALLBACK log of this session (pre-allocated pages), used once the campaign
+    /// directory's log is full; `on_fallback` = from then on every intent and completion line goes there.
+    fallback: Option<(std::fs::File, PathBuf)>,
+    on_fallback: bool,
 }
 
 static INTENTS: std::sync::Mutex<Option<IntentLog>> = std::sync::Mutex::new(None);
@@ -324,6 +329,8 @@ fn with_intent_log<R>(log_dir: &Path, session: &str, f: impl FnOnce() -> R) -> R
             session: session.into(),
             next: 0,
             disk_full: false,
+            fallback: None,
+            on_fallback: false,
         })
     });
     let r = f();
@@ -372,6 +379,9 @@ pub struct IntentLine {
     /// "intent" | "done".
     pub kind: String,
     pub id: String,
+    /// procfix7 (gate7 m-fb): the campaign id, on the header line of a tmpfs fallback log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub campaign: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub utc: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -403,13 +413,14 @@ pub struct IntentLine {
 pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
     std::fs::create_dir_all(log_dir)?;
     let path = log_dir.join(INTENT_LOG_FILE);
-    let new = !path.exists();
+    // only the directory sync depends on it: a log that cannot be checked counts as new (synced)
+    let new = !crate::fsx::presence_lstat("guard.fallback", &path).is_present();
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)?;
     let reserve = log_dir.join(INTENT_RESERVE_FILE);
-    if std::fs::symlink_metadata(&reserve).is_err() {
+    if !crate::fsx::presence_lstat("guard.reserve", &reserve).is_present() {
         // Best effort: the reserve only helps a later write on a full disk.
         if let Ok(mut f) = std::fs::OpenOptions::new()
             .create_new(true)
@@ -417,7 +428,11 @@ pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
             .open(&reserve)
         {
             use std::io::Write;
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the reserve only helps a later full-disk write (best effort)
             let _ = f.write_all(&vec![0u8; INTENT_RESERVE_BYTES]);
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the reserve only helps a later full-disk write (best effort)
             let _ = f.sync_all();
         }
     }
@@ -433,8 +448,276 @@ pub fn install_intent_log(log_dir: &Path, session: &str) -> io::Result<()> {
         session: session.to_string(),
         next: 0,
         disk_full: false,
+        fallback: None,
+        on_fallback: false,
     });
     Ok(())
+}
+
+// procfix7 (gate6 m3-a): on ZFS (where the host run's campaign directory lives) NOTHING written inside the campaign
+// directory reserves space: fallocate returns 0 and allocates nothing, an overwrite in place is copy-on-write (it needs
+// new blocks), and a deleted reserve file frees its blocks only after the transaction group syncs (and not at all while
+// a snapshot holds them). A dataset reservation would, but needs the administrator. What IS sound: a second intent log
+// on a TMPFS (memory-backed; `fallocate` there really allocates the pages, so appends within them cannot fail for lack
+// of space), used once the campaign directory's log is full. tmpfs survives a supervisor crash (the only case the
+// intents serve: the restart records what the dead session sent), not a reboot (after which no process of the earlier
+// boot exists; only the ledger's record of the last signals before a crash + reboot could then be incomplete).
+
+/// Sub-directory (of the tmpfs base) of the fallback logs of one user.
+const FALLBACK_DIR_PREFIX: &str = "rr-campaign-intents-";
+/// Bytes pre-allocated in a fallback log (tmpfs: real pages).
+const FALLBACK_PREALLOC_BYTES: i64 = 256 << 10;
+const TMPFS_MAGIC: i64 = 0x0102_1994;
+
+fn on_tmpfs(p: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(c) = std::ffi::CString::new(p.as_os_str().as_bytes()) else {
+        return false;
+    };
+    // SAFETY: statfs fills a plain struct through a valid pointer; the path is NUL-terminated.
+    let mut v: libc::statfs = unsafe { std::mem::zeroed() };
+    (unsafe { libc::statfs(c.as_ptr(), &mut v) } == 0) && v.f_type as i64 == TMPFS_MAGIC
+}
+
+/// procfix7 (gate7 m-xdg): the base of the fallback intent logs: `/dev/shm/rr-campaign-intents-<uid>`, a path derived
+/// from the uid ONLY (as the id lock since procfix3: no environment variable decides where intents of a campaign go,
+/// so every session of a campaign looks in the same place), on the tmpfs `/dev/shm`.
+pub fn intent_fallback_base() -> PathBuf {
+    PathBuf::from(format!(
+        "/dev/shm/{FALLBACK_DIR_PREFIX}{}",
+        crate::resources::our_uid()
+    ))
+}
+
+/// procfix7 (gate7 m-xdg): a directory we may keep intents in: created 0700 if absent; refused unless it is a real
+/// directory (not a symlink) owned by us and not accessible to group / others (a directory someone else created
+/// first is never used: the remedy procfix3 gave the id lock).
+fn private_dir(dir: &Path, create: bool) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
+    match crate::fsx::presence_lstat("guard.fallback", dir) {
+        crate::fsx::Presence::Present(_) => {}
+        crate::fsx::Presence::Absent if create => {
+            match std::fs::DirBuilder::new().mode(0o700).create(dir) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
+        }
+        crate::fsx::Presence::Absent => {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("{}: not found", dir.display()),
+            ));
+        }
+        crate::fsx::Presence::Unknown(e) => return Err(e),
+    }
+    let m = crate::fsx::presence_lstat("guard.fallback", dir).metadata()?;
+    if !m.file_type().is_dir() {
+        return Err(io::Error::other(format!(
+            "{}: not a directory (or a symlink)",
+            dir.display()
+        )));
+    }
+    if m.uid() != crate::resources::our_uid() {
+        return Err(io::Error::other(format!(
+            "{}: owned by uid {}, not by us",
+            dir.display(),
+            m.uid()
+        )));
+    }
+    if m.permissions().mode() & 0o077 != 0 {
+        return Err(io::Error::other(format!(
+            "{}: mode {:o} is accessible to group / others",
+            dir.display(),
+            m.permissions().mode() & 0o777
+        )));
+    }
+    Ok(())
+}
+
+/// procfix7 (gate6 m3-a, gate7 m-xdg): the directory of the fallback intent logs of the campaign directory `cdir`
+/// (keyed by its device and inode under [`intent_fallback_base`]); checked (owner, mode, no symlink) and, with
+/// `create`, created. Err: no usable fallback directory (NotFound when it does not exist and `create` is false).
+pub fn intent_fallback_dir_checked(cdir: &Path, create: bool) -> io::Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let md = crate::fsx::presence("guard.fallback", cdir).metadata()?;
+    let base = intent_fallback_base();
+    if create && !on_tmpfs(Path::new("/dev/shm")) {
+        return Err(io::Error::other("/dev/shm is not a tmpfs"));
+    }
+    private_dir(&base, create)?;
+    let dir = base.join(format!("{}-{}", md.dev(), md.ino()));
+    private_dir(&dir, create)?;
+    Ok(dir)
+}
+
+/// The fallback directory of `cdir` (not created, not checked; see [`intent_fallback_dir_checked`]).
+pub fn intent_fallback_dir(cdir: &Path) -> io::Result<PathBuf> {
+    use std::os::unix::fs::MetadataExt;
+    let md = crate::fsx::presence("guard.fallback", cdir).metadata()?;
+    Ok(intent_fallback_base().join(format!("{}-{}", md.dev(), md.ino())))
+}
+
+/// procfix7 (gate6 m3-a): give the INSTALLED intent log its tmpfs fallback for this session (`<dir>/<session>.jsonl`,
+/// 256 KiB pre-allocated). gate7 m-fb: its FIRST line is a header naming the campaign id and the session, written and
+/// synced at install: only a log whose header names this campaign and one of its recorded sessions is ever merged.
+/// Returns the path; Err: no fallback (the log works as before).
+pub fn install_intent_fallback(cdir: &Path, campaign_id: &str) -> io::Result<PathBuf> {
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::OpenOptionsExt;
+    let dir = intent_fallback_dir_checked(cdir, true)?;
+    let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+    let log = g
+        .as_mut()
+        .ok_or_else(|| io::Error::other("no intent log installed"))?;
+    let path = dir.join(format!("{}.jsonl", log.session));
+    let mut file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW)
+        .open(&path)?;
+    let header = IntentLine {
+        schema: INTENT_SCHEMA.into(),
+        kind: "header".into(),
+        id: log.session.clone(),
+        campaign: Some(campaign_id.to_string()),
+        utc: Some(crate::cpu_policy::utc_now()),
+        pid: None,
+        start_ticks: None,
+        signal: None,
+        target: None,
+        marker: None,
+        proof: None,
+        by: None,
+        label: None,
+        detail: None,
+        result: None,
+    };
+    let mut line = serde_json::to_vec(&header).map_err(io::Error::other)?;
+    line.push(b'\n');
+    file.write_all(&line)?;
+    file.sync_data()?;
+    // SAFETY: fallocate on our own descriptor with integer arguments (tmpfs: allocates the pages).
+    if unsafe {
+        libc::fallocate(
+            file.as_raw_fd(),
+            libc::FALLOC_FL_KEEP_SIZE,
+            0,
+            FALLBACK_PREALLOC_BYTES,
+        )
+    } != 0
+    {
+        return Err(io::Error::last_os_error());
+    }
+    log.fallback = Some((file, path.clone()));
+    Ok(path)
+}
+
+/// procfix7 (gate7 m-fb): the header of a fallback log: (campaign id, session). Ok(None): no header (a foreign file or
+/// a log of an older binary: never merged).
+pub fn read_fallback_header(path: &Path) -> io::Result<Option<(String, String)>> {
+    use std::io::BufRead;
+    let f = crate::fsx::open("guard.fallback", path).required(path)?;
+    let mut first = String::new();
+    std::io::BufReader::new(f).read_line(&mut first)?;
+    Ok(serde_json::from_str::<IntentLine>(first.trim())
+        .ok()
+        .filter(|l| l.schema == INTENT_SCHEMA && l.kind == "header")
+        .and_then(|l| l.campaign.map(|c| (c, l.id))))
+}
+
+/// procfix7 (gate6 m3-a): every fallback intent log of the campaign directory `cdir` (earlier sessions of this boot).
+/// gate7 m-xdg: Err when the fallback directory exists but is not ours (owner / mode / symlink): nothing in it is used.
+pub fn intent_fallback_logs(cdir: &Path) -> io::Result<Vec<PathBuf>> {
+    let dir = match intent_fallback_dir_checked(cdir, false) {
+        Ok(d) => d,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    // a COMPLETE listing (an entry error fails it: never "no fallback log")
+    let mut v = Vec::new();
+    for e in crate::fsx::list_required("guard.fallback", &dir)? {
+        if e.path.extension().is_some_and(|x| x == "jsonl") {
+            v.push(e.path);
+        }
+    }
+    v.sort();
+    Ok(v)
+}
+
+/// procfix7 (gate6 m3-a, gate7 m-fb): remove exactly these fallback logs (earlier sessions of THIS campaign whose
+/// intents are in the ledger now); never this session's own. Returns how many were removed.
+/// procfix7 round 5 (destructive action, positive proof): each file is removed only when, read back IMMEDIATELY before,
+/// it is a regular file (not a symlink) whose header names `campaign_id` and the session its name carries.
+pub fn remove_intent_fallbacks(paths: &[PathBuf], campaign_id: &str) -> usize {
+    let own = INTENTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .and_then(|l| l.fallback.as_ref().map(|f| f.1.clone()));
+    paths
+        .iter()
+        .filter(|p| Some(*p) != own.as_ref())
+        .filter(|p| fallback_removable(p, campaign_id))
+        .filter(|p| std::fs::remove_file(p).is_ok())
+        .count()
+}
+
+/// The positive proof before a fallback log's removal (see [`remove_intent_fallbacks`]).
+fn fallback_removable(p: &Path, campaign_id: &str) -> bool {
+    if !crate::fsx::presence_lstat("guard.fallback", p).is_file() {
+        return false;
+    }
+    let stem = p.file_stem().map(|s| s.to_string_lossy().into_owned());
+    matches!(read_fallback_header(p), Ok(Some((c, s))) if c == campaign_id && Some(&s) == stem.as_ref())
+}
+
+/// procfix7 (gate6 m3-a): at the end of a session, remove its own fallback log if it was never used (a used one stays
+/// for the restart), and the then empty directories.
+pub fn retire_own_intent_fallback() {
+    let mut g = INTENTS.lock().unwrap_or_else(|p| p.into_inner());
+    let Some(log) = g.as_mut() else { return };
+    if log.on_fallback {
+        return;
+    }
+    if let Some((f, p)) = log.fallback.take() {
+        // procfix7 round 5 (positive proof): the path is still the file this session created and holds open (same
+        // device and inode, read back now); anything else is left alone
+        use std::os::unix::fs::MetadataExt;
+        let same = match (
+            f.metadata(),
+            crate::fsx::presence_lstat("guard.fallback", &p),
+        ) {
+            (Ok(a), crate::fsx::Presence::Present(b)) => {
+                b.is_file() && a.dev() == b.dev() && a.ino() == b.ino()
+            }
+            _ => false,
+        };
+        if !same {
+            return;
+        }
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
+        let _ = std::fs::remove_file(&p);
+        if let Some(d) = p.parent() {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): only our own UNUSED fallback log and then-empty directories (best effort cleanup)
+            let _ = std::fs::remove_dir(d);
+        }
+    }
+}
+
+/// procfix7 (gate6 m3-a): the fallback log the installed intent log writes to since the campaign directory's log filled
+/// up (None: still the campaign directory's log).
+pub fn intent_on_fallback() -> Option<PathBuf> {
+    INTENTS
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .as_ref()
+        .filter(|l| l.on_fallback)
+        .and_then(|l| l.fallback.as_ref().map(|f| f.1.clone()))
 }
 
 /// Remove the installation (tests; a supervisor keeps it until it exits).
@@ -445,6 +728,16 @@ pub fn uninstall_intent_log() {
 /// Is an intent log installed in this process?
 pub fn intent_log_installed() -> bool {
     INTENTS.lock().unwrap_or_else(|p| p.into_inner()).is_some()
+}
+
+/// procfix7 round 5 (destructive action, positive proof): the reserve is freed only when, read back now, it is a regular
+/// file (not a symlink) of ours of exactly the reserve's size (what [`install_intent_log`] writes).
+fn reserve_removable(p: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    matches!(crate::fsx::presence_lstat("guard.reserve", p),
+        crate::fsx::Presence::Present(m) if m.is_file()
+            && m.len() == INTENT_RESERVE_BYTES as u64
+            && m.uid() == crate::resources::our_uid())
 }
 
 fn is_disk_full(e: &io::Error) -> bool {
@@ -562,6 +855,8 @@ fn prealloc_tail(file: &std::fs::File) {
         return;
     }
     // SAFETY: fallocate on our own open descriptor with integer arguments; KEEP_SIZE leaves the file size unchanged.
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): best-effort pre-allocation (not a decision; the reserve and the tmpfs fallback cover a full disk)
     let _ = unsafe {
         libc::fallocate(
             file.as_raw_fd(),
@@ -592,6 +887,7 @@ fn write_intents_to(
             schema: INTENT_SCHEMA.into(),
             kind: "intent".into(),
             id: id.clone(),
+            campaign: None,
             utc: Some(utc.clone()),
             pid: Some(it.pid),
             start_ticks: it.start_ticks,
@@ -609,12 +905,25 @@ fn write_intents_to(
         ids.push(Some(id));
     }
     let attempt = |log: &mut IntentLog, lead: bool| -> io::Result<()> {
+        #[cfg(debug_assertions)]
+        if test_reached("intent_primary_enospc") {
+            return Err(io::Error::from_raw_os_error(libc::ENOSPC));
+        }
         if lead {
             // A torn line of the failed attempt ends here (the reader skips it).
             log.file.write_all(b"\n")?;
         }
         log.file.write_all(&buf)?;
         log.file.sync_data()
+    };
+    // procfix7 (gate6 m3-a): the tmpfs fallback (a leading newline ends a torn line of an earlier failed attempt).
+    let to_fallback = |log: &mut IntentLog| -> Option<io::Result<()>> {
+        let (f, _) = log.fallback.as_mut()?;
+        Some(
+            f.write_all(b"\n")
+                .and_then(|()| f.write_all(&buf))
+                .and_then(|()| f.sync_data()),
+        )
     };
     #[cfg(debug_assertions)]
     if test_reached("intent_enospc") {
@@ -623,11 +932,27 @@ fn write_intents_to(
             "signal intent not durable: TEST BUILD intent_enospc {DISK_FULL_WORD}"
         ));
     }
+    if log.on_fallback {
+        return match to_fallback(log) {
+            Some(Ok(())) => Ok(ids),
+            Some(Err(e)) => Err(format!(
+                "signal intent not durable: {e} (tmpfs fallback log) {}",
+                if is_disk_full(&e) { DISK_FULL_WORD } else { "" }
+            )),
+            None => Err(format!(
+                "signal intent not durable: no fallback log {DISK_FULL_WORD}"
+            )),
+        };
+    }
     let word = |e: &io::Error| if is_disk_full(e) { DISK_FULL_WORD } else { "" };
     let r = match attempt(log, false) {
-        Ok(()) => Ok(ids),
-        Err(e) if is_disk_full(&e) && std::fs::remove_file(&log.reserve).is_ok() => {
-            attempt(log, true).map(|()| ids).map_err(|e2| {
+        Ok(()) => Ok(ids.clone()),
+        Err(e)
+            if is_disk_full(&e)
+                && reserve_removable(&log.reserve)
+                && std::fs::remove_file(&log.reserve).is_ok() =>
+        {
+            attempt(log, true).map(|()| ids.clone()).map_err(|e2| {
                 format!(
                     "signal intent not durable: {e2} (after freeing the reserve; first: {e}) {}",
                     word(&e2)
@@ -636,8 +961,23 @@ fn write_intents_to(
         }
         Err(e) => Err(format!("signal intent not durable: {e} {}", word(&e))),
     };
+    // procfix7 (gate6 m3-a): the campaign directory's log is full: the batch goes to the tmpfs fallback (durable against
+    // a supervisor crash), the run still ends with exit 75 (disk full), and the signals ARE sent.
+    let r = match r {
+        Err(e) if e.contains(DISK_FULL_WORD) => match to_fallback(log) {
+            Some(Ok(())) => {
+                log.on_fallback = true;
+                log.disk_full = true;
+                Ok(ids)
+            }
+            Some(Err(e2)) => Err(format!("{e}; tmpfs fallback log: {e2}")),
+            None => Err(e),
+        },
+        other => other,
+    };
     match &r {
-        Ok(_) => prealloc_tail(&log.file),
+        Ok(_) if !log.on_fallback => prealloc_tail(&log.file),
+        Ok(_) => {}
         Err(e) if e.contains(DISK_FULL_WORD) => log.disk_full = true,
         Err(_) => {}
     }
@@ -662,6 +1002,7 @@ fn write_done_to(log: &mut IntentLog, done: &[(Option<String>, String)]) {
             schema: INTENT_SCHEMA.into(),
             kind: "done".into(),
             id: id.clone(),
+            campaign: None,
             utc: None,
             pid: None,
             start_ticks: None,
@@ -679,7 +1020,18 @@ fn write_done_to(log: &mut IntentLog, done: &[(Option<String>, String)]) {
         }
     }
     if !buf.is_empty() {
-        let _ = log.file.write_all(&buf);
+        match (&mut log.fallback, log.on_fallback) {
+            (Some((f, _)), true) => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): completion lines are not synced by design: a lost one only makes a delivered signal POSSIBLY SENT
+                let _ = f.write_all(&buf);
+            }
+            _ => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): completion lines are not synced by design: a lost one only makes a delivered signal POSSIBLY SENT
+                let _ = log.file.write_all(&buf);
+            }
+        }
     }
 }
 
@@ -731,6 +1083,8 @@ pub fn read_intent_log(path: &Path) -> io::Result<(Vec<LoggedIntent>, usize)> {
                     i.result = l.result.clone();
                 }
             }
+            // procfix7 (gate7 m-fb): the header of a fallback log
+            "header" => {}
             _ => bad += 1,
         }
     }
@@ -961,7 +1315,8 @@ struct Facts {
     zombie_without_threads: bool,
     start_ticks: u64,
     session: u32,
-    uid: Option<u32>,
+    /// The owner of `/proc/<pid>` (effective uid), read completely (procfix8: an unreadable owner fails the read).
+    uid: u32,
     /// None: not read (not needed) ; Some(None): no marker ; Some(Some(v)): value.
     marker: Option<Result<Option<String>, String>>,
 }
@@ -972,38 +1327,40 @@ enum Read {
     Failed(String),
 }
 
-/// Steps 4-7 reads (blocking; run on a helper thread). `root` is "/proc" in production (a seam for tests).
-fn read_facts(root: &Path, pid: u32, want_marker: bool) -> Read {
-    let stat_path = root.join(format!("{pid}/stat"));
-    let st = match std::fs::read(&stat_path) {
-        Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
-            Some(s) => s,
-            None => return Read::Failed("unparsable stat".into()),
-        },
-        Err(e) if matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH)) => {
-            return Read::Gone;
-        }
-        Err(e) => return Read::Failed(format!("stat: {e}")),
+/// Bound of the environ read of the checklist (it takes the target's mmap lock).
+const GUARD_ENVIRON_TIMEOUT: Duration = Duration::from_secs(1);
+
+/// Steps 4-7 reads (blocking; run on a helper thread). `root` is the real /proc in production (a seam for tests).
+/// procfix8 (gate8, the class): every read through [`procfs`]: Gone only for ENOENT / ESRCH of the PROCESS (never of a
+/// thread); an unreadable thread list or owner is Failed (it was "zombie without threads" / "gone": a target judged gone
+/// by a failed read made a hunt or sweep count it as dead).
+fn read_facts(root: &ProcRoot, pid: u32, want_marker: bool) -> Read {
+    let st = match root.stat(pid) {
+        Ok(s) => s,
+        Err(ProcError::Gone) => return Read::Gone,
+        Err(ProcError::Unreadable(w)) => return Read::Failed(format!("stat: {w}")),
     };
-    let mut env_path = root.join(format!("{pid}/environ"));
+    let mut tid = None;
     let mut zombie_without_threads = false;
     if st.is_dead() {
         // A dead main thread with live threads still runs (audit B M1): read the live thread's environ.
         match live_thread_at(root, pid) {
-            Some(tid) => env_path = root.join(format!("{pid}/task/{tid}/environ")),
-            None => zombie_without_threads = true,
+            Ok(LiveThread::Found(t, _)) => tid = Some(t),
+            Ok(LiveThread::NoneAlive) => zombie_without_threads = true,
+            Err(ProcError::Gone) => return Read::Gone,
+            Err(ProcError::Unreadable(w)) => return Read::Failed(format!("thread list: {w}")),
         }
     }
-    let uid = {
-        use std::os::unix::fs::MetadataExt;
-        std::fs::metadata(root.join(pid.to_string()))
-            .ok()
-            .map(|m| m.uid())
+    let uid = match root.owner_uid(pid) {
+        Ok(u) => u,
+        Err(ProcError::Gone) => return Read::Gone,
+        Err(ProcError::Unreadable(w)) => return Read::Failed(format!("owner: {w}")),
     };
     let marker = if want_marker && !zombie_without_threads {
-        Some(match std::fs::read(&env_path) {
+        Some(match root.environ(pid, tid, GUARD_ENVIRON_TIMEOUT) {
             Ok(b) if b.is_empty() => Err("environ empty (no mm)".into()),
             Ok(b) => Ok(marker_in_environ(&b)),
+            Err(ProcError::Gone) if tid.is_none() => return Read::Gone,
             Err(e) => Err(format!("environ unreadable: {e}")),
         })
     } else {
@@ -1016,22 +1373,6 @@ fn read_facts(root: &Path, pid: u32, want_marker: bool) -> Read {
         uid,
         marker,
     })
-}
-
-fn live_thread_at(root: &Path, pid: u32) -> Option<u32> {
-    for e in std::fs::read_dir(root.join(format!("{pid}/task"))).ok()? {
-        let Ok(e) = e else { continue };
-        let Some(tid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
-            continue;
-        };
-        if let Ok(b) = std::fs::read(root.join(format!("{pid}/task/{tid}/stat")))
-            && let Some(st) = parse_stat(pid, &String::from_utf8_lossy(&b), page_size())
-            && !st.is_dead()
-        {
-            return Some(tid);
-        }
-    }
-    None
 }
 
 /// Judge the facts against the target (pure). Ok(()) = may signal.
@@ -1064,10 +1405,8 @@ fn judge(
             session: f.session,
         }));
     }
-    match f.uid {
-        Some(u) if u == uid => {}
-        Some(u) => return Err(Verdict::NotOurs(Refusal::OtherUid { uid: u })),
-        None => return Err(Verdict::Gone),
+    if f.uid != uid {
+        return Err(Verdict::NotOurs(Refusal::OtherUid { uid: f.uid }));
     }
     match &t.proof {
         Proof::PinnedSession(sid) => {
@@ -1116,7 +1455,7 @@ pub(crate) fn signal_verified(
     leaders: Option<&Leaders>,
     timeout: Duration,
 ) -> Verdict {
-    signal_verified_at(Path::new("/proc"), t, sig, leaders, timeout)
+    signal_verified_at(&procfs::sys(), t, sig, leaders, timeout)
 }
 
 /// Steps 1, 2 and (gate re-audit A m-1) the pinned-session PRE-check: for `Proof::PinnedSession(sid)` the session must
@@ -1163,7 +1502,7 @@ fn open_pidfd_checked(pid: ValidPid) -> Result<Option<OwnedFd>, Verdict> {
 }
 
 pub(crate) fn signal_verified_at(
-    root: &Path,
+    root: &ProcRoot,
     t: &ProcessTarget,
     sig: i32,
     leaders: Option<&Leaders>,
@@ -1181,11 +1520,11 @@ pub(crate) fn signal_verified_at(
     // 4-7 on a helper thread, bounded.
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
     let read = {
-        let root: PathBuf = root.to_path_buf();
+        let root: ProcRoot = root.clone();
         let p = t.pid;
         match run_bounded(timeout, move || read_facts(&root, p, want_marker)).done() {
             Some(r) => r,
-            None => return Verdict::Unverified(format!("/proc reads of pid {p} timed out")),
+            None => return Verdict::Unverified(format!("proc reads of pid {p} timed out")),
         }
     };
     judge_one(t, read, pidfd.as_ref(), pid, sig, leaders)
@@ -1205,7 +1544,7 @@ pub(crate) fn signal_with_pidfd(
         Err(v) => return v,
     };
     let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-    let read = read_facts(Path::new("/proc"), t.pid, want_marker);
+    let read = read_facts(&procfs::sys(), t.pid, want_marker);
     judge_one(t, read, Some(fd), pid, sig, leaders)
 }
 
@@ -1260,7 +1599,7 @@ fn with_pidfds_held(
             }
         };
         let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-        match read_facts(Path::new("/proc"), t.pid, want_marker) {
+        match read_facts(&procfs::sys(), t.pid, want_marker) {
             Read::Gone => out[k] = Some((Verdict::Gone, None)),
             Read::Failed(e) => out[k] = Some((Verdict::Unverified(e), None)),
             Read::Facts(facts) => ready.push((
@@ -1445,15 +1784,16 @@ fn judge_and_send_batch_held(
             },
             // No pidfd: re-read the start time right before kill (residual race of microseconds, documented).
             None => match crate::resources::read_stat(r.t.pid) {
-                Ok(Some(st)) if st.start_ticks == r.facts.start_ticks => {
+                Ok(st) if st.start_ticks == r.facts.start_ticks => {
                     match sys::kill_pid(r.pid, sig) {
                         Ok(()) => Sent::Ok,
                         Err(e) if e.raw_os_error() == Some(libc::ESRCH) => Sent::Gone,
                         Err(e) => Sent::Failed(format!("send: {e}")),
                     }
                 }
-                Ok(_) => Sent::Gone,
-                Err(e) => Sent::Failed(format!("re-check: {e}")),
+                // another start time: the pid names a newer process, the target is dead; or ENOENT / ESRCH
+                Ok(_) | Err(ProcError::Gone) => Sent::Gone,
+                Err(ProcError::Unreadable(w)) => Sent::Failed(format!("re-check: {w}")),
             },
         };
         sent.push(res);
@@ -1630,18 +1970,11 @@ pub(crate) fn kill_all_pinned(leaders: &Leaders) -> usize {
 
 /// The pid a pidfd names (`Pid:` of `/proc/self/fdinfo/<fd>`, in our pid namespace): Ok(None) when its process has
 /// exited (-1 / 0); Err when the line cannot be read.
-fn pidfd_pid(fd: &OwnedFd) -> Result<Option<u32>, String> {
+fn pidfd_pid(fd: &OwnedFd) -> Result<procfs::PidfdPid, String> {
     use std::os::fd::AsRawFd;
-    let t = std::fs::read_to_string(format!("/proc/self/fdinfo/{}", fd.as_raw_fd()))
-        .map_err(|e| format!("fdinfo of the pidfd: {e}"))?;
-    let v = t
-        .lines()
-        .find_map(|l| l.strip_prefix("Pid:"))
-        .ok_or_else(|| "fdinfo of the pidfd has no Pid line".to_string())?
-        .trim()
-        .parse::<i64>()
-        .map_err(|e| format!("fdinfo Pid: {e}"))?;
-    Ok(u32::try_from(v).ok().filter(|&p| p > 0))
+    procfs::sys()
+        .self_fdinfo_pid(fd.as_raw_fd())
+        .map_err(|e| format!("fdinfo of the pidfd: {e}"))
 }
 
 /// procfix6 (gate5 m1): SIGKILL or SIGCONT to processes this guard STOPPED, by the identity held at the stop: the SAME
@@ -1676,9 +2009,9 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
                 Err(e) => return Err(Verdict::Unverified(format!("boot id unreadable: {e}"))),
             }
             match pidfd_pid(fd) {
-                Ok(Some(p)) if p == h.pid => {}
-                Ok(None) => return Err(Verdict::Gone),
-                Ok(Some(p)) => {
+                Ok(procfs::PidfdPid::Pid(p)) if p == h.pid => {}
+                Ok(procfs::PidfdPid::Exited) => return Err(Verdict::Gone),
+                Ok(procfs::PidfdPid::Pid(p)) => {
                     return Err(Verdict::Unverified(format!(
                         "the pidfd names pid {p}, not the held pid {}",
                         h.pid
@@ -1686,7 +2019,7 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
                 }
                 Err(e) => return Err(Verdict::Unverified(e)),
             }
-            let f = match read_facts(Path::new("/proc"), h.pid, false) {
+            let f = match read_facts(&procfs::sys(), h.pid, false) {
                 Read::Gone => return Err(Verdict::Gone),
                 Read::Failed(e) => return Err(Verdict::Unverified(e)),
                 Read::Facts(f) => f,
@@ -1700,12 +2033,8 @@ pub(crate) fn signal_held(items: &[(&OwnedFd, &StopHold)], sig: i32) -> Vec<Verd
                     current: f.start_ticks,
                 }));
             }
-            if sig == libc::SIGKILL {
-                match f.uid {
-                    Some(u) if u == uid => {}
-                    Some(u) => return Err(Verdict::NotOurs(Refusal::OtherUid { uid: u })),
-                    None => return Err(Verdict::Gone),
-                }
+            if sig == libc::SIGKILL && f.uid != uid {
+                return Err(Verdict::NotOurs(Refusal::OtherUid { uid: f.uid }));
             }
             // The reads above described the pidfd's process only if it had not exited by now.
             if pidfd_exited(fd) == Some(true) {
@@ -1857,7 +2186,7 @@ pub(crate) fn reap_adopted(pid: u32, start_ticks: u64, own_session: u32) -> bool
     // SAFETY: getpid cannot fail.
     let me = unsafe { libc::getpid() } as u32;
     match crate::resources::read_stat(pid) {
-        Ok(Some(st))
+        Ok(st)
             if st.start_ticks == start_ticks
                 && st.is_dead()
                 && st.ppid == me
@@ -1865,7 +2194,8 @@ pub(crate) fn reap_adopted(pid: u32, start_ticks: u64, own_session: u32) -> bool
         {
             sys::reap_pidfd(&fd)
         }
-        _ => false,
+        // not reaped now (it waits for a later tick); a failed read never reaps
+        Ok(_) | Err(_) => false,
     }
 }
 
@@ -1895,7 +2225,7 @@ fn signal_batch_inline(
     for (k, pid, fd) in &fds {
         let t = &targets[*k];
         let want_marker = matches!(t.proof, Proof::Marker(_) | Proof::Campaign(_));
-        match read_facts(Path::new("/proc"), t.pid, want_marker) {
+        match read_facts(&procfs::sys(), t.pid, want_marker) {
             Read::Gone => out[*k] = Some(Verdict::Gone),
             Read::Failed(e) => out[*k] = Some(Verdict::Unverified(e)),
             Read::Facts(facts) => ready.push((
@@ -2058,6 +2388,47 @@ pub fn set_child_subreaper(on: bool) -> io::Result<()> {
     }
 }
 
+/// procfix7 round 5 (gate9 G9-B2): the children of THIS process by the kernel's ATOMIC answer (waitid P_ALL with WNOHANG
+/// | WNOWAIT | __WALL: nothing is reaped). With the supervisor a child subreaper (or pid 1), every live descendant is
+/// in its children tree, so `NoChildren` (ECHILD) proves that NO descendant exists, whatever forks and exits during a
+/// scan; a /proc listing cannot prove that.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnChildren {
+    /// ECHILD: no child at all (live or zombie).
+    NoChildren,
+    /// At least one child: `zombie` = a waitable (exited, unreaped) child if the kernel named one, else None (a live
+    /// child exists).
+    Exist { zombie: Option<u32> },
+}
+
+pub fn own_children_state() -> io::Result<OwnChildren> {
+    loop {
+        // SAFETY: waitid fills a zeroed siginfo through a valid pointer; WNOWAIT leaves every child waitable.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let r = unsafe {
+            libc::waitid(
+                libc::P_ALL,
+                0,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT | libc::__WALL,
+            )
+        };
+        if r == 0 {
+            // SAFETY: reading the SIGCHLD union field of a filled (or zeroed) siginfo.
+            let pid = unsafe { info.si_pid() };
+            return Ok(OwnChildren::Exist {
+                zombie: (pid > 0).then_some(pid as u32),
+            });
+        }
+        let e = io::Error::last_os_error();
+        match e.raw_os_error() {
+            Some(libc::ECHILD) => return Ok(OwnChildren::NoChildren),
+            Some(libc::EINTR) => continue,
+            _ => return Err(e),
+        }
+    }
+}
+
 pub fn is_child_subreaper() -> bool {
     let mut v: libc::c_int = 0;
     // SAFETY: PR_GET_CHILD_SUBREAPER writes an int through the pointer.
@@ -2076,6 +2447,8 @@ pub fn is_child_subreaper() -> bool {
 /// The marker variable name, re-exported for callers building environments.
 pub const CAMPAIGN_MARKER_VAR: &str = MARKER_VAR;
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2085,7 +2458,7 @@ mod tests {
             zombie_without_threads: false,
             start_ticks: start,
             session,
-            uid: Some(uid),
+            uid,
             marker: Some(Ok(marker.map(str::to_string))),
         }
     }
@@ -2212,6 +2585,68 @@ mod tests {
         d
     }
 
+    /// procfix7 (gate6 m3-a): the campaign directory's intent log is FULL (here /dev/full: every write ENOSPC). Without
+    /// a fallback the intent is not durable (nothing may be sent, disk full); with the tmpfs fallback the batch is durable
+    /// there, and every later intent and completion line goes there too (the restart merges it by intent id).
+    #[test]
+    fn m3a_a_full_log_switches_to_the_fallback() {
+        let full = tmpdir("m3a-full");
+        std::os::unix::fs::symlink("/dev/full", full.join(INTENT_LOG_FILE)).unwrap();
+        let fb_dir = tmpdir("m3a-fb");
+        let fb_path = fb_dir.join("s.jsonl");
+        let mk = |fallback: bool| IntentLog {
+            file: std::fs::OpenOptions::new()
+                .append(true)
+                .open(full.join(INTENT_LOG_FILE))
+                .unwrap(),
+            reserve: full.join(INTENT_RESERVE_FILE),
+            session: "s".into(),
+            next: 0,
+            disk_full: false,
+            fallback: fallback.then(|| {
+                (
+                    std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&fb_path)
+                        .unwrap(),
+                    fb_path.clone(),
+                )
+            }),
+            on_fallback: false,
+        };
+        let it = Intent {
+            pid: 4242,
+            start_ticks: Some(7),
+            signal: libc::SIGKILL,
+            target: "process",
+            marker: None,
+            proof: "unit",
+            detail: None,
+        };
+        let mut l = mk(false);
+        let e = write_intents_to(Some(&mut l), std::slice::from_ref(&it), "by".into(), None)
+            .unwrap_err();
+        assert!(
+            e.contains(DISK_FULL_WORD) && l.disk_full && !l.on_fallback,
+            "{e}"
+        );
+        let mut l = mk(true);
+        let ids =
+            write_intents_to(Some(&mut l), std::slice::from_ref(&it), "by".into(), None).unwrap();
+        assert!(l.on_fallback && l.disk_full);
+        write_done_to(&mut l, &[(ids[0].clone(), "delivered".into())]);
+        let ids2 =
+            write_intents_to(Some(&mut l), std::slice::from_ref(&it), "by".into(), None).unwrap();
+        let (v, bad) = read_intent_log(&fb_path).unwrap();
+        assert_eq!(bad, 0);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].result.as_deref(), Some("delivered"));
+        assert_eq!(Some(v[1].line.id.clone()), ids2[0]);
+        let _ = std::fs::remove_dir_all(&full);
+        let _ = std::fs::remove_dir_all(&fb_dir);
+    }
+
     /// procfix5 (gate4 M1): no durable intent, no signal; with one, the intent precedes the send, the completion
     /// follows, and the delivery names the intent. Runs inside the pid namespace of the crate's test run (rule L10).
     #[test]
@@ -2219,7 +2654,7 @@ mod tests {
         let m = CampaignMarker::new("c1-intent", "j1:a1").unwrap();
         let mut child = marked_sleep(&m.value());
         let pid = child.id();
-        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let st = crate::resources::read_stat(pid).unwrap();
         let t = ProcessTarget {
             pid,
             boot_id: boot_id().unwrap(),
@@ -2349,7 +2784,7 @@ mod tests {
             .spawn()
             .unwrap();
         let pid = child.id();
-        let real = crate::resources::read_stat(pid).unwrap().unwrap();
+        let real = crate::resources::read_stat(pid).unwrap();
         let root = std::env::temp_dir().join(format!("rr-guard-fifo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join(pid.to_string())).unwrap();
@@ -2375,7 +2810,13 @@ mod tests {
             proof: Proof::Campaign("c1".into()),
         };
         let t0 = std::time::Instant::now();
-        let v = signal_verified_at(&root, &t, libc::SIGKILL, None, Duration::from_millis(300));
+        let v = signal_verified_at(
+            &ProcRoot::at(&root),
+            &t,
+            libc::SIGKILL,
+            None,
+            Duration::from_millis(300),
+        );
         assert!(matches!(v, Verdict::Unverified(_)), "{v:?}");
         assert!(t0.elapsed() < Duration::from_secs(5));
         assert!(
@@ -2452,7 +2893,7 @@ mod tests {
         let m = CampaignMarker::new(format!("c1-{tag}"), "j1:a1").unwrap();
         let mut a = dropping_child(&m.value());
         let pid = a.id();
-        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let st = crate::resources::read_stat(pid).unwrap();
         let t = ProcessTarget {
             pid,
             boot_id: boot_id().unwrap(),

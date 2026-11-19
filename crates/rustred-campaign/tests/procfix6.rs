@@ -10,6 +10,7 @@
 //!   killed";
 //! - m4: a child killed by SIGXFSZ is a resource end (row 15b), retried after the back-off, never a crash;
 //! - m5: one ledger note per job names the containment in force; no scope unit is recorded where no scope exists.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -38,7 +39,7 @@ fn path_env() -> std::ffi::OsString {
 }
 
 fn state_of(pid: u32) -> Option<char> {
-    read_stat(pid).ok().flatten().map(|s| s.state)
+    read_stat(pid).ok().map(|s| s.state)
 }
 
 fn script(dir: &Path, name: &str, body: &str) -> PathBuf {
@@ -103,7 +104,7 @@ fn m1_flipping_members_are_never_left_stopped_and_decoys_untouched() {
     );
     let id = "pf6flip.0123456789abcdef";
     let other = "pf6othr.0123456789abcdef:job-t0:a1";
-    let bound = read_stat(std::process::id()).unwrap().unwrap().start_ticks;
+    let bound = read_stat(std::process::id()).unwrap().start_ticks;
     let spawn_flip = |mark: &str| {
         Command::new(&flip)
             .env_clear()
@@ -421,7 +422,6 @@ fn daemons(dir: &Path) -> Vec<(u32, u64)> {
 fn alive_with(pid: u32, start: u64) -> bool {
     read_stat(pid)
         .ok()
-        .flatten()
         .is_some_and(|s| s.start_ticks == start && !s.is_dead())
 }
 
@@ -517,9 +517,12 @@ fn m3_full_intent_log_ends_75_promptly_and_names_what_was_not_signalled() {
     assert_no_marked(&t.campaign);
 }
 
-/// gate5 m4: a child killed by SIGXFSZ (here: attempt 1 of every job runs under `ulimit -f 0`) is a RESOURCE end
-/// (row 15b: requeued after the launch back-off), never a crash: no attempt is classified crashed, no item goes to
-/// attention, and the campaign finishes with exit 0 and the reference result.
+/// gate5 m4, as amended by procfix7 (gate6 m4-a): a child killed by SIGXFSZ is a RESOURCE end only with the
+/// supervisor's OWN evidence (its finite file-size limit, or a full file system; lib test
+/// `m4_disk_attributed_child_ends_are_resource_ends`). Here the first try of every item (job `...-t0`, attempt 1)
+/// lowers ITS OWN limit (`ulimit -f 0` in the job's wrapper) on a roomy disk under an unlimited supervisor: that is the
+/// child's doing, a CRASH (one per item, below the crashed-twice rule; the synthetic source retries a crash as the
+/// item's next job `...-t1`): no row-15b requeue, every item accepted on its retry, exit 0.
 #[test]
 fn m4_sigxfsz_death_is_a_resource_end_not_a_crash() {
     if !in_ns() {
@@ -536,7 +539,7 @@ fn m4_sigxfsz_death_is_a_resource_end_not_a_crash() {
         &t.path,
         "wrap.sh",
         &format!(
-            "#!/bin/sh\nif [ \"$1\" = job ]; then\n  case \"$2\" in */a1/job.json|*.a1/job.json) ulimit -f 0;; esac\nfi\n\
+            "#!/bin/sh\nif [ \"$1\" = job ]; then\n  case \"$2\" in *-t0.a1/job.json) ulimit -f 0;; esac\nfi\n\
              exec {FAKE} \"$@\"\n"
         ),
     );
@@ -562,18 +565,15 @@ fn m4_sigxfsz_death_is_a_resource_end_not_a_crash() {
             }
         )
     });
-    assert_eq!(crashed, 0, "{}", log_tail(&d));
+    assert_eq!(crashed, 3, "one crash per job: {}", log_tail(&d));
     let resource = count(
         &d,
         |e| matches!(e, Event::Job { ev: JobEvent::Requeue { reason }, .. } if reason.ends_with("(row 15b)")),
     );
-    assert!(
-        resource >= 3,
-        "{resource} resource requeues: {}",
-        log_tail(&d)
-    );
+    assert_eq!(resource, 0, "{}", log_tail(&d));
     let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
-    assert!(log.contains("killed by SIGXFSZ"), "{log}");
+    assert!(!log.contains("a resource end (row 15b)"), "{log}");
+    // gate7 m-h1: the RESULT is compared with the reference (each item accepted with the same rule and record)
     assert_eq!(result(&d), result(&r));
     assert_eq!(verify(&d), 0);
     assert_no_marked(&t.campaign);

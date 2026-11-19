@@ -271,7 +271,30 @@ impl ProofInstantiateAdapter {
         };
         match mapped {
             WaitStatus::Exited(0) => {
-                let raw = std::fs::read(layout.out_dir().join(CHILD_OUT)).unwrap_or_default();
+                // procfix7 round 5: answers that cannot be READ are never an empty answer set (an io end)
+                let raw =
+                    match crate::fsx::read("adapters.outcome", &layout.out_dir().join(CHILD_OUT)) {
+                        crate::fsx::Read::Content(b) => b,
+                        crate::fsx::Read::Absent => Vec::new(),
+                        crate::fsx::Read::Failed(e) => {
+                            let mut io = JobOutcome::for_spec(
+                                &prep.spec,
+                                &prep.spec_blake3,
+                                program,
+                                ExitCode::Io,
+                                StopInfo {
+                                    code: Some(StopCode::IoError),
+                                    ..StopInfo::none()
+                                },
+                            );
+                            io.error = Some(ErrorInfo::new(
+                                ErrorClass::Io,
+                                format!("the child's answers could not be read: {e}"),
+                            ));
+                            write(io);
+                            return (WaitStatus::Exited(ExitCode::Io.code()), None);
+                        }
+                    };
                 let mut j = JobOutcome::for_spec(
                     &prep.spec,
                     &prep.spec_blake3,
@@ -340,10 +363,34 @@ impl ProofInstantiateAdapter {
                         ..StopInfo::none()
                     },
                 );
-                let msg = std::fs::read_to_string(layout.stdout_log())
-                    .ok()
-                    .and_then(|s| s.lines().last().map(str::to_string))
-                    .unwrap_or_else(|| "rr_proof exit 2".into());
+                // procfix7 round 5: a log that cannot be READ leaves the cause unknown: an io end, never input evidence
+                let msg = match crate::fsx::read_to_string("adapters.outcome", &layout.stdout_log())
+                {
+                    crate::fsx::Read::Content(s) => s
+                        .lines()
+                        .last()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| "rr_proof exit 2".into()),
+                    crate::fsx::Read::Absent => "rr_proof exit 2".into(),
+                    crate::fsx::Read::Failed(e) => {
+                        let mut io = JobOutcome::for_spec(
+                            &prep.spec,
+                            &prep.spec_blake3,
+                            j.program.clone(),
+                            ExitCode::Io,
+                            StopInfo {
+                                code: Some(StopCode::IoError),
+                                ..StopInfo::none()
+                            },
+                        );
+                        io.error = Some(ErrorInfo::new(
+                            ErrorClass::Io,
+                            format!("rr_proof exit 2, its log could not be read: {e}"),
+                        ));
+                        write(io);
+                        return (WaitStatus::Exited(ExitCode::Io.code()), None);
+                    }
+                };
                 j.error = Some(ErrorInfo::new(ErrorClass::Input, msg));
                 write(j);
                 (mapped, None)

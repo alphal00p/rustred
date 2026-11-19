@@ -199,6 +199,7 @@ pub fn read_keys(text: &str) -> Result<Vec<Vec<i32>>, String> {
     Ok(out)
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

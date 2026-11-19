@@ -11,7 +11,7 @@
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
-use std::os::fd::RawFd;
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,6 +32,65 @@ fn write_file(p: &Path, s: &str) -> io::Result<()> {
         .write(true)
         .open(p)?
         .write_all(s.as_bytes())
+}
+
+/// procfix7 round 11 (gate14 m14-scope-toctou): open a directory without following a symbolic link in its last component.
+fn open_dir_nofollow(p: &Path) -> io::Result<OwnedFd> {
+    use std::os::unix::ffi::OsStrExt;
+    let c = std::ffi::CString::new(p.as_os_str().as_bytes()).map_err(io::Error::other)?;
+    // SAFETY: open(2) of a NUL-terminated path; the descriptor is owned below.
+    let fd = unsafe {
+        libc::open(
+            c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a fresh descriptor we own.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// procfix7 round 11 (gate14 m14-scope-toctou): the directory `p` opened once and checked BY ITS DESCRIPTOR: a directory,
+/// owned by `uid`, with the recorded (dev, inode). Every later access goes through the returned descriptor.
+fn open_dir_checked(p: &Path, uid: u32, (dev, ino): (u64, u64)) -> io::Result<OwnedFd> {
+    let dir = open_dir_nofollow(p)?;
+    // SAFETY: fstat on our own open descriptor into a zeroed stat buffer.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    if unsafe { libc::fstat(dir.as_raw_fd(), &mut st) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    if (st.st_mode & libc::S_IFMT) != libc::S_IFDIR
+        || st.st_uid != uid
+        || st.st_dev != dev
+        || st.st_ino != ino
+    {
+        return Err(io::Error::other(format!(
+            "{}: not the recorded directory",
+            p.display()
+        )));
+    }
+    Ok(dir)
+}
+
+/// Write `s` to `name` RELATIVE to the open directory `dir` (openat, O_NOFOLLOW): the file of THAT directory.
+fn write_at(dir: &OwnedFd, name: &std::ffi::CStr, s: &str) -> io::Result<()> {
+    // SAFETY: openat(2) relative to our open directory descriptor; the descriptor is owned below.
+    let fd = unsafe {
+        libc::openat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_WRONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a fresh descriptor we own.
+    let mut f = File::from(unsafe { OwnedFd::from_raw_fd(fd) });
+    f.write_all(s.as_bytes())
 }
 
 impl CgroupRoot {
@@ -57,11 +116,14 @@ impl CgroupRoot {
         ));
         fs::create_dir(&probe)
             .map_err(|e| format!("{}: cannot create a child cgroup: {e}", path.display()))?;
-        let ok = probe.join("memory.max").exists()
+        // procfix7 round 5: only a PROVEN present memory.max counts (an unknown answer = not usable: sampling)
+        let ok = crate::fsx::presence("cgroup", &probe.join("memory.max")).is_present()
             && OpenOptions::new()
                 .write(true)
                 .open(probe.join("cgroup.procs"))
                 .is_ok();
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own probe directory
         let _ = fs::remove_dir(&probe);
         if !ok {
             return Err(format!(
@@ -78,10 +140,12 @@ impl CgroupRoot {
     /// launch), move it into `<own>/supervisor`, enable `+memory` for children, and return `<own>` as the root.
     /// Refuses (Err with the reason) in every other case; it never moves a process other than this one.
     pub fn prepare_in_own_scope() -> Result<Self, String> {
-        let own = crate::resources::own_cgroup_dir().ok_or("no cgroup-v2 membership")?;
+        let own = crate::resources::own_cgroup_dir()?;
         // SAFETY: getuid has no arguments and cannot fail.
         let uid = unsafe { libc::getuid() };
-        let meta = fs::metadata(&own).map_err(|e| format!("{}: {e}", own.display()))?;
+        let meta = crate::fsx::presence("cgroup", &own)
+            .metadata()
+            .map_err(|e| format!("{}: {e}", own.display()))?;
         if meta.uid() != uid {
             return Err(format!(
                 "{} is not owned by this user (not delegated)",
@@ -98,8 +162,14 @@ impl CgroupRoot {
             ));
         }
         let leaf = own.join("supervisor");
-        if !leaf.exists() {
-            fs::create_dir(&leaf).map_err(|e| format!("{}: {e}", leaf.display()))?;
+        match crate::fsx::presence("cgroup", &leaf) {
+            crate::fsx::Presence::Present(_) => {}
+            crate::fsx::Presence::Absent => {
+                fs::create_dir(&leaf).map_err(|e| format!("{}: {e}", leaf.display()))?;
+            }
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(format!("{} cannot be checked: {e}", leaf.display()));
+            }
         }
         write_file(&leaf.join("cgroup.procs"), "0")
             .map_err(|e| format!("move into {}: {e}", leaf.display()))?;
@@ -133,7 +203,11 @@ impl CgroupRoot {
         fs::create_dir(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
         let setup = || -> io::Result<File> {
             write_file(&dir.join("memory.max"), &cap.to_string())?;
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): an optional knob (absent without swap accounting)
             let _ = write_file(&dir.join("memory.swap.max"), "0"); // absent without swap accounting
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): an optional knob (absent on older kernels)
             let _ = write_file(&dir.join("memory.oom.group"), "1");
             OpenOptions::new()
                 .write(true)
@@ -146,6 +220,8 @@ impl CgroupRoot {
                 memory: true,
             }),
             Err(e) => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): removal of our own empty job cgroup (an empty cgroup holds no process)
                 let _ = fs::remove_dir(&dir);
                 Err(format!("set up {}: {e}", dir.display()))
             }
@@ -176,20 +252,22 @@ impl JobCgroup {
         super::real::raw(&self.procs)
     }
 
-    /// `oom_kill` count of memory.events (0 if unreadable).
-    pub fn oom_kills(&self) -> u64 {
-        read(&self.dir.join("memory.events"))
-            .ok()
-            .and_then(|t| {
-                t.lines()
-                    .find_map(|l| l.strip_prefix("oom_kill "))
-                    .and_then(|v| v.trim().parse().ok())
-            })
-            .unwrap_or(0)
+    /// `oom_kill` count of memory.events; procfix7 round 5: None when it cannot be read or parsed (UNKNOWN, read
+    /// again at the next sample; never 0).
+    pub fn oom_kills(&self) -> Option<u64> {
+        match crate::fsx::read_to_string("cgroup", &self.dir.join("memory.events")) {
+            crate::fsx::Read::Content(t) => t
+                .lines()
+                .find_map(|l| l.strip_prefix("oom_kill "))
+                .and_then(|v| v.trim().parse().ok()),
+            crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => None,
+        }
     }
 
     /// `cgroup.kill` (Linux >= 5.14): SIGKILL to every process of the cgroup, escapees included.
     pub fn kill_all(&self) {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the kill is followed by the proof passes (cgroup.procs belt): survivors make the end unproven
         let _ = kill_path(&self.dir);
     }
 
@@ -208,6 +286,8 @@ impl JobCgroup {
     }
 
     pub(super) fn remove(self) {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): removal of our own empty job cgroup (an empty cgroup holds no process)
         let _ = fs::remove_dir(&self.dir);
     }
 }
@@ -244,7 +324,7 @@ impl CgroupRoot {
     /// (the leaf proves membership and kills race-free; memory caps stay with the chosen cap mechanism). Refuses in every
     /// other case, e.g. in a zellij shell (root-owned session scope).
     pub fn probe_tracking() -> Result<Self, String> {
-        let own = crate::resources::own_cgroup_dir().ok_or("no cgroup-v2 membership")?;
+        let own = crate::resources::own_cgroup_dir()?;
         let mut candidates = vec![own.clone()];
         if own.file_name().is_some_and(|n| n == "supervisor")
             && let Some(p) = own.parent()
@@ -262,7 +342,7 @@ impl CgroupRoot {
                 ));
                 continue;
             }
-            match fs::metadata(&dir) {
+            match crate::fsx::presence("cgroup", &dir).metadata() {
                 Ok(m) if m.uid() == euid => {}
                 Ok(_) => {
                     why.push(format!("{}: not owned by us", dir.display()));
@@ -292,11 +372,13 @@ impl CgroupRoot {
                 "cgroup.events",
             ]
             .iter()
-            .all(|f| probe.join(f).exists())
+            .all(|f| crate::fsx::presence("cgroup", &probe.join(f)).is_present())
                 && OpenOptions::new()
                     .write(true)
                     .open(probe.join("cgroup.procs"))
                     .is_ok();
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): removal of our own probe directory
             let _ = fs::remove_dir(&probe);
             if ok {
                 return Ok(Self { path: dir });
@@ -338,10 +420,30 @@ impl CgroupRoot {
                 memory: false,
             }),
             Err(e) => {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): removal of our own empty job cgroup (an empty cgroup holds no process)
                 let _ = fs::remove_dir(&dir);
                 Err(format!("open {}/cgroup.procs: {e}", dir.display()))
             }
         }
+    }
+}
+
+/// procfix7 round 6 (gate10 m10-3): `populated` of `<dir>/cgroup.events`: the kernel's RECURSIVE answer (a process in
+/// this cgroup or any child cgroup). A missing line or an unparsable value is an error.
+pub(super) fn populated(dir: &Path) -> io::Result<bool> {
+    let t = read(&dir.join("cgroup.events"))?;
+    match t
+        .lines()
+        .find_map(|l| l.strip_prefix("populated "))
+        .map(str::trim)
+    {
+        Some("0") => Ok(false),
+        Some("1") => Ok(true),
+        other => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("cgroup.events: populated {other:?}"),
+        )),
     }
 }
 
@@ -354,6 +456,20 @@ pub(super) fn procs_of(dir: &Path) -> io::Result<Vec<u32>> {
                 .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "cgroup.procs"))
         })
         .collect()
+}
+
+/// procfix7 round 6 (gate10 m10-3, the listing rule for cgroups): the processes of `dir` AND of every cgroup below it
+/// (cgroup.procs lists only a cgroup's OWN members; a process of the job that created and entered a child cgroup is
+/// listed there). The listing of child cgroups is complete or an error (fsx), and the caller cross-checks an empty
+/// answer with the kernel's RECURSIVE `cgroup.events` populated flag (the independent second source).
+pub(super) fn procs_recursive(dir: &Path) -> io::Result<Vec<u32>> {
+    let mut out = procs_of(dir)?;
+    for e in crate::fsx::list_required("cgroup", dir)? {
+        if e.file_type.is_dir() {
+            out.extend(procs_recursive(&e.path)?);
+        }
+    }
+    Ok(out)
 }
 
 /// `cgroup.kill` of a job cgroup WE created (the only caller passes `JobCgroup` paths). A successful write is a
@@ -401,10 +517,66 @@ pub(crate) struct ScopeRef {
 }
 
 /// Where systemd puts a user's transient scopes: `/sys/fs/cgroup/user.slice/user-<uid>.slice/user@<uid>.service/`.
-fn user_manager_root(uid: u32) -> PathBuf {
+pub(super) fn user_manager_root(uid: u32) -> PathBuf {
     PathBuf::from(format!(
         "/sys/fs/cgroup/user.slice/user-{uid}.slice/user@{uid}.service"
     ))
+}
+
+/// procfix7 round 11 (gate14 m14-scope-parent): a user scope's directory is accepted ONLY where systemd puts it: directly
+/// in `app.slice` of our user manager (systemd >= 247) or directly at the user manager's root (the two places
+/// [`scope_candidates_in`] looks); never a deeper directory of the delegated subtree that merely carries the name.
+fn scope_parent_ok(dir: &Path, uid: u32) -> bool {
+    let root = user_manager_root(uid);
+    dir.parent()
+        .is_some_and(|p| p == root || p == root.join("app.slice"))
+}
+
+/// procfix7 round 9 (gate13 G13-M1): the KERNEL's record of the cgroup in which a job's leader EXITED, read from its own
+/// `/proc/<pid>/cgroup` while it is our UNREAPED zombie (its pid cannot be reused). A zombie cannot be moved between
+/// cgroups and keeps its last cgroup until it is reaped; when systemd has already stopped the scope and removed its
+/// directory, the kernel still names the path and appends ` (deleted)` (cgroup v2, `proc_cgroup_show`). This evidence
+/// does not depend on any message text of systemd-run; it names the EXACT unit. Classification only: nothing is ever
+/// signalled, killed or reset on its basis.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ExitScope {
+    /// The leader exited inside exactly the requested scope under our user manager (`deleted`: the kernel reports the
+    /// scope's cgroup as removed since).
+    Inside { path: PathBuf, deleted: bool },
+    /// The kernel names another cgroup (the leader ended before systemd moved it into its scope, or it left the scope).
+    Elsewhere(String),
+    /// Not known (not read, not pinned any more, no cgroup-v2 line, read failed): the reason.
+    Unknown(String),
+}
+
+impl ExitScope {
+    /// From the text of the zombie leader's `/proc/<pid>/cgroup`: `Inside` only for a cgroup-v2 line `0::<path>` (an
+    /// optional ` (deleted)` suffix) whose path lies under OUR user manager, has no empty / `.` / `..` component and
+    /// whose last component is exactly `<unit>.scope`.
+    pub fn from_cgroup_text(text: &str, uid: u32, unit: &str) -> ExitScope {
+        let Some(line) = text.lines().find_map(|l| l.strip_prefix("0::")) else {
+            return ExitScope::Unknown("no cgroup-v2 line in the leader's cgroup file".into());
+        };
+        let line = line.trim_end_matches(['\n', '\r']);
+        let (rel, deleted) = match line.strip_suffix(" (deleted)") {
+            Some(r) => (r, true),
+            None => (line, false),
+        };
+        let inside = rel.strip_prefix('/').and_then(|r| {
+            if r.split('/').any(|c| c.is_empty() || c == "." || c == "..") {
+                return None;
+            }
+            let dir = Path::new("/sys/fs/cgroup").join(r);
+            let want = format!("{unit}.scope");
+            (dir.starts_with(user_manager_root(uid))
+                && dir.file_name().and_then(|n| n.to_str()) == Some(want.as_str()))
+            .then_some(dir)
+        });
+        match inside {
+            Some(path) => ExitScope::Inside { path, deleted },
+            None => ExitScope::Elsewhere(line.to_string()),
+        }
+    }
 }
 
 impl ScopeRef {
@@ -429,7 +601,7 @@ impl ScopeRef {
             return None;
         }
         let dir = Path::new("/sys/fs/cgroup").join(rel);
-        if !dir.starts_with(user_manager_root(uid)) {
+        if !dir.starts_with(user_manager_root(uid)) || !scope_parent_ok(&dir, uid) {
             return None;
         }
         let name = dir.file_name()?.to_str()?;
@@ -449,40 +621,83 @@ impl ScopeRef {
                 }
             }
         }
-        Self::check_dir(&dir, uid).map(|(dev, ino)| ScopeRef { dir, dev, ino, sid })
+        // the belt is additional to the guarded hunt: a directory that cannot be checked = the belt is not used
+        match Self::check_dir(&dir, uid) {
+            Ok(Some((dev, ino))) => Some(ScopeRef { dir, dev, ino, sid }),
+            Ok(None) | Err(_) => None,
+        }
     }
 
-    fn check_dir(dir: &Path, uid: u32) -> Option<(u64, u64)> {
-        let md = fs::symlink_metadata(dir).ok()?;
-        (md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino()))
+    /// procfix7 round 5: (dev, inode) of our directory; Ok(None) when PROVEN absent, not a directory or not ours; Err
+    /// when it cannot be checked (never "gone").
+    fn check_dir(dir: &Path, uid: u32) -> io::Result<Option<(u64, u64)>> {
+        match crate::fsx::presence_lstat("cgroup", dir) {
+            crate::fsx::Presence::Present(md) => {
+                Ok((md.file_type().is_dir() && md.uid() == uid).then(|| (md.dev(), md.ino())))
+            }
+            crate::fsx::Presence::Absent => Ok(None),
+            crate::fsx::Presence::Unknown(e) => {
+                Err(io::Error::new(e.kind(), format!("{}: {e}", dir.display())))
+            }
+        }
     }
 
-    /// The same directory as recorded (dev, inode, owner)? `Ok(false)`: gone or replaced (no process of ours in it).
-    fn still_same(&self, uid: u32) -> bool {
-        Self::check_dir(&self.dir, uid) == Some((self.dev, self.ino))
+    /// The same directory as recorded (dev, inode, owner)? `Ok(false)`: gone or replaced (no process of ours in it);
+    /// Err: it cannot be checked.
+    fn still_same(&self, uid: u32) -> io::Result<bool> {
+        Ok(Self::check_dir(&self.dir, uid)? == Some((self.dev, self.ino)))
     }
 
     /// Live processes in the scope other than the job's own (pinned) leader. A scope directory that no longer exists,
     /// or is not the recorded one, holds nothing of ours: empty. A failed read of an existing scope: error.
     pub(crate) fn live_members(&self) -> Result<Vec<u32>, String> {
         let uid = crate::resources::our_uid();
-        if !self.still_same(uid) {
+        if !self
+            .still_same(uid)
+            .map_err(|e| format!("scope directory cannot be checked: {e}"))?
+        {
             return Ok(Vec::new());
         }
-        let pids = match procs_of(&self.dir) {
+        // procfix7 round 6 (gate10 m10-3): the scope's subtree (a process that moved into a child cgroup of the scope is
+        // listed there, not in the scope's own cgroup.procs)
+        let pids = match procs_recursive(&self.dir) {
             Ok(p) => p,
             Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
-            Err(e) => return Err(format!("{}/cgroup.procs: {e}", self.dir.display())),
+            Err(e) => {
+                return Err(format!(
+                    "{} (cgroup.procs of the subtree): {e}",
+                    self.dir.display()
+                ));
+            }
         };
         let mut out = Vec::new();
-        for pid in pids {
+        for &pid in &pids {
             if pid == self.sid {
                 continue;
             }
             match crate::resources::read_stat(pid) {
-                Ok(Some(st)) if !st.is_dead() => out.push(pid),
-                Ok(_) => {}
+                Ok(st) if !st.is_dead() => out.push(pid),
+                Ok(_) | Err(crate::resources::ProcError::Gone) => {}
                 Err(e) => return Err(format!("stat of scope member {pid}: {e}")),
+            }
+        }
+        // ... and the kernel's RECURSIVE answer, cgroup.events `populated`: a scope populated without a listed live
+        // member is never "empty" (the listing rule's second source). procfix7 round 10 (gate13c G13c-M1, F3): read
+        // WHENEVER no live member is left, also when the listed members were dead or gone at their stat read (a member
+        // that ended after the listing may have handed off to a successor the listing did not show); before, only when
+        // nothing but the leader was listed
+        if out.is_empty() {
+            match populated(&self.dir) {
+                Ok(false) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+                Ok(true) if pids.contains(&self.sid) => {}
+                Ok(true) => {
+                    return Err(format!(
+                        "{}: populated (cgroup.events) but no live member listed in cgroup.procs (a hand-off, or a process in a child cgroup)",
+                        self.dir.display()
+                    ));
+                }
+                Err(e) => return Err(format!("{}/cgroup.events: {e}", self.dir.display())),
             }
         }
         Ok(out)
@@ -490,12 +705,22 @@ impl ScopeRef {
 
     /// `cgroup.kill` of the job's scope: kills every process in it. Only after the guarded hunt (never instead of it),
     /// and only while the directory is still the recorded one (dev, inode, owner) under our user manager.
+    /// procfix7 round 11 (gate14 m14-scope-toctou, m14-scope-parent): the check and the write go through ONE descriptor:
+    /// the directory is opened once (O_DIRECTORY | O_NOFOLLOW), the DESCRIPTOR is checked (fstat: a directory, owned by
+    /// our uid, the recorded (dev, inode)), and `cgroup.kill` is opened RELATIVE to it (openat, O_NOFOLLOW): a directory
+    /// removed and re-created under the same name between the check and the write is never written (a new cgroup has
+    /// a new inode number; the old one's kill file is gone with it). The parent must be exactly `app.slice` or the user
+    /// manager's root. What remains: the scope's MEMBERSHIP can change between the check and the write; only a process
+    /// of our uid can move a process into it (the user's delegated subtree), so the kill can reach only such a process.
     pub(crate) fn kill_members(&self) -> io::Result<()> {
         let uid = crate::resources::our_uid();
-        if !self.dir.starts_with(user_manager_root(uid)) || !self.still_same(uid) {
+        if !self.dir.starts_with(user_manager_root(uid)) || !scope_parent_ok(&self.dir, uid) {
             return Err(io::Error::other("scope directory is not the recorded one"));
         }
-        kill_path(&self.dir)
+        let dir = open_dir_checked(&self.dir, uid, (self.dev, self.ino))?;
+        super::guard::cgroup_kill_logged(&self.dir, "job cgroup", || {
+            write_at(&dir, c"cgroup.kill", "1")
+        })
     }
 }
 
@@ -526,12 +751,27 @@ pub fn scope_unit_name(campaign_id: &str, label: &str) -> String {
 
 /// The cgroup directories where systemd may have put the user scope `<unit>.scope` (exact names only, never a
 /// pattern): under our user manager, in `app.slice` (systemd >= 247) or at its root.
-fn scope_candidates(unit: &str, uid: u32) -> Vec<PathBuf> {
-    let root = user_manager_root(uid);
-    vec![
-        root.join("app.slice").join(format!("{unit}.scope")),
-        root.join(format!("{unit}.scope")),
-    ]
+/// procfix7 round 7 (gate11 m11-rec-path): where a recorded scope may be: FIRST the cgroup directory verified at the
+/// job's start (`job_containment` note), accepted only under `root` (our user manager) with the exact name
+/// `<unit>.scope`; then the two places systemd puts a user scope by default.
+fn scope_candidates_in(root: &Path, unit: &str, recorded: Option<&Path>) -> Vec<PathBuf> {
+    let name = format!("{unit}.scope");
+    let mut v = Vec::new();
+    if let Some(r) = recorded
+        && r.starts_with(root)
+        && r.file_name().and_then(|n| n.to_str()) == Some(name.as_str())
+        && !r
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        v.push(r.to_path_buf());
+    }
+    for d in [root.join("app.slice").join(&name), root.join(&name)] {
+        if !v.contains(&d) {
+            v.push(d);
+        }
+    }
+    v
 }
 
 /// RESTART BACKSTOP (gate3 M5): kill every process left in the job scope `<unit>.scope` whose NAME and leader pid the
@@ -541,29 +781,258 @@ fn scope_candidates(unit: &str, uid: u32) -> Vec<PathBuf> {
 /// `cgroup.kill` written for a scope with `n` live processes (logged as a delivery, proof "job scope"); `Ok(Some(0))`:
 /// the scope exists but is empty (nothing signalled).
 pub fn kill_recorded_scope(unit: &str) -> io::Result<Option<usize>> {
+    kill_recorded_scope_at(unit, None)
+}
+
+/// procfix7 round 7 (gate11 m11-rec-path): [`kill_recorded_scope`] that looks FIRST in the scope's recorded (verified)
+/// cgroup directory.
+pub fn kill_recorded_scope_at(unit: &str, recorded: Option<&Path>) -> io::Result<Option<usize>> {
     let uid = crate::resources::our_uid();
-    for dir in scope_candidates(unit, uid) {
-        let Ok(md) = fs::symlink_metadata(&dir) else {
-            continue;
+    kill_recorded_scope_in(&user_manager_root(uid), unit, recorded, uid)
+}
+
+/// The backstop under a given user-manager root (tests: an emulated cgroup tree).
+fn kill_recorded_scope_in(
+    root: &Path,
+    unit: &str,
+    recorded: Option<&Path>,
+    uid: u32,
+) -> io::Result<Option<usize>> {
+    for dir in scope_candidates_in(root, unit, recorded) {
+        // procfix7 (gate7 B1, the class): only an ABSENT scope is "no such scope"; another failed read is an error
+        let md = match crate::fsx::presence_lstat("cgroup", &dir) {
+            crate::fsx::Presence::Present(md) => md,
+            crate::fsx::Presence::Absent => continue,
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(io::Error::new(e.kind(), format!("{}: {e}", dir.display())));
+            }
         };
         if !md.file_type().is_dir() || md.uid() != uid {
             continue;
         }
-        let procs = procs_of(&dir)?;
-        if procs.is_empty() {
+        let procs = procs_recursive(&dir)?;
+        // procfix7 round 6 (gate10 m10-3): empty only when the kernel's RECURSIVE populated flag says so (the subtree's
+        // cgroup.procs listings are the first source); cgroup.kill is recursive
+        if procs.is_empty() && !populated(&dir)? {
             return Ok(Some(0));
         }
         super::guard::cgroup_kill_logged(&dir, "job scope", || {
             write_file(&dir.join("cgroup.kill"), "1")
         })?;
-        return Ok(Some(procs.len()));
+        return Ok(Some(procs.len().max(1)));
     }
     Ok(None)
 }
 
+/// procfix7 round 6 (gate10 M10-1 (b)): after a cgroup.kill of the recorded scope `unit`, true once the kernel reports
+/// it EMPTY (its recursive `cgroup.events` populated 0), or the scope directory is gone (systemd removes a transient scope
+/// once it is empty; it existed a moment ago: we just killed it), within `limit`. Any failed read: false (not proven).
+pub fn recorded_scope_emptied(
+    unit: &str,
+    recorded: Option<&Path>,
+    limit: std::time::Duration,
+) -> bool {
+    let uid = crate::resources::our_uid();
+    let root = user_manager_root(uid);
+    let t0 = std::time::Instant::now();
+    loop {
+        let mut present = false;
+        for dir in scope_candidates_in(&root, unit, recorded) {
+            match crate::fsx::presence_lstat("cgroup", &dir) {
+                crate::fsx::Presence::Absent => continue,
+                crate::fsx::Presence::Unknown(_) => return false,
+                crate::fsx::Presence::Present(md) if md.file_type().is_dir() && md.uid() == uid => {
+                    present = true;
+                    match populated(&dir) {
+                        Ok(false) => return true,
+                        Ok(true) => {}
+                        Err(_) => return false,
+                    }
+                }
+                crate::fsx::Presence::Present(_) => continue,
+            }
+        }
+        if !present {
+            return true;
+        }
+        if t0.elapsed() >= limit {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+/// procfix7 round 7 (gate11 m11-gone): a scope VERIFIED at its job's start whose recorded cgroup directory is now PROVEN
+/// ABSENT (ENOENT; its parent directory present, so the cgroup tree is there and the path is right) was emptied: on
+/// cgroup v2 a cgroup with a live member, or with a child cgroup, cannot be removed, and a cgroup cannot be renamed, so
+/// every process that stayed in it is gone. (systemd's "unit not found" would add nothing: systemd removes the unit
+/// from the same kernel answer.) Any other answer, or a path not under our user manager with the exact unit name: false.
+pub fn recorded_scope_removed(unit: &str, recorded: &Path) -> bool {
+    let root = user_manager_root(crate::resources::our_uid());
+    recorded_scope_removed_in(&root, unit, recorded)
+}
+
+fn recorded_scope_removed_in(root: &Path, unit: &str, recorded: &Path) -> bool {
+    if scope_candidates_in(root, unit, Some(recorded)).first() != Some(&recorded.to_path_buf()) {
+        return false;
+    }
+    let Some(parent) = recorded.parent() else {
+        return false;
+    };
+    matches!(
+        crate::fsx::presence_lstat("cgroup", recorded),
+        crate::fsx::Presence::Absent
+    ) && matches!(
+        crate::fsx::presence_lstat("cgroup", parent),
+        crate::fsx::Presence::Present(m) if m.is_dir()
+    )
+}
+
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// procfix7 round 9 (gate13 G13-M1): the kernel's record of the cgroup a zombie leader exited in. `Inside` only for
+    /// EXACTLY the requested unit under OUR user manager (live or ` (deleted)`); every near miss is `Elsewhere`.
+    #[test]
+    fn the_exit_scope_names_exactly_the_requested_unit_under_our_user_manager() {
+        let unit = "rr-camp.0123456789abcdef-N0.i0001.L0-t0_a1-00112233aabbccdd";
+        let base = "/user.slice/user-1002.slice/user@1002.service/app.slice";
+        let dir = PathBuf::from(format!("/sys/fs/cgroup{base}/{unit}.scope"));
+        let t = |s: &str| ExitScope::from_cgroup_text(s, 1002, unit);
+        assert_eq!(
+            t(&format!("0::{base}/{unit}.scope (deleted)\n")),
+            ExitScope::Inside {
+                path: dir.clone(),
+                deleted: true
+            }
+        );
+        assert_eq!(
+            t(&format!("0::{base}/{unit}.scope\n")),
+            ExitScope::Inside {
+                path: dir.clone(),
+                deleted: false
+            }
+        );
+        // hybrid hierarchy: v1 lines first
+        assert_eq!(
+            t(&format!(
+                "12:pids:/x\n1:name=systemd:/y\n0::{base}/{unit}.scope (deleted)\n"
+            )),
+            ExitScope::Inside {
+                path: dir,
+                deleted: true
+            }
+        );
+        for other in [
+            format!("0::{base}/{unit}x.scope (deleted)\n"),
+            format!("0::{base}/x{unit}.scope\n"),
+            format!("0::{base}/{unit}.scope/sub\n"),
+            format!("0::{base}/{unit}\n"),
+            format!("0::/user.slice/user-1003.slice/user@1003.service/app.slice/{unit}.scope\n"),
+            format!("0::/system.slice/{unit}.scope\n"),
+            format!("0::{base}/../app.slice/{unit}.scope\n"),
+            format!("0::{base}//{unit}.scope\n"),
+            format!("0::{base}/{unit}.scope (deleted) (deleted)\n"),
+            "0::/user.slice/user-1002.slice/user@1002.service/app.slice/run-p77-i78.scope\n".into(),
+        ] {
+            assert!(
+                matches!(t(&other), ExitScope::Elsewhere(_)),
+                "{other:?}: {:?}",
+                t(&other)
+            );
+        }
+        assert!(matches!(t("12:pids:/x\n"), ExitScope::Unknown(_)));
+        assert!(matches!(t(""), ExitScope::Unknown(_)));
+    }
+
+    /// procfix7 round 10 (gate13c G13c-M1, F3): a scope whose listed members are all gone (or dead) when read, while the
+    /// kernel says it is still populated, is NEVER "empty" (a hand-off may have put a successor there after the
+    /// listing): live_members is an error, so the hunt's belt writes cgroup.kill and the proof pass is inconclusive.
+    /// Truly empty (populated 0) stays Ok([]). Emulated scope tree; no process is spawned or signalled.
+    #[test]
+    fn a_scope_populated_after_its_listed_members_ended_is_never_empty() {
+        use std::os::unix::fs::MetadataExt;
+        let root = std::env::temp_dir().join(format!("pf14-scope-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = root.join("rr-test-0123456789abcdef.scope");
+        std::fs::create_dir_all(&dir).unwrap();
+        // a pid that cannot exist (above every pid_max): its stat read is "gone"
+        std::fs::write(dir.join("cgroup.procs"), "4194305\n").unwrap();
+        std::fs::write(dir.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+        let md = std::fs::metadata(&dir).unwrap();
+        let s = ScopeRef {
+            dir: dir.clone(),
+            dev: md.dev(),
+            ino: md.ino(),
+            sid: 4194306,
+        };
+        let r = s.live_members();
+        assert!(
+            matches!(&r, Err(e) if e.contains("populated")),
+            "populated with only ended members listed: {r:?}"
+        );
+        std::fs::write(dir.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+        assert_eq!(s.live_members(), Ok(Vec::new()), "truly empty");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// procfix7 round 7 (gate11 m11-mut M8): the restart backstop on an EMULATED scope tree: a scope whose cgroup.procs
+    /// lists nobody (the processes sit in a child cgroup) but whose recursive `populated` is 1 is NOT empty: cgroup.kill
+    /// is written. Truly empty (populated 0): nothing written, Some(0). The recorded path is looked at first (m11-rec-path);
+    /// a recorded path that is gone with its parent present is "removed" (m11-gone); a path outside the root never is.
+    #[test]
+    fn the_recorded_scope_backstop_judges_emptiness_by_the_recursive_flag() {
+        let root = std::env::temp_dir().join(format!("pf11-cg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let unit = "rr-test-0123456789abcdef";
+        let deep = root
+            .join("app.slice")
+            .join("custom.slice")
+            .join(format!("{unit}.scope"));
+        std::fs::create_dir_all(deep.join("child")).unwrap();
+        std::fs::write(deep.join("cgroup.procs"), "").unwrap();
+        std::fs::write(deep.join("child").join("cgroup.procs"), "").unwrap();
+        std::fs::write(deep.join("cgroup.events"), "populated 1\nfrozen 0\n").unwrap();
+        std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+        let uid = crate::resources::our_uid();
+        // not at a default place: found only through the recorded path
+        assert_eq!(
+            kill_recorded_scope_in(&root, unit, None, uid).unwrap(),
+            None
+        );
+        let r = kill_recorded_scope_in(&root, unit, Some(&deep), uid).unwrap();
+        assert_eq!(r, Some(1), "populated without a listed member is not empty");
+        assert_eq!(
+            std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+            "1"
+        );
+        // truly empty
+        std::fs::write(deep.join("cgroup.events"), "populated 0\nfrozen 0\n").unwrap();
+        std::fs::write(deep.join("cgroup.kill"), "").unwrap();
+        assert_eq!(
+            kill_recorded_scope_in(&root, unit, Some(&deep), uid).unwrap(),
+            Some(0)
+        );
+        assert_eq!(
+            std::fs::read_to_string(deep.join("cgroup.kill")).unwrap(),
+            ""
+        );
+        // removed (m11-gone): absent with its parent present; never for a path outside the root or another name
+        assert!(!recorded_scope_removed_in(&root, unit, &deep));
+        std::fs::remove_dir_all(&deep).unwrap();
+        assert!(recorded_scope_removed_in(&root, unit, &deep));
+        assert!(!recorded_scope_removed_in(
+            &root,
+            "rr-other-0123456789abcdef",
+            &deep
+        ));
+        let outside = std::env::temp_dir().join(format!("{unit}.scope"));
+        assert!(!recorded_scope_removed_in(&root, unit, &outside));
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     /// procfix3: the scope belt accepts only the leader's own transient scope under our user manager.
     #[test]
@@ -591,6 +1060,65 @@ mod tests {
             "/sys/fs/cgroup/user.slice/user-4242.slice/user@4242.service/app.slice/run-p77-i9.scope",
         );
         assert!(dir.starts_with(user_manager_root(uid)));
+    }
+
+    /// procfix7 round 11 (gate14 m14-scope-parent): a scope directory only directly in app.slice or at the user manager's
+    /// root; (m14-scope-toctou) the kill's directory is checked by its DESCRIPTOR and its file opened relative to it,
+    /// never through a symbolic link; a directory re-created under the same name is refused.
+    #[test]
+    fn scope_kill_checks_the_exact_directory_by_its_descriptor() {
+        let uid = 4242;
+        let root = user_manager_root(uid);
+        assert!(scope_parent_ok(&root.join("app.slice/x.scope"), uid));
+        assert!(scope_parent_ok(&root.join("x.scope"), uid));
+        for bad in [
+            "app.slice/sub/x.scope",
+            "app.slice/x.scope/x.scope",
+            "session.slice/x.scope",
+            "a/b/c/x.scope",
+        ] {
+            assert!(!scope_parent_ok(&root.join(bad), uid), "{bad}");
+        }
+        assert!(!scope_parent_ok(Path::new("/sys/fs/cgroup/x.scope"), uid));
+        // a deeper directory carrying the exact name is refused by the record (the directory check aside)
+        let deep =
+            "0::/user.slice/user-4242.slice/user@4242.service/app.slice/sub/run-p77-i5.scope\n";
+        assert_eq!(ScopeRef::from_leader_cgroup(deep, 77, uid, None), None);
+        // descriptor checks on a scratch directory of ours
+        let me = crate::resources::our_uid();
+        let base = std::env::temp_dir().join(format!("rr-scopefd-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let d = base.join("x.scope");
+        fs::create_dir_all(&d).unwrap();
+        let md = fs::metadata(&d).unwrap();
+        let rec = (md.dev(), md.ino());
+        let fd = open_dir_checked(&d, me, rec).expect("the recorded directory");
+        fs::write(d.join("cgroup.kill"), "").unwrap();
+        write_at(&fd, c"cgroup.kill", "1").unwrap();
+        assert_eq!(fs::read_to_string(d.join("cgroup.kill")).unwrap(), "1");
+        // another owner or another inode: refused
+        assert!(open_dir_checked(&d, me.wrapping_add(1), rec).is_err());
+        assert!(open_dir_checked(&d, me, (rec.0, rec.1 ^ 1)).is_err());
+        // the file a symbolic link: never written through it
+        let victim = base.join("victim");
+        fs::write(&victim, "untouched").unwrap();
+        fs::remove_file(d.join("cgroup.kill")).unwrap();
+        std::os::unix::fs::symlink(&victim, d.join("cgroup.kill")).unwrap();
+        assert!(write_at(&fd, c"cgroup.kill", "1").is_err());
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "untouched");
+        // the directory a symbolic link: not opened
+        let link = base.join("link.scope");
+        std::os::unix::fs::symlink(&d, &link).unwrap();
+        assert!(open_dir_nofollow(&link).is_err());
+        // re-created under the same name: a new inode, refused
+        drop(fd);
+        fs::remove_dir_all(&d).unwrap();
+        fs::create_dir_all(&d).unwrap();
+        let md2 = fs::metadata(&d).unwrap();
+        if (md2.dev(), md2.ino()) != rec {
+            assert!(open_dir_checked(&d, me, rec).is_err());
+        }
+        let _ = fs::remove_dir_all(&base);
     }
 
     /// gate3 M5: deterministic, unique per (campaign, label), a valid unit name, and the scope belt accepts exactly it.

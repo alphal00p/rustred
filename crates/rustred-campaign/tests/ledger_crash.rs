@@ -3,6 +3,7 @@
 //! `ack <item>` after each acceptance record is durable. The parent SIGKILLs it at seeded random moments, many
 //! times; after each kill the ledger opens, recovers, its chain verifies, every acknowledged acceptance is in
 //! the state, and no acceptance record appears twice. The writer resumes from the reduced state alone.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::collections::{BTreeMap, BTreeSet};

@@ -41,5 +41,6 @@
   "idle_min": 0.85,
   "max_cores": 48,
   "respect_foreign_pinning": true,
+  "foreign_pin_max_cpus": 64,
   "ignore_own_tag_claims": true
 }

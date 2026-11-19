@@ -1,5 +1,6 @@
 //! Golden screens of the dashboard (TestBackend) at 80x24, 120x40, 200x60 on the ledger package's golden progress
 //! files and the hand fixtures; colours of cells; resize sequence; plain-mode lines; "website = terminal".
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod tui_support;
 

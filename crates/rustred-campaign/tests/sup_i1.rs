@@ -5,6 +5,7 @@
 //! tables given the same ledger decisions); no item is accepted twice; re-runs are bounded by interruptions; the ledger
 //! replays and `verify` is clean; admission stayed within the core budget and the memory reservation; no marked
 //! process survives. Runs: RR_SUP_I1_RUNS (default 52 = 13 per kind). The summary line is printed for the report.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

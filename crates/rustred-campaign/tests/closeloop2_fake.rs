@@ -5,6 +5,7 @@
 //! The node is the TOY of closeloop_support (arity 3): our recipe relations are proved per key by `proof-instance-span`
 //! jobs on their point records; without table evidence the exact tier asks `proof-instantiate` facts and the import's
 //! proof request for the table rule.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

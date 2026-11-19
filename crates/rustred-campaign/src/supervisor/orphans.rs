@@ -17,9 +17,7 @@
 //! verify or signal is reported (`left`) and stops the campaign with exit 8 (never exit 0) listing the pids.
 
 use crate::launch::{SweepReport, SweepSpec};
-use crate::resources::{MarkedProcess, scan_campaign};
-use std::collections::BTreeSet;
-use std::fs;
+
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
@@ -38,13 +36,15 @@ pub struct ScanRules {
     pub roots: Vec<PathBuf>,
 }
 
+/// The current boot id; None when it cannot be read (procfix7 B1: unknown is never "another boot").
 fn current_boot_id() -> Option<String> {
+    // procfix8-ok: unknown (Gone or Unreadable) is None, and `other_boot` answers false for it (never "another boot")
     crate::resources::boot_id().ok()
 }
 
 /// The cwd of `pid` relative to the campaign directories, for logs only ("inside" / "outside <cwd>" / "unreadable").
 pub fn cwd_note(pid: u32, roots: &[PathBuf]) -> String {
-    match fs::read_link(format!("/proc/{pid}/cwd")) {
+    match crate::resources::procfs::sys().cwd(pid) {
         Ok(cwd) if roots.iter().any(|r| cwd.starts_with(r)) => {
             "cwd inside the campaign directories".into()
         }
@@ -54,32 +54,14 @@ pub fn cwd_note(pid: u32, roots: &[PathBuf]) -> String {
 }
 
 impl ScanRules {
-    /// True when the recorded boot is not this boot (nothing may be signalled).
+    /// True when the recorded boot is PROVED not this boot (nothing may be signalled). procfix7 (gate7 B1, the class):
+    /// an unreadable current boot id is not "another boot" (that made a sweep "proven" with nothing scanned); it is
+    /// left to the sweep, which then reports itself unproven.
     pub fn other_boot(&self) -> bool {
         match (&self.recorded_boot_id, current_boot_id()) {
             (Some(r), Some(now)) => *r != now,
-            (Some(_), None) => true,
-            (None, _) => false,
+            (Some(_), None) | (None, _) => false,
         }
-    }
-
-    /// Every live marked process of this campaign (optionally one attempt id `<job>:a<k>`).
-    pub fn scan(&self, only: Option<&str>) -> Vec<MarkedProcess> {
-        self.scan_all(only)
-    }
-
-    /// Every live marked process of this campaign (optionally one attempt).
-    pub fn scan_all(&self, only: Option<&str>) -> Vec<MarkedProcess> {
-        if self.other_boot() {
-            return Vec::new();
-        }
-        let Ok(s) = scan_campaign(&self.campaign_id, self.min_start_ticks, &BTreeSet::new()) else {
-            return Vec::new();
-        };
-        s.processes
-            .into_iter()
-            .filter(|p| only.is_none_or(|o| o == p.attempt_id))
-            .collect()
     }
 
     /// The process layer's sweep spec: THE ONE OWNERSHIP RULE, no narrowing of the supervisor's own (gate3 M1). `None`
@@ -101,8 +83,19 @@ impl ScanRules {
 
 /// The freezing sweep of every marked process of this campaign (optionally one attempt), BLOCKING (restart time).
 pub fn sweep(rules: &ScanRules, only: Option<&str>, budget: Duration) -> SweepReport {
+    sweep_seeded(rules, only, &[], budget)
+}
+
+/// procfix7 round 6: [`sweep`] with SEEDED suspects (`launch::sweep::sweep_seeded`): pids the ledger recorded, each
+/// proven dead or not ours by its own pid.
+pub fn sweep_seeded(
+    rules: &ScanRules,
+    only: Option<&str>,
+    seeds: &[(u32, Option<u64>)],
+    budget: Duration,
+) -> SweepReport {
     match rules.sweep_spec(only, budget) {
-        Some(spec) => crate::launch::sweep::sweep(&spec, &AtomicBool::new(false)),
+        Some(spec) => crate::launch::sweep::sweep_seeded(&spec, seeds, &AtomicBool::new(false)),
         None => SweepReport {
             proven: true,
             reason: None,
@@ -113,13 +106,14 @@ pub fn sweep(rules: &ScanRules, only: Option<&str>, budget: Duration) -> SweepRe
 
 /// Canonical form of a root for the cwd rule (falls back to the path itself).
 pub fn canonical_root(p: &Path) -> PathBuf {
-    fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
+    crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-/// Start ticks of this process (the supervisor), the lower bound of everything it launches.
+/// Start ticks of this process (the supervisor), the lower bound of everything it launches. procfix8: an unreadable own
+/// stat gives 0 (the WIDEST bound: every process since boot is a candidate), never a narrower one.
 pub fn own_start_ticks() -> u64 {
-    crate::resources::read_stat(std::process::id())
-        .ok()
-        .flatten()
-        .map_or(0, |s| s.start_ticks)
+    match crate::resources::read_stat(std::process::id()) {
+        Ok(s) => s.start_ticks,
+        Err(_) => 0,
+    }
 }

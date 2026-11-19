@@ -1,0 +1,22 @@
+# procfix7 round 5 (gate9 G9-B1, THE FILESYSTEM FACTS RULE, src/fsx.rs): an existence check, metadata read or directory
+# listing of this crate goes through `crate::fsx` (Present / Absent only on ENOENT / Unknown; listings Complete or
+# Failed). The std forms collapse an error into "absent" / "not a file" / an incomplete listing.
+disallowed-methods = [
+    { path = "std::path::Path::exists", reason = "maps every error to false: use crate::fsx::presence (Absent only on ENOENT)" },
+    { path = "std::path::Path::try_exists", reason = "use crate::fsx::presence" },
+    { path = "std::path::Path::is_file", reason = "maps every error to false: use crate::fsx::presence(..).is_file() with Unknown handled" },
+    { path = "std::path::Path::is_dir", reason = "maps every error to false: use crate::fsx::presence(..) with Unknown handled" },
+    { path = "std::path::Path::is_symlink", reason = "use crate::fsx::presence_lstat" },
+    { path = "std::path::Path::metadata", reason = "use crate::fsx::presence" },
+    { path = "std::path::Path::symlink_metadata", reason = "use crate::fsx::presence_lstat" },
+    { path = "std::path::Path::read_dir", reason = "use crate::fsx::list (a listing is Complete or Failed)" },
+    { path = "std::fs::exists", reason = "use crate::fsx::presence" },
+    { path = "std::fs::metadata", reason = "use crate::fsx::presence" },
+    { path = "std::fs::symlink_metadata", reason = "use crate::fsx::presence_lstat" },
+    { path = "std::fs::read_dir", reason = "use crate::fsx::list (a listing is Complete or Failed; entry errors fail it)" },
+    # procfix7 round 6 (gate10 m10-4): canonicalize / read_link collapses were caught by no rule
+    { path = "std::fs::canonicalize", reason = "use crate::fsx::canonicalize / fsx::canonical (labelled; a collapse of its error is reviewed in audit/fs_sites)" },
+    { path = "std::path::Path::canonicalize", reason = "use crate::fsx::canonicalize / fsx::canonical" },
+    { path = "std::fs::read_link", reason = "/proc links: crate::resources::procfs (typed); files: add a labelled crate::fsx helper" },
+    { path = "std::path::Path::read_link", reason = "as std::fs::read_link" },
+]

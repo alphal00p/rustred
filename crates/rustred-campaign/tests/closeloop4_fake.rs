@@ -6,6 +6,7 @@
 //! `max_auto`; (20) a stopped campaign resumes on OTHER CPUs with the same decisions and statement.
 //! Spawns processes and sends signals: run ONLY inside a private pid namespace (`LIGHT_PIDNS=1 .../light_build.sh
 //! closeloop4 test -p rustred-campaign --test closeloop4_fake`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

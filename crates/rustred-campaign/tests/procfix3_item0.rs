@@ -8,6 +8,7 @@
 //!
 //! `observe_removal_during_resume` (ignored; RR_ITEM0_DELAYS_MS=a,b,c) prints what happens for several deletion
 //! moments (exit code, what `open_read_only` gives, accepted items, verify, log tail length): the reproduction record.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -22,6 +23,17 @@ fn sup_spec(t: &Tmp) -> std::path::PathBuf {
     write_spec(t, "spec.json", &spec(t, syn, res))
 }
 
+/// procfix7 round 20 (gate R-C, the flaky case: int/10-land2 gave exit 10 at 1500 ms: the resume had ENDED before the
+/// removal, so the premise "removed DURING a resume" was not met; gate 7: 2 of 6): the removal test's campaign HOLDS the
+/// resume in progress: every synthetic case runs 4-6 s, so the two SIGTERM-drained sessions before it accept a few items at
+/// most (each drains its running cases), the resume has work, and none of its cases can end before 4 s: at the removal
+/// moments (400 ms, 1500 ms) the resume is in progress and not finished, on any host (a slow host only makes it later).
+fn sup_spec_held(t: &Tmp) -> std::path::PathBuf {
+    let res = serde_json::json!({"mem_total": "300M"});
+    let syn = serde_json::json!({"items": 40, "case_ms": [4000, 6000]});
+    write_spec(t, "spec-held.json", &spec(t, syn, res))
+}
+
 /// What a campaign directory looks like afterwards (no panics: the directory may be half gone).
 #[derive(Debug)]
 #[allow(dead_code)] // printed with {:?}
@@ -30,9 +42,13 @@ struct Seen {
     ledger: Result<usize, String>,
     verify: i32,
     log_bytes: usize,
+    /// procfix7 round 4 (gate8 m8-rm): what the removal took, judged right after it: true when something the supervisor
+    /// checks is gone (the campaign directory, its ledger directory, the manifest or the lock file). `remove_dir_all`
+    /// can stop part-way (the running supervisor creates files under it) before reaching any of them.
+    essential_gone: bool,
 }
 
-fn look(cdir: &Path, code: i32) -> Seen {
+fn look(cdir: &Path, code: i32, essential_gone: bool) -> Seen {
     let ledger = rustred_campaign::ledger::open_read_only(cdir)
         .map(|v| {
             rustred_campaign::supervisor::result::final_result(&v.state)
@@ -48,13 +64,18 @@ fn look(cdir: &Path, code: i32) -> Seen {
         ledger,
         verify: cli(&["verify", cdir.to_str().unwrap()]).0,
         log_bytes,
+        essential_gone,
     }
 }
 
 /// Two SIGTERM-interrupted sessions (delays as in sup_i1 run 46 would be on a fast host), then a resume during which
 /// `remove_dir_all(temp path)` + `create_dir_all(temp path)` runs `remove_after` into the session (what the colliding
 /// `Tmp::new` did).
-fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Seen {
+///
+/// procfix7 round 20: `Err` = the PREMISE was not met: the resume had already ended (its exit code) when the removal was
+/// due. That outcome is reported as such and is never a pass of the property (the removal test holds the resume in
+/// progress, `sup_spec_held`, so it does not occur there).
+fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Result<Seen, String> {
     let dir = t.cdir(&format!("run-{}", remove_after.as_millis()));
     for delay in [700u64, 900] {
         let mut c = start(spec_p, &dir, &[], &[]);
@@ -66,22 +87,45 @@ fn removal_during_resume(t: &Tmp, spec_p: &Path, remove_after: Duration) -> Seen
     }
     let mut c = start(spec_p, &dir, &[], &[]);
     std::thread::sleep(remove_after);
+    // the premise: the resume is still in progress when the removal starts
+    if c.try_wait().unwrap().is_some() {
+        let code = wait(&mut c, Duration::from_secs(5));
+        return Err(format!(
+            "PREMISE NOT MET: the resume had already ended (exit {code}) {} ms after its start, before the removal",
+            remove_after.as_millis()
+        ));
+    }
     let _ = std::fs::remove_dir_all(&dir);
+    let essential_gone = !dir.exists()
+        || !dir.join("ledger").exists()
+        || !dir.join("ledger").join("MANIFEST.json").exists()
+        || !dir.join(rustred_campaign::lock::LOCK_FILE).exists();
     let _ = std::fs::remove_file(dir.with_extension("log"));
     let code = wait(&mut c, Duration::from_secs(600));
-    look(&dir, code)
+    Ok(look(&dir, code, essential_gone))
 }
 
 #[test]
 fn campaign_directory_removed_during_a_resume_is_never_exit_0() {
     let _g = serial();
     let t = Tmp::new("rm0");
-    let spec_p = sup_spec(&t);
+    let spec_p = sup_spec_held(&t);
     for ms in [400u64, 1500] {
-        let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms));
+        let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms))
+            .unwrap_or_else(|e| panic!("removal after {ms} ms: {e}"));
         eprintln!("removal after {ms} ms: {s:?}");
-        assert_ne!(s.code, 0, "removal after {ms} ms: {s:?}");
-        assert_eq!(s.code, 70, "removal after {ms} ms: {s:?}");
+        if s.essential_gone {
+            // the directory (or a part the supervisor checks) was removed: its typed end, never 0
+            assert_ne!(s.code, 0, "removal after {ms} ms: {s:?}");
+            assert_eq!(s.code, 70, "removal after {ms} ms: {s:?}");
+        } else {
+            // gate8 m8-rm: remove_dir_all stopped before anything essential: 70 (a run directory lost its identity) or a
+            // normal end whose ledger verifies
+            assert!(
+                s.code == 70 || (finished(s.code) && s.verify == 0),
+                "removal after {ms} ms (stopped before anything essential): {s:?}"
+            );
+        }
         assert_no_marked(&t.campaign);
     }
 }
@@ -112,8 +156,10 @@ fn observe_removal_during_resume() {
         .filter_map(|s| s.trim().parse().ok())
         .collect();
     for ms in delays {
-        let s = removal_during_resume(&t, &spec_p, Duration::from_millis(ms));
-        eprintln!("ITEM0 removal after {ms} ms: {s:?}");
+        match removal_during_resume(&t, &spec_p, Duration::from_millis(ms)) {
+            Ok(s) => eprintln!("ITEM0 removal after {ms} ms: {s:?}"),
+            Err(e) => eprintln!("ITEM0 removal after {ms} ms: {e}"),
+        }
     }
 }
 
@@ -198,7 +244,7 @@ fn collide_like_two_i1_runs() {
                 codes.extend(run_to_end(&spec_p, &dir, &[]));
             }
         }));
-        let seen = look(&dir, *codes.last().unwrap_or(&-1));
+        let seen = look(&dir, *codes.last().unwrap_or(&-1), false);
         let got = rustred_campaign::ledger::open_read_only(&dir)
             .map(|v| rustred_campaign::supervisor::result::final_result(&v.state));
         let same = got.as_ref().is_ok_and(|g| *g == reference);

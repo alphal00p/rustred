@@ -2,6 +2,7 @@
 //! (pause, resume, skip / retry, stop -> exit 140), pre-flight refusals each with its exit code, the heartbeat timeout
 //! killing a silent child (class killed_time, the item escalates), and memory-cap kills (killed_memory) with the
 //! admission budgets read back from the ledger.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -48,6 +49,11 @@ fn pause_flag_blocks_launching() {
             .unwrap()
             .to_string()
     };
+    // procfix7 round 6: the first heartbeat may come after the 3 s above on a loaded host (the suite failed once at the
+    // read below with NotFound at a host load of ~400): wait for the file, never assume its timing
+    wait_until("the first heartbeat", Duration::from_secs(60), || {
+        d.join("progress/heartbeat.json").exists()
+    });
     let h0 = hb();
     let seq0 = state(&d).last_seq;
     wait_until(

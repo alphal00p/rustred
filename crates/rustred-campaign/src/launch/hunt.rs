@@ -46,6 +46,7 @@
 use super::cgroup::ScopeRef;
 use super::guard::{self, ProcessTarget, Proof, StartRule, Verdict};
 use super::{Enumeration, LeftoverRecord, UnattributedChild, VerifiedBy};
+use crate::resources::procfs::{self, ProcError};
 use crate::resources::{
     CampaignMarker, FactRead, Leaders, MarkerFact, ProcFacts, children_of, our_uid, own_children,
     own_children_by_scan, read_proc_facts, request_reap, scan_marked_inline,
@@ -57,6 +58,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
+
+/// procfix7 round 6 (gate10 M10-2): pinned groups (session, launch ticks) whose group SIGKILL was delivered.
+static GROUP_KILLED: std::sync::Mutex<std::collections::BTreeSet<(u32, u64)>> =
+    std::sync::Mutex::new(std::collections::BTreeSet::new());
 
 /// What to hunt.
 #[derive(Clone, Debug)]
@@ -90,12 +95,15 @@ pub(crate) enum HuntResult {
         by: VerifiedBy,
         killed: Vec<LeftoverRecord>,
         unattributed: Vec<UnattributedChild>,
+        /// procfix7 round 17: why rounds of this invocation were inconclusive before the proof.
+        waits: Vec<super::ProofWait>,
     },
     NotProven {
         reason: String,
         left: Vec<LeftoverRecord>,
         killed: Vec<LeftoverRecord>,
         unattributed: Vec<UnattributedChild>,
+        waits: Vec<super::ProofWait>,
     },
     /// Observe mode: the job still has live processes.
     Survivors { left: Vec<LeftoverRecord> },
@@ -110,9 +118,23 @@ enum Class {
         descend: bool,
         facts: Option<ProcFacts>,
     },
-    Dead,
+    /// Ended. Some((start, session)) when its facts were read (a zombie, or found exited after the reads: the caller
+    /// checks the start against its listing before it uses them); None: gone before its facts were read.
+    Dead(Option<(u64, u32)>),
     Inconclusive(String),
 }
+
+/// The start time a classification read (None: no facts).
+fn class_start(c: &Class) -> Option<u64> {
+    match c {
+        Class::Ours(_, f) => Some(f.stat.start_ticks),
+        Class::NotOurs { facts, .. } => facts.as_ref().map(|f| f.stat.start_ticks),
+        Class::Dead(_) | Class::Inconclusive(_) => None,
+    }
+}
+
+/// A candidate of the fixed point: (pid, the process whose children list named it, its start time as listed).
+type Cand = (u32, Option<u32>, u64);
 
 struct Member {
     fd: OwnedFd,
@@ -120,6 +142,31 @@ struct Member {
     proof: Proof,
     /// procfix6 (gate5 m1): the identity held at the stop this hunt delivered.
     hold: Option<guard::StopHold>,
+}
+
+/// procfix7 round 10 (gate13c G13c-M1): a RAW children listing; round 11 (gate14 G14-M1): of ANY process the hunt
+/// follows, our own ([`Hunt::snapshot_tops`]), a stopped member's or a walked process's ([`Hunt::snapshot_children`]).
+#[derive(Default, Clone, Debug, PartialEq, Eq)]
+struct Listing {
+    /// Alive when read: pid -> start ticks.
+    live: BTreeMap<u32, u64>,
+    /// Listed, but ended when read: (pid, (start, session) of a zombie; None: gone before its stat was read).
+    ended: Vec<(u32, Option<(u64, u32)>)>,
+}
+
+/// procfix7 round 17: the hand-off suspects of a listing, each "pid (owner)" (printed in the inconclusive reasons).
+struct Suspects(Vec<String>);
+
+impl Suspects {
+    fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+}
+
+impl std::fmt::Debug for Suspects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[{}]", self.0.join(", "))
+    }
 }
 
 enum Stop {
@@ -143,6 +190,8 @@ fn trace(msg: impl FnOnce() -> String) {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {
         use std::io::Write;
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): a trace line on stderr (diagnostics only)
         let _ = writeln!(std::io::stderr(), "HUNT {}", msg());
     }
 }
@@ -176,9 +225,49 @@ struct Hunt<'a> {
     unattributed: BTreeMap<(u32, u64), UnattributedChild>,
     killed: Vec<LeftoverRecord>,
     cgroup_ok: bool,
+    /// procfix8 (gate8, item 4): every candidate of this hunt invocation that was ours or inconclusive (pid -> start
+    /// held, 0 when unknown). A proof pass classifies directly every suspect its enumeration did not reach; one leaves
+    /// only by a complete read (its process gone by pidfd / ENOENT / ESRCH or another start time, or conclusively not
+    /// J's), so a pass whose enumeration misses one cannot prove the end.
+    suspects: BTreeMap<u32, u64>,
+    /// The pids classified in the current proof pass.
+    classified_now: BTreeSet<u32>,
+    /// procfix7 round 11 (gate14 G14-M1): processes (pid, start) this hunt invocation already saw ENDED in a listing. A
+    /// process hands its children over AT its exit (the kernel re-parents them before it becomes a zombie), so every
+    /// listing read after that first sighting already shows its successors: a zombie still listed later (its parent has
+    /// not reaped it) is no new hand-off suspect. A gone entry has no start time and never enters this set.
+    seen_ended: BTreeSet<(u32, u64)>,
+    /// procfix7 round 17: the kinds of this invocation's inconclusive rounds (with counts and a first example).
+    waits: Vec<super::ProofWait>,
 }
 
 impl Hunt<'_> {
+    /// procfix7 round 17: a member this hunt killed, also recorded by IDENTITY (pid and start of the facts it signalled)
+    /// as a member of this attempt (other jobs' proofs then recognise it when it has ended).
+    fn record_killed(&mut self, r: LeftoverRecord) {
+        if r.start_ticks != 0 {
+            self.s.leaders.note_owner(
+                r.pid,
+                r.start_ticks,
+                crate::resources::OwnerRole::Member,
+                &self.s.marker.attempt_id,
+            );
+        }
+        self.killed.push(r);
+    }
+
+    /// procfix7 round 17: count an inconclusive round by its kind (`launch::proof_wait_kind`), keeping the first text.
+    fn note_wait(&mut self, reason: &str) {
+        super::merge_proof_waits(
+            &mut self.waits,
+            &[super::ProofWait {
+                kind: super::proof_wait_kind(reason),
+                count: 1,
+                example: reason.chars().take(300).collect(),
+            }],
+        );
+    }
+
     /// A marker-found process through THE ONE OWNERSHIP RULE (`guard::marker_target`, shared with the campaign sweep
     /// and the job signaller); a member of the pinned session through the session proof.
     fn target(&self, f: &ProcFacts, proof: Proof) -> ProcessTarget {
@@ -209,6 +298,63 @@ impl Hunt<'_> {
     /// Classify one candidate. `parent`: the process whose children list named it (None: a full listing). The pidfd is
     /// opened FIRST; the facts are valid only if the pidfd still reports the process alive after the reads.
     fn classify(&mut self, pid: u32, parent: Option<u32>) -> (Class, Option<OwnedFd>) {
+        let (class, fd) = self.classify_inner(pid, parent);
+        self.classified_now.insert(pid);
+        match &class {
+            Class::Ours(_, f) => {
+                self.suspects.insert(pid, f.stat.start_ticks);
+            }
+            Class::Inconclusive(_) => {
+                self.suspects.entry(pid).or_insert(0);
+            }
+            Class::NotOurs { .. } | Class::Dead(_) => {}
+        }
+        (class, fd)
+    }
+
+    /// procfix8 (item 4): the suspects of this hunt that the current pass did not classify: Ok(survivors) or Err
+    /// (inconclusive).
+    fn recheck_suspects(&mut self, survivors: &mut Vec<LeftoverRecord>) -> Result<(), String> {
+        let pending: Vec<(u32, u64)> = self
+            .suspects
+            .iter()
+            .filter(|(p, _)| !self.classified_now.contains(p))
+            .map(|(p, s)| (*p, *s))
+            .collect();
+        for (pid, start) in pending {
+            if self.registered(pid) || pid == self.s.sid {
+                self.suspects.remove(&pid);
+                continue;
+            }
+            match crate::resources::read_stat(pid) {
+                Err(ProcError::Gone) => {
+                    self.suspects.remove(&pid);
+                    continue;
+                }
+                Err(ProcError::Unreadable(w)) => {
+                    return Err(format!("suspect {pid} of this hunt: stat unreadable: {w}"));
+                }
+                Ok(st) if start != 0 && st.start_ticks != start => {
+                    // the pid names a newer process: the suspect is dead
+                    self.suspects.remove(&pid);
+                    continue;
+                }
+                Ok(_) => {}
+            }
+            match self.classify(pid, None).0 {
+                Class::Ours(_, f) => survivors.push(record(&f)),
+                Class::Inconclusive(e) => {
+                    return Err(format!("suspect {pid} of this hunt: {e}"));
+                }
+                Class::NotOurs { .. } | Class::Dead(_) => {
+                    self.suspects.remove(&pid);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn classify_inner(&mut self, pid: u32, parent: Option<u32>) -> (Class, Option<OwnedFd>) {
         let me = me();
         let not_ours = |descend: bool, facts: Option<ProcFacts>| Class::NotOurs {
             unattributed: false,
@@ -224,18 +370,19 @@ impl Hunt<'_> {
         }
         let fd = match guard::open_pidfd(pid) {
             Ok(fd) => fd,
-            Err(Verdict::Gone) => return (Class::Dead, None),
+            Err(Verdict::Gone) => return (Class::Dead(None), None),
             Err(Verdict::NotOurs(_)) => return (not_ours(false, None), None),
             Err(Verdict::Unverified(e)) => return (Class::Inconclusive(e), None),
             Err(Verdict::Delivered) => return (Class::Inconclusive("impossible".into()), None),
         };
         let facts = match read_proc_facts(pid, true) {
-            FactRead::Gone => return (Class::Dead, None),
+            FactRead::Gone => return (Class::Dead(None), None),
             FactRead::Failed(e) => return (Class::Inconclusive(e), None),
             FactRead::Facts(f) => f,
         };
+        let ended = Some((facts.stat.start_ticks, facts.stat.session));
         match guard::pidfd_exited(&fd) {
-            Some(true) => return (Class::Dead, None),
+            Some(true) => return (Class::Dead(ended), None),
             None => return (Class::Inconclusive(format!("poll pidfd of {pid}")), None),
             Some(false) => {}
         }
@@ -252,11 +399,12 @@ impl Hunt<'_> {
             );
         }
         if facts.dead {
-            return (Class::Dead, None);
+            return (Class::Dead(ended), None);
         }
         let key = (pid, facts.stat.start_ticks);
         if let Some(&descend) = self.not_ours.get(&key) {
-            return (not_ours(descend, None), None);
+            // round 11: with its facts (the caller compares the start time with its listing)
+            return (not_ours(descend, Some(facts)), None);
         }
         let direct_child = facts.stat.ppid == me;
         if facts.stat.start_ticks < self.s.launch_ticks {
@@ -319,12 +467,34 @@ impl Hunt<'_> {
             MarkerFact::Unreadable(e) => {
                 if facts.real_uid != self.uid {
                     self.not_ours.insert(key, false);
-                    (not_ours(false, Some(facts)), None)
-                } else {
-                    (
-                        Class::Inconclusive(format!("pid {pid}: environ unreadable ({e})")),
+                    return (not_ours(false, Some(facts)), None);
+                }
+                // procfix7 (gate6 MJ-A): a process of our uid whose environ cannot be read (non-dumpable) is NOT J's
+                // when its verified parent chain proves it outside every session of the campaign (resources::lineage);
+                // otherwise (e.g. below this supervisor) the pass stays inconclusive. Never signalled either way.
+                match crate::resources::lineage::classify_unreadable(
+                    &procfs::sys(),
+                    &facts.stat,
+                    &self.s.marker.campaign_id,
+                ) {
+                    crate::resources::lineage::Hidden::NotOurs(_) => {
+                        self.not_ours.insert(key, false);
+                        (not_ours(false, Some(facts)), None)
+                    }
+                    // (facts.stat may be a live thread's stat when the leader is a zombie: never "dead" from here)
+                    crate::resources::lineage::Hidden::Gone => (
+                        Class::Inconclusive(format!(
+                            "pid {pid}: environ unreadable ({e}); identity changed during the parent-chain walk"
+                        )),
                         None,
-                    )
+                    ),
+                    crate::resources::lineage::Hidden::Possible(why) => (
+                        Class::Inconclusive(format!(
+                            "pid {pid} ({}): environ unreadable ({e}); {why}",
+                            facts.stat.comm
+                        )),
+                        None,
+                    ),
                 }
             }
         }
@@ -380,25 +550,339 @@ impl Hunt<'_> {
         self.cancel.load(Ordering::SeqCst) || Instant::now() >= self.deadline
     }
 
-    /// Our direct children with their start times (registered leaders excluded: other jobs' live leaders and J's own
-    /// zombie). Strict: a failed enumeration or stat read is an error; a child that vanished is left out.
-    fn snapshot_tops(&self) -> Result<BTreeMap<u32, u64>, String> {
-        let kids = own_children().map_err(|e| format!("own children: {e}"))?;
+    /// procfix7 round 10 (gate13c G13c-M1): a RAW listing of our direct children (registered leaders left out: other
+    /// jobs' live leaders and J's own zombie), from the kernel's children lists and, with `with_scan`, also from the
+    /// strict full /proc listing (ppid == us), with what each entry was when its stat was read: alive, or ENDED (a zombie,
+    /// or gone at the read). An ended entry may have HANDED OFF to a child born after the listing (a re-forking job), so
+    /// it is never "absent": [`Self::handoff_suspects`]. Strict: a failed enumeration or stat read is an error.
+    fn snapshot_tops(&self, with_scan: bool) -> Result<Listing, String> {
+        // procfix7 round 17 (host run B, N2.i0158): every pid keeps the moment its listing ended: an entry gone at its read
+        // takes the identity recorded when it was reaped by us (the launcher's leader reap, the adopted-children reaper)
+        let mut kids: BTreeMap<u32, Instant> = own_children()
+            .map_err(|e| format!("own children: {e}"))?
+            .into_iter()
+            .map(|p| (p, Instant::now()))
+            .collect();
+        crate::resources::listing_hold();
+        if with_scan {
+            let scan = own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))?;
+            let t = Instant::now();
+            for p in scan {
+                kids.entry(p).or_insert(t);
+            }
+        }
+        self.read_entries(kids)
+    }
+
+    /// procfix7 round 11 (gate14 G14-M1, W1/W2): the RAW children listing of `parent` (a stopped member or a walked
+    /// process, born at `start`), as [`Self::snapshot_tops`] reads ours. Ok(None): `parent` ended or the pid names
+    /// another process now (its children were re-parented: the caller treats that as a change). The list is `parent`'s
+    /// only if `parent` is still the same live process AFTER the reads (a pid is never reused while its process exists).
+    fn snapshot_children(&self, parent: u32, start: u64) -> Result<Option<Listing>, String> {
+        let kids = match children_of(parent) {
+            Ok(k) => k,
+            Err(ProcError::Gone) => return Ok(None),
+            Err(ProcError::Unreadable(e)) => return Err(format!("children of {parent}: {e}")),
+        };
+        let t = Instant::now();
+        crate::resources::listing_hold();
+        let l = self.read_entries(kids.into_iter().map(|p| (p, t)).collect())?;
+        match self.alive_as(parent, start)? {
+            true => Ok(Some(l)),
+            false => Ok(None),
+        }
+    }
+
+    /// Is `pid` still the live process born at `start`? (a zombie main thread with live threads is alive.)
+    fn alive_as(&self, pid: u32, start: u64) -> Result<bool, String> {
+        match crate::resources::read_stat(pid) {
+            Ok(st) if st.start_ticks != start => Ok(false),
+            Ok(st) if !st.is_dead() => Ok(true),
+            Ok(_) => match read_proc_facts(pid, false) {
+                FactRead::Facts(f) => Ok(!f.dead && f.stat.start_ticks == start),
+                FactRead::Gone => Ok(false),
+                FactRead::Failed(e) => Err(format!("facts of {pid}: {e}")),
+            },
+            Err(ProcError::Gone) => Ok(false),
+            Err(ProcError::Unreadable(e)) => Err(format!("stat of {pid}: {e}")),
+        }
+    }
+
+    /// The entries of a children list with what each was at its stat read. Round 11: an entry whose main thread is a
+    /// zombie but which still has a live thread is ALIVE (it can fork): only a zombie without live threads is ended.
+    /// Round 17: `kids` maps each listed pid to the moment its listing ended. An entry gone at its read takes the
+    /// (start, session) recorded when WE reaped it (the launcher's leader reap, the adopted-children reaper: both record
+    /// under the registry lock, with the time taken BEFORE the reap) if that reap began at or after the end of the
+    /// listing that named it: the listed process is then the reaped one (a pid names one process until that process is
+    /// reaped). Otherwise it has no identity.
+    fn read_entries(&self, kids: BTreeMap<u32, Instant>) -> Result<Listing, String> {
         let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
-        let mut out = BTreeMap::new();
-        for pid in kids {
+        let mut out = Listing::default();
+        for (pid, listed_end) in kids {
             if reg.contains(&pid) {
                 continue;
             }
             match crate::resources::read_stat(pid) {
-                Ok(Some(st)) => {
-                    out.insert(pid, st.start_ticks);
+                Ok(st) if st.is_dead() => match read_proc_facts(pid, false) {
+                    FactRead::Facts(f) if !f.dead => {
+                        out.live.insert(pid, st.start_ticks);
+                    }
+                    FactRead::Facts(_) | FactRead::Gone => {
+                        out.ended.push((pid, Some((st.start_ticks, st.session))))
+                    }
+                    FactRead::Failed(e) => return Err(format!("facts of child {pid}: {e}")),
+                },
+                Ok(st) => {
+                    out.live.insert(pid, st.start_ticks);
                 }
-                Ok(None) => {}
-                Err(e) => return Err(format!("stat of child {pid}: {e}")),
+                Err(ProcError::Gone) => {
+                    // the registry lock orders this lookup after any reap critical section that made the entry gone
+                    let reaped = {
+                        let _reg = self.s.leaders.lock();
+                        crate::resources::reaped_after(pid, listed_end)
+                    };
+                    out.ended.push((pid, reaped))
+                }
+                Err(ProcError::Unreadable(e)) => return Err(format!("stat of child {pid}: {e}")),
             }
         }
         Ok(out)
+    }
+
+    /// procfix7 round 10 (gate13c G13c-M1): was (pid, start) a member this hunt STOPPED and then killed? (stopped before
+    /// it died: it cannot have handed off.) Round 11 (gate14 m14-pid-alone): by pid AND start time only.
+    fn killed_member(&self, pid: u32, start: u64) -> bool {
+        self.killed
+            .iter()
+            .any(|k| k.pid == pid && k.start_ticks == start)
+    }
+
+    /// procfix7 round 10 (gate13c G13c-M1): the ENDED entries of a raw listing that may have handed off to a successor
+    /// born after the listing ([`Self::ended_suspect`]; records each in `seen_ended`).
+    /// Round 11: the other leaders' sessions of the listing are read ONCE under the registry lock.
+    fn handoff_suspects(&mut self, l: &Listing) -> Suspects {
+        if l.ended.is_empty() {
+            return Suspects(Vec::new());
+        }
+        let leaders =
+            self.other_leader_starts(l.ended.iter().filter_map(|(_, i)| i.map(|(_, s)| s)));
+        let mut out = Vec::new();
+        for &(pid, info) in &l.ended {
+            if self.ended_suspect_with(
+                pid,
+                info.map(|(s, _)| s),
+                info.map(|(_, sess)| sess),
+                &leaders,
+            ) {
+                out.push(self.owner_text(pid, info));
+            }
+        }
+        Suspects(out)
+    }
+
+    /// procfix7 round 17: a suspect with what is known of its owner, for the reasons the log and the summary show.
+    fn owner_text(&self, pid: u32, info: Option<(u64, u32)>) -> String {
+        match info {
+            None => format!("{pid} (gone before its read: no identity)"),
+            Some((start, sess)) => match self.s.leaders.owner_of(pid, start) {
+                Some((role, attempt)) => format!("{pid} ({} of {attempt})", role.word()),
+                None if sess == self.s.sid => format!("{pid} (of this job's session)"),
+                None => format!("{pid} (owner unknown, session {sess})"),
+            },
+        }
+    }
+
+    /// A candidate listed alive as (pid, `listed`) and classified Dead: a hand-off suspect? The facts' session is used
+    /// only when their start time is the listed one (the same process).
+    fn dead_suspect(&mut self, pid: u32, listed: u64, info: Option<(u64, u32)>) -> bool {
+        let session = info.filter(|(s, _)| *s == listed).map(|(_, sess)| sess);
+        self.ended_suspect(pid, Some(listed), session)
+    }
+
+    /// procfix7 round 10 / 11: may the ENDED process (pid, `start`, `session`) have handed its children to a successor
+    /// that a listing read before its end could not show? NOT a suspect (each by a conclusive fact):
+    /// - a member this hunt stopped and killed, by pid AND start (stopped before it died: no fork after the stop);
+    /// - (round 11) a process this hunt already saw ended in an earlier listing (`seen_ended`: its hand-off, if any,
+    ///   happened before that sighting, and every later listing shows the successors);
+    /// - a process started before J's launch, or (round 11) one this hunt classified conclusively as not J's and not to
+    ///   be walked (another attempt's marker, another uid, ...): its successors are not J's either;
+    /// - a zombie of the supervisor's OWN session (its helpers; every job leader setsid's);
+    /// - (round 11, gate14 m14-liveness) a zombie of ANOTHER job's session whose leader is held unreaped and was born no
+    ///   later than it ([`Self::other_leader_starts`]): it descends from that leader, not from J.
+    ///
+    /// Everything else is a suspect: a gone entry (no identity), a zombie of J's session, of a session that is no
+    /// registered leader's. A suspect is recorded in `seen_ended` (the caller makes the round a change / the pass
+    /// inconclusive; later listings show its successors).
+    fn ended_suspect(&mut self, pid: u32, start: Option<u64>, session: Option<u32>) -> bool {
+        let leaders = self.other_leader_starts(session.into_iter());
+        self.ended_suspect_with(pid, start, session, &leaders)
+    }
+
+    /// [`Self::ended_suspect`] with the other leaders' sessions already read ([`Self::other_leader_starts`]).
+    fn ended_suspect_with(
+        &mut self,
+        pid: u32,
+        start: Option<u64>,
+        session: Option<u32>,
+        leaders: &BTreeMap<u32, u64>,
+    ) -> bool {
+        let Some(start) = start else { return true };
+        // procfix7 round 17 (host run B, N2.i0158: the neighbour attempt's ended leader, a suspect for 120 s): a process
+        // RECORDED as the leader or a killed member of ANOTHER attempt of this launcher, by pid AND start, is not J's
+        // suspect. It cannot hide a hand-off of J: everything that process forked is in ITS process tree, so in its
+        // session or a session one of its descendants created (a session is only ever inherited by fork or created new
+        // by setsid; no process can join J's session from outside J's tree) and carrying ITS attempt's marker (unless it
+        // forges J's, the marker rule's documented limit since procfix3). A process that is both another attempt's
+        // recorded leader / member and an ancestor of J's relay would have to have forked J's process tree: J's leader
+        // is a child of the supervisor, spawned by the launcher itself, never by another job.
+        if self
+            .s
+            .leaders
+            .owner_of(pid, start)
+            .is_some_and(|(_, attempt)| attempt != self.s.marker.attempt_id)
+        {
+            return false;
+        }
+        if self.killed_member(pid, start)
+            || self.seen_ended.contains(&(pid, start))
+            || start < self.s.launch_ticks
+            || self.not_ours.get(&(pid, start)) == Some(&false)
+        {
+            return false;
+        }
+        if let Some(sess) = session
+            && (sess == self.own_session || leaders.get(&sess).is_some_and(|&l| l <= start))
+        {
+            return false;
+        }
+        self.seen_ended.insert((pid, start));
+        true
+    }
+
+    /// procfix7 round 11 (gate14 m14-liveness): read under ONE registry lock (a registered leader is reaped only under it,
+    /// so each stat read under it is that leader's): for every given session other than J's and ours that is a
+    /// registered leader's (our child, leading its own session), that leader's start time. A zombie of such a session
+    /// born NO EARLIER than that leader is exempt ([`Self::ended_suspect`]): it was born while the leader held the number
+    /// (a number in use as a session id is never given to a new process, so every session with that id during the
+    /// leader's life is the leader's own) and inherited the session from a member of it: it descends from that leader,
+    /// never from J (J's leader is the supervisor's child, as is every leader).
+    fn other_leader_starts(&self, sessions: impl Iterator<Item = u32>) -> BTreeMap<u32, u64> {
+        let want: BTreeSet<u32> = sessions
+            .filter(|&s| s != self.s.sid && s != self.own_session)
+            .collect();
+        let mut out = BTreeMap::new();
+        if want.is_empty() {
+            return out;
+        }
+        let reg = self.s.leaders.lock();
+        for s in want {
+            if reg.contains(&s)
+                && let Ok(st) = crate::resources::read_stat(s)
+                && st.ppid == me()
+                && st.session == s
+            {
+                out.insert(s, st.start_ticks);
+            }
+        }
+        out
+    }
+
+    /// procfix7 round 11 (gate14 L14-1): our children list keeps changing (a fast relay re-parented to us): the round
+    /// cannot conclude, but every live child that any read names is still a candidate to STOP (a stopped relay hop cannot
+    /// fork, so the list settles). Candidates only: nothing is concluded from this union.
+    /// Only candidates not examined yet (pid AND start): a list that keeps changing because OTHER jobs' orphans come and
+    /// go costs one classification per new child, not one per child and round.
+    fn unstable_top_candidates(&self, examined: &BTreeMap<u32, u64>, queue: &mut Vec<Cand>) {
+        let me = me();
+        let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
+        for pid in crate::resources::own_children_candidates() {
+            if reg.contains(&pid) {
+                continue;
+            }
+            if let Ok(st) = crate::resources::read_stat(pid)
+                && !st.is_dead()
+                && examined.get(&pid) != Some(&st.start_ticks)
+            {
+                queue.push((pid, Some(me), st.start_ticks));
+            }
+        }
+    }
+
+    /// procfix7 round 11 (gate14 G14-M1, W1): take one raw listing of `parent` into the round: an ended entry that may
+    /// have handed off makes the round a CHANGE; every live entry not examined yet (by pid AND start) is queued.
+    fn take_listing(
+        &mut self,
+        parent: u32,
+        l: &Listing,
+        examined: &BTreeMap<u32, u64>,
+        queue: &mut Vec<Cand>,
+        changed: &mut Option<String>,
+    ) {
+        let ended = self.handoff_suspects(l);
+        if !ended.is_empty() {
+            changed.get_or_insert(format!(
+                "children {ended:?} of {parent} ended between the listing and the read (hand-off?)"
+            ));
+        }
+        for (&pid, &start) in &l.live {
+            if examined.get(&pid) != Some(&start) {
+                queue.push((pid, Some(parent), start));
+            }
+        }
+    }
+
+    /// procfix7 round 11 (gate14 G14-M1, W1): the stability check that ends the fixed point. EVERY list the hunt follows
+    /// is read again: ours, every stopped member's and every walked process's; each must still exist, show no new ended
+    /// entry that may have handed off and no live entry that was not examined (by pid AND start). Ok(None): stable.
+    ///
+    /// Round 11 (liveness, gate14 m14-liveness): a live entry that appeared during the round is classified HERE; one that
+    /// is conclusively NOT the job's and not walked (another job's orphan, another uid, ...) cannot hide a member (its
+    /// descendants are not the job's either: the classification rules) and is taken as examined; anything else (the
+    /// job's, walked, inconclusive, found dead, another start time) makes the round unstable as before.
+    fn unstable_reason(
+        &mut self,
+        examined: &mut BTreeMap<u32, u64>,
+        parents: &[(u32, u64)],
+    ) -> Result<Option<String>, String> {
+        let mut lists: Vec<(u32, Listing)> = Vec::new();
+        if self.s.enumeration == Enumeration::SubreaperTree {
+            lists.push((me(), self.snapshot_tops(false)?));
+        }
+        for &(p, ps) in parents {
+            match self.snapshot_children(p, ps)? {
+                Some(l) => lists.push((p, l)),
+                None => return Ok(Some(format!("{p} ended during the round"))),
+            }
+        }
+        for (p, l) in &lists {
+            let ended = self.handoff_suspects(l);
+            if !ended.is_empty() {
+                return Ok(Some(format!(
+                    "children {ended:?} of {p} ended during the round (hand-off?)"
+                )));
+            }
+            for (&c, &cs) in &l.live {
+                if examined.get(&c) == Some(&cs) {
+                    continue;
+                }
+                let class = self.classify(c, Some(*p)).0;
+                self.trace_class(c, Some(*p), &class);
+                match class {
+                    Class::NotOurs {
+                        descend: false,
+                        unattributed,
+                        facts,
+                    } if facts.as_ref().is_none_or(|f| f.stat.start_ticks == cs) => {
+                        if unattributed && let Some(f) = &facts {
+                            self.note_unattributed(f);
+                        }
+                        examined.insert(c, cs);
+                    }
+                    _ => return Ok(Some(format!("child {c} of {p} appeared during the round"))),
+                }
+            }
+        }
+        Ok(None)
     }
 
     fn trace_class(&self, pid: u32, parent: Option<u32>, class: &Class) {
@@ -416,7 +900,7 @@ impl Hunt<'_> {
                         "not ours (unattributed {unattributed}, descend {descend}) {:?}",
                         facts.as_ref().map(|f| (f.stat.session, f.marker.clone()))
                     ),
-                    Class::Dead => "dead".into(),
+                    Class::Dead(_) => "dead".into(),
                     Class::Inconclusive(e) => format!("INCONCLUSIVE {e}"),
                 }
             )
@@ -425,21 +909,29 @@ impl Hunt<'_> {
 
     /// Step 2: stop every member until a fixed point. Ok(members) at the fixed point; Err(reason) when the bound is hit.
     ///
-    /// Why a fixed point needs a STABLE set of our children (and not just "every candidate examined was dead or not
-    /// ours"): a candidate alive when the children list was read but dead when examined may have handed off to a child
-    /// born after that read (the relay of re-audit B); that child is re-parented to us when the candidate dies. So every
-    /// round ends with a fresh snapshot of our children (pid AND start time): any entry not examined yet sends the loop
-    /// round again; the newest children are examined first.
+    /// Why a fixed point needs STABLE children lists (and not just "every candidate examined was dead or not ours"): a
+    /// candidate alive when a children list was read but dead when examined may have handed off to a child born after
+    /// that read (the relay of re-audit B); that child is re-parented, AT the candidate's exit, to the nearest living
+    /// child subreaper above it: us, a stopped member, or (gate14 G14-M1) a WALKED marker-less process of the job that
+    /// made itself a subreaper. So (round 11, W1) every round re-reads the RAW children lists of all three (ours, every
+    /// stopped member's, every walked process's), an ended entry that may have handed off is a CHANGE at every level, a
+    /// walked process that ended is a change (its children moved), and the round ends with the same lists read once
+    /// more: any entry not examined yet (pid AND start) or newly ended sends the loop round again. The newest children
+    /// are examined first.
     fn freeze_fixed_point(
         &mut self,
     ) -> Result<BTreeMap<u32, Member>, (String, BTreeMap<u32, Member>)> {
         let mut known: BTreeMap<u32, Member> = BTreeMap::new();
-        if self.s.pinned {
+        if self.s.pinned && !self.group_killed() {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the fixed point and two proof passes decide; a failed stop only costs rounds
             let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);
         }
-        let me = me();
-        // Direct children already examined in this hunt, by (pid, start).
-        let mut tops_seen: BTreeMap<u32, u64> = BTreeMap::new();
+        let tree = self.s.enumeration == Enumeration::SubreaperTree;
+        // Candidates examined conclusively in this freeze (alive when classified): pid -> start.
+        let mut examined: BTreeMap<u32, u64> = BTreeMap::new();
+        // round 11 (W1): the walked processes (marker-less processes of the job, never signalled, followed): pid -> start
+        let mut walked: BTreeMap<u32, u64> = BTreeMap::new();
         let mut last_reason = String::from("no round completed");
         for round in 0..self.s.max_rounds {
             if self.out_of_time() {
@@ -448,28 +940,26 @@ impl Hunt<'_> {
                     known,
                 ));
             }
-            let mut changed = false;
+            // why this round changed (diagnostics: the reason of a bound hit)
+            let mut changed: Option<String> = None;
             let mut inconclusive: Option<String> = None;
-            let mut queue: Vec<(u32, Option<u32>)> = Vec::new();
+            let mut queue: Vec<Cand> = Vec::new();
             match self.s.enumeration {
-                Enumeration::SubreaperTree => match self.snapshot_tops() {
-                    Ok(t) => {
-                        for (pid, start) in t {
-                            if tops_seen.get(&pid) != Some(&start) {
-                                tops_seen.insert(pid, start);
-                                queue.push((pid, Some(me)));
-                            }
-                        }
+                Enumeration::SubreaperTree => match self.snapshot_tops(false) {
+                    Ok(t) => self.take_listing(me(), &t, &examined, &mut queue, &mut changed),
+                    Err(e) => {
+                        // round 11 (gate14 L14-1): nothing is concluded, but the listed children are still stopped
+                        self.unstable_top_candidates(&examined, &mut queue);
+                        inconclusive = Some(e);
                     }
-                    Err(e) => inconclusive = Some(e),
                 },
                 Enumeration::FullProc => match strict_listing_counted() {
                     Ok((all, _)) => queue.extend(
                         all.into_iter()
                             .filter(|st| st.start_ticks >= self.s.launch_ticks)
-                            .map(|st| (st.pid, None)),
+                            .map(|st| (st.pid, None, st.start_ticks)),
                     ),
-                    Err(e) => inconclusive = Some(format!("/proc listing: {e}")),
+                    Err(e) => inconclusive = Some(format!("proc listing: {e}")),
                 },
             }
             // The belt (procfix3): every live process of our uid carrying J's exact marker, wherever it is.
@@ -479,38 +969,63 @@ impl Hunt<'_> {
                     self.s.launch_ticks,
                     Some(&self.s.marker.attempt_id),
                 ) {
-                    Ok(scan) => queue.extend(scan.processes.into_iter().map(|p| (p.pid, None))),
+                    Ok(scan) => queue.extend(
+                        scan.processes
+                            .into_iter()
+                            .map(|p| (p.pid, None, p.start_ticks)),
+                    ),
                     Err(e) => inconclusive = Some(format!("marker scan: {e}")),
                 }
             }
-            // Children of every stopped member (their lists are stable: a stopped process cannot fork).
-            let member_pids: Vec<u32> = known.keys().copied().collect();
-            for m in member_pids {
-                match children_of(m) {
-                    Ok(Some(k)) => queue.extend(k.into_iter().map(|p| (p, Some(m)))),
-                    Ok(None) => {}
+            // Round 11 (W1): the raw children lists of every stopped member (a stopped process cannot fork, but a child
+            // subreaper adopts) and of every WALKED process (not stopped: it forks and adopts at any time), every round.
+            let parents: Vec<(u32, u64)> = known
+                .iter()
+                .map(|(p, m)| (*p, m.facts.stat.start_ticks))
+                .chain(walked.iter().map(|(p, st)| (*p, *st)))
+                .collect();
+            for (p, ps) in parents {
+                match self.snapshot_children(p, ps) {
+                    Ok(Some(l)) => self.take_listing(p, &l, &examined, &mut queue, &mut changed),
+                    Ok(None) => {
+                        // a walked process that ended handed its children over; a member: the member check below
+                        if walked.remove(&p).is_some() {
+                            changed.get_or_insert(format!(
+                                "walked process {p} ended (its children were re-parented)"
+                            ));
+                        }
+                    }
                     Err(e) => inconclusive = Some(e),
                 }
             }
             let mut seen: BTreeSet<u32> = BTreeSet::new();
             trace(|| {
                 format!(
-                    "sid {} round {round} queue {queue:?} known {:?}",
+                    "sid {} round {round} queue {queue:?} known {:?} walked {walked:?}",
                     self.s.sid,
                     known.keys().collect::<Vec<_>>()
                 )
             });
             // pop() takes the highest pid first: the newest child (a re-forking process's current member).
             queue.sort_unstable();
-            while let Some((pid, parent)) = queue.pop() {
+            while let Some((pid, parent, start)) = queue.pop() {
                 if known.contains_key(&pid) || !seen.insert(pid) {
                     continue;
                 }
                 let (class, fd) = self.classify(pid, parent);
                 self.trace_class(pid, parent, &class);
+                // round 11: the listed process ended and the pid names another process now (examined below as itself)
+                if class_start(&class).is_some_and(|now| now != start)
+                    && self.ended_suspect(pid, Some(start), None)
+                {
+                    changed.get_or_insert(format!(
+                        "candidate {pid} ended before its examination (hand-off?)"
+                    ));
+                }
                 match class {
                     Class::Ours(proof, facts) => {
                         let Some(fd) = fd else { continue };
+                        let fstart = facts.stat.start_ticks;
                         let (st, hold) = self.stop(&fd, &facts, &proof);
                         match st {
                             Stop::Stopped => {
@@ -521,13 +1036,18 @@ impl Hunt<'_> {
                                         children_of(pid)
                                     )
                                 });
-                                changed = true;
-                                if self.s.enumeration == Enumeration::SubreaperTree {
-                                    match children_of(pid) {
-                                        Ok(Some(k)) => {
-                                            queue.extend(k.into_iter().map(|c| (c, Some(pid))))
-                                        }
-                                        Ok(None) => {}
+                                changed.get_or_insert(format!("member {pid} stopped"));
+                                examined.insert(pid, fstart);
+                                if tree {
+                                    match self.snapshot_children(pid, fstart) {
+                                        Ok(Some(l)) => self.take_listing(
+                                            pid,
+                                            &l,
+                                            &examined,
+                                            &mut queue,
+                                            &mut changed,
+                                        ),
+                                        Ok(None) => {} // it ended: the member check below
                                         Err(e) => inconclusive = Some(e),
                                     }
                                 }
@@ -543,7 +1063,8 @@ impl Hunt<'_> {
                             }
                             Stop::DeliveredUnconfirmed(e) => {
                                 // gate-A m-2: the STOP was delivered; keep it so that it gets the SIGKILL.
-                                changed = true;
+                                changed.get_or_insert(format!("member {pid} stop unconfirmed"));
+                                examined.insert(pid, fstart);
                                 known.insert(
                                     pid,
                                     Member {
@@ -555,7 +1076,11 @@ impl Hunt<'_> {
                                 );
                                 inconclusive = Some(e);
                             }
-                            Stop::Exited => changed = true,
+                            Stop::Exited => {
+                                changed.get_or_insert(format!(
+                                    "candidate {pid} of the job exited before its stop (hand-off?)"
+                                ));
+                            }
                             Stop::Failed(e) => inconclusive = Some(e),
                         }
                     }
@@ -567,23 +1092,36 @@ impl Hunt<'_> {
                         if unattributed && let Some(f) = &facts {
                             self.note_unattributed(f);
                         }
-                        // gate-A M-1: a marker-less process of the job does not shield its descendants.
-                        if descend && self.s.enumeration == Enumeration::SubreaperTree {
-                            match children_of(pid) {
-                                Ok(Some(k)) => queue.extend(k.into_iter().map(|c| (c, Some(pid)))),
-                                Ok(None) => {}
+                        let fstart = facts.as_ref().map_or(start, |f| f.stat.start_ticks);
+                        examined.insert(pid, fstart);
+                        // gate-A M-1: a marker-less process of the job does not shield its descendants; round 11 (W1): it
+                        // is WALKED from now on (its list is re-read in every round)
+                        if descend && tree && walked.insert(pid, fstart).is_none() {
+                            match self.snapshot_children(pid, fstart) {
+                                Ok(Some(l)) => {
+                                    self.take_listing(pid, &l, &examined, &mut queue, &mut changed)
+                                }
+                                Ok(None) => {
+                                    walked.remove(&pid);
+                                    changed.get_or_insert(format!(
+                                        "walked process {pid} ended (its children were re-parented)"
+                                    ));
+                                }
                                 Err(e) => inconclusive = Some(e),
                             }
                         }
                     }
-                    Class::Dead => {}
-                    Class::Inconclusive(e) => {
-                        // Examine it again next round.
-                        if parent == Some(me) {
-                            tops_seen.remove(&pid);
+                    // procfix7 round 10 (F1) / round 11: a candidate found DEAD may have handed off to a child born after
+                    // it was listed: a CHANGE unless a conclusive fact says otherwise ([`Self::ended_suspect`])
+                    Class::Dead(info) => {
+                        if self.dead_suspect(pid, start, info) {
+                            changed.get_or_insert(format!(
+                                "candidate {pid} ended before its examination (hand-off?)"
+                            ));
                         }
-                        inconclusive = Some(e);
                     }
+                    // not examined: queued again next round
+                    Class::Inconclusive(e) => inconclusive = Some(e),
                 }
             }
             // Every member still stopped? (a member could be continued by a SIGCONT sent before it was found.)
@@ -592,13 +1130,13 @@ impl Hunt<'_> {
                 let m = &known[&pid];
                 if guard::pidfd_exited(&m.fd) == Some(true) {
                     known.remove(&pid);
-                    changed = true;
+                    changed.get_or_insert(format!("member {pid} exited"));
                     continue;
                 }
                 match read_proc_facts(pid, false) {
                     FactRead::Facts(f) if f.all_stopped || f.dead => {}
                     FactRead::Facts(_) => {
-                        changed = true;
+                        changed.get_or_insert(format!("member {pid} was continued"));
                         let (fd, facts, proof) = (&m.fd, m.facts.clone(), m.proof.clone());
                         if let (Stop::Failed(e) | Stop::DeliveredUnconfirmed(e), _) =
                             self.stop(fd, &facts, &proof)
@@ -608,7 +1146,7 @@ impl Hunt<'_> {
                     }
                     FactRead::Gone => {
                         known.remove(&pid);
-                        changed = true;
+                        changed.get_or_insert(format!("member {pid} exited"));
                     }
                     FactRead::Failed(e) => inconclusive = Some(e),
                 }
@@ -619,25 +1157,21 @@ impl Hunt<'_> {
                 std::thread::sleep(Duration::from_millis(2));
                 continue;
             }
-            if changed {
-                last_reason = "new members in the last round".into();
+            if let Some(why) = changed {
+                last_reason = why;
                 continue;
             }
-            // Stability: no child of ours appeared since the round's snapshot.
-            if self.s.enumeration == Enumeration::SubreaperTree {
-                match self.snapshot_tops() {
-                    Ok(t) if t.iter().all(|(p, st)| tops_seen.get(p) == Some(st)) => {}
-                    Ok(_) => {
-                        last_reason = "children appeared during the round (hand-off?)".into();
-                        continue;
-                    }
-                    Err(e) => {
-                        last_reason = e;
-                        continue;
-                    }
-                }
+            // Stability (round 10 F1 on our list; round 11 W1 on EVERY list the hunt follows).
+            let parents: Vec<(u32, u64)> = known
+                .iter()
+                .map(|(p, m)| (*p, m.facts.stat.start_ticks))
+                .chain(walked.iter().map(|(p, st)| (*p, *st)))
+                .collect();
+            match self.unstable_reason(&mut examined, &parents) {
+                Ok(None) => return Ok(known),
+                Ok(Some(why)) => last_reason = why,
+                Err(e) => last_reason = e,
             }
-            return Ok(known);
         }
         Err((
             format!(
@@ -648,12 +1182,33 @@ impl Hunt<'_> {
         ))
     }
 
+    /// procfix7 round 6 (gate10 M10-2: an unproven end re-ran the hunt every few seconds and every round sent the pinned
+    /// group SIGSTOP + SIGKILL again, each a durable intent and a ledger record: ~97,000 records in 10 min). A SIGKILL
+    /// delivered to the pinned group (leader held UNREAPED: the session cannot be reused) reached every member of that
+    /// moment, and no fork completes with a fatal signal pending: later rounds of this job skip the GROUP signals; a live
+    /// member that is still found is stopped and killed by its own pidfd as before. Keyed by (session, launch time).
+    fn group_killed(&self) -> bool {
+        GROUP_KILLED
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .contains(&(self.s.sid, self.s.launch_ticks))
+    }
+
     /// Step 3: SIGKILL every stopped member (and the pinned group, and the cgroup); wait for the exits (bounded).
     fn kill_all(&mut self, known: BTreeMap<u32, Member>) -> Vec<LeftoverRecord> {
-        if self.s.pinned {
-            let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL);
+        if self.s.pinned
+            && !self.group_killed()
+            && guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL).delivered()
+        {
+            // procfix7 round 6 (gate10 M10-2): delivered once per pinned group (the proof passes decide what is left)
+            GROUP_KILLED
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .insert((self.s.sid, self.s.launch_ticks));
         }
         if let Some(cg) = &self.s.cgroup {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the proof passes decide; a survivor sends the hunt back (never a proof by itself)
             let _ = super::cgroup::kill_path(cg);
         }
         let mut pending: Vec<Member> = Vec::new();
@@ -663,7 +1218,7 @@ impl Hunt<'_> {
             trace(|| format!("sid {} SIGKILL pid {}: {v:?}", self.s.sid, m.facts.stat.pid));
             match v {
                 Verdict::Delivered | Verdict::Gone => {
-                    self.killed.push(record(&m.facts));
+                    self.record_killed(record(&m.facts));
                     pending.push(m);
                 }
                 // procfix6 (gate5 m1): a member this hunt STOPPED that the proof check refuses now (it dropped the marker
@@ -676,7 +1231,7 @@ impl Hunt<'_> {
                         .unwrap_or(Verdict::Unverified("no verdict".into()));
                     trace(|| format!("sid {} held SIGKILL pid {}: {kv:?}", self.s.sid, h.pid()));
                     match kv {
-                        Verdict::Delivered | Verdict::Gone => self.killed.push(record(&m.facts)),
+                        Verdict::Delivered | Verdict::Gone => self.record_killed(record(&m.facts)),
                         _ => {
                             let cv = guard::continue_held(&[(&m.fd, h)]);
                             trace(|| {
@@ -707,18 +1262,38 @@ impl Hunt<'_> {
         // The scope belt (procfix3): AFTER the guarded kills, whatever the job's own systemd scope still holds (e.g. a
         // descendant that cleared the marker and left the session) is killed by the kernel through `cgroup.kill` of
         // that scope (recorded from the pinned leader; checked again: same directory, our uid, our user manager).
-        if let Some(scope) = &self.s.scope
-            && let Ok(live) = scope.live_members()
-            && !live.is_empty()
+        // procfix7 round 6 (gate10 m10-3): the belt runs unless the scope is PROVEN empty (members() Ok and empty, which
+        // now includes the kernel's recursive populated 0): an unreadable scope is killed too (cgroup.kill is recursive)
+        let scope_live = self.s.scope.as_ref().map(|s| s.live_members());
+        if let (Some(scope), Some(live)) = (&self.s.scope, scope_live)
+            && !matches!(&live, Ok(v) if v.is_empty())
         {
+            let live = live.unwrap_or_default();
             for pid in &live {
-                if let Ok(Some(st)) = crate::resources::read_stat(*pid) {
-                    self.killed.push(LeftoverRecord {
+                // a record of what the scope kill takes (diagnostics); an unreadable stat is recorded without details
+                match crate::resources::read_stat(*pid) {
+                    Ok(st) => self.killed.push({
+                        // round 17: a member of this attempt by identity (other proofs recognise it once ended)
+                        self.s.leaders.note_owner(
+                            *pid,
+                            st.start_ticks,
+                            crate::resources::OwnerRole::Member,
+                            &self.s.marker.attempt_id,
+                        );
+                        LeftoverRecord {
+                            pid: *pid,
+                            start_ticks: st.start_ticks,
+                            pgrp: st.pgrp,
+                            comm: format!("{} <killed through the job's systemd scope>", st.comm),
+                        }
+                    }),
+                    Err(ProcError::Gone) => {}
+                    Err(ProcError::Unreadable(_)) => self.killed.push(LeftoverRecord {
                         pid: *pid,
-                        start_ticks: st.start_ticks,
-                        pgrp: st.pgrp,
-                        comm: format!("{} <killed through the job's systemd scope>", st.comm),
-                    });
+                        start_ticks: 0,
+                        pgrp: 0,
+                        comm: "<stat unreadable, killed through the job's systemd scope>".into(),
+                    }),
                 }
             }
             let r = scope.kill_members();
@@ -730,31 +1305,38 @@ impl Hunt<'_> {
 
     /// One proof pass. Ok(survivors) when conclusive; Err(reason) when not. In tree mode the pass is bracketed by two
     /// snapshots of our children: a child that appears in between and is ours (or cannot be classified) makes the pass
-    /// inconclusive (a candidate that died while the pass ran may have handed off to it).
+    /// inconclusive (a candidate that died while the pass ran may have handed off to it). Round 11 (gate14 G14-M1, W2):
+    /// the same bracket for EVERY walked process: its raw children list is read when it is walked and again after the
+    /// whole walk and the closing snapshot; the pass is inconclusive when a walked process ended, when its list changed,
+    /// or when an entry of it ended (or a listed child is found dead) that may have handed off.
     fn pass(&mut self) -> Result<Vec<LeftoverRecord>, String> {
         let me = me();
         let mut survivors = Vec::new();
+        self.classified_now.clear();
         if self.s.pinned && !self.leader_pinned() {
             return Err("the leader is no longer held unreaped".into());
         }
         match self.s.enumeration {
             Enumeration::SubreaperTree => {
-                let mut t0 = self.snapshot_tops()?;
-                let reg: BTreeSet<u32> = self.s.leaders.lock().clone();
-                for pid in own_children_by_scan().map_err(|e| format!("ppid scan: {e}"))? {
-                    if !t0.contains_key(&pid)
-                        && !reg.contains(&pid)
-                        && let Ok(Some(st)) = crate::resources::read_stat(pid)
-                    {
-                        t0.insert(pid, st.start_ticks);
-                    }
+                // procfix7 round 10 (gate13c G13c-M1, F2): both bracketing snapshots are RAW (children lists AND the
+                // strict ppid scan); a pass is INCONCLUSIVE when either shows a child that ended before its read and may
+                // have handed off, when a listed child ends before its examination, when a child appears and has ended
+                // by its examination, or when a marker-less child whose subtree was walked is gone at the end.
+                let t0 = self.snapshot_tops(true)?;
+                let ended = self.handoff_suspects(&t0);
+                if !ended.is_empty() {
+                    return Err(format!(
+                        "children {ended:?} ended between the listing and the read (hand-off?)"
+                    ));
                 }
-                let mut tops: Vec<u32> = t0.keys().copied().collect();
+                let mut tops: Vec<(u32, u64)> = t0.live.iter().map(|(p, st)| (*p, *st)).collect();
                 tops.sort_unstable_by(|a, b| b.cmp(a));
-                // Marker-less processes of the job whose subtrees are walked (gate-A M-1).
-                let mut through: Vec<u32> = Vec::new();
-                for pid in tops {
+                // Marker-less processes of the job whose subtrees are walked (gate-A M-1), with their listings (W2).
+                let mut through: Vec<(u32, u64)> = Vec::new();
+                let mut walked: BTreeMap<u32, (u64, Listing)> = BTreeMap::new();
+                for (pid, start) in tops {
                     let (class, _) = self.classify(pid, Some(me));
+                    self.listed_as(pid, start, &class)?;
                     match class {
                         Class::Ours(_, f) => survivors.push(record(&f)),
                         Class::Inconclusive(e) => return Err(e),
@@ -767,35 +1349,65 @@ impl Hunt<'_> {
                                 self.note_unattributed(f);
                             }
                             if descend {
-                                through.push(pid);
+                                through.push((pid, start));
                             }
                         }
-                        Class::Dead => {}
+                        Class::Dead(info) => {
+                            if self.dead_suspect(pid, start, info) {
+                                return Err(format!(
+                                    "child {pid} ended before its examination (hand-off?)"
+                                ));
+                            }
+                        }
                     }
                 }
-                self.walk_through(through, &mut survivors)?;
-                let t1 = self.snapshot_tops()?;
-                for (pid, start) in t1 {
-                    if t0.get(&pid) == Some(&start) {
+                self.walk_through(through.clone(), &mut survivors, &mut walked)?;
+                let t1 = self.snapshot_tops(true)?;
+                let ended = self.handoff_suspects(&t1);
+                if !ended.is_empty() {
+                    return Err(format!(
+                        "children {ended:?} ended during the pass (hand-off?)"
+                    ));
+                }
+                for (pid, _) in &through {
+                    if t1.live.get(pid) != t0.live.get(pid) {
+                        return Err(format!(
+                            "marker-less child {pid} ended during the pass (hand-off?)"
+                        ));
+                    }
+                }
+                for (pid, start) in t1.live {
+                    if t0.live.get(&pid) == Some(&start) {
                         continue;
                     }
-                    match self.classify(pid, Some(me)).0 {
+                    let class = self.classify(pid, Some(me)).0;
+                    self.listed_as(pid, start, &class)?;
+                    match class {
                         Class::Ours(_, f) => survivors.push(record(&f)),
                         Class::Inconclusive(e) => {
                             return Err(format!("child appeared during the pass: {e}"));
                         }
                         Class::NotOurs { descend: true, .. } => {
-                            self.walk_through(vec![pid], &mut survivors)?
+                            self.walk_through(vec![(pid, start)], &mut survivors, &mut walked)?
                         }
-                        _ => {}
+                        Class::NotOurs { .. } => {}
+                        Class::Dead(info) => {
+                            if self.dead_suspect(pid, start, info) {
+                                return Err(format!(
+                                    "child {pid} appeared and ended during the pass (hand-off?)"
+                                ));
+                            }
+                        }
                     }
                 }
+                // Round 11 (W2): every walked list again, after the whole walk and the closing snapshot.
+                self.recheck_walked(&walked)?;
             }
             Enumeration::FullProc => {
                 let (all, vanished) =
-                    strict_listing_counted().map_err(|e| format!("/proc listing: {e}"))?;
+                    strict_listing_counted().map_err(|e| format!("proc listing: {e}"))?;
                 if vanished > 0 {
-                    return Err(format!("{vanished} /proc entries vanished during the pass"));
+                    return Err(format!("{vanished} proc entries vanished during the pass"));
                 }
                 for st in all {
                     if st.start_ticks < self.s.launch_ticks || st.pid == me || st.pid <= 1 {
@@ -809,6 +1421,8 @@ impl Hunt<'_> {
                 }
             }
         }
+        // procfix8 (item 4): the suspects of this hunt the enumeration above did not reach
+        self.recheck_suspects(&mut survivors)?;
         // Belt 1 (procfix3): any live process of our uid with J's EXACT marker is a survivor, wherever it is. Only adds
         // survivors (an unreadable environ elsewhere on the host does not make the pass inconclusive: the strict tree
         // enumeration above is the proof; this belt catches what a tree walk cannot see).
@@ -843,8 +1457,23 @@ impl Hunt<'_> {
             }
         }
         if let Some(cg) = &self.s.cgroup {
-            match super::cgroup::procs_of(cg) {
-                Ok(p) if p.is_empty() => {}
+            // procfix7 round 6 (gate10 m10-3): the job cgroup's subtree, cross-checked with the recursive populated flag
+            match super::cgroup::procs_recursive(cg) {
+                Ok(p) if p.is_empty() => match super::cgroup::populated(cg) {
+                    Ok(false) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Ok(true) => {
+                        self.cgroup_ok = false;
+                        return Err(format!(
+                            "{}: populated (cgroup.events) but no member listed in the subtree's cgroup.procs",
+                            cg.display()
+                        ));
+                    }
+                    Err(e) => {
+                        self.cgroup_ok = false;
+                        return Err(format!("cgroup.events: {e}"));
+                    }
+                },
                 Ok(p) => {
                     for pid in p {
                         survivors.push(LeftoverRecord {
@@ -867,33 +1496,93 @@ impl Hunt<'_> {
         Ok(survivors)
     }
 
+    /// Round 11: a classification of the entry listed as (pid, `listed`) that read ANOTHER start time: the listed process
+    /// ended and the pid names a new process; Err when the ended one may have handed off.
+    fn listed_as(&mut self, pid: u32, listed: u64, class: &Class) -> Result<(), String> {
+        if class_start(class).is_some_and(|now| now != listed)
+            && self.ended_suspect(pid, Some(listed), None)
+        {
+            return Err(format!(
+                "child {pid} ended and its pid was reused during the pass (hand-off?)"
+            ));
+        }
+        Ok(())
+    }
+
     /// Classify the descendants of marker-less processes of the job (not stopped, never signalled: their children lists
-    /// are read as they are; anything handed off meanwhile is re-parented to us and seen by the bracketing snapshots, or
-    /// carries the marker and is seen by the full-scan belt). Bounded.
+    /// are read as they are). Round 11 (gate14 G14-M1, W2): each walked process's RAW list is kept in `walked` for the
+    /// closing re-read ([`Self::recheck_walked`]); an ended entry or a listed child found dead that may have handed off,
+    /// or a walked process that ended, makes the pass inconclusive (never "absent"). Bounded.
     fn walk_through(
         &mut self,
-        start: Vec<u32>,
+        start: Vec<(u32, u64)>,
         survivors: &mut Vec<LeftoverRecord>,
+        walked: &mut BTreeMap<u32, (u64, Listing)>,
     ) -> Result<(), String> {
-        let mut stack: Vec<u32> = start;
-        let mut visited: BTreeSet<u32> = BTreeSet::new();
-        while let Some(n) = stack.pop() {
-            if !visited.insert(n) {
+        let mut stack: Vec<(u32, u64)> = start;
+        while let Some((n, ns)) = stack.pop() {
+            if walked.contains_key(&n) {
                 continue;
             }
-            if visited.len() > 65_536 {
+            if walked.len() >= 65_536 {
                 return Err("more than 65,536 processes below marker-less job processes".into());
             }
-            let Some(kids) = children_of(n)? else {
-                continue;
+            let Some(l) = self.snapshot_children(n, ns)? else {
+                return Err(format!(
+                    "walked process {n} ended during the pass (its children were re-parented)"
+                ));
             };
-            for c in kids {
-                match self.classify(c, Some(n)).0 {
+            let ended = self.handoff_suspects(&l);
+            if !ended.is_empty() {
+                return Err(format!(
+                    "children {ended:?} of walked process {n} ended before their read (hand-off?)"
+                ));
+            }
+            for (&c, &cs) in &l.live {
+                let class = self.classify(c, Some(n)).0;
+                self.listed_as(c, cs, &class)?;
+                match class {
                     Class::Ours(_, f) => survivors.push(record(&f)),
                     Class::Inconclusive(e) => return Err(e),
-                    Class::NotOurs { descend: true, .. } => stack.push(c),
-                    _ => {}
+                    Class::NotOurs {
+                        descend: true,
+                        facts,
+                        ..
+                    } => stack.push((c, facts.map_or(cs, |f| f.stat.start_ticks))),
+                    Class::NotOurs { .. } => {}
+                    Class::Dead(info) => {
+                        if self.dead_suspect(c, cs, info) {
+                            return Err(format!(
+                                "child {c} of walked process {n} ended before its examination (hand-off?)"
+                            ));
+                        }
+                    }
                 }
+            }
+            walked.insert(n, (ns, l));
+        }
+        Ok(())
+    }
+
+    /// Round 11 (gate14 G14-M1, W2): the closing read of every walked process: still the same live process, the SAME live
+    /// children (pid and start), and no new ended entry that may have handed off.
+    fn recheck_walked(&mut self, walked: &BTreeMap<u32, (u64, Listing)>) -> Result<(), String> {
+        for (&w, (ws, before)) in walked {
+            let Some(after) = self.snapshot_children(w, *ws)? else {
+                return Err(format!(
+                    "walked process {w} ended during the pass (its children were re-parented)"
+                ));
+            };
+            if after.live != before.live {
+                return Err(format!(
+                    "the children of walked process {w} changed during the pass (hand-off?)"
+                ));
+            }
+            let ended = self.handoff_suspects(&after);
+            if !ended.is_empty() {
+                return Err(format!(
+                    "children {ended:?} of walked process {w} ended during the pass (hand-off?)"
+                ));
             }
         }
         Ok(())
@@ -944,6 +1633,10 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         unattributed: BTreeMap::new(),
         killed: Vec::new(),
         cgroup_ok: spec.cgroup.is_some(),
+        suspects: BTreeMap::new(),
+        classified_now: BTreeSet::new(),
+        seen_ended: BTreeSet::new(),
+        waits: Vec::new(),
     };
     if !spec.kill {
         return match h.two_passes() {
@@ -951,14 +1644,19 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
                 by: h.by(),
                 killed: Vec::new(),
                 unattributed: h.unattributed.into_values().collect(),
+                waits: Vec::new(),
             },
             Ok(left) => HuntResult::Survivors { left },
-            Err(reason) => HuntResult::NotProven {
-                reason,
-                left: Vec::new(),
-                killed: Vec::new(),
-                unattributed: h.unattributed.into_values().collect(),
-            },
+            Err(reason) => {
+                h.note_wait(&reason);
+                HuntResult::NotProven {
+                    reason,
+                    left: Vec::new(),
+                    killed: Vec::new(),
+                    unattributed: h.unattributed.into_values().collect(),
+                    waits: h.waits,
+                }
+            }
         };
     }
     if let Some(cg) = &spec.cgroup
@@ -968,6 +1666,7 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
     }
     let mut reason;
     let mut left: Vec<LeftoverRecord>;
+    let mut backoff = Duration::from_millis(5);
     loop {
         let known = match h.freeze_fixed_point() {
             Ok(k) => {
@@ -989,6 +1688,7 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
                         by,
                         killed: h.killed,
                         unattributed: h.unattributed.into_values().collect(),
+                        waits: h.waits,
                     };
                 }
                 Ok(s) => {
@@ -1000,15 +1700,20 @@ fn run_inner(spec: &HuntSpec, cancel: &AtomicBool) -> HuntResult {
         } else if reason.is_empty() {
             reason = format!("{} member(s) did not exit after SIGKILL", left.len());
         }
+        h.note_wait(&reason);
         if h.out_of_time() {
             break;
         }
-        std::thread::sleep(Duration::from_millis(5));
+        // procfix7 round 10: back-off between inconclusive hunts (5 ms doubling to 250 ms), bounded by the budget: a
+        // proof that stays inconclusive ends NotProven (typed: unverified / unproven end), never Verified, never a hang
+        std::thread::sleep(backoff);
+        backoff = (backoff * 2).min(Duration::from_millis(250));
     }
     HuntResult::NotProven {
         reason,
         left,
         killed: h.killed,
         unattributed: h.unattributed.into_values().collect(),
+        waits: h.waits,
     }
 }

@@ -879,13 +879,16 @@ impl RecordWriter {
     ) -> Result<RecordWriter, WriteError> {
         let (src, dev, ino) =
             open_in_run(src_root, &want.path).map_err(|r| WriteError::Shape(r.to_string()))?;
-        if let Ok(m) = std::fs::symlink_metadata(dst)
-            && m.dev() == dev
-            && m.ino() == ino
-        {
-            return Err(WriteError::Shape(
-                "resume source and destination are the same file".into(),
-            ));
+        // procfix7 round 5 (gate9 G9-B1 class): a destination that cannot be checked is an error (never "another file")
+        match std::fs::symlink_metadata(dst) {
+            Ok(m) if m.dev() == dev && m.ino() == ino => {
+                return Err(WriteError::Shape(
+                    "resume source and destination are the same file".into(),
+                ));
+            }
+            Ok(_) => {}
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+            Err(e) => return Err(WriteError::Io(e)),
         }
         let tmp = crate::atomic::temp_path(dst);
         let mut file = OpenOptions::new()

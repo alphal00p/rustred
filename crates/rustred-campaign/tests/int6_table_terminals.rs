@@ -11,6 +11,7 @@
 //! provenance); the same key with `table_terminals: none` (or a residual record under the default policy) is uncovered
 //! and therefore a proposal; an operator decision makes it a declared terminal of the effective spec
 //! (`decided-terminals`, `accepted_by: operator`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "../../rustred-campaign-core/tests/import5_common/mod.rs"]
 mod import5_common;

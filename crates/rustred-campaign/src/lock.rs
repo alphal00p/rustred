@@ -26,6 +26,7 @@
 //! "Provably dead" = pid absent, or pid present with a different start time, or a different boot id. Host names
 //! are informational only (audit A m6); the CDIR must live on a local file system (flock).
 
+use crate::resources::{ProcError, ProcResult};
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::os::unix::io::AsRawFd;
@@ -85,6 +86,9 @@ pub enum Liveness {
     Dead(DeadReason),
     /// Recorded on another host: cannot be judged from here.
     OtherHost,
+    /// procfix8 (gate8, the /proc class): the boot id or the recorded pid's stat could not be read (anything but ENOENT /
+    /// ESRCH): undecided, never dead (no takeover on a failed read).
+    Unknown(String),
 }
 
 #[derive(Debug)]
@@ -191,8 +195,12 @@ impl CampaignLock {
     pub fn is_intact(&self) -> bool {
         use std::os::unix::fs::MetadataExt;
         let Some(f) = &self.file else { return false };
-        match (f.metadata(), fs::metadata(self.dir.join(LOCK_FILE))) {
-            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        // procfix7 round 5: a lock file that cannot be checked is NOT intact (conservative)
+        match (
+            f.metadata(),
+            crate::fsx::presence("lock.file", &self.dir.join(LOCK_FILE)),
+        ) {
+            (Ok(a), crate::fsx::Presence::Present(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
             _ => false,
         }
     }
@@ -202,7 +210,22 @@ impl CampaignLock {
     }
     fn release_inner(&mut self) -> io::Result<()> {
         if let Some(file) = self.file.take() {
-            let r = fs::remove_file(self.dir.join(OWNER_FILE));
+            // procfix7 round 5 (destructive action, positive proof): LOCK.json is removed only when, read back now, it
+            // names OUR token (a record another holder wrote after a replaced lock file is never removed by us)
+            let r = match read_owner(&self.dir) {
+                Ok(Some(o)) if o.token == self.owner.token => {
+                    fs::remove_file(self.dir.join(OWNER_FILE))
+                }
+                Ok(None) => Ok(()),
+                Ok(Some(_)) => Err(io::Error::other(format!(
+                    "{}: names another holder: left in place",
+                    self.dir.join(OWNER_FILE).display()
+                ))),
+                Err(e) => Err(io::Error::other(format!(
+                    "{}: cannot be read ({e}): left in place",
+                    self.dir.join(OWNER_FILE).display()
+                ))),
+            };
             drop(file);
             r.or_else(|e| {
                 if e.kind() == io::ErrorKind::NotFound {
@@ -235,23 +258,45 @@ pub fn acquire(
         source: e,
     })?;
     let lock_path = dir.join(LOCK_FILE);
-    if fs::symlink_metadata(&lock_path).is_ok_and(|m| m.file_type().is_symlink()) {
-        return Err(LockError::Symlink { path: lock_path });
+    // procfix7 round 5: a lock path that cannot be checked is refused (never "not a symlink")
+    match crate::fsx::presence_lstat("lock.file", &lock_path) {
+        crate::fsx::Presence::Present(m) if m.file_type().is_symlink() => {
+            return Err(LockError::Symlink { path: lock_path });
+        }
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Unknown(e) => {
+            return Err(LockError::Io {
+                path: lock_path,
+                source: e,
+            });
+        }
     }
     // std opens with O_CLOEXEC: the descriptor is not inherited across exec.
+    // procfix7 round 6 (gate10 site list: the symlink check above and this open are two steps): O_NOFOLLOW, so a
+    // symlink swapped in between is refused by the kernel (ELOOP), never followed
+    use std::os::unix::fs::OpenOptionsExt;
     let file = OpenOptions::new()
         .read(true)
         .write(true)
         .create(true)
         .truncate(false)
+        .custom_flags(libc::O_NOFOLLOW)
         .open(&lock_path)
-        .map_err(|e| LockError::Io {
-            path: lock_path.clone(),
-            source: e,
+        .map_err(|e| {
+            if e.raw_os_error() == Some(libc::ELOOP) {
+                LockError::Symlink {
+                    path: lock_path.clone(),
+                }
+            } else {
+                LockError::Io {
+                    path: lock_path.clone(),
+                    source: e,
+                }
+            }
         })?;
     let previous = read_owner(dir)?;
     let me = current_identity().map_err(|e| LockError::Io {
-        path: PathBuf::from("/proc/self"),
+        path: PathBuf::from("<own process identity>"),
         source: e,
     })?;
     let got = try_flock(&file).map_err(|e| LockError::Io {
@@ -294,8 +339,27 @@ pub fn acquire(
                     reason: DeadReason::OwnRecord,
                 },
                 Liveness::OtherHost => return Err(LockError::OtherHost { owner }),
+                // procfix8: a failed read never takes the lock over (the start stops with the I/O error)
+                Liveness::Unknown(w) => {
+                    return Err(LockError::Io {
+                        path: dir.join(OWNER_FILE),
+                        source: io::Error::other(format!(
+                            "the liveness of the recorded owner (pid {}) cannot be read: {w}",
+                            owner.identity.pid
+                        )),
+                    });
+                }
                 Liveness::Dead(reason) => {
-                    let orphans = scan_token_holders(&owner.token);
+                    // procfix7 round 5: a failed token scan stops the takeover typed (never "no orphan"); processes
+                    // that may hold the token (environ unreadable) are reported with the holders
+                    let scan = scan_token_holders(&owner.token).map_err(|e| LockError::Io {
+                        path: dir.to_path_buf(),
+                        source: e,
+                    })?;
+                    let mut orphans = scan.holders;
+                    orphans.extend(scan.possible.iter().map(|(p, _)| *p));
+                    orphans.sort_unstable();
+                    orphans.dedup();
                     LockOutcome::TookOver {
                         previous: owner,
                         reason,
@@ -364,14 +428,19 @@ fn try_flock(file: &File) -> io::Result<bool> {
 /// informational: a renamed host is the same machine when the boot id is the same, and a different boot id means
 /// the process cannot hold anything on this local file system). `OtherHost` is no longer produced.
 pub fn liveness(id: &ProcessIdentity) -> Liveness {
-    let boot = boot_id().unwrap_or_default();
+    // procfix8: an unreadable boot id was "" (another boot: dead, taken over); now undecided
+    let boot = match boot_id() {
+        Ok(b) => b,
+        Err(e) => return Liveness::Unknown(format!("boot id: {e}")),
+    };
     if id.boot_id != boot {
         return Liveness::Dead(DeadReason::BootIdDiffers { now: boot });
     }
     match start_ticks(id.pid) {
-        None => Liveness::Dead(DeadReason::PidAbsent),
-        Some(t) if t != id.start_ticks => Liveness::Dead(DeadReason::StartTimeDiffers { now: t }),
-        Some(_) => Liveness::Alive,
+        Err(ProcError::Gone) => Liveness::Dead(DeadReason::PidAbsent),
+        Err(ProcError::Unreadable(w)) => Liveness::Unknown(w),
+        Ok(t) if t != id.start_ticks => Liveness::Dead(DeadReason::StartTimeDiffers { now: t }),
+        Ok(_) => Liveness::Alive,
     }
 }
 
@@ -380,36 +449,30 @@ pub fn current_identity() -> io::Result<ProcessIdentity> {
     let pid = std::process::id();
     Ok(ProcessIdentity {
         pid,
-        start_ticks: start_ticks(pid)
-            .ok_or_else(|| io::Error::other("cannot read /proc/self/stat"))?,
+        start_ticks: start_ticks(pid).map_err(|e| io::Error::other(format!("own stat: {e}")))?,
         boot_id: boot_id()?,
         host: hostname()?,
     })
 }
 
-/// Identity of another process on this host, if it exists.
-pub fn identity_of(pid: u32) -> Option<ProcessIdentity> {
-    Some(ProcessIdentity {
+/// Identity of another process on this host (procfix8: Gone / Unreadable kept apart).
+pub fn identity_of(pid: u32) -> ProcResult<ProcessIdentity> {
+    Ok(ProcessIdentity {
         pid,
         start_ticks: start_ticks(pid)?,
-        boot_id: boot_id().ok()?,
-        host: hostname().ok()?,
+        boot_id: crate::resources::boot_id()?,
+        host: hostname().map_err(|e| ProcError::Unreadable(format!("host name: {e}")))?,
     })
 }
 
-/// Field 22 (starttime) of /proc/<pid>/stat; None if the process does not exist (zombies count as existing).
-pub fn start_ticks(pid: u32) -> Option<u64> {
-    let stat = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
-    // comm may contain spaces and parentheses: fields restart after the LAST ')'.
-    let rest = &stat[stat.rfind(')')? + 1..];
-    // rest starts with " state ppid ...": starttime is field 22 overall, i.e. index 19 of rest's fields.
-    rest.split_whitespace().nth(19)?.parse().ok()
+/// Field 22 (starttime) of the process's stat (zombies count as existing). procfix8: through `resources::procfs` (Gone
+/// only for ENOENT / ESRCH; a torn or unparsable stat is Unreadable).
+pub fn start_ticks(pid: u32) -> ProcResult<u64> {
+    crate::resources::read_stat(pid).map(|s| s.start_ticks)
 }
 
 pub fn boot_id() -> io::Result<String> {
-    Ok(fs::read_to_string("/proc/sys/kernel/random/boot_id")?
-        .trim()
-        .to_string())
+    Ok(crate::resources::boot_id()?)
 }
 
 pub fn hostname() -> io::Result<String> {
@@ -423,54 +486,117 @@ pub fn hostname() -> io::Result<String> {
     Ok(String::from_utf8_lossy(&buf[..end]).into_owned())
 }
 
-fn proc_pids() -> Vec<u32> {
-    let Ok(rd) = fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    rd.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
-        .collect()
+/// The takeover's ORPHAN REPORT (recorded with the takeover, never signalled): processes that hold, or may hold, the
+/// previous owner's token.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TokenScan {
+    /// Read completely: the environment carries `TOKEN_ENV=<token>`.
+    pub holders: Vec<u32>,
+    /// procfix7 round 5 (gate9 minor, lock.rs:457-461): processes of OUR REAL UID whose environment (or status) could not
+    /// be read (also after re-reads across an exec window, about 0.1 s more): they MAY hold the token (never "not a holder").
+    pub possible: Vec<(u32, String)>,
 }
 
-/// Pids (of processes readable by us) whose environment contains `TOKEN_ENV=<token>`.
-pub fn scan_token_holders(token: &str) -> Vec<u32> {
+/// The token scan, typed (procfix7 round 5): Err when the /proc listing fails (never "no holder"); only processes of
+/// our real uid are candidates; a zombie without a live thread (atomic count) holds nothing, a zombie leader with one is
+/// read through it; an environ read that fails is re-read (bounded: a fresh child's exec window), then reported in
+/// `possible`; a process that vanished is not listed.
+pub fn scan_token_holders(token: &str) -> io::Result<TokenScan> {
+    let mut out = TokenScan::default();
     if token.is_empty() {
-        return Vec::new();
+        return Ok(out);
     }
     let needle = format!("{TOKEN_ENV}={token}");
     let me = std::process::id();
-    let mut out: Vec<u32> = proc_pids()
-        .into_iter()
-        .filter(|&p| p != me)
-        .filter(|p| {
-            fs::read(format!("/proc/{p}/environ"))
-                .map(|env| env.split(|&b| b == 0).any(|kv| kv == needle.as_bytes()))
-                .unwrap_or(false)
-        })
-        .collect();
-    out.sort_unstable();
-    out
+    let uid = crate::resources::our_uid();
+    let root = crate::resources::procfs::sys();
+    let pids = root
+        .pids_proven(&[])
+        .map_err(|e| io::Error::other(format!("the token scan's /proc listing failed: {e}")))?;
+    for p in pids.into_iter().filter(|&p| p != me) {
+        // only a process of our real uid can carry our token (status stays readable for non-dumpable ones)
+        match root.status(p).and_then(|s| s.real_uid()) {
+            Ok(u) if u != uid => continue,
+            Err(ProcError::Gone) => continue,
+            Ok(_) => {}
+            Err(ProcError::Unreadable(w)) => {
+                out.possible.push((p, format!("status: {w}")));
+                continue;
+            }
+        }
+        // a zombie leader: read through a live thread; a zombie without one (the atomic thread count, G9-B2) has no
+        // environment and holds nothing (the namespace's init keeps hundreds of unreaped zombies: no per-zombie waits)
+        let tid = match root.stat(p) {
+            Err(ProcError::Gone) => continue,
+            Err(ProcError::Unreadable(w)) => {
+                out.possible.push((p, format!("stat: {w}")));
+                continue;
+            }
+            Ok(st) if st.is_dead() => match crate::resources::live_thread_at(&root, p) {
+                Ok(crate::resources::LiveThread::NoneAlive) | Err(ProcError::Gone) => continue,
+                Ok(crate::resources::LiveThread::Found(t, _)) => Some(t),
+                Err(ProcError::Unreadable(w)) => {
+                    out.possible.push((p, format!("threads: {w}")));
+                    continue;
+                }
+            },
+            Ok(_) => None,
+        };
+        // the environ read itself waits out an exec window by evidence (procfs); a few more tries for a fresh child
+        let mut last = String::new();
+        let mut read = None;
+        for k in 0..3u64 {
+            match root.environ(p, tid, std::time::Duration::from_millis(250)) {
+                Ok(env) => {
+                    read = Some(env);
+                    break;
+                }
+                Err(ProcError::Gone) => break,
+                Err(ProcError::Unreadable(w)) => {
+                    last = w;
+                    std::thread::sleep(std::time::Duration::from_millis(20 * (k + 1)));
+                }
+            }
+        }
+        match read {
+            Some(env) => {
+                if env.split(|&b| b == 0).any(|kv| kv == needle.as_bytes()) {
+                    out.holders.push(p);
+                }
+            }
+            None if last.is_empty() => {} // gone
+            None => out.possible.push((p, last)),
+        }
+    }
+    out.holders.sort_unstable();
+    out.possible.sort();
+    Ok(out)
 }
 
-/// Pids having `path` open (scan of /proc/*/fd, processes readable by us).
+/// Pids having `path` open (scan of the descriptor tables, processes readable by us): DIAGNOSTICS of a refusal
+/// (`HeldByForeignDescriptor`), nothing decided by it. procfix8: through `resources::procfs`; unreadable tables are not
+/// listed.
 pub fn holders_of(path: &Path) -> Vec<u32> {
-    let Ok(target) = fs::canonicalize(path) else {
+    let Ok(target) = crate::fsx::canonicalize("lock.file", path) else {
         return Vec::new();
     };
-    let mut out: Vec<u32> = proc_pids()
+    let root = crate::resources::procfs::sys();
+    let pids = match root.pids() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let mut out: Vec<u32> = pids
         .into_iter()
-        .filter(|p| {
-            fs::read_dir(format!("/proc/{p}/fd"))
-                .map(|rd| {
-                    rd.filter_map(|e| e.ok())
-                        .any(|e| fs::read_link(e.path()).is_ok_and(|l| l == target))
-                })
-                .unwrap_or(false)
+        .filter(|&p| match root.fd_targets(p) {
+            Ok(t) => t.contains(&target),
+            Err(_) => false,
         })
         .collect();
     out.sort_unstable();
     out
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

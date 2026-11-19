@@ -1,4 +1,5 @@
 //! Stop protocol and navigation of the dashboard with a fake `Controls` (no terminal).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod tui_support;
 

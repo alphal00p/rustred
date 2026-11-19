@@ -1,5 +1,6 @@
 //! The ETA estimator on synthetic histories: remaining items by level x quantile cost per level / live
 //! parallelism; pooled fallback; null with a reason when there is too little data or no parallelism.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use ledger_support::*;

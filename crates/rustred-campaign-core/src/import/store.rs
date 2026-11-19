@@ -936,15 +936,45 @@ fn store_dir_for(dir: &Path, inputs: &[PathBuf]) -> Result<PathBuf, ImportError>
     Ok(dir.join(format!("{}.evstore", &h.finish_hex()[..16])))
 }
 
+/// procfix7 round 5 (gate9 G9-B1 class): is `p` a directory? Ok(false) when it is PROVEN absent or another kind; a stat
+/// error is an error (never "not a directory").
+pub(crate) fn is_dir_typed(p: &Path) -> Result<bool, ImportError> {
+    match std::fs::metadata(p) {
+        Ok(m) => Ok(m.is_dir()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(io_err(p, e)),
+    }
+}
+
+/// procfix7 round 5: is `p` a regular file (symlinks followed)? As [`is_dir_typed`].
+pub(crate) fn is_file_typed(p: &Path) -> Result<bool, ImportError> {
+    match std::fs::metadata(p) {
+        Ok(m) => Ok(m.is_file()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(io_err(p, e)),
+    }
+}
+
+/// procfix7 round 5: a listed entry is a regular file: the listing's own type, a symlink followed by a typed stat; an
+/// entry whose type cannot be read is an error (never skipped).
+pub(crate) fn entry_is_file(e: &std::fs::DirEntry, q: &Path) -> Result<bool, ImportError> {
+    let t = e.file_type().map_err(|er| io_err(q, er))?;
+    if t.is_symlink() {
+        return is_file_typed(q);
+    }
+    Ok(t.is_file())
+}
+
 /// Files of an input path: a file, or the `*.json` / `*.jsonl` files of a directory (sorted, not recursive).
 pub fn input_files(p: &Path) -> Result<Vec<PathBuf>, ImportError> {
-    if !p.is_dir() {
+    if !is_dir_typed(p)? {
         return Ok(vec![p.to_path_buf()]);
     }
     let mut v = vec![];
     for e in std::fs::read_dir(p).map_err(|e| io_err(p, e))? {
-        let q = e.map_err(|er| io_err(p, er))?.path();
-        if q.is_file()
+        let e = e.map_err(|er| io_err(p, er))?;
+        let q = e.path();
+        if entry_is_file(&e, &q)?
             && q.extension()
                 .and_then(|x| x.to_str())
                 .is_some_and(|x| x == "json" || x == "jsonl")
@@ -1019,7 +1049,7 @@ impl EvidenceStore {
         let mut files: Vec<(PathBuf, Option<String>)> = vec![];
         for (p, sha) in inputs {
             let fs = input_files(p)?;
-            if p.is_dir() && sha.is_some() {
+            if is_dir_typed(p)? && sha.is_some() {
                 return Err(ImportError::Spec(format!(
                     "{}: a directory has no sha256",
                     p.display()
@@ -1382,8 +1412,20 @@ impl EvidenceStore {
             statuses: &statuses,
         };
         let tmp = dir.with_extension("evstore.tmp");
-        if tmp.exists() {
-            std::fs::remove_dir_all(&tmp).map_err(|e| io_err(&tmp, e))?;
+        // procfix7 round 5: the temporary of an earlier build is removed only when PROVEN present; a stat error is an
+        // error (never "absent": a build into a stale temporary would mix its files into the new store)
+        match std::fs::symlink_metadata(&tmp) {
+            Ok(m) if m.is_dir() => {
+                std::fs::remove_dir_all(&tmp).map_err(|e| io_err(&tmp, e))?;
+            }
+            Ok(_) => {
+                return Err(ImportError::Core(format!(
+                    "{} exists and is not a directory: refused (nothing removed)",
+                    tmp.display()
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_err(&tmp, e)),
         }
         std::fs::create_dir_all(&tmp).map_err(|e| io_err(&tmp, e))?;
         let mut counts = StoreCounts::default();
@@ -1643,8 +1685,33 @@ impl EvidenceStore {
             serde_json::to_string_pretty(&meta).map_err(|e| ImportError::Core(e.to_string()))?,
         )
         .map_err(|e| io_err(&mp, e))?;
-        if dir.exists() {
-            std::fs::remove_dir_all(dir).map_err(|e| io_err(dir, e))?;
+        // procfix7 (destructive action, positive proof): an existing store directory is replaced only when, read back
+        // now, it is a directory whose meta.json names this store schema; a stat error or anything else is refused
+        match std::fs::symlink_metadata(dir) {
+            Ok(m) if m.is_dir() => {
+                let meta = dir.join("meta.json");
+                let ours = std::fs::read(&meta)
+                    .map_err(|e| io_err(&meta, e))
+                    .map(|b| {
+                        serde_json::from_slice::<serde_json::Value>(&b)
+                            .is_ok_and(|v| v["schema"] == STORE_SCHEMA)
+                    })?;
+                if !ours {
+                    return Err(ImportError::Core(format!(
+                        "{} is not an evidence store of this schema: refused (nothing removed)",
+                        dir.display()
+                    )));
+                }
+                std::fs::remove_dir_all(dir).map_err(|e| io_err(dir, e))?;
+            }
+            Ok(_) => {
+                return Err(ImportError::Core(format!(
+                    "{} exists and is not a directory: refused (nothing removed)",
+                    dir.display()
+                )));
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(io_err(dir, e)),
         }
         std::fs::rename(&tmp, dir).map_err(|e| io_err(dir, e))?;
         Ok(())

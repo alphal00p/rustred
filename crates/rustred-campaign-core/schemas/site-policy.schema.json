@@ -25,6 +25,7 @@
     "idle_min": {"type": "number", "minimum": 0, "maximum": 1},
     "max_cores": {"type": "integer", "minimum": 1},
     "respect_foreign_pinning": {"type": "boolean"},
+    "foreign_pin_max_cpus": {"$ref": "common.schema.json#/$defs/u64"},
     "ignore_own_tag_claims": {"type": "boolean"}
   }
 }

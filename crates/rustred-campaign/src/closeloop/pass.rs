@@ -39,6 +39,25 @@ use std::sync::Arc;
 /// evidence entry that is not ONE FILE pinned by its sha256 in big-node mode ([`check_big_node_pins`]).
 pub const UNPINNED_BIG_NODE: &str = "unpinned_evidence_big_node";
 
+/// procfix7 round 5: a file the pass reads, typed: Ok(Some(text)) its content, Ok(None) PROVEN absent, Err when it
+/// cannot be read (the pass fails and is run again; never an empty content).
+fn read_text_typed(p: &Path) -> Result<Option<String>, String> {
+    match crate::fsx::read_to_string("closeloop.input", p) {
+        crate::fsx::Read::Content(t) => Ok(Some(t)),
+        crate::fsx::Read::Absent => Ok(None),
+        crate::fsx::Read::Failed(e) => Err(format!("{}: {e}", p.display())),
+    }
+}
+
+/// procfix7 round 5: is `p` a regular file? Ok(false) when PROVEN absent or not a file; Err when it cannot be checked.
+fn is_file_typed(p: &Path) -> Result<bool, String> {
+    match crate::fsx::presence("closeloop.input", p) {
+        crate::fsx::Presence::Present(m) => Ok(m.is_file()),
+        crate::fsx::Presence::Absent => Ok(false),
+        crate::fsx::Presence::Unknown(e) => Err(format!("{} cannot be checked: {e}", p.display())),
+    }
+}
+
 /// Big-node mode (`scale.require_pinned_evidence`, default true): every spec evidence entry (facts / proofs / solved)
 /// must be one FILE pinned by its sha256. A directory is refused even when it is named with a pinned manifest: that
 /// form (lane closeloop4, core `resolve_evidence`) is accepted only OUTSIDE big-node mode. `Err` starts with
@@ -49,7 +68,14 @@ pub fn check_big_node_pins(
 ) -> Result<(), String> {
     for r in ev.facts.iter().chain(&ev.proofs).chain(&ev.solved) {
         let p = rustred_campaign_core::import::spec::resolve(base, &r.path);
-        if r.sha256.is_none() || p.is_dir() {
+        let is_dir = match crate::fsx::presence("closeloop.input", &p) {
+            crate::fsx::Presence::Present(m) => m.is_dir(),
+            crate::fsx::Presence::Absent => false,
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(format!("evidence {} cannot be checked: {e}", p.display()));
+            }
+        };
+        if r.sha256.is_none() || is_dir {
             return Err(format!(
                 "{UNPINNED_BIG_NODE}: evidence {} is not pinned per file (big-node mode requires a file with its sha256; \
                  a directory with a manifest is accepted only outside big-node mode; scale.require_pinned_evidence)",
@@ -426,7 +452,9 @@ pub(crate) fn row_certified(r: &KeyRow, required: Level, basis_ok: bool) -> bool
 /// Run one pass. `cached` = the node's set loaded by an earlier pass (the load dominates small passes).
 pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOut, String> {
     let t0 = std::time::Instant::now();
-    // TESTS ONLY (lane closeloop4): a slow pass (the supervisor must stay responsive while a pass runs)
+    // TESTS ONLY (lane closeloop4): a slow pass (the supervisor must stay responsive while a pass runs). procfix7 round 4
+    // (gate8 m8-rel): test builds only, as every other test hook (gate rule d): a release build never reads the variable.
+    #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var("RR_CLOSELOOP_TEST_PASS_DELAY_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
@@ -502,7 +530,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // the start set's file (its digest of KEYS is in the report; the file itself is pinned here)
     {
         let p = rustred_campaign_core::import::spec::resolve(&inp.base, &set.spec.start.path);
-        if p.is_file() {
+        if is_file_typed(&p)? {
             let d = rustred_campaign_core::import::lines::file_sha256(&p)
                 .map_err(|e| format!("start {}: {e}", p.display()))?;
             pins.insert(p.display().to_string(), d);
@@ -515,7 +543,7 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     }
     // the reference and the earlier clauses' results (read at phase D)
     let mut pin_file = |p: &Path, want: Option<&str>, what: &str| -> Result<(), String> {
-        if !p.is_file() {
+        if !is_file_typed(p)? {
             return Ok(()); // a missing file is phase D's error
         }
         let d = rustred_campaign_core::import::lines::file_sha256(p)
@@ -690,7 +718,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     let mut proved: HashSet<(String, Vec<i32>)> = HashSet::new();
     let mut relation_proof_status: BTreeMap<String, u64> = BTreeMap::new();
     for (p, _) in &inp.proof_files {
-        for l in std::fs::read_to_string(p).unwrap_or_default().lines() {
+        // procfix7 round 5: an unreadable proof file fails the pass (never "no proofs")
+        for l in read_text_typed(p)?.unwrap_or_default().lines() {
             let Ok(v) = serde_json::from_str::<Value>(l) else {
                 continue;
             };
@@ -2195,12 +2224,13 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
     // the union's rows: write_statement ADOPTS the streamed rows file as the statement's statement.jsonl
     let union_rows = res.streamed.as_ref().map(|s| {
         let st = inp.final_dir.join("statement").join("statement.jsonl");
-        if st.is_file() {
-            st
-        } else {
-            PathBuf::from(&s.path)
+        match is_file_typed(&st) {
+            Ok(true) => Ok(st),
+            Ok(false) => Ok(PathBuf::from(&s.path)),
+            Err(e) => Err(e),
         }
     });
+    let union_rows = union_rows.transpose()?;
     // lane t266run (closeloop.md 17.4): per-clause verdicts and attribution at the final pass, one closure at a time
     // (the union's results are dropped first)
     if let (Some(f), Some(cl)) = (final_.as_mut(), inp.clauses.as_ref()) {
@@ -2224,7 +2254,8 @@ pub fn run_pass(inp: &PassIn, cached: Option<Arc<ImportedSet>>) -> Result<PassOu
                 )?;
                 // the clause of every open key
                 let op = inp.final_dir.join("open_keys.jsonl");
-                let text = std::fs::read_to_string(&op).unwrap_or_default();
+                // procfix7 round 5: an unreadable open list fails the pass (never "no open key")
+                let text = read_text_typed(&op)?.unwrap_or_default();
                 let mut lines: Vec<Value> = text
                     .lines()
                     .filter(|l| !l.trim().is_empty())
@@ -2431,7 +2462,7 @@ fn write_final(
     // from our own answers lines: verdict, failure class and message per (recipe, key), else the import's reason
     let mut refusals: BTreeMap<Vec<i32>, Vec<Value>> = BTreeMap::new();
     for (p, _) in &inp.answers {
-        for l in std::fs::read_to_string(p).unwrap_or_default().lines() {
+        for l in read_text_typed(p)?.unwrap_or_default().lines() {
             let Ok(v) = serde_json::from_str::<Value>(l) else {
                 continue;
             };
@@ -2566,10 +2597,13 @@ fn write_final(
         .prior_clauses
         .iter()
         .filter(|(_, p)| {
-            std::fs::read(p)
-                .ok()
-                .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-                .is_none_or(|v| v["verdict"] != "closed")
+            // procfix7 round 5: an earlier clause that cannot be read (or parsed) counts as NOT closed (conservative)
+            match crate::fsx::read("closeloop.input", p) {
+                crate::fsx::Read::Content(b) => serde_json::from_slice::<Value>(&b)
+                    .ok()
+                    .is_none_or(|v| v["verdict"] != "closed"),
+                crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => true,
+            }
         })
         .map(|(id, _)| id.clone())
         .collect();
@@ -2652,10 +2686,11 @@ fn write_final(
     let mut clause_open = 0u64;
     // the statement just written holds every row (the spilled rows file is adopted by the statement writer)
     let stmt_rows = sdir.join("statement.jsonl");
-    let rows_src = if stmt_rows.is_file() {
-        std::fs::read_to_string(&stmt_rows).unwrap_or_default()
-    } else if inp.rows_path.is_file() {
-        std::fs::read_to_string(&inp.rows_path).unwrap_or_default()
+    // procfix7 round 5: the rows source by PROVEN presence; an unreadable one fails the pass (never other rows / none)
+    let rows_src = if is_file_typed(&stmt_rows)? {
+        read_text_typed(&stmt_rows)?.unwrap_or_default()
+    } else if is_file_typed(&inp.rows_path)? {
+        read_text_typed(&inp.rows_path)?.unwrap_or_default()
     } else {
         String::new()
     };
@@ -2724,10 +2759,11 @@ fn write_final(
     };
     let mut clauses = serde_json::Map::new();
     for (id, p) in &inp.prior_clauses {
-        let pv: Value = std::fs::read(p)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or(Value::Null);
+        // a summary word only: an unreadable earlier clause reads "unknown"
+        let pv: Value = match crate::fsx::read("closeloop.input", p) {
+            crate::fsx::Read::Content(b) => serde_json::from_slice(&b).unwrap_or(Value::Null),
+            crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => Value::Null,
+        };
         let w = pv["verdict"].as_str().unwrap_or("unknown");
         let n = pv["open_keys"]["count"].as_u64().unwrap_or(0);
         clauses.insert(id.clone(), json!(clause_word(w, n)));
@@ -2842,12 +2878,12 @@ fn write_final(
     let mut files: BTreeMap<String, String> = BTreeMap::new();
     let mut stack = vec![inp.final_dir.clone()];
     while let Some(d) = stack.pop() {
-        for e in std::fs::read_dir(&d)
+        // procfix7 round 5: a COMPLETE listing (an output file missed by the registry is never "not there")
+        for e in crate::fsx::list_required("closeloop.output", &d)
             .map_err(|e| format!("{}: {e}", d.display()))?
-            .flatten()
         {
-            let p = e.path();
-            if p.is_dir() {
+            let p = e.path.clone();
+            if e.file_type.is_dir() {
                 stack.push(p);
             } else if p.file_name().is_some_and(|n| n != "result.json")
                 && !p.to_string_lossy().contains("terminal_proposals")
@@ -2859,6 +2895,44 @@ fn write_final(
                     .map(|r| r.display().to_string())
                     .unwrap_or_else(|_| p.display().to_string());
                 files.insert(rel, b);
+            }
+        }
+    }
+    // procfix7 round 6 (gate10 G10-B1, the listing rule): the files this pass and the phases before it write under
+    // FIXED names are SENTINELS of the walk's listings (a listing can end early without an error): one that exists but
+    // was not listed fails the pass. (Names derived from data, e.g. an earlier pass's clauses/<id>.rows.jsonl, have no
+    // sentinel: a truncated listing leaves such a file out of the registry; nothing is decided or removed from it.)
+    for rel in [
+        "statement/statement.jsonl",
+        "statement/decisive_zeros.jsonl",
+        "statement/timing.json",
+        "statement/SHA256SUMS",
+        "statement/summary.json",
+        "statement/terminals.json",
+        "statement/solve-requests.jsonl",
+        "statement/fact-requests.jsonl",
+        "statement/proof-requests.jsonl",
+        "open_keys.jsonl",
+        "clause_keys.jsonl",
+        "faces.json",
+        "rows.jsonl",
+        "comparison/comparison.json",
+        "comparison/differences.jsonl",
+        "comparison-keys-only/comparison.json",
+        "comparison-keys-only/differences.jsonl",
+    ] {
+        let p = inp.final_dir.join(rel);
+        match crate::fsx::presence_lstat("closeloop.output", &p) {
+            crate::fsx::Presence::Present(m) if m.is_file() && !files.contains_key(rel) => {
+                return Err(format!(
+                    "{}: exists but the listing of {} did not show it (an incomplete listing)",
+                    p.display(),
+                    inp.final_dir.display()
+                ));
+            }
+            crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {}
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(format!("{} cannot be checked: {e}", p.display()));
             }
         }
     }

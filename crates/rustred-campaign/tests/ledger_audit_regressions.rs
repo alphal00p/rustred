@@ -1,6 +1,7 @@
 //! Regression tests of the two ledger audits (notes/implementer.audit-ledger-A.md, -B.md): one test per
 //! finding id, each porting the auditor's reproduction and asserting the FIXED behaviour (they fail on e371e1f5).
 //! Plus the R40 / R41 rulings applied to the records (U-*, P-*).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;
@@ -871,6 +872,16 @@ fn a_m4_minor_crashed_create_leaves_no_ledger_and_create_works_again() {
         open_ledger(&d, as_dyn(&clk), cfg()),
         Err(LedgerError::NotALedger { .. })
     ));
+    // procfix7 round 5 (gate9 G9-B1): the residue is REFUSED (never repaired by deletion), nothing deleted; without a
+    // complete record 1 rebuild-manifest refuses too; the operator removes the directory by hand, then create works
+    let lk = lock_of(&d);
+    assert!(matches!(
+        Ledger::create(&d, lk, as_dyn(&clk), cfg(), genesis()),
+        Err(LedgerError::ManifestMissing { .. })
+    ));
+    assert!(ld.join("segment-000001.jsonl").exists() && ld.join("COMMIT").exists());
+    assert!(ledger::rebuild_manifest(&d, lk).is_err());
+    fs::remove_dir_all(&ld).unwrap();
     let l = new_ledger(&d, as_dyn(&clk), cfg());
     assert_eq!(l.seq(), 1);
 }

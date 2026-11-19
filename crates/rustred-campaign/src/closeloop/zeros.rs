@@ -903,6 +903,7 @@ pub fn zeros_pair_line(
 /// Schema of a line of `statement/zero_terms.jsonl`.
 pub const ZEROS_PAIR_SCHEMA: &str = "rustred.campaign.closeloop-zero-terms.v1";
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

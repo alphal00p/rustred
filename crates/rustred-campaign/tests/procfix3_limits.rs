@@ -1,5 +1,6 @@
 //! procfix3: the supervisor under a low open-file limit (gate-B M3) and with a terminal that disappears (gate-B M2,
 //! m4). Real `rr_campaign` + `rr_fake_child`; run inside a private pid namespace (LIGHT_PIDNS=1, rule L10).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

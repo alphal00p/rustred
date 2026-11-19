@@ -310,7 +310,9 @@ impl CloseFromMaterialSource {
         };
         let mut by_sha: BTreeMap<String, (String, Vec<i32>)> = BTreeMap::new();
         for (_, p, _) in self.inputs_of_role(st, i, ROLE_RELATIONS) {
-            let Ok(text) = std::fs::read(&p) else {
+            // procfix7 round 5 (conservative branch): a relations file that cannot be read proves nothing (fewer proved
+            // relations can only keep a key open, never close one)
+            let crate::fsx::Read::Content(text) = crate::fsx::read("closeloop.input", &p) else {
                 continue;
             };
             let source = text
@@ -324,7 +326,12 @@ impl CloseFromMaterialSource {
             }
         }
         for (_, p, _) in self.inputs_of_role(st, i, ROLE_PROOFS) {
-            for l in std::fs::read_to_string(&p).unwrap_or_default().lines() {
+            // procfix7 round 5 (conservative branch, as above): an unreadable proof file proves nothing
+            let crate::fsx::Read::Content(text) = crate::fsx::read_to_string("closeloop.input", &p)
+            else {
+                continue;
+            };
+            for l in text.lines() {
                 let Ok(v) = serde_json::from_str::<Value>(l) else {
                     continue;
                 };
@@ -1701,7 +1708,19 @@ impl CloseFromMaterialSource {
             if let Some(m) = f.result["final_files_blake3"].as_object() {
                 for (rel, b3) in m {
                     let p = self.abs(&format!("{}/final/{rel}", node_dir(&n)));
-                    let bytes = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+                    // procfix7 round 5: a ledger record never carries a size that was not read (an error fails the pass)
+                    let bytes = match crate::fsx::presence("closeloop.output", &p) {
+                        crate::fsx::Presence::Present(m) => m.len(),
+                        crate::fsx::Presence::Absent => {
+                            return Err(format!("final file {} is missing", p.display()));
+                        }
+                        crate::fsx::Presence::Unknown(e) => {
+                            return Err(format!(
+                                "final file {} cannot be checked: {e}",
+                                p.display()
+                            ));
+                        }
+                    };
                     rt.events.push(Event::InputRegistered {
                         input: format!("{}:{}", input_final(&n), rel),
                         role: ROLE_FINAL_FILE.into(),
@@ -2469,10 +2488,12 @@ impl CloseFromMaterialSource {
         records: &[(Vec<i32>, Value)],
     ) -> Result<AcceptedRecord, String> {
         let r = &self.nodes[i];
-        let recipe: Value = std::fs::read(&b.recipe_path)
-            .ok()
-            .and_then(|x| serde_json::from_slice(&x).ok())
-            .unwrap_or(Value::Null);
+        // procfix7 round 5: an unreadable recipe fails the table (never a table written without its charts)
+        let recipe: Value = match crate::fsx::read("closeloop.input", Path::new(&b.recipe_path)) {
+            crate::fsx::Read::Content(x) => serde_json::from_slice(&x).unwrap_or(Value::Null),
+            crate::fsx::Read::Absent => Value::Null,
+            crate::fsx::Read::Failed(e) => return Err(format!("recipe {}: {e}", b.recipe_path)),
+        };
         let group = r.proof_inputs.contains_key("symmetry_group");
         let sym = recipe["symmetry_rows"] == true && group;
         let mut text = proofs::relation_header(&r.cfg.node, item, job, &b.source);
@@ -2630,7 +2651,7 @@ impl CloseFromMaterialSource {
     }
 
     /// (round, proposals) when node `i`'s latest proposals record has no decision yet.
-    fn awaiting(&self, st: &CampaignState, i: usize) -> Option<(u32, u64)> {
+    fn awaiting(&self, st: &CampaignState, i: usize) -> Option<(u32, Option<u64>)> {
         let n = &self.nodes[i].n;
         if st.inputs.contains_key(&input_final(n)) {
             return None;
@@ -2645,11 +2666,13 @@ impl CloseFromMaterialSource {
         if decided {
             return None;
         }
-        let count = std::fs::read(self.abs_or(&p.path))
-            .ok()
-            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .and_then(|v| v["count"].as_u64())
-            .unwrap_or(0);
+        // procfix7 round 5: the count is a message word only; an unreadable file says so (never "0 proposals")
+        let count = match crate::fsx::read("closeloop.input", &self.abs_or(&p.path)) {
+            crate::fsx::Read::Content(b) => serde_json::from_slice::<Value>(&b)
+                .ok()
+                .and_then(|v| v["count"].as_u64()),
+            crate::fsx::Read::Absent | crate::fsx::Read::Failed(_) => None,
+        };
         Some((k, count))
     }
 
@@ -2797,7 +2820,13 @@ impl WorkSource for CloseFromMaterialSource {
             let node = &r.cfg.node;
             // the effective import spec (written once; its digest pins the node's material)
             let p = self.abs(&r.spec_rel);
-            if std::fs::read(&p).ok().as_deref() != Some(r.spec_text.as_bytes()) {
+            // procfix7 round 5: rewritten only when PROVEN absent or different (an unreadable file fails the source)
+            let same = match crate::fsx::read("closeloop.output", &p) {
+                crate::fsx::Read::Content(b) => b == r.spec_text.as_bytes(),
+                crate::fsx::Read::Absent => false,
+                crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", p.display())),
+            };
+            if !same {
                 if let Some(d) = p.parent() {
                     std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
                 }
@@ -3204,6 +3233,7 @@ impl WorkSource for CloseFromMaterialSource {
             .filter(|&i| self.nodes[i].running.is_none())
             .filter_map(|i| {
                 self.awaiting(st, i).map(|(k, n)| {
+                    let n = n.map_or_else(|| "an unknown number of (the proposals file cannot be read)".to_string(), |c| c.to_string());
                     format!(
                         "{}: open: awaiting operator decision on {n} terminal proposals (round {k}; `rr_campaign control CDIR resolve-terminals --node {} --accept KEYS_FILE | --reject`)",
                         self.nodes[i].cfg.node, self.nodes[i].cfg.node

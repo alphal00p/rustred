@@ -7,6 +7,7 @@
 //! runs `tui_support::demo::main_with` and exits. No pre-built example, no choice by modification time.
 //! Waits are for markers on the pty with generous timeouts, never fixed sleeps.
 //! Run with `LIGHT_PIDNS=1` (lane rule L10): the tests spawn children and signal them.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod sup;
