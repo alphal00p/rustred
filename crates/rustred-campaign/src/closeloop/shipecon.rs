@@ -1999,6 +1999,8 @@ pub fn run_ship(cfg: &ShipRunConfig) -> Result<Value, String> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            // procfix7 round 7 field (merge): no effect, pinning is not collected
+            foreign_pin_max_cpus: usize::MAX,
         })
         .map_err(|e| format!("sampler: {e}"))?,
     );
