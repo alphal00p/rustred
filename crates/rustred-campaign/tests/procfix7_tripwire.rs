@@ -149,3 +149,75 @@ fn no_ledger_pass_drops_its_result() {
         bad.join("\n")
     );
 }
+
+/// Every `.rs` file of src/ (recursive).
+fn all_sources() -> Vec<PathBuf> {
+    let mut v = Vec::new();
+    let mut stack = vec![Path::new(env!("CARGO_MANIFEST_DIR")).join("src")];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                v.push(p);
+            }
+        }
+    }
+    v.sort();
+    v
+}
+
+/// procfix7 round 19 (the coordinator's landing condition): every launcher constructor call of PRODUCTION code
+/// (`RealLauncher::new` / `try_with_config`) is FAIL-CLOSED: its `Result` is propagated (`?`, `map_err(..)?`), matched
+/// with an `Err` arm that returns or continues, or bound by `let Ok(..) = .. else { return / continue }`; never
+/// unwrap / expect / ok / unwrap_or*. A launcher that cannot hold its campaign id (`LauncherError::IdLock`, `AdhocId`,
+/// `InvalidId`) therefore never runs a job. The sites are printed (the round-19 report names them).
+#[test]
+fn every_launcher_constructor_call_is_fail_closed() {
+    let mut sites = vec![];
+    let mut bad = vec![];
+    for p in all_sources() {
+        let r = rel(&p);
+        if r.starts_with("src/bin/") {
+            continue;
+        }
+        let lines = code_lines(&p);
+        for (k, (n, l)) in lines.iter().enumerate() {
+            let t = l.trim_start();
+            if t.starts_with("//")
+                || !(t.contains("RealLauncher::new(")
+                    || t.contains("RealLauncher::try_with_config("))
+            {
+                continue;
+            }
+            let win: String = lines[k..(k + 14).min(lines.len())]
+                .iter()
+                .map(|(_, x)| x.trim())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let stmt = win.split(';').next().unwrap_or("");
+            let dropped = [".unwrap()", ".expect(", ".ok()", ".unwrap_or"]
+                .iter()
+                .any(|d| stmt.contains(d));
+            let propagated = stmt.contains('?');
+            let matched = t.contains("match RealLauncher::")
+                && win.contains("Err(")
+                && (win.contains("return") || win.contains("continue"));
+            let let_else = t.contains("let Ok(")
+                && win.contains("else {")
+                && (win.contains("return") || win.contains("continue"));
+            sites.push(format!("{r}:{n}"));
+            if dropped || !(propagated || matched || let_else) {
+                bad.push(format!("{r}:{n}: {t}"));
+            }
+        }
+    }
+    eprintln!("launcher constructor calls in production code: {sites:?}");
+    assert!(!sites.is_empty(), "no launcher constructor call found");
+    assert!(
+        bad.is_empty(),
+        "a launcher constructor call whose error is not fail-closed (propagate it, or match / let-else it into a refusal):\n{}",
+        bad.join("\n")
+    );
+}
