@@ -542,6 +542,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
             Some(x) => x.case.to_string(),
             None => rf::case_line(&face.face(), p1.frame.mask()).to_string(),
         } + "\n";
+        // procfix9-ok: compare-then-write_atomic: an unreadable file is rewritten with the same content; the write's errors propagate (int8b-gate review (i))
         if std::fs::read(&cases_abs).ok().as_deref() != Some(line.as_bytes()) {
             if let Some(d) = cases_abs.parent() {
                 std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
@@ -554,6 +555,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
             Some((text, _)) => {
                 let b3 = blake3_hex(text.as_bytes());
                 let p = self.abs(&format!("{}/family.{}.sym", rf_dir(&r.n), &b3[..16]));
+                // procfix9-ok: compare-then-write_atomic, content-addressed (int8b-gate review (i))
                 if std::fs::read(&p).ok().as_deref() != Some(text.as_bytes()) {
                     crate::atomic::write_atomic(&p, text.as_bytes())
                         .map_err(|e| format!("{}: {e}", p.display()))?;
@@ -999,7 +1001,14 @@ impl<S: WorkSource> RepairFlowSource<S> {
             .map(|p| p.frame.mask().to_vec())
             .unwrap_or_default();
         let mut per_face: BTreeMap<String, (u64, u64, u64)> = BTreeMap::new();
-        if let Ok(t) = std::fs::read_to_string(&stmt) {
+        // procfix7 round 19 (landing, int8b-gate review (ii) repair.rs:1002): a final statement that cannot be READ fails the report (it was
+        // "no lines": an export listing no certified keys, with counts 0); not there = no lines
+        let stmt_text = match crate::fsx::read_to_string("closeloop.output", &stmt) {
+            crate::fsx::Read::Content(t) => Some(t),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", stmt.display())),
+        };
+        if let Some(t) = stmt_text {
             for l in t.lines().filter(|l| !l.trim().is_empty()) {
                 stmt_lines.push(l.to_string());
                 let Ok(r) = serde_json::from_str::<Value>(l) else {
@@ -1139,7 +1148,15 @@ impl<S: WorkSource> RepairFlowSource<S> {
         let mut recipes = vec![];
         let mut exported_recipe_bytes = 0u64;
         let mut exported_table_bytes = 0u64;
-        if let Ok(b) = std::fs::read(self.abs(&format!("{dir}/symbolic.table.jsonl"))) {
+        // procfix7 round 19 (landing, int8b-gate review (ii) repair.rs:1142): an export file that cannot be READ fails the export (it was left out
+        // silently: a self-consistent but incomplete export); not there = not exported
+        let table_p = self.abs(&format!("{dir}/symbolic.table.jsonl"));
+        let table = match crate::fsx::read("closeloop.output", &table_p) {
+            crate::fsx::Read::Content(b) => Some(b),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", table_p.display())),
+        };
+        if let Some(b) = table {
             exported_table_bytes = b.len() as u64;
             sums.push_str(&format!("{}  symbolic.table.jsonl\n", sha256_hex(&b)));
             rt.accepts
@@ -1162,8 +1179,12 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 let id = format!("rf:{}:{s}", rf::face_tag(&face));
                 let fname = format!("{}.{s}.json", rf::face_tag(&face));
                 let certified = by_server.get(&id).cloned().unwrap_or_default();
-                let Ok(b) = std::fs::read(self.abs(&format!("{dir}/recipes/{fname}"))) else {
-                    continue;
+                // procfix7 round 19 (landing, int8b-gate review (ii) repair.rs:1165): as above
+                let rp = self.abs(&format!("{dir}/recipes/{fname}"));
+                let b = match crate::fsx::read("closeloop.output", &rp) {
+                    crate::fsx::Read::Content(b) => b,
+                    crate::fsx::Read::Absent => continue,
+                    crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", rp.display())),
                 };
                 let sha = sha256_hex(&b);
                 let cost = costs.get(&id).map(|c| range(&c.2)).unwrap_or(Value::Null);
@@ -1242,9 +1263,16 @@ impl<S: WorkSource> RepairFlowSource<S> {
         // the default sequence (the closing loop's default recipe) with its certified keys and cost
         let dflt = self.nodes[i].cfg.default_recipe.clone();
         let mut default_seq = vec![];
-        if let Some(pth) = &dflt
-            && let Ok(b) = std::fs::read(pth)
-        {
+        // procfix7 round 19 (landing, int8b-gate review (ii) repair.rs:1245-1246): as above
+        let dflt_bytes = match &dflt {
+            None => None,
+            Some(pth) => match crate::fsx::read("closeloop.input", pth) {
+                crate::fsx::Read::Content(b) => Some(b),
+                crate::fsx::Read::Absent => None,
+                crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", pth.display())),
+            },
+        };
+        if let Some(b) = dflt_bytes {
             let certified = by_server.get("default-recipe").cloned().unwrap_or_default();
             let cf: String = certified.iter().map(|c| format!("{c}\n")).collect();
             sums.push_str(&format!(

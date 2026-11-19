@@ -3,6 +3,7 @@
 //! sealed line re-checked against its pinned inputs, kernel pinned, family = the frame's), listed as the import spec's
 //! `kernel_certificates` {files [{path, sha256}], kernels}. Driven by `SYMCERT_BIND` = JSON {"verdicts": path,
 //! "roots": [dirs], "kernels": [sha256], "frame_table": path, "out": path}. No process is started here.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::symcert::{
     ImportBinding, kernel_certificate_files, read_verdicts,

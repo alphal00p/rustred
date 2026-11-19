@@ -5,6 +5,7 @@
 //! (fake solve oracle: every key needs the key itself and line 1 one step down) and the minimised recipe is SHIPPED in the
 //! export (record compared with the full list). Spawns processes: run ONLY inside a private pid namespace
 //! (`LIGHT_PIDNS=1 .../light_build.sh wireflow test -p rustred-campaign --test wireflow_seedmin_fake`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;
@@ -96,7 +97,7 @@ fn setup(tag: &str, seedmin: bool, ms: u64) -> (Tmp, PathBuf, PathBuf) {
     let spec = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}},
-        "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+        "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},

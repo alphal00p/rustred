@@ -481,8 +481,11 @@ pub fn snapshot_inputs(spec: &mut PoleReportSpec, dir: &Path) -> Result<Value, S
         let d = dir.join("inputs").join(&b.sha256);
         std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
         let snap = d.join(&name);
-        match std::fs::read(&snap) {
-            Ok(have) => {
+        // procfix7 round 19 (landing, new since the int8b-gate review)): only a snapshot PROVEN absent is written; one that cannot be
+        // READ is an error (it was rewritten on any read error)
+        match crate::fsx::read("closeloop.output", &snap) {
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", snap.display())),
+            crate::fsx::Read::Content(have) => {
                 if sha256_hex(&have) != b.sha256 {
                     return Err(format!(
                         "{role}: snapshot {} is not the spec's sha256",
@@ -490,7 +493,7 @@ pub fn snapshot_inputs(spec: &mut PoleReportSpec, dir: &Path) -> Result<Value, S
                     ));
                 }
             }
-            Err(_) => {
+            crate::fsx::Read::Absent => {
                 let tmp = d.join(format!(".{}.tmp", name.to_string_lossy()));
                 std::fs::write(&tmp, &bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
                 let mut perm = std::fs::File::open(&tmp)
@@ -838,6 +841,7 @@ impl ProgramRun {
 
     /// The last 2,000 bytes of the child's stderr (empty when unreadable).
     pub fn stderr_tail(&self) -> String {
+        // procfix9-ok: a stderr tail for a message, documented "empty when unreadable" (int8b-gate review (i))
         let b = std::fs::read(self.run_dir.join("stderr.log")).unwrap_or_default();
         let from = b.len().saturating_sub(2000);
         String::from_utf8_lossy(&b[from..]).trim().to_string()
@@ -876,7 +880,8 @@ pub fn run_program_child(
     if let Some(name) = &opts.licence_env {
         ls.env_passthrough.push(name.clone());
     }
-    let mut l = RealLauncher::new(sampler.clone());
+    // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+    let mut l = RealLauncher::new(sampler.clone()).map_err(|e| format!("launcher refused: {e}"))?;
     let mut h = l
         .launch(&ls)
         .map_err(|e| format!("launch of {}: {e}", program.display()))?;
@@ -1046,12 +1051,21 @@ fn group_job(
         };
         let work = ctx.dir.join("work");
         let mut attempt = 1u32;
-        while rustred_campaign_contract::layout::attempt_dir(&work, &plans[0].job_id, attempt)
-            .exists()
-        {
-            attempt += 1;
+        // procfix7 round 19 (landing, int8b-gate review (ii) polereport.rs:1050 / INT8-STAGE2 section 8 row 15)): an attempt directory that
+        // cannot be checked is never taken as free (group_job's outer error)
+        loop {
+            let ad =
+                rustred_campaign_contract::layout::attempt_dir(&work, &plans[0].job_id, attempt);
+            match crate::fsx::presence_lstat("supervisor.run_dir", &ad) {
+                crate::fsx::Presence::Absent => break,
+                crate::fsx::Presence::Present(_) => attempt += 1,
+                crate::fsx::Presence::Unknown(e) => return Err(format!("{}: {e}", ad.display())),
+            }
         }
-        let mut l = RealLauncher::new(ctx.sampler.clone());
+        // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock (an
+        // infrastructure error of the report, as a failed store)
+        let mut l =
+            RealLauncher::new(ctx.sampler.clone()).map_err(|e| format!("launcher refused: {e}"))?;
         let (b, rep) = run_attempt(
             &mut l,
             ctx.adapter,
@@ -1116,10 +1130,16 @@ fn reuse_job(
     std::fs::create_dir_all(&d).map_err(|e| format!("{}: {e}", d.display()))?;
     for (name, b) in [(tadicjob::JOB_INPUT, &jb), (tadicjob::CHILD_OUT, &rb)] {
         let f = d.join(name);
-        match std::fs::read(&f) {
-            Ok(have) if have == **b => {}
-            Ok(_) => return Err(format!("{}: differs from the reused bytes", f.display())),
-            Err(_) => std::fs::write(&f, b).map_err(|e| format!("{}: {e}", f.display()))?,
+        // procfix7 round 19 (landing, new since the int8b-gate review)): only a copy PROVEN absent is written
+        match crate::fsx::read("closeloop.output", &f) {
+            crate::fsx::Read::Content(have) if have == **b => {}
+            crate::fsx::Read::Content(_) => {
+                return Err(format!("{}: differs from the reused bytes", f.display()));
+            }
+            crate::fsx::Read::Absent => {
+                std::fs::write(&f, b).map_err(|e| format!("{}: {e}", f.display()))?
+            }
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", f.display())),
         }
     }
     let seconds = serde_json::from_slice::<Value>(&rb)
@@ -1197,9 +1217,14 @@ fn run_cell(
         .join(format!("{}_D{}r{}", ns.node, c.d, c.r));
     std::fs::create_dir_all(&cdir).map_err(|e| e.to_string())?;
     // the cost of jobs reused from the store is the cost recorded when they ran (the previous cell record, same jobs)
-    let previous: Option<Value> = std::fs::read(cdir.join("cell.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok());
+    // procfix7 round 19 (landing, int8b-gate review (ii) polereport.rs:1200)): a previous record that cannot be READ is an error (it
+    // was "none": the reused jobs' cost recorded as 0)
+    let cell_json = cdir.join("cell.json");
+    let previous: Option<Value> = match crate::fsx::read("closeloop.output", &cell_json) {
+        crate::fsx::Read::Content(b) => serde_json::from_slice(&b).ok(),
+        crate::fsx::Read::Absent => None,
+        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", cell_json.display())),
+    };
     let mut groups: Vec<Group> = match block {
         None => vec![Group {
             prefix: "c".into(),
@@ -1323,10 +1348,10 @@ fn run_cell(
         out.cpu_seconds = p["cpu_seconds"].as_f64().unwrap_or(0.0);
         out.peak_gb = p["peak_gb"].as_f64().unwrap_or(0.0);
     }
-    let _ = std::fs::write(
-        cdir.join("cell.json"),
-        serde_json::to_vec_pretty(&out).expect("json"),
-    );
+    // procfix7 round 19 (landing, int8b-gate review (ii) polereport.rs:1326)): a cell record that cannot be written fails the report
+    // (it was dropped: the cell missing on resume and from "extra" cells)
+    std::fs::write(&cell_json, serde_json::to_vec_pretty(&out).expect("json"))
+        .map_err(|e| format!("{}: {e}", cell_json.display()))?;
     Ok(out)
 }
 
@@ -1406,6 +1431,8 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            // procfix7 round 7 field (merge): no effect, pinning is not collected
+            foreign_pin_max_cpus: usize::MAX,
         })
         .map_err(|e| format!("sampler: {e}"))?,
     );
@@ -1467,11 +1494,24 @@ pub fn report_cmd(args: &[String]) -> Result<String, String> {
         .iter()
         .map(|o| (o.node.clone(), o.d, o.r))
         .collect();
-    if let Ok(rd) = std::fs::read_dir(dir.join("cells")) {
+    // procfix7 round 19 (landing, int8b-gate review (ii) polereport.rs:1470-1473 / INT8-STAGE2 section 8 row 16)): a failed listing or
+    // an unreadable cell record is an error (it was "no extra cells"); a cell without cell.json (interrupted) is skipped
+    let cells_dir = dir.join("cells");
+    let cell_entries = match crate::fsx::list("closeloop.output", &cells_dir) {
+        crate::fsx::Listing::Complete(v) => Some(v),
+        crate::fsx::Listing::Absent => None,
+        crate::fsx::Listing::Failed(e) => {
+            return Err(format!("{}: listing failed: {e}", cells_dir.display()));
+        }
+    };
+    if let Some(entries) = cell_entries {
         let mut extra = vec![];
-        for e in rd.flatten() {
-            let Ok(b) = std::fs::read(e.path().join("cell.json")) else {
-                continue;
+        for e in entries {
+            let cp = e.path.join("cell.json");
+            let b = match crate::fsx::read("closeloop.output", &cp) {
+                crate::fsx::Read::Content(b) => b,
+                crate::fsx::Read::Absent => continue,
+                crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", cp.display())),
             };
             let Ok(v) = serde_json::from_slice::<Value>(&b) else {
                 continue;
@@ -1698,6 +1738,7 @@ pub fn markdown(report: &Value) -> String {
     s
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

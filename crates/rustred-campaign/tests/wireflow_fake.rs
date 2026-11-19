@@ -11,6 +11,7 @@
 //! checks as any supplied relation; (2) without the kernel the two-row form is NOT served (audit F8); (3) interrupt +
 //! resume gives byte-identical round records, check record and statement; (4) the stage off (absent or explicitly
 //! default) gives byte-identical results: the policy digest is unchanged and nothing of the stage appears.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod inputs;
@@ -133,7 +134,7 @@ fn setup(tag: &str, frame: &Path, mode: Mode, ms: u64) -> (Tmp, PathBuf, PathBuf
     let spec = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}},
-        "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "4G", "disk_floor": "1G",
+        "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "4G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M",
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},

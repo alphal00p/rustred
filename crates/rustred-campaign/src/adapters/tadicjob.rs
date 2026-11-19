@@ -378,9 +378,18 @@ fn pinned_binary(job: &Value) -> Option<String> {
 /// and checked (`tadicjob::check_result`), the decision of `tadicjob::decide` written as OUTCOME (with the sealed
 /// request lines for row 50). Signals and any other exit stay as they are.
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
-    if matches!(wait, WaitStatus::Unknown) || layout.outcome().exists() {
+    if matches!(wait, WaitStatus::Unknown) {
         return wait;
     }
+    // procfix7 round 19 (landing, legacy::wrap's form): OUTCOME is written only when PROVEN absent (an unreadable one is
+    // left to the classification, which reads it: never a second outcome written on a failed stat)
+    match crate::fsx::presence_lstat("adapters.outcome", &layout.outcome()) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Unknown(_) => {
+            return wait;
+        }
+    }
+
     let WaitStatus::Exited(driver_exit) = wait else {
         return wait;
     };
@@ -417,9 +426,15 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
     };
     // every pinned input re-read and re-hashed (the job input is needed below)
     let mut job_bytes = None;
+    // procfix7 round 19 (landing, int8b-gate review (ii) tadicjob.rs:472): the driver's sha from the bytes this loop read
+    // and checked (a second read could fail and look like a pin mismatch)
+    let mut driver_sha = String::new();
     for i in &spec.inputs {
         match std::fs::read(spec.input_path(i)) {
             Ok(b) if rustred_campaign_contract::blake3_hex(&b) == i.blake3 => {
+                if i.role == tadicjob::ROLE_DRIVER {
+                    driver_sha = sha256_hex(&b);
+                }
                 if i.role == tadicjob::ROLE_JOB {
                     job_bytes = Some(b);
                 }
@@ -465,13 +480,6 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
             );
         }
     };
-    let driver_sha = spec
-        .inputs
-        .iter()
-        .find(|i| i.role == tadicjob::ROLE_DRIVER)
-        .and_then(|i| std::fs::read(spec.input_path(i)).ok())
-        .map(|b| sha256_hex(&b))
-        .unwrap_or_default();
     let pins = Pins {
         job_sha256: sha256_hex(&job_bytes),
         binary_sha256: pinned_binary(&job).unwrap_or_default(),
@@ -881,8 +889,14 @@ impl ResultStore {
     ) -> Result<Option<(CheckedResult, Value, StoreRecord)>, String> {
         let content = adapter.content_of(req);
         let d = self.dir(&content);
-        let Ok(sb) = std::fs::read(d.join("STORE.json")) else {
-            return Ok(None);
+        // procfix7 round 19 (landing, int8b-gate review (ii) tadicjob.rs:884): not there = not stored; a STORE.json that
+        // cannot be READ is an error (it was "not stored": the job ran again and put() replaced it)
+        let sb = match crate::fsx::read("closeloop.output", &d.join("STORE.json")) {
+            crate::fsx::Read::Content(b) => b,
+            crate::fsx::Read::Absent => return Ok(None),
+            crate::fsx::Read::Failed(e) => {
+                return Err(format!("{}: {e}", d.join("STORE.json").display()));
+            }
         };
         let rec: StoreRecord = serde_json::from_slice(&sb).map_err(|e| e.to_string())?;
         if rec.schema != STORE_SCHEMA || rec.content != content {

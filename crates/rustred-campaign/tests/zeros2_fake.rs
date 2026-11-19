@@ -10,6 +10,7 @@
 //!
 //! Spawns processes and sends signals: run ONLY inside a private pid namespace (`LIGHT_PIDNS=1 .../light_build.sh
 //! zeros2 test -p rustred-campaign --test zeros2_fake`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

@@ -4,6 +4,7 @@
 //! image) of a checked import spec: how many such edges a proof covers, by source class, and the lookup time.
 //! Spawns nothing. Environment: ZEROS2_SPEC (import spec), ZEROS2_PROOFS (comma-separated proof files), ZEROS2_OUT
 //! (summary JSON), ZEROS2_TIER (`K` default | `C`), ZEROS2_THREADS (default 4), ZEROS2_ROWS (spill file of the check).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod inputs;
 use rustred_campaign::closeloop::zeros;

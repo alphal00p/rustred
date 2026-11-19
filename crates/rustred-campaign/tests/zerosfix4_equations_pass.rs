@@ -5,6 +5,7 @@
 //! pair disputed and the node open. Now the loader re-checks the claim (the equation solved for a unit parameter) and
 //! the node closes, memory and big-node mode alike. A FALSE claim of the same form still blocks.
 //! Pure (no process): `closeloop::pass::run_pass`. Toy record: arity 4, mask 1110, case equation n0 + 3 n1 - n2 + n3 = 0.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::config::ScaleCfg;
 use rustred_campaign::closeloop::pass::{PassIn, ProofPlan, run_pass};

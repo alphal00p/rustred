@@ -8,6 +8,7 @@
 //! campaigns end with the decisions and totals of the uninterrupted one, and a further `run` launches nothing.
 //! Spawns processes: run ONLY under `LIGHT_PIDNS=1` (private pid namespace, rule L10):
 //! `LIGHT_PIDNS=1 light_build.sh shipecon test -p rustred-campaign --test shipecon_sup_fake`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod sup_common;
 
@@ -94,7 +95,7 @@ fn campaign_spec(t: &Tmp, file: &Path) -> PathBuf {
     let v = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}},
-        "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+        "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},

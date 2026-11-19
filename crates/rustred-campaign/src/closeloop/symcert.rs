@@ -141,19 +141,26 @@ fn utc_now() -> String {
     )
 }
 
-fn journal(path: &std::path::Path) -> HashMap<(String, String, String), RelationVerdict> {
+/// procfix7 round 19 (landing, int8b-gate review (ii) symcert.rs:146)): a journal that is not there is empty; one that cannot be READ (open or
+/// mid-file) is an ERROR of the batch (it was "empty": every kernel check run again).
+fn journal(
+    path: &std::path::Path,
+) -> Result<HashMap<(String, String, String), RelationVerdict>, String> {
     let mut m = HashMap::new();
-    let Ok(f) = std::fs::File::open(path) else {
-        return m;
+    let f = match crate::fsx::open("closeloop.input", path) {
+        crate::fsx::Read::Content(f) => f,
+        crate::fsx::Read::Absent => return Ok(m),
+        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", path.display())),
     };
-    for l in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+    for l in std::io::BufReader::new(f).lines() {
+        let l = l.map_err(|e| format!("{}: {e}", path.display()))?;
         if let Ok(v) = serde_json::from_str::<RelationVerdict>(&l)
             && let Some(d) = v.relation_digest.clone()
         {
             m.insert((v.id.clone(), d, v.kernel_sha256.clone()), v);
         }
     }
-    m
+    Ok(m)
 }
 
 fn append(path: &std::path::Path, v: &Value) -> Result<(), String> {
@@ -214,14 +221,40 @@ fn run_one(
     let t0 = Instant::now();
     // a new attempt directory per run (an attempt directory is never reused): the first free attempt number
     let mut attempt = 1;
-    while rustred_campaign_contract::layout::attempt_dir(&cfg.work_root, &plan.job_id, attempt)
-        .exists()
-    {
-        attempt += 1;
+    // procfix7 round 19 (landing, int8b-gate review (ii) symcert.rs:218) / INT8-STAGE2 section 8 row 10): an attempt directory that cannot be
+    // checked is never taken as free (the relation's verdict is "failed", with the error)
+    loop {
+        let ad =
+            rustred_campaign_contract::layout::attempt_dir(&cfg.work_root, &plan.job_id, attempt);
+        match crate::fsx::presence_lstat("supervisor.run_dir", &ad) {
+            crate::fsx::Presence::Absent => break,
+            crate::fsx::Presence::Present(_) => attempt += 1,
+            crate::fsx::Presence::Unknown(e) => {
+                return verdict_of(
+                    &rel,
+                    digest,
+                    &kernel,
+                    "failed",
+                    format!("{}: {e}", ad.display()),
+                );
+            }
+        }
     }
     let first = attempt;
     loop {
-        let mut l = RealLauncher::new(sampler.clone());
+        // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+        let mut l = match RealLauncher::new(sampler.clone()) {
+            Ok(l) => l,
+            Err(e) => {
+                return verdict_of(
+                    &rel,
+                    digest,
+                    &kernel,
+                    "failed",
+                    format!("launcher refused: {e}"),
+                );
+            }
+        };
         let res = run_attempt(&mut l, &ad, &reqs, &plan, &cfg.work_root, attempt, &opts);
         let (out, rep) = match res {
             Ok(x) => x,
@@ -294,7 +327,7 @@ pub fn certify_symmetry_relations(
     std::fs::create_dir_all(&cfg.work_root).map_err(|e| e.to_string())?;
     let jpath = cfg.work_root.join("verdicts.jsonl");
     let fpath = cfg.work_root.join("findings.jsonl");
-    let known = journal(&jpath);
+    let known = journal(&jpath)?;
     let kernel = cfg
         .program
         .sha256
@@ -341,6 +374,8 @@ pub fn certify_symmetry_relations(
             Sampler::spawn(SamplerConfig {
                 interval: Duration::from_millis(500),
                 collect_foreign_pinning: false,
+                // procfix7 round 7 field (merge): no effect, pinning is not collected
+                foreign_pin_max_cpus: usize::MAX,
             })
             .map_err(|e| format!("sampler: {e}"))?,
         );
@@ -468,9 +503,10 @@ fn sealed_certificate(
         .map_err(|e| ("job_unreadable", format!("{}: {e}", run_dir.display())))?;
     let spec: JobSpec =
         serde_json::from_slice(&bytes).map_err(|e| ("job_unreadable", format!("job.json: {e}")))?;
-    if spec.kind != JobKind::ProofSymrows
-        || std::fs::canonicalize(&spec.run_dir).ok().as_deref() != Some(run_dir)
-    {
+    // procfix7 round 19 (landing, int8b-gate review (ii) symcert.rs:472) / row 11): an I/O error is a typed stop, never "not a certificate job"
+    let canon = crate::fsx::canonicalize("closeloop.input", std::path::Path::new(&spec.run_dir))
+        .map_err(|e| ("job_unreadable", format!("{}: {e}", spec.run_dir)))?;
+    if spec.kind != JobKind::ProofSymrows || canon.as_path() != run_dir {
         return Err((
             "not_a_certificate_job",
             format!("kind {:?}, run_dir {}", spec.kind, spec.run_dir),
@@ -523,11 +559,16 @@ pub fn kernel_certificate_files(
     verdicts: &[RelationVerdict],
     b: &ImportBinding,
 ) -> (Vec<CertificateFile>, Vec<NoLift>) {
-    let roots: Vec<PathBuf> = b
-        .roots
-        .iter()
-        .filter_map(|r| std::fs::canonicalize(r).ok())
-        .collect();
+    // procfix7 round 19 (landing, int8b-gate review (ii) symcert.rs:529) / row 12): a root that cannot be resolved is still left out (its runs end
+    // outside_certificate_roots: never a lift), but its error is carried in each such detail
+    let mut roots: Vec<PathBuf> = vec![];
+    let mut unresolved: Vec<String> = vec![];
+    for r in &b.roots {
+        match crate::fsx::canonicalize("closeloop.input", r) {
+            Ok(c) => roots.push(c),
+            Err(e) => unresolved.push(format!("root {}: {e}", r.display())),
+        }
+    }
     let mut files = vec![];
     let mut no = vec![];
     for v in verdicts {
@@ -541,16 +582,28 @@ pub fn kernel_certificate_files(
             no.push(fail("not_decided", v.verdict.clone()));
             continue;
         }
-        let Some(run) = v
+        // procfix7 round 19 (landing, int8b-gate review (ii) symcert.rs:547) / row 13): the reason strings unchanged, the error in the detail
+        let run = match v
             .run_dir
             .as_ref()
-            .and_then(|d| std::fs::canonicalize(d).ok())
-        else {
-            no.push(fail("no_run_dir", format!("{:?}", v.run_dir)));
-            continue;
+            .map(|d| crate::fsx::canonicalize("closeloop.input", std::path::Path::new(d)))
+        {
+            Some(Ok(r)) => r,
+            Some(Err(e)) => {
+                no.push(fail("no_run_dir", format!("{:?}: {e}", v.run_dir)));
+                continue;
+            }
+            None => {
+                no.push(fail("no_run_dir", "none".into()));
+                continue;
+            }
         };
         if !roots.iter().any(|r| run.starts_with(r)) {
-            no.push(fail("outside_certificate_roots", run.display().to_string()));
+            let mut detail = run.display().to_string();
+            if !unresolved.is_empty() {
+                detail.push_str(&format!(" (unresolved: {})", unresolved.join("; ")));
+            }
+            no.push(fail("outside_certificate_roots", detail));
             continue;
         }
         match sealed_certificate(&run) {

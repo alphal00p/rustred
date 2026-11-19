@@ -249,7 +249,14 @@ impl<'a> ChildSolver<'a> {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
         let mut journal = BTreeMap::new();
-        if let Ok(f) = std::fs::File::open(&cfg.journal) {
+        // procfix7 round 19 (landing, int8b-gate review (ii) coreseed.rs:252): a journal that is not there is empty; one
+        // that cannot be OPENED is an error (it was "empty": every request solved again)
+        let journal_in = match crate::fsx::open("closeloop.input", &cfg.journal) {
+            crate::fsx::Read::Content(f) => Some(f),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", cfg.journal.display())),
+        };
+        if let Some(f) = journal_in {
             for l in std::io::BufReader::new(f).lines().map_while(Result::ok) {
                 // a torn last line (a crash while writing) is ignored: its request is solved again
                 if let Ok(v) = serde_json::from_str::<Value>(&l)
@@ -482,7 +489,14 @@ impl<'a> ChildSolver<'a> {
             return none();
         };
         for attempt in 1..=2u32 {
-            let mut l = RealLauncher::new(self.sampler.clone());
+            // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+            let mut l = match RealLauncher::new(self.sampler.clone()) {
+                Ok(l) => l,
+                Err(e) => {
+                    note(format!("attempt {attempt}: launcher refused: {e}"));
+                    return none();
+                }
+            };
             match run_attempt(&mut l, &ad, &reqs, plan, &work, attempt, &opts) {
                 Ok((b, _)) if b.unread.is_none() => {
                     let by_id: BTreeMap<
@@ -635,7 +649,8 @@ fn run_job(
         wall_cap: Some(Duration::from_secs(wall_cap_s)),
         grace: Some(Duration::from_secs(30)),
     };
-    let mut l = RealLauncher::new(sampler);
+    // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+    let mut l = RealLauncher::new(sampler).map_err(|e| format!("launcher refused: {e}"))?;
     let (out, rep) =
         run_attempt(&mut l, &ad, &reqs, plan, &job.work, 1, &opts).map_err(|e| format!("{e:?}"))?;
     let run_dir = rep.prepared.spec.run_dir.clone();
@@ -877,7 +892,11 @@ impl CoreSolver for ChildSolver<'_> {
                                 if !is_trial(&r.label) {
                                     let mut t = d.lines.join("\n");
                                     t.push('\n');
-                                    let _ = std::fs::write(j.work.join("solved.jsonl"), t);
+                                    // procfix7 round 19 (landing, int8b-gate review (ii) coreseed.rs:880): a failed
+                                    // write fails the batch (it was dropped: the results accepted without it)
+                                    let sp = j.work.join("solved.jsonl");
+                                    std::fs::write(&sp, t)
+                                        .map_err(|e| format!("{}: {e}", sp.display()))?;
                                 }
                                 // relations the in-process test leaves undecided: to the pole job of the batch
                                 for (k, rec) in &d.records {

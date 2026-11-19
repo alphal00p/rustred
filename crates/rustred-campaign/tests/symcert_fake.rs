@@ -3,7 +3,10 @@
 //! sides, a FORGED certificate with a valid seal refused (row 43), a lie about the record refused (row 43), the 15b
 //! resource retry, a not-expressible relation without a job, resume from the journal, and the import hook built from
 //! the verdicts. Spawns children: run with LIGHT_PIDNS=1 (L10). Test data only (L8): arity-3 keys, made-up digests.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
+#[path = "pf19_support/mod.rs"]
+mod pf19;
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::symcert::{
     CertifyConfig, ImportBinding, RelationVerdict, certify_symmetry_relations,
@@ -358,4 +361,31 @@ fn every_verdict_through_the_process_layer() {
         assert_eq!(b2[id], b[id], "{id}");
     }
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// procfix7 round 19 (the coordinator's landing condition): `certify_symmetry_relations` when its launcher cannot hold
+/// its (ad-hoc) id: the relation's verdict is "failed" with the refusal, no kernel job runs.
+#[test]
+fn pf19_a_refused_launcher_makes_the_verdict_failed() {
+    if !rustred_campaign::launch::in_private_namespace() {
+        eprintln!("SKIPPED: builds launchers: only inside a private pid namespace (rule L10)");
+        return;
+    }
+    if let Some(v) = pf19::in_fresh_process("pf19_a_refused_launcher_makes_the_verdict_failed") {
+        assert!(v.starts_with("PASS"), "{v}");
+        return;
+    }
+    let _held = pf19::hold_own_adhoc_lock();
+    let root = tmp("pf19");
+    let cfg = config(&root, BTreeMap::new());
+    let v = certify_symmetry_relations(&[rel("ok", 1)], &cfg).unwrap();
+    eprintln!("PF19S {v:?}");
+    assert_eq!(v.len(), 1);
+    assert_eq!(v[0].verdict, "failed", "{:?}", v[0]);
+    assert!(
+        v[0].detail.contains("launcher refused") && v[0].detail.contains("in use"),
+        "{:?}",
+        v[0]
+    );
+    pf19::passed(&v[0].detail);
 }

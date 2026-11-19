@@ -141,9 +141,18 @@ pub fn derivations_cmd(rest: &[String]) -> Result<String, String> {
     let get = |k: &str| m.get(k).copied().ok_or_else(|| format!("{k} is required"));
     let rd = Path::new(get("--run-dir")?);
     let engine = get("--engine")?;
-    let txt = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
+    // procfix7 round 19 (landing, int8b-gate review (ii) genchoice.rs:144): a job file that cannot be READ is an error
+    // (it was "": a misleading parse error, or silently partial derivations); not there = empty
+    let txt = |f: &str| -> Result<String, String> {
+        let p = rd.join(f);
+        match crate::fsx::read_to_string("supervisor.run_dir", &p) {
+            crate::fsx::Read::Content(t) => Ok(t),
+            crate::fsx::Read::Absent => Ok(String::new()),
+            crate::fsx::Read::Failed(e) => Err(format!("{}: {e}", p.display())),
+        }
+    };
     let spec: Value =
-        serde_json::from_str(&txt("job.json")).map_err(|e| format!("job.json: {e}"))?;
+        serde_json::from_str(&txt("job.json")?).map_err(|e| format!("job.json: {e}"))?;
     let job = spec
         .get("job_id")
         .and_then(Value::as_str)
@@ -154,7 +163,7 @@ pub fn derivations_cmd(rest: &[String]) -> Result<String, String> {
         .map_err(|e| format!("table: {e}"))?;
     let lines: Vec<String> = table.lines().map(str::to_string).collect();
     let (_, _, esha) = file_digests(Path::new(engine))?;
-    let (spec_t, events_t, stderr_t) = (txt("job.json"), txt("EVENTS.jsonl"), txt("stderr.log"));
+    let (spec_t, events_t, stderr_t) = (txt("job.json")?, txt("EVENTS.jsonl")?, txt("stderr.log")?);
     let item = job
         .rsplit_once("-t")
         .map(|x| x.0)
@@ -342,11 +351,17 @@ type OpenList = (u64, Vec<Vec<Option<i64>>>, Vec<Value>, Vec<Value>, String);
 /// `subcases`: bytes + BLAKE3). Ok((count, fixed values, how)); a missing list = none refused.
 /// The refused cases of an attempt's sealed open list, verified against the OUTCOME's sealed-output entry (role
 /// `subcases`: BLAKE3), and its still open cases; a missing list = nothing open.
-fn open_list_of(run_dir: &Path) -> OpenList {
-    let none = |why: String| (0, vec![], vec![], vec![], why);
+///
+/// procfix7 round 19 (landing, int8b-gate review (ii) genchoice.rs:348 / 364, its "most consequential"): an OUTCOME or a
+/// sealed subcases file that cannot be READ is an ERROR (the route refuses: nothing accepted from the job), never "no
+/// OUTCOME" / "unreadable" scored as 0 refused cases with no material for the deep stage.
+fn open_list_of(run_dir: &Path) -> Result<OpenList, String> {
+    let none = |why: String| Ok((0, vec![], vec![], vec![], why));
     let oc = run_dir.join(rustred_campaign_contract::layout::OUTCOME);
-    let Ok(ob) = std::fs::read(&oc) else {
-        return none("no OUTCOME".into());
+    let ob = match crate::fsx::read("supervisor.outcome", &oc) {
+        crate::fsx::Read::Content(b) => b,
+        crate::fsx::Read::Absent => return none("no OUTCOME".into()),
+        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", oc.display())),
     };
     let Ok(o) = serde_json::from_slice::<Value>(&ob) else {
         return none("OUTCOME unreadable".into());
@@ -361,8 +376,10 @@ fn open_list_of(run_dir: &Path) -> OpenList {
         return none("subcases entry without path / blake3".into());
     };
     let p = run_dir.join(rel);
-    let Ok(b) = std::fs::read(&p) else {
-        return none(format!("{}: unreadable", p.display()));
+    let b = match crate::fsx::read("supervisor.outcome", &p) {
+        crate::fsx::Read::Content(b) => b,
+        crate::fsx::Read::Absent => return none(format!("{}: not there", p.display())),
+        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", p.display())),
     };
     if blake3_hex(&b) != b3 {
         return none(format!(
@@ -389,13 +406,13 @@ fn open_list_of(run_dir: &Path) -> OpenList {
             open.push(v["case"].clone());
         }
     }
-    (
+    Ok((
         fixed.len() as u64,
         fixed,
         refused,
         open,
         "verified against OUTCOME".into(),
-    )
+    ))
 }
 
 struct NodeRt {
@@ -1157,7 +1174,15 @@ impl GenChoiceSource {
                 st.jobs.get(&wa.job).and_then(|j| j.run_dir.clone()),
             ) {
                 let rd = Path::new(&rd);
-                let rd_text = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
+                // procfix7 round 19 (landing, int8b-gate review (ii) genchoice.rs:1160): as derivations_cmd
+                let rd_text = |f: &str| -> Result<String, String> {
+                    let p = rd.join(f);
+                    match crate::fsx::read_to_string("supervisor.run_dir", &p) {
+                        crate::fsx::Read::Content(t) => Ok(t),
+                        crate::fsx::Read::Absent => Ok(String::new()),
+                        crate::fsx::Read::Failed(e) => Err(format!("{}: {e}", p.display())),
+                    }
+                };
                 let lines: Vec<String> = std::fs::read_to_string(tp)
                     .map_err(|e| format!("{tp}: {e}"))?
                     .lines()
@@ -1167,9 +1192,9 @@ impl GenChoiceSource {
                     .map(|d| d.2)
                     .unwrap_or_default();
                 let (spec_t, events_t, stderr_t) = (
-                    rd_text("job.json"),
-                    rd_text("EVENTS.jsonl"),
-                    rd_text("stderr.log"),
+                    rd_text("job.json")?,
+                    rd_text("EVENTS.jsonl")?,
+                    rd_text("stderr.log")?,
                 );
                 let ds = dv::rule_derivations(&dv::JobFiles {
                     node: &node,
@@ -1758,7 +1783,7 @@ impl WorkSource for GenChoiceSource {
         };
         let (refused, refused_cases, refused_lines, open_lines, subcases) =
             if (it.kind == KIND_PROBE || it.kind == KIND_DEEP) && !run_dir.is_empty() {
-                open_list_of(Path::new(&run_dir))
+                open_list_of(Path::new(&run_dir))?
             } else {
                 (0, vec![], vec![], vec![], String::new())
             };

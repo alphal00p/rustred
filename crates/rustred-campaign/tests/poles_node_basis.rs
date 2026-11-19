@@ -3,6 +3,7 @@
 //! the CONTRACT's reader (`rustred_campaign_contract::node_basis::check_results`, the reader the verified-results path
 //! of kind node-basis uses), and the screen reads rank_T at d0 against the generic dims. A constructed report, then the
 //! real route E reports of this lane when present (scratch, skipped otherwise). Pure: spawns nothing.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod inputs;
 use rustred_campaign_contract::arith::{parse_prime_list, parse_rational_list};

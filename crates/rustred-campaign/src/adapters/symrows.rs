@@ -193,8 +193,16 @@ fn checked_certificate(layout: &RunLayout, spec: &JobSpec) -> Result<Vec<u8>, St
 /// otherwise OUTCOME without a sealed stream (row 43). Legacy exit 2 (rr_proof's refusal): error OUTCOME 41 with the
 /// kernel's message (rows 41 / 42 / 13), or 51 when it names a host resource errno (row 15b). Anything else stays.
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
-    if matches!(wait, WaitStatus::Unknown) || layout.outcome().exists() {
+    if matches!(wait, WaitStatus::Unknown) {
         return legacy_wait(wait);
+    }
+    // procfix7 round 19 (landing, legacy::wrap's form): OUTCOME is written only when PROVEN absent (an unreadable one is
+    // left to the classification, which reads it: never a second outcome written on a failed stat)
+    match crate::fsx::presence_lstat("adapters.outcome", &layout.outcome()) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Unknown(_) => {
+            return legacy_wait(wait);
+        }
     }
     let mapped = legacy_wait(wait);
     let write = |j: JobOutcome| {
@@ -252,10 +260,34 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
             mapped
         }
         WaitStatus::Exited(41) => {
-            let msg = std::fs::read_to_string(layout.stdout_log())
-                .ok()
-                .and_then(|s| s.lines().last().map(str::to_string))
-                .unwrap_or_else(|| "rr_proof exit 2".into());
+            // procfix7 round 19 (landing): a log that cannot be READ leaves the cause unknown: an io end (lost, retried
+            // after the back-off), never input evidence (legacy::wrap's form)
+            let msg = match crate::fsx::read_to_string("adapters.outcome", &layout.stdout_log()) {
+                crate::fsx::Read::Content(s) => s
+                    .lines()
+                    .last()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "rr_proof exit 2".into()),
+                crate::fsx::Read::Absent => "rr_proof exit 2".into(),
+                crate::fsx::Read::Failed(e) => {
+                    let mut io = JobOutcome::for_spec(
+                        spec,
+                        spec_blake3,
+                        program_info(spec),
+                        ExitCode::Io,
+                        StopInfo {
+                            code: Some(StopCode::IoError),
+                            ..StopInfo::none()
+                        },
+                    );
+                    io.error = Some(ErrorInfo::new(
+                        ErrorClass::Io,
+                        format!("rr_proof exit 2, its log could not be read: {e}"),
+                    ));
+                    write(io);
+                    return WaitStatus::Exited(ExitCode::Io.code());
+                }
+            };
             let mut j = JobOutcome::for_spec(
                 spec,
                 spec_blake3,

@@ -2,6 +2,7 @@
 //! - the import's relation digest hashes EXACTLY the contract's canonical form of the relation object (so a producer
 //!   computing `relation_sha256` = SHA-256 of `canon::canonical_line({"schema","key","rhs"})` agrees with the import);
 //! - `composite_second_route` decides from the engine directory's manifest + SHA256SUMS alone (no child process).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::symcomp::{
     CompositeRoute, SYMROWS_FEATURES, composite_second_route,

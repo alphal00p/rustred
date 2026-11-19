@@ -4,7 +4,10 @@
 //! contract environment (no variable of the caller leaks), stdout / stderr in a fresh run directory per attempt, its exit
 //! is reported (never assumed), and the wall cap kills it through the supervisor. RUN WITH LIGHT_PIDNS=1 (spawns and
 //! signals children). Test data only (L8).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
+#[path = "pf19_support/mod.rs"]
+mod pf19;
 use rustred_campaign::adapters::job::RunOptions;
 use rustred_campaign::launch::{ExitState, KillReason};
 use rustred_campaign::polereport::run_program_child;
@@ -25,6 +28,7 @@ fn sampler() -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(100),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )
@@ -171,4 +175,41 @@ fn a_program_that_cannot_start_is_an_error_or_a_reported_failure_never_success()
         Err(e) => assert!(e.contains("launch of"), "{e}"),
         Ok(run) => assert!(!run.success(), "{}", run.how()),
     }
+}
+
+/// procfix7 round 19 (the coordinator's landing condition): the pole report's program child when its launcher cannot
+/// hold its (ad-hoc) id: an error naming the refusal, the program never started.
+#[test]
+fn pf19_a_refused_launcher_starts_no_program_child() {
+    if !rustred_campaign::launch::in_private_namespace() {
+        eprintln!("SKIPPED: builds launchers: only inside a private pid namespace (rule L10)");
+        return;
+    }
+    if let Some(v) = pf19::in_fresh_process("pf19_a_refused_launcher_starts_no_program_child") {
+        assert!(v.starts_with("PASS"), "{v}");
+        return;
+    }
+    let _held = pf19::hold_own_adhoc_lock();
+    let d = tmp("pf19");
+    let marker = d.join("started");
+    let r = run_program_child(
+        &sampler(),
+        std::path::Path::new("/bin/sh"),
+        &sh(&format!("touch {}", marker.display())),
+        &d.join("runs"),
+        "pf19",
+        &opts(30),
+    );
+    let e = match r {
+        Ok(run) => panic!("the child ran: {}", run.how()),
+        Err(e) => e,
+    };
+    eprintln!("PF19P {e}");
+    assert!(
+        e.contains("launcher refused") && e.contains("in use"),
+        "{e}"
+    );
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    assert!(!marker.exists(), "the program ran");
+    pf19::passed(&e);
 }

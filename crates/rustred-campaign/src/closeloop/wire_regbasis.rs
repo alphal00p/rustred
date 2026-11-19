@@ -51,11 +51,18 @@ fn register(cdir: &Path, n: &str, v: &Value, rt: &mut Routing) {
     rt.accepts.push(r);
 }
 
-fn final_verdict(cdir: &Path, n: &str) -> Option<String> {
-    let b = std::fs::read(cdir.join(node_dir(n)).join("final/result.json")).ok()?;
-    serde_json::from_slice::<Value>(&b).ok()?["verdict"]
-        .as_str()
-        .map(String::from)
+/// procfix7 round 19 (landing, int8b-gate review (ii) wire_regbasis.rs:55): a final result that is not there is no
+/// verdict; one that cannot be READ is an error (it was "no verdict": the P5 step of a closed node registered "skipped").
+fn final_verdict(cdir: &Path, n: &str) -> Result<Option<String>, String> {
+    let p = cdir.join(node_dir(n)).join("final/result.json");
+    let b = match crate::fsx::read("closeloop.output", &p) {
+        crate::fsx::Read::Content(b) => b,
+        crate::fsx::Read::Absent => return Ok(None),
+        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", p.display())),
+    };
+    Ok(serde_json::from_slice::<Value>(&b)
+        .ok()
+        .and_then(|v| v["verdict"].as_str().map(String::from)))
 }
 
 /// P5 step of node `n` (true = done or off: the report may be written).
@@ -70,7 +77,7 @@ pub fn poll(
     if !step.enabled || st.inputs.contains_key(&input_regbasis(n)) {
         return Ok(true);
     }
-    let verdict = final_verdict(cdir, n);
+    let verdict = final_verdict(cdir, n)?;
     if verdict.as_deref() != Some("closed") {
         register(
             cdir,

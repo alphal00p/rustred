@@ -10,6 +10,7 @@
 //! the single walk; (3) a changed / wrongly pinned leaf set and a leaf set of another table set are refused; (4) an
 //! interrupt between layers: the finished layer is never walked again and the statement equals the uninterrupted
 //! one; (5) a later layer that reaches an OPEN key of an earlier layer is open, the blocking key named.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;
@@ -168,7 +169,7 @@ fn spec_of(t: &Tmp, m: &Mat) -> PathBuf {
     let v = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}},
-        "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 2, "mem_total": "2G", "disk_floor": "1G",
+        "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 2, "mem_total": "2G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},

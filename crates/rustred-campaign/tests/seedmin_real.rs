@@ -13,6 +13,7 @@
 //!   "threads_per_job", "cap_bytes", "key_budget_s", "wall_cap_s", "work_root", "out_dir", "records_cap_bytes"}`.
 //! Writes `out_dir/report.json`: the start list, the joint record (per-key minimisations at the spread keys, pieces,
 //! valid at N of N keys, trials), cost (CPU, wall, jobs, journal hits). Resumable: the journal lives in `work_root`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::seedmin::{
@@ -169,6 +170,7 @@ fn real_joint_seed_minimisation_on_one_face() {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(1000),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );

@@ -866,6 +866,7 @@ impl WorkSource for ShipCampaignSource {
             let ok = st
                 .inputs
                 .get(&input_report(&p.n))
+                // procfix9-ok: an unreadable report counts the node as bad: the campaign outcome fails (int8b-gate review (i))
                 .and_then(|r| std::fs::read(&r.path).ok())
                 .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
                 .is_some_and(|v| v["error"].is_null());

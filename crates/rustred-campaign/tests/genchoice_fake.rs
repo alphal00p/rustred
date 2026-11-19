@@ -8,6 +8,7 @@
 //! dearer but its FULL table is the smallest (found only by the economy step); id-rung is the second alternative;
 //! isp_rev-rung's probe completes the node by itself (a full run for free, never re-run); isp_rev-default meets a wall
 //! stop (heavy, ranked last); id-default carries one huge rule.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;
@@ -100,7 +101,7 @@ fn setup_with(tag: &str, optimise: bool, full_cap: Option<u64>) -> (Tmp, PathBuf
     let spec = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}, "rr_node": {"path": FAKE}},
-        "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+        "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},
@@ -298,7 +299,7 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
         let spec = json!({
             "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
             "programs": {"rr_fake_child": {"path": FAKE}, "rr_node": {"path": FAKE}},
-            "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+            "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                           "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                           "start_timeout_s": 120},
             "progress": {"cadence_seconds": 1},
