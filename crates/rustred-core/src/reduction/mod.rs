@@ -52,7 +52,7 @@ pub use ordered_reduction::{
     TadicOptions, TadicSeries, TadicTerminals, TadicVariants, add_series, expand_coefficient,
     is_precision_failure, scale_series,
 };
-pub use ordered_reduction::{commit_resume, set_resume_caller_commit};
+pub use ordered_reduction::{commit_resume, set_resume_caller_commit, take_resume_storage_stop};
 pub(crate) use reducer::{
     CacheCensus, CacheWeight, GuardedConditionBudget, ReductionRequest, SharedCacheBudget,
     accumulate_master_in_request, coefficient_cache_weight, convolve_factor_expansion_in_request,

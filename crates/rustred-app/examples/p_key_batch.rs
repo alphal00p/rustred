@@ -12,7 +12,8 @@
 //! out.txt: per request `key <n> <top> <powers>` (single unweighted key, as before) or `group <n> <label> <inputs>`
 //! followed by one `input <top> <powers> <weight>` line per input; then the rustred.p-reduction.canonical.v1 text
 //! of its reduction (exact and modular arithmetics) or the rustred.p-reduction.tadic.v1 text (tadic), or
-//! `error <message>`; then `end <n> <seconds>`.
+//! `error <message>`; then `end <n> <seconds>`. A storage stop (low-disk pause, failed checkpoint / spill write or
+//! sync, refused resume) writes its `error` and `end` lines and exits 3 without dispatching further requests.
 //!
 //! rustred.p-reduction.tadic.v1 (helper-vh2), one block per replayed prime:
 //!   rustred.p-reduction.tadic.v1
@@ -431,6 +432,7 @@ fn main() {
         }
         stats_marker(&format!("{{\"stage\":\"p_key_batch.request\",\"n\":{n}}}"));
         let started = Instant::now();
+        let _ = rustred::reduction::take_resume_storage_stop();
         let mut weighted: Vec<(PresentationId, IntegralKey, Coefficient)> = vec![];
         let mut unknown = None;
         for input in &request {
@@ -494,6 +496,15 @@ fn main() {
         writeln!(out, "end {n} {:.3}", started.elapsed().as_secs_f64()).unwrap();
         out.flush().unwrap();
         out.get_ref().sync_data().unwrap();
+        // R-B2: a storage stop (low-disk pause, failed checkpoint / spill write
+        // or sync, refused resume) ends the batch: no further request is
+        // dispatched; status 3 (a re-launch redoes the batch from its resume files)
+        if let Some(stop) = rustred::reduction::take_resume_storage_stop() {
+            eprintln!(
+                "p_key_batch: request {n} stopped ({stop}); batch stopped, re-launch to continue"
+            );
+            std::process::exit(3);
+        }
         rustred::reduction::commit_resume();
         // helper-vh2 B3: memory after the request, and the release.
         let (rss, hwm) = rss_kb();

@@ -28,6 +28,8 @@
 //!     (each one request, as reduce-file), one shared step cache (P_STEP_CACHE=<dir>: opened, populated and saved after each
 //!     chunk; unset = in memory). A chunk's output is written when it finishes (`.tmp` then renamed); a refusal is written as
 //!     `error: ...` into its output and the loop continues. Chunks whose output exists are skipped (restartable).
+//!     A storage stop (low-disk pause, failed checkpoint / trace / dictionary spill write or sync, refused resume) is
+//!     not a refusal: the chunk's output is NOT written (it stays retryable) and the process exits 3.
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -641,6 +643,7 @@ fn reduce_files_cli(args: &[String]) {
         let started = Instant::now();
         let inputs = read_inputs(context, input);
         let n = inputs.len();
+        let _ = rustred::reduction::take_resume_storage_stop();
         let arithmetic = match mode.as_str() {
             "modular" | "polynomial" => modular_polynomial(threads),
             "sampled" => modular_sampled(threads),
@@ -662,7 +665,18 @@ fn reduce_files_cli(args: &[String]) {
         });
         let text = match &result {
             Ok(reduction) => format_reduction(&library, reduction),
-            Err(error) => format!("error: {error}\n"),
+            Err(error) => {
+                // R-B2: a storage stop is not this chunk's result: no output
+                // (the chunk is re-run by the next launch), status 3
+                if let Some(stop) = rustred::reduction::take_resume_storage_stop() {
+                    eprintln!(
+                        "reduce-files: chunk {input} stopped ({stop}): error: {error}; output {output} NOT written \
+                         (retryable)"
+                    );
+                    std::process::exit(3);
+                }
+                format!("error: {error}\n")
+            }
         };
         // 12d2: write, fsync, rename, fsync of the directory; on ANY failure the
         // resume files stay (no commit) and the process exits non-zero.

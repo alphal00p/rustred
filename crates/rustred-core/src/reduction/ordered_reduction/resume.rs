@@ -208,10 +208,45 @@ pub(crate) fn request_dir<K: OrderedKernel>(
     Some(root.join(hasher.finalize().to_hex().to_string()))
 }
 
+/// R-B2: `bytes` durably at `path`: written to `<path>.tmp`, fsynced,
+/// renamed over `path`, and the directory fsynced. On any error the previous
+/// `path` is untouched (the caller saves the trace prefix it covers first).
 pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
+    let mut file = std::fs::File::create(&tmp)?;
+    file.write_all(bytes)?;
+    file.sync_all()?;
+    drop(file);
+    std::fs::rename(&tmp, path)?;
+    if let Some(parent) = path.parent() {
+        std::fs::File::open(parent)?.sync_all()?;
+    }
+    Ok(())
+}
+
+static STORAGE_STOP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// R-B2: a request stopped for a storage reason (a low-disk pause, a failed
+/// checkpoint or trace / dictionary spill write or sync, a refused resume, a
+/// test stop): its error is not a result. Recorded (first message kept) for
+/// batch callers ([`take_storage_stop`]), which must leave the request
+/// retryable instead of recording the error as its output.
+pub(crate) fn storage_stop(message: &str) {
+    let mut stop = STORAGE_STOP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if stop.is_none() {
+        *stop = Some(message.to_owned());
+    }
+}
+
+/// R-B2: the storage stop recorded since the last call, cleared.
+pub(crate) fn take_storage_stop() -> Option<String> {
+    STORAGE_STOP
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
 }
 
 #[cfg(test)]

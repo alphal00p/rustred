@@ -150,8 +150,11 @@ impl Entries {
         {
             let bytes = encode(coefficient);
             let mut file = &spill.file;
-            file.write_all(&bytes)
-                .map_err(|e| error(format!("dictionary spill write: {e}")))?;
+            file.write_all(&bytes).map_err(|e| {
+                let message = format!("dictionary spill write: {e}");
+                super::super::resume::storage_stop(&message);
+                error(message)
+            })?;
             spill.at.insert(
                 index,
                 Spilled {
