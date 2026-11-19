@@ -3224,6 +3224,57 @@ mod kite_tests {
             .collect()
     }
 
+    /// orbitsw (T266-STUDY 7.1): with orbit canonicalisation on, a boxed
+    /// owner's key moves only onto an image in its certified set. For every
+    /// two-dot key K and every OTHER two-dot key X removed from the certified
+    /// set, K reduces (no outside-certified report, no refusal) to the values
+    /// of the run without canonicalisation: K is never moved onto X. Without
+    /// the filter, a K whose least image is X would be moved outside the set.
+    #[test]
+    fn a_boxed_key_moves_only_onto_a_certified_image() {
+        let node = "KITE-orbit-cert";
+        let two: Vec<[i64; 5]> = (0..5)
+            .flat_map(|a| (a + 1..5).map(move |b| dots(a, b)))
+            .collect();
+        let certified_without = |x: &[i64; 5]| {
+            let mut keys = vec![vec![1_i64; 5]];
+            keys.extend((0..5).map(|i| dot(i).to_vec()));
+            keys.extend(two.iter().filter(|k| *k != x).map(|k| k.to_vec()));
+            super::super::certified_keys::CertifiedKeySet::new(node, 5, "table", keys).unwrap()
+        };
+        let table = boxed_kite_table_d2(node, &[]);
+        let full = boxed_kite_library_with_recipes(&table, Some(certified(node)), None).unwrap();
+        full.set_orbit_canonicalization(false);
+        let reference: Vec<_> = two
+            .iter()
+            .map(|k| {
+                reduce(&full, *k, None, PUncoveredPolicy::Reject)
+                    .unwrap()
+                    .terms
+            })
+            .collect();
+        let mut checked = 0;
+        for x in &two {
+            let library =
+                boxed_kite_library_with_recipes(&table, Some(certified_without(x)), None).unwrap();
+            library.set_orbit_canonicalization(true);
+            for (k, expected) in two.iter().zip(&reference) {
+                if k == x {
+                    continue;
+                }
+                let reduced = reduce(&library, *k, None, PUncoveredPolicy::Reject)
+                    .unwrap_or_else(|e| panic!("key {k:?} with {x:?} uncertified: {e}"));
+                assert!(
+                    reduced.outside_certified.is_empty(),
+                    "key {k:?} moved outside the certified set ({x:?} removed)"
+                );
+                assert_eq!(&reduced.terms, expected, "key {k:?}, {x:?} removed");
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, 10 * 9);
+    }
+
     /// User ruling 2026-11-14: a key OUTSIDE the certified set is solved at
     /// run time with the node's recipe families at the key (a three-dot key
     /// no rule takes; certified keys report nothing), and the result names

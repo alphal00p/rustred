@@ -1899,7 +1899,7 @@ impl<const N: usize> PLaneStep for CustomStep<N> {
     }
 
     fn certified_contains(&self, powers: &[i64]) -> Option<bool> {
-        self.certified.as_deref().map(|set| set.contains(powers))
+        self.in_domain(powers)
     }
 
     fn recipe_chain(&self, from: &[i64], to: &[i64], budget: usize) -> Option<Vec<PChainLink>> {
