@@ -107,8 +107,16 @@ pub fn records_of_settled(done: &Settled) -> Result<Option<(Value, Option<Value>
 /// statement; checked lines sealed + OUTCOME (row 37), otherwise OUTCOME without a sealed stream (row 38). Legacy exit
 /// 2 (the tool's refusal): error OUTCOME 41 (row 39), or 51 when the message names a host resource errno (row 15b).
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
-    if matches!(wait, WaitStatus::Unknown) || layout.outcome().exists() {
+    if matches!(wait, WaitStatus::Unknown) {
         return legacy_wait(wait);
+    }
+    // procfix7 round 19 (landing, legacy::wrap's form): OUTCOME is written only when PROVEN absent (an unreadable one is
+    // left to the classification, which reads it: never a second outcome written on a failed stat)
+    match crate::fsx::presence_lstat("adapters.outcome", &layout.outcome()) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Unknown(_) => {
+            return legacy_wait(wait);
+        }
     }
     let mapped = legacy_wait(wait);
     let write = |j: JobOutcome| {
@@ -146,6 +154,23 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
         write(j);
         WaitStatus::Exited(ExitCode::Input.code())
     };
+    // procfix7 round 19 (landing): a file that cannot be READ is an io end (lost, retried after the back-off), never
+    // evidence about the record (legacy::wrap's form)
+    let io_error = |msg: String| -> WaitStatus {
+        let mut io = JobOutcome::for_spec(
+            spec,
+            spec_blake3,
+            program_info(spec),
+            ExitCode::Io,
+            StopInfo {
+                code: Some(StopCode::IoError),
+                ..StopInfo::none()
+            },
+        );
+        io.error = Some(ErrorInfo::new(ErrorClass::Io, msg));
+        write(io);
+        WaitStatus::Exited(ExitCode::Io.code())
+    };
     match mapped {
         WaitStatus::Exited(0) => {
             let mut statement = None;
@@ -170,30 +195,21 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
                 return input_error("no statement input".into());
             };
             let dir = layout.out_dir().join(regbasis::CHILD_DIR);
-            let record = std::fs::read(dir.join(regbasis::RECORD_FILE)).unwrap_or_default();
+            // procfix7 round 19 (landing): a record that cannot be READ is never an empty record (absent = none)
+            let record =
+                match crate::fsx::read("adapters.outcome", &dir.join(regbasis::RECORD_FILE)) {
+                    crate::fsx::Read::Content(b) => b,
+                    crate::fsx::Read::Absent => Vec::new(),
+                    crate::fsx::Read::Failed(e) => {
+                        return io_error(format!("{}: {e}", regbasis::RECORD_FILE));
+                    }
+                };
             // procfix7 round 16 (int8b-gate review of the tripwire-flagged lines, defect 1): an EXISTING tower.json that
             // cannot be read is never sealed away (the record accepted without the tower the child wrote): an io
             // OUTCOME (ExitCode::Io, retried); only a tower that is not there is None
             let tower = match read_tower(&dir.join(regbasis::TOWER_FILE)) {
                 Ok(t) => t,
-                Err(e) => {
-                    let mut io = JobOutcome::for_spec(
-                        spec,
-                        spec_blake3,
-                        program_info(spec),
-                        ExitCode::Io,
-                        StopInfo {
-                            code: Some(StopCode::IoError),
-                            ..StopInfo::none()
-                        },
-                    );
-                    io.error = Some(ErrorInfo::new(
-                        ErrorClass::Io,
-                        format!("{}: {e}", regbasis::TOWER_FILE),
-                    ));
-                    write(io);
-                    return WaitStatus::Exited(ExitCode::Io.code());
-                }
+                Err(e) => return io_error(format!("{}: {e}", regbasis::TOWER_FILE)),
             };
             let sha = rustred_campaign_contract::symcert::sha256_hex(&statement);
             let mut j = JobOutcome::for_spec(
@@ -246,10 +262,21 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
             mapped
         }
         WaitStatus::Exited(41) => {
-            let msg = std::fs::read_to_string(layout.stdout_log())
-                .ok()
-                .and_then(|s| s.lines().last().map(str::to_string))
-                .unwrap_or_else(|| "rr_regbasis refused its input".into());
+            // procfix7 round 19 (landing): a log that cannot be READ leaves the cause unknown: an io end, never input
+            // evidence
+            let msg = match crate::fsx::read_to_string("adapters.outcome", &layout.stdout_log()) {
+                crate::fsx::Read::Content(s) => s
+                    .lines()
+                    .last()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "rr_regbasis refused its input".into()),
+                crate::fsx::Read::Absent => "rr_regbasis refused its input".into(),
+                crate::fsx::Read::Failed(e) => {
+                    return io_error(format!(
+                        "rr_regbasis refused its input, its log could not be read: {e}"
+                    ));
+                }
+            };
             input_error(msg)
         }
         w => w,
@@ -259,10 +286,11 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
 /// procfix7 round 16 (int8b-gate review, defect 1): the OPTIONAL tower of the child's export: not there (NotFound) =
 /// None; any other read error is an error, never "no tower".
 fn read_tower(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
-    match std::fs::read(path) {
-        Ok(b) => Ok(Some(b)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+    // procfix7 round 19 (landing): through the fsx rule (Absent = NotFound only)
+    match crate::fsx::read("adapters.outcome", path) {
+        crate::fsx::Read::Content(b) => Ok(Some(b)),
+        crate::fsx::Read::Absent => Ok(None),
+        crate::fsx::Read::Failed(e) => Err(e),
     }
 }
 

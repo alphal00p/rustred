@@ -90,8 +90,16 @@ fn program_info(spec: &JobSpec) -> ProgramInfo {
 /// (row 38). Legacy exit 2 (rr_poles' refusal): error OUTCOME 41 (row 39), or 51 when the message names a host
 /// resource errno (row 15b). Anything else stays as it is (signals, no OUTCOME).
 pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitStatus) -> WaitStatus {
-    if matches!(wait, WaitStatus::Unknown) || layout.outcome().exists() {
+    if matches!(wait, WaitStatus::Unknown) {
         return legacy_wait(wait);
+    }
+    // procfix7 round 19 (landing, legacy::wrap's form): OUTCOME is written only when PROVEN absent (an unreadable one is
+    // left to the classification, which reads it: never a second outcome written on a failed stat)
+    match crate::fsx::presence_lstat("adapters.outcome", &layout.outcome()) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Unknown(_) => {
+            return legacy_wait(wait);
+        }
     }
     let mapped = legacy_wait(wait);
     let write = |j: JobOutcome| {
@@ -129,6 +137,23 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
         write(j);
         WaitStatus::Exited(ExitCode::Input.code())
     };
+    // procfix7 round 19 (landing): a file that cannot be READ is an io end (lost, retried after the back-off), never
+    // evidence about the requests (legacy::wrap's form)
+    let io_error = |msg: String| -> WaitStatus {
+        let mut io = JobOutcome::for_spec(
+            spec,
+            spec_blake3,
+            program_info(spec),
+            ExitCode::Io,
+            StopInfo {
+                code: Some(StopCode::IoError),
+                ..StopInfo::none()
+            },
+        );
+        io.error = Some(ErrorInfo::new(ErrorClass::Io, msg));
+        write(io);
+        WaitStatus::Exited(ExitCode::Io.code())
+    };
     match mapped {
         WaitStatus::Exited(0) => {
             let Some(rq) = spec.inputs.iter().find(|i| i.role == "requests") else {
@@ -144,7 +169,17 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
                     poleat::INPUT_MISMATCH
                 ));
             }
-            let raw = std::fs::read(layout.out_dir().join(poleat::CHILD_OUT)).unwrap_or_default();
+            // procfix7 round 19 (landing): answers that cannot be READ are never an empty answer set (absent = none)
+            let raw = match crate::fsx::read(
+                "adapters.outcome",
+                &layout.out_dir().join(poleat::CHILD_OUT),
+            ) {
+                crate::fsx::Read::Content(b) => b,
+                crate::fsx::Read::Absent => Vec::new(),
+                crate::fsx::Read::Failed(e) => {
+                    return io_error(format!("the child's answers could not be read: {e}"));
+                }
+            };
             let mut j = JobOutcome::for_spec(
                 spec,
                 spec_blake3,
@@ -192,10 +227,19 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
             mapped
         }
         WaitStatus::Exited(41) => {
-            let msg = std::fs::read_to_string(layout.stdout_log())
-                .ok()
-                .and_then(|s| s.lines().last().map(str::to_string))
-                .unwrap_or_else(|| "rr_poles exit 2".into());
+            // procfix7 round 19 (landing): a log that cannot be READ leaves the cause unknown: an io end, never input
+            // evidence
+            let msg = match crate::fsx::read_to_string("adapters.outcome", &layout.stdout_log()) {
+                crate::fsx::Read::Content(s) => s
+                    .lines()
+                    .last()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "rr_poles exit 2".into()),
+                crate::fsx::Read::Absent => "rr_poles exit 2".into(),
+                crate::fsx::Read::Failed(e) => {
+                    return io_error(format!("rr_poles exit 2, its log could not be read: {e}"));
+                }
+            };
             input_error(msg)
         }
         w => w,
