@@ -568,9 +568,17 @@ impl<'a> SampledSource<'a> {
             // need (vk5l-physrun: 828's channels need ~69 points, doubling
             // replayed 128). The points come from the same seeded generator
             // in the same order, so the converged interpolants are the same.
+            // Row E: the wide speculation replaces only the SECOND round (the
+            // first one did not converge: the key is not cheap); later rounds
+            // grow by a quarter again, so the overshoot stays bounded.
+            let wide = if samples[0].drawn == start.min(self.options.max_points_per_prime) {
+                wide_floor()
+            } else {
+                0
+            };
             count = (samples[0].drawn / 4)
                 .max(self.options.batch_points / 8)
-                .max(wide_floor())
+                .max(wide)
                 .min(self.options.max_points_per_prime - samples[0].drawn)
                 .max(1);
         }
