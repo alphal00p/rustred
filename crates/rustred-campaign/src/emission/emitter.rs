@@ -305,11 +305,14 @@ impl Emitter {
         work: &Path,
     ) -> Result<Emitter, String> {
         let text = serde_json::to_vec(&policy).map_err(|e| e.to_string())?;
+        // ABSOLUTE paths: the children run in their own work directory, so a relative --work / side named files they could
+        // not find (round 6: emit-table --work work failed with descent_not_checked)
+        let abs = |p: &Path| std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf());
         let e = Emitter {
             checker,
             policy,
-            side: side.to_path_buf(),
-            work: work.to_path_buf(),
+            side: abs(side),
+            work: abs(work),
             policy_sha: sha256_hex(&text),
         };
         e.put_side(AREA_POLICY, &text)?;

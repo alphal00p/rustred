@@ -38,6 +38,19 @@ pub struct PhaseSum {
     pub high_shell: u64,
     /// children per receiving owner (dest label -> children)
     pub per_owner: BTreeMap<String, u64>,
+    /// the SHELL HISTOGRAM of the keys stepped: "lines/dots/rank" -> keys (from the groups' shapes; tagged keys as the engine
+    /// steps them)
+    pub shells: BTreeMap<String, u64>,
+    /// per owner class stepping in the phase (at an Apply: the RECEIVING owner): keys stepped, seconds, children handed down
+    pub per_class: BTreeMap<String, ClassSum>,
+}
+
+/// One owner class in one phase.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ClassSum {
+    pub keys: u64,
+    pub seconds: f64,
+    pub children: u64,
 }
 
 /// Owner statistics of one arm, by phase.
@@ -65,20 +78,28 @@ pub fn parse_arm(text: &str, request_dr: Option<i64>) -> Result<Arm, String> {
     for g in groups {
         let ph = g["phase"].as_i64().ok_or("group without phase")?;
         let p = phases.entry(ph).or_insert_with(|| PhaseSum { phase: ph, ..Default::default() });
-        p.steps += g["steps"].as_u64().unwrap_or(0);
-        p.seconds += g["seconds"].as_f64().unwrap_or(0.0);
+        let (steps, secs) = (g["steps"].as_u64().unwrap_or(0), g["seconds"].as_f64().unwrap_or(0.0));
+        p.steps += steps;
+        p.seconds += secs;
         for s in g["shapes"].as_array().into_iter().flatten() {
             let (l, d, r, k) = (s[0].as_i64(), s[1].as_i64().unwrap_or(0), s[2].as_i64().unwrap_or(0), s[3].as_u64().unwrap_or(0));
             p.lines = p.lines.max(l);
             if d + r > request_dr {
                 p.high_shell += k;
             }
+            *p.shells.entry(format!("{}/{d}/{r}", l.unwrap_or(0))).or_default() += k;
         }
+        let mut gchildren = 0u64;
         for d in g["dests"].as_array().into_iter().flatten() {
             let (label, n) = (d[0].as_str().unwrap_or("?").to_string(), d[1].as_u64().unwrap_or(0));
             p.children += n;
+            gchildren += n;
             *p.per_owner.entry(label).or_default() += n;
         }
+        let c = p.per_class.entry(g["class"].as_str().unwrap_or("?").to_string()).or_default();
+        c.keys += steps;
+        c.seconds += secs;
+        c.children += gchildren;
     }
     Ok(Arm { phases, request_dr })
 }
@@ -114,6 +135,17 @@ pub struct Verdict {
     pub entrance_ratio_old_over_new: Option<f64>,
     pub second_apply_ratio_old_over_new: Option<f64>,
     pub owners_grown: Vec<Value>,
+    /// THE SHELL HISTOGRAM AT THE SECOND APPLY (coordinator after LIT-AUDIT-SZ-CL, 2026-11-19): keys per (lines, dots, rank), old
+    /// vs new, with totals by rank and by dots, mean dots / rank and keys weighted x4 per rank step (single-key model): a candidate
+    /// that lowers dots but raises rank downstream (a no-raise relation, Smith-Zeng 2.3) shows here
+    #[serde(default)]
+    pub second_apply_shells: Value,
+    /// keys, seconds and children per RECEIVING owner at the second Apply, old vs new
+    #[serde(default)]
+    pub second_apply_owners: Vec<Value>,
+    /// what the partial pass compares: work, not values
+    #[serde(default)]
+    pub values_note: String,
     pub third_level: Option<Value>,
     pub rules: Rules,
     pub accepted: bool,
@@ -148,8 +180,49 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
     let entrance_ratio = ratio(oe.steps, ne.steps);
     let second_ratio = ratio(oa.children, na.children);
     let t = rules.tolerance;
-    // per receiving owner at the second Apply
+    // the shell histogram at the second Apply
+    let shells = {
+        let keys: std::collections::BTreeSet<&String> = oa.shells.keys().chain(na.shells.keys()).collect();
+        let mut rows = vec![];
+        let (mut by_rank, mut by_dots): (BTreeMap<i64, [u64; 2]>, BTreeMap<i64, [u64; 2]>) = Default::default();
+        let (mut w, mut sd, mut sr) = ([0f64; 2], [0f64; 2], [0f64; 2]);
+        for k in keys {
+            let p: Vec<i64> = k.split('/').map(|x| x.parse().unwrap_or(0)).collect();
+            let (o, n) = (oa.shells.get(k).copied().unwrap_or(0), na.shells.get(k).copied().unwrap_or(0));
+            rows.push(json!({"lines": p[0], "dots": p[1], "rank": p[2], "old": o, "new": n}));
+            for (i, x) in [o, n].into_iter().enumerate() {
+                by_rank.entry(p[2]).or_default()[i] += x;
+                by_dots.entry(p[1]).or_default()[i] += x;
+                w[i] += x as f64 * 4f64.powi(p[2] as i32);
+                sd[i] += (x * p[1] as u64) as f64;
+                sr[i] += (x * p[2] as u64) as f64;
+            }
+        }
+        let tot = [oa.shells.values().sum::<u64>() as f64, na.shells.values().sum::<u64>() as f64];
+        let mean = |s: [f64; 2]| json!([if tot[0] > 0.0 { s[0] / tot[0] } else { 0.0 }, if tot[1] > 0.0 { s[1] / tot[1] } else { 0.0 }]);
+        json!({"phase": entrance + 3, "unit": "tagged keys stepped at the second Apply, per (lines, dots, rank); [old, new]",
+               "rows": rows, "by_rank": by_rank, "by_dots": by_dots, "mean_dots": mean(sd), "mean_rank": mean(sr),
+               "keys_weighted_x4_per_rank": w,
+               "weight_note": "x4 per rank step: the single-key model (FEASIBILITY-5L S2); information, not a refusal rule"})
+    };
+    let owners_cmp: Vec<Value> = {
+        let cls: std::collections::BTreeSet<&String> = oa.per_class.keys().chain(na.per_class.keys()).collect();
+        cls.into_iter()
+            .map(|c| {
+                let (a, b) = (oa.per_class.get(c).cloned().unwrap_or_default(), na.per_class.get(c).cloned().unwrap_or_default());
+                json!({"owner": c, "keys": [a.keys, b.keys], "seconds": [a.seconds, b.seconds], "children": [a.children, b.children]})
+            })
+            .collect()
+    };
+    // per receiving owner at the second Apply: keys received (per owner class) and children handed down (per destination)
     let mut grown = vec![];
+    for (c, b) in &na.per_class {
+        let a = oa.per_class.get(c).map_or(0, |x| x.keys);
+        if b.keys >= rules.min_children && (b.keys as f64) > rules.owner_growth * (a.max(1) as f64) {
+            grown.push(json!({"owner": c, "by": "keys received", "old": a, "new": b.keys,
+                              "factor": if a > 0 { json!(b.keys as f64 / a as f64) } else { Value::Null }}));
+        }
+    }
     let owners: std::collections::BTreeSet<&String> = oa.per_owner.keys().chain(na.per_owner.keys()).collect();
     for o in owners {
         let (a, b) = (oa.per_owner.get(o).copied().unwrap_or(0), na.per_owner.get(o).copied().unwrap_or(0));
@@ -157,7 +230,8 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
             continue;
         }
         if (b as f64) > rules.owner_growth * (a.max(1) as f64) && b >= rules.min_children {
-            grown.push(json!({"owner": o, "old": a, "new": b, "factor": if a > 0 { json!(b as f64 / a as f64) } else { Value::Null }}));
+            grown.push(json!({"owner": o, "by": "children handed down", "old": a, "new": b,
+                              "factor": if a > 0 { json!(b as f64 / a as f64) } else { Value::Null }}));
         }
     }
     let worse = na.children > oa.children;
@@ -193,6 +267,12 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
         entrance_ratio_old_over_new: entrance_ratio,
         second_apply_ratio_old_over_new: second_ratio,
         owners_grown: grown,
+        second_apply_shells: shells,
+        second_apply_owners: owners_cmp,
+        values_note: "the partial pass prices WORK (keys, children, shells, seconds) and stops before the terminals: it compares no \
+                      values. The candidate's exactness is its derivation's check; a full A/B must compare tagged terminal VALUES, \
+                      not terminal expansions (different rule choices may give different, equal-valued expansions: CL Theorem 2.4)"
+            .into(),
         third_level,
         rules: rules.clone(),
         accepted,
@@ -236,6 +316,10 @@ mod tests {
         let good = arm(&[(4, 12, &[("a", 12)]), (5, 231, &[("a", 20000)]), (6, 9000, &[("a", 40000)]), (7, 20000, &[("a", 600000), ("b", 90000)])]);
         let v = price(&old, &good, 4, &Rules::default(), json!({}), None, vec![]).unwrap();
         assert!(v.accepted, "{v:?}");
+        // the shell histogram at the second Apply: every key in a (lines, dots, rank) row, old vs new
+        assert_eq!(v.second_apply_shells["rows"], json!([{"lines": 12, "dots": 1, "rank": 0, "old": 27819, "new": 20000}]));
+        assert_eq!(v.second_apply_shells["by_rank"]["0"], json!([27819, 20000]));
+        assert_eq!(v.second_apply_owners[0]["keys"], json!([27819, 20000]));
         // fewer children overall but one receiving owner grows 1.5x: refused
         let grow = arm(&[(4, 300, &[("a", 1000)]), (5, 500, &[("a", 20000)]), (6, 14000, &[("a", 50000)]), (7, 27000, &[("a", 700000), ("b", 158000)])]);
         let v = price(&old, &grow, 4, &Rules::default(), json!({}), None, vec![]).unwrap();

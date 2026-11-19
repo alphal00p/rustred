@@ -21,6 +21,11 @@ fn t269_glued_triangle_entrance_only_win_is_refused() {
     assert_eq!(v.levels[1]["children"], json!([23780, 23886]), "the twelve-line Apply");
     assert_eq!(v.levels[3]["children"], json!([905807, 922379]), "the second Apply (eleven lines)");
     assert!(!v.accepted, "an entrance-only win is refused");
+    // the shell histogram at the second Apply: its keys are the phase's keys stepped, per arm
+    let rows = v.second_apply_shells["rows"].as_array().unwrap();
+    let sum = |i: usize| rows.iter().map(|r| r[if i == 0 { "old" } else { "new" }].as_u64().unwrap()).sum::<u64>();
+    assert_eq!((sum(0), sum(1)), (27819, 28859), "{:#}", v.second_apply_shells);
+    assert!(!v.second_apply_owners.is_empty());
     let r = v.reason.unwrap();
     assert!(r.starts_with("cone_worse"), "{r}");
     // equal within 4 % at the second Apply after a 27x entrance win: absorbed as well
