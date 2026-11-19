@@ -604,7 +604,7 @@ fn the_identity_and_the_records_of_the_reference_program_are_pinned() {
         ),
         (
             true,
-            format!("{BASE},P_ORBIT_CANON_VERSION=4,P_ADJOINT_TAIL=off"),
+            format!("{BASE},P_ORBIT_CANON_VERSION=3-sector-domain,P_ADJOINT_TAIL=off"),
             ORBIT_CANON_RECORDS_DIGEST,
         ),
     ] {

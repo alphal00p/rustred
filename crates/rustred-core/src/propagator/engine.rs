@@ -1092,7 +1092,7 @@ pub(crate) mod light {
 /// Errors are not cached (computed again). Value-neutral.
 /// `RUSTRED_P_ORBIT_ACROSS=on`: the presentation-wide step of Route
 /// canonicalisation may move a key onto another subsector (orbit
-/// canonicalisation version 3). Default off: images stay in the key's sector.
+/// canonicalisation before orbitsw). Default off: images stay in the key's sector.
 pub(crate) fn orbit_across_sectors() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
@@ -2553,11 +2553,11 @@ impl<'l> PStepper<'l> {
             return Ok(None);
         }
         let fates = &self.engine.fates;
-        // Images stay in the key's own sector (P_ORBIT_CANON_VERSION 4): an
+        // Images stay in the key's own sector (orbitsw, scope -sector-domain): an
         // image on another subsector lands on another route / owner and stops
         // merging with the unmoved keys there (R1, T278: 13.0 instead of 5.5
         // children per Route key). RUSTRED_P_ORBIT_ACROSS=on restores the
-        // version-3 choice (any sector the census knows).
+        // pre-orbitsw choice (any sector the census knows).
         let support = shape.support(powers);
         let across = orbit_across_sectors();
         Ok(orbit.least_image(powers, self.prefer_high, |image| {
@@ -4401,10 +4401,10 @@ mod tests {
         // does NOT prune carries the marker.
         let marker = ",P_PRUNE_ZERO_CHILDREN=off";
         for (route, high, suffix) in [
-            (true, true, ""),
-            (false, true, "-apply"),
-            (true, false, "-least"),
-            (false, false, "-apply-least"),
+            (true, true, "-sector-domain"),
+            (false, true, "-apply-domain"),
+            (true, false, "-least-sector-domain"),
+            (false, false, "-apply-least-domain"),
         ] {
             library.set_orbit_canonicalization(true);
             library.set_route_canonicalization(route);

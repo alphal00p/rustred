@@ -691,13 +691,16 @@ impl PLibrary {
                 (true, false) => "-least",
                 (false, false) => "-apply-least",
             };
-            let across = if self.route_canonicalization() && super::engine::orbit_across_sectors() {
-                "-across"
+            // orbitsw: images in the domain of boxed owners; Route images in
+            // their own sector unless across is asked for
+            let choice = if self.route_canonicalization() && !super::engine::orbit_across_sectors()
+            {
+                "-sector-domain"
             } else {
-                ""
+                "-domain"
             };
             identity.push_str(&format!(
-                ",P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}{across}"
+                ",P_ORBIT_CANON_VERSION={P_ORBIT_CANON_VERSION}{scope}{choice}"
             ));
             let off = orbit_off_nodes();
             if !off.is_empty() {
