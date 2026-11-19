@@ -75,6 +75,25 @@ fn digest(bytes: &[u8]) -> u128 {
     u128::from_le_bytes(hash.as_bytes()[..16].try_into().expect("16 bytes"))
 }
 
+/// A clone holds every entry in RAM (spilled entries read back): clones are
+/// rare (channel replay copies) and must not share the spill file.
+impl Clone for Entries {
+    fn clone(&self) -> Self {
+        Self {
+            mem: (0..self.mem.len())
+                .map(|i| {
+                    Some(
+                        self.get(i)
+                            .expect("dictionary spill readable while cloning")
+                            .into_owned(),
+                    )
+                })
+                .collect(),
+            spill: None,
+        }
+    }
+}
+
 impl Entries {
     /// Turn the spill on for this dictionary (when the switch is set), with
     /// its file in `dir`; existing entries stay where they are.
