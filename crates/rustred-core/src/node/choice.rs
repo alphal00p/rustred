@@ -101,7 +101,10 @@ pub enum Reason {
 impl Reason {
     /// Whether the choice was made under the explicit, non-default `regular_first` order.
     pub fn explicit_regular_first(&self) -> bool {
-        matches!(self, Self::ExplicitRegularFirst | Self::ExplicitSmallest | Self::ExplicitSizeGuard { .. })
+        matches!(
+            self,
+            Self::ExplicitRegularFirst | Self::ExplicitSmallest | Self::ExplicitSizeGuard { .. }
+        )
     }
 }
 
@@ -115,7 +118,13 @@ pub fn choose(candidates: &[Candidate], pref: Preference) -> Option<(usize, Reas
             // the full key, lexicographic: cost (None after Some), size, singular after regular, position
             let key = |i: usize| {
                 let c = &candidates[i];
-                (c.cost.is_none(), c.cost.unwrap_or(u64::MAX), c.rhs_terms, !c.regular_at_d0, i)
+                (
+                    c.cost.is_none(),
+                    c.cost.unwrap_or(u64::MAX),
+                    c.rhs_terms,
+                    !c.regular_at_d0,
+                    i,
+                )
             };
             let mut order: Vec<usize> = (0..candidates.len()).collect();
             order.sort_by_key(|&i| key(i));
@@ -171,28 +180,50 @@ mod tests {
     use super::*;
 
     fn c(rhs_terms: u64, regular_at_d0: bool, cost: Option<u64>) -> Candidate {
-        Candidate { rhs_terms, regular_at_d0, cost }
+        Candidate {
+            rhs_terms,
+            regular_at_d0,
+            cost,
+        }
     }
 
     #[test]
     fn by_default_a_cheaper_singular_candidate_wins_and_regularity_only_breaks_ties() {
         // size: the smaller singular candidate beats the 100x larger regular one
         let s = vec![c(100, false, None), c(10_000, true, None)];
-        assert_eq!(choose(&s, Preference::default()), Some((0, Reason::Smallest)));
+        assert_eq!(
+            choose(&s, Preference::default()),
+            Some((0, Reason::Smallest))
+        );
         // cost first: the cheaper singular one wins even when it is larger
         let k = vec![c(500, false, Some(10)), c(100, true, Some(90))];
-        assert_eq!(choose(&k, Preference::default()), Some((0, Reason::Cheapest)));
+        assert_eq!(
+            choose(&k, Preference::default()),
+            Some((0, Reason::Cheapest))
+        );
         // a candidate with a measured cost ranks before one without
         let m = vec![c(10, true, None), c(500, false, Some(1))];
-        assert_eq!(choose(&m, Preference::default()), Some((1, Reason::Cheapest)));
+        assert_eq!(
+            choose(&m, Preference::default()),
+            Some((1, Reason::Cheapest))
+        );
         // equal cost and size: the regular one wins the tie-break
         let t = vec![c(100, false, Some(7)), c(100, true, Some(7))];
-        assert_eq!(choose(&t, Preference::default()), Some((1, Reason::RegularTieBreak)));
+        assert_eq!(
+            choose(&t, Preference::default()),
+            Some((1, Reason::RegularTieBreak))
+        );
         let t2 = vec![c(100, false, None), c(100, true, None)];
-        assert_eq!(choose(&t2, Preference::default()), Some((1, Reason::RegularTieBreak)));
+        assert_eq!(
+            choose(&t2, Preference::default()),
+            Some((1, Reason::RegularTieBreak))
+        );
         // everything equal: the earlier one
         let e = vec![c(5, false, None), c(5, false, None)];
-        assert_eq!(choose(&e, Preference::default()), Some((0, Reason::Position)));
+        assert_eq!(
+            choose(&e, Preference::default()),
+            Some((0, Reason::Position))
+        );
         assert_eq!(choose(&[], Preference::default()), None);
         assert!(!Reason::Smallest.explicit_regular_first());
     }
@@ -200,19 +231,34 @@ mod tests {
     #[test]
     fn regular_first_is_an_explicit_option_that_reports_itself() {
         let c1 = vec![c(100, false, None), c(10_000, true, None)];
-        let unb = Preference::RegularFirst { max_size_ratio: SizeRatio::default() };
+        let unb = Preference::RegularFirst {
+            max_size_ratio: SizeRatio::default(),
+        };
         assert_eq!(choose(&c1, unb), Some((1, Reason::ExplicitRegularFirst)));
         assert!(Reason::ExplicitRegularFirst.explicit_regular_first());
         assert_eq!(SizeRatio::parse("unbounded").unwrap(), SizeRatio::Unbounded);
         // max_size_ratio = 8: the regular one is 100x the smallest -> the singular one wins, recorded as size guard
-        match choose(&c1, Preference::RegularFirst { max_size_ratio: SizeRatio::parse("8").unwrap() }) {
-            Some((0, Reason::ExplicitSizeGuard { regular_index: 1, ratio })) => assert!((ratio - 100.0).abs() < 1e-9),
+        match choose(
+            &c1,
+            Preference::RegularFirst {
+                max_size_ratio: SizeRatio::parse("8").unwrap(),
+            },
+        ) {
+            Some((
+                0,
+                Reason::ExplicitSizeGuard {
+                    regular_index: 1,
+                    ratio,
+                },
+            )) => assert!((ratio - 100.0).abs() < 1e-9),
             other => panic!("{other:?}"),
         }
         let c3 = vec![c(5, false, None), c(5, false, None)];
         assert_eq!(choose(&c3, unb), Some((0, Reason::ExplicitSmallest)));
         assert!(
-            SizeRatio::parse("1/2").is_err() && SizeRatio::parse("x").is_err() && SizeRatio::parse("3/2").is_ok()
+            SizeRatio::parse("1/2").is_err()
+                && SizeRatio::parse("x").is_err()
+                && SizeRatio::parse("3/2").is_ok()
         );
     }
 }
