@@ -189,27 +189,30 @@ pub fn sample_keys(
     }
 }
 
-/// Bytes and monomials per rule of a table, keyed by the probe's rule id (charts mapped to the presentation frame).
-fn table_sizes(path: &Path, t2p: &[usize]) -> Result<BTreeMap<RuleId, TableRule>, String> {
+/// Bytes and monomials per rule of a table, keyed by the probe's rule id (charts mapped to the presentation frame,
+/// positions = the native importer's ORDINARY payload positions: slot-alias records have none; audit 2026-11-19 a1), and
+/// the table's source <-> payload map.
+fn table_sizes(
+    path: &Path,
+    t2p: &[usize],
+) -> Result<(BTreeMap<RuleId, TableRule>, rc::PayloadMap), String> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let map = rc::PayloadMap::from_lines(text.lines())?;
     let (_, rules) = rustred_campaign_core::economy::improve::table_rules(text.lines())?;
     let mut out = BTreeMap::new();
     for r in rules {
+        let Some(&position) = map.by_source.get(&(r.chart.clone(), r.index)) else {
+            continue; // a slot alias: not a payload rule
+        };
         let chart = (r.chart.chars().enumerate())
             .filter(|(_, c)| *c == '1')
             .fold(0u64, |m, (i, _)| {
                 let p = t2p.get(i).copied().unwrap_or(i);
                 if p < 64 { m | 1 << p } else { m }
             });
-        out.insert(
-            RuleId {
-                chart,
-                position: usize::try_from(r.index).unwrap_or(usize::MAX),
-            },
-            r,
-        );
+        out.insert(RuleId { chart, position }, r);
     }
-    Ok(out)
+    Ok((out, map))
 }
 
 /// One report row.
@@ -495,9 +498,12 @@ pub fn rule_cost_cmd(args: &[String]) -> Result<String, String> {
         }
         None => BTreeMap::new(),
     };
-    let table = match &spec.table {
-        Some(p) => table_sizes(p, &spec.table_to_presentation)?,
-        None => BTreeMap::new(),
+    let (table, payload_map) = match &spec.table {
+        Some(p) => {
+            let (t, m) = table_sizes(p, &spec.table_to_presentation)?;
+            (t, Some(m))
+        }
+        None => (BTreeMap::new(), None),
     };
     let rows = rows(&shapes, &costs, &profile, &table, &targets);
     let errors = keys.iter().filter(|k| k.error.is_some()).count();
@@ -508,20 +514,30 @@ pub fn rule_cost_cmd(args: &[String]) -> Result<String, String> {
                 .is_some_and(|r| !targets.is_empty() && !targets.contains(&r))
         })
         .count();
+    // audit 2026-11-19 (a1): the profile's PAYLOAD positions are bound to the table's RECORD indices through the
+    // importer's ordinary-rule order; without a table nothing is bound (no model), unmapped positions are listed
+    let bound = rc::calls_from_profile(
+        &profile,
+        &spec.table_to_presentation,
+        header.arity,
+        payload_map.as_ref(),
+    );
     let report = json!({
         "schema": rc::REPORT_SCHEMA, "spec_sha256": sha256_hex(&sb), "probe_sha256": spec.probe.sha256,
         "package": spec.package, "owner": spec.owner, "rules_header": header, "keys_header": kheader,
         "keys": keys.len(), "key_errors": errors, "keys_on_other_rules": off_target,
         "profile": spec.profile, "rows": rows,
+        "profile_binding": if payload_map.is_some() { "payload positions -> table record indices (native importer order, slot aliases apart)" } else { "no table: profile calls not bound, no model written" },
+        "profile_unmapped": bound.unmapped,
     });
     let rb = serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("report.json"), rb).map_err(|e| e.to_string())?;
     std::fs::write(dir.join("report.md"), markdown(&rows)).map_err(|e| e.to_string())?;
     // a ready `cost.rule_cost` for improve (interfaces/rule-cost.md 4): the measured default weights, the run's calls
     // per rule in the table's chart form (`table_to_presentation`), uniform calls for the rest
-    if !profile.is_empty() {
+    if !profile.is_empty() && payload_map.is_some() {
         let model = rc::RuleCostModel {
-            calls: rc::calls_from_profile(&profile, &spec.table_to_presentation, header.arity),
+            calls: bound.calls.clone(),
             ..rc::RuleCostModel::default()
         };
         let mb = serde_json::to_vec_pretty(&model).map_err(|e| e.to_string())?;

@@ -93,10 +93,25 @@ fn rule_cost_samples_measures_aggregates_and_joins_the_profile() {
     let probe = fake_probe(&dir);
     let profile = json!({"owners": [{"class": "00000000000000ab", "rules": [["000000000000000f", 0, 10, 6.0], ["000000000000000f", 1, 100, 1.0]]}]});
     std::fs::write(dir.join("owner_stats.json"), profile.to_string()).unwrap();
+    // the owner's source table: record 1 is a slot alias (no payload position), so payload position 1 is RECORD 2
+    // (audit 2026-11-19 a1: the profile's payload ordinal is never used as a record index)
+    let rec = |i: usize, rhs: &str| {
+        json!({"type": "rule", "chart": "11110", "index": i, "case": "c", "fixed": [null, null, null, null, 0],
+            "equations": [], "target": "I(n0,n1,n2,n3,0)", "rhs": [[rhs, "1"]], "exceptions": []})
+        .to_string()
+    };
+    let table = [
+        json!({"type": "header", "schema": "table_dump.v1"}).to_string(),
+        rec(0, "I(n0-1,n1,n2,n3,0)"),
+        rec(1, "I(n1,n0,n2,n3,0)"),
+        rec(2, "I(n0,n1-1,n2,n3,0)"),
+    ]
+    .join("\n");
+    std::fs::write(dir.join("t.jsonl"), table).unwrap();
     let sp = spec(
         &dir,
         &probe,
-        json!({"profile": dir.join("owner_stats.json")}),
+        json!({"profile": dir.join("owner_stats.json"), "table": dir.join("t.jsonl")}),
     );
     let out = dir.join("out");
     let summary = rule_cost_cmd(&args(&sp, &out, &[])).unwrap();
@@ -128,7 +143,12 @@ fn rule_cost_samples_measures_aggregates_and_joins_the_profile() {
     let model: Value =
         serde_json::from_slice(&std::fs::read(out.join("rule_cost_model.json")).unwrap()).unwrap();
     assert_eq!(model["calls"]["11110:0"], 10.0);
-    assert_eq!(model["calls"]["11110:1"], 100.0);
+    assert_eq!(
+        model["calls"]["11110:2"], 100.0,
+        "payload 1 = record 2 (record 1 is an alias)"
+    );
+    assert!(model["calls"].get("11110:1").is_none());
+    assert_eq!(report["profile_unmapped"].as_array().unwrap().len(), 0);
     let md = std::fs::read_to_string(out.join("report.md")).unwrap();
     assert!(
         md.contains("| f:0 |") && md.contains("Insertion 3L 1.0"),
@@ -137,6 +157,18 @@ fn rule_cost_samples_measures_aggregates_and_joins_the_profile() {
     // re-aggregation without a child, other spec settings
     let again = rule_cost_cmd(&args(&sp, &out, &["--aggregate-only"])).unwrap();
     assert_eq!(again, summary);
+    // without a source table nothing is bound: no model, every profile position reported unmapped
+    let sp2 = spec(
+        &dir,
+        &probe,
+        json!({"profile": dir.join("owner_stats.json")}),
+    );
+    let out2 = dir.join("out_unbound");
+    rule_cost_cmd(&args(&sp2, &out2, &[])).unwrap();
+    assert!(!out2.join("rule_cost_model.json").exists());
+    let r2: Value =
+        serde_json::from_slice(&std::fs::read(out2.join("report.json")).unwrap()).unwrap();
+    assert_eq!(r2["profile_unmapped"].as_array().unwrap().len(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

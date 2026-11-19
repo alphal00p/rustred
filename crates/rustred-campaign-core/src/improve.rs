@@ -18,7 +18,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub const RECORD_SCHEMA: &str = "rustred.campaign.improve-record.v1";
 /// Bumped when the record's meaning changes (simple versioning, no fingerprints).
-pub const RECORD_VERSION: u32 = 1;
+/// 2 (audit 2026-11-19, a3): `RuleEntry::key` is the record's IDENTITY ([`TableRule::id`]), not `target | case`; a version-1
+/// record is read and migrated by [`ImproveRecord::align`] (an entry is kept only where its old key is unambiguous).
+pub const RECORD_VERSION: u32 = 2;
 
 /// One rule record of a table.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,10 +41,109 @@ pub struct TableRule {
     /// None when the record does not give them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost: Option<crate::rulecost::RuleFeatures>,
+    /// Audit 2026-11-19 (a3): the record's IDENTITY for attempt history and resume: sha256 of its body (chart, target,
+    /// fixed, equations, exception branches, domain bounds, rhs; not the index) and `#k` for the k-th byte-identical
+    /// body in table order ([`table_rules`] / [`assign_occurrences`]). Two records that differ in anything but their
+    /// index never share it; renumbering keeps it. Empty only for a hand-built rule (then [`TableRule::key`] falls back to
+    /// [`TableRule::legacy_key`]).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
+    /// Audit 2026-11-19 (a2): the record's inclusive numeric `domain_bounds` (min, max per slot; None = unbounded), as the
+    /// native importer reads them (`bounds_of_record`); None when the record has none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<SlotBounds>,
+}
+
+/// Inclusive per-slot bounds `(min, max)` of a rule's domain (`domain_bounds`).
+pub type SlotBounds = (Vec<Option<i64>>, Vec<Option<i64>>);
+
+/// The `domain_bounds` of a rule record as the native importer reads them (`table_import.rs` `bounds_of_record`): absent
+/// or null sides are unbounded, a side must have the record's arity, every value is an integer or null.
+pub fn domain_bounds_of(v: &Value, arity: usize) -> Result<Option<SlotBounds>, String> {
+    let Some(b) = v.get("domain_bounds").filter(|b| !b.is_null()) else {
+        return Ok(None);
+    };
+    let side = |name: &str| -> Result<Vec<Option<i64>>, String> {
+        match b.get(name) {
+            None | Some(Value::Null) => Ok(vec![None; arity]),
+            Some(Value::Array(a)) if a.len() == arity => a
+                .iter()
+                .map(|x| {
+                    if x.is_null() {
+                        Ok(None)
+                    } else {
+                        x.as_i64()
+                            .map(Some)
+                            .ok_or_else(|| format!("domain_bounds.{name}: value {x}"))
+                    }
+                })
+                .collect(),
+            Some(_) => Err(format!(
+                "domain_bounds.{name}: not an array of arity {arity}"
+            )),
+        }
+    };
+    let (min, max) = (side("min")?, side("max")?);
+    if min.iter().chain(&max).all(Option::is_none) {
+        return Ok(None);
+    }
+    Ok(Some((min, max)))
+}
+
+/// Is `key` inside the bounds (inclusive)?
+pub fn within_bounds(b: &SlotBounds, key: &[i32]) -> bool {
+    key.iter().enumerate().all(|(k, &x)| {
+        let x = x as i64;
+        b.0.get(k).copied().flatten().is_none_or(|lo| x >= lo)
+            && b.1.get(k).copied().flatten().is_none_or(|hi| x <= hi)
+    })
+}
+
+/// sha256 of a rule record's BODY: chart, target, fixed, equations, exception branches, domain bounds and rhs (members
+/// as written; the index and every provenance member left out).
+pub fn record_body_sha256(v: &Value) -> String {
+    let pick = |k: &str| v.get(k).cloned().unwrap_or(Value::Null);
+    let body = serde_json::json!([
+        pick("chart"),
+        pick("target"),
+        pick("fixed"),
+        pick("equations"),
+        pick("exceptions"),
+        pick("domain_bounds"),
+        pick("rhs")
+    ]);
+    let mut h = crate::closure::sha256::Sha256::new();
+    h.update(body.to_string().as_bytes());
+    h.finish_hex()
+}
+
+/// Number byte-identical bodies in table order (`<body sha256>#k`): the identities of [`TableRule::id`].
+pub fn assign_occurrences(rules: &mut [TableRule]) {
+    let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+    for r in rules.iter_mut() {
+        let body = r.id.split('#').next().unwrap_or_default().to_string();
+        if body.is_empty() {
+            continue;
+        }
+        let k = seen.entry(body.clone()).or_insert(0);
+        r.id = format!("{body}#{k}");
+        *k += 1;
+    }
 }
 
 impl TableRule {
+    /// The history / resume key: the record identity ([`TableRule::id`]); `target | case` only for a hand-built rule
+    /// without one.
     pub fn key(&self) -> String {
+        if self.id.is_empty() {
+            self.legacy_key()
+        } else {
+            self.id.clone()
+        }
+    }
+
+    /// The version-1 history key `target | case`: NOT an identity (distinct records share it; audit 2026-11-19, a3).
+    pub fn legacy_key(&self) -> String {
         format!("{}|{}", self.target, self.case)
     }
 
@@ -96,7 +197,14 @@ impl TableRule {
             .iter()
             .map(|x| x.map_or("_".to_string(), |v| v.to_string()))
             .collect();
+        let arity = v
+            .get("chart")
+            .and_then(Value::as_str)
+            .map_or(fixed.len(), str::len);
+        let bounds = domain_bounds_of(&v, arity)?;
         Ok(Some(TableRule {
+            id: format!("{}#0", record_body_sha256(&v)),
+            bounds,
             index: v.get("index").and_then(|i| i.as_i64()).unwrap_or(-1),
             chart: v
                 .get("chart")
@@ -137,6 +245,7 @@ pub fn table_rules<'a>(
             rules.push(r);
         }
     }
+    assign_occurrences(&mut rules);
     Ok((header, rules))
 }
 
@@ -275,9 +384,9 @@ impl ImproveRecord {
         if r.schema != RECORD_SCHEMA {
             return Err(format!("improvement record: schema {:?}", r.schema));
         }
-        if r.version != RECORD_VERSION {
+        if r.version != RECORD_VERSION && r.version != 1 {
             return Err(format!(
-                "improvement record: version {} (this build reads {RECORD_VERSION})",
+                "improvement record: version {} (this build reads 1 and {RECORD_VERSION})",
                 r.version
             ));
         }
@@ -309,7 +418,64 @@ impl ImproveRecord {
     }
 
     /// Bring the record onto the rules of `rules` (a table whose records match by key; new keys get empty entries).
+    /// A VERSION-1 record (keys `target | case`, audit 2026-11-19 a3) is migrated: an entry is carried to the one rule
+    /// whose legacy key it names only when that key is UNAMBIGUOUS (one rule of the table and one entry of the record);
+    /// otherwise its history is not credited to any of the rules sharing the key (they start empty, with the reason).
     pub fn align(&mut self, rules: &[TableRule]) {
+        if self.version == 1 {
+            let mut in_table: BTreeMap<String, usize> = BTreeMap::new();
+            for t in rules {
+                *in_table.entry(t.legacy_key()).or_default() += 1;
+            }
+            let mut in_record: BTreeMap<String, usize> = BTreeMap::new();
+            for e in &self.rules {
+                *in_record.entry(e.key.clone()).or_default() += 1;
+            }
+            let mut migrated = Vec::with_capacity(rules.len());
+            for t in rules {
+                let lk = t.legacy_key();
+                let unique = in_table.get(&lk) == Some(&1) && in_record.get(&lk) == Some(&1);
+                let found = self.rules.iter().find(|e| e.key == lk);
+                migrated.push(match (unique, found) {
+                    (true, Some(e)) => RuleEntry {
+                        key: t.key(),
+                        ..e.clone()
+                    },
+                    (false, Some(_)) => RuleEntry {
+                        key: t.key(),
+                        index: t.index,
+                        target: t.target.clone(),
+                        case: t.case.clone(),
+                        monomials: t.monomials,
+                        bytes: t.bytes,
+                        tried: vec![],
+                        chosen: "original".into(),
+                        why: format!(
+                            "version-1 history not credited: its key `target | case` is shared by {} rules of the table / {} entries of the record",
+                            in_table.get(&lk).copied().unwrap_or(0),
+                            in_record.get(&lk).copied().unwrap_or(0)
+                        ),
+                        untried: vec![],
+                        pole: None,
+                    },
+                    (_, None) => RuleEntry {
+                        key: t.key(),
+                        index: t.index,
+                        target: t.target.clone(),
+                        case: t.case.clone(),
+                        monomials: t.monomials,
+                        bytes: t.bytes,
+                        tried: vec![],
+                        chosen: "original".into(),
+                        why: "not in the record: nothing tried".into(),
+                        untried: vec![],
+                        pole: None,
+                    },
+                });
+            }
+            self.rules = migrated;
+            self.version = RECORD_VERSION;
+        }
         let mut out = Vec::with_capacity(rules.len());
         for t in rules {
             let e = match self.rules.iter().find(|e| e.key == t.key()) {
@@ -816,6 +982,27 @@ pub fn structural_verdict(old: &TableRule, new: &TableRule) -> Result<(), String
     if let Some(x) = new.exceptions.iter().find(|x| !olde.contains(x)) {
         return Err(format!("exceptions_not_subset (new branch {x})"));
     }
+    // audit 2026-11-19 (a2): numeric domain bounds no narrower than the old rule's on any slot (a stricter bound would
+    // pass the target / case / exception checks and still lose coverage)
+    if let Some(nb) = &new.bounds {
+        let ob = old.bounds.clone().unwrap_or_default();
+        for k in 0..nb.0.len().max(nb.1.len()) {
+            let (olo, ohi) = (
+                ob.0.get(k).copied().flatten(),
+                ob.1.get(k).copied().flatten(),
+            );
+            if let Some(lo) = nb.0.get(k).copied().flatten()
+                && olo.is_none_or(|o| lo > o)
+            {
+                return Err(format!("bounds_narrower (slot {k}: min {lo} vs {olo:?})"));
+            }
+            if let Some(hi) = nb.1.get(k).copied().flatten()
+                && ohi.is_none_or(|o| hi < o)
+            {
+                return Err(format!("bounds_narrower (slot {k}: max {hi} vs {ohi:?})"));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -1105,8 +1292,11 @@ pub fn replacement_lines(
     Ok(out)
 }
 
-/// Whether the rule record `v` serves `key`: every fixed slot equal, every case equation zero, and no exception branch
-/// (a list of polynomials that all vanish, or one polynomial) holds at the key. Polynomials in n0.. (d-free), exact.
+/// Whether the rule record `v` serves `key`: every fixed slot equal, the key inside the record's numeric `domain_bounds`
+/// (inclusive, as the native importer reads them; audit 2026-11-19 a2: a one-term symmetry service such as T162 #1925
+/// requires three line powers >= 2 and does NOT serve the all-ones corner), every case equation zero, and no exception
+/// branch (a list of polynomials that all vanish, or one polynomial) holds at the key. Polynomials in n0.. (d-free),
+/// exact.
 pub fn serves_key(v: &Value, key: &[i32]) -> Result<bool, String> {
     let arity = key.len();
     let zero = |text: &str| -> Result<bool, String> {
@@ -1114,6 +1304,11 @@ pub fn serves_key(v: &Value, key: &[i32]) -> Result<bool, String> {
             .map_err(|e| format!("{text}: {e:?}"))?;
         p.is_zero_at(key).map_err(|e| format!("{text}: {e:?}"))
     };
+    if let Some(b) = domain_bounds_of(v, arity)?
+        && !within_bounds(&b, key)
+    {
+        return Ok(false);
+    }
     if let Some(f) = v.get("fixed").and_then(Value::as_array) {
         if f.len() != arity {
             return Err(format!("fixed has {} slots, the key {arity}", f.len()));

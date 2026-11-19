@@ -322,7 +322,7 @@ fn rule_verdict_under_the_pole_objective() {
 
 #[test]
 fn pole_targets_decide_from_scores_and_never_regenerate() {
-    let rules: Vec<TableRule> = [line(0, "[]", 10), line(1, "[]", 50), line(2, "[]", 30)]
+    let mut rules: Vec<TableRule> = [line(0, "[]", 10), line(1, "[]", 50), line(2, "[]", 30)]
         .iter()
         .map(|l| {
             let mut r = rule(l);
@@ -330,6 +330,8 @@ fn pole_targets_decide_from_scores_and_never_regenerate() {
             r
         })
         .collect();
+    // three byte-identical record bodies: their identities are numbered as table_rules numbers them (audit 2026-11-19 a3)
+    assign_occurrences(&mut rules);
     let mut rec = ImproveRecord::empty("T1", &"0".repeat(64), &rules);
     let p = ImprovePolicy {
         poles: Some(PolePolicy::default()),

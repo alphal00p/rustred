@@ -907,30 +907,119 @@ impl RuleCostModel {
     }
 }
 
-/// The calls of a run profile as [`RuleCostModel::calls`]: each engine chart (a mask over the OWNER PRESENTATION's
-/// slots) written as the table writes its charts (`0/1`, table slot 0 first), through `table_to_presentation`
-/// (table slot i is presentation slot `table_to_presentation[i]`; the import record's map; identity when empty).
+/// Audit 2026-11-19 (a1): the native importer's PAYLOAD ordinal of every rule record of a table. Per chart, in file
+/// order, a rule record whose rhs keys name another slot's index (`n<k>` at slot `j != k`: a slot-permuted ALIAS,
+/// `table_import.rs` `permuted_rhs`) is kept apart as a slot alias and gets no payload position; every other rule record
+/// takes the next ordinary position of its chart. Profiles (owner statistics, probe positions) count ordinary payload
+/// positions; tables count records: the two differ after the first alias (T162-final: 19 aliases, source 1246 =
+/// payload 1245).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PayloadMap {
+    /// (table chart string, record index) -> ordinary payload position (aliases absent).
+    pub by_source: BTreeMap<(String, i64), usize>,
+    /// (table chart string, payload position) -> record index.
+    pub by_payload: BTreeMap<(String, usize), i64>,
+    /// The alias records (table chart string, record index).
+    pub aliases: Vec<(String, i64)>,
+}
+
+/// Is a rule record's rhs slot-permuted (any rhs key slot `j` written `n<k>` or `n<k>+-c` with `k != j`)?
+pub fn is_slot_alias(v: &Value) -> bool {
+    v.get("rhs").and_then(Value::as_array).is_some_and(|rhs| {
+        rhs.iter().any(|t| {
+            t.get(0)
+                .and_then(Value::as_str)
+                .and_then(|k| k.trim().strip_prefix("I(")?.strip_suffix(')'))
+                .is_some_and(|inner| {
+                    inner.split(',').enumerate().any(|(j, s)| {
+                        let s = s.trim();
+                        s.strip_prefix('n').is_some_and(|rest| {
+                            let end = rest.find(['+', '-']).unwrap_or(rest.len());
+                            rest[..end].parse::<usize>().is_ok_and(|k| k != j)
+                        })
+                    })
+                })
+        })
+    })
+}
+
+impl PayloadMap {
+    /// From a table's lines (any record kind; rule records by `type`, chart and index).
+    pub fn from_lines<'a>(lines: impl IntoIterator<Item = &'a str>) -> Result<PayloadMap, String> {
+        let mut m = PayloadMap::default();
+        let mut next: BTreeMap<String, usize> = BTreeMap::new();
+        for (n, l) in lines.into_iter().enumerate() {
+            if l.trim().is_empty() || !l.contains("\"rule\"") {
+                continue;
+            }
+            let v: Value = serde_json::from_str(l).map_err(|e| format!("line {}: {e}", n + 1))?;
+            if v.get("type").and_then(Value::as_str) != Some("rule") {
+                continue;
+            }
+            let chart = v
+                .get("chart")
+                .and_then(Value::as_str)
+                .ok_or_else(|| format!("line {}: rule without chart", n + 1))?
+                .to_string();
+            let index = v
+                .get("index")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| format!("line {}: rule without index", n + 1))?;
+            if is_slot_alias(&v) {
+                m.aliases.push((chart, index));
+                continue;
+            }
+            let p = next.entry(chart.clone()).or_insert(0);
+            m.by_source.insert((chart.clone(), index), *p);
+            m.by_payload.insert((chart, *p), index);
+            *p += 1;
+        }
+        Ok(m)
+    }
+}
+
+/// The improve model's calls from a profile, bound to SOURCE records (audit 2026-11-19, a1).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ProfileCalls {
+    /// `"<table chart>:<record index>"` -> calls (the key improve's `rule_cost` looks up).
+    pub calls: BTreeMap<String, f64>,
+    /// Profile positions with no source record (`"<table chart>:payload <position>"`): reported, never guessed.
+    pub unmapped: Vec<String>,
+}
+
+/// The `calls` of a [`RuleCostModel`] from a run profile: each rule's chart (owner-presentation mask) in the table's slot
+/// order (`table_to_presentation`, identity when empty) and its PAYLOAD position translated to the table's record index
+/// through `map`. Without a map nothing is bound (every position is unmapped): a payload ordinal is never used as a
+/// record index.
 pub fn calls_from_profile(
     profile: &BTreeMap<RuleId, RunRule>,
     table_to_presentation: &[usize],
     arity: usize,
-) -> BTreeMap<String, f64> {
-    profile
-        .iter()
-        .map(|(id, run)| {
-            let chart: String = (0..arity)
-                .map(|i| {
-                    let p = table_to_presentation.get(i).copied().unwrap_or(i);
-                    if p < 64 && id.chart >> p & 1 == 1 {
-                        '1'
-                    } else {
-                        '0'
-                    }
-                })
-                .collect();
-            (format!("{chart}:{}", id.position), run.calls as f64)
-        })
-        .collect()
+    map: Option<&PayloadMap>,
+) -> ProfileCalls {
+    let mut out = ProfileCalls::default();
+    for (id, run) in profile {
+        let chart: String = (0..arity)
+            .map(|i| {
+                let p = table_to_presentation.get(i).copied().unwrap_or(i);
+                if p < 64 && id.chart >> p & 1 == 1 {
+                    '1'
+                } else {
+                    '0'
+                }
+            })
+            .collect();
+        match map.and_then(|m| m.by_payload.get(&(chart.clone(), id.position))) {
+            Some(index) => {
+                out.calls
+                    .insert(format!("{chart}:{index}"), run.calls as f64);
+            }
+            None => out
+                .unmapped
+                .push(format!("{chart}:payload {}", id.position)),
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------------------------------------------

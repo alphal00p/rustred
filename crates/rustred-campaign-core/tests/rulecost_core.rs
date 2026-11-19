@@ -201,8 +201,16 @@ fn profile_rules_read_owner_statistics_by_label_or_id() {
     assert_eq!(profile_rules(&doc, "ab").unwrap(), p);
     assert!(profile_rules(&doc, "ef").unwrap().is_empty());
     assert!(profile_rules(&json!({}), "ab").is_err());
-    // the profile's charts are owner-presentation masks; the table writes 0/1 strings in its own slot order
-    let calls = calls_from_profile(&p, &[1, 0, 2, 3, 4], 5);
+    // the profile's charts are owner-presentation masks; the table writes 0/1 strings in its own slot order; positions
+    // are bound to record indices through the table's payload map (here: no alias, identity)
+    let toy = |chart: &str, n: i64| -> PayloadMap {
+        let lines: Vec<String> = (0..n)
+            .map(|i| format!(r#"{{"type":"rule","chart":"{chart}","index":{i},"rhs":[["I(n0,n1,n2,n3,n4)","1"]]}}"#))
+            .collect();
+        PayloadMap::from_lines(lines.iter().map(String::as_str)).unwrap()
+    };
+    let m = toy("11110", 4);
+    let calls = calls_from_profile(&p, &[1, 0, 2, 3, 4], 5, Some(&m)).calls;
     assert_eq!(calls["11110:0"], 7.0);
     let one = BTreeMap::from([(
         RuleId {
@@ -215,10 +223,17 @@ fn profile_rules_read_owner_statistics_by_label_or_id() {
         },
     )]);
     assert_eq!(
-        calls_from_profile(&one, &[1, 0, 2, 3, 4], 5)["01000:3"],
+        calls_from_profile(&one, &[1, 0, 2, 3, 4], 5, Some(&toy("01000", 4))).calls["01000:3"],
         5.0
     );
-    assert_eq!(calls_from_profile(&one, &[], 5)["10000:3"], 5.0);
+    assert_eq!(
+        calls_from_profile(&one, &[], 5, Some(&toy("10000", 4))).calls["10000:3"],
+        5.0
+    );
+    // without a table nothing is bound
+    let none = calls_from_profile(&one, &[], 5, None);
+    assert!(none.calls.is_empty());
+    assert_eq!(none.unmapped, vec!["10000:payload 3".to_string()]);
 }
 
 /// A toy table_dump.v1 rule record on the five-slot owner.
@@ -377,4 +392,69 @@ fn same_sector_children_are_the_keys_handed_back_to_the_owner() {
     let c = same_sector_children(&v, &[1, 1, 1, 1, 0]).unwrap();
     assert!(c.is_empty(), "n1 = n3 = 1: both shifted lines drop");
     assert!(same_sector_children(&json!({"type": "rule"}), &[1]).is_none());
+}
+
+/// Audit 2026-11-19 (a1): a profile position is the native importer's ORDINARY payload position; a slot-alias record
+/// (rhs keys naming other slots, T162-final 1245 / 1905-1917 / 1925-1929) has none, so later records shift.
+#[test]
+fn audit_a1_profile_positions_bind_to_source_records_past_aliases() {
+    let lines = [
+        r#"{"type":"header","schema":"table_dump.v1"}"#,
+        r#"{"type":"chart","chart":"11100"}"#,
+        r#"{"type":"rule","chart":"11100","index":0,"rhs":[["I(n0-1,n1,n2,0,0)","1"]]}"#,
+        // a slot alias (slot 0 written n1): not a payload rule
+        r#"{"type":"rule","chart":"11100","index":1,"rhs":[["I(n1,n0,n2,0,0)","1"]]}"#,
+        r#"{"type":"rule","chart":"11100","index":2,"rhs":[["I(n0,n1-1,n2,0,0)","2"],["I(n0,n1,n2+1,0,0)","1"]]}"#,
+        // a separately dispatched recipe entry is not a rule record
+        r#"{"type":"recipe","chart":"11100","position":2,"key":"I(1,1,1,0,0)"}"#,
+        r#"{"type":"rule","chart":"11100","index":3,"rhs":[["I(n0,n1,n2-1,0,0)","1"]]}"#,
+        // another chart counts on its own
+        r#"{"type":"rule","chart":"11000","index":0,"rhs":[["I(n0,n1-1,0,0,0)","1"]]}"#,
+        r#"{"type":"end"}"#,
+    ];
+    let m = PayloadMap::from_lines(lines).unwrap();
+    assert_eq!(m.aliases, vec![("11100".to_string(), 1)]);
+    let src = |c: &str, i: i64| m.by_source.get(&(c.to_string(), i)).copied();
+    assert_eq!(
+        (
+            src("11100", 0),
+            src("11100", 1),
+            src("11100", 2),
+            src("11100", 3)
+        ),
+        (Some(0), None, Some(1), Some(2))
+    );
+    assert_eq!(src("11000", 0), Some(0));
+    // round trip
+    for ((c, i), p) in &m.by_source {
+        assert_eq!(m.by_payload[&(c.clone(), *p)], *i);
+    }
+    // a profile at payload positions 1 and 2 means records 2 and 3; position 3 has no record: unmapped, not guessed
+    let id = |position| RuleId {
+        chart: 0b00111,
+        position,
+    };
+    let run = |calls| RunRule {
+        calls,
+        seconds: 1.0,
+    };
+    let profile = BTreeMap::from([(id(1), run(30)), (id(2), run(4)), (id(3), run(9))]);
+    let bound = calls_from_profile(&profile, &[], 5, Some(&m));
+    assert_eq!(
+        bound.calls,
+        BTreeMap::from([("11100:2".to_string(), 30.0), ("11100:3".to_string(), 4.0)])
+    );
+    assert_eq!(bound.unmapped, vec!["11100:payload 3".to_string()]);
+    assert!(
+        !bound.calls.contains_key("11100:1"),
+        "the alias never receives a payload rule's calls"
+    );
+    // the six T162-final one-term records are slot aliases too
+    let t162_1925: Value = serde_json::from_str(r#"{"type":"rule","chart":"11111111100000000000","index":1925,"rhs":[["I(n6,1,1,1,n1,1,1,n7,1,0,0,0,0,0,0,0,0,0,0,0)","1"]]}"#).unwrap();
+    assert!(is_slot_alias(&t162_1925));
+    let ordinary: Value = serde_json::from_str(
+        r#"{"type":"rule","rhs":[["I(1,n1-1,n2+2,0,0)","1"],["I(2,1,n2,0,0)","3"]]}"#,
+    )
+    .unwrap();
+    assert!(!is_slot_alias(&ordinary));
 }
