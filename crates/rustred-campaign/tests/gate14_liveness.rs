@@ -44,7 +44,7 @@ fn g14_liveness_honest_fork_heavy_jobs() {
     let jobs: usize = env_or("RR_G14L_JOBS", "96").parse().unwrap();
     let conc: usize = env_or("RR_G14L_CONC", "8").parse().unwrap();
     let loops: usize = env_or("RR_G14L_LOOPS", "30").parse().unwrap();
-    let mut l = RealLauncher::with_config(
+    let mut l = RealLauncher::try_with_config(
         sampler(),
         RealConfig {
             cap_preference: CapPreference::NoSystemd,
@@ -53,7 +53,8 @@ fn g14_liveness_honest_fork_heavy_jobs() {
             rehunt_every: Duration::from_millis(300),
             ..RealConfig::default()
         },
-    );
+    )
+    .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)");
     let pipe = format!(
         "for i in $(seq {loops}); do echo $i | cat | tr 0-9 a-j | wc -c > /dev/null; done; date +%s.%N > \"$G14_END\"; exit 0"
     );

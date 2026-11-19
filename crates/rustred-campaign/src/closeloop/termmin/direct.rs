@@ -420,7 +420,9 @@ fn launch(
                 let reqs = vec![req];
                 let plans = ad.plan(&reqs).map_err(|e| format!("{e:?}"))?;
                 let plan = plans.first().ok_or("no plan")?;
-                let mut l = RealLauncher::new(sampler);
+                // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+                let mut l =
+                    RealLauncher::new(sampler).map_err(|e| format!("launcher refused: {e}"))?;
                 let (out, rep) = run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts)
                     .map_err(|e| format!("{e:?}"))?;
                 let run_dir = rep.prepared.spec.run_dir.clone();
@@ -535,7 +537,8 @@ pub fn solve_recipe_once(
     let reqs = vec![req];
     let plans = ad.plan(&reqs).map_err(|e| format!("{e:?}"))?;
     let plan = plans.first().ok_or("no plan")?;
-    let mut l = RealLauncher::new(sampler);
+    // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+    let mut l = RealLauncher::new(sampler).map_err(|e| format!("launcher refused: {e}"))?;
     let (out, rep) =
         run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts).map_err(|e| format!("{e:?}"))?;
     let run_dir = rep.prepared.spec.run_dir.clone();

@@ -54,7 +54,8 @@ fn cfg(f: impl FnOnce(&mut RealConfig)) -> RealConfig {
 }
 
 fn launcher_with(f: impl FnOnce(&mut RealConfig)) -> RealLauncher {
-    RealLauncher::with_config(sampler(), cfg(f))
+    RealLauncher::try_with_config(sampler(), cfg(f))
+        .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 /// Live (not dead) process with this start time? (A dead main thread with a live thread counts as alive.)
@@ -281,17 +282,22 @@ fn idlock_helper() {
         cap_preference: CapPreference::NoSystemd,
         ..RealConfig::default()
     };
-    let t = match RealLauncher::try_with_config(sampler(), c.clone()) {
+    let t = match RealLauncher::try_with_config(sampler(), c) {
         Ok(_) => "accepted".to_string(),
         Err(LauncherError::IdLock(e)) => format!("refused: {e}"),
         Err(e) => format!("error: {e}"),
     };
-    let w = RealLauncher::with_config(sampler(), c);
-    let line = format!(
-        "{t}\nwith_config id={} replaced={:?}\n",
-        w.config().campaign_id,
-        w.setup().campaign_id_replaced
-    );
+    // procfix7 round 19: the silent `with_config` (which ran on an ad-hoc id here) is gone; `RealLauncher::new` (the
+    // process's own ad-hoc id) still works beside the refused campaign id
+    let adhoc = match RealLauncher::new(sampler()) {
+        Ok(l) => format!(
+            "new: own ad-hoc id {} lock {:?}",
+            l.config().campaign_id,
+            l.id_lock_path()
+        ),
+        Err(e) => format!("new: error: {e}"),
+    };
+    let line = format!("{t}\n{adhoc}\n");
     fs::write(out.join("idlock.tmp"), line).unwrap();
     fs::rename(out.join("idlock.tmp"), out.join("idlock.txt")).unwrap();
 }
@@ -546,8 +552,8 @@ fn rb_m2_a_second_process_with_the_same_id_is_refused_and_signals_nothing() {
     let t = run_helper("h1");
     assert!(t.starts_with("refused:") && t.contains("in use"), "{t}");
     assert!(
-        t.contains("replaced=Some"),
-        "with_config replaces the id: {t}"
+        t.contains("new: own ad-hoc id adhoc-") && t.contains("lock Some("),
+        "the helper's own ad-hoc launcher holds its own lock: {t}"
     );
     assert!(
         matches!(j.poll().unwrap(), ChildProgress::Running),

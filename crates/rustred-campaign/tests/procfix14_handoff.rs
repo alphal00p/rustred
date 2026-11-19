@@ -26,7 +26,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 fn launcher() -> RealLauncher {
-    RealLauncher::with_config(
+    RealLauncher::try_with_config(
         sampler(),
         RealConfig {
             cap_preference: CapPreference::NoSystemd,
@@ -36,6 +36,7 @@ fn launcher() -> RealLauncher {
             ..RealConfig::default()
         },
     )
+    .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 fn poll_until_finished(h: &mut RealChild, t: Duration) -> Option<FinalReport> {

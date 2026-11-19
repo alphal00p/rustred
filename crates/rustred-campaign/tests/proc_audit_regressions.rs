@@ -166,7 +166,8 @@ fn read_pid_file(p: &Path) -> u32 {
 fn launcher_cfg(f: impl FnOnce(&mut RealConfig)) -> RealLauncher {
     let mut c = RealConfig::default();
     f(&mut c);
-    RealLauncher::with_config(sampler(), c)
+    RealLauncher::try_with_config(sampler(), c)
+        .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 fn record_and_end_a_child(dir: &Path, label: &str) -> ProcessIdentity {

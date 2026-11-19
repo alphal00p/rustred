@@ -59,10 +59,10 @@ pub use idlock::{IdLockError, default_lock_dir};
 pub use real::{
     CapPreference, Containment, LauncherError, LauncherSetup, REATTACH_UNDECIDED, RealChild,
     RealConfig, RealLauncher, RetireEvent, ScopeCheck, ScopeUnitState, TrackingPreference,
-    acknowledged_invocation, adhoc_campaign_id, audit_inheritable_fds, barrier_shim,
-    in_private_namespace, namespace_state, peek_exit, scope_acknowledgment, scope_evidence_check,
-    scope_reset_failed, scope_unit_state, set_not_dumpable, systemd_units_unavailable,
-    test_fake_systemd,
+    acknowledged_invocation, adhoc_campaign_id, adhoc_id_proven_unique, audit_inheritable_fds,
+    barrier_shim, in_private_namespace, namespace_state, peek_exit, scope_acknowledgment,
+    scope_evidence_check, scope_reset_failed, scope_unit_state, set_not_dumpable,
+    systemd_units_unavailable, test_fake_systemd,
 };
 pub use real::{
     LaunchState, ManagerCall, TEST_STALL_UNIT, launch_state_from, manager_calls, manager_probe,

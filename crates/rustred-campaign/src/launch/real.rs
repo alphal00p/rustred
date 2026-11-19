@@ -134,6 +134,33 @@ pub fn adhoc_campaign_id() -> String {
     format!("adhoc-{ns}-{me}-{start}")
 }
 
+/// procfix7 round 19: is `id` an ad-hoc id that PROVABLY names one live process? `adhoc-<ns>-<pid>-<start>` with every part
+/// READ (non-zero): a pid is unique inside a live pid namespace, a namespace inode is unique among live namespaces and
+/// the start time separates successive holders of a pid, so no two LIVE processes can hold it. A part that could not be
+/// read is written as 0 by [`adhoc_campaign_id`] (e.g. /proc reads failing under descriptor exhaustion): two processes
+/// with the same pid in different namespaces may then produce the SAME id, and each would take the other's marked
+/// processes for its own. Ids that do not start with `adhoc-` are campaign ids: not judged here (Ok).
+pub fn adhoc_id_proven_unique(id: &str) -> Result<(), String> {
+    let Some(rest) = id.strip_prefix("adhoc-") else {
+        return Ok(());
+    };
+    let parts: Vec<&str> = rest.split('-').collect();
+    let ok = parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+        && parts[0] != "0"
+        && parts[1] != "0"
+        && parts[2] != "0";
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "ad-hoc campaign id {id:?} does not provably name one live process (a part of adhoc-<pid ns>-<pid>-<start> could not be read)"
+        ))
+    }
+}
+
 /// The start of the error text of a [`Launcher::reattach`] that could not decide (an unreadable candidate): retryable.
 pub const REATTACH_UNDECIDED: &str = "reattach undecided";
 
@@ -143,6 +170,8 @@ pub enum LauncherError {
     InvalidId(InvalidMarker),
     /// Another live process holds this campaign id (gate re-audit B RB-M2), or the lock is unusable.
     IdLock(IdLockError),
+    /// procfix7 round 19: an ad-hoc id with an unread part ([`adhoc_id_proven_unique`]).
+    AdhocId(String),
 }
 
 impl std::fmt::Display for LauncherError {
@@ -150,6 +179,7 @@ impl std::fmt::Display for LauncherError {
         match self {
             LauncherError::InvalidId(e) => write!(f, "{e}"),
             LauncherError::IdLock(e) => write!(f, "{e}"),
+            LauncherError::AdhocId(e) => write!(f, "{e}"),
         }
     }
 }
@@ -172,11 +202,9 @@ pub struct LauncherSetup {
     pub tracking_unavailable: Option<String>,
     /// How launched jobs are enumerated for the proof.
     pub enumeration: Enumeration,
-    /// The host-wide id lock held for this campaign id.
+    /// The host-wide id lock held for this campaign id (procfix7 round 19: always held; a launcher without it is never
+    /// built).
     pub id_lock: Option<PathBuf>,
-    /// Set when the configured campaign id was NOT used (invalid, or held by another live process): `with_config` then
-    /// runs on an ad-hoc id that recognises nothing of the configured campaign. `try_with_config` refuses instead.
-    pub campaign_id_replaced: Option<String>,
 }
 
 /// A finished job whose end is not proven: kept with its CPU lease until a later hunt proves it gone.
@@ -1039,54 +1067,41 @@ fn probe_systemd() -> Result<PathBuf, String> {
 }
 
 impl RealLauncher {
-    /// The sampler must be shared with the control loop (one scanner per supervisor).
-    pub fn new(sampler: Arc<Sampler>) -> Self {
-        Self::with_config(sampler, RealConfig::default())
+    /// A launcher on this process's AD-HOC campaign id ([`adhoc_campaign_id`]; one-off jobs outside a campaign). The
+    /// sampler must be shared with the control loop (one scanner per supervisor).
+    ///
+    /// procfix7 round 19: FAIL-CLOSED, as [`Self::try_with_config`]: it used to run WITHOUT the id lock when the lock
+    /// could not be taken (unusable lock directory, or another live process holding the same id), silently. Now: an
+    /// ad-hoc id with an unread part ([`LauncherError::AdhocId`]) or a lock not obtained ([`LauncherError::IdLock`]) is an
+    /// error; nothing was started or signalled.
+    pub fn new(sampler: Arc<Sampler>) -> Result<Self, LauncherError> {
+        Self::try_with_config(sampler, RealConfig::default())
     }
 
-    /// As [`Self::with_config`], but an invalid `campaign_id` is a hard ERROR instead of a silent ad-hoc id (gate
-    /// re-audit C-1 (a): the campaign id is the only proof of ownership; a swapped id would make a restarted supervisor
-    /// recognise nothing). The supervisor uses this. Additive (lane I-SUP, 2026-11-14).
+    /// The ONLY configured constructor (procfix7 round 19: the silent `with_config`, which ran on an ad-hoc id when the
+    /// configured one was invalid or its lock was held, is gone). An invalid `campaign_id` is a hard ERROR (gate re-audit
+    /// C-1 (a): the campaign id is the only proof of ownership; a swapped id would make a restarted supervisor recognise
+    /// nothing); so is an ad-hoc id that does not provably name one live process (round 19).
     ///
     /// Second fix package: also refuses (`LauncherError::IdLock`) when another LIVE process holds the host-wide lock of
-    /// this campaign id (gate re-audit B RB-M2); nothing is signalled then.
+    /// this campaign id (gate re-audit B RB-M2), or the lock cannot be taken; nothing is signalled then.
+    ///
+    /// Process-wide effects (documented): SIGCHLD reset to SIG_DFL if inherited as ignored (audit A M4); child
+    /// subreaper if configured; the sampler's campaign is set to `config.campaign_id`; the adopted-children reaper thread
+    /// is started (once per process).
     pub fn try_with_config(
         sampler: Arc<Sampler>,
         config: RealConfig,
     ) -> Result<Self, LauncherError> {
         crate::resources::validate_campaign_id(&config.campaign_id)
             .map_err(LauncherError::InvalidId)?;
+        adhoc_id_proven_unique(&config.campaign_id).map_err(LauncherError::AdhocId)?;
         let lock = idlock::acquire(&config.campaign_id, config.id_lock_dir.as_deref())
             .map_err(LauncherError::IdLock)?;
-        Ok(Self::build(sampler, config, Some(lock), None))
+        Ok(Self::build(sampler, config, lock))
     }
 
-    /// Process-wide effects (documented): SIGCHLD reset to SIG_DFL if inherited as ignored (audit A M4); child
-    /// subreaper if configured; the sampler's campaign is set to `config.campaign_id`; the adopted-children reaper thread
-    /// is started (once per process).
-    ///
-    /// An invalid id, or an id whose host-wide lock another live process holds, is REPLACED by an ad-hoc id (recorded in
-    /// `setup().campaign_id_replaced`); the supervisor uses [`Self::try_with_config`], which refuses instead.
-    pub fn with_config(sampler: Arc<Sampler>, config: RealConfig) -> Self {
-        let replaced = match crate::resources::validate_campaign_id(&config.campaign_id) {
-            Err(e) => Some(e.to_string()),
-            Ok(()) => match idlock::acquire(&config.campaign_id, config.id_lock_dir.as_deref()) {
-                Ok(lock) => return Self::build(sampler, config, Some(lock), None),
-                Err(e) => Some(e.to_string()),
-            },
-        };
-        let mut c = config;
-        c.campaign_id = adhoc_campaign_id();
-        let lock = idlock::acquire(&c.campaign_id, c.id_lock_dir.as_deref()).ok();
-        Self::build(sampler, c, lock, replaced)
-    }
-
-    fn build(
-        sampler: Arc<Sampler>,
-        config: RealConfig,
-        id_lock: Option<Arc<IdLock>>,
-        replaced: Option<String>,
-    ) -> Self {
+    fn build(sampler: Arc<Sampler>, config: RealConfig, id_lock: Arc<IdLock>) -> Self {
         let sigchld =
             guard::ensure_sigchld_default().unwrap_or(guard::SigchldSetup::AlreadyDefault);
         let child_subreaper = config.child_subreaper && guard::set_child_subreaper(true).is_ok();
@@ -1125,14 +1140,13 @@ impl RealLauncher {
             } else {
                 Enumeration::FullProc
             },
-            id_lock: id_lock.as_ref().map(|l| l.path().to_path_buf()),
-            campaign_id_replaced: replaced,
+            id_lock: Some(id_lock.path().to_path_buf()),
         };
         Self {
             sampler,
             config,
             setup,
-            id_lock,
+            id_lock: Some(id_lock),
             tracking,
             quarantine: Vec::new(),
         }

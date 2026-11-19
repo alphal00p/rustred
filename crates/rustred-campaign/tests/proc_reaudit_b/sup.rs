@@ -120,7 +120,7 @@ fn launcher(camp: &str) -> RealLauncher {
 /// recover2 must meet on it) and by nothing else. Before, the lock was `/tmp/rustred-campaign-<uid>/rbcamp.lock` on trees
 /// without the round-7 rule (int/9, int/10: `/tmp/rustred-campaign-0` in EVERY user namespace of every lane) or
 /// `$TMPDIR/...` (one directory for all scenarios of a run): two runs at once made one launcher lose the lock, and
-/// `with_config` then ran it SILENTLY on an ad-hoc id that recognises nothing of the scenario (reattach Lost, empty
+/// `with_config` (removed in round 19) then ran it SILENTLY on an ad-hoc id that recognises nothing of the scenario (reattach Lost, empty
 /// sampler marks, a fixture with our marker left alive and signalled later).
 static LOCK_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
 static SCEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
@@ -145,7 +145,7 @@ fn launcher_ms(camp: &str, ms: u64) -> RealLauncher {
     match RealLauncher::try_with_config(sampler(ms), c) {
         Ok(l) => {
             assert_eq!(l.config().campaign_id, camp, "the launcher's campaign id");
-            assert!(l.setup().campaign_id_replaced.is_none());
+            assert!(l.id_lock_path().is_some(), "the launcher holds its id lock");
             l
         }
         Err(e) => {
@@ -1933,13 +1933,19 @@ fn s_marker(c: &mut Ctx) {
             id_lock_dir: Some(lock_dir()),
             ..RealConfig::default()
         };
-        let l2 = RealLauncher::with_config(sampler(500), cfg);
-        let got = l2.config().campaign_id.clone();
+        // procfix7 round 19: no silent replacement by an ad-hoc id any more: an invalid configured id is REFUSED
+        let r2 = RealLauncher::try_with_config(sampler(500), cfg);
         c.chk(
             &format!("RealConfig.campaign_id {bad:?}"),
-            "replaced by an ad-hoc id",
-            got.clone(),
-            got.starts_with("adhoc-"),
+            "refused (invalid id), never run on an ad-hoc id",
+            match &r2 {
+                Ok(l2) => format!("STARTED as {}", l2.config().campaign_id),
+                Err(e) => format!("refused: {e}"),
+            },
+            matches!(
+                r2,
+                Err(rustred_campaign::launch::LauncherError::InvalidId(_))
+            ),
         );
         c.chk(
             &format!("CampaignMarker::new({bad:?}, a)"),

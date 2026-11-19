@@ -47,7 +47,8 @@ fn launcher(budget: Option<Duration>) -> RealLauncher {
     if let Some(b) = budget {
         c.hunt_budget = b;
     }
-    RealLauncher::with_config(sampler(), c)
+    RealLauncher::try_with_config(sampler(), c)
+        .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 fn poll_until_finished(h: &mut RealChild, t: Duration) -> Option<FinalReport> {

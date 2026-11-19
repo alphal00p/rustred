@@ -31,7 +31,7 @@ fn require_namespace() {
 }
 
 fn launcher_ns() -> RealLauncher {
-    RealLauncher::with_config(
+    RealLauncher::try_with_config(
         sampler(),
         RealConfig {
             cap_preference: CapPreference::NoSystemd,
@@ -41,6 +41,7 @@ fn launcher_ns() -> RealLauncher {
             ..RealConfig::default()
         },
     )
+    .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 fn read_pid(p: &Path) -> u32 {

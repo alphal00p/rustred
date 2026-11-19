@@ -66,7 +66,7 @@ pub fn sampler() -> Arc<Sampler> {
 }
 
 pub fn launcher() -> RealLauncher {
-    RealLauncher::new(sampler())
+    RealLauncher::new(sampler()).expect("launcher (procfix7 round 19: fail-closed)")
 }
 
 /// `/bin/sh -c SCRIPT` with PATH copied from the test's environment.

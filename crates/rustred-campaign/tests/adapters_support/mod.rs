@@ -74,7 +74,7 @@ pub fn launcher() -> RealLauncher {
         foreign_pin_max_cpus: usize::MAX,
     })
     .unwrap();
-    RealLauncher::new(Arc::new(s))
+    RealLauncher::new(Arc::new(s)).expect("launcher (procfix7 round 19: fail-closed)")
 }
 
 /// The fake child as a contract program.
