@@ -11,6 +11,7 @@ pub mod child;
 pub mod emitter;
 pub mod gate;
 pub mod legacy_import;
+pub mod regcheck;
 pub mod replace;
 pub mod tablecheck;
 

@@ -17,6 +17,7 @@ pub mod body;
 pub mod class;
 pub mod ladder;
 pub mod legacy;
+pub mod regularity;
 pub mod validate;
 
 use class::{CheckSummary, Classed, ConeEvidence, Kind, Origin, SampleEvidence};
