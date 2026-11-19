@@ -9,6 +9,7 @@
 pub mod bindcheck;
 pub mod child;
 pub mod emitter;
+pub mod entries;
 pub mod gate;
 pub mod legacy_import;
 pub mod regcheck;

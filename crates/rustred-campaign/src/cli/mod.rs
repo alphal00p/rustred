@@ -179,6 +179,36 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        "emit-entries" => match crate::emission::entries::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("emit-entries: {e}");
+                exit::USAGE
+            }
+        },
+        "entry-check" => match crate::emission::entries::check_cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 2 }
+            }
+            Err(e) => {
+                errln!("entry-check: {e}");
+                exit::USAGE
+            }
+        },
+        "regularity-at-key" => match crate::emission::entries::at_key_cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("regularity-at-key: {e}");
+                exit::USAGE
+            }
+        },
         "legacy-import" => match crate::emission::legacy_import::cmd(rest) {
             Ok((t, ok)) => {
                 outln!("{t}");
