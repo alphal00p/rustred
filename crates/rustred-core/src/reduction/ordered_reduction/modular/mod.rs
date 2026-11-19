@@ -1847,7 +1847,7 @@ impl ModularRecorder {
     /// rr-frontier diagnostics: the resident tables of the forward pass
     /// (trace ops, interned exact coefficients, probes, slots).
     pub(crate) fn memstats(&self) -> serde_json::Value {
-        use super::memstats::{block, measure_clone};
+        use super::memstats::block;
         use std::mem::size_of;
         let (entries_heap, entries_spilled, entries_spill_bytes) = self.entries.census();
         serde_json::json!({
