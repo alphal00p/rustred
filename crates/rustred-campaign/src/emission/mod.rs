@@ -228,6 +228,11 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
                     .parse()
                     .map_err(|_| "--regularity-cone: the D + r bound")?
             }
+            "--regularity-threads" => {
+                reg.threads = flag_value(rest, i)?
+                    .parse()
+                    .map_err(|_| "--regularity-threads: a count")?
+            }
             "--regularity-max-keys" => {
                 reg.max_keys = flag_value(rest, i)?
                     .parse()

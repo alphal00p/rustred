@@ -461,7 +461,7 @@ fn open_locus_becomes_a_ladder_of_two_pieces_that_partition_the_domain() {
         7,
         &orig_line,
         &lines,
-        &rustred_campaign::emission::regcheck::Options { cone: 6, max_keys: 2000 },
+        &rustred_campaign::emission::regcheck::Options { cone: 6, max_keys: 2000, threads: 2 },
         &dir.join("reg"),
     )
     .unwrap();

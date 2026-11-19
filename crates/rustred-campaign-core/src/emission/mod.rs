@@ -97,6 +97,8 @@ pub struct Settings {
 pub struct RegularitySettings {
     pub cone: i64,
     pub max_keys: usize,
+    #[serde(default)]
+    pub threads: Option<usize>,
 }
 
 /// The parts of a `derivation` member (everything bulky lives in the side directory, referenced by sha256).

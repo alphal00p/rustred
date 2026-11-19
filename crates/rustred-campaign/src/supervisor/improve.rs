@@ -857,6 +857,7 @@ impl ImproveSource {
                 .map(|r| crate::emission::regcheck::Options {
                     cone: r.cone,
                     max_keys: r.max_keys,
+                    threads: r.threads.unwrap_or(1),
                 })
                 .unwrap_or_default();
             for (idx, lines) in repl.clone() {

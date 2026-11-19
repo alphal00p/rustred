@@ -29,6 +29,8 @@ pub struct Options {
     pub cone: i64,
     /// at most this many face keys are dispatched; more = a stated sample
     pub max_keys: usize,
+    /// keys measured in parallel (the measure is per key: the verdict does not depend on it)
+    pub threads: usize,
 }
 
 impl Default for Options {
@@ -36,6 +38,7 @@ impl Default for Options {
         Options {
             cone: 10,
             max_keys: 20_000,
+            threads: 1,
         }
     }
 }
@@ -221,6 +224,7 @@ pub fn compare(
     header: &str,
     chart: &str,
     work: &Path,
+    threads: usize,
 ) -> Result<Verdict, String> {
     let (old_body, _) = strip_derivation(old_line)?;
     let old = Relation::parse(&old_body)?;
@@ -247,25 +251,44 @@ pub fn compare(
     }
     drop(f);
     let (pd, _) = dispatcher_of(&mini)?;
-    let mut cmp = vec![];
+    // the serving piece of every key (the replacement's own dispatch), then the measure per key (in parallel)
     let mut gaps = 0u64;
-    let mut sample_by: BTreeMap<String, u64> = BTreeMap::new();
+    let mut jobs: Vec<(Vec<i64>, usize)> = vec![];
     for k in keys {
         let k32: Vec<i32> = k.iter().map(|&x| x as i32).collect();
-        let w = pd.first_match(&k32).ok().and_then(|d| d.winner());
-        let Some(w) = w else {
-            gaps += 1;
-            continue;
-        };
-        let i = w.label as usize;
-        let c = KeyComparison {
-            key: k.clone(),
-            branch: format!("piece {i}"),
-            old: regularity_at(&old, k)?,
-            new: regularity_at(&new[i], k)?,
-        };
-        *sample_by.entry(c.branch.clone()).or_default() += 1;
-        cmp.push(c);
+        match pd.first_match(&k32).ok().and_then(|d| d.winner()) {
+            Some(w) => jobs.push((k.clone(), w.label as usize)),
+            None => gaps += 1,
+        }
+    }
+    let threads = threads.max(1).min(jobs.len().max(1));
+    let chunk = jobs.len().div_ceil(threads).max(1);
+    let results: Vec<Result<Vec<KeyComparison>, String>> = std::thread::scope(|s| {
+        let hs: Vec<_> = jobs
+            .chunks(chunk)
+            .map(|part| {
+                let (old, new) = (&old, &new);
+                s.spawn(move || {
+                    part.iter()
+                        .map(|(k, i)| {
+                            Ok(KeyComparison {
+                                key: k.clone(),
+                                branch: format!("piece {i}"),
+                                old: regularity_at(old, k)?,
+                                new: regularity_at(&new[*i], k)?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, String>>()
+                })
+            })
+            .collect();
+        hs.into_iter()
+            .map(|h| h.join().unwrap_or_else(|_| Err("a measuring thread panicked".into())))
+            .collect()
+    });
+    let mut cmp = vec![];
+    for r in results {
+        cmp.extend(r?);
     }
     let mut structural = vec![];
     if gaps > 0 {
@@ -341,7 +364,7 @@ pub fn batch(table: &Path, spec: &Path, o: &Options, out: &Path) -> Result<(Valu
             .map(str::to_string)
             .collect();
         let (keys, ks) = served_keys_with(&disp, &chart, rule, old_line, o)?;
-        let v = compare(old_line, &lines, &keys, ks, &header, &chart, &dir.join("work"))?;
+        let v = compare(old_line, &lines, &keys, ks, &header, &chart, &dir.join("work"), o.threads)?;
         let accepted = v.not_worse && v.keys.compared > 0;
         all_ok &= accepted;
         let mut kf = String::new();
@@ -386,6 +409,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
             "--pieces" => pieces = Some(val(i)?.into()),
             "--cone" => o.cone = val(i)?.parse().map_err(|e| format!("--cone: {e}"))?,
             "--max-keys" => o.max_keys = val(i)?.parse().map_err(|e| format!("--max-keys: {e}"))?,
+            "--threads" => o.threads = val(i)?.parse().map_err(|e| format!("--threads: {e}"))?,
             "--out" => out = Some(val(i)?.into()),
             "--batch" => batch_spec = Some(PathBuf::from(val(i)?)),
             x => return Err(format!("unknown flag {x}")),
@@ -410,7 +434,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let t0 = std::time::Instant::now();
     let (keys, ks, chart) = served_keys(&table, rule, &old_line, &o)?;
     let header = header_of(&table)?;
-    let v = compare(&old_line, &lines, &keys, ks, &header, &chart, &out.join("work"))?;
+    let v = compare(&old_line, &lines, &keys, ks, &header, &chart, &out.join("work"), o.threads)?;
     let mut kf = String::new();
     for k in &keys {
         kf.push_str(&serde_json::to_string(k).unwrap_or_default());
@@ -494,7 +518,7 @@ pub fn acceptance(
     work: &Path,
 ) -> Result<Acceptance, String> {
     let (keys, ks) = served_keys_with(&table.disp, &table.chart, index, old_line, o)?;
-    let v = compare(old_line, pieces, &keys, ks, &table.header, &table.chart, work)?;
+    let v = compare(old_line, pieces, &keys, ks, &table.header, &table.chart, work, o.threads)?;
     // FAIL CLOSED: a comparison over no served key proves nothing (a cone too small, or a dispatch that serves the
     // old record nowhere: e.g. a strict witness check on a table without witness loci blocked every key)
     if v.keys.compared == 0 {
