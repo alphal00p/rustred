@@ -63,6 +63,20 @@ pub(crate) fn memo_entries() -> usize {
     })
 }
 
+/// Largest Insertion step (numerator-table monomials = child weights) the
+/// memo admits: `RUSTRED_P_STEP_MEMO_MAX_CHILDREN` (default 512); larger steps
+/// are computed directly (their entries are not reused in practice and each
+/// kept a rehomed copy of every child coefficient).
+pub(crate) fn max_children() -> usize {
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_P_STEP_MEMO_MAX_CHILDREN")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(512)
+    })
+}
+
 /// What `RUSTRED_P_STEP_MEMO` asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoMode {

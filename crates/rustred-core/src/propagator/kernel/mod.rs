@@ -305,6 +305,13 @@ pub(crate) struct NumeratorTable {
     monomials: Vec<TableMonomial>,
 }
 
+impl NumeratorTable {
+    /// Monomials of the table (= child weights of an Insertion step).
+    pub(crate) fn len(&self) -> usize {
+        self.monomials.len()
+    }
+}
+
 /// The scalar products of a kernel output as polynomials in the child's slots.
 ///
 /// Variables `x_s` are the numerators the kernel acts on. The polynomial of

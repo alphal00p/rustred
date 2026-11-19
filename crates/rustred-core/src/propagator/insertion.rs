@@ -323,7 +323,14 @@ impl InsertionStep {
                     Ok(())
                 };
                 let mode = step_memo::mode();
-                if mode == MemoMode::Off {
+                // stale memory (T277 phase 15: never-hit entries of ~1,400
+                // child coefficients took the memo to 141 GiB): a step whose
+                // numerator table exceeds RUSTRED_P_STEP_MEMO_MAX_CHILDREN
+                // monomials is computed directly, never memoised.
+                let oversized = mode == MemoMode::On
+                    && rule.rewrite.table(&box_powers, &free_powers)?.len()
+                        > step_memo::max_children();
+                if mode == MemoMode::Off || oversized {
                     direct_fast(&mut output)?;
                 } else {
                     // The weights are a function of the two line powers (the
