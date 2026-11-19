@@ -585,6 +585,12 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
         let (stage, integral) = decode_node(encoded).ok()?;
         self.inner.step_cache_key(stage, integral).ok()
     }
+    fn resume_identity(&self, out: &mut Vec<u8>) {
+        self.inner.resume_identity(out);
+    }
+    fn resume_selection(&self, out: &mut Vec<u8>) {
+        self.inner.resume_selection(out);
+    }
 
     fn tail_encode(key: &Self::Key, out: &mut Vec<u8>) -> bool {
         K::tail_encode(key, out)

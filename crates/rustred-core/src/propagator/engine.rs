@@ -3239,6 +3239,24 @@ impl PKernel<'_, '_> {
 }
 
 impl OrderedKernel for PKernel<'_, '_> {
+    /// 12d2: the library's step identity (versions, ordering, orbit and zero
+    /// pruning settings) and the target selection.
+    fn resume_identity(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(b"p-library:");
+        out.extend_from_slice(self.stepper.library.step_identity().as_bytes());
+        out.push(0);
+        self.resume_selection(out);
+    }
+    fn resume_selection(&self, out: &mut Vec<u8>) {
+        if let Some(keep) = TARGET_KEEP.get() {
+            let mut classes: Vec<u64> = keep.iter().copied().collect();
+            classes.sort_unstable();
+            out.extend_from_slice(b"target-keep:");
+            for class in classes {
+                out.extend_from_slice(&class.to_le_bytes());
+            }
+        }
+    }
     /// vk5l-physrun resume state: a pending key from its compact form.
     fn tail_key(&self, encoded: &[u8]) -> Option<PKey> {
         let (stage, integral) =

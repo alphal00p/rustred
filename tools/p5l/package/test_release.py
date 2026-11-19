@@ -138,5 +138,91 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(bad, ['owners/L5T11-0002.rrbin'])
 
 
+class RestageTests(unittest.TestCase):
+    """2026-11-18 review (reproducer reproduce-release.py): restaging a changed package into a USED release directory
+    published the old owner bytes under the new revision (asset reused by file name, transport sha256 of the old asset,
+    installed size of the new source, identity of the new library; fetch and the size check passed)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix='wp6-restage-')
+        self.src = os.path.join(self.tmp, 'src')
+        os.makedirs(os.path.join(self.src, 'owners'))
+        self.rel = os.path.join(self.tmp, 'release')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp)
+
+    def prepare(self, revision, payload, release_dir=None, **kw):
+        lib = {'scope': [1, 5], 'schema': 'fixture', 'versions': {}, 'owners': [],
+               'identity': f'fixture,P_PACKAGE_REVISION={revision}'}
+        json.dump(lib, open(os.path.join(self.src, 'library.json'), 'w'))
+        open(os.path.join(self.src, 'owners', 'test.rrbin'), 'wb').write(payload)
+        return release.write_manifest(self.src, release_dir or self.rel, **kw)
+
+    def test_review_reproducer_restage_into_used_directory_is_refused(self):
+        self.prepare('r1', b'old-rule')
+        before = open(os.path.join(self.rel, release.MANIFEST)).read()
+        with self.assertRaises(release.Refused):
+            self.prepare('r2', b'new-rule')
+        # nothing was published: the r1 manifest is untouched
+        self.assertEqual(open(os.path.join(self.rel, release.MANIFEST)).read(), before)
+
+    def test_reuse_verified_refuses_a_stale_asset(self):
+        self.prepare('r1', b'old-rule')
+        with self.assertRaises(release.Refused):
+            self.prepare('r2', b'new-rule', reuse_verified=True)
+
+    def test_reuse_verified_reuses_identical_content(self):
+        self.prepare('r1', b'same-rul')
+        m = self.prepare('r1', b'same-rul', reuse_verified=True)
+        self.assertEqual(m['revision'], 'r1')
+
+    def test_fresh_restage_installs_the_new_bytes_and_revision(self):
+        self.prepare('r1', b'old-rule')
+        rel2 = os.path.join(self.tmp, 'release2')
+        m = self.prepare('r2', b'new-rule', release_dir=rel2)
+        dest = os.path.join(self.tmp, 'installed')
+        release.fetch(rel2, dest)
+        self.assertEqual(open(os.path.join(dest, 'owners', 'test.rrbin'), 'rb').read(), b'new-rule')
+        self.assertEqual(json.load(open(os.path.join(dest, 'library.json')))['identity'], m['identity'])
+        rec, bad = release.check(dest, digest=True)
+        self.assertEqual(bad, [])
+        inv = os.path.join(self.tmp, 'inventory.json')
+        json.dump({'files': {p: {'bytes': os.path.getsize(os.path.join(self.src, p)),
+                                 'sha256': release.sha256_file(os.path.join(self.src, p))}
+                             for p in release.walk(self.src)}}, open(inv, 'w'))
+        self.assertEqual({k: v for k, v in release.compare(dest, inv).items() if k in ('missing', 'extra', 'differ')},
+                         {'missing': [], 'extra': [], 'differ': []})
+
+    def test_equal_length_substitution_with_a_matching_transport_checksum_is_refused_at_install(self):
+        # the defect's outcome simulated directly: the asset holds other bytes of the same length and the
+        # manifest's transport checksum describes those bytes; only the content digest can catch it
+        m = self.prepare('r2', b'new-rule')
+        asset = os.path.join(self.rel, 'assets', m['files']['owners/test.rrbin']['asset'])
+        open(asset, 'wb').write(b'old-rule')
+        m['files']['owners/test.rrbin']['sha256'] = release.sha256_file(asset)
+        json.dump(m, open(os.path.join(self.rel, release.MANIFEST), 'w'))
+        dest = os.path.join(self.tmp, 'installed')
+        with self.assertRaises(release.Refused):
+            release.fetch(self.rel, dest)
+        self.assertFalse(os.path.exists(os.path.join(dest, 'owners', 'test.rrbin')))
+
+    def test_digest_check_finds_an_equal_size_change(self):
+        self.prepare('r1', b'old-rule')
+        dest = os.path.join(self.tmp, 'installed')
+        release.fetch(self.rel, dest)
+        open(os.path.join(dest, 'owners', 'test.rrbin'), 'wb').write(b'new-rule')
+        self.assertEqual(release.check(dest)[1], [])
+        self.assertEqual(release.check(dest, digest=True)[1], ['owners/test.rrbin'])
+
+    def test_a_version_1_manifest_is_refused(self):
+        self.prepare('r1', b'old-rule')
+        m = json.load(open(os.path.join(self.rel, release.MANIFEST)))
+        m['manifest_version'] = 1
+        json.dump(m, open(os.path.join(self.rel, release.MANIFEST), 'w'))
+        with self.assertRaises(release.Refused):
+            release.fetch(self.rel, os.path.join(self.tmp, 'installed'))
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

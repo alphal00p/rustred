@@ -141,6 +141,15 @@ pub(crate) trait OrderedKernel {
     fn tail_key(&self, _encoded: &[u8]) -> Option<Self::Key> {
         None
     }
+    /// 12d2 resume binding: everything outside the request (keys,
+    /// coefficients, conditions) that can change a step of this program, e.g.
+    /// the library and its step identity. A v3 resume state stores its
+    /// BLAKE3 and is refused by a program whose identity differs.
+    fn resume_identity(&self, _out: &mut Vec<u8>) {}
+    /// 12d2: the part of [`Self::resume_identity`] that makes a run partial
+    /// by design (a target selection). A non-empty selection also enters the
+    /// request directory, so a projected and a full run never share one.
+    fn resume_selection(&self, _out: &mut Vec<u8>) {}
     /// Append the compact identity of `key` in a tail table (`false`, `out`
     /// unchanged: no compact form, nothing of the run is tabulated). The
     /// default is the step-cache encoding of the key's public view; adapters
@@ -604,21 +613,25 @@ pub(crate) trait OrderedWeights {
     }
     fn contribution_is_zero(&self, contribution: &Self::Contribution) -> bool;
     /// vk5l-physrun resume state (`resume`): bind the request directory
-    /// (`ops`: the op count of a saved state to continue from). `false`:
-    /// this arithmetic does not resume.
+    /// (`resume`: the op count of a saved state to continue from and its
+    /// trace digest, `None` for a state of format v1). `false`: this
+    /// arithmetic does not resume.
     fn resume_bind(
         &mut self,
         _dir: &std::path::Path,
-        _ops: Option<u64>,
+        _resume: Option<(u64, Option<[u8; 32]>)>,
     ) -> Result<bool, ReductionError> {
         Ok(false)
     }
     fn resume_save(&mut self, _w: &mut step_cache::codec::Writer) -> Result<(), ReductionError> {
         Err(invariant("this arithmetic keeps no resume state"))
     }
+    /// `digest`: the state is of format v3 (a 32-byte trace digest follows
+    /// the op count).
     fn resume_load(
         &mut self,
         _r: &mut step_cache::codec::Reader<'_>,
+        _digest: bool,
     ) -> Result<(), ReductionError> {
         Err(invariant("this arithmetic keeps no resume state"))
     }
@@ -1570,8 +1583,15 @@ fn modular_output(
     tadic_targets: Option<Vec<i32>>,
 ) -> Result<OrderedOutput, ReductionError> {
     crate::prof!(FinOutput);
+    let resume_dir = weights.resume_dir();
     let (finished, statistics) =
         weights.finish(output.terms, composer, tadic_targets.as_deref())?;
+    // 12d2: the result exists. Its state and trace go now, or (caller commit
+    // mode) once the caller has durably written the result
+    // ([`commit_resume`]).
+    if let Some(dir) = resume_dir {
+        resume::result_ready(dir);
+    }
     modular::report_statistics(&statistics);
     let (terms, composed, tadic) = match finished {
         modular::Finished::Terminals(terms) => (terms, None, None),
@@ -1586,6 +1606,21 @@ fn modular_output(
         work: output.work,
         progress: output.progress,
     })
+}
+
+/// 12d2: in caller-commit mode, a resumable request whose result exists
+/// keeps its final state and trace until the caller calls
+/// [`commit_resume`] after durably writing that result (a re-launch before
+/// that replays only). Off by default (state and trace removed when the
+/// result exists); `RUSTRED_RESUME_COMMIT=caller|engine` overrides.
+pub fn set_resume_caller_commit(on: bool) {
+    resume::set_caller_commit(on);
+}
+
+/// 12d2: remove the kept state and trace of every request of this process
+/// whose result exists (caller-commit mode); returns how many.
+pub fn commit_resume() -> usize {
+    resume::commit()
 }
 
 /// `RUSTRED_TEST_ORDERED_MODULAR=1` (or `sampled`) runs every exact Ordered
@@ -1979,8 +2014,11 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     let resume_dir = if tail.enabled {
         None
     } else {
-        resume::dir()
-            .and_then(|root| resume::request_dir::<K>(&root, &initial, &nonzero_conditions))
+        resume::dir().and_then(|root| {
+            let mut selection = Vec::new();
+            kernel.resume_selection(&mut selection);
+            resume::request_dir::<K>(&root, &initial, &nonzero_conditions, &selection)
+        })
     };
     let mut start_phase = 0;
     let mut restored = None;
@@ -1996,13 +2034,17 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     restored = Some(state);
                     Some(dir)
                 }
+                // A state that cannot be continued is a hard error, never a
+                // silent fresh start or a deletion: the directory (state +
+                // trace) is kept for inspection; remove it to start afresh.
                 Err(error) => {
-                    eprintln!(
-                        "rustred resume: state of {} unusable ({error}); starting afresh",
+                    let message = format!(
+                        "resume refused for {}: {error} (state and trace kept; remove the directory to start this \
+                         request afresh)",
                         dir.display()
                     );
-                    let _ = std::fs::remove_dir_all(&dir);
-                    weights.resume_bind(&dir, None)?.then_some(dir)
+                    eprintln!("rustred resume: {message}");
+                    return Err(modular::error(message).into());
                 }
             }
         }
@@ -2010,6 +2052,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         None => None,
     };
     let mut last_save = std::time::Instant::now();
+    // 12d2: the phase of the last saved state (a final state is saved after
+    // the last phase unless that phase was just saved).
+    let mut saved_phase: Option<usize> = start_phase.checked_sub(1);
     let mut state = match restored {
         Some(state) => state,
         None => crate::prof_wrap!(
@@ -2430,6 +2475,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                             bytes.len()
                         );
                         last_save = std::time::Instant::now();
+                        saved_phase = Some(phase);
                     }
                     Err(reason) => {
                         eprintln!("rustred resume: no state after phase {phase} ({reason})");
@@ -2445,9 +2491,26 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             }
         }
     }
-    if let Some(dir) = &resume_dir {
-        // The record pass is complete; its state is no longer needed.
-        let _ = std::fs::remove_file(dir.join("state.bin"));
+    // 12d2: the record pass is complete. Its state is KEPT (and saved now if
+    // the last phase was not just saved) until the replay has produced the
+    // result (`modular_output` removes state and trace then): a replay that
+    // stops (memory bound, OOM, signal) restarts as a replay only.
+    if let Some(dir) = &resume_dir
+        && let Some(last) = state.progress.total_phases.checked_sub(1)
+        && saved_phase != Some(last)
+    {
+        match resume_save(kernel, weights, &state, last) {
+            Ok(bytes) => {
+                resume::write_atomic(&dir.join("state.bin"), &bytes)
+                    .map_err(|e| modular::error(format!("resume state write: {e}")))?;
+                eprintln!(
+                    "rustred resume: final state saved after phase {last} ({} bytes): kept until the replay ends",
+                    bytes.len()
+                );
+            }
+            // not a correctness issue: only the replay is then not resumable
+            Err(reason) => eprintln!("rustred resume: no final state ({reason})"),
+        }
     }
     if let Some(tail) = tail {
         tail.finish(kernel, weights, request, work, &mut state)?;
@@ -2539,7 +2602,7 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
     phase: usize,
 ) -> Result<Vec<u8>, String> {
     let mut w = step_cache::codec::Writer { bytes: Vec::new() };
-    w.raw(resume::RESUME_VERSION.as_bytes());
+    w.raw(resume::STATE_FORMAT.as_bytes());
     w.varint(phase as u64);
     weights.resume_save(&mut w).map_err(|e| e.to_string())?;
     w.len(state.nonzero_conditions.len());
@@ -2573,7 +2636,21 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
         }
         weights.resume_put_weight(weight, &mut w);
     }
+    // 12d2: the program binding (trailer, so that the header read by
+    // ops/resume_check.py stays magic, phase, op count).
+    w.raw(resume_identity_digest(kernel).as_bytes());
+    // 12d2: the state's own digest over every preceding byte (all sections
+    // and the identity), verified before anything of the file is used.
+    let own = blake3::hash(&w.bytes);
+    w.raw(own.as_bytes());
     Ok(w.bytes)
+}
+
+/// 12d2: BLAKE3 of the kernel's resume identity (the state trailer).
+fn resume_identity_digest<K: OrderedKernel>(kernel: &K) -> blake3::Hash {
+    let mut identity = Vec::new();
+    kernel.resume_identity(&mut identity);
+    blake3::hash(&identity)
 }
 
 /// vk5l-physrun: the scheduler state saved by [`resume_save`] and the phase
@@ -2585,18 +2662,93 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
     dir: &std::path::Path,
     layout: FrontierLayout,
 ) -> Result<(Admitted<K, A>, usize), String> {
-    let bytes = std::fs::read(dir.join("state.bin")).map_err(|e| e.to_string())?;
-    let mut r = step_cache::codec::Reader::new(&bytes);
-    if r.take(resume::RESUME_VERSION.len())? != resume::RESUME_VERSION.as_bytes() {
-        return Err("another resume state version".to_owned());
+    let path = dir.join("state.bin");
+    let file = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    // 12d2 (format v3): the file ends with its own BLAKE3 and, before it, the
+    // BLAKE3 of the program identity that saved it; both are checked before
+    // anything of the file (or the trace) is used.
+    let current = file.starts_with(resume::STATE_FORMAT.as_bytes());
+    if !current && !file.starts_with(resume::RESUME_VERSION.as_bytes()) {
+        return Err(format!(
+            "{} is not a resume state of this format ({} expected)",
+            path.display(),
+            resume::STATE_FORMAT
+        ));
     }
+    let bytes: &[u8] = if current {
+        let content = file
+            .len()
+            .checked_sub(32)
+            .filter(|&n| n >= 32 + resume::STATE_FORMAT.len())
+            .ok_or_else(|| format!("{} is truncated", path.display()))?;
+        let own = blake3::hash(&file[..content]);
+        if file[content..] != *own.as_bytes() {
+            return Err(format!(
+                "the state file {} does not match its own digest ({} recorded, {} computed): it is damaged \
+                 and nothing of it is used",
+                path.display(),
+                blake3::Hash::from_bytes(file[content..].try_into().expect("32 bytes")).to_hex(),
+                own.to_hex()
+            ));
+        }
+        let body = content - 32;
+        let expected = resume_identity_digest(kernel);
+        if file[body..content] != *expected.as_bytes() {
+            return Err(format!(
+                "the saved state was made by another program, library or target selection \
+                 (identity {} saved, {} now)",
+                blake3::Hash::from_bytes(file[body..content].try_into().expect("32 bytes"))
+                    .to_hex(),
+                expected.to_hex()
+            ));
+        }
+        &file[..body]
+    } else {
+        // A v1 state carries neither a trace digest nor a program identity:
+        // it may come from a projected (target-selected) run of the same keys
+        // or another package revision. Refused unless the user vouches for it.
+        if std::env::var("RUSTRED_RESUME_ACCEPT_V1").as_deref() != Ok("1") {
+            return Err("a format v1 state (no trace digest, no program identity): it may come from a \
+                 projected run or another package; set RUSTRED_RESUME_ACCEPT_V1=1 to continue it after \
+                 checking that a full run of this package saved it and that its trace is intact \
+                 (ops/RESUME_CHECK.md)"
+                .to_owned());
+        }
+        eprintln!(
+            "rustred resume: WARNING: RUSTRED_RESUME_ACCEPT_V1=1: continuing a format v1 state in {}: \
+             it is NOT checked that this library without a target selection saved it",
+            dir.display()
+        );
+        &file
+    };
+    let mut r = step_cache::codec::Reader::new(bytes);
+    // format v3 (trace digest) or v1 (none: the trace is length-checked only)
+    let magic = r.take(resume::STATE_FORMAT.len())?;
+    let v2 = if magic == resume::STATE_FORMAT.as_bytes() {
+        true
+    } else if magic == resume::RESUME_VERSION.as_bytes() {
+        false
+    } else {
+        return Err("another resume state version".to_owned());
+    };
     let phase = r.varint()? as usize;
-    // The op count of the state: the spill file is cut back to it.
-    let ops = step_cache::codec::Reader::new(&bytes[r_position(&bytes, &r)..]).varint()?;
+    // The op count of the state (the trace must hold at least that many ops;
+    // it is cut back to them) and, in v3, the digest of that trace prefix.
+    let mut peek = step_cache::codec::Reader::new(&bytes[r_position(bytes, &r)..]);
+    let ops = peek.varint()?;
+    let digest = if v2 {
+        let d: [u8; 32] = peek
+            .take(32)?
+            .try_into()
+            .map_err(|_| "a short trace digest".to_owned())?;
+        Some(d)
+    } else {
+        None
+    };
     weights
-        .resume_bind(dir, Some(ops))
+        .resume_bind(dir, Some((ops, digest)))
         .map_err(|e| e.to_string())?;
-    weights.resume_load(&mut r).map_err(|e| e.to_string())?;
+    weights.resume_load(&mut r, v2).map_err(|e| e.to_string())?;
     let template = kernel.context().zero();
     let mut guards = GuardIndex::new();
     let mut nonzero_conditions = Vec::new();

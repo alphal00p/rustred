@@ -123,9 +123,12 @@ fn replay<R: Representation>(
         .first()
         .map_or(usize::MAX, |start| start.1);
     let mut clock = Instant::now();
+    let mut progress =
+        super::replay::Progress::new(format!("polynomial ({lanes} lanes)"), trace.ops.len());
     for (index, op) in trace.ops.iter().enumerate() {
         if index % CHECKPOINT_OPS == 0 {
             resources::checkpoint()?;
+            progress.at(index);
         }
         while index == next_boundary {
             let now = Instant::now();

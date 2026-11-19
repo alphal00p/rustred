@@ -539,12 +539,49 @@ fn format_reduction(library: &PLibrary, reduction: &PReduction) -> String {
     out
 }
 
+/// 12d2: `text` durably at `output`: written to `<output>.tmp`, fsynced,
+/// renamed, and the parent directory fsynced; the first failing step is
+/// returned with its path.
+fn durable_write(output: &str, text: &str) -> Result<(), String> {
+    use std::io::Write;
+    let tmp = format!("{output}.tmp");
+    let mut file =
+        std::fs::File::create(&tmp).map_err(|e| format!("creating {tmp} failed: {e}"))?;
+    file.write_all(text.as_bytes())
+        .map_err(|e| format!("writing {tmp} failed: {e}"))?;
+    file.sync_all()
+        .map_err(|e| format!("fsync of {tmp} failed: {e}"))?;
+    drop(file);
+    std::fs::rename(&tmp, output).map_err(|e| format!("renaming {tmp} to {output} failed: {e}"))?;
+    let parent = match std::path::Path::new(output).parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => std::path::PathBuf::from("."),
+    };
+    let dir = std::fs::File::open(&parent)
+        .map_err(|e| format!("opening directory {} failed: {e}", parent.display()))?;
+    dir.sync_all().map_err(|e| {
+        // the output is in place but not durable: withdraw it, so that a
+        // re-launch (which skips existing outputs) replays and commits again
+        let withdrawn = std::fs::remove_file(output).map_or_else(
+            |r| format!("; removing {output} failed too: {r}"),
+            |()| format!("; {output} withdrawn"),
+        );
+        format!(
+            "fsync of directory {} failed: {e}{withdrawn}",
+            parent.display()
+        )
+    })
+}
+
 fn reduce_files_cli(args: &[String]) {
+    // 12d2: a resumable request keeps its final state and trace until its
+    // output file is durably written (a failed write re-launches as a replay).
+    rustred::reduction::set_resume_caller_commit(true);
     let (library, _) = load(&args[0], false);
     let pruning = target_keep_from_env();
     let context = library.coefficient_context();
     let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
-    let modular = args.get(2).map(String::as_str) == Some("modular");
+    let mode = args.get(2).cloned().unwrap_or_default();
     let binding = library.step_cache_binding().expect("step cache binding");
     let options = rustred::reduction::OrderedStepCacheOptions {
         populate: true,
@@ -571,10 +608,10 @@ fn reduce_files_cli(args: &[String]) {
         let started = Instant::now();
         let inputs = read_inputs(context, input);
         let n = inputs.len();
-        let arithmetic = if modular {
-            modular_polynomial(threads)
-        } else {
-            OrderedWeightArithmetic::Exact
+        let arithmetic = match mode.as_str() {
+            "modular" | "polynomial" => modular_polynomial(threads),
+            "sampled" => modular_sampled(threads),
+            _ => OrderedWeightArithmetic::Exact,
         };
         let result = library.reduce(PReductionRequest {
             inputs,
@@ -594,9 +631,13 @@ fn reduce_files_cli(args: &[String]) {
             Ok(reduction) => format_reduction(&library, reduction),
             Err(error) => format!("error: {error}\n"),
         };
-        let tmp = format!("{output}.tmp");
-        std::fs::write(&tmp, text).expect("write output");
-        std::fs::rename(&tmp, output).expect("rename output");
+        // 12d2: write, fsync, rename, fsync of the directory; on ANY failure the
+        // resume files stay (no commit) and the process exits non-zero.
+        if let Err(error) = durable_write(output, &text) {
+            eprintln!("reduce-files: {error}; output NOT committed, resume state and trace kept");
+            std::process::exit(5);
+        }
+        rustred::reduction::commit_resume();
         let saved = if std::env::var("P_STEP_CACHE").is_ok() {
             format!("{:?}", cache.save().map(|_| "saved"))
         } else {
@@ -728,13 +769,32 @@ fn read_inputs(context: &CoefficientContext, path: &str) -> Vec<Input> {
     inputs
 }
 
+/// 12d2: the regular file behind stdout (`None` for a pipe, terminal, ...).
+fn stdout_file() -> Option<std::path::PathBuf> {
+    let path = std::fs::read_link("/proc/self/fd/1").ok()?;
+    std::fs::metadata(&path).ok()?.is_file().then_some(path)
+}
+
 fn reduce_file_cli(args: &[String]) {
+    // 12d2: the resume files stay until the result is printed to a regular
+    // file and that file and its directory are fsynced; a resumable request
+    // whose stdout is not a regular file (pipe, terminal) is refused up front:
+    // its output could not be made durable (use reduce-files).
+    rustred::reduction::set_resume_caller_commit(true);
+    if std::env::var_os("RUSTRED_RESUME_DIR").is_some() && stdout_file().is_none() {
+        eprintln!(
+            "reduce-file: RUSTRED_RESUME_DIR is set but stdout is not a regular file: the output could not be made \
+             durable before the resume files are released; redirect stdout to a file or use reduce-files"
+        );
+        std::process::exit(2);
+    }
     let (library, _) = load(&args[0], false);
     let pruning = target_keep_from_env();
     let context = library.coefficient_context();
     let threads: usize = args.get(3).map_or(1, |t| t.parse().expect("threads"));
     let arithmetic = match args.get(2).map(String::as_str) {
-        Some("modular") => modular_polynomial(threads),
+        Some("modular" | "polynomial") => modular_polynomial(threads),
+        Some("sampled") => modular_sampled(threads),
         _ => OrderedWeightArithmetic::Exact,
     };
     let started = Instant::now();
@@ -767,6 +827,33 @@ fn reduce_file_cli(args: &[String]) {
         rustred::propagator::engine::target_pruned_count()
     );
     print_reduction(&library, result);
+    {
+        use std::io::Write;
+        if let Err(e) = std::io::stdout().flush() {
+            eprintln!("reduce-file: writing the result failed ({e}); resume state and trace kept");
+            std::process::exit(4);
+        }
+    }
+    if let Some(path) = stdout_file() {
+        // fsync of the file behind fd 1 (same inode) and of its directory
+        let file_sync = std::fs::File::open(&path).and_then(|f| f.sync_all());
+        let dir = path
+            .parent()
+            .map_or_else(|| std::path::PathBuf::from("."), |p| p.to_path_buf());
+        let dir_sync = std::fs::File::open(&dir).and_then(|d| d.sync_all());
+        if let Err(e) = file_sync.and(dir_sync) {
+            eprintln!(
+                "reduce-file: fsync of the output {} or its directory failed ({e}); resume state and trace kept",
+                path.display()
+            );
+            std::process::exit(5);
+        }
+    } else if std::env::var_os("RUSTRED_RESUME_DIR").is_some() {
+        // checked at the start; stdout changed under us: keep the resume files
+        eprintln!("reduce-file: stdout is no longer a regular file; resume state and trace kept");
+        std::process::exit(5);
+    }
+    rustred::reduction::commit_resume();
 }
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
@@ -857,6 +944,27 @@ fn encoding(args: &[String]) {
 
 fn exact() -> ExactAlgebraLimits {
     ExactAlgebraLimits::default()
+}
+
+/// sampled-replay: the bounded-memory replay of the same recorded trace at
+/// vectors of sample points (memory = peak live slots x batch width x 8 B per
+/// batch): `RUSTRED_SAMPLED_BATCH_POINTS` (default 128) sets the width.
+/// A 12d2 final state recorded under `modular` continues as `sampled`.
+fn modular_sampled(threads: usize) -> OrderedWeightArithmetic {
+    let mut options = rustred::reduction::SampledOptions::default();
+    if let Some(points) = std::env::var("RUSTRED_SAMPLED_BATCH_POINTS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+    {
+        options.batch_points = points;
+    }
+    OrderedWeightArithmetic::ModularSampled(
+        ModularCommon {
+            threads,
+            ..Default::default()
+        },
+        options,
+    )
 }
 
 fn modular_polynomial(threads: usize) -> OrderedWeightArithmetic {

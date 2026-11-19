@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
 """release.py: the delivery side of the heavy 1-5 p package (vk5l WP6). No network, no tag, no upload.
 
-  release.py manifest <package dir> <release dir> [--selection selection.json] [--link] [--name NAME]
+  release.py manifest <package dir> <release dir> [--selection selection.json] [--link] [--name NAME] [--reuse-verified]
+      The release dir must be EMPTY (or absent): a used asset directory is refused, because an asset is never reused by
+      its file name (2026-11-18 review: restaging into a used directory published old bytes under a new revision).
+      --reuse-verified allows a used directory: an existing asset is reused only if its DECODED content has the
+      source file's sha256, otherwise the run is refused before any manifest is written.
       Writes the RELEASE LAYOUT of a written package (`p5l_library assemble` output, `library.json` at its root):
         <release dir>/p-package.json        the package manifest (schema vakint.p-package-release.v1)
         <release dir>/assets/<asset file>   one asset per file of the package:
@@ -9,8 +13,9 @@
             are gzip-compressed (<path>.gz); owner payloads (owners/*.rrbin) are copied verbatim (a gzip-encoded payload
             is already compressed: PayloadRecord.encoding); census.json (only the VERIFIED load reads it) is an
             OPTIONAL gzip asset.
-      Per asset: the installed path, installed bytes, stored bytes and the sha256 of the STORED bytes (transport
-      checksum only: never a cache key, never part of an identity). Validity of the package is its version
+      Per asset: the installed path, installed bytes, stored bytes, the sha256 of the STORED bytes (transport
+      checksum) and content_sha256 = the sha256 of the INSTALLED (decoded) bytes, i.e. of the source file (the
+      install check; never a cache key, never part of an identity). Validity of the package is its version
       constants (library.json identity, P_PACKAGE_REVISION, the p_versions); the manifest repeats them.
       With --selection, the manifest also lists per 5L top the owner payloads it needs (a partial fetch of some tops),
       the open nodes and the boxed nodes. --link hard-links verbatim assets instead of copying (local staging).
@@ -24,11 +29,16 @@
       installed file: bytes and the verified transport sha256), so a second fetch is offline (no read of the
       source beyond its manifest) and a load needs no re-hash.
 
-  release.py check <install dir>
-      Sizes of every installed file against INSTALLED.json (no hashing): what a loader may do on every start.
+  release.py check <install dir> [--digest]
+      Sizes of every installed file against INSTALLED.json (no hashing): what a loader may do on every start;
+      --digest also re-hashes every installed file against its content_sha256 and checks library.json's identity.
+
+  release.py compare <install dir> <inventory.json>
+      Every installed file against a frozen SOURCE inventory ({"files": {path: {"bytes", "sha256"}}}, the sha256 of
+      the uncompressed source files): missing, extra (besides p-package.json / INSTALLED.json) and differing files.
 
 Schema and version constants (simple versions, no digests in any identity):
-  P_PACKAGE_RELEASE_SCHEMA = vakint.p-package-release.v1, P_PACKAGE_MANIFEST_VERSION = 1,
+  P_PACKAGE_RELEASE_SCHEMA = vakint.p-package-release.v1, P_PACKAGE_MANIFEST_VERSION = 2,
   P_INSTALL_RECORD_SCHEMA = vakint.p-package-install.v1.
 """
 import gzip
@@ -40,7 +50,8 @@ import sys
 import time
 
 P_PACKAGE_RELEASE_SCHEMA = 'vakint.p-package-release.v1'
-P_PACKAGE_MANIFEST_VERSION = 1
+# 2 (2026-11-18): content_sha256 per file, checked at install; a v1 manifest has none and is refused.
+P_PACKAGE_MANIFEST_VERSION = 2
 P_INSTALL_RECORD_SCHEMA = 'vakint.p-package-install.v1'
 MANIFEST = 'p-package.json'
 INSTALLED = 'INSTALLED.json'
@@ -66,6 +77,14 @@ def sha256_file(path):
     return h.hexdigest()
 
 
+def sha256_gzip_content(path):
+    h = hashlib.sha256()
+    with gzip.open(path, 'rb') as f:
+        for block in iter(lambda: f.read(CHUNK), b''):
+            h.update(block)
+    return h.hexdigest()
+
+
 def walk(root):
     out = []
     for d, _, files in os.walk(root):
@@ -85,9 +104,15 @@ def kind_of(path):
     return 'other'
 
 
-def write_manifest(package, release, selection=None, link=False, name=None):
+def write_manifest(package, release, selection=None, link=False, name=None, reuse_verified=False):
     lib = json.load(open(os.path.join(package, 'library.json')))
-    os.makedirs(os.path.join(release, 'assets'), exist_ok=True)
+    assets = os.path.join(release, 'assets')
+    used = (os.path.exists(os.path.join(release, MANIFEST))
+            or (os.path.isdir(assets) and any(os.scandir(assets))))
+    if used and not reuse_verified:
+        raise Refused(f'{release} is not empty: a release layout is written into an EMPTY directory '
+                      '(or pass --reuse-verified to reuse only assets whose decoded content matches the source)')
+    os.makedirs(assets, exist_ok=True)
     files = {}
     for path in walk(package):
         if path in ('ASSEMBLED.ok',) or path.endswith('.partial'):
@@ -97,6 +122,13 @@ def write_manifest(package, release, selection=None, link=False, name=None):
         compressed = kind in ('core', 'optional', 'other')
         stored = path.replace('/', '__') + ('.gz' if compressed else '')
         dst = os.path.join(release, 'assets', stored)
+        content = sha256_file(src)
+        if os.path.exists(dst):
+            # only reachable with reuse_verified: reuse only if the asset decodes to the source bytes
+            have = sha256_gzip_content(dst) if compressed else sha256_file(dst)
+            if have != content:
+                raise Refused(f'{dst}: existing asset decodes to sha256 {have}, the source {src} has {content}: '
+                              'refused (write the release into an empty directory)')
         if compressed:
             if not os.path.exists(dst):
                 with open(src, 'rb') as fi, gzip.open(dst + '.tmp', 'wb', compresslevel=6) as fo:
@@ -110,7 +142,7 @@ def write_manifest(package, release, selection=None, link=False, name=None):
                 os.replace(dst + '.tmp', dst)
         files[path] = {'kind': kind, 'asset': stored, 'encoding': 'gzip' if compressed else None,
                        'bytes': os.path.getsize(src), 'stored_bytes': os.path.getsize(dst),
-                       'sha256': sha256_file(dst)}
+                       'sha256': sha256_file(dst), 'content_sha256': content}
     owners = {o['class']: o for o in lib['owners']}
     manifest = {
         'schema': P_PACKAGE_RELEASE_SCHEMA,
@@ -203,8 +235,9 @@ def source_path(source):
     return source[len('file://'):] if source.startswith('file://') else source
 
 
-def copy_verified(src, dst, expected_sha, expected_bytes, encoding, installed_bytes):
-    """Stream src into dst.part (resuming), check the stored sha256, then decode (gzip) or rename."""
+def copy_verified(src, dst, expected_sha, expected_bytes, encoding, installed_bytes, content_sha):
+    """Stream src into dst.part (resuming), check the stored sha256, then decode (gzip) or rename; the installed
+    bytes must have content_sha (the source file's sha256) before they are renamed into place."""
     part = dst + '.part'
     os.makedirs(os.path.dirname(dst) or '.', exist_ok=True)
     h = hashlib.sha256()
@@ -226,14 +259,21 @@ def copy_verified(src, dst, expected_sha, expected_bytes, encoding, installed_by
         raise Refused(f'{src}: stored bytes/sha256 differ from the manifest ({os.path.getsize(src)} B); refused')
     if encoding == 'gzip':
         tmp = dst + '.decoded'
+        hc = hashlib.sha256()
         with gzip.open(part, 'rb') as fi, open(tmp, 'wb') as fo:
-            shutil.copyfileobj(fi, fo, CHUNK)
-        if os.path.getsize(tmp) != installed_bytes:
+            for block in iter(lambda: fi.read(CHUNK), b''):
+                hc.update(block)
+                fo.write(block)
+        if os.path.getsize(tmp) != installed_bytes or hc.hexdigest() != content_sha:
             os.remove(tmp)
-            raise Refused(f'{src}: decoded size {os.path.getsize(tmp)} != {installed_bytes}')
+            raise Refused(f'{src}: decoded {os.path.getsize(tmp)} B sha256 {hc.hexdigest()} != {installed_bytes} B '
+                          f'{content_sha} (manifest content digest); refused')
         os.replace(tmp, dst)
         os.remove(part)
     else:
+        if h.hexdigest() != content_sha or os.path.getsize(part) != installed_bytes:
+            os.remove(part)
+            raise Refused(f'{src}: verbatim asset sha256 {h.hexdigest()} != content digest {content_sha}; refused')
         os.replace(part, dst)
 
 
@@ -270,7 +310,8 @@ def fetch(source, dest, tops=None, optional=False, interrupt_after=None):
         f = manifest['files'][path]
         dst = os.path.join(dest, path)
         have = installed.get(path)
-        if have and have.get('sha256') == f['sha256'] and os.path.exists(dst) and os.path.getsize(dst) == f['bytes']:
+        if (have and have.get('sha256') == f['sha256'] and have.get('content_sha256') == f['content_sha256']
+                and os.path.exists(dst) and os.path.getsize(dst) == f['bytes']):
             stats['reused'] += 1
             continue
         asset = os.path.join(src, 'assets', f['asset'])
@@ -280,13 +321,17 @@ def fetch(source, dest, tops=None, optional=False, interrupt_after=None):
             with open(asset, 'rb') as fi, open(dst + '.part', 'ab') as fo:
                 fo.write(fi.read(interrupt_after))
             raise KeyboardInterrupt('simulated interruption')
-        copy_verified(asset, dst, f['sha256'], f['stored_bytes'], f['encoding'], f['bytes'])
-        installed[path] = {'bytes': f['bytes'], 'sha256': f['sha256'], 'utc': utc()}
+        copy_verified(asset, dst, f['sha256'], f['stored_bytes'], f['encoding'], f['bytes'], f['content_sha256'])
+        installed[path] = {'bytes': f['bytes'], 'sha256': f['sha256'], 'content_sha256': f['content_sha256'],
+                           'utc': utc()}
         stats['fetched'] += 1
         stats['bytes'] += f['stored_bytes']
         # The record is rewritten after every file: an interrupted fetch keeps what it verified.
         write_record(rec_path, manifest, installed, tops)
     write_record(rec_path, manifest, installed, tops)
+    lib_identity = json.load(open(os.path.join(dest, 'library.json'))).get('identity')
+    if lib_identity != manifest['identity']:
+        raise Refused(f'installed library.json identity {lib_identity} != manifest identity {manifest["identity"]}')
     shutil.copyfile(os.path.join(src, MANIFEST), os.path.join(dest, MANIFEST))
     return stats
 
@@ -299,11 +344,27 @@ def write_record(path, manifest, installed, tops):
     os.replace(path + '.tmp', path)
 
 
-def check(dest):
+def check(dest, digest=False):
     rec = json.load(open(os.path.join(dest, INSTALLED)))
     bad = [p for p, f in rec['files'].items()
-           if not os.path.exists(os.path.join(dest, p)) or os.path.getsize(os.path.join(dest, p)) != f['bytes']]
+           if not os.path.exists(os.path.join(dest, p)) or os.path.getsize(os.path.join(dest, p)) != f['bytes']
+           or (digest and sha256_file(os.path.join(dest, p)) != f.get('content_sha256'))]
+    if digest and json.load(open(os.path.join(dest, 'library.json'))).get('identity') != rec['identity']:
+        bad.append('library.json: identity differs from the install record')
     return rec, bad
+
+
+def compare(dest, inventory):
+    """Installed files vs a frozen source inventory (sha256 of the uncompressed source files)."""
+    inv = json.load(open(inventory))['files']
+    got = {p for p in walk(dest) if p not in (MANIFEST, INSTALLED)}
+    missing = sorted(set(inv) - got)
+    extra = sorted(got - set(inv))
+    differ = sorted(p for p in set(inv) & got
+                    if os.path.getsize(os.path.join(dest, p)) != inv[p]['bytes']
+                    or sha256_file(os.path.join(dest, p)) != inv[p]['sha256'])
+    return {'inventory_files': len(inv), 'installed_files': len(got), 'missing': missing, 'extra': extra,
+            'differ': differ}
 
 
 def main(argv):
@@ -314,7 +375,11 @@ def main(argv):
     if cmd == 'manifest':
         sel = argv[argv.index('--selection') + 1] if '--selection' in argv else None
         name = argv[argv.index('--name') + 1] if '--name' in argv else None
-        m = write_manifest(argv[1], argv[2], sel, '--link' in argv, name)
+        try:
+            m = write_manifest(argv[1], argv[2], sel, '--link' in argv, name, '--reuse-verified' in argv)
+        except Refused as error:
+            print(f'refused: {error}', file=sys.stderr)
+            return 3
         print(json.dumps(m['totals'], indent=1))
         return 0
     if cmd == 'fetch':
@@ -329,9 +394,13 @@ def main(argv):
         print(json.dumps(stats))
         return 0
     if cmd == 'check':
-        rec, bad = check(argv[1])
+        rec, bad = check(argv[1], '--digest' in argv)
         print(json.dumps({'files': len(rec['files']), 'bad': bad}))
         return 0 if not bad else 3
+    if cmd == 'compare':
+        r = compare(argv[1], argv[2])
+        print(json.dumps(r))
+        return 0 if not (r['missing'] or r['extra'] or r['differ']) else 3
     print(__doc__)
     return 2
 

@@ -96,6 +96,73 @@ fn evaluate_table(
     })
 }
 
+/// sampled-replay: a progress line of a replay every
+/// `RUSTRED_REPLAY_PROGRESS` ops (default 2^28; 0 = silent): position / total,
+/// anonymous memory, elapsed seconds and the rate since the start.
+pub(super) struct Progress {
+    kind: String,
+    total: usize,
+    every: usize,
+    next: usize,
+    started: std::time::Instant,
+}
+
+impl Progress {
+    pub(super) fn new(kind: String, total: usize) -> Self {
+        static EVERY: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+        let every = *EVERY.get_or_init(|| {
+            std::env::var("RUSTRED_REPLAY_PROGRESS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(1 << 28)
+        });
+        Self {
+            kind,
+            total,
+            every,
+            next: every,
+            started: std::time::Instant::now(),
+        }
+    }
+
+    /// Called with the number of ops replayed so far (cheap unless due).
+    #[inline]
+    pub(super) fn at(&mut self, position: usize) {
+        if self.every == 0 || position < self.next {
+            return;
+        }
+        self.next = position + self.every;
+        let seconds = self.started.elapsed().as_secs_f64();
+        let anon_kb: u64 = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("RssAnon:"))
+                    .and_then(|l| l.split_whitespace().nth(1)?.parse().ok())
+            })
+            .unwrap_or(0);
+        eprintln!(
+            "rustred replay: {} op {position} / {} ({:.1} %), anon {:.2} GiB, {seconds:.0} s, {:.2} us/op",
+            self.kind,
+            self.total,
+            100.0 * position as f64 / self.total.max(1) as f64,
+            anon_kb as f64 / 1048576.0,
+            1e6 * seconds / position.max(1) as f64
+        );
+    }
+}
+
+/// Astra proposal 3: `RUSTRED_REPLAY_PRODUCT_CACHE` entries (0 = off).
+fn product_cache_entries() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_REPLAY_PRODUCT_CACHE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
 /// Evaluate the trace at `points` (distinct, Montgomery form) modulo `field`.
 pub(super) fn replay(
     trace: &Trace,
@@ -115,17 +182,30 @@ pub(super) fn replay(
     let interval = checkpoint_interval(width);
     let mut countdown = interval;
     let kernel = Kernel::new(field);
-    for op in &trace.ops {
+    let mut progress = Progress::new(format!("sampled ({width} points)"), trace.ops.len());
+    // Astra proposal 3 (RUSTRED_REPLAY_PRODUCT_CACHE=<entries>, off by default):
+    // the products 'popped weight x coefficient' of the current Pop, keyed by
+    // the whole coefficient reference, reused for its later destinations;
+    // cleared at every Pop. Same field products, same additions: bit-identical.
+    let cache_entries = product_cache_entries();
+    let mut cache_keys: Vec<u32> = Vec::with_capacity(cache_entries);
+    let mut cache_values: Vec<Fe> = vec![zero; cache_entries * width];
+    let mut cache_next = 0usize;
+    let (mut cache_hits, mut cache_misses) = (0u64, 0u64);
+    for (index, op) in trace.ops.iter().enumerate() {
         countdown -= 1;
         if countdown == 0 {
             countdown = interval;
             resources::checkpoint().map_err(ReplayError::Stopped)?;
+            progress.at(index);
         }
         let tag = op.tag();
         let slot = op.slot();
         match tag {
             OpTag::Pop => {
                 active.copy_from_slice(&weights[slot * width..(slot + 1) * width]);
+                cache_keys.clear();
+                cache_next = 0;
                 continue;
             }
             OpTag::Cancel | OpTag::TermCancel => {
@@ -159,7 +239,51 @@ pub(super) fn replay(
             let row = reference.index() * width;
             Coefficient::Row(&table.polynomials[row..row + width])
         };
-        kernel.apply(field, destination, source, coefficient, assign);
+        if cache_entries == 0 || matches!(tag, OpTag::Init) {
+            kernel.apply(field, destination, source, coefficient, assign);
+            continue;
+        }
+        let key = reference.0;
+        let at = match cache_keys.iter().position(|&k| k == key) {
+            Some(at) => {
+                cache_hits += 1;
+                at
+            }
+            None => {
+                cache_misses += 1;
+                let at = if cache_keys.len() < cache_entries {
+                    cache_keys.push(key);
+                    cache_keys.len() - 1
+                } else {
+                    let at = cache_next;
+                    cache_keys[at] = key;
+                    cache_next = (cache_next + 1) % cache_entries;
+                    at
+                };
+                kernel.apply(
+                    field,
+                    &mut cache_values[at * width..(at + 1) * width],
+                    source,
+                    coefficient,
+                    true,
+                );
+                at
+            }
+        };
+        let product = &cache_values[at * width..(at + 1) * width];
+        if assign {
+            destination.copy_from_slice(product);
+        } else {
+            for (d, p) in destination.iter_mut().zip(product) {
+                *d = field.add(&*d, p);
+            }
+        }
+    }
+    if cache_entries > 0 {
+        eprintln!(
+            "rustred replay: product cache {cache_entries} entries, width {width}: {cache_hits} hits, {cache_misses} misses ({:.1} %)",
+            100.0 * cache_hits as f64 / (cache_hits + cache_misses).max(1) as f64
+        );
     }
     Ok(ReplayBatch {
         values: terminals,
