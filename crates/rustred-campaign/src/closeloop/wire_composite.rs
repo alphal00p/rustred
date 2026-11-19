@@ -744,10 +744,17 @@ impl Stage {
         addr.extend_from_slice(&pb);
         let tag = &blake3_hex(&addr)[..16];
         let jdir = dir.join(format!("job.{tag}"));
-        let files = if jdir.join("request.json").exists() {
-            existing_job_files(&jdir)?
-        } else {
-            symcomp::job_files(&jdir, &req, &prog_sha).map_err(|e| e.to_string())?
+        // procfix7 round 19 (landing, int8b-gate review (ii) wire_composite.rs:747 / INT8-STAGE2 section 8 row 14): a
+        // request that cannot be checked is never rewritten (an error of the composite request)
+        let files = match crate::fsx::presence_lstat("closeloop.output", &jdir.join("request.json"))
+        {
+            crate::fsx::Presence::Present(_) => existing_job_files(&jdir)?,
+            crate::fsx::Presence::Absent => {
+                symcomp::job_files(&jdir, &req, &prog_sha).map_err(|e| e.to_string())?
+            }
+            crate::fsx::Presence::Unknown(e) => {
+                return Err(format!("{}/request.json: {e}", jdir.display()));
+            }
         };
         let fake = c.fake.composite.as_ref().map(|o| script(o));
         let cfg = SymCompJobConfig {
@@ -1507,9 +1514,20 @@ fn round_pass(
                 finding: false,
             })
             .collect();
-        let fam_b3 = runs
-            .first()
-            .and_then(|(kj, _)| std::fs::read(cdir.join(&kj.dir).join("request.json")).ok())
+        // procfix7 round 19 (landing, int8b-gate review (ii) wire_composite.rs:1512): a request.json that cannot be
+        // READ is an error of the round (it was "": every certificate then ended family_differs, misnamed)
+        let request_bytes = match runs.first() {
+            None => None,
+            Some((kj, _)) => {
+                let rp = cdir.join(&kj.dir).join("request.json");
+                match crate::fsx::read("closeloop.output", &rp) {
+                    crate::fsx::Read::Content(b) => Some(b),
+                    crate::fsx::Read::Absent => None,
+                    crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", rp.display())),
+                }
+            }
+        };
+        let fam_b3 = request_bytes
             .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
             .and_then(|v| v["family_blake3"].as_str().map(str::to_string))
             .unwrap_or_default();
