@@ -409,7 +409,9 @@ fn cgroup_memory_value(p: &Path) -> io::Result<Option<u64>> {
             io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
         }),
         crate::fsx::Read::Absent => Ok(None),
-        crate::fsx::Read::Failed(e) => Err(io::Error::new(e.kind(), format!("{}: {e}", p.display()))),
+        crate::fsx::Read::Failed(e) => {
+            Err(io::Error::new(e.kind(), format!("{}: {e}", p.display())))
+        }
     }
 }
 
