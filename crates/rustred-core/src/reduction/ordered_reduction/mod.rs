@@ -2458,10 +2458,15 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             // boundary): written as the state after phase - 1, so a restore
             // continues this phase from the remaining frontier (the pop order
             // depends only on the frontier: the same sequence as without a stop).
+            // Low disk: save at this key boundary and PAUSE (stop), so a
+            // restart continues here instead of the spill failing mid-write.
+            let low_disk = resume_dir
+                .as_ref()
+                .is_some_and(|dir| progress.processed_keys % 4096 == 0 && resume::disk_low(dir));
             if phase > 0
                 && let Some(dir) = &resume_dir
                 && steps.threads() <= 1
-                && resume::inphase_due(progress.processed_keys, &last_save)
+                && (low_disk || resume::inphase_due(progress.processed_keys, &last_save))
             {
                 match resume_save_parts(
                     kernel,
@@ -2480,6 +2485,13 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                             progress.processed_keys
                         );
                         last_save = std::time::Instant::now();
+                        if low_disk {
+                            return Err(modular::error(format!(
+                                "paused: low disk under {} (state saved inside phase {phase}; restart to continue)",
+                                dir.display()
+                            ))
+                            .into());
+                        }
                         if resume::stop_inphase() {
                             return Err(invariant(
                                 "stopped after a save inside a phase (RUSTRED_RESUME_STOP_INPHASE)",

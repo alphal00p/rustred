@@ -118,6 +118,33 @@ pub(crate) fn inphase_due(keys: usize, last_save: &std::time::Instant) -> bool {
             })
 }
 
+/// The resume directory's filesystem has less than `RUSTRED_RESUME_DISK_MIN_GB`
+/// (default 50) GB available, or the host's disk guard raised
+/// `RUSTRED_DISK_LOW_FLAG` (a file path; set by the lane's environment).
+pub(crate) fn disk_low(dir: &Path) -> bool {
+    use std::sync::OnceLock;
+    static MIN: OnceLock<u64> = OnceLock::new();
+    let min_gb = *MIN.get_or_init(|| {
+        std::env::var("RUSTRED_RESUME_DISK_MIN_GB")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(50)
+    });
+    if std::env::var_os("RUSTRED_DISK_LOW_FLAG").is_some_and(|flag| Path::new(&flag).exists()) {
+        return true;
+    }
+    let Ok(path) = std::ffi::CString::new(dir.as_os_str().as_encoded_bytes()) else {
+        return false;
+    };
+    // SAFETY: statvfs on a NUL-terminated path into a zeroed struct.
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    if unsafe { libc::statvfs(path.as_ptr(), &mut stat) } != 0 {
+        return false;
+    }
+    let available = stat.f_bavail as u64 * stat.f_frsize as u64;
+    available < min_gb.saturating_mul(1 << 30)
+}
+
 /// Test hook: stop right after the first save inside a phase.
 pub(crate) fn stop_inphase() -> bool {
     std::env::var("RUSTRED_RESUME_STOP_INPHASE").as_deref() == Ok("1")
