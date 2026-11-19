@@ -17,10 +17,10 @@ pub mod body;
 pub mod class;
 pub mod cone;
 pub mod descent;
-pub mod symrows;
 pub mod ladder;
 pub mod legacy;
 pub mod regularity;
+pub mod symrows;
 pub mod validate;
 
 use class::{CheckSummary, Classed, ConeEvidence, Kind, Origin, SampleEvidence};

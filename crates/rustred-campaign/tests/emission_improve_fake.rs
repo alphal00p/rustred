@@ -31,10 +31,17 @@ fn rec(fixed: Value, target: &str, exc: Value, monomials: u64) -> Value {
 /// rule's own relation and domain sha256).
 fn table_and_evidence(dir: &Path) -> (PathBuf, PathBuf) {
     let t = dir.join("T.table.jsonl");
-    let mut lines = vec![json!({"type":"header","schema":"table_dump.v1","family":"TOY","mask":"110","denominators":3,
-        "node_order":{"name":"id","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}})];
+    let mut lines = vec![
+        json!({"type":"header","schema":"table_dump.v1","family":"TOY","mask":"110","denominators":3,
+        "node_order":{"name":"id","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}}),
+    ];
     let rules = [
-        (json!([null, null, null]), "I(n0,n1,n2)", json!([["-1+n0"], ["n2"]]), 5000u64),
+        (
+            json!([null, null, null]),
+            "I(n0,n1,n2)",
+            json!([["-1+n0"], ["n2"]]),
+            5000u64,
+        ),
         (json!([1, null, null]), "I(1,n1,n2)", json!([]), 3000),
         (json!([1, 1, null]), "I(1,1,n2)", json!([]), 10),
     ];
@@ -51,7 +58,11 @@ fn table_and_evidence(dir: &Path) -> (PathBuf, PathBuf) {
         lines.push(r);
     }
     lines.push(json!({"type":"end","charts":1,"rules":3}));
-    std::fs::write(&t, lines.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
+    std::fs::write(
+        &t,
+        lines.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
+    .unwrap();
     let ev = dir.join("verdicts.tsv");
     std::fs::write(&ev, tsv).unwrap();
     let cfg = dir.join("import.json");
@@ -114,11 +125,13 @@ fn spec(t: &Tmp, cfg: &Path) -> PathBuf {
 }
 
 fn table_check(table: &Path) -> (Value, bool) {
-    rustred_campaign::emission::tablecheck::table_check(&rustred_campaign::emission::tablecheck::Args {
-        table: table.to_path_buf(),
-        every: 1,
-        ..Default::default()
-    })
+    rustred_campaign::emission::tablecheck::table_check(
+        &rustred_campaign::emission::tablecheck::Args {
+            table: table.to_path_buf(),
+            every: 1,
+            ..Default::default()
+        },
+    )
     .unwrap()
 }
 
@@ -131,13 +144,15 @@ fn improve_with_emission_writes_replacements_only_through_the_emitter_and_table_
     let (raw, icfg) = table_and_evidence(&m);
     // 1. legacy import: every record carries its derivation member (class from the bound proof objects)
     let imp = m.join("imported");
-    let (s, ok) = rustred_campaign::emission::legacy_import::run(&rustred_campaign::emission::legacy_import::Args {
-        table: raw.clone(),
-        config: icfg,
-        out: imp.clone(),
-        write_table: true,
-        policy: None,
-    })
+    let (s, ok) = rustred_campaign::emission::legacy_import::run(
+        &rustred_campaign::emission::legacy_import::Args {
+            table: raw.clone(),
+            config: icfg,
+            out: imp.clone(),
+            write_table: true,
+            policy: None,
+        },
+    )
     .unwrap();
     assert!(ok, "{s:#}");
     assert_eq!(s["by_word"]["whole domain"], 3, "{s:#}");
@@ -150,8 +165,10 @@ fn improve_with_emission_writes_replacements_only_through_the_emitter_and_table_
     let d = t.cdir("cdir");
     let codes = run_to_end(&sp, &d, &["--plain"]);
     assert_eq!(codes.last(), Some(&0), "{}", log_tail(&d));
-    let res: Value =
-        serde_json::from_slice(&std::fs::read(d.join("genchoice/toy/improve/result.r1.json")).unwrap()).unwrap();
+    let res: Value = serde_json::from_slice(
+        &std::fs::read(d.join("genchoice/toy/improve/result.r1.json")).unwrap(),
+    )
+    .unwrap();
     assert_eq!(res["replaced"], 1, "{res:#}");
     let out = PathBuf::from(res["table_out"]["path"].as_str().unwrap());
     let lines: Vec<String> = std::fs::read_to_string(&out)
@@ -163,15 +180,22 @@ fn improve_with_emission_writes_replacements_only_through_the_emitter_and_table_
         let (body, der) = strip_derivation(&lines[i]).unwrap();
         (
             serde_json::from_str(&body).unwrap(),
-            serde_json::from_str(&der.expect("every rule line carries its derivation member")).unwrap(),
+            serde_json::from_str(&der.expect("every rule line carries its derivation member"))
+                .unwrap(),
         )
     };
     // rule 0: the replacement, emitted (origin lift, the fake checker's output and the certificate beside the table)
     let (b0, d0) = rule(1);
-    assert_eq!((b0["index"].as_i64(), b0["monomials"].as_u64()), (Some(0), Some(100)));
+    assert_eq!(
+        (b0["index"].as_i64(), b0["monomials"].as_u64()),
+        (Some(0), Some(100))
+    );
     assert_eq!(d0["origin"], "lift", "{d0:#}");
     assert_eq!(d0["class"]["word"], "whole domain", "{d0:#}");
-    assert!(b0.get("fake_weight_cert").is_none(), "the certificate is not in the record");
+    assert!(
+        b0.get("fake_weight_cert").is_none(),
+        "the certificate is not in the record"
+    );
     let side = rustred_campaign_core::emission::side_dir(&out);
     let cert = d0["certificate"]["sha256"].as_str().unwrap();
     assert!(side.join(format!("cert/{cert}.json")).is_file());
@@ -180,11 +204,21 @@ fn improve_with_emission_writes_replacements_only_through_the_emitter_and_table_
     assert_eq!(b1["monomials"], 3000, "rule 1 kept");
     assert_eq!(d1["origin"], "import");
     let rec: Value =
-        serde_json::from_slice(&std::fs::read(res["record"]["path"].as_str().unwrap()).unwrap()).unwrap();
-    let e1 = rec["rules"].as_array().unwrap().iter().find(|e| e["index"] == 1).unwrap();
+        serde_json::from_slice(&std::fs::read(res["record"]["path"].as_str().unwrap()).unwrap())
+            .unwrap();
+    let e1 = rec["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["index"] == 1)
+        .unwrap();
     assert_eq!(e1["chosen"], "original");
     assert!(
-        e1["untried"].as_array().unwrap().iter().any(|u| u.as_str().unwrap().contains("emission refused")),
+        e1["untried"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|u| u.as_str().unwrap().contains("emission refused")),
         "{e1:#}"
     );
     // 3. the improved table checks on its own (kept records' side files carried)
@@ -195,8 +229,13 @@ fn improve_with_emission_writes_replacements_only_through_the_emitter_and_table_
     let mut forged = lines.clone();
     forged[1] = strip_derivation(&lines[1]).unwrap().0;
     let ft = d.join("forged.table.jsonl");
-    std::fs::write(&ft, forged.iter().map(|l| format!("{l}\n")).collect::<String>()).unwrap();
-    rustred_campaign::emission::carry_side(&side, &rustred_campaign_core::emission::side_dir(&ft)).unwrap();
+    std::fs::write(
+        &ft,
+        forged.iter().map(|l| format!("{l}\n")).collect::<String>(),
+    )
+    .unwrap();
+    rustred_campaign::emission::carry_side(&side, &rustred_campaign_core::emission::side_dir(&ft))
+        .unwrap();
     let (tc, ok) = table_check(&ft);
     assert!(!ok, "{tc:#}");
     assert_eq!(tc["refused"], 1, "{tc:#}");

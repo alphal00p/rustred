@@ -12,7 +12,9 @@
 //! - `emit-replace ... --cone-verdict V.json` ([`apply_to_pieces`], the same checks): every piece of the replacement names the
 //!   accepted verdict, or the replacement is refused (outcome `cone_refused`, the pieces kept aside in pieces.refused.jsonl).
 use super::child;
-use rustred_campaign_core::emission::body::{attach_derivation, body_ids, sha256_hex, string_member, strip_derivation};
+use rustred_campaign_core::emission::body::{
+    attach_derivation, body_ids, sha256_hex, string_member, strip_derivation,
+};
 use rustred_campaign_core::emission::cone::{self, Rules, Verdict};
 use rustred_campaign_core::emission::{AREA_CONE, side_dir, side_rel};
 use serde_json::{Value, json};
@@ -25,18 +27,37 @@ pub struct ArmRun {
 }
 
 /// Run one arm; returns the owner-statistics path.
-pub fn run_arm(binary: &Path, arm: &ArmRun, stop_after: i64, dir: &Path, budget_s: f64, extra_env: &[(String, String)]) -> Result<(PathBuf, Value), String> {
+pub fn run_arm(
+    binary: &Path,
+    arm: &ArmRun,
+    stop_after: i64,
+    dir: &Path,
+    budget_s: f64,
+    extra_env: &[(String, String)],
+) -> Result<(PathBuf, Value), String> {
     std::fs::create_dir_all(dir.join("resume")).map_err(|e| format!("{}: {e}", dir.display()))?;
     let stats = dir.join("owner_stats.json");
     let _ = std::fs::remove_file(&stats);
     let mut env: Vec<(String, String)> = vec![
-        ("RUSTRED_RESUME_DIR".into(), dir.join("resume").display().to_string()),
-        ("RUSTRED_RESUME_STOP_AFTER_PHASE".into(), stop_after.to_string()),
+        (
+            "RUSTRED_RESUME_DIR".into(),
+            dir.join("resume").display().to_string(),
+        ),
+        (
+            "RUSTRED_RESUME_STOP_AFTER_PHASE".into(),
+            stop_after.to_string(),
+        ),
         ("RUSTRED_P_OWNER_STATS".into(), stats.display().to_string()),
         ("RAYON_NUM_THREADS".into(), "1".into()),
     ];
     env.extend(extra_env.iter().cloned());
-    let args: Vec<String> = vec!["reduce-file".into(), arm.lib.display().to_string(), arm.inputs.display().to_string(), "modular".into(), "1".into()];
+    let args: Vec<String> = vec![
+        "reduce-file".into(),
+        arm.lib.display().to_string(),
+        arm.inputs.display().to_string(),
+        "modular".into(),
+        "1".into(),
+    ];
     let r = child::run(binary, &args, &env, dir, "arm", budget_s)?;
     let info = json!({"rc": r.code, "seconds": r.seconds, "over_budget": r.over_budget, "stderr_tail": r.stderr_tail(400),
                       "stopped_after_saved_phase": r.stderr_tail(4000).contains("stopped after a saved phase")});
@@ -47,7 +68,10 @@ pub fn run_arm(binary: &Path, arm: &ArmRun, stop_after: i64, dir: &Path, budget_
 }
 
 fn read_arm(p: &Path, dr: Option<i64>) -> Result<cone::Arm, String> {
-    cone::parse_arm(&std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?, dr)
+    cone::parse_arm(
+        &std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?,
+        dr,
+    )
 }
 
 /// CLI `cone-price` (both modes; see the module text). Exit 0 accepted, 3 refused.
@@ -62,13 +86,21 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
                 i += 1;
             }
             f => {
-                v.insert(f.trim_start_matches("--").into(), rest.get(i + 1).cloned().ok_or(format!("{f} needs a value"))?);
+                v.insert(
+                    f.trim_start_matches("--").into(),
+                    rest.get(i + 1)
+                        .cloned()
+                        .ok_or(format!("{f} needs a value"))?,
+                );
                 i += 2;
             }
         }
     }
     let get = |k: &str| v.get(k).cloned();
-    let entrance: i64 = get("entrance").ok_or("--entrance N (the Route phase where the replaced relation's children arrive)")?.parse().map_err(|e| format!("--entrance: {e}"))?;
+    let entrance: i64 = get("entrance")
+        .ok_or("--entrance N (the Route phase where the replaced relation's children arrive)")?
+        .parse()
+        .map_err(|e| format!("--entrance: {e}"))?;
     let mut rules = Rules::default();
     if let Some(x) = get("tolerance") {
         rules.tolerance = x.parse().map_err(|e| format!("--tolerance: {e}"))?;
@@ -79,15 +111,44 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     if let Some(x) = get("min-children") {
         rules.min_children = x.parse().map_err(|e| format!("--min-children: {e}"))?;
     }
-    let dr: Option<i64> = get("request-dr").map(|x| x.parse()).transpose().map_err(|e| format!("--request-dr: {e}"))?;
+    let dr: Option<i64> = get("request-dr")
+        .map(|x| x.parse())
+        .transpose()
+        .map_err(|e| format!("--request-dr: {e}"))?;
     let out = PathBuf::from(get("out").ok_or("--out")?);
     let (old_stats, new_stats, mut request) = if flags.contains("--run") {
-        let bin = PathBuf::from(get("binary").ok_or("--binary P (p5l_library with owner statistics, e.g. diag4186)")?);
-        let old = ArmRun { lib: get("old-lib").ok_or("--old-lib")?.into(), inputs: get("old-inputs").ok_or("--old-inputs")?.into() };
-        let new = ArmRun { lib: get("new-lib").or(get("old-lib")).ok_or("--new-lib")?.into(), inputs: get("new-inputs").ok_or("--new-inputs")?.into() };
-        let stop = entrance + if flags.contains("--third-level") { 5 } else { 3 };
-        let budget: f64 = get("budget").map(|x| x.parse()).transpose().map_err(|e| format!("--budget: {e}"))?.unwrap_or(3600.0);
-        let env: Vec<(String, String)> = get("env").map(|e| e.split(',').filter_map(|kv| kv.split_once('=').map(|(a, b)| (a.to_string(), b.to_string()))).collect()).unwrap_or_default();
+        let bin = PathBuf::from(
+            get("binary").ok_or("--binary P (p5l_library with owner statistics, e.g. diag4186)")?,
+        );
+        let old = ArmRun {
+            lib: get("old-lib").ok_or("--old-lib")?.into(),
+            inputs: get("old-inputs").ok_or("--old-inputs")?.into(),
+        };
+        let new = ArmRun {
+            lib: get("new-lib").or(get("old-lib")).ok_or("--new-lib")?.into(),
+            inputs: get("new-inputs").ok_or("--new-inputs")?.into(),
+        };
+        let stop = entrance
+            + if flags.contains("--third-level") {
+                5
+            } else {
+                3
+            };
+        let budget: f64 = get("budget")
+            .map(|x| x.parse())
+            .transpose()
+            .map_err(|e| format!("--budget: {e}"))?
+            .unwrap_or(3600.0);
+        let env: Vec<(String, String)> = get("env")
+            .map(|e| {
+                e.split(',')
+                    .filter_map(|kv| {
+                        kv.split_once('=')
+                            .map(|(a, b)| (a.to_string(), b.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
         let (a, ia) = run_arm(&bin, &old, stop, &out.join("old"), budget, &env)?;
         let (b, ib) = run_arm(&bin, &new, stop, &out.join("new"), budget, &env)?;
@@ -109,10 +170,24 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     }
     let old = read_arm(&old_stats, dr)?;
     let new = read_arm(&new_stats, Some(dr.unwrap_or(old.request_dr)))?;
-    let bodies: Vec<String> = get("new-bodies").map(|s| s.split(',').map(str::to_string).collect()).unwrap_or_default();
-    let verdict = cone::price(&old, &new, entrance, &rules, request, get("old-body"), bodies)?;
+    let bodies: Vec<String> = get("new-bodies")
+        .map(|s| s.split(',').map(str::to_string).collect())
+        .unwrap_or_default();
+    let verdict = cone::price(
+        &old,
+        &new,
+        entrance,
+        &rules,
+        request,
+        get("old-body"),
+        bodies,
+    )?;
     let text = serde_json::to_string_pretty(&verdict).map_err(|e| e.to_string())?;
-    let vp = if flags.contains("--run") { out.join("cone-verdict.json") } else { out.clone() };
+    let vp = if flags.contains("--run") {
+        out.join("cone-verdict.json")
+    } else {
+        out.clone()
+    };
     if let Some(d) = vp.parent() {
         std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
     }
@@ -126,18 +201,25 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
 /// Why `line` (a replacement record with its derivation) may NOT name the verdict `c`; `None` = it may.
 pub fn check_line(line: &str, c: &Verdict) -> Result<Option<String>, String> {
     let (body, raw) = strip_derivation(line)?;
-    let d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?).map_err(|e| e.to_string())?;
+    let d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?)
+        .map_err(|e| e.to_string())?;
     if d.get("replaces").is_none_or(Value::is_null) {
         return Ok(Some("the record is not a replacement (no `replaces` member: emit it through emit-replace or descent-stamp first)".into()));
     }
     if !c.accepted {
-        return Ok(Some(format!("the cone verdict refuses the candidate: {}", c.reason.clone().unwrap_or_default())));
+        return Ok(Some(format!(
+            "the cone verdict refuses the candidate: {}",
+            c.reason.clone().unwrap_or_default()
+        )));
     }
     let bs = body_ids(&body)?.body_sha256;
     if !c.new_body_sha256.is_empty() && !c.new_body_sha256.contains(&bs) {
         return Ok(Some("the cone verdict does not name this body".into()));
     }
-    if c.old_body_sha256.as_deref().is_some_and(|o| Some(o) != d["replaces"]["old_body_sha256"].as_str()) {
+    if c.old_body_sha256
+        .as_deref()
+        .is_some_and(|o| Some(o) != d["replaces"]["old_body_sha256"].as_str())
+    {
         return Ok(Some("the cone verdict prices another old record".into()));
     }
     Ok(None)
@@ -146,7 +228,8 @@ pub fn check_line(line: &str, c: &Verdict) -> Result<Option<String>, String> {
 /// `line` with `replaces.cone_sha256 = sha` (call after [`check_line`] said None).
 pub fn stamp_line(line: &str, sha: &str) -> Result<String, String> {
     let (body, raw) = strip_derivation(line)?;
-    let mut d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?).map_err(|e| e.to_string())?;
+    let mut d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?)
+        .map_err(|e| e.to_string())?;
     d["replaces"]["cone_sha256"] = json!(sha);
     attach_derivation(&body, &d)
 }
@@ -166,7 +249,11 @@ pub enum Applied {
     /// every piece names the verdict (`replaces.cone_sha256`); the verdict side file is written
     Stamped { lines: Vec<String>, sha256: String },
     /// the verdict refuses, or does not belong to these pieces (the first piece that may not name it): nothing written
-    Refused { reason: String, piece: usize, sha256: String },
+    Refused {
+        reason: String,
+        piece: usize,
+        sha256: String,
+    },
 }
 
 /// emit-replace `--cone-verdict` (contract section 17): ALL pieces of the replacement must be allowed to name the verdict
@@ -180,28 +267,52 @@ pub fn apply_to_pieces(lines: &[String], vb: &[u8], side: &Path) -> Result<Appli
     }
     for (i, l) in lines.iter().enumerate() {
         if let Some(reason) = check_line(l, &c)? {
-            return Ok(Applied::Refused { reason, piece: i, sha256: sha });
+            return Ok(Applied::Refused {
+                reason,
+                piece: i,
+                sha256: sha,
+            });
         }
     }
-    let stamped = lines.iter().map(|l| stamp_line(l, &sha)).collect::<Result<Vec<_>, _>>()?;
+    let stamped = lines
+        .iter()
+        .map(|l| stamp_line(l, &sha))
+        .collect::<Result<Vec<_>, _>>()?;
     write_side(side, vb)?;
-    Ok(Applied::Stamped { lines: stamped, sha256: sha })
+    Ok(Applied::Stamped {
+        lines: stamped,
+        sha256: sha,
+    })
 }
 
 /// CLI `cone-stamp --table T --index I --verdict V.json --out T2`: exit 0 stamped, 3 refused (nothing written).
 pub fn stamp_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let val = |k: &str| -> Result<String, String> {
-        rest.iter().position(|a| a == k).and_then(|i| rest.get(i + 1)).cloned().ok_or(format!("{k} needed"))
+        rest.iter()
+            .position(|a| a == k)
+            .and_then(|i| rest.get(i + 1))
+            .cloned()
+            .ok_or(format!("{k} needed"))
     };
     let (t, out) = (PathBuf::from(val("--table")?), PathBuf::from(val("--out")?));
-    let index: i64 = val("--index")?.parse().map_err(|e| format!("--index: {e}"))?;
+    let index: i64 = val("--index")?
+        .parse()
+        .map_err(|e| format!("--index: {e}"))?;
     let vb = std::fs::read(val("--verdict")?).map_err(|e| e.to_string())?;
     let c: Verdict = serde_json::from_slice(&vb).map_err(|e| format!("verdict: {e}"))?;
     let text = std::fs::read_to_string(&t).map_err(|e| format!("{}: {e}", t.display()))?;
     let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
     let pos = lines
         .iter()
-        .position(|l| string_member(l, "type").as_deref() == Some("rule") && serde_json::from_str::<Value>(&strip_derivation(l).map(|x| x.0).unwrap_or_default()).ok().and_then(|v| v["index"].as_i64()) == Some(index))
+        .position(|l| {
+            string_member(l, "type").as_deref() == Some("rule")
+                && serde_json::from_str::<Value>(
+                    &strip_derivation(l).map(|x| x.0).unwrap_or_default(),
+                )
+                .ok()
+                .and_then(|v| v["index"].as_i64())
+                    == Some(index)
+        })
         .ok_or(format!("no rule record with index {index}"))?;
     if let Some(why) = check_line(&lines[pos], &c)? {
         return Ok((json!({"stamped": false, "reason": why}).to_string(), false));
@@ -211,7 +322,11 @@ pub fn stamp_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let sha = write_side(&side, &vb)?;
     lines[pos] = stamp_line(&lines[pos], &sha)?;
     std::fs::write(&out, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
-    Ok((json!({"stamped": true, "table": out.display().to_string(), "cone_sha256": sha}).to_string(), true))
+    Ok((
+        json!({"stamped": true, "table": out.display().to_string(), "cone_sha256": sha})
+            .to_string(),
+        true,
+    ))
 }
 
 #[cfg(test)]
@@ -219,7 +334,9 @@ mod tests {
     use super::*;
 
     fn piece(target: i64, old: &str) -> String {
-        let body = format!(r#"{{"type":"rule","index":7,"target":[{target},1],"rhs":[[[0,1],"1/(d-4)"]]}}"#);
+        let body = format!(
+            r#"{{"type":"rule","index":7,"target":[{target},1],"rhs":[[[0,1],"1/(d-4)"]]}}"#
+        );
         attach_derivation(&body, &json!({"class": {"word": "whole domain"}, "replaces": {"old_body_sha256": old, "regularity_sha256": "r"}}))
             .unwrap()
     }
@@ -242,14 +359,17 @@ mod tests {
             third_level: None,
             rules: Rules::default(),
             accepted,
-            reason: (!accepted).then(|| "cone_worse: more children at the second Apply".to_string()),
+            reason: (!accepted)
+                .then(|| "cone_worse: more children at the second Apply".to_string()),
             rank_key: None,
         };
         serde_json::to_vec(&v).unwrap()
     }
 
     fn body_sha(l: &str) -> String {
-        body_ids(&strip_derivation(l).unwrap().0).unwrap().body_sha256
+        body_ids(&strip_derivation(l).unwrap().0)
+            .unwrap()
+            .body_sha256
     }
 
     #[test]
@@ -265,12 +385,20 @@ mod tests {
                 assert_eq!(sha256, sha256_hex(&vb));
                 assert_eq!(st.len(), 2);
                 for (a, b) in st.iter().zip(&lines) {
-                    let d: Value = serde_json::from_str(&strip_derivation(a).unwrap().1.unwrap()).unwrap();
+                    let d: Value =
+                        serde_json::from_str(&strip_derivation(a).unwrap().1.unwrap()).unwrap();
                     assert_eq!(d["replaces"]["cone_sha256"], json!(sha256));
-                    assert_eq!(d["replaces"]["regularity_sha256"], json!("r"), "the regularity member is kept");
+                    assert_eq!(
+                        d["replaces"]["regularity_sha256"],
+                        json!("r"),
+                        "the regularity member is kept"
+                    );
                     assert_eq!(body_sha(a), body_sha(b), "the body is unchanged");
                 }
-                assert_eq!(std::fs::read(side.join(side_rel(AREA_CONE, &sha256))).unwrap(), vb);
+                assert_eq!(
+                    std::fs::read(side.join(side_rel(AREA_CONE, &sha256))).unwrap(),
+                    vb
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -281,15 +409,25 @@ mod tests {
         };
         // a verdict naming only the first body refuses at the second piece
         let (r, p) = refused(verdict(true, "OLD", vec![both[0].clone()]), &lines);
-        assert_eq!((r.as_str(), p), ("the cone verdict does not name this body", 1));
+        assert_eq!(
+            (r.as_str(), p),
+            ("the cone verdict does not name this body", 1)
+        );
         // a refusing verdict
         let (r, p) = refused(verdict(false, "OLD", both.clone()), &lines);
-        assert!(r.starts_with("the cone verdict refuses the candidate: cone_worse") && p == 0, "{r}");
+        assert!(
+            r.starts_with("the cone verdict refuses the candidate: cone_worse") && p == 0,
+            "{r}"
+        );
         // a verdict pricing another old record
         let (r, _) = refused(verdict(true, "OTHER", both.clone()), &lines);
         assert_eq!(r, "the cone verdict prices another old record");
         // a piece that is not a replacement (no `replaces`)
-        let plain = attach_derivation(r#"{"type":"rule","index":7,"target":[1,1],"rhs":[]}"#, &json!({"class": {}})).unwrap();
+        let plain = attach_derivation(
+            r#"{"type":"rule","index":7,"target":[1,1],"rhs":[]}"#,
+            &json!({"class": {}}),
+        )
+        .unwrap();
         let (r, _) = refused(verdict(true, "OLD", vec![]), &[plain]);
         assert!(r.starts_with("the record is not a replacement"), "{r}");
         // nothing written by a refusal

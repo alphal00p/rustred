@@ -591,7 +591,8 @@ mod tests {
         let table = d.join("symmetry-at-key.table.jsonl");
         let before = std::fs::read(&table).unwrap();
         // another re-derivation (another chart): refused, the file untouched
-        let e = effective_spec(&spec, &ds, None, &d, "111", DerivedFiles::Verify, None).unwrap_err();
+        let e =
+            effective_spec(&spec, &ds, None, &d, "111", DerivedFiles::Verify, None).unwrap_err();
         assert!(
             e.starts_with(super::super::source::EFFECTIVE_SPEC_MISMATCH),
             "{e}"
@@ -600,7 +601,8 @@ mod tests {
         // a tampered file: refused, not rewritten
         let tp = d.join("terminal-proposals.json");
         std::fs::write(&tp, "[]\n").unwrap();
-        let e = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify, None).unwrap_err();
+        let e =
+            effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify, None).unwrap_err();
         assert!(
             e.contains("terminal-proposals.json") && e.contains("refused"),
             "{e}"
@@ -608,7 +610,8 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&tp).unwrap(), "[]\n");
         // a missing file: refused
         std::fs::remove_file(&table).unwrap();
-        let e = effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify, None).unwrap_err();
+        let e =
+            effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Verify, None).unwrap_err();
         assert!(e.contains("absent"), "{e}");
         // a pass (write mode) restores both
         effective_spec(&spec, &ds, None, &d, "110", DerivedFiles::Write, None).unwrap();

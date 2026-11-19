@@ -52,11 +52,15 @@ fn parse_pattern(text: &str) -> Result<Vec<Slot>, String> {
                 let o: i64 = if rest.is_empty() {
                     0
                 } else {
-                    rest.replace(' ', "").parse().map_err(|_| format!("bad offset in {s}"))?
+                    rest.replace(' ', "")
+                        .parse()
+                        .map_err(|_| format!("bad offset in {s}"))?
                 };
                 Ok(Slot::Var(j, o))
             } else {
-                s.parse::<i64>().map(Slot::Const).map_err(|_| format!("bad slot {s}"))
+                s.parse::<i64>()
+                    .map(Slot::Const)
+                    .map_err(|_| format!("bad slot {s}"))
             }
         })
         .collect()
@@ -120,15 +124,20 @@ impl Relation {
         let arity = target.len();
         let mut terms = vec![];
         for t in v["rhs"].as_array().ok_or("no rhs")? {
-            let (k, c) = (t[0].as_str().ok_or("rhs key")?, t[1].as_str().ok_or("rhs coefficient")?);
+            let (k, c) = (
+                t[0].as_str().ok_or("rhs key")?,
+                t[1].as_str().ok_or("rhs coefficient")?,
+            );
             let daughter = parse_pattern(k)?;
             if daughter.len() != arity {
                 return Err(format!("rhs key {k}: arity {} != {arity}", daughter.len()));
             }
             let (n, d) = split_fraction(c)?;
-            let num = Poly::parse_exact(n, arity, true).map_err(|e| format!("numerator {n:.60}: {e}"))?;
+            let num =
+                Poly::parse_exact(n, arity, true).map_err(|e| format!("numerator {n:.60}: {e}"))?;
             let den = match d {
-                Some(d) => Poly::parse_exact(d, arity, true).map_err(|e| format!("denominator {d:.60}: {e}"))?,
+                Some(d) => Poly::parse_exact(d, arity, true)
+                    .map_err(|e| format!("denominator {d:.60}: {e}"))?,
                 None => Poly::constant(1),
             };
             terms.push(Term {
@@ -213,7 +222,10 @@ pub struct KeyRegularity {
 /// The pole order at d = 4 of every merged daughter of `rel` at `key` (daughters whose terms have no denominator
 /// vanishing at d = 4 are regular and listed with 0 without evaluating their numerators; a merged coefficient that is
 /// identically zero is left out), and whether some term is undefined at the key.
-pub fn daughter_poles(rel: &Relation, key: &[i64]) -> Result<(BTreeMap<Vec<i64>, u32>, bool), String> {
+pub fn daughter_poles(
+    rel: &Relation,
+    key: &[i64],
+) -> Result<(BTreeMap<Vec<i64>, u32>, bool), String> {
     let r = regularity_inner(rel, key, true)?;
     Ok((r.1, r.0.undefined))
 }
@@ -539,7 +551,8 @@ mod tests {
     use super::*;
 
     fn rec(target: &str, rhs: &[(&str, &str)]) -> String {
-        json!({"target": target, "rhs": rhs.iter().map(|(k, c)| json!([k, c])).collect::<Vec<_>>()}).to_string()
+        json!({"target": target, "rhs": rhs.iter().map(|(k, c)| json!([k, c])).collect::<Vec<_>>()})
+            .to_string()
     }
 
     #[test]
@@ -548,11 +561,19 @@ mod tests {
         let r = Relation::parse(&rec("I(n0,n1)", &[("I(n0-1,n1)", "(1)/(d-3)")])).unwrap();
         assert_eq!(regularity_at(&r, &[2, 1]).unwrap().max_pole, 0);
         // simple pole 1/(d-4); a double pole 1/(d-4)^2
-        let r = Relation::parse(&rec("I(n0,n1)", &[("I(n0-1,n1)", "(1)/(d-4)"), ("I(n0,n1-1)", "(1)/((d-4)^2)")])).unwrap();
+        let r = Relation::parse(&rec(
+            "I(n0,n1)",
+            &[("I(n0-1,n1)", "(1)/(d-4)"), ("I(n0,n1-1)", "(1)/((d-4)^2)")],
+        ))
+        .unwrap();
         let k = regularity_at(&r, &[2, 1]).unwrap();
         assert_eq!((k.max_pole, k.singular_daughters, k.daughters), (2, 2, 2));
         // 0/0 resolved: (d-4)/(d-4) is regular; (d-4)/(d-4)^2 a simple pole
-        let r = Relation::parse(&rec("I(n0)", &[("I(n0-1)", "(d-4)/(d-4)"), ("I(n0-2)", "(d-4)/((d-4)^2)")])).unwrap();
+        let r = Relation::parse(&rec(
+            "I(n0)",
+            &[("I(n0-1)", "(d-4)/(d-4)"), ("I(n0-2)", "(d-4)/((d-4)^2)")],
+        ))
+        .unwrap();
         let k = regularity_at(&r, &[3]).unwrap();
         assert_eq!((k.max_pole, k.singular_daughters), (1, 1));
         // the pole depends on the key: (n0-4+d-d)... 1/(d - n0) is singular only at n0 = 4
@@ -560,14 +581,26 @@ mod tests {
         assert_eq!(regularity_at(&r, &[4]).unwrap().max_pole, 1);
         assert_eq!(regularity_at(&r, &[5]).unwrap().max_pole, 0);
         // MERGED daughters cancel: 1/(d-4) - 1/(d-4) on the same daughter = 0 (no daughter); 1/(d-4) + (3-d)/(d-4) = -1
-        let r = Relation::parse(&rec("I(n0)", &[("I(n0-1)", "(1)/(d-4)"), ("I(n0-1)", "(-1)/(d-4)")])).unwrap();
+        let r = Relation::parse(&rec(
+            "I(n0)",
+            &[("I(n0-1)", "(1)/(d-4)"), ("I(n0-1)", "(-1)/(d-4)")],
+        ))
+        .unwrap();
         let k = regularity_at(&r, &[2]).unwrap();
         assert_eq!((k.max_pole, k.daughters), (0, 0));
-        let r = Relation::parse(&rec("I(n0)", &[("I(n0-1)", "(1)/(d-4)"), ("I(n0-1)", "(3-d)/(d-4)")])).unwrap();
+        let r = Relation::parse(&rec(
+            "I(n0)",
+            &[("I(n0-1)", "(1)/(d-4)"), ("I(n0-1)", "(3-d)/(d-4)")],
+        ))
+        .unwrap();
         let k = regularity_at(&r, &[2]).unwrap();
         assert_eq!((k.max_pole, k.daughters), (0, 1));
         // two daughters that coincide only at some keys: I(n0-1) and I(1) merge at n0 = 2
-        let r = Relation::parse(&rec("I(n0)", &[("I(n0-1)", "(1)/(d-4)"), ("I(1)", "(-1)/(d-4)")])).unwrap();
+        let r = Relation::parse(&rec(
+            "I(n0)",
+            &[("I(n0-1)", "(1)/(d-4)"), ("I(1)", "(-1)/(d-4)")],
+        ))
+        .unwrap();
         assert_eq!(regularity_at(&r, &[2]).unwrap().max_pole, 0);
         assert_eq!(regularity_at(&r, &[3]).unwrap().max_pole, 1);
         // undefined: denominator identically zero at the key
@@ -599,7 +632,14 @@ mod tests {
         };
         let v = verdict("old", &["new".into()], ks, &cmp, vec![]);
         assert!(!v.not_worse);
-        assert_eq!((v.counts.regular_to_singular, v.counts.worse, v.counts.unchanged), (1, 1, 4));
+        assert_eq!(
+            (
+                v.counts.regular_to_singular,
+                v.counts.worse,
+                v.counts.unchanged
+            ),
+            (1, 1, 4)
+        );
         assert_eq!(v.first_regressions[0]["key"], json!([4]));
     }
 }

@@ -78,26 +78,45 @@ pub fn parse_arm(text: &str, request_dr: Option<i64>) -> Result<Arm, String> {
     let mut phases: BTreeMap<i64, PhaseSum> = BTreeMap::new();
     for g in groups {
         let ph = g["phase"].as_i64().ok_or("group without phase")?;
-        let p = phases.entry(ph).or_insert_with(|| PhaseSum { phase: ph, ..Default::default() });
-        let (steps, secs) = (g["steps"].as_u64().unwrap_or(0), g["seconds"].as_f64().unwrap_or(0.0));
+        let p = phases.entry(ph).or_insert_with(|| PhaseSum {
+            phase: ph,
+            ..Default::default()
+        });
+        let (steps, secs) = (
+            g["steps"].as_u64().unwrap_or(0),
+            g["seconds"].as_f64().unwrap_or(0.0),
+        );
         p.steps += steps;
         p.seconds += secs;
         for s in g["shapes"].as_array().into_iter().flatten() {
-            let (l, d, r, k) = (s[0].as_i64(), s[1].as_i64().unwrap_or(0), s[2].as_i64().unwrap_or(0), s[3].as_u64().unwrap_or(0));
+            let (l, d, r, k) = (
+                s[0].as_i64(),
+                s[1].as_i64().unwrap_or(0),
+                s[2].as_i64().unwrap_or(0),
+                s[3].as_u64().unwrap_or(0),
+            );
             p.lines = p.lines.max(l);
             if d + r > request_dr {
                 p.high_shell += k;
             }
-            *p.shells.entry(format!("{}/{d}/{r}", l.unwrap_or(0))).or_default() += k;
+            *p.shells
+                .entry(format!("{}/{d}/{r}", l.unwrap_or(0)))
+                .or_default() += k;
         }
         let mut gchildren = 0u64;
         for d in g["dests"].as_array().into_iter().flatten() {
-            let (label, n) = (d[0].as_str().unwrap_or("?").to_string(), d[1].as_u64().unwrap_or(0));
+            let (label, n) = (
+                d[0].as_str().unwrap_or("?").to_string(),
+                d[1].as_u64().unwrap_or(0),
+            );
             p.children += n;
             gchildren += n;
             *p.per_owner.entry(label).or_default() += n;
         }
-        let c = p.per_class.entry(g["class"].as_str().unwrap_or("?").to_string()).or_default();
+        let c = p
+            .per_class
+            .entry(g["class"].as_str().unwrap_or("?").to_string())
+            .or_default();
         c.keys += steps;
         c.seconds += secs;
         c.children += gchildren;
@@ -118,7 +137,11 @@ pub struct Rules {
 
 impl Default for Rules {
     fn default() -> Self {
-        Rules { tolerance: 0.04, owner_growth: 1.25, min_children: 100 }
+        Rules {
+            tolerance: 0.04,
+            owner_growth: 1.25,
+            min_children: 100,
+        }
     }
 }
 
@@ -159,14 +182,27 @@ fn ratio(a: u64, b: u64) -> Option<f64> {
 }
 
 /// Price a candidate: `old` / `new` arms, `entrance` = the Route phase where the replaced relation's children first arrive.
-pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value, old_body: Option<String>, new_bodies: Vec<String>) -> Result<Verdict, String> {
+pub fn price(
+    old: &Arm,
+    new: &Arm,
+    entrance: i64,
+    rules: &Rules,
+    request: Value,
+    old_body: Option<String>,
+    new_bodies: Vec<String>,
+) -> Result<Verdict, String> {
     if entrance % 2 != 0 {
-        return Err(format!("the entrance phase {entrance} is not a Route phase (Route = even phase: 2 (14 - lines))"));
+        return Err(format!(
+            "the entrance phase {entrance} is not a Route phase (Route = even phase: 2 (14 - lines))"
+        ));
     }
     let read = [entrance, entrance + 1, entrance + 2, entrance + 3];
     for p in read {
         if !old.phases.contains_key(&p) || !new.phases.contains_key(&p) {
-            return Err(format!("phase {p} missing in an arm (stop after phase {} at least)", entrance + 3));
+            return Err(format!(
+                "phase {p} missing in an arm (stop after phase {} at least)",
+                entrance + 3
+            ));
         }
     }
     let lvl = |p: i64| {
@@ -183,13 +219,18 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
     let t = rules.tolerance;
     // the shell histogram at the second Apply
     let shells = {
-        let keys: std::collections::BTreeSet<&String> = oa.shells.keys().chain(na.shells.keys()).collect();
+        let keys: std::collections::BTreeSet<&String> =
+            oa.shells.keys().chain(na.shells.keys()).collect();
         let mut rows = vec![];
-        let (mut by_rank, mut by_dots): (BTreeMap<i64, [u64; 2]>, BTreeMap<i64, [u64; 2]>) = Default::default();
+        let (mut by_rank, mut by_dots): (BTreeMap<i64, [u64; 2]>, BTreeMap<i64, [u64; 2]>) =
+            Default::default();
         let (mut w, mut sd, mut sr) = ([0f64; 2], [0f64; 2], [0f64; 2]);
         for k in keys {
             let p: Vec<i64> = k.split('/').map(|x| x.parse().unwrap_or(0)).collect();
-            let (o, n) = (oa.shells.get(k).copied().unwrap_or(0), na.shells.get(k).copied().unwrap_or(0));
+            let (o, n) = (
+                oa.shells.get(k).copied().unwrap_or(0),
+                na.shells.get(k).copied().unwrap_or(0),
+            );
             rows.push(json!({"lines": p[0], "dots": p[1], "rank": p[2], "old": o, "new": n}));
             for (i, x) in [o, n].into_iter().enumerate() {
                 by_rank.entry(p[2]).or_default()[i] += x;
@@ -199,15 +240,24 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
                 sr[i] += (x * p[2] as u64) as f64;
             }
         }
-        let tot = [oa.shells.values().sum::<u64>() as f64, na.shells.values().sum::<u64>() as f64];
-        let mean = |s: [f64; 2]| json!([if tot[0] > 0.0 { s[0] / tot[0] } else { 0.0 }, if tot[1] > 0.0 { s[1] / tot[1] } else { 0.0 }]);
+        let tot = [
+            oa.shells.values().sum::<u64>() as f64,
+            na.shells.values().sum::<u64>() as f64,
+        ];
+        let mean = |s: [f64; 2]| {
+            json!([
+                if tot[0] > 0.0 { s[0] / tot[0] } else { 0.0 },
+                if tot[1] > 0.0 { s[1] / tot[1] } else { 0.0 }
+            ])
+        };
         json!({"phase": entrance + 3, "unit": "tagged keys stepped at the second Apply, per (lines, dots, rank); [old, new]",
                "rows": rows, "by_rank": by_rank, "by_dots": by_dots, "mean_dots": mean(sd), "mean_rank": mean(sr),
                "keys_weighted_x4_per_rank": w,
                "weight_note": "x4 per rank step: the single-key model (FEASIBILITY-5L S2); information, not a refusal rule"})
     };
     let owners_cmp: Vec<Value> = {
-        let cls: std::collections::BTreeSet<&String> = oa.per_class.keys().chain(na.per_class.keys()).collect();
+        let cls: std::collections::BTreeSet<&String> =
+            oa.per_class.keys().chain(na.per_class.keys()).collect();
         cls.into_iter()
             .map(|c| {
                 let (a, b) = (oa.per_class.get(c).cloned().unwrap_or_default(), na.per_class.get(c).cloned().unwrap_or_default());
@@ -219,14 +269,19 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
     let mut grown = vec![];
     for (c, b) in &na.per_class {
         let a = oa.per_class.get(c).map_or(0, |x| x.keys);
-        if b.keys >= rules.min_children && (b.keys as f64) > rules.owner_growth * (a.max(1) as f64) {
+        if b.keys >= rules.min_children && (b.keys as f64) > rules.owner_growth * (a.max(1) as f64)
+        {
             grown.push(json!({"owner": c, "by": "keys received", "old": a, "new": b.keys,
                               "factor": if a > 0 { json!(b.keys as f64 / a as f64) } else { Value::Null }}));
         }
     }
-    let owners: std::collections::BTreeSet<&String> = oa.per_owner.keys().chain(na.per_owner.keys()).collect();
+    let owners: std::collections::BTreeSet<&String> =
+        oa.per_owner.keys().chain(na.per_owner.keys()).collect();
     for o in owners {
-        let (a, b) = (oa.per_owner.get(o).copied().unwrap_or(0), na.per_owner.get(o).copied().unwrap_or(0));
+        let (a, b) = (
+            oa.per_owner.get(o).copied().unwrap_or(0),
+            na.per_owner.get(o).copied().unwrap_or(0),
+        );
         if a < rules.min_children && b < rules.min_children {
             continue;
         }
@@ -239,19 +294,29 @@ pub fn price(old: &Arm, new: &Arm, entrance: i64, rules: &Rules, request: Value,
     let entrance_win = entrance_ratio.is_some_and(|r| r > 1.0 + t);
     let second_gain = second_ratio.unwrap_or(1.0);
     let absorbed = entrance_win && second_gain < 1.0 + t;
-    let third = (second_gain - 1.0).abs() > t && old.phases.contains_key(&(entrance + 5)) && new.phases.contains_key(&(entrance + 5));
+    let third = (second_gain - 1.0).abs() > t
+        && old.phases.contains_key(&(entrance + 5))
+        && new.phases.contains_key(&(entrance + 5));
     let third_level = third.then(|| lvl(entrance + 5));
     let reason = if worse {
         Some(format!(
             "cone_worse: {} children at the second Apply (phase {}) vs {} today ({:+.2} %)",
-            na.children, entrance + 3, oa.children, 100.0 * (na.children as f64 / oa.children.max(1) as f64 - 1.0)
+            na.children,
+            entrance + 3,
+            oa.children,
+            100.0 * (na.children as f64 / oa.children.max(1) as f64 - 1.0)
         ))
     } else if !grown.is_empty() {
-        Some(format!("cone_owner_grows: {} receiving owner(s) grow by more than {}x at the second Apply", grown.len(), rules.owner_growth))
+        Some(format!(
+            "cone_owner_grows: {} receiving owner(s) grow by more than {}x at the second Apply",
+            grown.len(),
+            rules.owner_growth
+        ))
     } else if absorbed {
         Some(format!(
             "cone_absorbed: entrance-only win ({:.2}x at phase {entrance}, {:.4}x at the second Apply, below 1 + {t})",
-            entrance_ratio.unwrap_or(0.0), second_gain
+            entrance_ratio.unwrap_or(0.0),
+            second_gain
         ))
     } else {
         None
@@ -302,29 +367,64 @@ mod tests {
 
     #[test]
     fn worse_absorbed_grown_and_accepted() {
-        let old = arm(&[(4, 327, &[("a", 1039)]), (5, 579, &[("a", 20000), ("b", 3780)]), (6, 14300, &[("a", 57429)]),
-                        (7, 27819, &[("a", 800000), ("b", 105807)])]);
+        let old = arm(&[
+            (4, 327, &[("a", 1039)]),
+            (5, 579, &[("a", 20000), ("b", 3780)]),
+            (6, 14300, &[("a", 57429)]),
+            (7, 27819, &[("a", 800000), ("b", 105807)]),
+        ]);
         // the T269 shape: entrance 327 -> 12, the second Apply 1.8 % worse
-        let glued = arm(&[(4, 12, &[("a", 12)]), (5, 231, &[("a", 20000), ("b", 3886)]), (6, 14222, &[("a", 63271)]),
-                          (7, 28859, &[("a", 810000), ("b", 112379)])]);
+        let glued = arm(&[
+            (4, 12, &[("a", 12)]),
+            (5, 231, &[("a", 20000), ("b", 3886)]),
+            (6, 14222, &[("a", 63271)]),
+            (7, 28859, &[("a", 810000), ("b", 112379)]),
+        ]);
         let v = price(&old, &glued, 4, &Rules::default(), json!({}), None, vec![]).unwrap();
-        assert!(!v.accepted && v.reason.as_deref().unwrap().starts_with("cone_worse"), "{v:?}");
+        assert!(
+            !v.accepted && v.reason.as_deref().unwrap().starts_with("cone_worse"),
+            "{v:?}"
+        );
         // equal within the tolerance at the second Apply, entrance win: absorbed
-        let eq = arm(&[(4, 12, &[("a", 12)]), (5, 231, &[("a", 23780)]), (6, 14222, &[("a", 57000)]), (7, 28000, &[("a", 800000), ("b", 100000)])]);
+        let eq = arm(&[
+            (4, 12, &[("a", 12)]),
+            (5, 231, &[("a", 23780)]),
+            (6, 14222, &[("a", 57000)]),
+            (7, 28000, &[("a", 800000), ("b", 100000)]),
+        ]);
         let v = price(&old, &eq, 4, &Rules::default(), json!({}), None, vec![]).unwrap();
-        assert!(!v.accepted && v.reason.as_deref().unwrap().starts_with("cone_absorbed"), "{v:?}");
+        assert!(
+            !v.accepted && v.reason.as_deref().unwrap().starts_with("cone_absorbed"),
+            "{v:?}"
+        );
         // a real gain two levels down: accepted
-        let good = arm(&[(4, 12, &[("a", 12)]), (5, 231, &[("a", 20000)]), (6, 9000, &[("a", 40000)]), (7, 20000, &[("a", 600000), ("b", 90000)])]);
+        let good = arm(&[
+            (4, 12, &[("a", 12)]),
+            (5, 231, &[("a", 20000)]),
+            (6, 9000, &[("a", 40000)]),
+            (7, 20000, &[("a", 600000), ("b", 90000)]),
+        ]);
         let v = price(&old, &good, 4, &Rules::default(), json!({}), None, vec![]).unwrap();
         assert!(v.accepted, "{v:?}");
         // the shell histogram at the second Apply: every key in a (lines, dots, rank) row, old vs new
-        assert_eq!(v.second_apply_shells["rows"], json!([{"lines": 12, "dots": 1, "rank": 0, "old": 27819, "new": 20000}]));
+        assert_eq!(
+            v.second_apply_shells["rows"],
+            json!([{"lines": 12, "dots": 1, "rank": 0, "old": 27819, "new": 20000}])
+        );
         assert_eq!(v.second_apply_shells["by_rank"]["0"], json!([27819, 20000]));
         assert_eq!(v.second_apply_owners[0]["keys"], json!([27819, 20000]));
         // fewer children overall but one receiving owner grows 1.5x: refused
-        let grow = arm(&[(4, 300, &[("a", 1000)]), (5, 500, &[("a", 20000)]), (6, 14000, &[("a", 50000)]), (7, 27000, &[("a", 700000), ("b", 158000)])]);
+        let grow = arm(&[
+            (4, 300, &[("a", 1000)]),
+            (5, 500, &[("a", 20000)]),
+            (6, 14000, &[("a", 50000)]),
+            (7, 27000, &[("a", 700000), ("b", 158000)]),
+        ]);
         let v = price(&old, &grow, 4, &Rules::default(), json!({}), None, vec![]).unwrap();
-        assert!(!v.accepted && v.reason.as_deref().unwrap().starts_with("cone_owner_grows"), "{v:?}");
+        assert!(
+            !v.accepted && v.reason.as_deref().unwrap().starts_with("cone_owner_grows"),
+            "{v:?}"
+        );
         // an Apply phase as the entrance, or a missing phase: an error
         assert!(price(&old, &good, 5, &Rules::default(), json!({}), None, vec![]).is_err());
         assert!(price(&old, &good, 6, &Rules::default(), json!({}), None, vec![]).is_err());

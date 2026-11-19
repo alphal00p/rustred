@@ -15,7 +15,10 @@ use std::path::{Path, PathBuf};
 const FAKE: &str = env!("CARGO_BIN_EXE_rr_fake_child");
 
 fn setup() -> Option<(PathBuf, PathBuf)> {
-    match (std::env::var("RUSTRED_T266_CAND_I"), std::env::var("RUSTRED_DESCENT_NODE")) {
+    match (
+        std::env::var("RUSTRED_T266_CAND_I"),
+        std::env::var("RUSTRED_DESCENT_NODE"),
+    ) {
         (Ok(d), Ok(n)) => Some((PathBuf::from(d), PathBuf::from(n))),
         _ => {
             eprintln!("SKIP: RUSTRED_T266_CAND_I / RUSTRED_DESCENT_NODE not set");
@@ -32,16 +35,34 @@ fn emitter(node: &Path, tag: &str) -> (Emitter, PathBuf) {
     // the stand-in exactness checker (EXACT at the key): only the descent test can refuse
     let mut ck = Checker::new(Path::new(FAKE)).unwrap();
     ck.recover_rows = false;
-    ck.descent_node = Some((node.to_path_buf(), rustred_campaign::emission::child::file_sha256(node).unwrap()));
-    let em = Emitter::new(ck, Policy::default(), &dir.join("t.emission"), &dir.join("work")).unwrap();
+    ck.descent_node = Some((
+        node.to_path_buf(),
+        rustred_campaign::emission::child::file_sha256(node).unwrap(),
+    ));
+    let em = Emitter::new(
+        ck,
+        Policy::default(),
+        &dir.join("t.emission"),
+        &dir.join("work"),
+    )
+    .unwrap();
     (em, dir)
 }
 
 fn header(cand: &Path) -> String {
-    std::fs::read_to_string(cand.join("proofs/K2.table.jsonl")).unwrap().lines().next().unwrap().to_string()
+    std::fs::read_to_string(cand.join("proofs/K2.table.jsonl"))
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string()
 }
 
-fn emit(em: &Emitter, header: String, line: String) -> rustred_campaign::emission::emitter::Emission {
+fn emit(
+    em: &Emitter,
+    header: String,
+    line: String,
+) -> rustred_campaign::emission::emitter::Emission {
     let c = Candidate {
         header,
         line,
@@ -62,13 +83,27 @@ fn emit(em: &Emitter, header: String, line: String) -> rustred_campaign::emissio
 fn candidate_i_k2_exact_and_regular_but_not_lower_is_refused() {
     let Some((cand, node)) = setup() else { return };
     let (em, dir) = emitter(&node, "k2");
-    let mut v: Value = serde_json::from_str(std::fs::read_to_string(cand.join("relations/K2.rule.json")).unwrap().trim()).unwrap();
+    let mut v: Value = serde_json::from_str(
+        std::fs::read_to_string(cand.join("relations/K2.rule.json"))
+            .unwrap()
+            .trim(),
+    )
+    .unwrap();
     v["index"] = json!(0);
     let e = emit(&em, header(&cand), v.to_string());
-    eprintln!("K2: refused {:?}; derivation descent {}", e.refused, e.derivation["descent"]);
-    assert!(e.line.is_none(), "an exact relation that ascends must not be emitted");
+    eprintln!(
+        "K2: refused {:?}; derivation descent {}",
+        e.refused, e.derivation["descent"]
+    );
+    assert!(
+        e.line.is_none(),
+        "an exact relation that ascends must not be emitted"
+    );
     let why = e.refused.unwrap_or_default();
-    assert!(why.contains("not_lower"), "refused for NOT LOWER, not for another reason: {why}");
+    assert!(
+        why.contains("not_lower"),
+        "refused for NOT LOWER, not for another reason: {why}"
+    );
     assert_eq!(e.derivation["descent"]["verdict"], "NOT_LOWER");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -83,16 +118,34 @@ fn a_one_dot_terminal_image_descends_and_is_accepted() {
     let mut img = vec![1i64; 14];
     img[0] = 2;
     img.extend([0i64; 6]);
-    let t = |k: &[i64]| format!("I({})", k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+    let t = |k: &[i64]| {
+        format!(
+            "I({})",
+            k.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
     let case = format!(
         "Coordinate(CoordinateCase {{ fixed: [{}] }})",
-        key.iter().map(|x| format!("Some({x})")).collect::<Vec<_>>().join(", ")
+        key.iter()
+            .map(|x| format!("Some({x})"))
+            .collect::<Vec<_>>()
+            .join(", ")
     );
     let line = json!({"type": "rule", "chart": "11111111111111000000", "index": 0, "case": case, "fixed": key,
         "equations": [], "target": t(&key), "rhs": [[t(&img), "1"]], "exceptions": []});
     let e = emit(&em, header(&cand), line.to_string());
-    eprintln!("image: refused {:?}; derivation descent {}", e.refused, e.derivation["descent"]);
-    assert!(e.line.is_some(), "a descending point relation, exact at its key, is emitted: {:?}", e.refused);
+    eprintln!(
+        "image: refused {:?}; derivation descent {}",
+        e.refused, e.derivation["descent"]
+    );
+    assert!(
+        e.line.is_some(),
+        "a descending point relation, exact at its key, is emitted: {:?}",
+        e.refused
+    );
     assert_eq!(e.derivation["descent"]["verdict"], "LOWER");
     let _ = std::fs::remove_dir_all(&dir);
 }

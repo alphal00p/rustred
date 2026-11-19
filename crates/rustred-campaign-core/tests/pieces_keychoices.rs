@@ -68,7 +68,12 @@ fn key_choices_become_candidates_and_one_term_images_onto_open_keys_are_hand_dow
         .unwrap();
     assert_eq!(ch.kind, Some(ServiceKind::HandDown));
     assert_eq!(ch.hand_down_target, Some(HandDownTarget::OtherFace));
-    assert!(p2.d4_rule.as_deref().unwrap().starts_with("EXPLICIT singular_last"));
+    assert!(
+        p2.d4_rule
+            .as_deref()
+            .unwrap()
+            .starts_with("EXPLICIT singular_last")
+    );
 }
 
 #[test]

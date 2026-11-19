@@ -46,7 +46,8 @@ impl Default for Options {
 }
 
 pub fn dispatcher_of(table: &Path) -> Result<(Dispatcher, String), String> {
-    let tf = read_table_file(table, ReadOptions::default()).map_err(|e| format!("{}: {e}", table.display()))?;
+    let tf = read_table_file(table, ReadOptions::default())
+        .map_err(|e| format!("{}: {e}", table.display()))?;
     let chart = tf
         .rules
         .first()
@@ -92,7 +93,12 @@ fn comps(n: usize, t: i64, cur: &mut Vec<i64>, f: &mut dyn FnMut(&[i64]) -> bool
 
 /// Every key of the face of `fixed` (None = free) on `chart` with D + r <= cone, in shell order (stars and bars over
 /// the free slots); stops after `cap` keys (returns whether it stopped).
-pub fn face_keys(fixed: &[Option<i64>], chart: &str, cone: i64, cap: usize) -> (Vec<Vec<i64>>, bool) {
+pub fn face_keys(
+    fixed: &[Option<i64>],
+    chart: &str,
+    cone: i64,
+    cap: usize,
+) -> (Vec<Vec<i64>>, bool) {
     let mask: Vec<bool> = chart.bytes().map(|b| b == b'1').collect();
     let free: Vec<usize> = (0..fixed.len()).filter(|&i| fixed[i].is_none()).collect();
     let base: i64 = fixed
@@ -128,7 +134,9 @@ pub fn header_of(table: &Path) -> Result<String, String> {
     let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
     for l in std::io::BufReader::new(f).lines() {
         let l = l.map_err(|e| e.to_string())?;
-        if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref() == Some("header") {
+        if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref()
+            == Some("header")
+        {
             return Ok(l);
         }
     }
@@ -141,13 +149,19 @@ pub fn read_line_at(table: &Path, index: i64, offset: Option<u64>) -> Result<Str
     if let Some(o) = offset {
         f.seek(SeekFrom::Start(o)).map_err(|e| e.to_string())?;
         let mut l = String::new();
-        std::io::BufReader::new(f).read_line(&mut l).map_err(|e| e.to_string())?;
+        std::io::BufReader::new(f)
+            .read_line(&mut l)
+            .map_err(|e| e.to_string())?;
         return Ok(l.trim_end_matches('\n').to_string());
     }
     for l in std::io::BufReader::new(f).lines() {
         let l = l.map_err(|e| e.to_string())?;
-        if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref() == Some("rule")
-            && serde_json::from_str::<Value>(&l).ok().and_then(|v| v["index"].as_i64()) == Some(index)
+        if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref()
+            == Some("rule")
+            && serde_json::from_str::<Value>(&l)
+                .ok()
+                .and_then(|v| v["index"].as_i64())
+                == Some(index)
         {
             return Ok(l);
         }
@@ -199,7 +213,11 @@ pub fn served_keys_with(
         }
     }
     if debug {
-        eprintln!("regcheck: face {} keys (stopped {stopped}), served {}", face.len(), served.len());
+        eprintln!(
+            "regcheck: face {} keys (stopped {stopped}), served {}",
+            face.len(),
+            served.len()
+        );
     }
     let ks = KeySet {
         kind: if stopped { "sample".into() } else { "first-match set".into() },
@@ -285,7 +303,10 @@ pub fn compare(
             })
             .collect();
         hs.into_iter()
-            .map(|h| h.join().unwrap_or_else(|_| Err("a measuring thread panicked".into())))
+            .map(|h| {
+                h.join()
+                    .unwrap_or_else(|_| Err("a measuring thread panicked".into()))
+            })
             .collect()
     });
     let mut cmp = vec![];
@@ -294,15 +315,29 @@ pub fn compare(
     }
     let mut structural = vec![];
     if gaps > 0 {
-        structural.push(format!("{gaps} served key(s) are served by NO piece (the replacement leaves them open)"));
+        structural.push(format!(
+            "{gaps} served key(s) are served by NO piece (the replacement leaves them open)"
+        ));
     }
     ks.compared = cmp.len() as u64;
-    let mut v = regularity::verdict(&body_ids(&old_body)?.body_sha256, &bodies, ks, &cmp, structural);
+    let mut v = regularity::verdict(
+        &body_ids(&old_body)?.body_sha256,
+        &bodies,
+        ks,
+        &cmp,
+        structural,
+    );
     // information: the producer's own d = 4 pole statements (pure d factors of `witness_d_poles`)
     match regularity::d4_factors(&old_body) {
-        Some(f) if !f.is_empty() => v.d4_factors_info.push(format!("old record states d = 4 pole factors {f:?}")),
-        Some(_) => v.d4_factors_info.push("old record states no pure d = 4 pole factor".into()),
-        None => v.d4_factors_info.push("old record carries no witness_d_poles".into()),
+        Some(f) if !f.is_empty() => v
+            .d4_factors_info
+            .push(format!("old record states d = 4 pole factors {f:?}")),
+        Some(_) => v
+            .d4_factors_info
+            .push("old record states no pure d = 4 pole factor".into()),
+        None => v
+            .d4_factors_info
+            .push("old record carries no witness_d_poles".into()),
     }
     for (i, p) in pieces.iter().enumerate() {
         let (b, _) = strip_derivation(p)?;
@@ -328,12 +363,15 @@ pub fn batch(table: &Path, spec: &Path, o: &Options, out: &Path) -> Result<(Valu
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).map_err(|e| format!("batch spec: {e}")))
         .collect::<Result<_, _>>()?;
-    let want: std::collections::BTreeSet<i64> = items.iter().filter_map(|x| x["rule"].as_i64()).collect();
+    let want: std::collections::BTreeSet<i64> =
+        items.iter().filter_map(|x| x["rule"].as_i64()).collect();
     let mut old: BTreeMap<i64, String> = BTreeMap::new();
     let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
     for l in std::io::BufReader::new(f).lines() {
         let l = l.map_err(|e| e.to_string())?;
-        if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref() != Some("rule") {
+        if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref()
+            != Some("rule")
+        {
             continue;
         }
         let ix = l
@@ -348,7 +386,8 @@ pub fn batch(table: &Path, spec: &Path, o: &Options, out: &Path) -> Result<(Valu
         }
     }
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
-    let mut summary = std::fs::File::create(out.join("summary.jsonl")).map_err(|e| e.to_string())?;
+    let mut summary =
+        std::fs::File::create(out.join("summary.jsonl")).map_err(|e| e.to_string())?;
     let mut all_ok = true;
     let mut rows = vec![];
     for it in &items {
@@ -358,15 +397,29 @@ pub fn batch(table: &Path, spec: &Path, o: &Options, out: &Path) -> Result<(Valu
         let t0 = std::time::Instant::now();
         let dir = out.join(&label);
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-        let old_line = old.get(&rule).ok_or_else(|| format!("rule {rule} not in the old table"))?;
+        let old_line = old
+            .get(&rule)
+            .ok_or_else(|| format!("rule {rule} not in the old table"))?;
         let lines: Vec<String> = std::fs::read_to_string(&pf)
             .map_err(|e| format!("{}: {e}", pf.display()))?
             .lines()
-            .filter(|l| rustred_campaign_core::emission::body::string_member(l, "type").as_deref() == Some("rule"))
+            .filter(|l| {
+                rustred_campaign_core::emission::body::string_member(l, "type").as_deref()
+                    == Some("rule")
+            })
             .map(str::to_string)
             .collect();
         let (keys, ks) = served_keys_with(&disp, &chart, rule, old_line, o)?;
-        let v = compare(old_line, &lines, &keys, ks, &header, &chart, &dir.join("work"), o.threads)?;
+        let v = compare(
+            old_line,
+            &lines,
+            &keys,
+            ks,
+            &header,
+            &chart,
+            &dir.join("work"),
+            o.threads,
+        )?;
         let accepted = v.not_worse && v.keys.compared > 0;
         all_ok &= accepted;
         let mut kf = String::new();
@@ -380,8 +433,11 @@ pub fn batch(table: &Path, spec: &Path, o: &Options, out: &Path) -> Result<(Valu
         j["old"] = json!({"table": table.display().to_string(), "rule": rule});
         j["pieces"] = json!(pf.display().to_string());
         j["accepted"] = json!(accepted);
-        std::fs::write(dir.join("regularity.json"), serde_json::to_string_pretty(&j).map_err(|e| e.to_string())?)
-            .map_err(|e| e.to_string())?;
+        std::fs::write(
+            dir.join("regularity.json"),
+            serde_json::to_string_pretty(&j).map_err(|e| e.to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
         let row = json!({"label": label, "rule": rule, "pieces": lines.len(), "accepted": accepted, "keys": v.keys,
                          "counts": v.counts, "by_branch": v.by_branch, "first_regression": v.first_regressions.first(),
                          "structural": v.structural, "seconds": t0.elapsed().as_secs_f64()});
@@ -402,7 +458,11 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut o = Options::default();
     let mut batch_spec: Option<PathBuf> = None;
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
             "--old-table" => table = Some(val(i)?.into()),
@@ -430,13 +490,25 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let lines: Vec<String> = std::fs::read_to_string(&pieces)
         .map_err(|e| format!("{}: {e}", pieces.display()))?
         .lines()
-        .filter(|l| rustred_campaign_core::emission::body::string_member(l, "type").as_deref() == Some("rule"))
+        .filter(|l| {
+            rustred_campaign_core::emission::body::string_member(l, "type").as_deref()
+                == Some("rule")
+        })
         .map(str::to_string)
         .collect();
     let t0 = std::time::Instant::now();
     let (keys, ks, chart) = served_keys(&table, rule, &old_line, &o)?;
     let header = header_of(&table)?;
-    let v = compare(&old_line, &lines, &keys, ks, &header, &chart, &out.join("work"), o.threads)?;
+    let v = compare(
+        &old_line,
+        &lines,
+        &keys,
+        ks,
+        &header,
+        &chart,
+        &out.join("work"),
+        o.threads,
+    )?;
     let mut kf = String::new();
     for k in &keys {
         kf.push_str(&serde_json::to_string(k).unwrap_or_default());
@@ -447,8 +519,11 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     j["seconds"] = json!(t0.elapsed().as_secs_f64());
     j["old"] = json!({"table": table.display().to_string(), "rule": rule});
     j["pieces"] = json!(pieces.display().to_string());
-    std::fs::write(out.join("regularity.json"), serde_json::to_string_pretty(&j).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        out.join("regularity.json"),
+        serde_json::to_string_pretty(&j).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     Ok((
         json!({"not_worse": v.not_worse, "keys": v.keys, "counts": v.counts, "first_regressions": v.first_regressions,
                "structural": v.structural, "seconds": t0.elapsed().as_secs_f64()})
@@ -477,12 +552,18 @@ impl OldTable {
         })
     }
     /// The rule lines of the given indices (one scan of the table).
-    pub fn lines_of(&self, want: &std::collections::BTreeSet<i64>) -> Result<BTreeMap<i64, String>, String> {
+    pub fn lines_of(
+        &self,
+        want: &std::collections::BTreeSet<i64>,
+    ) -> Result<BTreeMap<i64, String>, String> {
         let mut old = BTreeMap::new();
-        let f = std::fs::File::open(&self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        let f =
+            std::fs::File::open(&self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
         for l in std::io::BufReader::new(f).lines() {
             let l = l.map_err(|e| e.to_string())?;
-            if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref() != Some("rule") {
+            if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref()
+                != Some("rule")
+            {
                 continue;
             }
             let ix = l
@@ -520,20 +601,39 @@ pub fn acceptance(
     work: &Path,
 ) -> Result<Acceptance, String> {
     let (keys, ks) = served_keys_with(&table.disp, &table.chart, index, old_line, o)?;
-    let v = compare(old_line, pieces, &keys, ks, &table.header, &table.chart, work, o.threads)?;
+    let v = compare(
+        old_line,
+        pieces,
+        &keys,
+        ks,
+        &table.header,
+        &table.chart,
+        work,
+        o.threads,
+    )?;
     // USER RULING 2026-11-19 (LANE_RULES rule 21): the d = 4 comparison is a REPORTED NUMBER, tie-break only. The replacement
     // is ACCEPTED whatever it says (validity: derivation, descent, partition, is decided elsewhere); `reason` carries the report
     let reason = Some(if v.keys.compared == 0 {
-        format!("regularity_d4_not_compared (the old record serves no key in {}; reported only)", v.keys.cone)
+        format!(
+            "regularity_d4_not_compared (the old record serves no key in {}; reported only)",
+            v.keys.cone
+        )
     } else if v.not_worse {
-        format!("regularity_d4_reported: not worse at {} compared keys ({} better)", v.counts.keys, v.counts.better)
+        format!(
+            "regularity_d4_reported: not worse at {} compared keys ({} better)",
+            v.counts.keys, v.counts.better
+        )
     } else {
         format!(
             "regularity_d4_reported: {} of {} served keys worse at d = 4 ({} regular -> singular{}); reported only, not a refusal",
             v.counts.worse,
             v.counts.keys,
             v.counts.regular_to_singular,
-            if v.structural.is_empty() { String::new() } else { format!("; {}", v.structural.join("; ")) }
+            if v.structural.is_empty() {
+                String::new()
+            } else {
+                format!("; {}", v.structural.join("; "))
+            }
         )
     });
     Ok(Acceptance {
@@ -573,7 +673,10 @@ pub fn accept_and_stamp(
     use rustred_campaign_core::emission::body::attach_derivation;
     let (old_body, _) = strip_derivation(old_line)?;
     let old_ids = body_ids(&old_body)?;
-    let new_ids: Vec<_> = lines.iter().map(|l| body_ids(l)).collect::<Result<Vec<_>, _>>()?;
+    let new_ids: Vec<_> = lines
+        .iter()
+        .map(|l| body_ids(l))
+        .collect::<Result<Vec<_>, _>>()?;
     let same = new_ids.len() == 1 && new_ids[0].relation_sha256 == old_ids.relation_sha256;
     let (verdict, ok, reason) = if same {
         (
@@ -597,8 +700,10 @@ pub fn accept_and_stamp(
         let mut out = vec![];
         for l in lines {
             let (b, d) = strip_derivation(l)?;
-            let mut dv: Value = serde_json::from_str(&d.ok_or("a piece without derivation")?).map_err(|e| e.to_string())?;
-            dv["replaces"] = json!({"old_body_sha256": old_ids.body_sha256, "regularity_sha256": sha});
+            let mut dv: Value = serde_json::from_str(&d.ok_or("a piece without derivation")?)
+                .map_err(|e| e.to_string())?;
+            dv["replaces"] =
+                json!({"old_body_sha256": old_ids.body_sha256, "regularity_sha256": sha});
             out.push(attach_derivation(&b, &dv)?);
         }
         Some(out)
@@ -614,4 +719,3 @@ pub fn accept_and_stamp(
         lines,
     })
 }
-

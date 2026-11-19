@@ -12,7 +12,12 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
 /// Stamp `table` into `out` (see the module text). Returns (summary, written).
-pub fn descent_stamp(table: &Path, out: &Path, node: &Path, work: &Path) -> Result<(Value, bool), String> {
+pub fn descent_stamp(
+    table: &Path,
+    out: &Path,
+    node: &Path,
+    work: &Path,
+) -> Result<(Value, bool), String> {
     let text = std::fs::read_to_string(table).map_err(|e| format!("{}: {e}", table.display()))?;
     let header = text
         .lines()
@@ -78,15 +83,28 @@ pub fn descent_stamp(table: &Path, out: &Path, node: &Path, work: &Path) -> Resu
     })?;
     s["table_check"] = json!({"verdict": tc["verdict"], "rules": tc["rules"], "refused": tc["refused"], "classes": tc["classes"],
                               "refusals": tc["refusals"]});
-    s["verdict"] = json!(if ok { "STAMPED" } else { "STAMPED BUT TABLE-CHECK REFUSED" });
+    s["verdict"] = json!(if ok {
+        "STAMPED"
+    } else {
+        "STAMPED BUT TABLE-CHECK REFUSED"
+    });
     Ok((s, ok))
 }
 
 /// CLI `descent-stamp --table T --out T2 --descent-node BIN [--work DIR]`: exit 0 stamped and accepted, 3 otherwise.
 pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
-    let (mut t, mut o, mut n, mut w) = (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>, None::<PathBuf>);
+    let (mut t, mut o, mut n, mut w) = (
+        None::<PathBuf>,
+        None::<PathBuf>,
+        None::<PathBuf>,
+        None::<PathBuf>,
+    );
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
             "--table" => t = Some(val(i)?.into()),
@@ -103,7 +121,9 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     if t == o {
         return Err("--out must differ from --table".into());
     }
-    let w = w.unwrap_or_else(|| std::env::temp_dir().join(format!("descent-stamp-{}", std::process::id())));
+    let w = w.unwrap_or_else(|| {
+        std::env::temp_dir().join(format!("descent-stamp-{}", std::process::id()))
+    });
     let (s, ok) = descent_stamp(&t, &o, &n, &w)?;
     Ok((s.to_string(), ok))
 }

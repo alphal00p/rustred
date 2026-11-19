@@ -21,14 +21,17 @@ pub fn main(args: &[String]) -> ! {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let (Some(cert), Some(table), Some(offset)) = (flag("--cert"), flag("--table"), flag("--offset")) else {
+    let (Some(cert), Some(table), Some(offset)) =
+        (flag("--cert"), flag("--table"), flag("--offset"))
+    else {
         die("fake weight-cert: --cert, --table and --offset are required")
     };
     let cert_bytes = std::fs::read(&cert).unwrap_or_else(|e| die(&format!("{cert}: {e}")));
     let c: Value = serde_json::from_slice(&cert_bytes).unwrap_or(Value::Null);
     let off: u64 = offset.parse().unwrap_or_else(|_| die("bad --offset"));
     let mut f = std::fs::File::open(&table).unwrap_or_else(|e| die(&format!("{table}: {e}")));
-    f.seek(SeekFrom::Start(off)).unwrap_or_else(|e| die(&e.to_string()));
+    f.seek(SeekFrom::Start(off))
+        .unwrap_or_else(|e| die(&e.to_string()));
     let mut line = String::new();
     std::io::BufReader::new(f)
         .read_line(&mut line)
@@ -74,12 +77,15 @@ pub fn span_main(args: &[String]) -> ! {
             .and_then(|i| args.get(i + 1))
             .cloned()
     };
-    let (Some(table), Some(offset), Some(keys)) = (flag("--table"), flag("--offset"), flag("--keys")) else {
+    let (Some(table), Some(offset), Some(keys)) =
+        (flag("--table"), flag("--offset"), flag("--keys"))
+    else {
         die("fake instance-span: --table, --offset and --keys are required")
     };
     let off: u64 = offset.parse().unwrap_or_else(|_| die("bad --offset"));
     let mut f = std::fs::File::open(&table).unwrap_or_else(|e| die(&format!("{table}: {e}")));
-    f.seek(SeekFrom::Start(off)).unwrap_or_else(|e| die(&e.to_string()));
+    f.seek(SeekFrom::Start(off))
+        .unwrap_or_else(|e| die(&e.to_string()));
     let mut line = String::new();
     std::io::BufReader::new(f)
         .read_line(&mut line)
@@ -91,23 +97,47 @@ pub fn span_main(args: &[String]) -> ! {
     let symrows = flag("--symrows");
     let only = args.iter().any(|a| a == "--symrows-only");
     if rec["origin"]["kind"] == "symmetry_relation" && symrows.is_none() {
-        println!("{}", json!({"verdict": "ERROR", "error": "MISSING_SEEDS: the rule record has no seeds; instance-span needs the seed set"}));
+        println!(
+            "{}",
+            json!({"verdict": "ERROR", "error": "MISSING_SEEDS: the rule record has no seeds; instance-span needs the seed set"})
+        );
         std::process::exit(2)
     }
     let given = symrows
         .as_ref()
-        .map(|p| std::fs::read_to_string(p).unwrap_or_default().lines().filter(|l| !l.trim().is_empty()).count())
+        .map(|p| {
+            std::fs::read_to_string(p)
+                .unwrap_or_default()
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count()
+        })
         .unwrap_or(0);
-    let status = rec["fake_span"].as_str().unwrap_or("EXACT_IN_SPAN_AT_KEY").to_string();
+    let status = rec["fake_span"]
+        .as_str()
+        .unwrap_or("EXACT_IN_SPAN_AT_KEY")
+        .to_string();
     if let Some(c) = flag("--emit-certs")
         && status == "EXACT_IN_SPAN_AT_KEY"
     {
         // `fake_symcert: "ibp"` = a certificate on an IBP row (m >= 0), for the negative test
-        let m = if rec["fake_symcert"] == "ibp" { 4 } else { -1000000 };
+        let m = if rec["fake_symcert"] == "ibp" {
+            4
+        } else {
+            -1000000
+        };
         let cert = json!({"schema": "rustred.proof-kernel.span-cert.v1", "rule": rec["index"], "record_sha256": sha256_hex(line.as_bytes()),
             "key": rec["fixed"], "L": ["1"], "weights": [[0, m, ["1"]]], "fake": true});
         // like the kernel: --emit-certs is a DIRECTORY, one cert_<key>.json per exact key
-        let kv = rec["fixed"].as_array().map(|a| a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_")).unwrap_or_default();
+        let kv = rec["fixed"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .map(|x| x.to_string())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            })
+            .unwrap_or_default();
         let _ = std::fs::create_dir_all(&c);
         let f = format!("{c}/cert_{kv}.json");
         std::fs::write(&f, cert.to_string()).unwrap_or_else(|e| die(&format!("{f}: {e}")));
@@ -146,17 +176,27 @@ pub fn descent_main(args: &[String]) -> ! {
         if v["type"] != "rule" {
             continue;
         }
-        let id = format!("{}#{}", v["chart"].as_str().unwrap_or(""), v["index"].as_i64().unwrap_or(0));
+        let id = format!(
+            "{}#{}",
+            v["chart"].as_str().unwrap_or(""),
+            v["index"].as_i64().unwrap_or(0)
+        );
         rules += 1;
         terms += v["rhs"].as_array().map_or(0, Vec::len) as u64;
         if v["fake_descent"] == "NotLower" {
             if first.is_null() {
-                first = json!(format!("NotLower {{ rule: {id:?}, target: {:?}, term: (fake) }}", v["target"].as_str().unwrap_or("")));
+                first = json!(format!(
+                    "NotLower {{ rule: {id:?}, target: {:?}, term: (fake) }}",
+                    v["target"].as_str().unwrap_or("")
+                ));
             }
             failing.push(id);
         }
     }
     let n = failing.len();
-    println!("{}", json!({"failing_rules": failing, "first": first, "not_lower": n, "order": {"name": "fake"}, "rules": rules, "terms": terms}));
+    println!(
+        "{}",
+        json!({"failing_rules": failing, "first": first, "not_lower": n, "order": {"name": "fake"}, "rules": rules, "terms": terms})
+    );
     std::process::exit(if n == 0 { 0 } else { 1 })
 }

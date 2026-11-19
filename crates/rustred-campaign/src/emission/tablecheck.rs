@@ -114,17 +114,33 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
             let dir = work.join(format!("descent-{chart}-{position}"));
             std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
             let input = dir.join("descent-input.table.jsonl");
-            std::fs::write(&input, format!("{}\n{body}\n", header.trim_end())).map_err(|e| format!("{}: {e}", input.display()))?;
-            let args: Vec<String> = vec!["descent".into(), "--table".into(), input.display().to_string()];
+            std::fs::write(&input, format!("{}\n{body}\n", header.trim_end()))
+                .map_err(|e| format!("{}: {e}", input.display()))?;
+            let args: Vec<String> = vec![
+                "descent".into(),
+                "--table".into(),
+                input.display().to_string(),
+            ];
             let r = super::child::run(node, &args, &[], &dir, "descent", 600.0)?;
             descent_rechecked += 1;
-            let again = r.stdout_text().lines().rev().find(|l| l.trim_start().starts_with('{')).map(str::to_string);
+            let again = r
+                .stdout_text()
+                .lines()
+                .rev()
+                .find(|l| l.trim_start().starts_with('{'))
+                .map(str::to_string);
             let stored = lookup(rustred_campaign_core::emission::AREA_DESCENT, sha);
             let parse = |b: &[u8]| serde_json::from_slice::<Value>(b).ok();
             match (again, stored) {
-                (Some(x), Some(s)) if parse(x.as_bytes()).is_some() && parse(x.as_bytes()) == parse(&s) => {}
-                (Some(x), _) => verdict.problems.push(format!("the descent re-run on the record's bytes differs from the stored output: {x}")),
-                (None, _) => verdict.problems.push(format!("the descent re-run gave no output ({})", r.stderr_tail(200))),
+                (Some(x), Some(s))
+                    if parse(x.as_bytes()).is_some() && parse(x.as_bytes()) == parse(&s) => {}
+                (Some(x), _) => verdict.problems.push(format!(
+                    "the descent re-run on the record's bytes differs from the stored output: {x}"
+                )),
+                (None, _) => verdict.problems.push(format!(
+                    "the descent re-run gave no output ({})",
+                    r.stderr_tail(200)
+                )),
             }
         }
         if !verdict.notes.is_empty() {
@@ -138,7 +154,9 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
         *counts.entry(class.word().to_string()).or_default() += 1;
         // the visible sub-class (implementer 2026-11-18T22:00Z): whole domain by an identical statement elsewhere
         if l.contains("\"binding\":\"identical statement") {
-            *subclasses.entry("whole domain, by identical statement".to_string()).or_default() += 1;
+            *subclasses
+                .entry("whole domain, by identical statement".to_string())
+                .or_default() += 1;
         }
         if let Some(m) = manifest.as_mut() {
             let d = strip_derivation(&l)?

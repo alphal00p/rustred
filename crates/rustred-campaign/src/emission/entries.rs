@@ -21,8 +21,12 @@
 //! is REPORTED (tie-break only): it is written when an old object exists and refuses nothing; worse is not a refusal.
 use super::regcheck::{compare, dispatcher_of, header_of, read_line_at};
 use super::tablecheck;
-use rustred_campaign_core::emission::body::{attach_derivation, body_ids, sha256_hex, strip_derivation};
-use rustred_campaign_core::emission::regularity::{KeySet, Relation, Verdict, keys_sha256, regularity_at};
+use rustred_campaign_core::emission::body::{
+    attach_derivation, body_ids, sha256_hex, strip_derivation,
+};
+use rustred_campaign_core::emission::regularity::{
+    KeySet, Relation, Verdict, keys_sha256, regularity_at,
+};
 use rustred_campaign_core::emission::validate::check_record;
 use rustred_campaign_core::emission::{AREA_REGULARITY, side_dir, side_rel};
 use rustred_campaign_core::schema::canon::canonical_json;
@@ -39,7 +43,13 @@ const ENTRY_FILE: &str = "entries-emitted.jsonl";
 
 /// `I(k0,k1,...)`
 pub fn key_text(k: &[i64]) -> String {
-    format!("I({})", k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
+    format!(
+        "I({})",
+        k.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 /// The entry digest the engine checks: sha256 of the canonical JSON of the body.
@@ -58,8 +68,12 @@ fn evidence_rank(level: &str) -> u8 {
 /// The engine's rank of an entry (larger first; ties: the smaller digest).
 fn rank(e: &Value) -> (u8, i64, i64) {
     let ev = evidence_rank(e["evidence"]["level"].as_str().unwrap_or("none"));
-    let pole = e["diagnostics"]["pole_order_at"]["4"].as_i64().unwrap_or(i64::MAX / 2);
-    let terms = e["body"]["rhs"].as_array().map_or(i64::MAX / 2, |r| r.len() as i64);
+    let pole = e["diagnostics"]["pole_order_at"]["4"]
+        .as_i64()
+        .unwrap_or(i64::MAX / 2);
+    let terms = e["body"]["rhs"]
+        .as_array()
+        .map_or(i64::MAX / 2, |r| r.len() as i64);
     (ev, -pole, -terms)
 }
 
@@ -97,20 +111,30 @@ pub fn find_entries(
         let mut buf = Vec::new();
         loop {
             buf.clear();
-            if r.read_until(b'\n', &mut buf).map_err(|e| format!("{}: {e}", f.display()))? == 0 {
+            if r.read_until(b'\n', &mut buf)
+                .map_err(|e| format!("{}: {e}", f.display()))?
+                == 0
+            {
                 break;
             }
             // the envelope members come first (schema, node, node_identity, key_frame, key): look at the head only
             let head = String::from_utf8_lossy(&buf[..buf.len().min(1024)]);
-            let Some(at) = head.find("\"key\":") else { continue };
+            let Some(at) = head.find("\"key\":") else {
+                continue;
+            };
             let rest = head[at + 6..].trim_start();
             let Some(end) = rest.find(']') else { continue };
-            let Some(k) = wanted.get(&rest[..=end]) else { continue };
+            let Some(k) = wanted.get(&rest[..=end]) else {
+                continue;
+            };
             let e: Value = match serde_json::from_slice(&buf) {
                 Ok(e) => e,
                 Err(_) => continue, // a torn line (the engine ignores it too)
             };
-            if e["schema"] != ENTRY_SCHEMA || e["node_identity"] != node_identity || e["key"] != json!(k) {
+            if e["schema"] != ENTRY_SCHEMA
+                || e["node_identity"] != node_identity
+                || e["key"] != json!(k)
+            {
                 continue;
             }
             let digest = e["entry_digest"].as_str().unwrap_or("").to_string();
@@ -120,11 +144,24 @@ pub fn find_entries(
             let r = rank(&e);
             let better = match out.get(k) {
                 None => true,
-                Some(o) => (r, std::cmp::Reverse(digest.as_str())) > (o.rank, std::cmp::Reverse(o.digest.as_str())),
+                Some(o) => {
+                    (r, std::cmp::Reverse(digest.as_str()))
+                        > (o.rank, std::cmp::Reverse(o.digest.as_str()))
+                }
             };
             let n = out.get(k).map_or(0, |o| o.candidates) + 1;
             if better {
-                out.insert(k.clone(), OldEntry { key: k.clone(), digest, file: f.clone(), body: e["body"].clone(), candidates: n, rank: r });
+                out.insert(
+                    k.clone(),
+                    OldEntry {
+                        key: k.clone(),
+                        digest,
+                        file: f.clone(),
+                        body: e["body"].clone(),
+                        candidates: n,
+                        rank: r,
+                    },
+                );
             } else if let Some(o) = out.get_mut(k) {
                 o.candidates = n;
             }
@@ -171,7 +208,12 @@ pub fn verdict_at_key(
 /// The old object of a key: an entry of `old` (GAP-2 a), else the first-match rule of `table` (GAP-2 b).
 pub enum OldAt {
     Entry(OldEntry),
-    Rule { table: PathBuf, index: i64, line: String, body_sha256: String },
+    Rule {
+        table: PathBuf,
+        index: i64,
+        line: String,
+        body_sha256: String,
+    },
 }
 
 impl OldAt {
@@ -195,16 +237,27 @@ impl OldAt {
     }
     pub fn describe(&self) -> Value {
         match self {
-            OldAt::Entry(e) => json!({"kind": "stored relation entry", "entry_digest": e.digest, "file": e.file.display().to_string(),
-                                      "rhs_terms": e.body["rhs"].as_array().map(Vec::len), "entries_at_key": e.candidates}),
-            OldAt::Rule { table, index, body_sha256, .. } => json!({"kind": "table rule at one key", "table": table.display().to_string(),
+            OldAt::Entry(e) => {
+                json!({"kind": "stored relation entry", "entry_digest": e.digest, "file": e.file.display().to_string(),
+                                      "rhs_terms": e.body["rhs"].as_array().map(Vec::len), "entries_at_key": e.candidates})
+            }
+            OldAt::Rule {
+                table,
+                index,
+                body_sha256,
+                ..
+            } => json!({"kind": "table rule at one key", "table": table.display().to_string(),
                                       "rule": index, "body_sha256": body_sha256}),
         }
     }
 }
 
 /// The first-match rule of `table` at `key` (the engine's dispatch).
-pub fn rule_at_key(table: &Path, disp: &rustred_campaign_core::cover::Dispatcher, key: &[i64]) -> Result<Option<OldAt>, String> {
+pub fn rule_at_key(
+    table: &Path,
+    disp: &rustred_campaign_core::cover::Dispatcher,
+    key: &[i64],
+) -> Result<Option<OldAt>, String> {
     let k32: Vec<i32> = key.iter().map(|&x| x as i32).collect();
     let Some(w) = disp.first_match(&k32).ok().and_then(|d| d.winner()) else {
         return Ok(None);
@@ -212,7 +265,12 @@ pub fn rule_at_key(table: &Path, disp: &rustred_campaign_core::cover::Dispatcher
     let index = w.label as i64;
     let line = read_line_at(table, index, None)?;
     let (b, _) = strip_derivation(&line)?;
-    Ok(Some(OldAt::Rule { table: table.to_path_buf(), index, body_sha256: body_ids(&b)?.body_sha256, line }))
+    Ok(Some(OldAt::Rule {
+        table: table.to_path_buf(),
+        index,
+        body_sha256: body_ids(&b)?.body_sha256,
+        line,
+    }))
 }
 
 /// "top" when the daughter has the target's positive lines, else "sub" (the engine record's third rhs member).
@@ -227,7 +285,9 @@ fn top_or_sub(chart: &str, target: &[i64], daughter: &str) -> String {
         .bytes()
         .enumerate()
         .filter(|(_, c)| *c == b'1')
-        .all(|(i, _)| (target.get(i).copied().unwrap_or(0) > 0) == (d.get(i).copied().unwrap_or(0) > 0));
+        .all(|(i, _)| {
+            (target.get(i).copied().unwrap_or(0) > 0) == (d.get(i).copied().unwrap_or(0) > 0)
+        });
     if same { "top".into() } else { "sub".into() }
 }
 
@@ -247,8 +307,20 @@ pub struct WriteArgs {
 
 /// The node directory of a relation root.
 pub fn node_dir(out: &Path, node: &str, node_identity: &str) -> PathBuf {
-    let safe: String = node.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' }).collect();
-    out.join(format!("{safe}-{}", node_identity.get(..16).unwrap_or(node_identity)))
+    let safe: String = node
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    out.join(format!(
+        "{safe}-{}",
+        node_identity.get(..16).unwrap_or(node_identity)
+    ))
 }
 
 /// GAP-3: write the entries of an emitted table (see the module text). Returns (summary, written).
@@ -263,13 +335,20 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
         ..Default::default()
     })?;
     if !ok {
-        return Ok((json!({"verdict": "REFUSED (nothing written)", "reason": "the emitted table does not pass table-check", "table_check": tc}), false));
+        return Ok((
+            json!({"verdict": "REFUSED (nothing written)", "reason": "the emitted table does not pass table-check", "table_check": tc}),
+            false,
+        ));
     }
     let header = header_of(&a.emitted)?;
-    let text = std::fs::read_to_string(&a.emitted).map_err(|e| format!("{}: {e}", a.emitted.display()))?;
+    let text =
+        std::fs::read_to_string(&a.emitted).map_err(|e| format!("{}: {e}", a.emitted.display()))?;
     let lines: Vec<&str> = text
         .lines()
-        .filter(|l| rustred_campaign_core::emission::body::string_member(l, "type").as_deref() == Some("rule"))
+        .filter(|l| {
+            rustred_campaign_core::emission::body::string_member(l, "type").as_deref()
+                == Some("rule")
+        })
         .collect();
     // 2. the keys (point records only)
     let mut recs = vec![];
@@ -277,7 +356,9 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
     for l in &lines {
         let (b, d) = strip_derivation(l)?;
         let v: Value = serde_json::from_str(&b).map_err(|e| e.to_string())?;
-        let key: Option<Vec<i64>> = v["fixed"].as_array().and_then(|a| a.iter().map(Value::as_i64).collect());
+        let key: Option<Vec<i64>> = v["fixed"]
+            .as_array()
+            .and_then(|a| a.iter().map(Value::as_i64).collect());
         match key {
             Some(k) => recs.push((l.to_string(), b, d.unwrap_or_default(), v, k)),
             None => refusals.push(json!({"index": v["index"], "reason": "not a point record (a relation entry serves one key)"})),
@@ -288,7 +369,11 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
         refusals.push(json!({"reason": "two records at the same key"}));
     }
     // 3. the old objects
-    let olds = if a.old_entries.is_empty() { BTreeMap::new() } else { find_entries(&a.old_entries, &a.node_identity, &keys)? };
+    let olds = if a.old_entries.is_empty() {
+        BTreeMap::new()
+    } else {
+        find_entries(&a.old_entries, &a.node_identity, &keys)?
+    };
     let disp = match &a.old_table {
         Some(t) => Some(dispatcher_of(t)?.0),
         None => None,
@@ -310,7 +395,16 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
         // old object (a new key) is written all the same, its regularity "not compared"
         let (vsha, pole_old, old_desc) = match &old {
             Some(old) => {
-                let ver = verdict_at_key(&old.kind(), &old.id(), &old.relation(key)?, key, &[body.clone()], &header, &chart, &a.work.join(format!("reg-{i}")))?;
+                let ver = verdict_at_key(
+                    &old.kind(),
+                    &old.id(),
+                    &old.relation(key)?,
+                    key,
+                    &[body.clone()],
+                    &header,
+                    &chart,
+                    &a.work.join(format!("reg-{i}")),
+                )?;
                 let mut vj = serde_json::to_value(&ver).map_err(|e| e.to_string())?;
                 vj["old"] = old.describe();
                 let vb = serde_json::to_vec(&vj).map_err(|e| e.to_string())?;
@@ -344,7 +438,13 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
             .as_array()
             .ok_or("record without rhs")?
             .iter()
-            .map(|t| json!([t[0], t[1], top_or_sub(&chart, key, t[0].as_str().unwrap_or(""))]))
+            .map(|t| {
+                json!([
+                    t[0],
+                    t[1],
+                    top_or_sub(&chart, key, t[0].as_str().unwrap_or(""))
+                ])
+            })
             .collect();
         let rec_sha = body_ids(body)?.body_sha256;
         let ebody = json!({"type": "relation", "key": key, "target": target, "verdict": "SOLVED", "all_lower": true,
@@ -406,7 +506,10 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
     std::fs::write(&ef, &merged).map_err(|e| format!("{}: {e}", ef.display()))?;
     std::fs::write(dir.join("index.jsonl"), &index).map_err(|e| e.to_string())?;
     super::carry_side(&side, &side_dir(&ef))?;
-    let regular = entries.iter().filter(|e| e["diagnostics"]["pole_order_at"]["4"] == 0).count();
+    let regular = entries
+        .iter()
+        .filter(|e| e["diagnostics"]["pole_order_at"]["4"] == 0)
+        .count();
     let manifest = json!({"schema": MANIFEST_SCHEMA, "node": a.node, "node_identity": a.node_identity, "key_frame": "table",
         "revision": a.revision,
         "entries": {"count": entries.len(), "bytes": merged.len(), "index": "index.jsonl",
@@ -419,8 +522,11 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
                                   NOT WORSE against the old object at its key); entry-check re-verifies them"},
         "layer_order": "list this root BEFORE the root of the entries it replaces: at a key held by two layers of equal \
                         evidence the engine keeps the FIRST layer (relation_entries.rs merge_layer); over_table puts it before the table"});
-    std::fs::write(dir.join("MANIFEST.json"), serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())?;
+    std::fs::write(
+        dir.join("MANIFEST.json"),
+        serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     std::fs::write(
         dir.join("NODE.json"),
         json!({"node": a.node, "node_identity": a.node_identity, "note": "written by rustred-campaign emit-entries; precedence in MANIFEST.json"})
@@ -457,7 +563,9 @@ pub fn entry_check(dir: &Path) -> Result<(Value, bool), String> {
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| {
             p.extension().is_some_and(|x| x == "jsonl")
-                && !p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("index"))
+                && !p
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("index"))
         })
         .collect();
     files.sort();
@@ -489,14 +597,21 @@ pub fn entry_check(dir: &Path) -> Result<(Value, bool), String> {
 }
 
 /// The problems of one entry line (empty = accepted).
-pub fn check_entry(l: &str, manifest: &Value, lookup: &dyn Fn(&str, &str) -> Option<Vec<u8>>) -> Vec<String> {
+pub fn check_entry(
+    l: &str,
+    manifest: &Value,
+    lookup: &dyn Fn(&str, &str) -> Option<Vec<u8>>,
+) -> Vec<String> {
     let mut p = vec![];
     let e: Value = match serde_json::from_str(l) {
         Ok(e) => e,
         Err(x) => return vec![format!("not JSON: {x}")],
     };
     if e["schema"] != ENTRY_SCHEMA || e["key_frame"] != "table" {
-        p.push(format!("schema {} / key frame {}", e["schema"], e["key_frame"]));
+        p.push(format!(
+            "schema {} / key frame {}",
+            e["schema"], e["key_frame"]
+        ));
     }
     if !manifest.is_null() && e["node_identity"] != manifest["node_identity"] {
         p.push("another node identity than the manifest's".into());
@@ -506,7 +621,11 @@ pub fn check_entry(l: &str, manifest: &Value, lookup: &dyn Fn(&str, &str) -> Opt
         Ok(d) if e["entry_digest"].as_str() == Some(d.as_str()) => {}
         _ => p.push("entry_digest is not the digest of the body".into()),
     }
-    if body["key"] != e["key"] || body["verdict"] != "SOLVED" || body["all_lower"] != json!(true) || body["proof"]["ok"] != json!(true) {
+    if body["key"] != e["key"]
+        || body["verdict"] != "SOLVED"
+        || body["all_lower"] != json!(true)
+        || body["proof"]["ok"] != json!(true)
+    {
         p.push("the body is not a proved, lower relation of the entry's key".into());
     }
     let Some(rec) = body["emitted_record"].as_str() else {
@@ -541,16 +660,24 @@ pub fn check_entry(l: &str, manifest: &Value, lookup: &dyn Fn(&str, &str) -> Opt
         p.push("the entry's key / target is not the record's".into());
     }
     let pairs = |a: &Value| -> Vec<(Value, Value)> {
-        a.as_array().map(|v| v.iter().map(|t| (t[0].clone(), t[1].clone())).collect()).unwrap_or_default()
+        a.as_array()
+            .map(|v| v.iter().map(|t| (t[0].clone(), t[1].clone())).collect())
+            .unwrap_or_default()
     };
     if pairs(&rv["rhs"]) != pairs(&body["rhs"]) {
         p.push("the entry's rhs is not the record's".into());
     }
-    let key: Option<Vec<i64>> = e["key"].as_array().and_then(|a| a.iter().map(Value::as_i64).collect());
+    let key: Option<Vec<i64>> = e["key"]
+        .as_array()
+        .and_then(|a| a.iter().map(Value::as_i64).collect());
     if let Some(k) = key {
         match Relation::parse(&rb).and_then(|r| regularity_at(&r, &k)) {
-            Ok(r) if e["diagnostics"]["pole_order_at"]["4"].as_u64() == Some(r.max_pole as u64) => {}
-            Ok(r) => p.push(format!("stated pole order {} but the relation has {} at its key", e["diagnostics"]["pole_order_at"]["4"], r.max_pole)),
+            Ok(r) if e["diagnostics"]["pole_order_at"]["4"].as_u64() == Some(r.max_pole as u64) => {
+            }
+            Ok(r) => p.push(format!(
+                "stated pole order {} but the relation has {} at its key",
+                e["diagnostics"]["pole_order_at"]["4"], r.max_pole
+            )),
             Err(x) => p.push(format!("measure: {x}")),
         }
     }
@@ -562,7 +689,11 @@ pub fn check_entry(l: &str, manifest: &Value, lookup: &dyn Fn(&str, &str) -> Opt
 pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut a = WriteArgs::default();
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
             "--emitted" => a.emitted = val(i)?.into(),
@@ -578,7 +709,11 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
         }
         i += 2;
     }
-    if a.emitted.as_os_str().is_empty() || a.node.is_empty() || a.node_identity.is_empty() || a.out.as_os_str().is_empty() {
+    if a.emitted.as_os_str().is_empty()
+        || a.node.is_empty()
+        || a.node_identity.is_empty()
+        || a.out.as_os_str().is_empty()
+    {
         return Err("emit-entries --emitted T --node N --node-identity ID --out ROOT [--revision R] [--old-entries F]... [--old-table T] [--work DIR] [--descent-node BIN]".into());
     }
     if a.work.as_os_str().is_empty() {
@@ -604,13 +739,23 @@ pub fn check_cmd(rest: &[String]) -> Result<(String, bool), String> {
 /// CLI (GAP-2 standalone) `regularity-at-key --key JSON --pieces P.jsonl --header-table T (--old-entries F... --node-identity ID
 /// | --old-table T) --out DIR`: exit 0 not worse, 3 worse.
 pub fn at_key_cmd(rest: &[String]) -> Result<(String, bool), String> {
-    let (mut key, mut pieces, mut out, mut old_table, mut header_table, mut ident) = (None, None, None, None, None, None);
+    let (mut key, mut pieces, mut out, mut old_table, mut header_table, mut ident) =
+        (None, None, None, None, None, None);
     let mut olds: Vec<PathBuf> = vec![];
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
-            "--key" => key = Some(serde_json::from_str::<Vec<i64>>(&val(i)?).map_err(|e| format!("--key: {e}"))?),
+            "--key" => {
+                key = Some(
+                    serde_json::from_str::<Vec<i64>>(&val(i)?)
+                        .map_err(|e| format!("--key: {e}"))?,
+                )
+            }
             "--pieces" => pieces = Some(PathBuf::from(val(i)?)),
             "--out" => out = Some(PathBuf::from(val(i)?)),
             "--old-table" => old_table = Some(PathBuf::from(val(i)?)),
@@ -627,13 +772,18 @@ pub fn at_key_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let lines: Vec<String> = std::fs::read_to_string(&pieces)
         .map_err(|e| format!("{}: {e}", pieces.display()))?
         .lines()
-        .filter(|l| rustred_campaign_core::emission::body::string_member(l, "type").as_deref() == Some("rule"))
+        .filter(|l| {
+            rustred_campaign_core::emission::body::string_member(l, "type").as_deref()
+                == Some("rule")
+        })
         .map(str::to_string)
         .collect();
     let old = if !olds.is_empty() {
         let id = ident.ok_or("--old-entries needs --node-identity")?;
         let set: BTreeSet<Vec<i64>> = [key.clone()].into();
-        find_entries(&olds, &id, &set)?.remove(&key).map(OldAt::Entry)
+        find_entries(&olds, &id, &set)?
+            .remove(&key)
+            .map(OldAt::Entry)
     } else if let Some(t) = &old_table {
         let (d, _) = dispatcher_of(t)?;
         rule_at_key(t, &d, &key)?
@@ -641,15 +791,34 @@ pub fn at_key_cmd(rest: &[String]) -> Result<(String, bool), String> {
         return Err("give --old-entries or --old-table".into());
     };
     let old = old.ok_or("no old object at the key")?;
-    let ht = header_table.or(old_table).ok_or("--header-table T (the table frame of the pieces)")?;
+    let ht = header_table
+        .or(old_table)
+        .ok_or("--header-table T (the table frame of the pieces)")?;
     let header = header_of(&ht)?;
     let (b0, _) = strip_derivation(lines.first().ok_or("no piece")?)?;
-    let chart = serde_json::from_str::<Value>(&b0).ok().and_then(|v| v["chart"].as_str().map(str::to_string)).unwrap_or_default();
+    let chart = serde_json::from_str::<Value>(&b0)
+        .ok()
+        .and_then(|v| v["chart"].as_str().map(str::to_string))
+        .unwrap_or_default();
     std::fs::create_dir_all(&out).map_err(|e| e.to_string())?;
-    let v = verdict_at_key(&old.kind(), &old.id(), &old.relation(&key)?, &key, &lines, &header, &chart, &out.join("work"))?;
+    let v = verdict_at_key(
+        &old.kind(),
+        &old.id(),
+        &old.relation(&key)?,
+        &key,
+        &lines,
+        &header,
+        &chart,
+        &out.join("work"),
+    )?;
     let mut j = serde_json::to_value(&v).map_err(|e| e.to_string())?;
     j["old"] = old.describe();
     let mut f = std::fs::File::create(out.join("regularity.json")).map_err(|e| e.to_string())?;
-    f.write_all(serde_json::to_string_pretty(&j).map_err(|e| e.to_string())?.as_bytes()).map_err(|e| e.to_string())?;
+    f.write_all(
+        serde_json::to_string_pretty(&j)
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+    )
+    .map_err(|e| e.to_string())?;
     Ok((json!({"not_worse": v.not_worse, "counts": v.counts, "first_regressions": v.first_regressions, "old": j["old"]}).to_string(), v.not_worse))
 }

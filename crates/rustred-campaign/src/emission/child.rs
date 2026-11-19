@@ -148,7 +148,11 @@ pub fn file_sha256(p: &Path) -> Result<String, String> {
     type Key = (std::path::PathBuf, u64, Option<std::time::SystemTime>);
     static MEMO: OnceLock<Mutex<HashMap<Key, String>>> = OnceLock::new();
     let meta = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
-    let key: Key = (std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()), meta.len(), meta.modified().ok());
+    let key: Key = (
+        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()),
+        meta.len(),
+        meta.modified().ok(),
+    );
     let memo = MEMO.get_or_init(|| Mutex::new(HashMap::new()));
     // only large files (binaries) are memoised; certificates and other small files are always read
     let big = meta.len() >= 1 << 20;
@@ -162,7 +166,9 @@ pub fn file_sha256(p: &Path) -> Result<String, String> {
     let s = rustred_campaign_core::emission::body::sha256_hex(&b);
     // the bytes read must still be the file the key names (a rewrite during the read is not memoised)
     if big && key.2.is_some() && b.len() as u64 == key.1 {
-        memo.lock().unwrap_or_else(|e| e.into_inner()).insert(key, s.clone());
+        memo.lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(key, s.clone());
     }
     Ok(s)
 }

@@ -171,7 +171,10 @@ fn emitter(bin: &Path, dir: &Path) -> Emitter {
     c.floor_s = 300.0;
     // descent (contract section 14) by the FAKE engine test: these toy tables have no engine order; the weight-cert path is under test
     let fake = Path::new(env!("CARGO_BIN_EXE_rr_fake_child"));
-    c.descent_node = Some((fake.to_path_buf(), rustred_campaign::emission::child::file_sha256(fake).unwrap()));
+    c.descent_node = Some((
+        fake.to_path_buf(),
+        rustred_campaign::emission::child::file_sha256(fake).unwrap(),
+    ));
     Emitter::new(
         c,
         Policy::default(),
@@ -464,18 +467,31 @@ fn open_locus_becomes_a_ladder_of_two_pieces_that_partition_the_domain() {
         7,
         &orig_line,
         &lines,
-        &rustred_campaign::emission::regcheck::Options { cone: 6, max_keys: 2000, threads: 2 },
+        &rustred_campaign::emission::regcheck::Options {
+            cone: 6,
+            max_keys: 2000,
+            threads: 2,
+        },
         &dir.join("reg"),
     )
     .unwrap();
-    eprintln!("ladder regularity: accepted {} {}", st.accepted, st.verdict["counts"]);
-    assert!(st.verdict["keys"]["compared"].as_u64().unwrap() > 0, "{}", st.verdict);
+    eprintln!(
+        "ladder regularity: accepted {} {}",
+        st.accepted, st.verdict["counts"]
+    );
+    assert!(
+        st.verdict["keys"]["compared"].as_u64().unwrap() > 0,
+        "{}",
+        st.verdict
+    );
     match st.lines {
         Some(stamped) => {
             let pos: Vec<String> = stamped
                 .iter()
                 .enumerate()
-                .map(|(k, l)| rustred_campaign_core::economy::improve::set_index(l, k as i64).unwrap())
+                .map(|(k, l)| {
+                    rustred_campaign_core::economy::improve::set_index(l, k as i64).unwrap()
+                })
                 .collect();
             let (s, ok) = check_table(&write_table(&dir, &pos), &bin, false);
             assert!(ok, "{s}");

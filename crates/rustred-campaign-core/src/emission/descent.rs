@@ -37,7 +37,10 @@ pub fn parse(out: &str) -> Result<Descent, String> {
         .find(|l| l.trim_start().starts_with('{'))
         .ok_or("descent output without a JSON line")?;
     let v: Value = serde_json::from_str(line).map_err(|e| format!("descent output: {e}"))?;
-    let n = |k: &str| v[k].as_u64().ok_or_else(|| format!("descent output without {k}"));
+    let n = |k: &str| {
+        v[k].as_u64()
+            .ok_or_else(|| format!("descent output without {k}"))
+    };
     Ok(Descent {
         not_lower: n("not_lower")?,
         rules: n("rules")?,
@@ -45,7 +48,11 @@ pub fn parse(out: &str) -> Result<Descent, String> {
         first: v["first"].as_str().map(str::to_string),
         failing_rules: v["failing_rules"]
             .as_array()
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(str::to_string)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(str::to_string))
+                    .collect()
+            })
             .unwrap_or_default(),
         order: v["order"]["name"].as_str().map(str::to_string),
     })
@@ -75,7 +82,10 @@ mod tests {
         // the engine's output on lane t266's candidate (i) K2 (rr_node descent, order phys_rev): NOT LOWER
         let k2 = r#"{"failing_rules":["11111111111111000000#0"],"first":"NotLower { rule: \"11111111111111000000#0\", target: \"I(1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,-2,0,0)\", term: \"I(1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,-2,0)\" }","not_lower":1,"order":{"coordinate_priority":null,"name":"phys_rev","slot_permutation":[13,12,11,10,9,8,7,6,5,4,3,2,1,0,14,15,16,17,18,19],"source_order":"Input"},"rules":1,"terms":6}"#;
         let d = parse(k2).unwrap();
-        assert_eq!((d.lower(), d.word(), d.order.as_deref()), (false, "NOT_LOWER", Some("phys_rev")));
+        assert_eq!(
+            (d.lower(), d.word(), d.order.as_deref()),
+            (false, "NOT_LOWER", Some("phys_rev"))
+        );
         let body6 = serde_json::json!({"rhs": [["a","1"],["b","1"],["c","1"],["d","1"],["e","1"],["f","1"]]}).to_string();
         assert_eq!(verify(k2, &body6), Ok(false));
         // another record (another term count): not bound

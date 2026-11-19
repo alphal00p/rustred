@@ -23,7 +23,11 @@ pub fn cert_case(p: &Path) -> Option<String> {
         std::str::from_utf8(&buf[..n.saturating_sub(4)]).ok()
     })?;
     let rest = s.trim_start().strip_prefix('{')?.trim_start();
-    let rest = rest.strip_prefix("\"case\"")?.trim_start().strip_prefix(':')?.trim_start();
+    let rest = rest
+        .strip_prefix("\"case\"")?
+        .trim_start()
+        .strip_prefix(':')?
+        .trim_start();
     if !rest.starts_with('"') {
         return None;
     }
@@ -93,7 +97,11 @@ impl GateKind {
             "point" => GateKind::Point,
             "symmetry" => GateKind::Symmetry,
             "auto" => GateKind::Auto,
-            o => return Err(format!("unknown kind {o} (lifted / point / symmetry / auto)")),
+            o => {
+                return Err(format!(
+                    "unknown kind {o} (lifted / point / symmetry / auto)"
+                ));
+            }
         })
     }
 }
@@ -134,7 +142,11 @@ pub fn gate_lines(
         };
         let tries: Vec<Option<PathBuf>> = if kind == Kind::Lifted {
             let c = certs.for_case(&ids.case);
-            if c.is_empty() { vec![None] } else { c.into_iter().map(Some).collect() }
+            if c.is_empty() {
+                vec![None]
+            } else {
+                c.into_iter().map(Some).collect()
+            }
         } else {
             vec![None]
         };
@@ -157,7 +169,9 @@ pub fn gate_lines(
             let e = em.emit(&c, Liveness::Unknown, false)?;
             match e.line {
                 Some(x) => {
-                    *g.classes.entry(e.classed.class.word().to_string()).or_default() += 1;
+                    *g.classes
+                        .entry(e.classed.class.word().to_string())
+                        .or_default() += 1;
                     got = Some(x);
                     break;
                 }
@@ -182,7 +196,8 @@ pub fn emit_table(
     certs: &CertIndex,
     kind: GateKind,
 ) -> Result<(Value, bool), String> {
-    let text = std::fs::read_to_string(table_in).map_err(|e| format!("{}: {e}", table_in.display()))?;
+    let text =
+        std::fs::read_to_string(table_in).map_err(|e| format!("{}: {e}", table_in.display()))?;
     let all: Vec<&str> = text.lines().collect();
     let header = all
         .iter()
@@ -281,7 +296,9 @@ pub fn gate_beside(
             ..Default::default()
         })?;
         if ok {
-            return Ok(json!({"emitted": emitted.display().to_string(), "reused": true, "classes": tc["classes"]}));
+            return Ok(
+                json!({"emitted": emitted.display().to_string(), "reused": true, "classes": tc["classes"]}),
+            );
         }
     }
     if !may_write {
@@ -298,7 +315,13 @@ pub fn gate_beside(
     std::fs::write(&plain_path, plain).map_err(|e| format!("{}: {e}", plain_path.display()))?;
     let work = emitted.with_extension("emit-work");
     let em_for = |side: &Path| emitter_from(es, side, &work);
-    let (s, ok) = emit_table(&em_for, &plain_path, emitted, &CertIndex::from_dirs(cert_dirs), kind)?;
+    let (s, ok) = emit_table(
+        &em_for,
+        &plain_path,
+        emitted,
+        &CertIndex::from_dirs(cert_dirs),
+        kind,
+    )?;
     let _ = std::fs::remove_file(&plain_path);
     if !ok {
         return Err(format!(
@@ -323,7 +346,11 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut recover = true;
     let mut floor: Option<f64> = None;
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
             "--table" => table = Some(val(i)?.into()),
@@ -337,7 +364,9 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
             "--symmetry-group" => sym = Some(PathBuf::from(val(i)?)),
             "--work" => work = Some(PathBuf::from(val(i)?)),
             "--descent-node" => descent = Some(PathBuf::from(val(i)?)),
-            "--check-floor" => floor = Some(val(i)?.parse().map_err(|e| format!("--check-floor: {e}"))?),
+            "--check-floor" => {
+                floor = Some(val(i)?.parse().map_err(|e| format!("--check-floor: {e}"))?)
+            }
             "--no-recover-rows" => {
                 recover = false;
                 i -= 1;
@@ -347,11 +376,15 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
         i += 2;
     }
     let (Some(table), Some(out), Some(checker)) = (table, out, checker) else {
-        return Err("emit-table --table T --out O --checker BIN [--certs DIR ...] [--kind K] [...]".into());
+        return Err(
+            "emit-table --table T --out O --checker BIN [--certs DIR ...] [--kind K] [...]".into(),
+        );
     };
     let pol = match &policy {
-        Some(p) => serde_json::from_slice(&std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?)
-            .map_err(|e| format!("{}: {e}", p.display()))?,
+        Some(p) => {
+            serde_json::from_slice(&std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?)
+                .map_err(|e| format!("{}: {e}", p.display()))?
+        }
         None => rustred_campaign_core::emission::class::Policy::default(),
     };
     let work = work.unwrap_or_else(|| out.with_extension("emit-work"));

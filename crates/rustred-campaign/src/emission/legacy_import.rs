@@ -10,7 +10,9 @@ use rustred_campaign_core::closure::sha256::Sha256;
 use rustred_campaign_core::emission::body::{
     attach_derivation, body_ids, members, sha256_hex, string_member,
 };
-use rustred_campaign_core::emission::class::{Classed, Evidence, Kind, Liveness, Origin, Policy, class_of};
+use rustred_campaign_core::emission::class::{
+    Classed, Evidence, Kind, Liveness, Origin, Policy, class_of,
+};
 use rustred_campaign_core::emission::legacy::{
     self, Config, Counts, Decision, KeyProofs, KeyedBy, RecordId, VerdictRow, decide, keys_text,
     legacy_member,
@@ -34,8 +36,14 @@ fn index_and_dispatch(line: &str) -> (i64, Option<i64>) {
     let Ok(m) = members(line) else {
         return (-1, None);
     };
-    let get = |k: &str| m.iter().find(|x| x.key == k).map(|x| &line[x.value.clone()]);
-    let index = get("index").and_then(|t| t.trim().parse().ok()).unwrap_or(-1);
+    let get = |k: &str| {
+        m.iter()
+            .find(|x| x.key == k)
+            .map(|x| &line[x.value.clone()])
+    };
+    let index = get("index")
+        .and_then(|t| t.trim().parse().ok())
+        .unwrap_or(-1);
     let dp = get("origin")
         .and_then(|t| serde_json::from_str::<Value>(t).ok())
         .and_then(|o| o["dispatch_position"].as_i64());
@@ -56,7 +64,11 @@ pub struct Loaded {
 /// Load every evidence source of `cfg` (and the reference identities the rows need).
 pub fn load(cfg: Config) -> Result<Loaded, String> {
     if cfg.schema != legacy::SCHEMA {
-        return Err(format!("config schema {} (want {})", cfg.schema, legacy::SCHEMA));
+        return Err(format!(
+            "config schema {} (want {})",
+            cfg.schema,
+            legacy::SCHEMA
+        ));
     }
     let mut sources = vec![];
     let mut pobj = BTreeMap::new();
@@ -65,7 +77,8 @@ pub fn load(cfg: Config) -> Result<Loaded, String> {
         for (k, v) in legacy::proof_objects(&t, &po.key_col, &po.exact_col) {
             pobj.insert((po.doc.clone(), k), v);
         }
-        sources.push(json!({"kind": "proof objects", "name": po.doc, "path": po.path, "sha256": sha}));
+        sources
+            .push(json!({"kind": "proof objects", "name": po.doc, "path": po.path, "sha256": sha}));
     }
     let mut rows = vec![];
     for v in &cfg.verdicts {
@@ -96,15 +109,19 @@ pub fn load(cfg: Config) -> Result<Loaded, String> {
             h.update(format!("{} {sha}\n", f.display()).as_bytes());
             n += legacy::add_key_proofs(&k.name, &t, &mut proofs)?;
         }
-        sources.push(json!({"kind": "key proofs", "name": k.name, "files": files.len(), "exact_lines": n,
-                            "files_sha256": h.finish_hex()}));
+        sources.push(
+            json!({"kind": "key proofs", "name": k.name, "files": files.len(), "exact_lines": n,
+                            "files_sha256": h.finish_hex()}),
+        );
     }
     let mut counts = BTreeMap::new();
     for c in &cfg.counts {
         let (t, sha) = read(&c.path)?;
         let n = legacy::add_counts(c, &t, &sha, &mut counts)?;
-        sources.push(json!({"kind": "counts", "name": c.name, "path": c.path, "sha256": sha, "rows": n,
-                            "table_sha256": c.table_sha256}));
+        sources.push(
+            json!({"kind": "counts", "name": c.name, "path": c.path, "sha256": sha, "rows": n,
+                            "table_sha256": c.table_sha256}),
+        );
     }
     // reference identities: only the rows that lack a hash or a domain need them
     let need: BTreeSet<i64> = rows
@@ -292,7 +309,13 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
         if let Some(dp) = dp {
             own.extend(by_ref.get(&dp).into_iter().flatten().copied());
         }
-        own.extend(by_tab.get(&(position as i64)).into_iter().flatten().copied());
+        own.extend(
+            by_tab
+                .get(&(position as i64))
+                .into_iter()
+                .flatten()
+                .copied(),
+        );
         let own_ptr: BTreeSet<*const VerdictRow> = own.iter().map(|r| *r as *const _).collect();
         let same: Vec<&VerdictRow> = by_rel
             .get(&rec.relation_sha256)
@@ -339,8 +362,10 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
             if p.row.keyed_by == KeyedBy::Reference {
                 deferred_identical.push((position, p.row.index));
             }
-            identical.push(json!({"position": position, "binding": b, "source": p.row.source,
-                                  "row_index": p.row.index, "word": d.word}));
+            identical.push(
+                json!({"position": position, "binding": b, "source": p.row.source,
+                                  "row_index": p.row.index, "word": d.word}),
+            );
         }
         *words
             .entry(if d.word.starts_with("sampled") {
@@ -354,8 +379,12 @@ pub fn run(a: &Args) -> Result<(Value, bool), String> {
         *by_class.entry(c.class.word().to_string()).or_default() += 1;
         *bindings
             .entry(match (&d.proof, &d.cone, &d.sample) {
-                (Some(p), _, _) if p.binding.starts_with("own") => format!("proof object at own position ({})", p.row.source),
-                (Some(p), _, _) => format!("proof object of the identical statement ({})", p.row.source),
+                (Some(p), _, _) if p.binding.starts_with("own") => {
+                    format!("proof object at own position ({})", p.row.source)
+                }
+                (Some(p), _, _) => {
+                    format!("proof object of the identical statement ({})", p.row.source)
+                }
                 (None, Some(_), _) => "proof lines: every first-match key".into(),
                 (None, None, Some(_)) => "proof lines: sampled".into(),
                 _ if d.dead == Some(true) => "no class evidence; dead".into(),
@@ -476,7 +505,11 @@ fn summary_line(words: &BTreeMap<String, u64>, identical: &[Value]) -> String {
         "whole domain {} (+ {} whole domain BY IDENTICAL STATEMENT at another position, not yet on their own bytes: {}), every first-match key in cone {}, sampled N keys {}, dead in cone {}, none {}",
         g("whole domain"),
         g(legacy::IDENTICAL_WORD),
-        if id.is_empty() { "-".into() } else { id.join(", ") },
+        if id.is_empty() {
+            "-".into()
+        } else {
+            id.join(", ")
+        },
         g("every first-match key in cone"),
         g("sampled N keys"),
         g("dead in cone"),
@@ -516,8 +549,13 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
         }
         i += 1;
     }
-    if a.table.as_os_str().is_empty() || a.config.as_os_str().is_empty() || a.out.as_os_str().is_empty() {
-        return Err("legacy-import --table T --config C --out DIR [--write-table] [--policy FILE]".into());
+    if a.table.as_os_str().is_empty()
+        || a.config.as_os_str().is_empty()
+        || a.out.as_os_str().is_empty()
+    {
+        return Err(
+            "legacy-import --table T --config C --out DIR [--write-table] [--policy FILE]".into(),
+        );
     }
     let (s, ok) = run(&a)?;
     let mut short = s.clone();

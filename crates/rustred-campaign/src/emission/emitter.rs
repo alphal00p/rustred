@@ -218,7 +218,13 @@ pub fn run_span_checker_with(
         if cert.exists() {
             std::fs::remove_dir_all(cert).map_err(|e| format!("{}: {e}", cert.display()))?;
         }
-        for a in ["--symrows", &req.display().to_string(), "--symrows-only", "--emit-certs", &cert.display().to_string()] {
+        for a in [
+            "--symrows",
+            &req.display().to_string(),
+            "--symrows-only",
+            "--emit-certs",
+            &cert.display().to_string(),
+        ] {
             args.push(a.to_string());
         }
     }
@@ -230,7 +236,10 @@ pub fn run_span_checker_with(
         .find(|l| l.trim_start().starts_with('{'))
         .map(str::to_string);
     let exact = if run.over_budget {
-        Err(format!("budget_exceeded ({:.1} s > {budget_s:.1} s)", run.seconds))
+        Err(format!(
+            "budget_exceeded ({:.1} s > {budget_s:.1} s)",
+            run.seconds
+        ))
     } else {
         match &output {
             None => Err(format!(
@@ -346,27 +355,69 @@ impl Emitter {
         header: &str,
         body: &str,
         tag: &str,
-    ) -> Result<(Option<(String, String, String, Option<String>)>, Option<String>), String> {
+    ) -> Result<
+        (
+            Option<(String, String, String, Option<String>)>,
+            Option<String>,
+        ),
+        String,
+    > {
         let Some((node, node_sha)) = &self.checker.descent_node else {
-            return Ok((None, Some("descent_not_checked (no engine descent binary given: contract section 14)".into())));
+            return Ok((
+                None,
+                Some(
+                    "descent_not_checked (no engine descent binary given: contract section 14)"
+                        .into(),
+                ),
+            ));
         };
         let dir = self.work.join(tag).join("descent");
         std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         let input = dir.join("descent-input.table.jsonl");
-        std::fs::write(&input, format!("{}\n{body}\n", header.trim_end())).map_err(|e| format!("{}: {e}", input.display()))?;
-        let args: Vec<String> = vec!["descent".into(), "--table".into(), input.display().to_string()];
-        let run = child::run(node, &args, &[], &dir, "descent", self.checker.floor_s.max(600.0))?;
+        std::fs::write(&input, format!("{}\n{body}\n", header.trim_end()))
+            .map_err(|e| format!("{}: {e}", input.display()))?;
+        let args: Vec<String> = vec![
+            "descent".into(),
+            "--table".into(),
+            input.display().to_string(),
+        ];
+        let run = child::run(
+            node,
+            &args,
+            &[],
+            &dir,
+            "descent",
+            self.checker.floor_s.max(600.0),
+        )?;
         let out = run.stdout_text();
         if run.over_budget || out.lines().all(|l| !l.trim_start().starts_with('{')) {
-            return Ok((None, Some(format!("descent_not_checked (rr_node descent: exit {:?}, {})", run.code, run.stderr_tail(300)))));
+            return Ok((
+                None,
+                Some(format!(
+                    "descent_not_checked (rr_node descent: exit {:?}, {})",
+                    run.code,
+                    run.stderr_tail(300)
+                )),
+            ));
         }
-        let line = out.lines().rev().find(|l| l.trim_start().starts_with('{')).unwrap_or("").to_string();
-        let sha = self.put_side(rustred_campaign_core::emission::AREA_DESCENT, line.as_bytes())?;
+        let line = out
+            .lines()
+            .rev()
+            .find(|l| l.trim_start().starts_with('{'))
+            .unwrap_or("")
+            .to_string();
+        let sha = self.put_side(
+            rustred_campaign_core::emission::AREA_DESCENT,
+            line.as_bytes(),
+        )?;
         let d = rustred_campaign_core::emission::descent::parse(&line)?;
         let tuple = Some((node_sha.clone(), sha, d.word().to_string(), d.first.clone()));
         match rustred_campaign_core::emission::descent::verify(&line, body) {
             Ok(true) => Ok((tuple, None)),
-            Ok(false) => Ok((tuple, Some(format!("not_lower ({})", d.first.unwrap_or_default())))),
+            Ok(false) => Ok((
+                tuple,
+                Some(format!("not_lower ({})", d.first.unwrap_or_default())),
+            )),
             Err(e) => Ok((tuple, Some(format!("descent_not_checked ({e})")))),
         }
     }
@@ -387,16 +438,31 @@ impl Emitter {
         let certs: Vec<PathBuf> = std::fs::read_dir(cert)
             .map_err(|x| format!("no certificate emitted ({}: {x})", cert.display()))?
             .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("cert_") && n.ends_with(".json")))
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("cert_") && n.ends_with(".json"))
+            })
             .collect();
         let [one] = certs.as_slice() else {
-            return Err(format!("{} certificate(s) in {} (one key: one expected)", certs.len(), cert.display()));
+            return Err(format!(
+                "{} certificate(s) in {} (one key: one expected)",
+                certs.len(),
+                cert.display()
+            ));
         };
         let ct = std::fs::read(one).map_err(|x| format!("{}: {x}", one.display()))?;
         symrows::verify(out, &ct, rq.trim_ascii_end(), body)?;
-        let group = self.checker.symmetry_group.as_ref().ok_or("no symmetry group")?;
+        let group = self
+            .checker
+            .symmetry_group
+            .as_ref()
+            .ok_or("no symmetry group")?;
         let gb = std::fs::read(group).map_err(|x| format!("{}: {x}", group.display()))?;
-        let rows = serde_json::from_str::<Value>(out).ok().and_then(|o| o["symrows"]["given"].as_u64()).unwrap_or(0);
+        let rows = serde_json::from_str::<Value>(out)
+            .ok()
+            .and_then(|o| o["symrows"]["given"].as_u64())
+            .unwrap_or(0);
         let member = json!({"element": e, "request_sha256": self.put_side(AREA_SYMROWS, rq.trim_ascii_end())?,
             "group_sha256": self.put_side(AREA_SYMROWS, &gb)?, "only": true, "rows": rows});
         let cert_sha = self.put_side(AREA_CERT, &ct)?;
@@ -444,14 +510,24 @@ impl Emitter {
         let mut span_err: Option<String> = None;
         // a SYMMETRY RELATION (the record names its element: contract section 15): proven on the expanded symmetry row
         // alone (--symrows --symrows-only), its exact certificate bound to the record bytes
-        let sym_el = if point { rustred_campaign_core::emission::symrows::element(&body) } else { None };
+        let sym_el = if point {
+            rustred_campaign_core::emission::symrows::element(&body)
+        } else {
+            None
+        };
         let sym_files = match sym_el {
             Some(e) => {
                 let d = self.work.join(&c.tag);
                 std::fs::create_dir_all(&d).map_err(|x| format!("{}: {x}", d.display()))?;
                 let req = d.join("symrows.request.jsonl");
-                std::fs::write(&req, format!("{}\n", rustred_campaign_core::emission::symrows::request(&body, e)?))
-                    .map_err(|x| format!("{}: {x}", req.display()))?;
+                std::fs::write(
+                    &req,
+                    format!(
+                        "{}\n",
+                        rustred_campaign_core::emission::symrows::request(&body, e)?
+                    ),
+                )
+                .map_err(|x| format!("{}: {x}", req.display()))?;
                 Some((req, d.join("span-certs")))
             }
             None => None,
@@ -469,14 +545,16 @@ impl Emitter {
                 Ok((Some(o), exact, _)) => {
                     let out = self.put_side(AREA_CHECK, o.as_bytes())?;
                     let exact = match (&sym_files, exact) {
-                        (Some((req, cert)), Ok(true)) => match self.bind_symrows(&o, req, cert, &body, sym_el.unwrap_or(0)) {
-                            Ok((member, cert_side)) => {
-                                symrows_member = Some(member);
-                                certificate = Some(cert_side);
-                                Ok(true)
+                        (Some((req, cert)), Ok(true)) => {
+                            match self.bind_symrows(&o, req, cert, &body, sym_el.unwrap_or(0)) {
+                                Ok((member, cert_side)) => {
+                                    symrows_member = Some(member);
+                                    certificate = Some(cert_side);
+                                    Ok(true)
+                                }
+                                Err(e) => Err(format!("symrows_binding ({e})")),
                             }
-                            Err(e) => Err(format!("symrows_binding ({e})")),
-                        },
+                        }
                         (_, x) => x,
                     };
                     let verdict = serde_json::from_str::<Value>(&o)
@@ -581,7 +659,9 @@ impl Emitter {
         let sample_keys = c.sample.as_ref().map_or(0, |s| s.keys);
         let admitted = match &descent_refusal {
             Some(why) => Err(why.clone()),
-            None => self.policy.admit(c.origin, liveness, &classed, curves_only, sample_keys),
+            None => self
+                .policy
+                .admit(c.origin, liveness, &classed, curves_only, sample_keys),
         };
         let (line, refused) = match admitted {
             Ok(()) => (Some(attach_derivation(&body, &d)?), None),

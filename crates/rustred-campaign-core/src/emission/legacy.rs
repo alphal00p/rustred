@@ -65,12 +65,8 @@ fn contains_after_boundary(s: &str, p: &str) -> bool {
 
 /// `s` contains `p` followed by a word boundary.
 fn contains_before_boundary(s: &str, p: &str) -> bool {
-    s.match_indices(p).any(|(i, m)| {
-        s[i + m.len()..]
-            .chars()
-            .next()
-            .is_none_or(|c| !is_word(c))
-    })
+    s.match_indices(p)
+        .any(|(i, m)| s[i + m.len()..].chars().next().is_none_or(|c| !is_word(c)))
 }
 
 /// "dead at D + r" with optional single spaces around '+', case-insensitive (`low` is lower-cased).
@@ -170,7 +166,11 @@ pub fn proof_objects(md: &str, key_col: &str, exact_col: &str) -> BTreeMap<Strin
             hdr = Some(cells);
             continue;
         };
-        if cells.concat().chars().all(|c| c == '-' || c == ':' || c == ' ') {
+        if cells
+            .concat()
+            .chars()
+            .all(|c| c == '-' || c == ':' || c == ' ')
+        {
             continue;
         }
         let get = |name: &str| h.iter().position(|x| x == name).and_then(|i| cells.get(i));
@@ -297,18 +297,26 @@ pub fn parse_verdicts(
     pobj: &BTreeMap<(String, String), String>,
 ) -> Result<Vec<VerdictRow>, String> {
     let mut lines = text.lines().enumerate();
-    let (_, hdr) = lines
-        .next()
-        .ok_or_else(|| format!("{}: empty", src.name))?;
+    let (_, hdr) = lines.next().ok_or_else(|| format!("{}: empty", src.name))?;
     let cols: Vec<&str> = hdr.split('\t').collect();
     let col = |n: &str| cols.iter().position(|c| *c == n);
-    let ix = col(&src.index_col).ok_or_else(|| format!("{}: no column {}", src.name, src.index_col))?;
-    let cl = col(&src.class_col).ok_or_else(|| format!("{}: no column {}", src.name, src.class_col))?;
+    let ix =
+        col(&src.index_col).ok_or_else(|| format!("{}: no column {}", src.name, src.index_col))?;
+    let cl =
+        col(&src.class_col).ok_or_else(|| format!("{}: no column {}", src.name, src.class_col))?;
     let hc = src.hash_col.as_deref().map(|c| col(c).ok_or(c)).transpose();
     let hc = hc.map_err(|c| format!("{}: no column {c}", src.name))?;
-    let dc = src.domain_col.as_deref().map(|c| col(c).ok_or(c)).transpose();
+    let dc = src
+        .domain_col
+        .as_deref()
+        .map(|c| col(c).ok_or(c))
+        .transpose();
     let dc = dc.map_err(|c| format!("{}: no column {c}", src.name))?;
-    let pc = src.proof_object_col.as_deref().map(|c| col(c).ok_or(c)).transpose();
+    let pc = src
+        .proof_object_col
+        .as_deref()
+        .map(|c| col(c).ok_or(c))
+        .transpose();
     let pc = pc.map_err(|c| format!("{}: no column {c}", src.name))?;
     let mut detail_ix = vec![];
     for d in &src.detail_cols {
@@ -400,7 +408,10 @@ pub fn add_key_proofs(
             v["line_sha256"].as_str(),
             v["key"].as_array(),
         ) else {
-            return Err(format!("{name} line {}: no rule / line_sha256 / key", ln + 1));
+            return Err(format!(
+                "{name} line {}: no rule / line_sha256 / key",
+                ln + 1
+            ));
         };
         let key: Option<Vec<i64>> = key.iter().map(Value::as_i64).collect();
         let key = key.ok_or_else(|| format!("{name} line {}: key not integer", ln + 1))?;
@@ -536,7 +547,9 @@ pub fn decide(
         };
         (
             r.hash.clone().or_else(|| rf.as_ref().map(|x| x.0.clone())),
-            r.domain.clone().or_else(|| rf.as_ref().map(|x| x.1.clone())),
+            r.domain
+                .clone()
+                .or_else(|| rf.as_ref().map(|x| x.1.clone())),
         )
     };
     let mut d = Decision {
@@ -586,7 +599,11 @@ pub fn decide(
                     row: (*r).clone(),
                     binding: format!(
                         "identical statement at {} index {}",
-                        if r.keyed_by == KeyedBy::Reference { "reference" } else { "table" },
+                        if r.keyed_by == KeyedBy::Reference {
+                            "reference"
+                        } else {
+                            "table"
+                        },
                         r.index
                     ),
                 });
@@ -607,12 +624,15 @@ pub fn decide(
     });
     d.contradiction = own_vacuous && d.dead == Some(false);
     // per-key: the proof lines made on THIS line
-    let keys = proofs.and_then(|p| p.by_line.get(&rec.line_sha256)).cloned();
+    let keys = proofs
+        .and_then(|p| p.by_line.get(&rec.line_sha256))
+        .cloned();
     if let Some(p) = proofs {
         let other = p.by_line.keys().filter(|s| **s != rec.line_sha256).count();
         if other > 0 {
-            d.notes
-                .push(format!("{other} proof-line set(s) made on another line: not bound"));
+            d.notes.push(format!(
+                "{other} proof-line set(s) made on another line: not bound"
+            ));
         }
     }
     if let Some(keys) = keys.filter(|k| !k.is_empty()) {
@@ -681,29 +701,37 @@ pub fn decide(
         // implementer's decision 2026-11-18T22:00Z: a proof object of the identical statement at ANOTHER position is a
         // visible sub-class, counted apart, until the checker has run on the record's own bytes
         ClassWord::WholeDomain
-            if d.proof.as_ref().is_some_and(|p| p.binding.starts_with("identical")) =>
+            if d.proof
+                .as_ref()
+                .is_some_and(|p| p.binding.starts_with("identical")) =>
         {
             let p = d.proof.as_ref().expect("proof");
             format!(
                 "{IDENTICAL_WORD} at {} index {}",
-                if p.row.keyed_by == KeyedBy::Reference { "reference" } else { "table" },
+                if p.row.keyed_by == KeyedBy::Reference {
+                    "reference"
+                } else {
+                    "table"
+                },
                 p.row.index
             )
         }
         ClassWord::WholeDomain => "whole domain".into(),
         _ if d.dead == Some(true) => "dead in cone".into(),
         ClassWord::EveryKeyInCone => "every first-match key in cone".into(),
-        ClassWord::Sampled => format!(
-            "sampled {} keys",
-            d.sample.as_ref().map_or(0, |s| s.keys)
-        ),
+        ClassWord::Sampled => format!("sampled {} keys", d.sample.as_ref().map_or(0, |s| s.keys)),
         ClassWord::None => "none".into(),
     };
     d
 }
 
 /// The `legacy` member of the derivation's class (references only; the bound row lives in the side file).
-pub fn legacy_member(d: &Decision, row_sha256: Option<&str>, counts: Option<&Counts>, cone_bound: i64) -> Value {
+pub fn legacy_member(
+    d: &Decision,
+    row_sha256: Option<&str>,
+    counts: Option<&Counts>,
+    cone_bound: i64,
+) -> Value {
     // contract section 13: a legacy record brought in unchanged replaces nothing: its d = 4 regularity is not compared
     let mut m = json!({"schema": SCHEMA, "regularity_d4": "not compared (legacy record brought in unchanged)"});
     if let (Some(p), Some(sha)) = (&d.proof, row_sha256) {
@@ -733,7 +761,9 @@ pub fn verify_row(row: &Value, relation_sha256: &str, domain_sha256: &str) -> Re
         row["detail"].as_str().unwrap_or(""),
     );
     if k != VerdictKind::Whole {
-        return Err(format!("the bound row is not a whole-domain proof object ({k:?})"));
+        return Err(format!(
+            "the bound row is not a whole-domain proof object ({k:?})"
+        ));
     }
     Ok(())
 }
@@ -760,12 +790,33 @@ mod tests {
         assert_eq!(k("NOT-RUN-DEAD", ""), Vacuous);
         assert_eq!(k("SKIPPED", "out of scope: dead"), Vacuous);
         // a summary word is no proof of the whole domain
-        assert_eq!(k("FACE-VERDICT", "PASS (1-3 whole domain; 4-5 per key)"), PerKey);
-        assert_eq!(k("FACE-VERDICT", "PASS || proof object faces.part1 12: PROVED whole domain"), Whole);
+        assert_eq!(
+            k("FACE-VERDICT", "PASS (1-3 whole domain; 4-5 per key)"),
+            PerKey
+        );
+        assert_eq!(
+            k(
+                "FACE-VERDICT",
+                "PASS || proof object faces.part1 12: PROVED whole domain"
+            ),
+            Whole
+        );
         assert_eq!(k("FACE-VERDICT", "PASS (E-WHOLE)"), Whole);
-        assert_eq!(k("FACE-VERDICT", "PROVED whole domain at every FM key D + r <= 39"), PerKey);
-        assert_eq!(k("FACE-VERDICT", "PROVED whole domain on 12 FM keys"), PerKey);
-        assert_eq!(k("FACE-VERDICT", "exactness vacuous: dead at D + r <= 39"), Vacuous);
+        assert_eq!(
+            k(
+                "FACE-VERDICT",
+                "PROVED whole domain at every FM key D + r <= 39"
+            ),
+            PerKey
+        );
+        assert_eq!(
+            k("FACE-VERDICT", "PROVED whole domain on 12 FM keys"),
+            PerKey
+        );
+        assert_eq!(
+            k("FACE-VERDICT", "exactness vacuous: dead at D + r <= 39"),
+            Vacuous
+        );
         assert_eq!(k("FACE-VERDICT", "dead at D+r <= 39"), Vacuous);
         assert_eq!(k("E-KEYS", "EXACT at 494 keys"), PerKey);
         assert_eq!(k("K12 ok", ""), PerKey);
@@ -785,7 +836,14 @@ mod tests {
         assert!(!m.contains_key("99"));
     }
 
-    fn row(keyed_by: KeyedBy, index: i64, h: Option<&str>, d: Option<&str>, class: &str, detail: &str) -> VerdictRow {
+    fn row(
+        keyed_by: KeyedBy,
+        index: i64,
+        h: Option<&str>,
+        d: Option<&str>,
+        class: &str,
+        detail: &str,
+    ) -> VerdictRow {
         VerdictRow {
             source: "A".into(),
             source_sha256: "00".into(),
@@ -830,7 +888,10 @@ mod tests {
         // own position, hash and domain equal
         let a = row(KeyedBy::Reference, 7, Some("R"), Some("D"), "E-WHOLE", "");
         let d = decide(&r, &[&a], &[], &none_ref, None, None, 39);
-        assert_eq!((d.class, d.word.as_str()), (ClassWord::WholeDomain, "whole domain"));
+        assert_eq!(
+            (d.class, d.word.as_str()),
+            (ClassWord::WholeDomain, "whole domain")
+        );
         assert_eq!(d.proof.unwrap().binding, "own position");
         // own position, another domain: stale, no class
         let b = row(KeyedBy::Reference, 7, Some("R"), Some("D2"), "E-WHOLE", "");
@@ -839,18 +900,45 @@ mod tests {
         // own position, the domain from the reference record
         let c = row(KeyedBy::Reference, 7, Some("R"), None, "E-WHOLE", "");
         let refd = |i: i64| (i == 7).then(|| ("R".to_string(), "D".to_string()));
-        assert_eq!(decide(&r, &[&c], &[], &refd, None, None, 39).class, ClassWord::WholeDomain);
+        assert_eq!(
+            decide(&r, &[&c], &[], &refd, None, None, 39).class,
+            ClassWord::WholeDomain
+        );
         // identical statement at another position: only a whole-domain proof object transfers
         let t1 = row(KeyedBy::Reference, 9, Some("R"), Some("D"), "E-WHOLE", "");
         let d = decide(&r, &[], &[&t1], &none_ref, None, None, 39);
         assert_eq!(d.class, ClassWord::WholeDomain);
         assert!(d.proof.unwrap().binding.starts_with("identical statement"));
-        let t2 = row(KeyedBy::Reference, 9, Some("R"), Some("D"), "E-KEYS", "EXACT at 494 keys");
+        let t2 = row(
+            KeyedBy::Reference,
+            9,
+            Some("R"),
+            Some("D"),
+            "E-KEYS",
+            "EXACT at 494 keys",
+        );
         let t3 = row(KeyedBy::Reference, 9, Some("R"), Some("D2"), "E-WHOLE", "");
-        let t4 = row(KeyedBy::Reference, 9, Some("R"), Some("D"), "FACE-VERDICT", "exactness vacuous: dead at D + r <= 39");
-        assert_eq!(decide(&r, &[], &[&t2, &t3, &t4], &none_ref, None, None, 39).class, ClassWord::None);
+        let t4 = row(
+            KeyedBy::Reference,
+            9,
+            Some("R"),
+            Some("D"),
+            "FACE-VERDICT",
+            "exactness vacuous: dead at D + r <= 39",
+        );
+        assert_eq!(
+            decide(&r, &[], &[&t2, &t3, &t4], &none_ref, None, None, 39).class,
+            ClassWord::None
+        );
         // a live record with a vacuous verdict at its own position is a contradiction
-        let v = row(KeyedBy::Reference, 7, Some("R"), Some("D"), "NOT-RUN-DEAD", "");
+        let v = row(
+            KeyedBy::Reference,
+            7,
+            Some("R"),
+            Some("D"),
+            "NOT-RUN-DEAD",
+            "",
+        );
         let c1 = counts("live", &[(0, 1)]);
         assert!(decide(&r, &[&v], &[], &none_ref, None, Some(&c1), 39).contradiction);
         let c2 = counts("dead", &[]);
@@ -872,20 +960,35 @@ mod tests {
         assert_eq!(add_key_proofs("x", t, &mut p).unwrap(), 3);
         let all = counts("live", &[(0, 1), (1, 2)]);
         let d = decide(&r, &[], &[], &none_ref, p.get(&5), Some(&all), 39);
-        assert_eq!((d.class, d.word.as_str()), (ClassWord::EveryKeyInCone, "every first-match key in cone"));
-        assert_eq!(d.cone.as_ref().map(|c| (c.keys, c.proven, c.complete)), Some((3, 3, true)));
+        assert_eq!(
+            (d.class, d.word.as_str()),
+            (ClassWord::EveryKeyInCone, "every first-match key in cone")
+        );
+        assert_eq!(
+            d.cone.as_ref().map(|c| (c.keys, c.proven, c.complete)),
+            Some((3, 3, true))
+        );
         // one more first-match key in shell 1 than proven: sampled
         let more = counts("live", &[(0, 1), (1, 3)]);
         let d = decide(&r, &[], &[], &none_ref, p.get(&5), Some(&more), 39);
-        assert_eq!((d.class, d.word.as_str()), (ClassWord::Sampled, "sampled 3 keys"));
+        assert_eq!(
+            (d.class, d.word.as_str()),
+            (ClassWord::Sampled, "sampled 3 keys")
+        );
         // an incomplete count never gives every
         let mut inc = all.clone();
         inc.fm_count_complete = Some(false);
-        assert_eq!(decide(&r, &[], &[], &none_ref, p.get(&5), Some(&inc), 39).class, ClassWord::Sampled);
+        assert_eq!(
+            decide(&r, &[], &[], &none_ref, p.get(&5), Some(&inc), 39).class,
+            ClassWord::Sampled
+        );
         // counts of another relation do not bind
         let mut other = all.clone();
         other.relation_sha256 = Some("R2".into());
-        assert_eq!(decide(&r, &[], &[], &none_ref, p.get(&5), Some(&other), 39).class, ClassWord::Sampled);
+        assert_eq!(
+            decide(&r, &[], &[], &none_ref, p.get(&5), Some(&other), 39).class,
+            ClassWord::Sampled
+        );
         // proof lines made on another line do not bind
         let mut q = BTreeMap::new();
         add_key_proofs("x", &t.replace("\"L\"", "\"L2\""), &mut q).unwrap();
@@ -895,9 +998,15 @@ mod tests {
         // dead in cone wins over the per-key class in the delivery word, not over whole domain
         let dead = counts("dead", &[(0, 1), (1, 2)]);
         let d = decide(&r, &[], &[], &none_ref, p.get(&5), Some(&dead), 39);
-        assert_eq!((d.class, d.word.as_str()), (ClassWord::EveryKeyInCone, "dead in cone"));
+        assert_eq!(
+            (d.class, d.word.as_str()),
+            (ClassWord::EveryKeyInCone, "dead in cone")
+        );
         let w = row(KeyedBy::Reference, 7, Some("R"), Some("D"), "E-WHOLE", "");
-        assert_eq!(decide(&r, &[&w], &[], &none_ref, p.get(&5), Some(&dead), 39).word, "whole domain");
+        assert_eq!(
+            decide(&r, &[&w], &[], &none_ref, p.get(&5), Some(&dead), 39).word,
+            "whole domain"
+        );
     }
 
     /// A point record's exactness comes only from a stored instance-span output bound to its body: a stated
@@ -931,7 +1040,11 @@ mod tests {
                 span: sp,
                 descent: Some(("node".into(), dsha, "LOWER".into(), None)),
                 symrows: None,
-                classed: Classed { class: ClassWord::WholeDomain, reason: None, evidence: vec!["exact_at_key"] },
+                classed: Classed {
+                    class: ClassWord::WholeDomain,
+                    reason: None,
+                    evidence: vec!["exact_at_key"],
+                },
                 cone: None,
                 sample: None,
                 ladder: None,
@@ -950,8 +1063,16 @@ mod tests {
             .to_string().into_bytes()
         };
         let no_alias = |_: i64| None;
-        let look = |s: BTreeMap<(String, String), Vec<u8>>| move |a: &str, h: &str| s.get(&(a.to_string(), h.to_string())).cloned();
-        let (l, s) = mk(Some(("EXACT_ALL_KEYS_IN_SPAN".into(), span_out(line, "EXACT_ALL_KEYS_IN_SPAN", true))), false);
+        let look = |s: BTreeMap<(String, String), Vec<u8>>| {
+            move |a: &str, h: &str| s.get(&(a.to_string(), h.to_string())).cloned()
+        };
+        let (l, s) = mk(
+            Some((
+                "EXACT_ALL_KEYS_IN_SPAN".into(),
+                span_out(line, "EXACT_ALL_KEYS_IN_SPAN", true),
+            )),
+            false,
+        );
         let v = check_record(&l, 0, &look(s), &no_alias);
         assert!(v.ok(), "{:?}", v.problems);
         assert_eq!(v.class, Some(ClassWord::WholeDomain));
@@ -960,10 +1081,22 @@ mod tests {
         assert!(!check_record(&l, 0, &look(s), &no_alias).ok());
         // an output made on another line: refused
         let other = line.replace("I(0,1,0)", "I(0,0,0)");
-        let (l, s) = mk(Some(("EXACT_ALL_KEYS_IN_SPAN".into(), span_out(&other, "EXACT_ALL_KEYS_IN_SPAN", true))), false);
+        let (l, s) = mk(
+            Some((
+                "EXACT_ALL_KEYS_IN_SPAN".into(),
+                span_out(&other, "EXACT_ALL_KEYS_IN_SPAN", true),
+            )),
+            false,
+        );
         assert!(!check_record(&l, 0, &look(s), &no_alias).ok());
         // not in span: not whole domain
-        let (l, s) = mk(Some(("NOT_ALL_KEYS_IN_SPAN".into(), span_out(line, "NOT_ALL_KEYS_IN_SPAN", false))), false);
+        let (l, s) = mk(
+            Some((
+                "NOT_ALL_KEYS_IN_SPAN".into(),
+                span_out(line, "NOT_ALL_KEYS_IN_SPAN", false),
+            )),
+            false,
+        );
         let v = check_record(&l, 0, &look(s), &no_alias);
         assert!(!v.ok());
         assert_eq!(v.class, Some(ClassWord::None));
@@ -977,9 +1110,15 @@ mod tests {
         let ids = body_ids(line).unwrap();
         let policy = Policy::default();
         let policy_text = serde_json::to_vec(&policy).unwrap();
-        let mk = |row_json: Option<Value>, cone: Option<ConeEvidence>, keys: Option<&str>, line_sha: Option<String>| {
+        let mk = |row_json: Option<Value>,
+                  cone: Option<ConeEvidence>,
+                  keys: Option<&str>,
+                  line_sha: Option<String>| {
             let mut side: BTreeMap<(String, String), Vec<u8>> = BTreeMap::new();
-            side.insert((AREA_POLICY.into(), sha256_hex(&policy_text)), policy_text.clone());
+            side.insert(
+                (AREA_POLICY.into(), sha256_hex(&policy_text)),
+                policy_text.clone(),
+            );
             let mut lm = json!({"schema": SCHEMA});
             let mut ev = vec![];
             if let Some(r) = &row_json {
@@ -990,13 +1129,20 @@ mod tests {
                 ev.push("proof_object");
             }
             if let Some(k) = keys {
-                side.insert((AREA_KEYS.into(), sha256_hex(k.as_bytes())), k.as_bytes().to_vec());
+                side.insert(
+                    (AREA_KEYS.into(), sha256_hex(k.as_bytes())),
+                    k.as_bytes().to_vec(),
+                );
                 ev.push("cone");
             }
             if let Some(s) = line_sha {
                 lm["proofs_line_sha256"] = json!(s);
             }
-            let class = if row_json.is_some() { ClassWord::WholeDomain } else { ClassWord::EveryKeyInCone };
+            let class = if row_json.is_some() {
+                ClassWord::WholeDomain
+            } else {
+                ClassWord::EveryKeyInCone
+            };
             let parts = Parts {
                 kind: Kind::Legacy,
                 origin: Origin::Import,
@@ -1007,7 +1153,11 @@ mod tests {
                 span: None,
                 descent: None,
                 symrows: None,
-                classed: Classed { class, reason: None, evidence: ev },
+                classed: Classed {
+                    class,
+                    reason: None,
+                    evidence: ev,
+                },
                 cone,
                 sample: None,
                 ladder: None,
@@ -1021,7 +1171,14 @@ mod tests {
             move |a: &str, h: &str| s.get(&(a.to_string(), h.to_string())).cloned()
         };
         let no_alias = |_: i64| None;
-        let r = row(KeyedBy::Reference, 7, Some(&ids.relation_sha256), Some(&ids.domain_sha256), "E-WHOLE", "");
+        let r = row(
+            KeyedBy::Reference,
+            7,
+            Some(&ids.relation_sha256),
+            Some(&ids.domain_sha256),
+            "E-WHOLE",
+            "",
+        );
         let good = r.side_json(&ids.relation_sha256, &ids.domain_sha256);
         let (l, s) = mk(Some(good.clone()), None, None, None);
         let v = check_record(&l, 0, &lookup(&s), &no_alias);
@@ -1051,13 +1208,28 @@ mod tests {
             position: Some(0),
             prefix_sha256: None,
         };
-        let (l, s) = mk(None, Some(cone.clone()), Some(keys), Some(sha256_hex(line.as_bytes())));
+        let (l, s) = mk(
+            None,
+            Some(cone.clone()),
+            Some(keys),
+            Some(sha256_hex(line.as_bytes())),
+        );
         let v = check_record(&l, 0, &lookup(&s), &no_alias);
         assert!(v.ok(), "{:?}", v.problems);
         assert_eq!(v.class, Some(ClassWord::EveryKeyInCone));
-        let (l, s) = mk(None, Some(cone.clone()), Some(keys), Some("another line".into()));
+        let (l, s) = mk(
+            None,
+            Some(cone.clone()),
+            Some(keys),
+            Some("another line".into()),
+        );
         assert!(!check_record(&l, 0, &lookup(&s), &no_alias).ok());
-        let (l, s) = mk(None, Some(cone), Some("[1,1,0]\n"), Some(sha256_hex(line.as_bytes())));
+        let (l, s) = mk(
+            None,
+            Some(cone),
+            Some("[1,1,0]\n"),
+            Some(sha256_hex(line.as_bytes())),
+        );
         assert!(!check_record(&l, 0, &lookup(&s), &no_alias).ok());
     }
 }

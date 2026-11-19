@@ -26,10 +26,20 @@ struct Env {
 
 fn env() -> Option<Env> {
     let v = |k: &str| std::env::var(k).ok().map(PathBuf::from);
-    match (v("RUSTRED_T266_CAND_I"), v("RUSTRED_SPAN_CHECKER"), v("RUSTRED_DESCENT_NODE")) {
-        (Some(cand), Some(checker), Some(node)) => Some(Env { cand, checker, node }),
+    match (
+        v("RUSTRED_T266_CAND_I"),
+        v("RUSTRED_SPAN_CHECKER"),
+        v("RUSTRED_DESCENT_NODE"),
+    ) {
+        (Some(cand), Some(checker), Some(node)) => Some(Env {
+            cand,
+            checker,
+            node,
+        }),
         _ => {
-            eprintln!("SKIP: RUSTRED_T266_CAND_I / RUSTRED_SPAN_CHECKER / RUSTRED_DESCENT_NODE not set");
+            eprintln!(
+                "SKIP: RUSTRED_T266_CAND_I / RUSTRED_SPAN_CHECKER / RUSTRED_DESCENT_NODE not set"
+            );
             None
         }
     }
@@ -52,12 +62,26 @@ fn emitter_with(e: &Env, dir: &Path, descent_node: &Path) -> Emitter {
     ck.recover_rows = false;
     ck.floor_s = 600.0;
     ck.symmetry_group = Some(e.cand.join("proofs/symmetry_group.json"));
-    ck.descent_node = Some((descent_node.to_path_buf(), rustred_campaign::emission::child::file_sha256(descent_node).unwrap()));
-    Emitter::new(ck, Policy::default(), &side_dir(&dir.join("t.table.jsonl")), &dir.join("work")).unwrap()
+    ck.descent_node = Some((
+        descent_node.to_path_buf(),
+        rustred_campaign::emission::child::file_sha256(descent_node).unwrap(),
+    ));
+    Emitter::new(
+        ck,
+        Policy::default(),
+        &side_dir(&dir.join("t.table.jsonl")),
+        &dir.join("work"),
+    )
+    .unwrap()
 }
 
 fn header(e: &Env) -> String {
-    std::fs::read_to_string(e.cand.join("proofs/K2.table.jsonl")).unwrap().lines().next().unwrap().to_string()
+    std::fs::read_to_string(e.cand.join("proofs/K2.table.jsonl"))
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_string()
 }
 
 fn emit(em: &Emitter, header: &str, line: &str, tag: &str) -> Emission {
@@ -78,7 +102,12 @@ fn emit(em: &Emitter, header: &str, line: &str, tag: &str) -> Emission {
 }
 
 fn k2(e: &Env) -> Value {
-    serde_json::from_str(std::fs::read_to_string(e.cand.join("relations/K2.rule.json")).unwrap().trim()).unwrap()
+    serde_json::from_str(
+        std::fs::read_to_string(e.cand.join("relations/K2.rule.json"))
+            .unwrap()
+            .trim(),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -91,13 +120,22 @@ fn k2_old_path_red_then_proven_on_its_symmetry_row_and_refused_only_for_descent(
     let mut old = k2(&e);
     old.as_object_mut().unwrap().remove("origin");
     let r = emit(&em, &h, &old.to_string(), "old");
-    eprintln!("K2 old path: refused {:?}; check {}", r.refused, r.derivation["check"]);
+    eprintln!(
+        "K2 old path: refused {:?}; check {}",
+        r.refused, r.derivation["check"]
+    );
     assert!(r.line.is_none());
     let old_out = std::fs::read_to_string(d.join("work/old/span.out")).unwrap_or_default();
-    assert!(old_out.contains("MISSING_SEEDS"), "the old path fails on the seedless record: {old_out}");
+    assert!(
+        old_out.contains("MISSING_SEEDS"),
+        "the old path fails on the seedless record: {old_out}"
+    );
     // GREEN: with its element, EXACT on the symmetry row alone; refused for descent only
     let r = emit(&em, &h, &k2(&e).to_string(), "k2");
-    eprintln!("K2 symrows: refused {:?}; check {}; certificate {}", r.refused, r.derivation["check"], r.derivation["certificate"]);
+    eprintln!(
+        "K2 symrows: refused {:?}; check {}; certificate {}",
+        r.refused, r.derivation["check"], r.derivation["certificate"]
+    );
     assert_eq!(r.derivation["check"]["verdict"], "EXACT_ALL_KEYS_IN_SPAN");
     assert_eq!(r.derivation["check"]["symrows"]["only"], true);
     assert_eq!(r.derivation["certificate"]["form"], "span-cert");
@@ -105,8 +143,15 @@ fn k2_old_path_red_then_proven_on_its_symmetry_row_and_refused_only_for_descent(
     assert!(r.refused.unwrap_or_default().contains("not_lower"));
     // the stored certificate equals the lane's frozen one (same kernel, same record bytes)
     let lane = std::fs::read_to_string(e.cand.join("proofs/K2.certificate.json")).unwrap();
-    let kv = k2(&e)["fixed"].as_array().unwrap().iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_");
-    let mine = std::fs::read_to_string(d.join(format!("work/k2/span-certs/cert_{kv}.json"))).unwrap();
+    let kv = k2(&e)["fixed"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|x| x.to_string())
+        .collect::<Vec<_>>()
+        .join("_");
+    let mine =
+        std::fs::read_to_string(d.join(format!("work/k2/span-certs/cert_{kv}.json"))).unwrap();
     let norm = |s: &str| serde_json::from_str::<Value>(s.trim()).unwrap();
     assert_eq!(norm(&mine)["weights"], norm(&lane)["weights"]);
     assert_eq!(norm(&mine)["key"], norm(&lane)["key"]);
@@ -121,13 +166,15 @@ fn k2_old_path_red_then_proven_on_its_symmetry_row_and_refused_only_for_descent(
     let table = d2.join("t.table.jsonl");
     std::fs::write(&table, format!("{h}\n{forged}\n")).unwrap();
     let tc = |node: Option<PathBuf>| {
-        rustred_campaign::emission::tablecheck::table_check(&rustred_campaign::emission::tablecheck::Args {
-            table: table.clone(),
-            every: 1,
-            work: Some(d2.join("tc")),
-            descent_recheck: node,
-            ..Default::default()
-        })
+        rustred_campaign::emission::tablecheck::table_check(
+            &rustred_campaign::emission::tablecheck::Args {
+                table: table.clone(),
+                every: 1,
+                work: Some(d2.join("tc")),
+                descent_recheck: node,
+                ..Default::default()
+            },
+        )
         .unwrap()
     };
     let (s, ok) = tc(None);
@@ -141,14 +188,23 @@ fn k2_old_path_red_then_proven_on_its_symmetry_row_and_refused_only_for_descent(
 }
 
 #[test]
-fn a_rank1_symmetry_relation_is_proven_on_its_symmetry_row_descends_is_emitted_and_table_check_accepts() {
+fn a_rank1_symmetry_relation_is_proven_on_its_symmetry_row_descends_is_emitted_and_table_check_accepts()
+ {
     let Some(e) = env() else { return };
     let d = tmp("rank1");
     let em = emitter(&e, &d);
     let h = header(&e);
     // the form of lane t266's (b) relation X15 (key slot 14, element 1, corner + one scalar pinch), built here:
     // I(1^14; -1,0^5) = I(1^13,0; 0^6) + I(1^14; 0^6)
-    let t = |k: &[i64]| format!("I({})", k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+    let t = |k: &[i64]| {
+        format!(
+            "I({})",
+            k.iter()
+                .map(|x| x.to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    };
     let mut target = vec![1i64; 14];
     target.extend([-1, 0, 0, 0, 0, 0]);
     let mut pinch = vec![1i64; 13];
@@ -158,7 +214,11 @@ fn a_rank1_symmetry_relation_is_proven_on_its_symmetry_row_descends_is_emitted_a
     let line = |c: &str| {
         let case = format!(
             "Coordinate(CoordinateCase {{ fixed: [{}] }})",
-            target.iter().map(|x| format!("Some({x})")).collect::<Vec<_>>().join(", ")
+            target
+                .iter()
+                .map(|x| format!("Some({x})"))
+                .collect::<Vec<_>>()
+                .join(", ")
         );
         json!({"type": "rule", "chart": "11111111111111000000", "case": case, "fixed": target, "equations": [],
             "target": t(&target), "rhs": [[t(&pinch), c], [t(&corner), "1"]], "exceptions": [], "dispatch": "Partition",
@@ -166,8 +226,14 @@ fn a_rank1_symmetry_relation_is_proven_on_its_symmetry_row_descends_is_emitted_a
         .to_string()
     };
     let r = emit(&em, &h, &line("1"), "x15");
-    eprintln!("X15 form: refused {:?}; check {}; descent {}", r.refused, r.derivation["check"], r.derivation["descent"]);
-    let out = r.line.clone().expect("a descending symmetry relation, exact on its row, is emitted");
+    eprintln!(
+        "X15 form: refused {:?}; check {}; descent {}",
+        r.refused, r.derivation["check"], r.derivation["descent"]
+    );
+    let out = r
+        .line
+        .clone()
+        .expect("a descending symmetry relation, exact on its row, is emitted");
     assert_eq!(r.derivation["check"]["verdict"], "EXACT_ALL_KEYS_IN_SPAN");
     assert_eq!(r.derivation["check"]["symrows"]["only"], true);
     assert_eq!(r.derivation["check"]["symrows"]["element"], 1);
@@ -177,40 +243,58 @@ fn a_rank1_symmetry_relation_is_proven_on_its_symmetry_row_descends_is_emitted_a
     let table = d.join("t.table.jsonl");
     std::fs::write(&table, format!("{h}\n{out}\n")).unwrap();
     let check = |p: &Path| {
-        rustred_campaign::emission::tablecheck::table_check(&rustred_campaign::emission::tablecheck::Args {
-            table: p.to_path_buf(),
-            every: 1,
-            ..Default::default()
-        })
+        rustred_campaign::emission::tablecheck::table_check(
+            &rustred_campaign::emission::tablecheck::Args {
+                table: p.to_path_buf(),
+                every: 1,
+                ..Default::default()
+            },
+        )
         .unwrap()
     };
     let (tc, ok) = check(&table);
     eprintln!("table-check: {tc}");
     assert!(ok, "{tc:#}");
     // and with the descent re-run (the engine again on the record's bytes): accepted
-    let (tc, ok) = rustred_campaign::emission::tablecheck::table_check(&rustred_campaign::emission::tablecheck::Args {
-        table: table.clone(),
-        every: 1,
-        work: Some(d.join("tc")),
-        descent_recheck: Some(e.node.clone()),
-        ..Default::default()
-    })
+    let (tc, ok) = rustred_campaign::emission::tablecheck::table_check(
+        &rustred_campaign::emission::tablecheck::Args {
+            table: table.clone(),
+            every: 1,
+            work: Some(d.join("tc")),
+            descent_recheck: Some(e.node.clone()),
+            ..Default::default()
+        },
+    )
     .unwrap();
     assert!(ok && tc["descent_rechecked"] == 1, "{tc:#}");
     let (body, der) = strip_derivation(&out).unwrap();
     let der: Value = serde_json::from_str(&der.unwrap()).unwrap();
-    let cert = std::fs::read(side_dir(&table).join(format!("cert/{}.json", der["certificate"]["sha256"].as_str().unwrap()))).unwrap();
+    let cert = std::fs::read(side_dir(&table).join(format!(
+        "cert/{}.json",
+        der["certificate"]["sha256"].as_str().unwrap()
+    )))
+    .unwrap();
     let c: Value = serde_json::from_slice(&cert).unwrap();
-    assert_eq!(c["record_sha256"].as_str().unwrap(), rustred_campaign_core::emission::body::sha256_hex(body.as_bytes()));
+    assert_eq!(
+        c["record_sha256"].as_str().unwrap(),
+        rustred_campaign_core::emission::body::sha256_hex(body.as_bytes())
+    );
     // the record's bytes changed after emission (coefficient 1 -> 2, derivation kept): table-check refuses
-    let edited = out.replacen(&format!("[\"{}\",\"1\"]", t(&pinch)), &format!("[\"{}\",\"2\"]", t(&pinch)), 1);
+    let edited = out.replacen(
+        &format!("[\"{}\",\"1\"]", t(&pinch)),
+        &format!("[\"{}\",\"2\"]", t(&pinch)),
+        1,
+    );
     assert_ne!(edited, out);
     std::fs::write(&table, format!("{h}\n{edited}\n")).unwrap();
     let (tc, ok) = check(&table);
     assert!(!ok, "{tc:#}");
     // coefficient 2 emitted afresh: not in the span of the symmetry row -> refused
     let r = emit(&em, &h, &line("2"), "x15x2");
-    eprintln!("X15 form x2: refused {:?}; check {}", r.refused, r.derivation["check"]);
+    eprintln!(
+        "X15 form x2: refused {:?}; check {}",
+        r.refused, r.derivation["check"]
+    );
     assert!(r.line.is_none());
     assert_ne!(r.derivation["check"]["verdict"], "EXACT_ALL_KEYS_IN_SPAN");
     let _ = std::fs::remove_dir_all(&d);

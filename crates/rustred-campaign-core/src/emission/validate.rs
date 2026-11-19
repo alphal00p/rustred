@@ -176,7 +176,9 @@ pub fn check_record(
             }
             // a SYMMETRY RELATION (contract section 15): proven on the expanded symmetry row alone, its exact certificate
             // made on these record bytes, the request of the record's own element at its key
-            if origin == Origin::Lift && let Some(e) = super::symrows::element(&body) {
+            if origin == Origin::Lift
+                && let Some(e) = super::symrows::element(&body)
+            {
                 let s = &d["check"]["symrows"];
                 match (s["request_sha256"].as_str(), s["group_sha256"].as_str(), cert_sha.as_deref()) {
                     (Some(rq), Some(g), Some(cs)) => {
@@ -237,11 +239,17 @@ pub fn check_record(
     let is_replacement = !d["ladder"].is_null() || d.get("replaces").is_some_and(|x| !x.is_null());
     if is_replacement && origin == Origin::Lift {
         match d["replaces"]["regularity_sha256"].as_str() {
-            None => v.notes.push("regularity d4: not reported (no verdict named)".into()),
+            None => v
+                .notes
+                .push("regularity d4: not reported (no verdict named)".into()),
             Some(sha) => match side(AREA_REGULARITY, sha) {
                 Some(b) if sha256_hex(&b) == sha => match serde_json::from_slice::<Value>(&b) {
                     Ok(r) => {
-                        let rule = if r["schema"].as_str() == Some(super::regularity::SCHEMA_V1) { " (v1 verdict, old rule)" } else { "" };
+                        let rule = if r["schema"].as_str() == Some(super::regularity::SCHEMA_V1) {
+                            " (v1 verdict, old rule)"
+                        } else {
+                            ""
+                        };
                         let c = &r["counts"];
                         v.notes.push(if r["same_relation"] == true {
                             format!("regularity d4: same relation{rule}")
@@ -251,14 +259,21 @@ pub fn check_record(
                                 c["keys"], c["worse"], c["regular_to_singular"], c["better"], c["singular_to_regular"]
                             )
                         });
-                        let mine = r["new_body_sha256"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some(ids.body_sha256.as_str())));
+                        let mine = r["new_body_sha256"].as_array().is_some_and(|a| {
+                            a.iter()
+                                .any(|x| x.as_str() == Some(ids.body_sha256.as_str()))
+                        });
                         if !mine || r["old_body_sha256"] != d["replaces"]["old_body_sha256"] {
                             v.notes.push("regularity d4: the named verdict is of another body / old record (reported only)".into());
                         }
                     }
-                    Err(e) => v.notes.push(format!("regularity d4: verdict unreadable ({e})")),
+                    Err(e) => v
+                        .notes
+                        .push(format!("regularity d4: verdict unreadable ({e})")),
                 },
-                _ => v.notes.push(format!("regularity d4: verdict {sha} missing beside the table (reported only)")),
+                _ => v.notes.push(format!(
+                    "regularity d4: verdict {sha} missing beside the table (reported only)"
+                )),
             },
         }
     }
@@ -358,8 +373,9 @@ pub fn check_record(
             if let Some(b) = fetch(AREA_KEYS, &sha, "proven key list", &mut v.problems) {
                 let n = b.split(|&c| c == b'\n').filter(|l| !l.is_empty()).count() as u64;
                 if n != proven {
-                    v.problems
-                        .push(format!("proven key list has {n} keys, the record states {proven}"));
+                    v.problems.push(format!(
+                        "proven key list has {n} keys, the record states {proven}"
+                    ));
                 }
             }
         }

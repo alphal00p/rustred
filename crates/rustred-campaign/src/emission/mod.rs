@@ -188,7 +188,8 @@ pub fn carry_side(from: &Path, to: &Path) -> Result<u64, String> {
                 continue;
             }
             if std::fs::hard_link(&f, &d).is_err() {
-                std::fs::copy(&f, &d).map_err(|e| format!("{} -> {}: {e}", f.display(), d.display()))?;
+                std::fs::copy(&f, &d)
+                    .map_err(|e| format!("{} -> {}: {e}", f.display(), d.display()))?;
             }
             n += 1;
         }
@@ -411,8 +412,22 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         let lines = rep.lines(index)?;
         let rt = reg_table.clone().unwrap_or_else(|| table.clone());
         let ot = regcheck::OldTable::load(&rt)?;
-        let st = regcheck::accept_and_stamp(&emitter, &ot, index, &line, &lines, &reg, &out.join("regularity-work"))?;
-        let (verdict, ok, reason, reg_sha, same) = (st.verdict, st.accepted, st.reason, st.sha256, st.same_relation);
+        let st = regcheck::accept_and_stamp(
+            &emitter,
+            &ot,
+            index,
+            &line,
+            &lines,
+            &reg,
+            &out.join("regularity-work"),
+        )?;
+        let (verdict, ok, reason, reg_sha, same) = (
+            st.verdict,
+            st.accepted,
+            st.reason,
+            st.sha256,
+            st.same_relation,
+        );
         summary["regularity"] = json!({"role": rustred_campaign_core::emission::regularity::ROLE, "accepted": ok, "report": reason,
             "sha256": reg_sha, "same_relation": same,
             "keys": verdict["keys"], "counts": verdict["counts"], "by_branch": verdict["by_branch"],
@@ -431,7 +446,11 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
                                          "stamped_pieces": lines.len()});
                 lines_ok = Some(lines);
             }
-            coneprice::Applied::Refused { reason, piece, sha256 } => {
+            coneprice::Applied::Refused {
+                reason,
+                piece,
+                sha256,
+            } => {
                 closed = false;
                 summary["cone"] = json!({"verdict": vp.display().to_string(), "sha256": sha256, "accepted": false,
                                          "reason": reason, "piece": piece});

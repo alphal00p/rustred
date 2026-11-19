@@ -36,7 +36,8 @@ fn closeloop_relation_tables_are_emitted_inside_the_flow_and_table_check_accepts
     std::fs::write(&files.hand, "").unwrap();
     // emission ON for the node (the fake checker)
     let mut cfg: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
-    cfg["nodes"][0]["emission"] = json!({"checker": FAKE, "recover_rows": false, "descent_node": FAKE});
+    cfg["nodes"][0]["emission"] =
+        json!({"checker": FAKE, "recover_rows": false, "descent_node": FAKE});
     std::fs::write(&files.config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
     let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
     let sp = write_spec(&t, "spec.json", &spec);
@@ -51,19 +52,27 @@ fn closeloop_relation_tables_are_emitted_inside_the_flow_and_table_check_accepts
     .unwrap_or(Value::Null);
     let mut em = vec![];
     emitted_tables(&cdir, &mut em);
-    assert!(!em.is_empty(), "no emitted relation table under {} (result {r})", cdir.display());
+    assert!(
+        !em.is_empty(),
+        "no emitted relation table under {} (result {r})",
+        cdir.display()
+    );
     for p in &em {
-        let (tc, ok) =
-            rustred_campaign::emission::tablecheck::table_check(&rustred_campaign::emission::tablecheck::Args {
+        let (tc, ok) = rustred_campaign::emission::tablecheck::table_check(
+            &rustred_campaign::emission::tablecheck::Args {
                 table: p.clone(),
                 every: 1,
                 ..Default::default()
-            })
-            .unwrap();
+            },
+        )
+        .unwrap();
         assert!(ok, "{}: {tc:#}", p.display());
         assert!(tc["rules"].as_u64().unwrap() > 0);
         // the copy's bodies are the flow's own table, line for line
-        let plain = PathBuf::from(p.to_string_lossy().replace(".emitted.table.jsonl", ".table.jsonl"));
+        let plain = PathBuf::from(
+            p.to_string_lossy()
+                .replace(".emitted.table.jsonl", ".table.jsonl"),
+        );
         let a = std::fs::read_to_string(&plain).unwrap();
         let b = std::fs::read_to_string(p).unwrap();
         assert_eq!(a.lines().count(), b.lines().count(), "{}", p.display());
@@ -72,5 +81,8 @@ fn closeloop_relation_tables_are_emitted_inside_the_flow_and_table_check_accepts
             assert_eq!(x, body);
         }
     }
-    assert_eq!(state(&cdir).nodes["toy"].state.phase, rustred_campaign::state::NodePhase::Closed);
+    assert_eq!(
+        state(&cdir).nodes["toy"].state.phase,
+        rustred_campaign::state::NodePhase::Closed
+    );
 }

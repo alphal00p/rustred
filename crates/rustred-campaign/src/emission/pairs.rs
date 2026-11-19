@@ -19,7 +19,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 fn key_text(k: &[i64]) -> String {
-    format!("I({})", k.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","))
+    format!(
+        "I({})",
+        k.iter()
+            .map(|x| x.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    )
 }
 
 /// One pair.
@@ -32,28 +38,61 @@ pub struct Pair {
 }
 
 /// The measure of every pair; returns (summary, per-pair rows).
-pub fn measure(table: &Path, pairs: &[Pair], threads: usize, not_lower: Option<&BTreeSet<usize>>) -> Result<(Value, Vec<Value>), String> {
+pub fn measure(
+    table: &Path,
+    pairs: &[Pair],
+    threads: usize,
+    not_lower: Option<&BTreeSet<usize>>,
+) -> Result<(Value, Vec<Value>), String> {
     let (disp, chart) = dispatcher_of(table)?;
     // the rule bodies by index (the table's own index = position)
     let mut rels: HashMap<i64, Relation> = HashMap::new();
-    for l in std::fs::read_to_string(table).map_err(|e| format!("{}: {e}", table.display()))?.lines() {
+    for l in std::fs::read_to_string(table)
+        .map_err(|e| format!("{}: {e}", table.display()))?
+        .lines()
+    {
         if string_member(l, "type").as_deref() != Some("rule") {
             continue;
         }
         let (b, _) = strip_derivation(l)?;
         let v: Value = serde_json::from_str(&b).map_err(|e| e.to_string())?;
         let ix = v["index"].as_i64().ok_or("a rule without index")?;
-        rels.insert(ix, Relation::parse(&b).map_err(|e| format!("rule {ix}: {e}"))?);
+        rels.insert(
+            ix,
+            Relation::parse(&b).map_err(|e| format!("rule {ix}: {e}"))?,
+        );
     }
     let first = |k: &[i64]| -> Option<i64> {
         let k32: Vec<i32> = k.iter().map(|&x| x as i32).collect();
-        disp.first_match(&k32).ok().and_then(|d| d.winner()).map(|w| w.label as i64)
+        disp.first_match(&k32)
+            .ok()
+            .and_then(|d| d.winner())
+            .map(|w| w.label as i64)
     };
-    let jobs: Vec<(usize, Option<i64>, Option<i64>)> =
-        pairs.iter().enumerate().map(|(i, p)| (i, first(&p.key), if p.image_is_terminal { None } else { first(&p.image) })).collect();
+    let jobs: Vec<(usize, Option<i64>, Option<i64>)> = pairs
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            (
+                i,
+                first(&p.key),
+                if p.image_is_terminal {
+                    None
+                } else {
+                    first(&p.image)
+                },
+            )
+        })
+        .collect();
     let threads = threads.max(1).min(jobs.len().max(1));
     let chunk = jobs.len().div_ceil(threads).max(1);
-    type M = (usize, Option<i64>, Option<i64>, Option<Result<KeyRegularity, String>>, Option<Result<KeyRegularity, String>>);
+    type M = (
+        usize,
+        Option<i64>,
+        Option<i64>,
+        Option<Result<KeyRegularity, String>>,
+        Option<Result<KeyRegularity, String>>,
+    );
     let results: Vec<M> = std::thread::scope(|s| {
         let hs: Vec<_> = jobs
             .chunks(chunk)
@@ -63,15 +102,21 @@ pub fn measure(table: &Path, pairs: &[Pair], threads: usize, not_lower: Option<&
                     part.iter()
                         .map(|&(i, rk, ri)| {
                             let p = &pairs[i];
-                            let old = rk.and_then(|r| rels.get(&r)).map(|rel| regularity_at(rel, &p.key));
-                            let new = ri.and_then(|r| rels.get(&r)).map(|rel| regularity_at(rel, &p.image));
+                            let old = rk
+                                .and_then(|r| rels.get(&r))
+                                .map(|rel| regularity_at(rel, &p.key));
+                            let new = ri
+                                .and_then(|r| rels.get(&r))
+                                .map(|rel| regularity_at(rel, &p.image));
                             (i, rk, ri, old, new)
                         })
                         .collect::<Vec<_>>()
                 })
             })
             .collect();
-        hs.into_iter().flat_map(|h| h.join().unwrap_or_default()).collect()
+        hs.into_iter()
+            .flat_map(|h| h.join().unwrap_or_default())
+            .collect()
     });
     let mut rows = Vec::with_capacity(results.len());
     let mut c: BTreeMap<&str, u64> = BTreeMap::new();
@@ -99,12 +144,28 @@ pub fn measure(table: &Path, pairs: &[Pair], threads: usize, not_lower: Option<&
                 ("compared", w, Some(o.clone()), Some(n.clone()))
             }
         };
-        let (opole, npole) = (op.as_ref().map(|x| x.max_pole), np.as_ref().map(|x| x.max_pole).or(if status == "image_terminal" { Some(0) } else { None }));
+        let (opole, npole) = (
+            op.as_ref().map(|x| x.max_pole),
+            np.as_ref()
+                .map(|x| x.max_pole)
+                .or(if status == "image_terminal" {
+                    Some(0)
+                } else {
+                    None
+                }),
+        );
         *c.entry(status).or_default() += 1;
         if status == "compared" {
             let (o, n) = (opole.unwrap_or(0), npole.unwrap_or(0));
             *hist.entry((o, n)).or_default() += 1;
-            *c.entry(if worse { "worse" } else if n < o { "better" } else { "equal" }).or_default() += 1;
+            *c.entry(if worse {
+                "worse"
+            } else if n < o {
+                "better"
+            } else {
+                "equal"
+            })
+            .or_default() += 1;
             if o == 0 && n > 0 {
                 *c.entry("regular_to_singular").or_default() += 1;
             }
@@ -146,13 +207,18 @@ pub fn measure(table: &Path, pairs: &[Pair], threads: usize, not_lower: Option<&
 /// The descent table of the pairs: header of `table` + one one-term rule K -> sign * K' per pair (index = pair number).
 pub fn descent_table(table: &Path, pairs: &[Pair], out: &Path) -> Result<(), String> {
     let text = std::fs::read_to_string(table).map_err(|e| format!("{}: {e}", table.display()))?;
-    let header = text.lines().find(|l| string_member(l, "type").as_deref() == Some("header")).ok_or("no header")?;
+    let header = text
+        .lines()
+        .find(|l| string_member(l, "type").as_deref() == Some("header"))
+        .ok_or("no header")?;
     let chart = text
         .lines()
         .find(|l| string_member(l, "type").as_deref() == Some("rule"))
         .and_then(|l| string_member(l, "chart"))
         .ok_or("no rule")?;
-    let mut f = std::io::BufWriter::new(std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?);
+    let mut f = std::io::BufWriter::new(
+        std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?,
+    );
     writeln!(f, "{header}").map_err(|e| e.to_string())?;
     for (i, p) in pairs.iter().enumerate() {
         let r = json!({"type": "rule", "chart": chart, "index": i, "case": format!("pair {i}"), "fixed": p.key, "equations": [],
@@ -165,10 +231,19 @@ pub fn descent_table(table: &Path, pairs: &[Pair], out: &Path) -> Result<(), Str
 /// CLI `regularity-pairs --table T --pairs P.jsonl --out DIR [--threads N] [--descent-out FILE]`: writes DIR/summary.json,
 /// DIR/pairs.out.jsonl and DIR/descent-input.table.jsonl. Exit 0 not worse at every key, 3 otherwise.
 pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
-    let (mut t, mut p, mut o, mut d) = (None::<PathBuf>, None::<PathBuf>, None::<PathBuf>, None::<PathBuf>);
+    let (mut t, mut p, mut o, mut d) = (
+        None::<PathBuf>,
+        None::<PathBuf>,
+        None::<PathBuf>,
+        None::<PathBuf>,
+    );
     let mut threads = 1usize;
     let mut i = 0;
-    let val = |i: usize| rest.get(i + 1).cloned().ok_or(format!("{} needs a value", rest[i]));
+    let val = |i: usize| {
+        rest.get(i + 1)
+            .cloned()
+            .ok_or(format!("{} needs a value", rest[i]))
+    };
     while i < rest.len() {
         match rest[i].as_str() {
             "--table" => t = Some(val(i)?.into()),
@@ -184,13 +259,25 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
         return Err("regularity-pairs --table T --pairs P.jsonl --out DIR [--threads N] [--descent-out FILE]".into());
     };
     let mut pairs = vec![];
-    for l in std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?.lines().filter(|l| !l.trim().is_empty()) {
+    for l in std::fs::read_to_string(&p)
+        .map_err(|e| format!("{}: {e}", p.display()))?
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+    {
         let v: Value = serde_json::from_str(l).map_err(|e| format!("pairs: {e}"))?;
         let k = |m: &str| -> Result<Vec<i64>, String> {
-            v[m].as_array().ok_or(format!("pair without {m}"))?.iter().map(|x| x.as_i64().ok_or(format!("{m}: not an integer"))).collect()
+            v[m].as_array()
+                .ok_or(format!("pair without {m}"))?
+                .iter()
+                .map(|x| x.as_i64().ok_or(format!("{m}: not an integer")))
+                .collect()
         };
-        pairs.push(Pair { key: k("key")?, image: k("image")?, sign: v["sign"].as_i64().unwrap_or(1),
-                          image_is_terminal: v["image_is_terminal"].as_bool().unwrap_or(false) });
+        pairs.push(Pair {
+            key: k("key")?,
+            image: k("image")?,
+            sign: v["sign"].as_i64().unwrap_or(1),
+            image_is_terminal: v["image_is_terminal"].as_bool().unwrap_or(false),
+        });
     }
     std::fs::create_dir_all(&o).map_err(|e| e.to_string())?;
     descent_table(&t, &pairs, &o.join("descent-input.table.jsonl"))?;
@@ -198,12 +285,29 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let nl: Option<BTreeSet<usize>> = match &d {
         Some(f) => {
             let text = std::fs::read_to_string(f).map_err(|e| format!("{}: {e}", f.display()))?;
-            let line = text.lines().rev().find(|l| l.trim_start().starts_with('{')).ok_or("descent output without JSON")?;
+            let line = text
+                .lines()
+                .rev()
+                .find(|l| l.trim_start().starts_with('{'))
+                .ok_or("descent output without JSON")?;
             let v: Value = serde_json::from_str(line).map_err(|e| e.to_string())?;
             if v["rules"].as_u64() != Some(pairs.len() as u64) {
-                return Err(format!("the descent output is of {} rules, there are {} pairs", v["rules"], pairs.len()));
+                return Err(format!(
+                    "the descent output is of {} rules, there are {} pairs",
+                    v["rules"],
+                    pairs.len()
+                ));
             }
-            Some(v["failing_rules"].as_array().map(|a| a.iter().filter_map(|x| x.as_str()?.rsplit('#').next()?.parse().ok()).collect()).unwrap_or_default())
+            Some(
+                v["failing_rules"]
+                    .as_array()
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|x| x.as_str()?.rsplit('#').next()?.parse().ok())
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            )
         }
         None => None,
     };
@@ -211,11 +315,17 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let (mut s, rows) = measure(&t, &pairs, threads, nl.as_ref())?;
     s["seconds"] = json!(t0.elapsed().as_secs_f64());
     s["images_not_lower"] = nl.as_ref().map_or(Value::Null, |x| json!(x.len()));
-    let mut f = std::io::BufWriter::new(std::fs::File::create(o.join("pairs.out.jsonl")).map_err(|e| e.to_string())?);
+    let mut f = std::io::BufWriter::new(
+        std::fs::File::create(o.join("pairs.out.jsonl")).map_err(|e| e.to_string())?,
+    );
     for r in &rows {
         writeln!(f, "{r}").map_err(|e| e.to_string())?;
     }
-    std::fs::write(o.join("summary.json"), serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+    std::fs::write(
+        o.join("summary.json"),
+        serde_json::to_string_pretty(&s).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
     let ok = s["keys_with_a_worse_image"] == 0;
     Ok((s.to_string(), ok))
 }
