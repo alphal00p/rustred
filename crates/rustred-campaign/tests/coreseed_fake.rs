@@ -3,6 +3,7 @@
 //! node of the termmin suites (chart 110: two lines, one numerator; the table serves only I(5,1,0)). Spawns processes:
 //! run ONLY inside a private pid namespace (`LIGHT_PIDNS=1 .../light_build.sh coreseed test -p rustred-campaign --test
 //! coreseed_fake`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod sup_common;
 mod termmin_support;
@@ -56,6 +57,7 @@ fn sampler() -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )

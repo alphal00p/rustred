@@ -11,6 +11,7 @@
 //! checks as any supplied relation; (2) without the kernel the two-row form is NOT served (audit F8); (3) interrupt +
 //! resume gives byte-identical round records, check record and statement; (4) the stage off (absent or explicitly
 //! default) gives byte-identical results: the policy digest is unchanged and nothing of the stage appears.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod inputs;

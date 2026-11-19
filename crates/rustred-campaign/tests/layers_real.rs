@@ -3,6 +3,7 @@
 //! `[{"name": .., "single": <statement.jsonl of one walk>, "parts": [<statement files composing it>, ..]}, ..]`;
 //! `LAYERS_REAL_OUT` (optional) = where the reports are written. Every comparison must be equal: identical key sets,
 //! rows key for key without `in_start`, terminals, route-free digests.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use serde_json::{Value, json};
 use std::path::PathBuf;

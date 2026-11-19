@@ -7,6 +7,7 @@
 //! route's zero-verdict lines) state the truth. An UNKNOWN producer code is planted in the built evidence store
 //! (data.bin, the entry's producer varint: what an entry of a build that knows more producers, or a damaged entry,
 //! reads as): every pair that relies on it blocks with a typed word, elided, decisive and zero pairs alike.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::config::{LayersCfg, ScaleCfg};
 use rustred_campaign::closeloop::pass::{PassIn, ProofPlan, run_pass};

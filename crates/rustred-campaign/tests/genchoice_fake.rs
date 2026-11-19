@@ -8,6 +8,7 @@
 //! dearer but its FULL table is the smallest (found only by the economy step); id-rung is the second alternative;
 //! isp_rev-rung's probe completes the node by itself (a full run for free, never re-run); isp_rev-default meets a wall
 //! stop (heavy, ranked last); id-default carries one huge rule.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

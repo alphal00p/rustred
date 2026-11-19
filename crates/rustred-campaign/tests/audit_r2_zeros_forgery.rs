@@ -8,6 +8,7 @@
 //! and FAIL on int/7 d60f3839: they are the reproductions of the findings (run with `--include-ignored`).
 //! Tests named `ok_*` are forgeries / edge cases that ARE refused or answered correctly today (they pass).
 //! Toy material only (arity 3, line mask 110: lines n0, n1, numerator n2); nothing five-loop specific.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::zeros::{ZerosAnswers, compare_zeros};
 use rustred_campaign_core::import::zero_proofs::{

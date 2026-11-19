@@ -12,6 +12,7 @@
 //!
 //! `fN_*` tests assert the specified behaviour; they FAILED on int/7 d60f3839 (were `#[ignore = "AUDIT-R2-ZEROS ..."]`)
 //! and pass since lane zerosfix3 (the store keeps the producer: STORE_VERSION 3). `ok_*` tests pass. Toy node: arity 3, line mask 110 (lines n0, n1; numerator n2); nothing five-loop specific.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::config::ScaleCfg;
 use rustred_campaign::closeloop::pass::{PassIn, run_pass};

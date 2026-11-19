@@ -6,6 +6,7 @@
 //!   "wall_cap_s"}`.
 //! Per face: `out_dir/<face>/{report.json, journal.jsonl, costs.jsonl, progress.jsonl}` and one line of
 //! `out_dir/summary.jsonl`. Re-running with the same out_dir resumes from the journals.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::coreseed::{ChildSolver, CoreDriverConfig, DriverJudge, PolesCfg};
@@ -111,6 +112,7 @@ fn real_core_faces() {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );

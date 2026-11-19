@@ -12,6 +12,7 @@
 //! - face {0}x{2} : refused symbolically, no recipe step and no default serves -> TERMINAL PROPOSAL (node stays open);
 //! - the corner [1,1,0] is first met while closing (exception of the kept rule, outside every face recipe's domain):
 //!   only the DEFAULT recipe serves it (R49).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

@@ -7,6 +7,7 @@
 //!  "work_root": dir, "parallel": n, "mem_cap_gb": n, "wall_s": n, "arity": n, "census": "frame" | "lee" | "none",
 //!  "expect_blake3": {path: hex prefix}}.
 //! Writes <work_root>/summary.json (+ verdicts.jsonl / findings.jsonl of the batch).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program, sha256_hex};
 use rustred_campaign::closeloop::symcert::{CertifyConfig, certify_symmetry_relations, summary};

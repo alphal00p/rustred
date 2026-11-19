@@ -5,6 +5,7 @@
 //!   "invocation": "contract" | "verb", "family", "order": "<name>" | {order JSON}, "parallel", "threads_per_job",
 //!   "cap_bytes", "wall_cap_s", "work_root", "out_dir", "check_threads", "previous": null | path,
 //!   "table_times": null | path}`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::shipecon::{ShipRunConfig, run_ship};

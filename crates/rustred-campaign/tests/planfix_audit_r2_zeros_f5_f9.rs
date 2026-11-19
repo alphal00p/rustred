@@ -5,6 +5,7 @@
 //! `import::zero_proofs::VerifiedZeroProofs` (an unverified proof file gives no fact); F9 by the leaf binding's zero-route
 //! guarantees (core `LeafProducer::zero_route`, closing loop `layers::zero_route_words`).
 //! Toy material only (arity 3, line mask 110); nothing five-loop specific.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::pass::{PassIn, run_pass};
 use rustred_campaign_core::closure::Tier;

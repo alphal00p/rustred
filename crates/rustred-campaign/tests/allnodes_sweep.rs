@@ -13,6 +13,7 @@
 //!   decisive pair (`closeloop::zeros::compare_pair`).
 //!
 //! One JSON line per run is appended to `AN_OUT`. Nothing here knows a node: names, paths and numbers are env / spec data.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::zeros;
 use rustred_campaign_core::import::check::check_streamed;

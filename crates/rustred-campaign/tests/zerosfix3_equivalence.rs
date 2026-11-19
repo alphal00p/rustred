@@ -14,6 +14,7 @@
 //! included), SAME decisive-zero table, SAME new batches.
 //!
 //! Pure (no process): `closeloop::pass::run_pass` only.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::config::{AllZeros, ScaleCfg, SecondRouteCfg};
 use rustred_campaign::closeloop::pass::{PassIn, ProofPlan, run_pass};

@@ -12,6 +12,7 @@
 //! (verified at load). Left out: 10 order-B pieces the statement's table list does not pin (no statement key served by
 //! them; 8 without an end record, refused since partfix4: before int8 the spec could not load). An explicit
 //! RUSTRED_SYMCOMP_SPEC is used as given.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod adapters_support;
 use adapters_support::*;

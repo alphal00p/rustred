@@ -7,6 +7,7 @@
 //! 38): no R, the node is not held. The verdict and the statement are byte-identical with and without the step.
 //! Spawns processes: run ONLY inside a private pid namespace
 //! (`LIGHT_PIDNS=1 .../light_build.sh wireflow test -p rustred-campaign --test wireflow_regbasis_fake`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

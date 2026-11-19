@@ -10,6 +10,7 @@
 //! the single walk; (3) a changed / wrongly pinned leaf set and a leaf set of another table set are refused; (4) an
 //! interrupt between layers: the finished layer is never walked again and the statement equals the uninterrupted
 //! one; (5) a later layer that reaches an OPEN key of an earlier layer is open, the blocking key named.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

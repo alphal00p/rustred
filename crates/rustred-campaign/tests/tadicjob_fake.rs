@@ -3,6 +3,7 @@
 //! pinned job and maps the driver's exits to rows 50 / 51 / 52 / 9 / 10 / 17; NOT_DECIDED outcomes are typed (never zero);
 //! the certificate checks C2-C5 run on the bound result; the result store resumes. RUN WITH LIGHT_PIDNS=1 (spawns
 //! children). Test data only (L8): keys of arity 3, made-up binary digest.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::default_emulation_script;
 use rustred_campaign::adapters::job::{Invocation, JobAdapter, Program, RunOptions, run_attempt};
@@ -33,6 +34,7 @@ fn sampler() -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )
@@ -141,7 +143,7 @@ fn run(
         wall_cap: Some(Duration::from_secs(60)),
         grace: Some(Duration::from_secs(5)),
     };
-    let mut l = RealLauncher::new(sampler());
+    let mut l = RealLauncher::new(sampler()).expect("launcher (procfix7 round 19: fail-closed)");
     let (b, rep) = run_attempt(
         &mut l,
         &ad,
@@ -289,7 +291,7 @@ fn job_v2_weight_vectors_give_one_entry_per_vector_equal_to_plain_requests() {
         wall_cap: Some(Duration::from_secs(60)),
         grace: Some(Duration::from_secs(5)),
     };
-    let mut l = RealLauncher::new(sampler());
+    let mut l = RealLauncher::new(sampler()).expect("launcher (procfix7 round 19: fail-closed)");
     let (b, _) = run_attempt(
         &mut l,
         &ad,

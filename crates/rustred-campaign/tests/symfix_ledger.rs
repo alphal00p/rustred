@@ -3,6 +3,7 @@
 //! item ACCEPT (a direct credit) from it is REFUSED whatever the source wrote: supplied relations become evidence only
 //! through the node import's load-time verification (interfaces/import.md 21). Control: the same life with accept
 //! `canonical` is credited. Pure ledger test (no process).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use ledger_support::*;

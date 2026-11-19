@@ -4,6 +4,7 @@
 //! (the import emulating the engine order), apply mode, and the iteration rule (a second run with the same settings
 //! launches nothing and decides the same). Spawns processes: run ONLY under `LIGHT_PIDNS=1` (private pid namespace,
 //! rule L10): `LIGHT_PIDNS=1 light_build.sh shipecon test -p rustred-campaign --test shipecon_fake`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::shipecon::{ShipFake, ShipRunConfig, run_ship};

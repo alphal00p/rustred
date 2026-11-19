@@ -6,6 +6,7 @@
 //! {"recipe": path, "key": [..], "relation_digest": hex | null}, "work_root": dir, "parallel": n, "key_budget_s": n,
 //! "mem_cap_gb": n, "wall_s": n}. Output: <work_root>/records.jsonl (one line per pair: the pair, the job's row, the
 //! verified record when solved, and whether its relation digest equals the earlier engine's).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{
     InputFile, Invocation, JobAdapter, Program, RunOptions, run_attempt,
@@ -53,6 +54,7 @@ fn symcert_poles_real() {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );
@@ -117,7 +119,7 @@ fn symcert_poles_real() {
                     wall_cap: Some(Duration::from_secs(c["wall_s"].as_u64().unwrap_or(7200))),
                     grace: Some(Duration::from_secs(30)),
                 };
-                let mut l = RealLauncher::new(sampler.clone());
+                let mut l = RealLauncher::new(sampler.clone()).expect("launcher (procfix7 round 19: fail-closed)");
                 let wdir = work.join(format!("p{i}"));
                 let line = match run_attempt(&mut l, &ad, &reqs, &plan, &wdir, 1, &opts) {
                     Err(e) => json!({"pair": p, "error": format!("{e:?}")}),

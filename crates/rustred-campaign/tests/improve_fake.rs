@@ -6,6 +6,7 @@
 //! Rule 0: candidate `rung` gives 100 monomials with a SUBSET of the exceptions -> replaced; `tight` gives 50 but a new
 //! exception branch -> refused. Rule 1: `rung` is not smaller, `tight` hits the wall -> kept. A second run on the
 //! improved table + record does nothing; widening the filter tries rule 2 only.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

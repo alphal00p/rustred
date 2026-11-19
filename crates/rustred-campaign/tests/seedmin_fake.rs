@@ -3,6 +3,7 @@
 //! from the journal and launches nothing), records accepted by the adapter only. Spawns processes: run ONLY under
 //! `LIGHT_PIDNS=1` (private pid namespace, rule L10):
 //! `LIGHT_PIDNS=1 light_build.sh seedmin test -p rustred-campaign --test seedmin_fake`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::seedmin::{
@@ -71,6 +72,7 @@ fn sampler() -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )

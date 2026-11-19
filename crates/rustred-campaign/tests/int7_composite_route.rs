@@ -3,6 +3,7 @@
 //! program symcert's adapter runs for proof-symrows jobs) it is the kernel certificate; without one it is the same-backend
 //! re-check (level `imported`); a configured kernel whose file has another SHA-256 (or none stated) is no kernel. Pure (no
 //! process is started).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::adapters::symcomp::{CompositeRoute, composite_second_route_configured};

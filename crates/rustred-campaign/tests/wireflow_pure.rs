@@ -2,6 +2,7 @@
 //! `pole_profiles` and `facts_frontier` are omitted from the node's serialisation at their defaults (config digests
 //! unchanged), parse and validate; the closing loop's choice annotation takes the engine's per-key pole order when
 //! `pole_profiles` is on.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::accept::solved_choice;
 use rustred_campaign::closeloop::config::CloseLoopConfig;

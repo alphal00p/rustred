@@ -11,6 +11,7 @@
 //!   (a term missing) is ACCEPTED as a supplied relation.
 //! - `route_settled` refuses a settled attempt whose job id / attempt is not the run directory's (stale job id).
 //! - No diagnostic accept (`diagnostic_records`) ever reaches the ledger as a value that lets records be taken.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod adapters_support;
 mod inputs;

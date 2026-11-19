@@ -4,6 +4,7 @@
 //! contract environment (no variable of the caller leaks), stdout / stderr in a fresh run directory per attempt, its exit
 //! is reported (never assumed), and the wall cap kills it through the supervisor. RUN WITH LIGHT_PIDNS=1 (spawns and
 //! signals children). Test data only (L8).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::RunOptions;
 use rustred_campaign::launch::{ExitState, KillReason};
@@ -25,6 +26,7 @@ fn sampler() -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(100),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )

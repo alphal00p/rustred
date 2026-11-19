@@ -7,6 +7,7 @@
 //! the union, because an edge into an earlier layer's key is an edge into the (composed) closure, never a "reach"
 //! zero. Without the leaf set the same zero IS decisive (reach): the leaf-key rule is what makes the two agree.
 //! (The textual side of B3, "both merge orders give the same zeros.rs", is recorded in WS/notes/implementer.int7.md.)
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::closeloop::{layers, zeros};
 use rustred_campaign_core::closure::{KeySet, Tier};

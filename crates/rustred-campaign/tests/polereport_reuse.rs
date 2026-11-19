@@ -3,6 +3,7 @@
 //! dependence table the driver binds but does not apply), result bound to ITS job bytes and to the adapter's pins,
 //! certificate without findings, every request decided. Driven with a REAL attempt of the fake child through the
 //! process layer (RUN WITH LIGHT_PIDNS=1). Test data only (L8): keys of arity 3, made-up binary digest.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::default_emulation_script;
 use rustred_campaign::adapters::job::{Invocation, JobAdapter, Program, RunOptions, run_attempt};
@@ -106,10 +107,11 @@ fn attempt(dir: &Path) -> (TadicAdapter, TadicJobRequest, Vec<u8>, Vec<u8>) {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );
-    let mut l = RealLauncher::new(sampler);
+    let mut l = RealLauncher::new(sampler).expect("launcher (procfix7 round 19: fail-closed)");
     let (b, rep) = run_attempt(
         &mut l,
         &ad,

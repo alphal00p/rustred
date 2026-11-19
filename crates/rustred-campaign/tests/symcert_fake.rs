@@ -3,6 +3,7 @@
 //! sides, a FORGED certificate with a valid seal refused (row 43), a lie about the record refused (row 43), the 15b
 //! resource retry, a not-expressible relation without a job, resume from the journal, and the import hook built from
 //! the verdicts. Spawns children: run with LIGHT_PIDNS=1 (L10). Test data only (L8): arity-3 keys, made-up digests.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::symcert::{
