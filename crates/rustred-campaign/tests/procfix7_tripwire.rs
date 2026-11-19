@@ -58,7 +58,9 @@ const REVIEWED: &[(&str, usize)] = &[
     ("src/launch/cgroup.rs", 8),
     ("src/launch/guard.rs", 7),
     ("src/launch/hunt.rs", 3),
-    ("src/launch/idlock.rs", 6),
+    // procfix7 round 19: IdLock::drop closes its descriptor explicitly (drop(file.take())) under the registry mutex: the
+    // `let _ = &self.file` that kept the file alive is gone: 6 -> 5
+    ("src/launch/idlock.rs", 5),
     // procfix7 round 17: reap_and_untrack's zombie reap is now `if matches!(c.try_wait(), Ok(Some(_)))` (the reap is
     // recorded for a neighbour's proof; an Err leaves the zombie to reap_in_background as before): 11 -> 10
     ("src/launch/real.rs", 10),
