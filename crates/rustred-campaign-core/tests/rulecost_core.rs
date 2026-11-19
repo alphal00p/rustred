@@ -458,3 +458,33 @@ fn audit_a1_profile_positions_bind_to_source_records_past_aliases() {
     .unwrap();
     assert!(!is_slot_alias(&ordinary));
 }
+
+/// The owner-statistics v2 layout (RUSTRED_P_OWNER_STATS diagnostic v2, e.g. the k162m and t630r runs): a top-level
+/// `rules` list of objects; positions are payload positions, bound to records only through a PayloadMap.
+#[test]
+fn profile_rules_read_the_v2_owner_statistics() {
+    let doc = json!({"groups": [{"phase": 11, "class": "b75121bb0882a0ae", "steps": 5, "seconds": 2.0}],
+        "rules": [{"class": "b75121bb0882a0ae", "chart": "00000000000001ff", "position": 1245, "count": 30, "seconds": 1.5,
+                   "children": 9, "dests": []},
+                  {"class": "0000000000000001", "chart": "00000000000001ff", "position": 0, "count": 1, "seconds": 0.1}],
+        "phases": [], "distinct_rules": 2});
+    let p = profile_rules(&doc, "L5T09-b75121bb0882a0ae").unwrap();
+    assert_eq!(p.len(), 1);
+    assert_eq!(
+        p[&RuleId {
+            chart: 0x1ff,
+            position: 1245
+        }],
+        RunRule {
+            calls: 30,
+            seconds: 1.5
+        }
+    );
+    assert!(
+        profile_rules(
+            &json!({"rules": [{"class": "b75121bb0882a0ae"}]}),
+            "b75121bb0882a0ae"
+        )
+        .is_err()
+    );
+}

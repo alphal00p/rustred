@@ -561,11 +561,42 @@ pub struct RunRule {
     pub seconds: f64,
 }
 
-/// The rules of owner `class` (hex id or label `...-<hex>`) in an owner-statistics document (`RUSTRED_P_OWNER_STATS`:
-/// `{"owners": [{"class": hex, "rules": [[chart hex, position, calls, seconds], ...]}]}`); empty when the owner did
-/// not step.
+/// The rules of owner `class` (hex id or label `...-<hex>`) in an owner-statistics document (`RUSTRED_P_OWNER_STATS`),
+/// keyed by PAYLOAD position (bind them to records with [`calls_from_profile`] and a [`PayloadMap`]); empty when the owner
+/// did not step. Two layouts: v1 `{"owners": [{"class": hex, "rules": [[chart hex, position, calls, seconds], ...]}]}`
+/// and v2 (owner-stats diagnostic v2: phases, groups) `{"rules": [{"class": hex, "chart": hex, "position": p, "count":
+/// calls, "seconds": s, ...}], "groups": [...]}` (the v2 list may be truncated to the most expensive rules).
 pub fn profile_rules(doc: &Value, class: &str) -> Result<BTreeMap<RuleId, RunRule>, String> {
     let want = hex(class.rsplit('-').next().unwrap_or(class))?;
+    if doc.get("owners").is_none()
+        && let Some(rules) = doc.get("rules").and_then(Value::as_array)
+    {
+        let mut out = BTreeMap::new();
+        for r in rules {
+            let Some(c) = r.get("class").and_then(Value::as_str) else {
+                continue;
+            };
+            if hex(c.rsplit('-').next().unwrap_or(c)).ok() != Some(want) {
+                continue;
+            }
+            let (Some(chart), Some(position), Some(calls), Some(seconds)) = (
+                r.get("chart").and_then(Value::as_str),
+                r.get("position").and_then(Value::as_u64),
+                r.get("count").and_then(Value::as_u64),
+                r.get("seconds").and_then(Value::as_f64),
+            ) else {
+                return Err(format!("owner statistics v2: rule entry {r}"));
+            };
+            out.insert(
+                RuleId {
+                    chart: hex(chart)?,
+                    position: position as usize,
+                },
+                RunRule { calls, seconds },
+            );
+        }
+        return Ok(out);
+    }
     let owners = doc
         .get("owners")
         .and_then(Value::as_array)
