@@ -68,3 +68,5 @@ pub mod parametric;
 pub mod arrivals;
 // lane gencheck (interfaces/emission-check.md): the emission contract (granted by the implementer 2026-11-18)
 pub mod emission;
+// lane rulecost (interfaces/rule-cost.md): application cost of rules, measured; the rule_cost score (REQUEST TO I-INT, one line)
+pub mod rulecost;

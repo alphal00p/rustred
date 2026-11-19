@@ -28,7 +28,11 @@ pub const USAGE: &str = "usage:
   rr_campaign derivations --run-dir JOBDIR --engine RR_NODE --out OUT.jsonl
       (lane sizegen: the effective derivation of every rule a finished generate job sealed; TRICKS 31 / 35)
   rr_campaign poles-choose --choice CHOICE.json --scores SCORES.jsonl [--policy POLES.json] --out OUT.json
-      (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)";
+      (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)
+  rr_campaign rule-cost --spec SPEC.json --dir DIR [--aggregate-only]
+      (lane rulecost: application cost per rule through the engine probe p_rule_cost; interfaces/rule-cost.md 3)
+  rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl] [--keys K.jsonl [--table-to-presentation P,..]]
+      (lane rulecost: rule_cost features and scores of table records, today and with a coefficient cache; interfaces/rule-cost.md 4)";
 
 /// `println!` without the panic on a closed / hung-up stdout (EPIPE, EIO): output is best effort (gate-B m4).
 macro_rules! outln {
@@ -125,6 +129,27 @@ pub fn main_with(args: &[String]) -> i32 {
             }
             Err(e) => {
                 errln!("tadic-check: {e}");
+                exit::USAGE
+            }
+        },
+        // lane rulecost: measured application cost of stored rules (interfaces/rule-cost.md 3)
+        "rule-cost" => match crate::rulecost::rule_cost_cmd(rest) {
+            Ok(t) => {
+                outln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("rule-cost: {e}");
+                exit::USAGE
+            }
+        },
+        "rule-score" => match crate::rulecost::rule_score_cmd(rest) {
+            Ok(t) => {
+                errln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("rule-score: {e}");
                 exit::USAGE
             }
         },

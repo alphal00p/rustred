@@ -1242,6 +1242,7 @@ impl GenChoiceSource {
                         wrules.push(r);
                     }
                 }
+                im::assign_occurrences(&mut wrules);
                 let as_rules = |rows: &[gc::RuleRow]| -> Vec<im::TableRule> {
                     rows.iter()
                         .map(|r| im::TableRule {
@@ -1254,6 +1255,9 @@ impl GenChoiceSource {
                             exceptions: vec![],
                             monomials: r.monomials,
                             bytes: r.bytes,
+                            cost: None,
+                            id: String::new(),
+                            bounds: None,
                         })
                         .collect()
                 };

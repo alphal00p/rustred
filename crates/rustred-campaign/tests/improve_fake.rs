@@ -155,7 +155,7 @@ fn improve_replaces_only_verified_smaller_rules_records_everything_and_iterates(
     let rec_p = PathBuf::from(res["record"]["path"].as_str().unwrap());
     let rec = read_json(&rec_p);
     assert_eq!(rec["table_sha256"], res["table_out"]["sha256"]);
-    assert_eq!(rec["version"], 1);
+    assert_eq!(rec["version"], 2, "record identity (audit 2026-11-19 a3)");
     let e0 = rec["rules"]
         .as_array()
         .unwrap()

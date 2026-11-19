@@ -181,6 +181,7 @@ fn read_rules(path: &Path) -> Result<(Option<Value>, Vec<im::TableRule>), String
             rules.push(r);
         }
     }
+    im::assign_occurrences(&mut rules);
     Ok((header, rules))
 }
 
@@ -714,6 +715,11 @@ impl ImproveSource {
                             + c.apply_ns_base * a.sub_rules.unwrap_or(1) as f64
                             + c.apply_ns_per_monomial * m as f64)
                             .round() as u64,
+                        // lane rulecost: candidates of one rule share its calls; rank by the case rule's cost per
+                        // application at the candidate's (sub-table) monomials (the verdict used every piece)
+                        im::RankBy::RuleCost => im::rule_cost_model(c)
+                            .per_application_ns(m, r.cost.as_ref())
+                            .round() as u64,
                     };
                     (primary, m, b, a.cand.clone())
                 });
@@ -1174,9 +1180,12 @@ impl ImproveSource {
             } else {
                 String::new()
             };
-            (sink.sha.finish_hex(), path, sink.bytes, sink.rules)
+            let mut written_rules = sink.rules;
+            im::assign_occurrences(&mut written_rules);
+            (sink.sha.finish_hex(), path, sink.bytes, written_rules)
         };
         // the positions map (consumers that address rules by position, e.g. positioned recipe entries, re-point by it)
+        let positions_map_entries: Vec<Value> = positions_map.clone().unwrap_or_default();
         let positions_rel = positions_map.map(|m| {
             let rel = format!("{base}/positions.r{run}{sfx}.json");
             rt.accepts.push(AcceptedRecord {
@@ -1194,17 +1203,61 @@ impl ImproveSource {
             .iter()
             .map(|r| (r.index, r.clone()))
             .collect();
-        // the run's decisions are keyed by the rule's index in the INPUT table; the improved table renumbers (positions):
-        // an entry finds its input rule by key (target | case; a sub-table's case rule has the replaced rule's key)
+        // the run's decisions are keyed by the rule's index in the INPUT table; the improved table renumbers (positions).
+        // Audit 2026-11-19 (a3): an output rule finds its input rule by its IDENTITY (an unchanged rule keeps its record
+        // body) or, for the lines of a replacement, through the positions map (replaced input index -> the positions of
+        // its replacement lines); never by `target | case`, which distinct records share.
         let old_by_key: BTreeMap<String, i64> = self.nodes[i]
             .rules
             .iter()
-            .rev()
             .map(|r| (r.key(), r.index))
             .collect();
+        let mut pred_at: BTreeMap<(String, i64), i64> = BTreeMap::new();
+        for m in positions_map_entries.iter() {
+            if m["replaced"].as_bool() != Some(true) {
+                continue;
+            }
+            let (Some(chart), Some(old)) = (m["chart"].as_str(), m["old"].as_i64()) else {
+                continue;
+            };
+            for n in m["new"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_i64)
+            {
+                pred_at.insert((chart.to_string(), n), old);
+            }
+        }
+        let new_ids: BTreeMap<String, (String, i64)> = new_rules
+            .iter()
+            .map(|r| (r.key(), (r.chart.clone(), r.index)))
+            .collect();
+        // a replacement line inherits the history of the rule it replaced (carried over before `align`)
+        let mut carried: Vec<im::RuleEntry> = Vec::new();
+        for (k, (chart, at)) in &new_ids {
+            if let Some(old) = pred_at.get(&(chart.clone(), *at)) {
+                let old_key = self.nodes[i]
+                    .rules
+                    .iter()
+                    .find(|r| r.index == *old && &r.chart == chart)
+                    .map(|r| r.key());
+                if let Some(e) = old_key.and_then(|ok| rec.rules.iter().find(|e| e.key == ok)) {
+                    carried.push(im::RuleEntry {
+                        key: k.clone(),
+                        ..e.clone()
+                    });
+                }
+            }
+        }
+        rec.rules.extend(carried);
         rec.align(&new_rules);
         for e in rec.rules.iter_mut() {
-            let ix = old_by_key.get(&e.key).copied().unwrap_or(i64::MIN);
+            let ix = new_ids
+                .get(&e.key)
+                .and_then(|(chart, at)| pred_at.get(&(chart.clone(), *at)).copied())
+                .or_else(|| old_by_key.get(&e.key).copied())
+                .unwrap_or(i64::MIN);
             if let Some(v) = per_rule.get(&ix) {
                 for a in v {
                     let j = st.jobs.get(&a.job);
