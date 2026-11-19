@@ -320,8 +320,13 @@ fn census_and_before(
                 }
                 v.keys.push(key);
             }
+            // procfix7 round 19 (landing, int8b-gate review (ii) shipecon.rs:324) / INT8-STAGE2 section 8 row 6): a size never read is never recorded
+            let bytes = crate::fsx::presence("closeloop.input", p)
+                .metadata()
+                .map_err(|e| format!("{}: {e}", p.display()))?
+                .len();
             source = json!({"statement_rows": p.display().to_string(), "format": "ship_keys",
-                "bytes": std::fs::metadata(p).map(|m| m.len()).unwrap_or(0),
+                "bytes": bytes,
                 "rule_index": cfg.rule_index.as_ref().map(|x| x.display().to_string())});
         }
         Some(p) => {
@@ -371,8 +376,12 @@ fn census_and_before(
                 }
                 v.keys.push(key);
             }
-            source = json!({"statement_rows": p.display().to_string(),
-                "bytes": std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)});
+            // procfix7 round 19 (landing, int8b-gate review (ii) shipecon.rs:375) / row 7): as above
+            let bytes = crate::fsx::presence("closeloop.input", p)
+                .metadata()
+                .map_err(|e| format!("{}: {e}", p.display()))?
+                .len();
+            source = json!({"statement_rows": p.display().to_string(), "bytes": bytes});
         }
         None => {
             let ev =
@@ -683,7 +692,8 @@ fn launch(
                     return Err(format!("{} plans for one job", plans.len()));
                 }
                 // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
-                let mut l = RealLauncher::new(sampler).map_err(|e| format!("launcher refused: {e}"))?;
+                let mut l =
+                    RealLauncher::new(sampler).map_err(|e| format!("launcher refused: {e}"))?;
                 let (out, rep) = run_attempt(&mut l, &ad, &reqs, plan, &work, 1, &opts)
                     .map_err(|e| format!("{e:?}"))?;
                 let run_dir = rep.prepared.spec.run_dir.clone();
@@ -732,10 +742,19 @@ fn launch(
 }
 
 /// Per key of a results file: the engine's volatile `seconds` and the record (raw line).
-fn raw_records(results: &str) -> BTreeMap<Vec<i32>, Value> {
+///
+/// procfix7 round 19 (landing, int8b-gate review (ii) shipecon.rs:736)): a results file that is not there has no records; one that cannot be READ
+/// (open or mid-file) is an ERROR (it was "no records": a certified trial lost its record silently).
+fn raw_records(results: &str) -> Result<BTreeMap<Vec<i32>, Value>, String> {
     let mut out = BTreeMap::new();
-    if let Ok(f) = std::fs::File::open(results) {
-        for l in std::io::BufReader::new(f).lines().map_while(Result::ok) {
+    let f = match crate::fsx::open("closeloop.input", Path::new(results)) {
+        crate::fsx::Read::Content(f) => f,
+        crate::fsx::Read::Absent => return Ok(out),
+        crate::fsx::Read::Failed(e) => return Err(format!("{results}: {e}")),
+    };
+    {
+        for l in std::io::BufReader::new(f).lines() {
+            let l = l.map_err(|e| format!("{results}: {e}"))?;
             if let Ok(v) = serde_json::from_str::<Value>(&l)
                 && v["type"] == "relation"
                 && let Ok(k) = serde_json::from_value::<Vec<i32>>(v["key"].clone())
@@ -744,7 +763,7 @@ fn raw_records(results: &str) -> BTreeMap<Vec<i32>, Value> {
             }
         }
     }
-    out
+    Ok(out)
 }
 
 /// Members of an engine relation record that a `rustred.relation-entry.v1` body drops (volatile / batch-bound).
@@ -1219,7 +1238,7 @@ impl ShipState {
                         relation_rule: p.recipe.relation_rule.clone(),
                         keys: job.keys.clone(),
                     };
-                    let raw = raw_records(&results);
+                    let raw = raw_records(&results)?;
                     match accept_point(
                         set_a,
                         None,
@@ -1340,17 +1359,25 @@ impl ShipState {
         {
             use std::io::Write as _;
             let sha = &census.rules[job.rule].rule.record_sha256;
-            if let Ok(mut f) = std::fs::OpenOptions::new()
+            // procfix7 round 19 (landing, int8b-gate review (ii) shipecon.rs:1342)): a checkpoint that cannot be written is NAMED (it was dropped:
+            // on resume those trials run again, nothing else depends on it)
+            let mut buf = String::new();
+            for t in &new_trials {
+                buf.push_str(&json!({"record_sha256": sha, "trial": t}).to_string());
+                buf.push('\n');
+            }
+            let cp = cfg.out_dir.join("trials.jsonl");
+            let written = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(cfg.out_dir.join("trials.jsonl"))
-            {
-                let mut buf = String::new();
-                for t in &new_trials {
-                    buf.push_str(&json!({"record_sha256": sha, "trial": t}).to_string());
-                    buf.push('\n');
-                }
-                let _ = f.write_all(buf.as_bytes());
+                .open(&cp)
+                .and_then(|mut f| f.write_all(buf.as_bytes()))
+                .map_err(|e| format!("{}: {e}", cp.display()));
+            if let Err(e) = written {
+                say(format!(
+                    "checkpoint not written ({e}): on resume the trials of {} run again",
+                    job.id
+                ));
             }
         }
         let t = trials.entry(job.rule).or_default();
@@ -1411,9 +1438,12 @@ impl ShipState {
                     && !records_by_key.contains_key(&t.key)
                     && let Some(rp) = &t.results
                 {
-                    let m = raw_cache
-                        .entry(rp.clone())
-                        .or_insert_with(|| raw_records(rp));
+                    if !raw_cache.contains_key(rp) {
+                        raw_cache.insert(rp.clone(), raw_records(rp)?);
+                    }
+                    let Some(m) = raw_cache.get(rp) else {
+                        continue;
+                    };
                     if let Some(r) = m.get(&t.key) {
                         records_by_key.insert(t.key.clone(), r.clone());
                     }
@@ -1440,15 +1470,21 @@ impl ShipState {
             if !want.is_empty() {
                 let mut stack = vec![pw.clone()];
                 while let Some(d) = stack.pop() {
-                    let Ok(rd) = std::fs::read_dir(&d) else {
-                        continue;
+                    // procfix7 round 19 (landing, int8b-gate review (ii) shipecon.rs:1442-1447) / rows 8-9): a failed listing is never "no records"; the
+                    // dirent type decides (no extra stat; a symlinked directory is no longer descended)
+                    let entries = match crate::fsx::list("closeloop.input", &d) {
+                        crate::fsx::Listing::Complete(v) => v,
+                        crate::fsx::Listing::Absent => continue,
+                        crate::fsx::Listing::Failed(e) => {
+                            return Err(format!("{}: listing failed: {e}", d.display()));
+                        }
                     };
-                    for e in rd.flatten() {
-                        let p = e.path();
-                        if p.is_dir() {
+                    for e in entries {
+                        let p = e.path;
+                        if e.file_type.is_dir() {
                             stack.push(p);
                         } else if p.file_name().is_some_and(|n| n == "results.jsonl") {
-                            for (k, r) in raw_records(&p.display().to_string()) {
+                            for (k, r) in raw_records(&p.display().to_string())? {
                                 if want
                                     .get(&k)
                                     .is_some_and(|d| r["relation_digest"] == d.as_str())
@@ -1470,7 +1506,16 @@ impl ShipState {
             }
             let name = format!("{}.json", crate::closeloop::ids::safe(&t.recipe_id));
             let local = cfg.out_dir.join("recipes").join(&name);
-            if let Ok(b) = std::fs::read(&local)
+            // procfix7 round 19 (landing, int8b-gate review (ii) shipecon.rs:1472, 1481-1482)): a recipe file that cannot be READ is an error (it fell
+            // through to the next copy, then to "no file"); not there or another sha = the next copy
+            let read_recipe = |p: &Path| -> Result<Option<Vec<u8>>, String> {
+                match crate::fsx::read("closeloop.input", p) {
+                    crate::fsx::Read::Content(b) => Ok(Some(b)),
+                    crate::fsx::Read::Absent => Ok(None),
+                    crate::fsx::Read::Failed(e) => Err(format!("{}: {e}", p.display())),
+                }
+            };
+            if let Some(b) = read_recipe(&local)?
                 && sha256_hex(&b) == t.recipe_sha256
             {
                 recipe_files.insert(
@@ -1479,8 +1524,11 @@ impl ShipState {
                 );
                 continue;
             }
-            if let Some(prev_dir) = prev_dir
-                && let Ok(b) = std::fs::read(prev_dir.join("recipes").join(&name))
+            let prev_copy = match prev_dir {
+                Some(pd) => read_recipe(&pd.join("recipes").join(&name))?,
+                None => None,
+            };
+            if let Some(b) = prev_copy
                 && sha256_hex(&b) == t.recipe_sha256
             {
                 write(&local, &b)?;
