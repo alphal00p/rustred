@@ -3,7 +3,50 @@ use std::fmt;
 use super::PowerError;
 use super::sector_box::{BoxPhase, LimitKind};
 
+/// Errors of the solvers.
+///
+/// The enum is `#[non_exhaustive]`: solvers gain variants (the sector-box
+/// engine added four), so code outside this crate must match it with a
+/// wildcard arm.
+///
+/// ```
+/// use rustred::solver::SolverError;
+///
+/// fn kind(error: &SolverError) -> &'static str {
+///     match error {
+///         SolverError::InvalidInput(_) => "input",
+///         SolverError::Certification(_) => "certificate",
+///         _ => "other",
+///     }
+/// }
+/// assert_eq!(kind(&SolverError::InvalidInput("x".into())), "input");
+/// ```
+///
+/// A match that lists every current variant without a wildcard does not
+/// compile outside this crate:
+///
+/// ```compile_fail,E0004
+/// use rustred::solver::SolverError;
+///
+/// fn kind(error: &SolverError) -> u8 {
+///     match error {
+///         SolverError::Resources(_) => 0,
+///         SolverError::InvalidInput(_) => 1,
+///         SolverError::Power(_) => 2,
+///         SolverError::SearchExhausted { .. } => 3,
+///         SolverError::UnluckySample => 4,
+///         SolverError::ExactReplay(_) => 5,
+///         SolverError::Certification(_) => 6,
+///         SolverError::Limit { .. } => 7,
+///         SolverError::UnluckyBoxSample { .. } => 8,
+///         SolverError::SeedingInvariant(_) => 9,
+///         SolverError::MasterCheck(_) => 10,
+///         SolverError::RegionPoint(_) => 11,
+///     }
+/// }
+/// ```
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum SolverError {
     Resources(symbolica::utils::resources::ResourceLimitError),
     InvalidInput(String),
