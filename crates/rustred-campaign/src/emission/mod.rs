@@ -14,6 +14,7 @@ pub mod gate;
 pub mod legacy_import;
 pub mod regcheck;
 pub mod replace;
+pub mod stamp;
 pub mod tablecheck;
 
 use emitter::{Checker, Emitter};

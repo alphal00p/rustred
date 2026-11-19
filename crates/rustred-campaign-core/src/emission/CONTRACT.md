@@ -324,3 +324,40 @@ refuses the seedless record (`MISSING_SEEDS`: lane t266's emitter attempt, and t
   K2.certificate.json, refused for descent only; the X15 form (element 1: I(1^14; -1,0^5) = I(1^13,0; 0^6) + I(1^14; 0^6))
   -> exact, LOWER, EMITTED, table-check ACCEPTED (whole domain), also with the descent re-run; edited after emission ->
   table-check refuses; coefficient 2 -> NOT_ALL_KEYS_IN_SPAN, refused. Fake-checker coverage in emission_gate_fake.rs.
+
+## 16. RELATION ENTRIES from emitted records (ROUND 5 H0 GAP-2 + GAP-3, 2026-11-19; lane t266's request)
+GAP-2, THE d = 4 ACCEPTANCE AT ONE KEY (section 13's measure and rule, another old object):
+- (a) the old object of a key K is the stored `rustred.relation-entry.v1` the engine would serve at K: among the given entry
+  files' entries of the node identity at K with a valid digest, the engine's rank (evidence level, then the smaller pole order
+  at d = 4, then fewer rhs terms, then the smaller digest). Its id = its entry_digest; its relation = its body (target, else
+  I(K); rhs).
+- (b) else the table rule that serves K as FIRST MATCH in the old table (the core dispatcher, witness loci off), restricted to
+  K: an entry placed over the table shadows that rule at K only. Its id = the rule's body sha256.
+- No old object = refused (nothing to compare). The verdict (schema rustred.emission.regularity-d4.v1, key set kind "one key
+  of a stored relation entry" / "one key of table rule N (first match)", plus `old: {kind, entry_digest | table + rule, ...}`)
+  is a side file; the record's derivation gets `replaces {old_body_sha256: the old id, regularity_sha256}`. Worse at K = refused.
+- Standalone: `rr_campaign regularity-at-key --key JSON --pieces P.jsonl --out DIR (--old-entries F... --node-identity ID |
+  --old-table T) [--header-table T]` (exit 0 not worse, 3 worse).
+GAP-3, THE WRITER `rr_campaign emit-entries --emitted T --node N --node-identity ID --out ROOT [--revision R]
+[--old-entries F]... [--old-table T] [--work DIR] [--descent-node BIN]`:
+- T must pass table-check (with the descent re-run when --descent-node is given); every record must be a point record at its own
+  key (one entry serves one key), with a LOWER descent verdict, and NOT WORSE than its old object at the key (GAP-2).
+- One entry per record: body {type relation, key, target, verdict SOLVED, all_lower true, proof {ok, kind emitted/<check mode>,
+  tool / output / certificate / descent-output sha256}, relation_digest null, determinism_id
+  `rustred.relation-import.v1/kind=emitted-<origin kind>/statement=<record body sha256>`, rhs [[term, coefficient, top|sub]],
+  rhs_count, emitted_record: THE EMITTED RECORD LINE (derivation with check, class, descent, replaces)}; entry_digest =
+  sha256 of the canonical body (reproduces the engine's digest of a shipped T266 entry: tests/entries_t266.rs); evidence
+  per-key (the independent checker), diagnostics.pole_order_at.4 = the measured pole order at the key.
+- The root: `<ROOT>/<node>-<id16>/entries-emitted.jsonl`, `index.jsonl`, `MANIFEST.json` (rustred.node-service-manifest.v1,
+  entries.precedence `over_table`, over_table_keys, kinds import), NODE.json, SHA256SUMS and the side directory
+  `entries-emitted.emission/`. FAIL CLOSED: one refusal = nothing written; never over a directory that holds entries. The
+  writer runs the entry-check on what it wrote.
+ENTRY-CHECK `rr_campaign entry-check --dir NODE_DIR` (exit 0 / 2) REFUSES an entry: digest not of its body; body not a proved,
+lower relation of its key; WITHOUT its emitted record; a record whose derivation is not of an emitted record (origin lift);
+WITHOUT its regularity verdict (`replaces`); WITHOUT a LOWER descent verdict; a record table-check's record check refuses
+(check, class, descent, the regularity verdict naming this body); a key / target / rhs that is not the record's; a stated
+pole order that is not the relation's at the key.
+TESTS: tests/entries_fake.rs (4): (a) over a stored entry (the engine's choice of two at the key), written over_table,
+entry-check ACCEPTED; worse = refused and nothing written; no old object = refused; (b) one key of the first-match table rule;
+entry-check refuses an entry without its emitted record, its regularity verdict, its descent verdict, with a wrong pole order or
+another rhs. tests/entries_t266.rs: the digest of a shipped T266 entry reproduced.

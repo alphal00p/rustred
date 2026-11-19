@@ -287,3 +287,48 @@ fn symmetry_relations_are_proven_on_their_symmetry_row_and_bound_to_the_record()
     assert!(!em3.exists());
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// descent-stamp (contract section 14): a record emitted BEFORE section 14 (its descent member removed here) is refused by
+/// table-check; stamped by the engine's test (the fake) it is accepted again with the body unchanged; a record that ascends
+/// is refused by the stamp and nothing is written.
+#[test]
+fn descent_stamp_adds_the_member_to_records_emitted_before_section_14() {
+    let d = tmp("stamp");
+    let c = certs(&d, &["Coordinate(A)"]);
+    let t = write_table(&d, &[rule(0, json!([null, null, null]), "Coordinate(A)", "I(n0,n1,n2)", None)]);
+    let (s, ok, out) = run(&d, &t, &c);
+    assert!(ok, "{s:#}");
+    let text = std::fs::read_to_string(&out).unwrap();
+    let line = text.lines().nth(1).unwrap();
+    let der: Value = serde_json::from_str(&strip_derivation(line).unwrap().1.unwrap()).unwrap();
+    let old = text.replacen(&format!(",\"descent\":{}", der["descent"]), ",\"descent\":null", 1);
+    assert_ne!(old, text);
+    let pre = d.join("pre14.table.jsonl");
+    std::fs::write(&pre, &old).unwrap();
+    rustred_campaign::emission::carry_side(&rustred_campaign_core::emission::side_dir(&out), &rustred_campaign_core::emission::side_dir(&pre)).unwrap();
+    let tc = |p: &Path| {
+        rustred_campaign::emission::tablecheck::table_check(&rustred_campaign::emission::tablecheck::Args {
+            table: p.to_path_buf(),
+            every: 1,
+            ..Default::default()
+        })
+        .unwrap()
+    };
+    assert!(!tc(&pre).1, "a pre-section-14 record is refused");
+    let stamped = d.join("stamped.table.jsonl");
+    let (s, ok) = rustred_campaign::emission::stamp::descent_stamp(&pre, &stamped, Path::new(FAKE), &d.join("sw")).unwrap();
+    assert!(ok, "{s:#}");
+    assert_eq!(s["stamped"], 1);
+    assert!(tc(&stamped).1);
+    let a = strip_derivation(std::fs::read_to_string(&stamped).unwrap().lines().nth(1).unwrap()).unwrap().0;
+    assert_eq!(a, strip_derivation(line).unwrap().0, "the body is unchanged");
+    // an ascending record: refused, nothing written
+    let up = old.replacen("\"dispatch\"", "\"fake_descent\":\"NotLower\",\"dispatch\"", 1);
+    let pre2 = d.join("pre14up.table.jsonl");
+    std::fs::write(&pre2, &up).unwrap();
+    let out2 = d.join("stamped-up.table.jsonl");
+    let (s, ok) = rustred_campaign::emission::stamp::descent_stamp(&pre2, &out2, Path::new(FAKE), &d.join("sw2")).unwrap();
+    assert!(!ok && s["refusals"][0]["reason"].as_str().unwrap().contains("not_lower"), "{s:#}");
+    assert!(!out2.exists());
+    let _ = std::fs::remove_dir_all(&d);
+}

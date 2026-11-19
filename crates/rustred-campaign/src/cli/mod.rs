@@ -209,6 +209,16 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        "descent-stamp" => match crate::emission::stamp::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("descent-stamp: {e}");
+                exit::USAGE
+            }
+        },
         "legacy-import" => match crate::emission::legacy_import::cmd(rest) {
             Ok((t, ok)) => {
                 outln!("{t}");
