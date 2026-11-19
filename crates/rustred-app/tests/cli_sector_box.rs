@@ -473,3 +473,96 @@ fn two_loop_one_mass_kite_propagator_family_closes() {
     let closure = report["modular"]["closure"].as_array().unwrap();
     assert_eq!(closure.last().unwrap()["added"], 0);
 }
+
+/// One mass on several lines (`derivative_slots`): the all-mass kite
+/// (mass z on all five lines) closes under d/dz = sum_s a_s e_s with eight
+/// masters; listing the slots in another order gives the same report masters.
+#[test]
+fn derivative_slots_close_the_all_mass_kite() {
+    let spec = |dir: &Path, slots: Value| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p2l_kite/family-allmass.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1]],
+            "derivative_slots": slots,
+            "d_list": ["37/11"],
+            "free": "z",
+            "lp_gate": false,
+            "workers": 1,
+        })
+    };
+    let dir = scratch("p2l-allmass");
+    let (code, report) = run(&dir, &spec(&dir, json!([0, 1, 2, 3, 4])));
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(
+        report["modular"]["masters"].as_array().unwrap().len(),
+        8,
+        "{report}"
+    );
+    assert_eq!(
+        report["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
+    let dir2 = scratch("p2l-allmass-perm");
+    let (code2, report2) = run(&dir2, &spec(&dir2, json!([4, 2, 0, 3, 1])));
+    assert_eq!(code2, 0);
+    assert_eq!(report["modular"]["masters"], report2["modular"]["masters"]);
+}
+
+/// `derivative_slots` adds nothing to the checkpoint key when it is empty, so
+/// specs without it keep the key they had before the field existed and
+/// existing checkpoints are still found; a non-empty field changes the key.
+///
+/// The key is a hash of the serialised spec (without paths and the
+/// finite-field fields) and of the family block, which includes the router
+/// fingerprint. The test therefore checks the serialisation itself, and
+/// compares keys only with each other, so it holds for any router
+/// fingerprint format. (For the record: with the v1 census-router
+/// fingerprint, i.e. before the v2 router fingerprint, the K6 spec below,
+/// modular phase only, has the key
+/// d6a5ee80df8daa08481000be9c3a4b4a191c6c39ef8514c0bea8face09fc131e, the same
+/// with and without this change, measured with the pre-field binary.)
+#[test]
+fn derivative_slots_adds_nothing_to_the_checkpoint_key_when_empty() {
+    let serialised = |spec: &Value| -> String {
+        let spec: rustred_app::SectorBoxReduceSpec = serde_json::from_value(spec.clone()).unwrap();
+        serde_json::to_string(&serde_json::to_value(&spec).unwrap()).unwrap()
+    };
+    let dir = scratch("key-input");
+    let mut without = k6_spec(&dir);
+    without["modular_only"] = json!(true);
+    let mut empty = without.clone();
+    empty["derivative_slots"] = json!([]);
+    let mut with_slots = without.clone();
+    with_slots["derivative_slots"] = json!([0]);
+    // The key input: no entry when empty, byte-identical to no field at all.
+    assert!(!serialised(&without).contains("derivative_slots"));
+    assert_eq!(serialised(&empty), serialised(&without));
+    assert!(serialised(&with_slots).contains("\"derivative_slots\":[0]"));
+    // A non-empty field changes the key (keys compared with each other only).
+    let binding = |dir: &Path, spec: &Value| -> String {
+        let mut spec = spec.clone();
+        spec["out_dir"] = json!(dir.join("out"));
+        spec["checkpoint_dir"] = json!(dir.join("ckpt"));
+        let (code, report) = run(dir, &spec);
+        assert_eq!(code, 0, "{report}");
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("ckpt").join("modular.json")).unwrap(),
+        )
+        .unwrap();
+        saved["binding"].as_str().unwrap().to_string()
+    };
+    let plain = binding(&dir, &without);
+    let other = scratch("key-input-slots");
+    assert_ne!(binding(&other, &with_slots), plain);
+    let again = scratch("key-input-empty");
+    assert_eq!(binding(&again, &empty), plain);
+    for path in [dir, other, again] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}

@@ -324,6 +324,7 @@ same as in `litered-reduce`.
 | `preferred` | `[]` | preferred masters, at the easy end of the column order. One whose route onto its representative sector has several terms is dropped from this set and reported |
 | `expected` | `{}` | expected masters per class: Kira id of the representative sector (decimal string) -> count |
 | `derivative_slot` | none | close the demand under the derivative in the mass of that line |
+| `derivative_slots` | `[]` | further slots (one mass on several lines): closed under `I[a] -> I[a + e_s]` for every listed `s`, so `d/dm I[a] = sum_s a_s I[a + e_s]` is reduced; merged with `derivative_slot` |
 | `closure_rounds` | 8 | maximal closure rounds after the first modular phase; still unclosed after them is an error |
 | `d_list` | required unless `modular_only` | values `"p/q"` of the family dimension; each value once (`"1/2"` and `"2/4"` are the same value) |
 | `fixed` | `{}` | further fixed parameters, name -> `"p/q"` |
