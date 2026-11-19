@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+# REHEARSAL FAKE of `systemctl` (lane procfix7 round 9b). ONLY for `host_step_fake1.sh --rehearse-ns`, inside a PRIVATE
+# user+pid namespace (it refuses elsewhere). Answers for the services the fake systemd-run started ($FAKE_SYSTEMD_DIR):
+#   systemctl --version
+#   systemctl --user show [--property=A,B,.. | -p A].. [--value] -- NAME.service
+#       LoadState ActiveState SubState Result MainPID ExecMainCode ExecMainStatus Id InvocationID ControlGroup, as
+#       systemd does for a Type=exec service: running -> active/running; ended: with CollectMode=inactive-or-failed
+#       (--collect) -> unloaded whatever the result; else RemainAfterExit=yes: exit 0 -> active/exited, other ->
+#       failed/failed; RemainAfterExit=no: exit 0 -> unloaded, other -> failed/failed; ControlGroup empty (no cgroup in
+#       the emulation); an unknown or unloaded name -> LoadState=not-found.
+#   systemctl --user stop [--no-block] -- NAME.service
+#       running: SIGTERM to the recorded MainPID (the exact pid; in this namespace it can only be ours), SIGKILL to it
+#       after TimeoutStopSec (default 90 s; "infinity": never), then the unit ends like any other end; ended active: ->
+#       unloaded; failed: stays failed (as systemd).
+#   systemctl --user reset-failed -- NAME.service      failed -> unloaded
+#   systemctl --user list-units ...                     prints nothing (no unit listing in a namespace rehearsal)
+#   systemctl --user show -p Version --value            (round 14: the supervisor's manager probe) "261 (REHEARSAL FAKE)"
+# procfix7 round 14 (host step 3): A MANAGER STALL. When the state directory holds a file `stall` with "START END" (epoch
+# seconds; written by host_step_fake1.sh --rehearse-ns from FAKE_MANAGER_STALL=after_s:dur_s), EVERY call made while
+# START <= now < END waits until END first (as the real user manager did in host step 3), logged in `stall.log`. The state
+# directory is $FAKE_SYSTEMD_DIR, or, for a caller that cleared its environment (the supervisor's probe), ./fake-systemd of
+# the caller's working directory (the supervisor runs in OUT).
+set -u
+if [ "${1:-}" = --version ]; then echo "systemctl REHEARSAL FAKE (procfix7 round 9b host-step rehearsal)"; exit 0; fi
+die() { echo "fake systemctl: $*" >&2; exit 1; }
+[ "$(tr -s ' ' < /proc/self/uid_map | sed 's/^ //')" != "0 0 4294967295" ] || die "refused outside a private user namespace"
+# procfix7 round 10 (gate13c O-fake): and outside a private PID namespace (a user-only namespace would still see, and
+# could signal, the host's processes): pid 1 must be a process of our own uid that is not systemd
+[ "$(stat -c %u /proc/1 2>/dev/null)" = "$(id -u)" ] && [ "$(cat /proc/1/comm 2>/dev/null)" != systemd ] \
+  || die "refused outside a private pid namespace"
+if [ -z "${FAKE_SYSTEMD_DIR:-}" ] && [ -d "$PWD/fake-systemd" ]; then FAKE_SYSTEMD_DIR=$PWD/fake-systemd; fi
+[ -n "${FAKE_SYSTEMD_DIR:-}" ] || die "FAKE_SYSTEMD_DIR not set"
+if [ -s "$FAKE_SYSTEMD_DIR/stall" ]; then
+  read -r S0 S1 < "$FAKE_SYSTEMD_DIR/stall"
+  now=$(date +%s)
+  if [ "$now" -ge "$S0" ] && [ "$now" -lt "$S1" ]; then
+    echo "$(date -u +%FT%TZ) stalled $* for $((S1 - now)) s" >> "$FAKE_SYSTEMD_DIR/stall.log"
+    sleep $((S1 - now))
+  fi
+fi
+[ "${1:-}" = --user ] || die "only --user is emulated"; shift
+VERB=${1:-}; shift || true
+PROPS=(); VALUE=no; NAME=""; BLOCK=yes
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --property=*) IFS=, read -r -a more <<< "${1#--property=}"; PROPS+=("${more[@]}") ;;
+    -p) IFS=, read -r -a more <<< "$2"; PROPS+=("${more[@]}"); shift ;;
+    --value) VALUE=yes ;;
+    --no-block) BLOCK=no ;;
+    --no-legend|--plain|--all) ;;
+    --) ;;
+    *) NAME=$1 ;;
+  esac
+  shift
+done
+[ "$VERB" = list-units ] && exit 0
+if [ "$VERB" = show ] && [ -z "$NAME" ] && [ "${PROPS[*]:-}" = Version ]; then
+  if [ "$VALUE" = yes ]; then echo "261 (REHEARSAL FAKE)"; else echo "Version=261 (REHEARSAL FAKE)"; fi
+  exit 0
+fi
+case "$NAME" in *.service) ;; *) die "a NAME.service is needed (got '$NAME')" ;; esac
+case "$NAME" in *[!A-Za-z0-9_.-]*) die "not a literal unit name: $NAME" ;; esac
+D=$FAKE_SYSTEMD_DIR/$NAME
+prop() { grep -m1 "^$1=" "$D/props" 2>/dev/null | cut -d= -f2-; }
+main_alive() {   # the recorded main pid exists, is not a zombie and leads its own session (it is the service's main)
+  local p st; p=$(cat "$D/main.pid" 2>/dev/null) || return 1
+  st=$(sed -E 's/^.*\) (.) [0-9]+ [0-9]+ ([0-9]+) .*$/\1 \2/' "/proc/$p/stat" 2>/dev/null) || return 1
+  [ "${st% *}" != Z ] && [ "${st#* }" = "$p" ]
+}
+# state: running / ended0 / endedN / unloaded / unknown-name
+state() {
+  [ -d "$D" ] || { echo none; return; }
+  [ -e "$D/unloaded" ] && { echo none; return; }
+  if [ -s "$D/exit" ]; then
+    [ "$(prop CollectMode)" = inactive-or-failed ] && { echo none; return; }
+    read -r code status < "$D/exit"
+    if [ "$code" = 1 ] && [ "$status" = 0 ]; then
+      if [ "$(prop RemainAfterExit)" = yes ] && ! [ -e "$D/stopped" ]; then echo exited; else echo none; fi
+    else echo failed; fi
+  elif main_alive; then echo running
+  else echo starting; fi
+}
+case "$VERB" in
+  show)
+    st=$(state)
+    read -r code status 2>/dev/null < "$D/exit" || { code=0; status=0; }
+    case "$st" in
+      none) load=not-found; act=inactive; sub=dead; res=success; mp=0 ;;
+      running|starting) load=loaded; act=active; sub=running; res=success; mp=$(cat "$D/main.pid" 2>/dev/null || echo 0) ;;
+      exited) load=loaded; act=active; sub=exited; res=success; mp=0 ;;
+      failed) load=loaded; act=failed; sub=failed; mp=0; if [ "$code" = 2 ]; then res=signal; else res=exit-code; fi ;;
+    esac
+    [ ${#PROPS[@]} -eq 0 ] && PROPS=(Id LoadState ActiveState SubState Result MainPID ExecMainCode ExecMainStatus InvocationID ControlGroup)
+    for k in "${PROPS[@]}"; do
+      case "$k" in
+        Id) v=$NAME ;; LoadState) v=$load ;; ActiveState) v=$act ;; SubState) v=$sub ;; Result) v=$res ;;
+        MainPID) v=$mp ;; ExecMainCode) v=$code ;; ExecMainStatus) v=$status ;;
+        InvocationID) v=$(cat "$D/invocation" 2>/dev/null) ;; ControlGroup) v="" ;; *) v="" ;;
+      esac
+      if [ "$VALUE" = yes ]; then echo "$v"; else echo "$k=$v"; fi
+    done ;;
+  stop)
+    st=$(state)
+    case "$st" in
+      running|starting)
+        p=$(cat "$D/main.pid")
+        main_alive && kill -TERM "$p"
+        t=$(prop TimeoutStopSec); t=${t:-90}
+        if [ "$t" = infinity ]; then
+          [ "$BLOCK" = yes ] && until [ -s "$D/exit" ]; do sleep 0.2; done
+        elif [ "$BLOCK" = yes ]; then
+          for _ in $(seq $((t * 10))); do [ -s "$D/exit" ] && break; sleep 0.1; done
+          if ! [ -s "$D/exit" ] && main_alive; then kill -KILL "$p"; fi
+          for _ in $(seq 100); do [ -s "$D/exit" ] && break; sleep 0.1; done
+          [ -s "$D/exit" ] && read -r code status < "$D/exit" && [ "$code" = 1 ] && [ "$status" = 0 ] && : > "$D/stopped"
+        fi ;;
+      exited) : > "$D/stopped" ;;
+      *) ;;
+    esac ;;
+  reset-failed)
+    [ "$(state)" = failed ] && : > "$D/unloaded" ;;
+  *) die "verb $VERB not emulated" ;;
+esac
+exit 0

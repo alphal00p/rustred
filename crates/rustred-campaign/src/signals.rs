@@ -34,6 +34,8 @@ fn mono_ns() -> u64 {
         tv_nsec: 0,
     };
     // SAFETY: valid out-pointer.
+    // procfix7 round 5: a failed read leaves 0: a SIGTERM then reads as within the coalescing window of a SIGHUP (the
+    // SAME stop request, never an escalation); CLOCK_MONOTONIC with a valid pointer cannot fail on Linux.
     unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut ts) };
     (ts.tv_sec as u64)
         .saturating_mul(1_000_000_000)
@@ -192,6 +194,7 @@ impl Drop for StopSignals {
     }
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

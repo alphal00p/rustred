@@ -9,6 +9,7 @@
 //! DECOYS: processes of the test's own making stand in for "foreign" jobs (no campaign marker, another campaign's marker,
 //! a recycled pid, a leaderless session). Every decoy must SURVIVE what the layer does; each test then removes its own
 //! decoys and asserts that nothing of it is left.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;
@@ -32,6 +33,7 @@ use rustred_campaign::resources::{
 };
 use std::collections::BTreeSet;
 use std::fs;
+use std::os::unix::fs::OpenOptionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
@@ -67,7 +69,6 @@ fn alive(c: &mut Child) -> bool {
 fn pid_alive(pid: u32, start: u64) -> bool {
     read_stat(pid)
         .ok()
-        .flatten()
         .is_some_and(|s| s.start_ticks == start && !s.is_dead())
 }
 
@@ -94,19 +95,54 @@ fn decoy_session(script: &str, marker_value: Option<&str>) -> Child {
     c.spawn().unwrap()
 }
 
+/// Wait for a decoy of ours (a setsid'd child spawned OUTSIDE the launcher). procfix7 round 15 (1 of 100 full runs under
+/// load: a_c1_decoy_with_other_campaign_marker_survives, "No child processes"): the launcher's process-wide
+/// adopted-children reaper may take such a child's exit status first (its documented contract, resources/children.rs:
+/// every zombie child that is not a registered leader and not in our own session is reaped by exact pid); the wait then
+/// fails with ECHILD and the decoy is gone just the same. Any other error fails the test.
+fn wait_decoy(c: &mut Child) {
+    match c.wait() {
+        Ok(_) => {}
+        Err(e) if e.raw_os_error() == Some(libc::ECHILD) => {}
+        Err(e) => panic!("wait for decoy {}: {e}", c.id()),
+    }
+}
+
 /// Spawn `make()` until the child gets pid `want` (ns_last_pid = want - 1 before each try). Namespace only.
+/// procfix7 round 14: bounded by TIME (60 s, a 10-ms pause after a failed try), no longer by 200 back-to-back tries:
+/// a task of this namespace that takes `want` between the write and the spawn (a thread of this test process, a process
+/// of a job) holds it for its whole life, and 200 tries could all fall inside that life ("could not force pid 45": 2 of
+/// 312 full runs under load in round 14, at a422bfa9 and 39043e23; the holder was not caught in 1,300 runs, a failure
+/// now names it).
 fn force_pid(want: u32, mut make: impl FnMut() -> Child) -> Child {
     require_namespace();
-    for _ in 0..200 {
+    let t0 = Instant::now();
+    loop {
         fs::write("/proc/sys/kernel/ns_last_pid", (want - 1).to_string()).unwrap();
         let mut c = make();
         if c.id() == want {
             return c;
         }
+        let holder = fs::read_to_string(format!("/proc/{want}/status"))
+            .map(|s| {
+                s.lines()
+                    .filter(|l| {
+                        ["Name:", "State:", "Tgid:", "PPid:"]
+                            .iter()
+                            .any(|p| l.starts_with(p))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_else(|e| format!("none ({e})"));
         let _ = c.kill();
         let _ = c.wait();
+        assert!(
+            t0.elapsed() < Duration::from_secs(60),
+            "could not force pid {want} within 60 s (held by: {holder})"
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
-    panic!("could not force pid {want}");
 }
 
 /// Kill a decoy's orphaned member (our descendant, in our namespace) after checking its start time.
@@ -130,7 +166,8 @@ fn read_pid_file(p: &Path) -> u32 {
 fn launcher_cfg(f: impl FnOnce(&mut RealConfig)) -> RealLauncher {
     let mut c = RealConfig::default();
     f(&mut c);
-    RealLauncher::with_config(sampler(), c)
+    RealLauncher::try_with_config(sampler(), c)
+        .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 fn record_and_end_a_child(dir: &Path, label: &str) -> ProcessIdentity {
@@ -275,7 +312,7 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     let members = rustred_campaign::resources::scan_sessions_now(&sids);
     assert_eq!(members[&id.pid].members.len(), 2, "decoy session intact");
     d.kill().unwrap();
-    d.wait().unwrap();
+    wait_decoy(&mut d);
     for m in &members[&id.pid].members {
         if m.pid != id.pid {
             kill_decoy_member(m.pid, m.start_ticks);
@@ -286,9 +323,9 @@ fn a_c1_recorded_pid_reused_by_decoy_session_survives() {
     let pidfile = dir.path().join("member.pid");
     let script = format!("sleep 600 & echo $! > {}; exit 0", pidfile.display());
     let mut lead = force_pid(id2.pid, || decoy_session(&script, None));
-    lead.wait().unwrap();
+    wait_decoy(&mut lead);
     let member = read_pid_file(&pidfile);
-    let mstart = read_stat(member).unwrap().unwrap().start_ticks;
+    let mstart = read_stat(member).unwrap().start_ticks;
     let r = second
         .reattach(
             &id2,
@@ -372,7 +409,7 @@ fn a_c1_decoy_with_other_campaign_marker_survives() {
     );
     for mut d in [other, other_attempt] {
         d.kill().unwrap();
-        d.wait().unwrap();
+        wait_decoy(&mut d);
     }
     drop(dir);
 }
@@ -386,10 +423,21 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
     let dir = TempDir::new("a-m1");
     let mut l = launcher();
     let gfile = dir.path().join("g.pid");
-    // The loop of short foreground sleeps makes the shell reap the ended background group (so its number is free).
+    let fifo = dir.path().join("g.fifo");
+    // procfix7 round 14 (round 13's suite: "timed out waiting for: job-control group seen", 1 failure in 24 suites): the
+    // group was `sleep 2`, a group that lived 2 s of WALL CLOCK, and the test needed a scan of the sampler (every 0.2 s)
+    // and a poll of its own (every 0.1 s) inside those 2 s; a group that ended unseen is never seen. A host stall that
+    // keeps this test process off the CPU for ~2 s breaks that: the failure fell inside the host's user-manager stall of
+    // 2026-11-18 05:07-05:14Z (HOST-STEP-3-ANALYSIS 1.1). The product was not involved: 624 full runs of this binary under
+    // load (48 in parallel, load 150-199) at a422bfa9, 39043e23 and 041e7fe8 saw the group in 9 error-free scans every
+    // time (the stat re-read of procfs.rs and the walk's back-off never cost a scan), and this process held off the CPU
+    // for 2.5 s at the group's birth fails the old test at every one of those commits. A TIMING ASSUMPTION of the test,
+    // removed: the group now lives until the handle has named it. Its member (`cat` of a FIFO) ends when the test closes
+    // the FIFO; the shell reaps it at once (`wait`: its number is free) and becomes the job's `sleep` (no later fork).
     let script = format!(
-        "set -m; sleep 2 & echo $! > {}; while :; do sleep 0.2; wait $! 2>/dev/null; done",
-        gfile.display()
+        "mkfifo {f}; set -m; cat {f} > /dev/null & echo $! > {g}; wait $!; exec sleep 600",
+        f = fifo.display(),
+        g = gfile.display()
     );
     let mut h = l.launch(&sh(dir.path(), "m1", &script)).unwrap();
     let sid = h.identity().pid;
@@ -398,21 +446,26 @@ fn a_m1_stale_group_number_reused_by_decoy_group_survives() {
         h.poll().unwrap();
         h.usage().is_some_and(|u| u.groups.contains(&g))
     });
+    // The handle's last usage names g. The group ends now: a non-blocking open of the FIFO for writing succeeds once its
+    // reader (the group's member) has it open (before: ENXIO, tried again); closing it at once gives the reader EOF.
+    wait_until("the group's FIFO opened for writing", LONG, || {
+        fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&fifo)
+            .is_ok()
+    });
     wait_until("group ended and reaped", LONG, || {
-        read_stat(g).ok().flatten().is_none()
+        read_stat(g).ok().is_none()
     });
     // The handle's last usage still names group g. A decoy now creates a leaderless group g in its own session.
     let mfile = dir.path().join("dm.pid");
     let dscript = format!("sleep 600 & echo $! > {}; exit 0", mfile.display());
     let mut dl = force_pid(g, || decoy_session(&dscript, None));
-    dl.wait().unwrap();
+    wait_decoy(&mut dl);
     let dm = read_pid_file(&mfile);
-    let dstart = read_stat(dm).unwrap().unwrap().start_ticks;
-    assert_eq!(
-        read_stat(dm).unwrap().unwrap().pgrp,
-        g,
-        "decoy member is in group g"
-    );
+    let dstart = read_stat(dm).unwrap().start_ticks;
+    assert_eq!(read_stat(dm).unwrap().pgrp, g, "decoy member is in group g");
     h.terminate(Duration::from_secs(2), KillReason::Stop);
     let r = drive(&mut h);
     assert!(r.verification.is_verified(), "{r:?}");
@@ -432,6 +485,7 @@ fn a_m2_stale_sampler_is_reported_and_verify_is_unverified() {
     let s = Sampler::spawn(SamplerConfig {
         interval: Duration::from_secs(3600),
         collect_foreign_pinning: false,
+        foreign_pin_max_cpus: usize::MAX,
     })
     .unwrap();
     s.request_now();
@@ -653,6 +707,7 @@ fn site_raw(root: &Path, cpus: &[usize], tag: &str) -> SiteConfig {
         idle_min: 0.0,
         max_cores: 16,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     }
 }
@@ -787,7 +842,7 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     );
     let mut h = l.launch(&sh(dir.path(), "sub", &script)).unwrap();
     let d = read_pid_file(&f);
-    let st = read_stat(d).unwrap().unwrap();
+    let st = read_stat(d).unwrap();
     assert_eq!(st.ppid, std::process::id(), "re-parented to the subreaper");
     let r = drive(&mut h);
     assert!(r.verification.is_verified(), "{r:?}");
@@ -795,7 +850,6 @@ fn a_subreaper_double_fork_is_found_killed_and_reaped() {
     wait_until("daemon reaped (no zombie)", Duration::from_secs(60), || {
         read_stat(d)
             .ok()
-            .flatten()
             .is_none_or(|s| s.start_ticks != st.start_ticks)
     });
 }
@@ -880,9 +934,9 @@ fn a_minor_m2_zombie_non_child_is_not_signalled() {
     let mut h = l.launch(&sh(dir.path(), "m2z", &script)).unwrap();
     let z = read_pid_file(&f);
     wait_until("zombie", Duration::from_secs(30), || {
-        read_stat(z).ok().flatten().is_none_or(|s| s.is_dead())
+        read_stat(z).ok().is_none_or(|s| s.is_dead())
     });
-    if let Some(st) = read_stat(z).unwrap() {
+    if let Ok(st) = read_stat(z) {
         let id = ProcessIdentity {
             pid: z,
             start_ticks: st.start_ticks,
@@ -1017,10 +1071,10 @@ fn b_c3_leaderless_session_with_older_record_is_refused() {
         None,
     );
     let lead_pid = lead.id();
-    let lead_start = read_stat(lead_pid).unwrap().unwrap().start_ticks;
-    lead.wait().unwrap();
+    let lead_start = read_stat(lead_pid).unwrap().start_ticks;
+    wait_decoy(&mut lead);
     let m = read_pid_file(&f);
-    let mstart = read_stat(m).unwrap().unwrap().start_ticks;
+    let mstart = read_stat(m).unwrap().start_ticks;
     let rec = ProcessIdentity {
         pid: lead_pid,
         start_ticks: lead_start.saturating_sub(100),
@@ -1050,11 +1104,15 @@ fn b_c4_orphans_daemons_and_escapees() {
     let _g = serial();
     let dir = TempDir::new("b-c4");
     let mut l = launcher();
-    // (a) T2.
+    // (a) T2. procfix7 round 16 (gate17 nit m17-bc4: 5 of 48 runs under load, 8 of 48 at 041e7fe8 "timed out waiting
+    // for: pid file"): the job exited at once, and the end-of-job proof could kill its daemon before the daemon wrote its
+    // pid (correctly: a leftover); the job now waits (bounded, 10 s) until the daemon's pid file is there (written
+    // atomically) before it exits: the daemon is the same leftover, found by its marker, killed and reported
     let f = dir.path().join("d.pid");
     let script = format!(
-        "( setsid sh -c 'echo $$ > {}; exec sleep 20' & ); exit 0",
-        f.display()
+        "( setsid sh -c 'echo $$ > {f}.tmp && mv {f}.tmp {f}; exec sleep 20' & ); \
+         i=0; while [ ! -s {f} ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done; exit 0",
+        f = f.display()
     );
     let mut h = l.launch(&sh(dir.path(), "t2", &script)).unwrap();
     let r = drive(&mut h);
@@ -1067,7 +1125,6 @@ fn b_c4_orphans_daemons_and_escapees() {
     wait_until("daemon dead", Duration::from_secs(30), || {
         read_stat(d)
             .ok()
-            .flatten()
             .is_none_or(|s| s.is_dead() || s.comm != "sleep")
     });
     // (c) setsid escapee allocating beyond the cap.
@@ -1098,9 +1155,7 @@ fn b_c4_orphans_daemons_and_escapees() {
     let camp = fs::read_to_string(&cfile).unwrap();
     sup.kill_now(KillReason::Other("test kills the helper supervisor".into()));
     drive(&mut sup);
-    let gstat = read_stat(gc)
-        .unwrap()
-        .expect("grandchild survives its supervisor");
+    let gstat = read_stat(gc).expect("grandchild survives its supervisor");
     let scan = scan_campaign(&camp, 0, &BTreeSet::new()).unwrap();
     let p = scan
         .processes
@@ -1129,10 +1184,7 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
     let tl = read_pid_file(&dir.path().join("tl.pid"));
     let id = ProcessIdentity::capture(tl).unwrap();
     wait_until("main thread exited", LONG, || {
-        read_stat(id.pid)
-            .ok()
-            .flatten()
-            .is_some_and(|s| s.is_dead())
+        read_stat(id.pid).ok().is_some_and(|s| s.is_dead())
     });
     let mut second = launcher();
     let Reattached::Live(mut a) = second.reattach(&id, "tl", ReattachChoice::Adopt).unwrap() else {
@@ -1155,14 +1207,11 @@ fn b_m1_adopted_zombie_leader_with_live_thread_keeps_running() {
         "thread leader gone (no live thread)",
         Duration::from_secs(30),
         || {
-            read_stat(tl)
-                .ok()
-                .flatten()
-                .is_none_or(|s| s.start_ticks != tstart)
-                || rustred_campaign::resources::live_thread_stat(tl)
-                    .ok()
-                    .flatten()
-                    .is_none()
+            read_stat(tl).ok().is_none_or(|s| s.start_ticks != tstart)
+                || !matches!(
+                    rustred_campaign::resources::live_thread(tl),
+                    Ok(rustred_campaign::resources::LiveThread::Found(..))
+                )
         },
     );
 }

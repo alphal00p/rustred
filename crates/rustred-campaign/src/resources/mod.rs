@@ -11,6 +11,9 @@
 //! Reading guide: [`ProcessIdentity`] is the only thing that may authorise a signal. [`Sampler`] publishes
 //! [`Snapshot`]s; the control loop reads [`Sampler::latest`] and never waits for a scan.
 
+// procfix7 (gate7 B1): an ignored Result is a reviewed exception (`#[allow]` + `ignored-ok (procfix7):` reason),
+// never a default; tests/procfix7_tripwire.rs checks every `let _ =` of the process layer and the supervisor.
+#![deny(clippy::let_underscore_must_use, unused_must_use)]
 #[cfg(not(target_os = "linux"))]
 compile_error!(
     "rustred-campaign's process layer (resources, launch, cpu_policy) requires Linux: /proc, sched_setaffinity, prctl"
@@ -18,35 +21,43 @@ compile_error!(
 
 mod bounded;
 mod children;
+pub mod lineage;
 mod marked;
 mod pid;
+pub mod procfs;
 mod scan;
 
 pub use bounded::{
     Bounded, MAX_STUCK, ReadOutcome, outstanding_helpers, read_bounded, run_bounded,
     run_bounded_with,
 };
+pub(crate) use children::listing_hold;
+#[cfg(debug_assertions)]
+pub use children::set_listing_hold;
 pub(crate) use children::{
-    FactRead, MarkerFact, ProcFacts, children_of, own_children, own_children_by_scan,
-    read_proc_facts, start_reaper, strict_listing_counted,
+    FactRead, MarkerFact, ProcFacts, children_of, note_reaped, own_children, own_children_by_scan,
+    own_children_candidates, read_proc_facts, reaped_after, start_reaper, strict_listing_counted,
 };
 pub use children::{ReaperStats, reaper_stats, request_reap};
+pub use lineage::{HiddenProcess, describe_hidden};
 pub use marked::{
     CampaignMarker, CampaignScan, ENVIRON_READ_TIMEOUT, InvalidMarker, MARKER_VAR, MarkedProcess,
-    MarkerRead, hidden_descendants, hidden_descendants_at, marker_in_environ, our_uid,
-    owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
+    MarkerRead, environ_readable_at, hidden_descendants, hidden_descendants_at, marker_in_environ,
+    our_uid, owner_uid_at, read_marker_at, scan_campaign, validate_campaign_id,
 };
-pub(crate) use marked::{STRICT_ENVIRON_TIMEOUT, scan_marked_inline};
+pub(crate) use marked::{
+    CandidateCheck, STRICT_ENVIRON_TIMEOUT, check_candidate, scan_marked_inline,
+};
 pub use pid::{InvalidPid, PID_MAX_LIMIT, ValidPid, pid_max};
-pub(crate) use scan::Leaders;
+pub use procfs::{ProcError, ProcResult, ProcRoot};
 pub use scan::{
     EscapeeRecord, MemKind, Sampler, SamplerConfig, SamplerHealth, SessionUsage, Snapshot,
     scan_sessions_now,
 };
+pub(crate) use scan::{Leaders, OwnerRole};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -124,71 +135,75 @@ pub fn ticks_per_second() -> f64 {
     })
 }
 
-fn gone(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH))
+/// Read `/proc/<pid>/stat` (procfix8: [`procfs`] rules: Gone only for ENOENT / ESRCH; a torn or unparsable stat is
+/// Unreadable, never gone). This read can block in the kernel (see guarded_run.py): call it from a helper thread or
+/// for single pids only.
+pub fn read_stat(pid: u32) -> ProcResult<ProcStat> {
+    procfs::sys().stat(pid)
 }
 
-/// Read `/proc/<pid>/stat`. `Ok(None)`: the process does not exist (or vanished while being read).
-/// This read can block in the kernel (see guarded_run.py): call it from a helper thread or for single pids only.
-pub fn read_stat(pid: u32) -> io::Result<Option<ProcStat>> {
-    read_stat_path(pid, Path::new(&format!("/proc/{pid}/stat")))
+/// A live thread of a thread group (for a process whose main thread is a zombie: a dead leader with live threads still
+/// holds memory and can still fork; guarded_run.py `live_thread`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum LiveThread {
+    /// A live thread: its id and its stat (the pid field is the process's pid).
+    Found(u32, ProcStat),
+    /// The kernel's ATOMIC thread count (`/proc/<pid>/status` `Threads:`) is 1 with the leader a zombie: no other
+    /// thread exists, and none can appear (only a live thread can create one).
+    NoneAlive,
 }
 
-pub(crate) fn read_stat_path(pid: u32, path: &Path) -> io::Result<Option<ProcStat>> {
-    match fs::read(path) {
-        Ok(bytes) => Ok(parse_stat(
-            pid,
-            &String::from_utf8_lossy(&bytes),
-            page_size(),
-        )),
-        Err(e) if gone(&e) => Ok(None),
-        Err(e) => Err(e),
-    }
-}
+/// Task listings [`live_thread_at`] tries to catch a live thread in while the atomic count says the group has more
+/// than its zombie leader.
+pub const LIVE_THREAD_LISTINGS: usize = 8;
 
-/// For a process whose main thread is a zombie: the stat of a live thread, if any (a dead leader with live threads
-/// still holds memory and can still fork; guarded_run.py `live_thread`).
-pub fn live_thread_stat(pid: u32) -> io::Result<Option<ProcStat>> {
-    Ok(live_thread(pid)?.map(|(_, st)| st))
-}
-
-/// As [`live_thread_stat`], with the live thread's id.
-pub fn live_thread(pid: u32) -> io::Result<Option<(u32, ProcStat)>> {
-    let entries = match fs::read_dir(format!("/proc/{pid}/task")) {
-        Ok(e) => e,
-        Err(e) if gone(&e) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    for entry in entries {
-        let Ok(entry) = entry else { continue };
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if let Some(st) = read_stat_path(pid, Path::new(&format!("/proc/{pid}/task/{tid}/stat")))?
-            && !st.is_dead()
-        {
-            return Ok(Some((tid, st)));
+/// The first live thread of `pid` under `root`. Gone: the process is gone.
+///
+/// procfix7 round 5 (gate9 G9-B2, a NON-ATOMIC observation taken as a proof of absence): "every thread of ONE task
+/// listing reads dead or gone" is NOT "no live thread": a thread created after the listing began by a listed thread that
+/// then exits is never examined (a zombie leader whose threads replace themselves every 50 us was "a zombie without a
+/// live thread" for every scan, and its kill was dropped). The proof of absence is the kernel's ATOMIC count:
+/// `Threads:` (signal->nr_threads, one read) == 1 with the leader a zombie => [`LiveThread::NoneAlive`] (sound: the
+/// zombie leader stays counted until every other thread is released, and no thread can appear without a live thread to
+/// create it). Any larger count: the group may live; up to [`LIVE_THREAD_LISTINGS`] listings look for a live thread
+/// (whose id the environ is read through); none caught => Unreadable ("possibly ours": inconclusive, named), NEVER
+/// NoneAlive. A thread that vanished between a listing and its read (ENOENT / ESRCH of ITS stat) is skipped; any other
+/// failed read is Unreadable.
+pub fn live_thread_at(root: &ProcRoot, pid: u32) -> ProcResult<LiveThread> {
+    let mut counted = 0;
+    for _ in 0..LIVE_THREAD_LISTINGS {
+        let status = root.status(pid)?;
+        counted = status.threads()?;
+        let leader_dead = matches!(status.state()?, 'Z' | 'X' | 'x');
+        if leader_dead && counted <= 1 {
+            return Ok(LiveThread::NoneAlive);
+        }
+        for tid in root.tasks(pid)? {
+            match root.task_stat(pid, tid) {
+                Ok(st) if !st.is_dead() => return Ok(LiveThread::Found(tid, st)),
+                Ok(_) | Err(ProcError::Gone) => {}
+                Err(e) => return Err(e),
+            }
         }
     }
-    Ok(None)
+    Err(ProcError::Unreadable(format!(
+        "pid {pid}: the kernel counts {counted} thread(s) (status Threads:) but no live thread was caught in \
+         {LIVE_THREAD_LISTINGS} task listings (threads replacing themselves?): possibly alive, possibly ours"
+    )))
+}
+
+/// [`live_thread_at`] on the real /proc.
+pub fn live_thread(pid: u32) -> ProcResult<LiveThread> {
+    live_thread_at(&procfs::sys(), pid)
 }
 
 /// `/proc/sys/kernel/random/boot_id`, cached for the life of the process.
-pub fn boot_id() -> io::Result<String> {
+pub fn boot_id() -> ProcResult<String> {
     static BOOT: OnceLock<String> = OnceLock::new();
     if let Some(b) = BOOT.get() {
         return Ok(b.clone());
     }
-    let b = fs::read_to_string("/proc/sys/kernel/random/boot_id")?
-        .trim()
-        .to_string();
-    if b.is_empty() {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "empty boot_id"));
-    }
+    let b = procfs::sys().boot_id()?;
     Ok(BOOT.get_or_init(|| b).clone())
 }
 
@@ -244,11 +259,12 @@ impl ProcessIdentity {
     /// Refuses pids outside 2..=pid_max (`InvalidPid` payload).
     pub fn capture(pid: u32) -> io::Result<Self> {
         ValidPid::new(i64::from(pid)).map_err(InvalidPid::into_io)?;
-        let st = read_stat(pid)?.ok_or_else(|| {
-            io::Error::new(
+        let st = read_stat(pid).map_err(|e| match e {
+            ProcError::Gone => io::Error::new(
                 io::ErrorKind::NotFound,
                 format!("pid {pid} vanished before its identity was read"),
-            )
+            ),
+            e => io::Error::other(format!("identity of pid {pid}: {e}")),
         })?;
         Ok(Self {
             pid,
@@ -263,12 +279,14 @@ impl ProcessIdentity {
         if self.boot_id != boot_id()? {
             return Ok(Liveness::OtherBoot);
         }
-        match read_stat(self.pid)? {
-            None => Ok(Liveness::Gone),
-            Some(st) if st.start_ticks != self.start_ticks => Ok(Liveness::Recycled {
+        match read_stat(self.pid) {
+            Err(ProcError::Gone) => Ok(Liveness::Gone),
+            // procfix8: unreadable is an error, never "gone"
+            Err(e) => Err(io::Error::other(format!("pid {}: {e}", self.pid))),
+            Ok(st) if st.start_ticks != self.start_ticks => Ok(Liveness::Recycled {
                 current_start_ticks: st.start_ticks,
             }),
-            Some(st) => Ok(Liveness::Alive {
+            Ok(st) => Ok(Liveness::Alive {
                 zombie: st.is_dead(),
             }),
         }
@@ -324,20 +342,39 @@ pub fn parse_meminfo(text: &str) -> Option<(u64, u64)> {
     Some((field("MemTotal:")?, field("MemAvailable:")?))
 }
 
-/// cgroup-v2 headroom walk (copied from shards/resources.rs `host_available` at b9f06de7).
-fn cgroup_headroom() -> Option<u64> {
-    let cgroups = fs::read_to_string("/proc/self/cgroup").ok()?;
-    let group = cgroups.lines().find_map(|s| s.strip_prefix("0::"))?;
+/// cgroup-v2 headroom walk (copied from shards/resources.rs `host_available` at b9f06de7). procfix8: an unreadable
+/// `/proc/self/cgroup` is an error (host_memory fails: admission charges as if nothing were available), never "no
+/// limit"; a host without the unified line has no headroom limit.
+fn cgroup_headroom() -> io::Result<Option<u64>> {
+    let group = match procfs::sys().self_cgroup_v2()? {
+        procfs::CgroupLine::Path(g) => g,
+        procfs::CgroupLine::NoUnified => return Ok(None),
+    };
     let root = Path::new("/sys/fs/cgroup");
     let mut path = root.join(group.trim_start_matches('/'));
     let mut best: Option<u64> = None;
+    // procfix7 round 5: a level's file that is proven absent (the root has none) or says "max" sets no limit; a file
+    // that cannot be read or holds anything else is an ERROR (never "no limit": admission would over-admit)
+    let read = |p: &Path| -> io::Result<Option<u64>> {
+        match crate::fsx::read_to_string("cgroup", p) {
+            crate::fsx::Read::Content(t) if t.trim() == "max" => Ok(None),
+            crate::fsx::Read::Content(t) => t.trim().parse::<u64>().map(Some).map_err(|e| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
+            }),
+            crate::fsx::Read::Absent => Ok(None),
+            crate::fsx::Read::Failed(e) => {
+                Err(io::Error::new(e.kind(), format!("{}: {e}", p.display())))
+            }
+        }
+    };
     loop {
-        if let (Ok(max), Ok(current)) = (
-            fs::read_to_string(path.join("memory.max")),
-            fs::read_to_string(path.join("memory.current")),
-        ) && let (Ok(max), Ok(current)) =
-            (max.trim().parse::<u64>(), current.trim().parse::<u64>())
-        {
+        if let Some(max) = read(&path.join("memory.max"))? {
+            let Some(current) = read(&path.join("memory.current"))? else {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("{}: memory.max without memory.current", path.display()),
+                ));
+            };
             let h = max.saturating_sub(current);
             best = Some(best.map_or(h, |b| b.min(h)));
         }
@@ -345,7 +382,7 @@ fn cgroup_headroom() -> Option<u64> {
             break;
         }
     }
-    best
+    Ok(best)
 }
 
 /// lane wireflow (zerosfix finding): the smallest `memory.max` over this process's cgroup-v2 ancestry (None: no limit
@@ -372,7 +409,7 @@ pub fn cgroup_limit() -> Option<u64> {
 /// Read host memory now. /proc/meminfo does not block like per-pid files do (guarded_run.py measured it), so this
 /// may be called from the control loop.
 pub fn host_memory() -> io::Result<MemInfo> {
-    let text = fs::read_to_string("/proc/meminfo")?;
+    let text = procfs::sys().meminfo()?;
     let (mem_total, mem_available) = parse_meminfo(&text).ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidData,
@@ -382,7 +419,7 @@ pub fn host_memory() -> io::Result<MemInfo> {
     Ok(MemInfo {
         mem_total,
         mem_available,
-        cgroup_headroom: cgroup_headroom(),
+        cgroup_headroom: cgroup_headroom()?,
     })
 }
 
@@ -460,25 +497,16 @@ pub fn format_cpu_list(cpus: &BTreeSet<usize>) -> String {
     parts.join(",")
 }
 
-/// `Cpus_allowed_list` of another process (from /proc/<pid>/status). `Ok(None)`: gone. May block: helper thread.
-pub fn affinity_of(pid: u32) -> io::Result<Option<BTreeSet<usize>>> {
-    let text = match fs::read_to_string(format!("/proc/{pid}/status")) {
-        Ok(t) => t,
-        Err(e) if gone(&e) => return Ok(None),
-        Err(e) => return Err(e),
-    };
-    let line = text
-        .lines()
-        .find_map(|l| l.strip_prefix("Cpus_allowed_list:"))
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "no Cpus_allowed_list"))?;
-    parse_cpu_list(line)
-        .map(Some)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+/// `Cpus_allowed_list` of another process (from /proc/<pid>/status). May block: helper thread.
+pub fn affinity_of(pid: u32) -> ProcResult<BTreeSet<usize>> {
+    let st = procfs::sys().status(pid)?;
+    parse_cpu_list(st.field("Cpus_allowed_list")?)
+        .map_err(|e| ProcError::Unreadable(format!("Cpus_allowed_list of {pid}: {e}")))
 }
 
 /// Per-CPU (idle + iowait, total) jiffies from /proc/stat.
 pub fn read_cpu_times() -> io::Result<BTreeMap<usize, (u64, u64)>> {
-    Ok(parse_cpu_times(&fs::read_to_string("/proc/stat")?))
+    Ok(parse_cpu_times(&procfs::sys().cpu_stat()?))
 }
 
 pub fn parse_cpu_times(text: &str) -> BTreeMap<usize, (u64, u64)> {
@@ -566,13 +594,20 @@ pub fn idle_fractions(
     out
 }
 
-/// Path of this process's cgroup-v2 directory, if the unified hierarchy is mounted at /sys/fs/cgroup.
-pub fn own_cgroup_dir() -> Option<PathBuf> {
-    let cgroups = fs::read_to_string("/proc/self/cgroup").ok()?;
-    let group = cgroups.lines().find_map(|s| s.strip_prefix("0::"))?;
-    Some(Path::new("/sys/fs/cgroup").join(group.trim_start_matches('/')))
+/// Path of this process's cgroup-v2 directory (the unified hierarchy mounted at /sys/fs/cgroup). Err: unreadable, or no
+/// unified line.
+pub fn own_cgroup_dir() -> Result<PathBuf, String> {
+    match procfs::sys().self_cgroup_v2() {
+        Ok(procfs::CgroupLine::Path(g)) => {
+            Ok(Path::new("/sys/fs/cgroup").join(g.trim_start_matches('/')))
+        }
+        Ok(procfs::CgroupLine::NoUnified) => Err("no cgroup-v2 membership".into()),
+        Err(e) => Err(format!("own cgroup: {e}")),
+    }
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,7 +680,7 @@ mod tests {
         assert!(parse_cpu_list("3-1").is_err());
         assert!(parse_cpu_list("x").is_err());
         assert!(!allowed_cpus().unwrap().is_empty());
-        let mine = affinity_of(std::process::id()).unwrap().unwrap();
+        let mine = affinity_of(std::process::id()).unwrap();
         assert_eq!(mine, allowed_cpus().unwrap());
     }
 

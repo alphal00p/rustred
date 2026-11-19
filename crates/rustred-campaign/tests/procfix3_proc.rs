@@ -5,6 +5,7 @@
 //! the marker-less parent and reported `Verified` while the marked process lived. Now the walk descends through
 //! marker-less processes (never signalling them) and the proof passes carry a full-scan marker belt: the marked process
 //! is killed through the guard, the marker-less parent is reported (unattributed) and survives, then `Verified`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;
@@ -27,7 +28,7 @@ fn require_namespace() {
 }
 
 fn launcher_ns() -> RealLauncher {
-    RealLauncher::with_config(
+    RealLauncher::try_with_config(
         sampler(),
         RealConfig {
             cap_preference: CapPreference::NoSystemd,
@@ -37,6 +38,7 @@ fn launcher_ns() -> RealLauncher {
             ..RealConfig::default()
         },
     )
+    .expect("launcher (procfix7 round 19: no silent ad-hoc fallback)")
 }
 
 fn read_pid(p: &Path) -> u32 {
@@ -57,7 +59,7 @@ fn marker_of(pid: u32) -> Option<String> {
 }
 
 fn live(pid: u32) -> bool {
-    read_stat(pid).ok().flatten().is_some_and(|s| !s.is_dead())
+    read_stat(pid).ok().is_some_and(|s| !s.is_dead())
 }
 
 fn kill_own(pid: u32) {
@@ -145,13 +147,19 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         // guard: waitid(P_PIDFD) of exact zombies (sys), SIGCHLD checks; real: peek_exit (WNOWAIT), the systemd probe
         // (own child, own session), try_wait under the registry lock; cli: the pre-flight version probe (separate
         // process, no launcher); the fake child (test double): wait4 of its own helpers.
+        // procfix7 round 11 (gate14 item 5): launch/host_check.rs, the coordinator's SAFE HOST CHECK (bin
+        // rr_scope_check, never run by the supervisor): its own child systemd-run -> unshare (try_wait), `systemctl
+        // --user show / stop / reset-failed` of its OWN unit by the exact name, texts naming its one cgroup.kill.
         ("waitid", &["launch/guard.rs", "launch/real.rs"]),
         ("wait4", &["bin/rr_fake_child.rs"]),
         ("waitpid", &[]),
         (".wait()", &[]),
-        ("try_wait", &["launch/real.rs", "cli/mod.rs"]),
-        (".status()", &["launch/real.rs"]),
-        (".output()", &[]),
+        (
+            "try_wait",
+            &["launch/real.rs", "cli/mod.rs", "launch/host_check.rs"],
+        ),
+        (".status()", &["launch/real.rs", "launch/host_check.rs"]),
+        (".output()", &["launch/host_check.rs"]),
         // stop / continue: only through the guard, from the hunt, the sweep and the launcher's terminate.
         // procfix6 (gate5 m1): the guard itself names SIGSTOP (it makes the stop hold of a delivered stop) and SIGCONT
         // (the stop hold allows SIGKILL / SIGCONT only); the sweep and the hunt continue through `guard::continue_held`.
@@ -161,14 +169,17 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         ),
         ("SIGCONT", &["launch/real.rs", "launch/guard.rs"]),
         ("cgroup.freeze", &["launch/cgroup.rs"]),
-        ("cgroup.kill", &["launch/cgroup.rs"]),
+        ("cgroup.kill", &["launch/cgroup.rs", "launch/host_check.rs"]),
         // the fake child's legacy rr_proof emulation (a TEST program, lane closeloop2) raises a signal on itself
         ("raise(", &["bin/rr_fake_child/proof.rs"]),
         (
             "PR_SET_PDEATHSIG",
             &["launch/real.rs", "bin/rr_fake_child.rs"],
         ),
-        ("Command::new(", &["launch/real.rs", "cli/mod.rs"]),
+        (
+            "Command::new(",
+            &["launch/real.rs", "cli/mod.rs", "launch/host_check.rs"],
+        ),
         ("rustix::", &[]),
         ("SIG_IGN", &["launch/guard.rs", "bin/rr_fake_child.rs"]),
         ("SA_NOCLDWAIT", &["launch/guard.rs"]),
@@ -290,9 +301,8 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     std::thread::sleep(Duration::from_millis(50));
     let bound = read_stat(std::process::id())
         .unwrap()
-        .unwrap()
         .start_ticks
-        .max(read_stat(old.id()).unwrap().unwrap().start_ticks + 1);
+        .max(read_stat(old.id()).unwrap().start_ticks + 1);
     std::thread::sleep(Duration::from_millis(30));
     let mut decoys = vec![
         spawn(&[], "exec sleep 600"),
@@ -375,11 +385,6 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
         r.left
     );
     assert!(r.proven, "{r:?}");
-    assert!(
-        r.killed.len() >= 5,
-        "members, the setsid'd sleeper, chain hops: {}",
-        r.killed.len()
-    );
     assert_eq!(r.left.len(), 1, "{:?}", r.left);
     assert_eq!(r.left[0].process.pid, refused.id());
     // No live process of ours carries a marker of the campaign any more, except the refused one and the old one.
@@ -411,6 +416,17 @@ fn sweep_kills_only_marked_members_and_never_a_decoy() {
     assert!(
         refused.try_wait().unwrap().is_none(),
         "the refused process was signalled"
+    );
+    // procfix7 round 5 (gate9 m9-pf3: "killed 4 < 5" once in a 4-thread suite, 0 / 78 alone, unexplained because this
+    // count fired BEFORE the guaranteed checks above). What the test guarantees, in this order: the sweep is proven, the
+    // refused member is the only one left, no other marked process of the campaign is alive (the chain included), no
+    // decoy / older / refused process was signalled. The kill count is a consequence only for the 4 STEADY members (the
+    // sleeper, the setsid'd sleeper and its shell's sleep, the chain member's sleep: they never exit by themselves); the
+    // relay chain's hops may exit on their own between hops (killed or not), so they are not counted.
+    assert!(
+        r.killed.len() >= 4,
+        "the 4 steady members are killed (chain hops are not counted): {}",
+        r.killed.len()
     );
     for c in decoys.iter_mut().chain(members.iter_mut()) {
         kill_own(c.id());

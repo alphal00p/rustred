@@ -1,6 +1,7 @@
 //! Golden files of the ledger schemas (tests/data/ledger/): segment lines (byte for byte), manifest, snapshot,
 //! lock owner record. A schema change shows up as a diff of these files. Regenerate deliberately with
 //! `RR_UPDATE_GOLDEN=1 cargo test -p rustred-campaign --test ledger_golden`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;

@@ -27,12 +27,11 @@
 use super::marked::{
     CampaignMarker, ENVIRON_READ_TIMEOUT, MarkedProcess, MarkerRead, read_marker_at,
 };
-use super::{MemInfo, ProcStat, host_memory, live_thread_stat, read_stat};
+use super::procfs::{self, ProcError, ProcResult};
+use super::{LiveThread, MemInfo, ProcStat, host_memory, live_thread};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 use std::io;
-use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
@@ -44,7 +43,31 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Default)]
 pub(crate) struct Leaders {
     set: Mutex<BTreeSet<u32>>,
+    /// procfix7 round 17 (host run B, N2.i0158): processes of THIS launcher's attempts by IDENTITY (pid, start ticks):
+    /// every leader as spawned (its identity read while it was our unreaped child) and every member an end-of-job hunt
+    /// killed (pid and start of the facts it signalled), with the attempt. Looked up by pid AND start only, never by pid.
+    owners: Mutex<BTreeMap<(u32, u64), (OwnerRole, String)>>,
 }
+
+/// procfix7 round 17: what a recorded process was to its attempt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum OwnerRole {
+    Leader,
+    Member,
+}
+
+impl OwnerRole {
+    pub(crate) fn word(self) -> &'static str {
+        match self {
+            OwnerRole::Leader => "leader",
+            OwnerRole::Member => "member",
+        }
+    }
+}
+
+/// procfix7 round 17: the owner records kept at most (beyond it, records of processes that no longer exist with that
+/// start time are dropped first).
+const OWNERS_MAX: usize = 65_536;
 
 /// The registry is PROCESS-WIDE (reaping is process-wide: a second launcher's sampler must never reap the first's
 /// leaders).
@@ -56,6 +79,28 @@ pub(crate) fn global_leaders() -> &'static Arc<Leaders> {
 impl Leaders {
     pub(crate) fn lock(&self) -> MutexGuard<'_, BTreeSet<u32>> {
         self.set.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// procfix7 round 17: record (pid, start) as `role` of `attempt` (a later record of the same identity wins).
+    pub(crate) fn note_owner(&self, pid: u32, start: u64, role: OwnerRole, attempt: &str) {
+        let mut o = self.owners.lock().unwrap_or_else(|p| p.into_inner());
+        if o.len() >= OWNERS_MAX {
+            o.retain(|&(p, s), _| {
+                super::read_stat(p).is_ok_and(|st| st.start_ticks == s && !st.is_dead())
+            });
+        }
+        if o.len() < OWNERS_MAX {
+            o.insert((pid, start), (role, attempt.to_string()));
+        }
+    }
+
+    /// procfix7 round 17: the recorded owner of the process (pid, start), if any.
+    pub(crate) fn owner_of(&self, pid: u32, start: u64) -> Option<(OwnerRole, String)> {
+        self.owners
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .get(&(pid, start))
+            .cloned()
     }
 }
 
@@ -145,7 +190,8 @@ pub struct Snapshot {
     /// CPUs inside a restricted affinity of some process outside the tracked sessions (only when configured).
     pub foreign_pinned: Option<BTreeSet<usize>>,
     pub processes_seen: usize,
-    /// Per-pid reads that failed with something other than "gone".
+    /// Per-pid reads (and the listing) that failed with something other than "gone". Non-zero: the scan is INCOMPLETE
+    /// and [`Snapshot::session`] gives no usage from it.
     pub read_errors: u64,
     /// Host memory read just before the scan listed /proc, and just after it finished.
     pub host_before: Option<MemInfo>,
@@ -180,7 +226,13 @@ impl Snapshot {
             .filter(move |p| p.attempt_id == marker.attempt_id && p.start_ticks >= not_before)
     }
 
+    /// The usage of a tracked session, only from a COMPLETE scan (procfix7 round 4, the /proc class: a scan with a failed
+    /// read may have missed a member of any session; its usage is never a measurement, so the caller's last one ages and
+    /// admission charges the full cap for it).
     pub fn session(&self, sid: u32) -> Option<&SessionUsage> {
+        if self.read_errors > 0 {
+            return None;
+        }
         self.sessions.get(&sid)
     }
     pub fn scan_duration(&self) -> Duration {
@@ -194,6 +246,9 @@ pub struct SamplerConfig {
     pub interval: Duration,
     /// Also read /proc/<pid>/status of every non-root process to find CPUs pinned by others (pick.py's rule).
     pub collect_foreign_pinning: bool,
+    /// procfix7 round 7 (gate11 M11-2): the largest restricted affinity that counts as a PIN (pick_free.py counts any
+    /// affinity narrower than the machine: on this host the ops rule-15 masks of ~300 CPUs then pin every CPU).
+    pub foreign_pin_max_cpus: usize,
 }
 
 impl Default for SamplerConfig {
@@ -201,6 +256,7 @@ impl Default for SamplerConfig {
         Self {
             interval: Duration::from_secs(2),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         }
     }
 }
@@ -372,6 +428,8 @@ impl Drop for Sampler {
         if let Some(t) = self.thread.take()
             && t.is_finished()
         {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): joining the sampler thread at drop
             let _ = t.join();
         }
     }
@@ -389,7 +447,13 @@ fn run(shared: Arc<Shared>) {
         let campaign = lock(&shared.campaign).clone();
         let started_at = Instant::now();
         let host_before = host_memory().ok();
-        let mut raw = scan_raw(&sids, shared.config.collect_foreign_pinning);
+        let mut raw = scan_raw(
+            &sids,
+            shared
+                .config
+                .collect_foreign_pinning
+                .then_some(shared.config.foreign_pin_max_cpus),
+        );
         refine_rss(&mut raw, &sids);
         let (mut marked, marked_unreadable) = match &campaign {
             Some(c) => marked_of(&raw, c, &mut cache),
@@ -397,7 +461,7 @@ fn run(shared: Arc<Shared>) {
         };
         for m in marked.iter_mut() {
             if !sids.contains(&m.session)
-                && let Some(r) = statm_rss(m.pid)
+                && let Ok(r) = statm_rss(m.pid)
             {
                 m.rss_bytes = r;
             }
@@ -456,10 +520,13 @@ struct RawScan {
     read_errors: u64,
 }
 
-fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
+/// `pinning`: Some(largest affinity that counts as a pin) to collect foreign pinning. procfix7 round 7 (gate11 M11-2): the
+/// pinned set is published only when EVERY process's affinity was read (a failed listing, or an affinity that cannot be
+/// read, leaves it unknown: None, so the site policy grants nothing rather than a CPU that may be pinned).
+fn scan_raw(tracked: &BTreeSet<u32>, pinning: Option<usize>) -> RawScan {
     let mut all = Vec::new();
     let mut read_errors = 0u64;
-    let mut pinned: Option<BTreeSet<usize>> = if pinning { Some(BTreeSet::new()) } else { None };
+    let mut pinned: Option<BTreeSet<usize>> = pinning.map(|_| BTreeSet::new());
     // Audit A m7: the machine's CPU count (as pick.py's os.cpu_count()), not this process's (possibly restricted) mask.
     // SAFETY: sysconf has no preconditions.
     let configured = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_CONF) };
@@ -468,30 +535,24 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
             .map(|n| n.get())
             .unwrap_or(1),
     );
-    let Ok(dir) = fs::read_dir("/proc") else {
-        return RawScan {
-            all,
-            foreign_pinned: pinned,
-            read_errors: 1,
-        };
+    // procfix8: every read through [`procfs`]; a failed read is COUNTED (sampler health), never a vanished process.
+    let root = procfs::sys();
+    let pids = match root.pids() {
+        Ok(p) => p,
+        Err(_) => {
+            return RawScan {
+                all,
+                foreign_pinned: None,
+                read_errors: 1,
+            };
+        }
     };
-    // Streamed: each process is read close to the moment it is listed.
-    for entry in dir {
-        let Ok(entry) = entry else {
-            read_errors += 1;
-            continue;
-        };
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let st = match read_stat(pid) {
-            Ok(Some(st)) => st,
-            Ok(None) => continue,
-            Err(_) => {
+    let mut pinning_complete = true;
+    for pid in pids {
+        let st = match root.stat(pid) {
+            Ok(st) => st,
+            Err(ProcError::Gone) => continue,
+            Err(ProcError::Unreadable(_)) => {
                 read_errors += 1;
                 continue;
             }
@@ -499,25 +560,35 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
         let st = if st.is_dead() {
             // A dead main thread with live threads still holds memory and still runs (audit B M1: also for adopted
             // jobs, which are not tracked by session). Zombies are few: the task listing is cheap.
-            match live_thread_stat(pid) {
-                Ok(Some(t)) => ProcStat { pid, ..t },
-                _ => st,
+            match live_thread(pid) {
+                Ok(LiveThread::Found(_, t)) => ProcStat { pid, ..t },
+                Ok(LiveThread::NoneAlive) | Err(ProcError::Gone) => st,
+                Err(ProcError::Unreadable(_)) => {
+                    read_errors += 1;
+                    st
+                }
             }
         } else {
             st
         };
-        if let Some(p) = pinned.as_mut()
+        if let (Some(p), Some(max)) = (pinned.as_mut(), pinning)
             && !tracked.contains(&st.session)
             && pid != std::process::id()
-            && let Some(set) = restricted_affinity(pid, ncpu)
         {
-            p.extend(set);
+            match restricted_affinity(pid, ncpu) {
+                Ok(Some(set)) if set.len() <= max => p.extend(set),
+                Ok(Some(_)) | Ok(None) | Err(ProcError::Gone) => {}
+                Err(ProcError::Unreadable(_)) => {
+                    read_errors += 1;
+                    pinning_complete = false;
+                }
+            }
         }
         all.push(st);
     }
     RawScan {
         all,
-        foreign_pinned: pinned,
+        foreign_pinned: pinned.filter(|_| pinning_complete),
         read_errors,
     }
 }
@@ -526,21 +597,17 @@ fn scan_raw(tracked: &BTreeSet<u32>, pinning: bool) -> RawScan {
 /// APPROXIMATE per-CPU counter (`percpu_counter_read`): on this 384-CPU host it lags by up to ~2 x 384 pages per CPU and
 /// reads 0 for a small fresh process [computed 2026-11-14: stat 775 pages vs statm / status / smaps 1121 pages]; statm
 /// and status use the summed counter. Same in a pid namespace and on the host.
-fn statm_rss(pid: u32) -> Option<u64> {
-    let t = fs::read_to_string(format!("/proc/{pid}/statm")).ok()?;
-    t.split_whitespace()
-        .nth(1)?
-        .parse::<u64>()
-        .ok()?
-        .checked_mul(super::page_size())
+fn statm_rss(pid: u32) -> ProcResult<u64> {
+    procfs::sys().statm_rss(pid)
 }
 
 /// Replace the approximate stat RSS of every live member of a tracked session by the exact statm value.
 fn refine_rss(raw: &mut RawScan, sids: &BTreeSet<u32>) {
     for p in raw.all.iter_mut() {
+        // an unreadable statm keeps the stat's approximate value (never zero)
         if sids.contains(&p.session)
             && !p.is_dead()
-            && let Some(r) = statm_rss(p.pid)
+            && let Ok(r) = statm_rss(p.pid)
         {
             p.rss_bytes = r;
         }
@@ -548,14 +615,13 @@ fn refine_rss(raw: &mut RawScan, sids: &BTreeSet<u32>) {
 }
 
 /// Affinity of a non-root process if it is restricted (fewer CPUs than the machine has), as pick.py `pinned()`.
-fn restricted_affinity(pid: u32, ncpu: usize) -> Option<BTreeSet<usize>> {
-    use std::os::unix::fs::MetadataExt;
-    let meta = fs::metadata(format!("/proc/{pid}")).ok()?;
-    if meta.uid() == 0 {
-        return None;
+/// Ok(None): root's, or not restricted.
+fn restricted_affinity(pid: u32, ncpu: usize) -> ProcResult<Option<BTreeSet<usize>>> {
+    if procfs::sys().owner_uid(pid)? == 0 {
+        return Ok(None);
     }
-    let set = super::affinity_of(pid).ok()??;
-    (set.len() < ncpu).then_some(set)
+    let set = super::affinity_of(pid)?;
+    Ok((set.len() < ncpu).then_some(set))
 }
 
 fn fold(raw: &RawScan, tracked: &mut BTreeMap<u32, Track>) -> BTreeMap<u32, SessionUsage> {
@@ -646,7 +712,7 @@ fn marked_of(
 ) -> (Vec<MarkedProcess>, usize) {
     let uid = super::our_uid();
     let me = std::process::id();
-    let root = Path::new("/proc");
+    let root = procfs::sys();
     let present: BTreeSet<(u32, u64)> = raw.all.iter().map(|p| (p.pid, p.start_ticks)).collect();
     cache.retain(|k, _| present.contains(k));
     let mut out = Vec::new();
@@ -663,24 +729,35 @@ fn marked_of(
             None => Some(0),
         };
         if let Some(n) = retry {
-            if p.is_dead() || super::owner_uid_at(root, p.pid) != Some(uid) {
-                // Not ours, or a zombie (no environ): remember as unmarked.
-                if !p.is_dead() {
-                    cache.insert(key, CachedMarker::NoMarker);
-                }
+            if p.is_dead() {
+                // a zombie (no environ): nothing to read now
                 continue;
             }
-            let mut r = read_marker_at(root, p.pid, None, ENVIRON_READ_TIMEOUT);
-            if r == MarkerRead::Unreadable
-                && let Ok(Some((tid, _))) = super::live_thread(p.pid)
+            // procfix8: an unreadable owner is UNREADABLE (counted, retried), never "not ours"
+            match super::owner_uid_at(&root, p.pid) {
+                Ok(u) if u == uid => {}
+                Ok(_) => {
+                    cache.insert(key, CachedMarker::NoMarker);
+                    continue;
+                }
+                Err(ProcError::Gone) => continue,
+                Err(ProcError::Unreadable(_)) => {
+                    cache.insert(key, CachedMarker::Unreadable(n + 1));
+                    unreadable += 1;
+                    continue;
+                }
+            }
+            let mut r = read_marker_at(&root, p.pid, None, ENVIRON_READ_TIMEOUT);
+            if matches!(r, MarkerRead::Unreadable(_))
+                && let Ok(LiveThread::Found(tid, _)) = super::live_thread(p.pid)
             {
                 // Main thread exited, a thread lives: its environ (same mm) is readable through the task entry.
-                r = read_marker_at(root, p.pid, Some(tid), ENVIRON_READ_TIMEOUT);
+                r = read_marker_at(&root, p.pid, Some(tid), ENVIRON_READ_TIMEOUT);
             }
             let v = match r {
                 MarkerRead::Marker(v) => CachedMarker::Value(v),
                 MarkerRead::NoMarker | MarkerRead::Gone => CachedMarker::NoMarker,
-                MarkerRead::Unreadable => CachedMarker::Unreadable(n + 1),
+                MarkerRead::Unreadable(_) => CachedMarker::Unreadable(n + 1),
             };
             cache.insert(key, v);
         }
@@ -701,17 +778,8 @@ fn marked_of(
 }
 
 /// `Pss` (bytes) of one process from smaps_rollup, bounded.
-fn pss_of(pid: u32) -> Option<u64> {
-    let path = Path::new("/proc").join(format!("{pid}/smaps_rollup"));
-    let super::ReadOutcome::Data(b) = super::read_bounded(&path, Duration::from_secs(1)) else {
-        return None;
-    };
-    String::from_utf8_lossy(&b).lines().find_map(|l| {
-        l.strip_prefix("Pss:")
-            .and_then(|r| r.split_whitespace().next())
-            .and_then(|kb| kb.parse::<u64>().ok())
-            .and_then(|kb| kb.checked_mul(1024))
-    })
+fn pss_of(pid: u32) -> ProcResult<u64> {
+    procfs::sys().smaps_pss(pid, Duration::from_secs(1))
 }
 
 /// Per tracked session: sum of Pss over its live members, None when any member's Pss could not be read.
@@ -723,8 +791,9 @@ fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u
         .filter(|p| sids.contains(&p.session) && !p.is_dead())
     {
         let e = out.entry(p.session).or_insert(Some(0));
+        // any member whose Pss cannot be read makes the session's Pss unknown (None), never smaller
         *e = match (*e, pss_of(p.pid)) {
-            (Some(a), Some(b)) => Some(a.saturating_add(b)),
+            (Some(a), Ok(b)) => Some(a.saturating_add(b)),
             _ => None,
         };
     }
@@ -733,12 +802,14 @@ fn pss_of_members(raw: &RawScan, sids: &BTreeSet<u32>) -> BTreeMap<u32, Option<u
 
 /// Synchronous scan of the given sessions (blocks the caller; for tests and one-off checks, never the control loop).
 pub fn scan_sessions_now(sids: &BTreeSet<u32>) -> BTreeMap<u32, SessionUsage> {
-    let mut raw = scan_raw(sids, false);
+    let mut raw = scan_raw(sids, None);
     refine_rss(&mut raw, sids);
     let mut tracked: BTreeMap<u32, Track> = sids.iter().map(|&s| (s, Track::default())).collect();
     fold(&raw, &mut tracked)
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -829,6 +900,7 @@ mod tests {
         let s = Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(200),
             collect_foreign_pinning: false,
+            ..SamplerConfig::default()
         })
         .unwrap();
         s.track(sid);
@@ -861,13 +933,30 @@ mod tests {
         assert!(u.rss_bytes > 0, "{u:?}");
         assert!(u.pss_bytes.unwrap_or(0) > 0, "{u:?}");
         let exact = statm_rss(cpid).unwrap();
-        let approx = crate::resources::read_stat(cpid)
-            .unwrap()
-            .unwrap()
-            .rss_bytes;
+        let approx = crate::resources::read_stat(cpid).unwrap().rss_bytes;
         println!("sampler RSS {} (statm {exact}, stat {approx})", u.rss_bytes);
         s.untrack(sid);
         child.kill().unwrap();
         child.wait().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod round17_owner_tests {
+    use super::*;
+
+    /// procfix7 round 17: owners are found by pid AND start only (a reused pid is never another attempt's).
+    #[test]
+    fn owners_are_found_by_pid_and_start_never_by_pid_alone() {
+        let l = Leaders::default();
+        l.note_owner(77, 1000, OwnerRole::Leader, "job:a1");
+        l.note_owner(78, 1001, OwnerRole::Member, "job:a1");
+        assert_eq!(
+            l.owner_of(77, 1000),
+            Some((OwnerRole::Leader, "job:a1".into()))
+        );
+        assert_eq!(l.owner_of(77, 1002), None, "the same pid, another start");
+        assert_eq!(l.owner_of(78, 1001).map(|o| o.0), Some(OwnerRole::Member));
+        assert_eq!(OwnerRole::Member.word(), "member");
     }
 }

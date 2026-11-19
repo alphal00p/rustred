@@ -1,0 +1,225 @@
+# procfix7 round 5 (gate9 M9-2): reviews of PRODUCTION candidates of audit/fs_sites.py that the code does not show by itself.
+# file<TAB>kind (or *)<TAB>code (as in fs_sites.tsv)<TAB>verdict. A candidate without a review prints as UNREVIEWED.
+src/adapters/conformance.rs	R	match std::fs::read(layout.outcome()) {	diagnostic only (conformance mismatch labels; nothing accepted from it): NotFound -> missing, other errors -> named as unreadable
+src/adapters/conformance.rs	R	let plain = std::fs::read(layout.job_spec())	diagnostic only (conformance mismatch labels; nothing accepted from it): NotFound -> missing, other errors -> named as unreadable
+src/adapters/conformance.rs	R	let events = match std::fs::read(layout.events()) {	diagnostic only (conformance mismatch labels; nothing accepted from it): NotFound -> missing, other errors -> named as unreadable
+src/adapters/legacy.rs	D	let _ = std::fs::write(layout.sup_dir().join("wrapper-refusal.txt"), &why);	D-D: create-over of a regenerated output in the pass's / attempt's own directory (deterministic, registered by blake3 after)
+src/adapters/legacy.rs	X	let _ = std::fs::write(layout.sup_dir().join("wrapper-refusal.txt"), &why);	diagnostic file of the attempt (best effort: the refusal itself is recorded in the outcome)
+src/atomic.rs	D	write_atomic(path, &bytes)	D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded)
+src/atomic.rs	*	let _ = fs::remove_file(&temp);	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/cli/mod.rs	X	&& std::io::stdout().is_terminal()	terminal capability for the dashboard (display only)
+src/cli/mod.rs	X	&& std::env::var("TERM").ok().as_deref() != Some("dumb");	terminal capability for the dashboard (display only)
+src/cli/mod.rs	F	crate::fsx::presence("cli", &q),	walks up only past PROVEN absent components (Unknown stops the walk; the disk-space check reports that path)
+src/cli/mod.rs	R	let text = match std::fs::read_to_string(p) {	typed match (NotFound / other errors named, exit code)
+src/cli/mod.rs	X	by: format!("{} (cli)", std::env::var("USER").unwrap_or_default()),	operator name in the control record (attribution text only)
+src/closeloop/pass.rs	X	if let Some(ms) = std::env::var("RR_CLOSELOOP_TEST_PASS_DELAY_MS")	test builds only (gate8 m8-rel): a test delay
+src/closeloop/pass.rs	D	std::fs::write(&path, serde_json::to_string_pretty(p).unwrap_or_default())	D-D: create-over of a regenerated output in the pass's / attempt's own directory (deterministic, registered by blake3 after)
+src/closeloop/pass.rs	X	std::fs::write(&path, serde_json::to_string_pretty(p).unwrap_or_default())	serialisation of an in-memory value (cannot fail for these types); the write error propagates (?)
+src/closeloop/pass.rs	D	std::fs::write(&p, serde_json::to_string_pretty(&ft).unwrap_or_default())	D-D: create-over of a regenerated output in the pass's / attempt's own directory (deterministic, registered by blake3 after)
+src/closeloop/pass.rs	X	std::fs::write(&p, serde_json::to_string_pretty(&ft).unwrap_or_default())	serialisation of an in-memory value (cannot fail for these types); the write error propagates (?)
+src/closeloop/source.rs	F	let crate::fsx::Read::Content(text) = crate::fsx::read("closeloop.input", &p) else {	conservative branch: an unreadable relations / proof file proves nothing (fewer proved relations only keep keys open)
+src/closeloop/source.rs	F	let crate::fsx::Read::Content(text) = crate::fsx::read_to_string("closeloop.input", &p)	conservative branch: an unreadable relations / proof file proves nothing (fewer proved relations only keep keys open)
+src/closeloop/source.rs	X	let _ = std::fs::create_dir_all(d);	the progress view directory; the write below is a display file (progress/closeloop.json)
+src/closeloop/source.rs	D	let _ = crate::atomic::write_atomic(&p, text.as_bytes());	D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (a display view, rewritten at the next update)
+src/closeloop/termmin.rs	F	crate::fsx::read_to_string("closeloop.input", &f.oracle)	the fake oracle (test double, set only by test specs): unreadable = no fake script
+src/closeloop/termmin/direct.rs	D	std::fs::write(	D-D: create-over of a regenerated output in the pass's / attempt's own directory (deterministic, registered by blake3 after)
+src/cpu_policy.rs	R	match fs::read_to_string(&h.path) {	typed match: NotFound only for an optional held file, other errors refuse
+src/launch/cgroup.rs	R	fs::read_to_string(p)	io::Result returned (every caller propagates or matches it)
+src/launch/cgroup.rs	F	let ok = crate::fsx::presence("cgroup", &probe.join("memory.max")).is_present()	probe: only a proven memory.max makes the root usable; Unknown = not usable (sampling)
+src/launch/cgroup.rs	*	let _ = fs::remove_dir(&probe);	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/launch/cgroup.rs	*	let _ = fs::remove_dir(&dir);	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/launch/cgroup.rs	*	let _ = fs::remove_dir(&self.dir);	D-B: job cgroup after its session is empty: rmdir (the kernel refuses a populated cgroup)
+src/launch/cgroup.rs	F	.all(|f| crate::fsx::presence("cgroup", &probe.join(f)).is_present())	tracking probe: Unknown = the candidate is not used
+src/launch/guard.rs	F	let new = !crate::fsx::presence_lstat("guard.fallback", &path).is_present();	decides only an extra directory sync: Unknown counts as new (synced)
+src/launch/guard.rs	F	if !crate::fsx::presence_lstat("guard.reserve", &reserve).is_present() {	reserve creation: Unknown -> create_new is tried (never overwrites)
+src/launch/guard.rs	X	if let Ok(mut f) = std::fs::OpenOptions::new()	best-effort reserve creation (O_EXCL); the reserve only helps a later full-disk write
+src/launch/guard.rs	X	.filter(|p| fallback_removable(p, campaign_id))	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/launch/guard.rs	*	.filter(|p| std::fs::remove_file(p).is_ok())	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/launch/guard.rs	*	if !crate::fsx::presence_lstat("guard.fallback", p).is_file() {	removal proof of a fallback log: Unknown = not removable (kept)
+src/launch/guard.rs	F	crate::fsx::presence_lstat("guard.fallback", &p),	removal proof (dev + inode of the held descriptor): Unknown = not removed
+src/launch/guard.rs	*	let _ = std::fs::remove_file(&p);	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/launch/guard.rs	*	let _ = std::fs::remove_dir(d);	D-B: rmdir of the fallback directory (empty only)
+src/launch/guard.rs	F	matches!(crate::fsx::presence_lstat("guard.reserve", p),	removal proof of the reserve: Unknown = not removable
+src/launch/guard.rs	X	&& reserve_removable(&log.reserve)	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/launch/guard.rs	*	&& std::fs::remove_file(&log.reserve).is_ok() =>	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/launch/guard.rs	R	let text = match std::fs::read(path) {	typed match: NotFound = no intent log; other errors propagate (end unproven)
+src/launch/idlock.rs	F	crate::fsx::presence_lstat("idlock", &self.path),	removal proof (dev + inode of the held descriptor): Unknown = not removed
+src/launch/idlock.rs	*	let _ = fs::remove_file(&self.path);	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/launch/idlock.rs	R	let _ = file.read_to_string(&mut s);	the holder pid for the refusal message only (the refusal does not depend on it)
+src/launch/idlock.rs	D	let _ = file.set_len(0);	D-E: set_len(0) of the id lock file whose flock this process holds (diagnostic content)
+src/launch/real.rs	*	.find(|p| crate::fsx::presence("real.program", p).is_file())	PATH search: an entry that cannot be checked is skipped (execvp semantics); only a proven regular file is taken
+src/launch/real.rs	X	if let Ok(text) =	procfix8-ok: an unreadable cgroup text leaves the scope unknown for now (read again at the next sample)
+src/ledger.rs	R	match fs::read(&p) {	typed match (NotFound named; other errors -> LedgerError)
+src/ledger.rs	R	RealFile::open(path)	io::Result returned through the FileOps seam (callers propagate)
+src/ledger.rs	D	fs::rename(from, to)	D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (the manifest install under the campaign lock + directory flock)
+src/ledger.rs	D	fs::remove_file(path)	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head) (FileOps::remove: the recovery-pending marker of its own open)
+src/ledger.rs	*	let _ = fs::remove_file(&temp);	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/ledger.rs	R	let f = match File::open(&p) {	typed match (NotFound / other errors -> LedgerError)
+src/ledger.rs	R	let mut f = match File::open(&p) {	typed match (NotFound / other errors -> LedgerError)
+src/ledger.rs	X	let canon = |p: &Path| fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());	check_lock: an unresolvable path compares unequal -> WrongLock (a refusal: conservative)
+src/ledger.rs	F	match crate::fsx::presence_lstat("ledger.snapshot", path) {	snapshot removal proof: Unknown = not removable
+src/ledger.rs	R	let n = match File::open(path).and_then(|mut f| f.read(&mut head)) {	snapshot removal proof: a failed read = not removable (kept)
+src/ledger.rs	X	let _ = fs::set_permissions(self.dir.join(&old.file), fs::Permissions::from_mode(0o444));	best effort: read-only mode of a sealed segment (integrity is the hash chain)
+src/ledger.rs	F	let crate::fsx::Listing::Complete(entries) = crate::fsx::list("ledger.listing", dir) else {	prune_snapshots: only with a Complete listing (else nothing is pruned)
+src/ledger.rs	*	let _ = fs::remove_file(&p);	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head)
+src/lock.rs	F	crate::fsx::presence("lock.file", &self.dir.join(LOCK_FILE)),	is_intact: Unknown = NOT intact (the supervisor stops)
+src/lock.rs	D	fs::remove_file(self.dir.join(OWNER_FILE))	D-B: removal with a positive read-back proof just before (see notes table 3: token / header+session / dev+ino / size / empty segment / snapshot head) (LOCK.json names OUR token)
+src/progress.rs	X	let inside = match std::fs::canonicalize(p.parent().unwrap_or(&p)) {	typed match: NotFound = judged by the path; other errors -> LedgerError
+src/resources/bounded.rs	R	match run_bounded(timeout, move || std::fs::read(&p)) {	run_bounded: Done(Err) / timeout typed (ReadOutcome)
+src/resources/marked.rs	X	Self::new(c, a).ok()	marker PARSE (a malformed marker is not this campaign's), no I/O
+src/supervisor/identity.rs	R	match std::fs::read_to_string(&p) {	typed match: NotFound = create the nonce (O_EXCL), other errors refuse
+src/supervisor/identity.rs	D	match crate::atomic::create_new_atomic(&p, format!("{hex}\n").as_bytes()) {	D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive
+src/supervisor/mod.rs	X	let _ = std::fs::create_dir_all(&dir);	the log directory; the open below reports its own error
+src/supervisor/mod.rs	R	match std::fs::read(p) {	typed match (RecoveryRead::Data / Absent / Other)
+src/supervisor/mod.rs	F	crate::fsx::presence_lstat("supervisor.outcome", &layout.outcome()),	only a PROVEN absent OUTCOME is "not spawned"; Unknown counts as present (execution unknown)
+src/supervisor/mod.rs	F	match crate::fsx::presence_lstat("supervisor.sentinel", &sentinel) {	explicit Absent arm only; other arms read further (Unknown -> recovery_read_failed)
+src/supervisor/mod.rs	X	let _ = std::fs::create_dir_all(d);	the directory of the write below, which reports its own error (disk full -> 75)
+src/supervisor/mod.rs	D	if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {	D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (accepted records of THIS attempt)
+src/supervisor/mod.rs	X	let _ = std::fs::create_dir_all(&done);	the directory of the write below, which reports its own error (disk full -> 75)
+src/supervisor/mod.rs	D	let _ = archive_control(&p, &done, &name);	D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive (archive_control: rename_noreplace into done/)
+src/supervisor/mod.rs	D	match crate::fsx::rename_noreplace(p, &target) {	D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive
+src/supervisor/mod.rs	*	let b = std::fs::read(layout.job_spec()).ok()?;	procfix9-ok: an unreadable earlier spec means NO resume (more work, never a wrong result)
+src/supervisor/orphans.rs	X	fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())	the cwd rule only NARROWS (refuses more) with an unresolved root: conservative
+src/supervisor/workdir.rs	R	match std::fs::read_to_string(&p) {	typed match (claim / identity: NotFound, mismatch, other errors refuse)
+src/supervisor/workdir.rs	D	match crate::atomic::create_new_atomic(&p, format!("{key}\n").as_bytes()) {	D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive
+src/supervisor/workdir.rs	*	let _ = std::fs::remove_file(sup.join(super::CAMPAIGN_ID_FILE));	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/supervisor/workdir.rs	*	let _ = std::fs::remove_dir(&sup);	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/supervisor/workdir.rs	*	let _ = std::fs::remove_dir(&tmp);	D-A: removal of an object this code created moments before (own temporary / own probe or job cgroup / own run-dir temporary); rmdir removes only an empty directory
+src/supervisor/workdir.rs	D	match rename_noreplace(&tmp, run_dir) {	D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive
+src/tui/mod.rs	X	let v = |k: &str| std::env::var(k).ok();	viewer display settings (env / terminal), decides nothing
+src/tui/mod.rs	X	std::env::var("NO_COLOR").ok().as_deref(),	viewer display settings (env / terminal), decides nothing
+src/tui/mod.rs	X	std::env::var("TERM").ok().as_deref(),	viewer display settings (env / terminal), decides nothing
+src/tui/source.rs	R	match f.take(MAX_FILE_BYTES + 1).read_to_end(&mut b) {	typed: FileRead::Invalid on a read error (viewer)
+src/tui/source.rs	F	let crate::fsx::Presence::Present(md) = crate::fsx::presence("tui", path) else {	viewer: mtime unknown (displayed as unknown)
+src/tui/terminal.rs	X	&& io::stdout().is_terminal()	viewer display settings (env / terminal), decides nothing
+src/tui/terminal.rs	X	&& std::env::var("TERM").ok().as_deref() != Some("dumb")	viewer display settings (env / terminal), decides nothing
+src/cpu_policy.rs	X	let Ok(target) = fs::canonicalize(path) else {	diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none
+src/launch/cgroup.rs	X	.open(probe.join("cgroup.procs"))	probe: only a proven writable cgroup.procs makes the root usable; an error = not usable (no cgroup: conservative)
+src/launch/guard.rs	X	let Ok(m) = file.metadata() else { return };	prealloc_tail: best effort (fstat of the held intent log descriptor); not a decision
+src/launch/guard.rs	X	}	prealloc_tail: best effort (fstat of the held intent log descriptor); not a decision
+src/lock.rs	X	let Ok(target) = fs::canonicalize(path) else {	diagnostics only: holders_of (reported with the refusal; nothing decided)
+src/supervisor/mod.rs	X	.open(dir.join("supervisor.log"))	the log file (diagnostics); a failure shows as a missing log, the ledger records the run
+src/cli/mod.rs	V	&& std::env::var("TERM").ok().as_deref() != Some("dumb");	terminal / colour settings of the viewer (display only)
+src/cli/mod.rs	V	Some(name) if std::env::var_os(name).is_some() => pf(	pre-flight report of a gated variable (display)
+src/cli/mod.rs	V	by: format!("{} (cli)", std::env::var("USER").unwrap_or_default()),	operator name in a control record (attribution text)
+src/cli/mod.rs	V	marked_environment_refusal(std::env::var_os(crate::resources::MARKER_VAR).as_deref())	a marked environment refuses the start (cli rule); an unset variable = not marked
+src/cli/mod.rs	W	match child.try_wait() {	the version probe (bounded, own child; a failure is an error of the probe)
+src/closeloop/pass.rs	V	if let Some(ms) = std::env::var("RR_CLOSELOOP_TEST_PASS_DELAY_MS")	test builds only (a test delay)
+src/cpu_policy.rs	O	OpenOptions::new().read(true).write(true).truncate(false),	lock files opened EXISTING (open_existing_regular: no O_CREAT, never truncated, regular file checked); reconcile (1160) and pick (1333): NotFound = no lock file, any other error refuses typed (PolicyError::Io); release_checked (365): an open error counts as FREE, i.e. a RELEASED line is written: bookkeeping only, every later pick still needs the flock (try_lock at 1333), so a survivor holding the inherited lock keeps the CPU excluded
+src/cpu_policy.rs	O	let mut f = match open_existing_regular(path, OpenOptions::new().read(true)) {	tail_lines: NotFound = an empty tail (no ledger yet), any other error returned (the caller fails closed)
+src/launch/cgroup.rs	K	"cgroup.kill",	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	kill_path(&self.dir)	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	kill_path(dir)	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	let _ = kill_path(&self.dir);	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	pub(super) fn freeze_and_kill_path(dir: &Path, wait: std::time::Duration) -> io::Result<()> {	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	pub(super) fn kill_path(dir: &Path) -> io::Result<()> {	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	K	write_file(&dir.join("cgroup.kill"), "1")	cgroup.kill of a cgroup this supervisor created or the exact recorded scope (dir identity + owner checked; logged through guard::cgroup_kill_logged with an intent)
+src/launch/cgroup.rs	O	&& OpenOptions::new()	cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup
+src/launch/cgroup.rs	O	OpenOptions::new()	cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup
+src/launch/cgroup.rs	O	match OpenOptions::new()	cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup
+src/launch/guard.rs	O	.create(true)	the intent log: create(true) + append, never truncated (O_APPEND)
+src/launch/guard.rs	O	let file = std::fs::OpenOptions::new()	the intent log: create(true) + append, never truncated (O_APPEND)
+src/launch/guard.rs	W	libc::waitid(	waitid typed (P_PIDFD reap of an exact zombie / WNOWAIT children check): errors returned to the caller
+src/launch/hunt.rs	K	&& guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGKILL).delivered()	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	&& super::cgroup::freeze_and_kill_path(cg, Duration::from_secs(1)).is_err()	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	let _ = guard::signal_pinned_group(&self.s.leaders, self.s.sid, libc::SIGSTOP);	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	let _ = super::cgroup::kill_path(cg);	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	K	let v = guard::signal_with_pidfd(&m.fd, &t, libc::SIGKILL, Some(&self.s.leaders));	the hunt signals only through the guard (pinned group with the leader held unreaped, pidfd + identity checklist) or the job cgroup it created
+src/launch/hunt.rs	V	if *ON.get_or_init(|| std::env::var_os("RR_HUNT_TRACE").is_some()) {	a trace switch (diagnostics)
+src/launch/idlock.rs	O	let mut file = OpenOptions::new()	the id lock file: create(true), truncate(false), O_NOFOLLOW, mode 0600, in a private 0700 directory
+src/launch/mod.rs	V	if let Some(v) = std::env::var_os(k) {	the launch environment passed to a child (copied variables; an unset one is not passed)
+src/launch/real.rs	C	None => Command::new(&prog),	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	C	let e = std::process::Command::new(prog)	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	C	let mut c = Command::new(&exe2);	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	C	let mut c = Command::new(crate::resources::procfs::SELF_EXE);	the systemd probe (bounded, own child) / the job spawn (pidfd first, errors typed) / the barrier shim exec
+src/launch/real.rs	K	&& signal_pinned_group(&self.leaders, self.sid, sig).delivered()	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	K	let _ = signal_pinned_group(leaders, sid, libc::SIGKILL);	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	K	self, DEFAULT_VERIFY_TIMEOUT, ProcessTarget, Proof, StartRule, signal_pinned_group,	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	K	signal_pinned_group(&leaders, pid, libc::SIGKILL)	signals through the guard (pinned group / pidfd with the identity checklist)
+src/launch/real.rs	V	if let Some(d) = std::env::var_os("DBUS_SESSION_BUS_ADDRESS") {	the user manager address for systemd-run (unset = derived from the uid, typed probe)
+src/launch/real.rs	V	let path = std::env::var_os("PATH")?;	PATH search for systemd-run / true (execvp semantics)
+src/launch/real.rs	V	match std::env::var_os("XDG_RUNTIME_DIR") {	the user manager address for systemd-run (unset = derived from the uid, typed probe)
+src/launch/real.rs	V	match std::env::var_os(name) {	the job environment (contract variables; an unset one is not passed)
+src/launch/real.rs	W	if matches!(c.try_wait(), Ok(Some(_))) {	procfix7 round 17: reap_and_untrack reaps OUR OWN leader (its exit already observed, a zombie: immediate) under the registry lock and records the reap only on Ok(Some); Err or Ok(None) leaves the child to reap_in_background as before
+src/launch/real.rs	W	libc::waitid(	waitid / try_wait of an own child (peek_exit typed; a zombie probe child)
+src/launch/sweep.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)	test builds only (failpoint hooks)
+src/launch/sweep.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {	test builds only (failpoint hooks)
+src/launch/sweep.rs	K	match guard::signal_with_pidfd(&m.fd, &t, libc::SIGSTOP, None) {	signals through the guard (pidfd + identity checklist)
+src/supervisor/failpoint.rs	V	match std::env::var(FAILPOINT_ENV) {	test builds only (failpoints; release builds refuse the variable)
+src/supervisor/mod.rs	O	.create(true)	the supervisor log: create(true) + append (diagnostics)
+src/supervisor/mod.rs	O	let file = std::fs::OpenOptions::new()	the supervisor log: create(true) + append (diagnostics)
+src/tui/mod.rs	V	let v = |k: &str| std::env::var(k).ok();	terminal / colour settings of the viewer (display only)
+src/tui/mod.rs	V	std::env::var("NO_COLOR").ok().as_deref(),	terminal / colour settings of the viewer (display only)
+src/tui/mod.rs	V	std::env::var("TERM").ok().as_deref(),	terminal / colour settings of the viewer (display only)
+src/tui/source.rs	O	let f = match std::fs::OpenOptions::new()	viewer reads (O_NONBLOCK, regular file checked; typed FileRead)
+src/tui/terminal.rs	O	libc::open(	the controlling terminal (/dev/tty) of the viewer
+src/tui/terminal.rs	V	&& std::env::var("TERM").ok().as_deref() != Some("dumb")	terminal / colour settings of the viewer (display only)
+src/cpu_policy.rs	X	)	release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed
+src/cpu_policy.rs	X	.is_ok_and(|f| matches!(f.try_lock(), Err(std::fs::TryLockError::WouldBlock)));	release_checked: an open error of the lock file (or a try_lock error other than WouldBlock) counts as FREE (a RELEASED line): bookkeeping only, every later pick still needs the flock (try_lock at the pick), so a survivor holding the inherited lock keeps the CPU excluded; nothing is signalled or removed
+src/cli/mod.rs	X	while matches!(	walks up only past PROVEN absent components (Presence::Absent); Unknown stops the walk (an explicit typed arm)
+src/cpu_policy.rs	F	let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {	diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none
+src/cpu_policy.rs	X	let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {	diagnostics only: lock_holders (a human reads the list; nothing decided); an unresolvable path lists none
+src/launch/guard.rs	X	matches!(crate::fsx::presence_lstat("guard.reserve", p),	removal guard: removable ONLY when PROVEN present as our regular file of exactly the reserve size; Unknown / Absent = not removable (kept)
+src/launch/mod.rs	X	matches!(self, UsageReading::Fresh { .. })	no I/O call: a match on an enum value (the statement window reaches an I/O name below)
+src/lock.rs	F	let Ok(target) = crate::fsx::canonicalize("lock.file", path) else {	diagnostics only: holders_of (the holders named in a message; nothing decided)
+src/lock.rs	X	let Ok(target) = crate::fsx::canonicalize("lock.file", path) else {	diagnostics only: holders_of (the holders named in a message; nothing decided)
+src/progress.rs	F	let inside = match crate::fsx::canonicalize("progress", p.parent().unwrap_or(&p)) {	typed match: NotFound = judged by its path (reported MISSING by verify), any other error fails verify (LedgerError::Io)
+src/progress.rs	X	let inside = match crate::fsx::canonicalize("progress", p.parent().unwrap_or(&p)) {	typed match: NotFound = judged by its path (reported MISSING by verify), any other error fails verify (LedgerError::Io)
+src/supervisor/mod.rs	X	let outcome_absent = matches!(	an OUTCOME counts as present unless PROVEN absent (Presence::Absent only): never "not spawned" from an unread file
+src/supervisor/orphans.rs	F	crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())	canonical_root: a log annotation only (the raw path when unresolvable); nothing decided
+src/supervisor/orphans.rs	X	crate::fsx::canonicalize("supervisor.dirs", p).unwrap_or_else(|_| p.to_path_buf())	canonical_root: a log annotation only (the raw path when unresolvable); nothing decided
+src/supervisor/workdir.rs	F	crate::fsx::canonical("workdir", work_root),	is_external: an unresolvable path counts as EXTERNAL (the conservative branch: an external work dir is identified before any use)
+src/supervisor/workdir.rs	F	crate::fsx::canonical("workdir", cdir),	is_external: an unresolvable path counts as EXTERNAL (the conservative branch: an external work dir is identified before any use)
+src/ledger.rs	X	let canon =	check_lock: an unresolvable path is compared RAW; a mismatch refuses (WrongLock): the fallback can only refuse, never accept another lock
+src/ledger.rs	F	|p: &Path| crate::fsx::canonicalize("ledger.dir", p).unwrap_or_else(|_| p.to_path_buf());	check_lock: an unresolvable path is compared RAW; a mismatch refuses (WrongLock): the fallback can only refuse, never accept another lock
+src/ledger.rs	X	|p: &Path| crate::fsx::canonicalize("ledger.dir", p).unwrap_or_else(|_| p.to_path_buf());	check_lock: an unresolvable path is compared RAW; a mismatch refuses (WrongLock): the fallback can only refuse, never accept another lock
+src/launch/cgroup.rs	X	matches!(	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)
+src/launch/cgroup.rs	F	crate::fsx::presence_lstat("cgroup", recorded),	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)
+src/launch/cgroup.rs	X	crate::fsx::Presence::Absent	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)
+src/launch/cgroup.rs	X	) && matches!(	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)
+src/launch/cgroup.rs	F	crate::fsx::presence_lstat("cgroup", parent),	recorded_scope_removed: a POSITIVE answer only: the recorded scope directory proven Absent (ENOENT) and its parent proven Present as a directory; Unknown / any other answer = not removed (no resolution)
+src/launch/idlock.rs	V	&& let Some(t) = std::env::var_os("TMPDIR").map(PathBuf::from)	the id-lock directory inside a private pid namespace only (a private TMPDIR keeps test lock files out of the host /tmp); unset / relative / /tmp = the fixed host path
+src/launch/real.rs	C	let mut c = Command::new(&exe);	procfix7 round 8b: systemctl --user show / reset-failed of THIS campaign's scope by its exact name (bounded 10 s, cleared environment); show only reads; reset-failed unloads a FAILED unit after its result was read; never inside a namespace
+src/launch/real.rs	*	std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)	test builds only (failpoint scope_pending:1; cfg(debug_assertions))
+src/supervisor/mod.rs	F	match crate::fsx::read_to_string("job.stderr", stderr) {	procfix7 round 8b: typed read of the job's stderr for systemd-run's start acknowledgment: Content with the exact line -> acknowledged; Content without it, Absent or Failed -> scope_unverified_ended (never a proof of a scope)
+src/launch/real.rs	C	let mut cmd = Command::new(&exe);	scope_evidence_check (rr_campaign scope-check, the host pre-flight, round 9): ONE systemd-run --user --scope around true, our own child, exit observed by waitid WNOWAIT, reaped by try_wait; no signal on this path; spawn errors typed (FAIL)
+src/launch/real.rs	W	let reaped = child.try_wait();	scope_evidence_check: reaps OUR OWN child after its exit was observed (waitid WNOWAIT); the result is printed; an error leaves the zombie to be reaped when the CLI exits (no decision depends on it)
+src/launch/real.rs	V	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;	TEST BUILDS ONLY (cfg(debug_assertions); release: None): the scope_exit failpoint; unset / non-UTF-8 = no override
+src/launch/real.rs	X	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;	TEST BUILDS ONLY (cfg(debug_assertions); release: None): the scope_exit failpoint; unset / non-UTF-8 = no override (a test switch, not a file fact)
+src/launch/cgroup.rs	O	libc::open(	round 11 m14-scope-toctou: open_dir_nofollow opens the scope directory O_DIRECTORY|O_NOFOLLOW; an error is returned (no cgroup.kill is written)
+src/launch/cgroup.rs	K	write_at(&dir, c"cgroup.kill", "1")	round 11 m14-scope-toctou: the scope belt writes cgroup.kill only through the directory descriptor checked by fstat (dir, our uid, recorded dev+inode), inside guard::cgroup_kill_logged (intent + delivery logged)
+src/launch/host_check.rs	C	Command::new("systemctl")	safe host check: systemctl --user show / stop / reset-failed of its OWN unit by its exact name, bounded (run_bounded); every failure reported
+src/launch/host_check.rs	F	match crate::fsx::presence("cgroup", Path::new("/sys/fs/cgroup/cgroup.controllers")) {	safe host check refusals: anything but Present (and ours) refuses before anything is started
+src/launch/host_check.rs	F	match crate::fsx::presence("cgroup", &root) {	safe host check refusals: anything but Present (and ours) refuses before anything is started
+src/launch/host_check.rs	K	cgroup.kill of that scope; stop {unit}.scope by its exact name if anything is left"	safe host check: report / error text naming cgroup.kill (no write)
+src/launch/host_check.rs	C	let mut c = Command::new("systemd-run")	safe host check (coordinator tool, gate14 item 5): its ONE scope (unique unit gate-scopecheck-<16 hex>; every process in its own pid namespace); a spawn error is reported
+src/launch/host_check.rs	W	let alive = matches!(c.try_wait(), Ok(None));	safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run
+src/launch/host_check.rs	W	while matches!(c.try_wait(), Ok(None)) && t0.elapsed() < Duration::from_secs(10) {	safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run
+src/launch/host_check.rs	W	match c.try_wait() {	safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run
+src/launch/host_check.rs	W	if !matches!(populated(&r.dir), Ok(true)) || !matches!(c.try_wait(), Ok(None)) {	safe host check: its own child C (systemd-run -> unshare); bounded waits, an error is reported, the exact unit stopped if C may still run
+src/launch/host_check.rs	K	.map_err(|e| format!("step 6: cgroup.kill: {e}"))?;	safe host check: its ONE cgroup.kill = ScopeRef::kill_members of its own scope after the safety gate (every pid C itself or in its private pid namespace)
+src/launch/host_check.rs	K	return Err("step 6: the scope is still populated 5 s after cgroup.kill".into());	safe host check: report / error text naming cgroup.kill (no write)
+src/launch/host_check.rs	K	Ok(None) => return Err("step 6: C still runs 5 s after cgroup.kill".into()),	safe host check: report / error text naming cgroup.kill (no write)
+src/launch/host_check.rs	K	"step 6: cgroup.kill written: scope {emptied}, C killed by SIGKILL, unit LoadState {} ActiveState {}",	safe host check: report / error text naming cgroup.kill (no write)
+src/launch/hunt.rs	X	if reg.contains(&s)	round 11: an exemption from the hand-off rule only on a conclusive read (a registered leader stat read under the registry lock); a failed read = no exemption (the ended entry stays a suspect)
+src/launch/hunt.rs	X	&& let Ok(st) = crate::resources::read_stat(s)	round 11: an exemption from the hand-off rule only on a conclusive read (a registered leader stat read under the registry lock); a failed read = no exemption (the ended entry stays a suspect)
+src/launch/hunt.rs	X	}	round 11 (L14-1): stop CANDIDATES only on an unstable children read (never a proof; the round stays inconclusive): a failed read adds no candidate
+src/launch/hunt.rs	X	if let Ok(st) = crate::resources::read_stat(pid)	round 11 (L14-1): stop CANDIDATES only on an unstable children read (never a proof; the round stays inconclusive): a failed read adds no candidate
+src/launch/host_check.rs	F	match crate::fsx::presence_lstat("cgroup", &d) {	safe host check refusal (round 12 m15-hc-stop): only Absent lets the run start; Present or Unknown refuses (nothing started)
+src/launch/host_check.rs	X	&& alive	safe host check end (round 12 m15-hc-stop): the unit counts as created by this run ONLY on a conclusive read naming it; a failed read = not created = nothing stopped or reset
+src/launch/host_check.rs	X	&& let Ok(t) = procfs::sys().cgroup_text(cpid, Duration::from_secs(5))	safe host check end (round 12 m15-hc-stop): the unit counts as created by this run ONLY on a conclusive read naming it; a failed read = not created = nothing stopped or reset
+src/cli/mod.rs	E	if !crate::fsx::presence("cli", cdir).is_dir() {	round 14 (M4) `units clear` argument check: only a PROVEN directory is used; Unknown or Absent = "not a directory", exit 3, nothing done
+src/cli/mod.rs	F	if !crate::fsx::presence("cli", cdir).is_dir() {	round 14 (M4) `units clear` argument check: only a PROVEN directory is used; Unknown or Absent = "not a directory", exit 3, nothing done
+src/launch/real.rs	V	let fp = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;	round 14: the TEST-BUILD failpoint manager_stall:1 (cfg(debug_assertions); a release build never reads the variables)
+src/launch/real.rs	X	let fp = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;	round 14: the TEST-BUILD failpoint manager_stall:1 (cfg(debug_assertions); a release build never reads the variables)
+src/launch/real.rs	V	std::env::var_os("RR_TEST_MANAGER_STALL").map(PathBuf::from)	round 14: the TEST-BUILD failpoint manager_stall:1 (cfg(debug_assertions); a release build never reads the variables)
+src/launch/real.rs	X	Some(matches!(	round 14 test emulation (manager_stall:1, test builds only): the stall file proven Absent = the emulated manager answers; Present or Unknown = it stalls (conservative: no launch)
+src/launch/real.rs	F	crate::fsx::presence("real.program", &f),	round 14 test emulation (manager_stall:1, test builds only): the stall file proven Absent = the emulated manager answers; Present or Unknown = it stalls (conservative: no launch)
+src/launch/real.rs	X	.as_ref()	round 14 (M2): the launcher path unknown -> launch state Unverified (never "pending"): the 10-s rule applies as before (conservative)
+src/launch/real.rs	F	.and_then(|p| crate::fsx::canonicalize("real.program", p).ok());	round 14 (M2): the launcher path unknown -> launch state Unverified (never "pending"): the 10-s rule applies as before (conservative)
+src/launch/real.rs	X	.and_then(|p| crate::fsx::canonicalize("real.program", p).ok());	round 14 (M2): the launcher path unknown -> launch state Unverified (never "pending"): the 10-s rule applies as before (conservative)
+src/supervisor/manager.rs	D	return match std::fs::remove_file(&p) {	round 14 (M4): the campaign's own leftover list emptied (a file this code writes); NotFound = already absent; any other error is returned
+src/launch/real.rs	V	if let Some(p) = std::env::var_os("PATH") {	round 14 (M3): the manager probe passes the supervisor's PATH when it has one (a rehearsal's fake systemctl is a script); absent: systemctl runs with the systemd environment only, as before
+src/cli/mod.rs	D	let back = crate::atomic::write_json_atomic(&cdir.join(crate::lock::OWNER_FILE), previous);	procfix7 round 16 (gate17 m17-units-takeover): units clear writes a crashed supervisor's lock record BACK before it refuses (nothing cleared either way); its Err is printed with the refusal ("WARNING: its lock record could not be restored ...: the next start sees no stale lock")
+src/supervisor/mod.rs	F	match control_of(crate::fsx::read("supervisor.control", &p)) {	procfix7 round 16 (int8b-gate review defect 3): control_of maps Read::Failed to Unreadable (the request stays, read again next tick, logged), Absent to skipped, Content to a request or unparsable (refused, archived): an unreadable request is never archived or lost (unit-tested)
+src/resources/scan.rs	X	super::read_stat(p).is_ok_and(|st| st.start_ticks == s && !st.is_dead())	procfix7 round 17: prunes the owner records (pid, start) of processes that ended, only when the table is full (65,536); a failed read drops the record: its process loses the exemption from the hand-off rule (stays a suspect: conservative, liveness only); no signal depends on it

@@ -6,6 +6,7 @@
 //!   execution unknown, item in attention, exit 8, and only the operator's `resolve` reopens the work.
 //!
 //! Rule (binding): an unconfirmed launch is never "did not run" without proof and never retried automatically.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;

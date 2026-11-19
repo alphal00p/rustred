@@ -6,15 +6,20 @@
 //! from the run directory, accepted record files are written atomically, and ONE group commit records `job.finished`
 //! together with the work source's routing events. Every crash point is recovered by [`Supervisor::recover`].
 
+// procfix7 (gate7 B1): an ignored Result is a reviewed exception (`#[allow]` + `ignored-ok (procfix7):` reason),
+// never a default; tests/procfix7_tripwire.rs checks every `let _ =` of the process layer and the supervisor.
+#![deny(clippy::let_underscore_must_use, unused_must_use)]
 pub mod failpoint;
 // lane sizegen (interfaces/genchoice.md): the generation-choice portfolio of whole nodes
 pub mod genchoice;
 // lane sizegen (interfaces/genchoice.md 5): improve mode on an existing table
 pub mod identity;
 pub mod improve;
+pub(crate) mod manager;
 pub mod orphans;
 pub mod result;
 pub mod spec;
+pub mod workdir;
 pub mod worksource;
 
 use crate::adapters::{self, AdapterInput, AdapterKind};
@@ -86,6 +91,9 @@ pub mod exit {
     /// The SUPERVISOR ran out of a resource it needs to launch (EMFILE, ENFILE, ENOMEM, EAGAIN) a bounded number of times
     /// in a row (gate-B M3): stopped cleanly; free the resource (e.g. `ulimit -n`) and run the same command.
     pub const RESOURCES: i32 = 71;
+    /// procfix7 round 14 (host step 3, M3): the user manager did not answer for `resources.manager_wait_limit_s`: the
+    /// run drained and stopped (sysexits' EX_UNAVAILABLE).
+    pub const MANAGER_UNAVAILABLE: i32 = 69;
     pub const DISK_FULL: i32 = 75;
     pub const DISK_FLOOR: i32 = 76;
     pub const SIGHUP: i32 = 129;
@@ -105,12 +113,17 @@ pub const SPAWN_SENTINEL: &str = "SPAWN";
 pub const SPAWN_BARRIER_TAG: &str = "barrier v1\n";
 /// `RUN/sup/CAMPAIGN`: the campaign's marker id, written before the launch record (run directory authentication).
 pub const CAMPAIGN_ID_FILE: &str = "CAMPAIGN";
+/// procfix7 (gate7 B1): prefix of an `authenticate_run` error that is a supervisor resource limit (never a verdict).
+const AUTH_RESOURCE: &str = "resource limit while reading: ";
+
 /// The `item.attention` code of an unconfirmed launch whose execution is unknown (lane int5): the operator decides with
 /// `rr_campaign control CDIR resolve JOB`.
 pub const EXECUTION_UNKNOWN: &str = "execution_unknown";
 /// The `item.attention` code of a job whose child ended [`MAX_CHILD_RESOURCE_ENDS`] times in a row for lack of a host
 /// resource (gate3 M4; decision rows 15 / 15b): `resolve JOB` (or `control retry ITEM`) reopens it.
 pub const CHILD_RESOURCE_FAILURE: &str = "child_resource_failure";
+/// procfix7 (gate7 m-nr): run directories that cannot be created, in a row, before the run stops (exit 1).
+const MAX_RUN_DIR_FAILURES: u32 = 5;
 /// Ends of one job in a row for lack of a host resource before its item goes to attention (gate3 M4).
 pub const MAX_CHILD_RESOURCE_ENDS: u32 = 5;
 
@@ -160,6 +173,25 @@ pub enum RunExit {
     Resources(String),
     /// Stopped for an operator decision (execution-unknown attempts block the remaining work).
     Attention(String),
+    /// procfix7 round 14 (M3): the user manager did not answer for too long (exit 69); a host condition, never a verdict
+    /// about the scope mechanism or a job.
+    ManagerUnavailable(String),
+}
+
+/// procfix7 round 14 (M1): the human reason of a stop exit (diagnostics; ledger note `stop_decided`).
+fn run_exit_text(e: &RunExit) -> String {
+    match e {
+        RunExit::Internal(m)
+        | RunExit::Resources(m)
+        | RunExit::Attention(m)
+        | RunExit::Refused(m)
+        | RunExit::BinaryChanged(m)
+        | RunExit::Moved(m)
+        | RunExit::FinishedOpen(m)
+        | RunExit::FinishedError(m)
+        | RunExit::ManagerUnavailable(m) => m.clone(),
+        other => format!("{other:?}"),
+    }
 }
 
 impl RunExit {
@@ -177,6 +209,7 @@ impl RunExit {
             RunExit::Internal(_) => exit::INTERNAL,
             RunExit::Resources(_) => exit::RESOURCES,
             RunExit::Attention(_) => exit::ATTENTION,
+            RunExit::ManagerUnavailable(_) => exit::MANAGER_UNAVAILABLE,
         }
     }
 }
@@ -219,6 +252,8 @@ pub struct Log {
 impl Log {
     pub fn open(cdir: &Path) -> Log {
         let dir = cdir.join("log");
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the log directory; a failure shows as a missing log file (diagnostics only)
         let _ = std::fs::create_dir_all(&dir);
         let file = std::fs::OpenOptions::new()
             .create(true)
@@ -236,6 +271,8 @@ impl Log {
     pub fn line_file_only(&mut self, level: &str, text: &str) {
         let l = format!("{} {level} {text}\n", crate::cpu_policy::utc_now());
         if let Some(f) = &mut self.file {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): a log line (diagnostics only)
             let _ = f.write_all(l.as_bytes());
         }
     }
@@ -246,6 +283,8 @@ impl Log {
             .as_ref()
             .is_some_and(|q| q.load(Ordering::SeqCst))
         {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): stderr (diagnostics only; a closed stderr must never stop the run, gate3 m1)
             let _ = std::io::stderr().write_all(l.as_bytes());
         }
         if let Some(f) = &mut self.file
@@ -311,12 +350,66 @@ struct Child {
     budget_s: Option<u64>,
     /// procfix6 (gate5 m5): the job's containment has been logged and noted.
     containment_noted: bool,
+    /// procfix7 round 6 (gate10 m10-5): consecutive failed polls of this child (waitid / pidfd errors): bounded.
+    poll_failures: u32,
+    /// procfix7 round 14 (host step 3, M2): the scope launch is PENDING since (the launcher waiting for the user manager,
+    /// decided from the kernel; `launch::LaunchState`); None: not pending at the latest look.
+    pending_since: Option<Instant>,
+    /// procfix7 round 14 (M2): the 10-s verification window runs from here: the launch, or the last moment the attempt
+    /// was seen pending (its scope's creation follows that moment).
+    verify_from: Instant,
 }
 
 /// A marker sweep running on a helper thread (never on the control loop: gate-A m-4).
 struct SweepTask {
     rx: mpsc::Receiver<SweepReport>,
     cancel: Arc<AtomicBool>,
+}
+
+/// procfix7 (gate7 B1): everything recovery decides from in the LEDGER, read in one pass BEFORE anything is decided,
+/// written or signalled (a read that fails stops the start typed; see `Supervisor::recovery_read_failed`).
+#[derive(Default)]
+struct RecoveryFacts {
+    /// The earliest supervisor session start of this boot (None: no session of this boot is recorded).
+    min_ticks: Option<u64>,
+    scope_of: BTreeMap<(String, u32), String>,
+    started_this_boot: BTreeSet<(String, u32)>,
+    resource_ends: BTreeMap<String, u32>,
+    sessions: Vec<crate::resources::lineage::RecordedSession>,
+    lineages: Vec<crate::resources::lineage::SessionLineage>,
+    /// Intent ids named by `signal_sent` records (for the intent reconciliation).
+    recorded_intents: BTreeSet<String>,
+    /// procfix7 round 6 (gate10 G10-B1 rule (3)): every pid the ledger recorded for a session of THIS boot (job leaders
+    /// with their start time; pids named by survivor / unproven / vanished / descendants notes; lock-takeover orphans):
+    /// the recovery sweep proves each dead or not ours BY ITS OWN PID, never by its absence from a listing.
+    recorded_pids: BTreeMap<u32, Option<u64>>,
+    /// procfix7 round 7 (gate11 m11-rec-path / m11-gone): the cgroup directory of each attempt's VERIFIED job scope
+    /// (`job_containment` notes with a `path`).
+    scope_path_of: BTreeMap<(String, u32), String>,
+}
+
+/// procfix7 (gate7 B1): the signal intent logs of earlier sessions (campaign directory + tmpfs fallbacks), read before
+/// anything is decided. `unreadable`: logs that exist but could not be read for a reason other than a resource limit.
+struct IntentLogs {
+    intents: Vec<crate::launch::LoggedIntent>,
+    bad: usize,
+    unreadable: Vec<String>,
+    /// procfix7 (gate7 m-fb): fallback logs of THIS campaign and one of its recorded sessions (merged; removed once
+    /// their intents are in the ledger).
+    merged_fallbacks: Vec<PathBuf>,
+    /// procfix7 (gate7 m-fb): fallback logs of another campaign / an unknown session / without a header: never merged,
+    /// never removed, reported.
+    foreign: Vec<String>,
+}
+
+/// procfix7 (gate7 B1): a file read of recovery, classified.
+enum RecoveryRead {
+    Data(Vec<u8>),
+    Absent,
+    /// A supervisor resource limit (EMFILE, ENFILE, ENOMEM, EAGAIN): nothing may be decided from it.
+    Resource(String),
+    /// Any other error (permission, I/O): the content is unknown.
+    Other(String),
 }
 
 impl SweepTask {
@@ -327,6 +420,8 @@ impl SweepTask {
         std::thread::Builder::new()
             .name("rr-sweep".into())
             .spawn(move || {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the receiver is gone only when the task was cancelled: nothing to report
                 let _ = tx.send(crate::launch::sweep::sweep(&spec, &c));
             })
             .ok()?;
@@ -410,7 +505,28 @@ pub struct Supervisor {
     log: Log,
     bypassed: BTreeMap<String, u32>,
     launch_seq: u64,
+    /// The ledger itself is UNUSABLE (an append failed, the intent log's disk is full, the campaign directory was
+    /// removed or replaced): nothing more can be recorded; the run drains and stops with this exit.
     ledger_dead: Option<RunExit>,
+    /// procfix7 round 14 (host step 3, M1): a STOP decision of the supervisor (a policy or resource stop: the scope limit,
+    /// recovery that cannot read, the user manager not answering for too long) while the ledger stays USABLE: the run
+    /// drains (no launch; children get their grace) and stops with this exit, and every record of the drain (signals
+    /// delivered, ends, notes) is still written to the ledger. Before round 14 such stops set `ledger_dead`, and every
+    /// later record was refused (host step 3: 21 delivered signals reached only the intent log).
+    stop_exit: Option<RunExit>,
+    /// procfix7 round 15 (gate16 m16-start-clear): the leftover list of earlier sessions still to be cleared (once the
+    /// manager answers), and the clearing's own probe for a run that does not probe for its jobs.
+    start_clear: bool,
+    clear_probe: Option<manager::ManagerGate>,
+    /// procfix7 round 14 (host step 3, M3): the user-manager gate (no launch while the manager does not answer).
+    gate: manager::ManagerGate,
+    /// procfix7 round 14 (M3): our manager calls at the start of the current minute (per-minute report).
+    calls_minute: (Instant, [u64; 5]),
+    /// procfix7 round 14 (M2): attempts whose launcher ended while pending (the program never ran), for settle.
+    never_ran: BTreeMap<(String, u32), String>,
+    /// procfix7 round 17 (host run B, N2.i0158): end-of-job proofs of this session: how many, how many waited longer
+    /// than [`PROOF_WAIT_REPORTED`], the longest, and why those waited (kinds with counts).
+    proofs: ProofTally,
     control_stop: bool,
     disk_floor_hit: bool,
     /// procfix6 (gate5 m4): a child died by SIGXFSZ under THIS supervisor's own finite file-size limit (inherited by its
@@ -420,6 +536,8 @@ pub struct Supervisor {
     deferred_source_retries: Vec<String>,
     last_disk_check: Option<Instant>,
     last_block_log: String,
+    /// round 15: when the "launching paused" line was last written (a reminder at most once a minute).
+    last_block_logged: Option<Instant>,
     last_wait_log: String,
     boot_id: String,
     started_at: Instant,
@@ -429,6 +547,11 @@ pub struct Supervisor {
     /// (dev, inode) of CDIR and of CDIR/ledger when the ledger was opened (procfix3 item 0: a directory removed or
     /// replaced under a running supervisor is an internal error, never a finished campaign).
     dir_ids: Option<((u64, u64), (u64, u64))>,
+    /// procfix7 (gate7 m-rw): the (dev, inode) of an EXTERNAL work directory at start (None: internal); it and its
+    /// claim are checked like the campaign directory (a removed / replaced one is exit 70, never re-created unclaimed).
+    work_dir_id: Option<(u64, u64)>,
+    /// procfix7 (gate7 m-nr): run directories that could not be created, in a row (a typed stop at the bound).
+    run_dir_failures: u32,
     last_dir_check: Option<Instant>,
     /// Finished attempts waiting for proof + marker sweep before settle.
     pending: Vec<PendingSettle>,
@@ -454,6 +577,8 @@ pub struct Supervisor {
     blocked_since: Option<Instant>,
     /// Start bound (clock ticks) of campaign-wide sweeps: this boot's first supervisor start of this campaign.
     campaign_min_ticks: Option<u64>,
+    /// procfix7 (gate6 MJ-A): this session's lineage (recorded with `SupervisorStarted`), or why it is unavailable.
+    lineage: Result<crate::resources::lineage::SessionLineage, String>,
     /// The periodic campaign-wide sweep for orphans of attempts that are not live (gate-B M1).
     periodic: Option<SweepTask>,
     last_periodic: Instant,
@@ -463,6 +588,38 @@ pub struct Supervisor {
     resource_failures: u32,
     resource_backoff_until: Option<Instant>,
     resource_stop: Option<String>,
+    /// procfix7 (gate6 MJ-B): a run directory of another campaign (or of none) was met: draining, then exit 1.
+    refusal_stop: Option<String>,
+    /// procfix7 (gate7 B1, the class): reads that failed in a way that may hide a process of the campaign or a record of
+    /// its signals: the run never claims a clean end (exit 8 after the final sweep, naming each reason).
+    end_unproven: Vec<String>,
+    /// procfix7 (gate7 MJ-1): quarantined attempts whose unproven end exceeded `unproven_end_limit_s` (named, lease
+    /// released, in `survivors`).
+    unproven_given_up: BTreeSet<String>,
+    /// procfix7 round 5 (gate8 m8-persist, gate9 m9-pn): per given-up attempt, WHAT could not be read or named (the exit-8
+    /// message says it instead of an empty pid list).
+    unproven_why: BTreeMap<String, String>,
+    /// procfix7 round 6 (gate10 G10-B1 rule (3)): the pids the ledger recorded for this boot (seeds of the recovery and
+    /// final sweeps: each proven dead or not ours by its own pid).
+    recorded_pids: Vec<(u32, Option<u64>)>,
+    /// procfix7 round 6 (gate10 M10-1, ONE rule for every sweep): marked processes some sweep of this session saw alive
+    /// that were gone, or no longer the same marked process, before their stop: pid -> (start time, which sweep, the
+    /// marker's attempt label). Each keeps the end unproven until an ATOMIC proof covers every successor it may have
+    /// started (`resolve_vanished`): a /proc sweep never does (a chain faster than a scan is invisible to every scan).
+    vanished_open: BTreeMap<u32, (Option<u64>, String, String)>,
+    /// procfix7 round 7 (gate11 M11-2): when a failed CPU-policy refresh was last logged (rate limit).
+    cpu_refresh_warned: Option<Instant>,
+    /// procfix7 round 8b (host step 1): per job, the attempts ended because their scope could not be verified.
+    scope_unverified: BTreeMap<String, u32>,
+    /// procfix7 round 9 (gate13 G13-M2): (job, attempt, unit) of ended attempts whose scope was not yet in a final state
+    /// when it was read: looked at again at the exit (`finish_run`), recorded, and reset by its exact name if failed.
+    scope_unsettled: Vec<(String, u32, String)>,
+    /// procfix7 round 6 (M10-1): the attempt labels (`job:a<k>`) launched by THIS session: their processes and every
+    /// successor stay in this child subreaper's tree, so the kernel's wait answer (ECHILD) covers them.
+    launched_here: BTreeSet<String>,
+    /// procfix7 round 6 (M10-1, host): attempt labels whose recorded job scope the recovery backstop found EMPTY by the
+    /// kernel's recursive populated flag (before or after its cgroup.kill): every process that stayed in it is gone.
+    scope_proven_empty: BTreeSet<String>,
 }
 
 /// Bound of consecutive supervisor resource failures at launch before the campaign stops (exit 71).
@@ -536,13 +693,15 @@ fn errno_name(c: i32) -> &'static str {
     }
 }
 
-/// (dev, inode) of a directory (following symlinks), if it exists.
-fn dir_id(p: &Path) -> Option<(u64, u64)> {
+/// (dev, inode) of a directory (following symlinks): Ok(Some) a directory, Ok(None) PROVEN absent or not a directory,
+/// Err when it cannot be checked (procfix7 round 5: never "absent" on a failed stat).
+fn dir_id(p: &Path) -> std::io::Result<Option<(u64, u64)>> {
     use std::os::unix::fs::MetadataExt;
-    std::fs::metadata(p)
-        .ok()
-        .filter(|m| m.is_dir())
-        .map(|m| (m.dev(), m.ino()))
+    match crate::fsx::presence("supervisor.dirs", p) {
+        crate::fsx::Presence::Present(m) if m.is_dir() => Ok(Some((m.dev(), m.ino()))),
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => Ok(None),
+        crate::fsx::Presence::Unknown(e) => Err(e),
+    }
 }
 
 pub(crate) fn statvfs_avail(p: &Path) -> Option<u64> {
@@ -561,6 +720,126 @@ pub(crate) fn statvfs_avail(p: &Path) -> Option<u64> {
 /// BLAKE3 of a file.
 pub fn file_digest(p: &Path) -> std::io::Result<(u64, String)> {
     crate::atomic::blake3_file(p)
+}
+
+/// procfix7 round 8b (host step 1): how long a requested scope may stay unverified while its job runs.
+const SCOPE_VERIFY_BOUND: Duration = Duration::from_secs(10);
+/// procfix7 round 8b: attempts of one job ended for an unverified scope before the run stops (exit 71).
+const SCOPE_UNVERIFIED_LIMIT: u32 = 3;
+/// procfix7 round 9 (gate13 G13-M2): how long an ended attempt's scope may take to reach a final state (systemd reacts
+/// to the empty cgroup within milliseconds; the end-of-job proof took seconds before) before it is left for the exit.
+const SCOPE_SETTLE_WAIT: Duration = Duration::from_secs(1);
+/// procfix7 round 9 / 9b: no exit-time read of a scope of this session STARTS later than this after the pass began.
+const SCOPE_EXIT_WAIT: Duration = Duration::from_secs(10);
+
+/// procfix7 round 9: the state of `unit`, read again (every 50 ms) while it is loaded and not final, up to `wait`.
+fn read_scope_settled(unit: &str, wait: Duration) -> Result<crate::launch::ScopeUnitState, String> {
+    let until = Instant::now() + wait;
+    loop {
+        let st = crate::launch::scope_unit_state(unit)?;
+        if st.settled() || Instant::now() >= until {
+            return Ok(st);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The containment note of a job whose requested scope was not verified (procfix7 round 8b).
+struct ScopeEnd {
+    word: &'static str,
+    why: String,
+    /// The attempt did not run under a scope we can prove (counts toward [`SCOPE_UNVERIFIED_LIMIT`]).
+    unverified: bool,
+}
+
+/// procfix7 round 8b (host step 1): the evidence for a requested scope that was not verified. `alive`: the job still
+/// runs (it is ended now: `scope_unverified_ended`). Dead before its check (procfix7 round 9, gate13 G13-M1), in this
+/// order:
+/// 1. the KERNEL's record of the cgroup the leader exited in ([`crate::launch::ExitScope`], read from the unreaped zombie
+///    when its exit was first observed): `Inside` the exact requested unit under our user manager = POSITIVE evidence
+///    (`scope_acknowledged_ended`); `Elsewhere` = the leader did NOT end inside its scope (`scope_unverified_ended`,
+///    whatever its stderr says);
+/// 2. only when the kernel's record is unknown: systemd-run's start acknowledgment in one of its documented forms naming
+///    the exact unit ([`crate::launch::scope_acknowledgment`], written to the job's stderr before the exec);
+/// 3. otherwise `scope_unverified_ended`.
+fn scope_end(
+    stderr: &Path,
+    unit: Option<&str>,
+    alive: bool,
+    at_exit: Option<&crate::launch::ExitScope>,
+) -> ScopeEnd {
+    use crate::launch::ExitScope;
+    let unit = unit.unwrap_or("?");
+    if alive {
+        return ScopeEnd {
+            word: "scope_unverified_ended",
+            why: format!(
+                "scope {unit} not verified within {} s while the job ran (the leader's cgroup does not name it): attempt ended (SIGKILL), requeued",
+                SCOPE_VERIFY_BOUND.as_secs()
+            ),
+            unverified: true,
+        };
+    }
+    let kernel = match at_exit {
+        Some(ExitScope::Inside { path, deleted }) => {
+            return ScopeEnd {
+                word: "scope_acknowledged_ended",
+                why: format!(
+                    "scope {unit} existed: the kernel's record of the job's leader at its exit names it ({}{}); the job ended before its cgroup was checked",
+                    path.display(),
+                    if *deleted { ", removed since" } else { "" }
+                ),
+                unverified: false,
+            };
+        }
+        Some(ExitScope::Elsewhere(other)) => {
+            return ScopeEnd {
+                word: "scope_unverified_ended",
+                why: format!(
+                    "scope {unit} requested; the job ended before its cgroup was checked and the kernel's record of its leader at its exit names another cgroup ({other:?})"
+                ),
+                unverified: true,
+            };
+        }
+        Some(ExitScope::Unknown(r)) => r.clone(),
+        None => "not read".to_string(),
+    };
+    match crate::fsx::read_to_string("job.stderr", stderr) {
+        crate::fsx::Read::Content(t) => match crate::launch::scope_acknowledgment(&t, unit) {
+            Some(form) => ScopeEnd {
+                word: "scope_acknowledged_ended",
+                why: format!(
+                    "scope {unit} existed per systemd-run's start acknowledgment ({form:?} in {}; the kernel's record at the exit: {kernel}); the job ended before its cgroup was checked",
+                    stderr.display()
+                ),
+                unverified: false,
+            },
+            None => ScopeEnd {
+                word: "scope_unverified_ended",
+                why: format!(
+                    "scope {unit} requested; the job ended before its cgroup was checked, the kernel's record at the exit is unknown ({kernel}) and {} holds no start acknowledgment",
+                    stderr.display()
+                ),
+                unverified: true,
+            },
+        },
+        crate::fsx::Read::Absent => ScopeEnd {
+            word: "scope_unverified_ended",
+            why: format!(
+                "scope {unit} requested; the job ended before its cgroup was checked, the kernel's record at the exit is unknown ({kernel}) and {} holds no start acknowledgment",
+                stderr.display()
+            ),
+            unverified: true,
+        },
+        crate::fsx::Read::Failed(e) => ScopeEnd {
+            word: "scope_unverified_ended",
+            why: format!(
+                "scope {unit} requested; the job ended before its cgroup was checked, the kernel's record at the exit is unknown ({kernel}) and {} cannot be read ({e})",
+                stderr.display()
+            ),
+            unverified: true,
+        },
+    }
 }
 
 fn contract_kill_reason(k: Option<&KillReason>) -> CKill {
@@ -617,6 +896,8 @@ pub fn run_with(opts: RunOptions, on_started: &mut dyn FnMut(&Started)) -> RunEx
             r
         }
         Err(e) => {
+            // procfix7 (gate6 m3-a): a start that ends here leaves no tmpfs fallback intent log behind
+            crate::launch::retire_own_intent_fallback();
             // gate-B M3 at START: the supervisor's own resources (open files, file table, memory, processes) are not a
             // refusal of the campaign: exit 71 like a launch-time resource stop (nothing was launched).
             let e = match e {
@@ -650,6 +931,8 @@ impl Supervisor {
                 "{name} is set, but this release build has no test hooks: unset it (hooked rehearsals need a test build)"
             )));
         }
+        // procfix7 (gate6 m-x): a test build refuses a malformed failpoint value (before anything is touched).
+        Failpoints::check_env().map_err(RunExit::Refused)?;
         // procfix5 (gate4 m2): never killed by SIGXFSZ (`ulimit -f`): EFBIG is "disk full" (exit 75).
         crate::launch::ignore_sigxfsz()
             .map_err(|e| RunExit::Internal(format!("SIGXFSZ disposition: {e}")))?;
@@ -703,10 +986,26 @@ impl Supervisor {
             );
         }
         let cfg = LedgerConfig::default();
-        let manifest = crate::ledger::ledger_dir(&cdir).join(crate::ledger::MANIFEST_FILE);
         let ops: Arc<dyn FileOps> = fp.ledger_ops().unwrap_or_else(|| Arc::new(RealOps));
+        // procfix7 round 5 (gate9 G9-B1): open or create by the manifest's PROVEN presence: a stat error of MANIFEST.json
+        // (EIO, ENOMEM, ...) is a typed stop (71 for a resource limit, else 70), never "no ledger" (it created a new
+        // ledger over a crashed campaign, deleted its history and ended 0 with the crashed session's live daemon).
+        let manifest_present = match crate::ledger::manifest_state(&cdir) {
+            Ok(p) => p,
+            Err(LedgerError::Io { path, op, source }) => {
+                let msg = format!(
+                    "the ledger's manifest {} cannot be checked ({op}: {source}): nothing was opened, created or deleted; run the same command once the file system answers",
+                    path.display()
+                );
+                return Err(match io_resource_errno(&source) {
+                    Some(_) => RunExit::Resources(msg),
+                    None => RunExit::Internal(msg),
+                });
+            }
+            Err(e) => return Err(RunExit::Refused(format!("ledger: {e}"))),
+        };
         // Every write handle is opened with the HELD campaign lock (ledger interface 4, audit-ledger-A M6).
-        let mut ledger = if manifest.exists() {
+        let mut ledger = if manifest_present {
             let (l, rep) = Ledger::open_with(
                 &cdir,
                 &lock,
@@ -717,7 +1016,20 @@ impl Supervisor {
                     accept_truncation_to: opts.accept_truncation_to,
                 },
             )
-            .map_err(|e| RunExit::Refused(format!("ledger: {e}")))?;
+            .map_err(|e| match e {
+                // procfix7 round 5: a read that failed while opening is typed (71 / 70), never a refusal to decide on
+                LedgerError::Io { path, op, source } => {
+                    let msg = format!(
+                        "ledger open: {op} on {} failed ({source}): nothing was changed; run the same command once the file system answers",
+                        path.display()
+                    );
+                    match io_resource_errno(&source) {
+                        Some(_) => RunExit::Resources(msg),
+                        None => RunExit::Internal(msg),
+                    }
+                }
+                e => RunExit::Refused(format!("ledger: {e}")),
+            })?;
             if let Some(r) = rep.recovery {
                 log.line(
                     "WARN",
@@ -751,8 +1063,20 @@ impl Supervisor {
             Ledger::create_with(&cdir, &lock, Arc::clone(&clock), cfg, ops, genesis).map_err(
                 |e| match e {
                     LedgerError::NoSpace { .. } => RunExit::DiskFull,
-                    // ledgerfix2 M1: files of a ledger without its manifest: a damaged ledger, never a new campaign
+                    // ledgerfix2 M1 / procfix7 round 5: files of a ledger without its manifest (anything in the
+                    // ledger directory): a damaged ledger, never a new campaign, nothing deleted
                     e @ LedgerError::ManifestMissing { .. } => RunExit::Refused(format!("{e}")),
+                    // procfix7 round 5: a stat / listing that failed while deciding to create: typed (71 / 70)
+                    LedgerError::Io { path, op, source } => {
+                        let msg = format!(
+                            "ledger create: {op} on {} failed ({source}): nothing was created or deleted; run the same command once the file system answers",
+                            path.display()
+                        );
+                        match io_resource_errno(&source) {
+                            Some(_) => RunExit::Resources(msg),
+                            None => RunExit::Internal(msg),
+                        }
+                    }
                     e => RunExit::Refused(format!("ledger: {e}")),
                 },
             )?
@@ -784,7 +1108,7 @@ impl Supervisor {
             log.line(
                 "WARN",
                 &format!(
-                    "stale lock of pid {} taken over ({reason:?}); {} process(es) still hold its token",
+                    "stale lock of pid {} taken over ({reason:?}); {} process(es) still hold (or, environ unreadable, may hold) its token",
                     previous.identity.pid,
                     orphans.len()
                 ),
@@ -816,6 +1140,30 @@ impl Supervisor {
                         "store_threads": r.store_threads})
                 ),
             });
+        }
+        // procfix7 (gate6 MJ-A): this session's verified ancestor chain, in the same commit as SupervisorStarted (before
+        // anything is launched): later sessions treat these ancestors as possible re-parent targets of our orphans.
+        let lineage = crate::resources::lineage::SessionLineage::of_self().and_then(|l| {
+            if (l.pid, l.start_ticks) == (lock.owner.identity.pid, lock.owner.identity.start_ticks)
+            {
+                Ok(l)
+            } else {
+                Err("lineage identity differs from the lock owner's".into())
+            }
+        });
+        match &lineage {
+            Ok(l) => first.push(Event::Note {
+                text: l.note_text(),
+            }),
+            Err(e) => {
+                log.line(
+                    "WARN",
+                    &format!("session lineage unavailable ({e}): unreadable processes keep sweeps inconclusive"),
+                );
+                first.push(Event::Note {
+                    text: format!("session_lineage_unavailable {{\"error\":{e:?}}}"),
+                });
+            }
         }
         ledger.append_all(first).map_err(|e| match e {
             LedgerError::NoSpace { .. } => RunExit::DiskFull,
@@ -853,6 +1201,18 @@ impl Supervisor {
                 moved = true;
             }
         }
+        // procfix7 (gate6 m3-a, gate7 m-fb): the intent log's tmpfs fallback (ZFS cannot reserve space for the log itself);
+        // its header names this campaign id and session (only an exact match is ever merged at a restart).
+        match crate::launch::install_intent_fallback(&cdir, &key) {
+            Ok(p) => log.line(
+                "INFO",
+                &format!("signal intent log: tmpfs fallback {} (used if the campaign directory's log is full)", p.display()),
+            ),
+            Err(e) => log.line(
+                "WARN",
+                &format!("signal intent log: no tmpfs fallback ({e}): on a full disk signals whose intent cannot be written are NOT sent (listed at exit)"),
+            ),
+        }
         // procfix5 (run book): where the operator finds the campaign id (every job's marker starts with it).
         log.line(
             "INFO",
@@ -860,6 +1220,27 @@ impl Supervisor {
                 "campaign id {key} (every job carries RR_CAMPAIGN_JOB={key}:<job>:a<k>; ledger input campaign:marker_id)"
             ),
         );
+        // procfix7 (gate6 MJ-B): an EXTERNAL work directory belongs to exactly one campaign (claimed at its first start,
+        // exclusive create): a copy of a campaign directory that shares its original's work_dir is refused HERE, before
+        // anything in the work directory is touched (never relaxed by --adopt-moved-campaign).
+        if workdir::is_external(&work_root, &cdir) {
+            match workdir::claim_work_dir(&work_root, &key) {
+                Ok(c) => log.line(
+                    "INFO",
+                    &format!(
+                        "work directory {} {} by this campaign ({})",
+                        work_root.display(),
+                        if c == workdir::ClaimOutcome::Claimed {
+                            "claimed"
+                        } else {
+                            "owned"
+                        },
+                        workdir::WORK_OWNER_FILE
+                    ),
+                ),
+                Err(e) => return Err(RunExit::Refused(e)),
+            }
+        }
         // A transient probe failure (EMFILE ...) is not "unsupported" (gate re-audit m-2/m-3): only a permanent answer refuses.
         if crate::launch::pidfd_probe() == crate::launch::PidfdProbe::Unsupported
             && !opts.spec.resources.allow_no_pidfd
@@ -868,10 +1249,23 @@ impl Supervisor {
                 "this kernel offers no pidfd (verified signals impossible); refused unless resources.allow_no_pidfd".into(),
             ));
         }
+        // procfix7 round 7 (gate11 M11-2): the site policy's foreign-pinning rule is fed by the sampler (it collects the
+        // affinities only when the policy asks for them); before, nothing collected them and admission waited forever
+        let site_cfg: Option<SiteConfig> = if opts.spec.resources.policy == "site" {
+            let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
+            Some(SiteConfig::read(&path).map_err(|e| RunExit::Refused(e.to_string()))?)
+        } else {
+            None
+        };
         let sampler = Arc::new(
             Sampler::spawn(SamplerConfig {
                 interval: Duration::from_millis(opts.spec.resources.sampler_ms.max(100)),
-                collect_foreign_pinning: false,
+                collect_foreign_pinning: site_cfg
+                    .as_ref()
+                    .is_some_and(|c| c.respect_foreign_pinning),
+                foreign_pin_max_cpus: site_cfg
+                    .as_ref()
+                    .map_or(usize::MAX, |c| c.foreign_pin_max_cpus),
             })
             .map_err(|e| RunExit::Internal(format!("sampler: {e}")))?,
         );
@@ -879,6 +1273,9 @@ impl Supervisor {
             Arc::clone(&sampler),
             crate::launch::RealConfig {
                 campaign_id: key.clone(),
+                // procfix7 round 7 (gate11 m11-mut M9): test builds: `no_subreaper:1` = this supervisor is NOT a child
+                // subreaper (pins m10-9: the end is then never claimed). Release: never.
+                child_subreaper: !fp.armed("no_subreaper"),
                 ..crate::launch::RealConfig::default()
             },
         )
@@ -888,9 +1285,9 @@ impl Supervisor {
         let mut session_cpus: Option<String> = None;
         let policy: Box<dyn CpuPolicy> = match opts.spec.resources.policy.as_str() {
             "site" => {
-                let path = opts.spec.resources.site_policy.clone().unwrap_or_default();
-                let mut cfg =
-                    SiteConfig::read(&path).map_err(|e| RunExit::Refused(e.to_string()))?;
+                let mut cfg = site_cfg
+                    .clone()
+                    .ok_or_else(|| RunExit::Internal("site policy config not read".into()))?;
                 if let Some(c) = opts.cores.or(opts.spec.resources.max_cores) {
                     cfg.max_cores = c;
                 }
@@ -956,6 +1353,14 @@ impl Supervisor {
                 Box::new(p)
             }
         };
+        // procfix7 round 7 (gate11 M11-2, like lane wireflow's admission refusal): a CPU policy that can NEVER grant a CPU
+        // is a typed refusal at start, not a silent wait
+        if let Some(why) = policy.never_admits() {
+            log.line("ERROR", &format!("cpu policy: {why}"));
+            return Err(RunExit::Refused(format!(
+                "cpu policy: nothing can ever be granted under this configuration: {why}"
+            )));
+        }
         // lane closeloop4 (closeloop.md 20): the session's CPUs in the ledger (they may differ between sessions)
         let session_note = session_cpus.unwrap_or_else(|| {
             format!(
@@ -1015,25 +1420,45 @@ impl Supervisor {
                 "resources.containment {containment:?}: \"scope\" (default) or \"marker_only\""
             )));
         }
+        // procfix7 round 6 (gate10, the implementer's ruling): WITHOUT a job scope the only proof that a job left nothing
+        // behind is a /proc scan, and a scan cannot exclude a process chain that forks and exits faster than it reads
+        // (RUNBOOK 2.7); a job scope's cgroup.kill and cgroup.events `populated 0` are atomic. So the supervisor REFUSES
+        // to start without the scope mechanism, fake children included; the explicit override
+        // `resources.containment = "marker_only"` is accepted ONLY inside a private user / pid namespace (the tests:
+        // systemd cannot run scopes for foreign pids there), never on the host.
         if launcher.setup().systemd_run.is_none() {
-            let fake = opts.spec.synthetic.is_some()
-                || opts.fake_child
-                || programs.values().all(|(p, _)| fake_program(p));
-            match (fake, containment) {
-                (true, _) => {}
-                (false, Some("marker_only")) => log.line(
+            let why = launcher
+                .setup()
+                .systemd_unavailable
+                .as_deref()
+                .unwrap_or("unavailable")
+                .to_string();
+            // test builds: `namespace_is_host:1` answers "the host's namespaces" (the refusal of the override is testable
+            // inside a namespace)
+            let ns = if fp.armed("namespace_is_host") {
+                Ok(false)
+            } else {
+                crate::launch::namespace_state()
+            };
+            match (containment, ns) {
+                (Some("marker_only"), Ok(true)) => log.line(
                     "WARN",
                     &format!(
-                        "containment: marker only (resources.containment = \"marker_only\"; no systemd scope: {}): a descendant that drops the marker survives a supervisor crash",
-                        launcher.setup().systemd_unavailable.as_deref().unwrap_or("unavailable")
+                        "containment: marker only (resources.containment = \"marker_only\": the TEST override, accepted inside this private pid namespace; no systemd scope: {why}): a descendant that drops the marker survives a supervisor crash, and \"no marked process\" rests on /proc scans only (RUNBOOK 2.7)"
                     ),
                 ),
-                (false, _) => {
+                (Some("marker_only"), ns) => {
                     return Err(RunExit::Refused(format!(
-                        "real children need scope containment, and the systemd scope mechanism is unavailable ({}); \
-                         run where `systemd-run --user --scope` works, or accept the marker as the only containment with \
-                         resources.containment = \"marker_only\" in the spec",
-                        launcher.setup().systemd_unavailable.as_deref().unwrap_or("unknown")
+                        "resources.containment = \"marker_only\" is a test override accepted only inside a private pid namespace ({}); on the host every job runs in a systemd scope (the atomic proof that it left nothing): run where `systemd-run --user --scope` works ({why})",
+                        match ns {
+                            Ok(_) => "this process runs in the host's namespaces".to_string(),
+                            Err(e) => format!("the namespace cannot be determined: {e}"),
+                        }
+                    )));
+                }
+                _ => {
+                    return Err(RunExit::Refused(format!(
+                        "no job scope: the systemd scope mechanism is unavailable ({why}); every job must run in a transient systemd scope (the scope's kill and its kernel populated flag are the only atomic proof that a job left nothing behind: RUNBOOK 2.7): refused; run where `systemd-run --user --scope` works (in a private pid namespace, tests only: resources.containment = \"marker_only\")"
                     )));
                 }
             }
@@ -1115,9 +1540,36 @@ impl Supervisor {
                 .collect(),
             campaign_key: key,
         };
+        // procfix7 (gate7 B1): an unreadable boot id is the empty string here; `read_recovery_facts` then finds no session
+        // procfix8-ok: of this boot and stops typed before deciding anything
         let boot_id = crate::resources::boot_id().unwrap_or_default();
         let started_utc = clock.now_utc().to_iso();
-        let dir_ids = dir_id(&cdir).zip(dir_id(&crate::ledger::ledger_dir(&cdir)));
+        // procfix7 round 5: the identities the run compares against; a directory that cannot be identified stops typed
+        let ident = |p: &Path| -> Result<Option<(u64, u64)>, RunExit> {
+            dir_id(p).map_err(|e| {
+                let msg = format!(
+                    "{} cannot be identified ({e}): nothing was started; run the same command once the file system answers",
+                    p.display()
+                );
+                match io_resource_errno(&e) {
+                    Some(_) => RunExit::Resources(msg),
+                    None => RunExit::Internal(msg),
+                }
+            })
+        };
+        let dir_ids = ident(&cdir)?.zip(ident(&crate::ledger::ledger_dir(&cdir))?);
+        let work_dir_id = if workdir::is_external(&work_root, &cdir) {
+            ident(&work_root)?
+        } else {
+            None
+        };
+        // procfix7 round 14 (M3): probe the user manager when job scopes are used ("auto"), always ("on": also a
+        // namespaced rehearsal against a fake systemctl), never ("off"); the test emulation `manager_stall:1` too
+        let probing = match opts.spec.resources.manager_probe.as_str() {
+            "on" => true,
+            "off" => false,
+            _ => launcher.setup().systemd_run.is_some(),
+        } || crate::launch::test_manager_stall().is_some();
         Ok(Supervisor {
             cdir,
             work_root,
@@ -1144,18 +1596,28 @@ impl Supervisor {
             bypassed: BTreeMap::new(),
             launch_seq: 0,
             ledger_dead: None,
+            stop_exit: None,
+            gate: manager::ManagerGate::new(probing, opts.spec.resources.manager_probe == "on"),
+            start_clear: false,
+            clear_probe: None,
+            calls_minute: (Instant::now(), crate::launch::manager_calls()),
+            never_ran: BTreeMap::new(),
+            proofs: ProofTally::default(),
             control_stop: false,
             disk_floor_hit: false,
             fsize_stop: false,
             deferred_source_retries: Vec::new(),
             last_disk_check: None,
             last_block_log: String::new(),
+            last_block_logged: None,
             last_wait_log: String::new(),
             boot_id,
             started_at: Instant::now(),
             started_utc,
             drain_started: None,
             dir_ids,
+            work_dir_id,
+            run_dir_failures: 0,
             last_dir_check: None,
             pending: Vec::new(),
             unknown: BTreeMap::new(),
@@ -1166,18 +1628,58 @@ impl Supervisor {
             survivors: BTreeMap::new(),
             blocked_since: None,
             campaign_min_ticks: None,
+            lineage,
             periodic: None,
             last_periodic: Instant::now(),
             last_ready: 0,
             resource_failures: 0,
             resource_backoff_until: None,
             resource_stop: None,
+            refusal_stop: None,
+            end_unproven: Vec::new(),
+            unproven_given_up: BTreeSet::new(),
+            unproven_why: BTreeMap::new(),
+            recorded_pids: Vec::new(),
+            vanished_open: BTreeMap::new(),
+            launched_here: BTreeSet::new(),
+            cpu_refresh_warned: None,
+            scope_unverified: BTreeMap::new(),
+            scope_unsettled: Vec::new(),
+            scope_proven_empty: BTreeSet::new(),
             opts,
         })
     }
 
     fn st(&self) -> &CampaignState {
         self.ledger.state()
+    }
+
+    /// procfix7 round 14 (M1): why the run stops, if it does: the ledger's own failure first, else a stop decision.
+    fn stop_cause(&self) -> Option<RunExit> {
+        self.ledger_dead.clone().or_else(|| self.stop_exit.clone())
+    }
+
+    /// procfix7 round 14 (M1): return a stop's exit after the FINAL progress write while the ledger is usable (the stop's
+    /// own records, e.g. `stop_decided`, follow the last periodic write: `verify` would find the progress stale).
+    fn stop_return(&mut self, e: RunExit) -> RunExit {
+        if self.ledger_dead.is_none() {
+            self.write_progress(true);
+        }
+        e
+    }
+
+    /// procfix7 round 14 (M1): decide a stop (the first decision wins) WITHOUT touching the ledger's health; the decision
+    /// is noted in the ledger (`stop_decided`) while the ledger is usable.
+    fn decide_stop(&mut self, e: RunExit) {
+        if self.stop_cause().is_some() {
+            return;
+        }
+        self.note(format!(
+            "stop_decided {{\"exit\":{},\"reason\":{:?}}}",
+            e.code(),
+            run_exit_text(&e)
+        ));
+        self.stop_exit = Some(e);
     }
 
     /// Appends a batch; on failure marks the ledger dead (ENOSPC -> disk full; anything else -> internal).
@@ -1291,16 +1793,75 @@ impl Supervisor {
 
     // ------------------------------------------------------------------------------------------------ recovery
 
+    /// procfix7 (gate6 MJ-A): build the parent-chain rule from the recorded sessions and lineages and install it for
+    /// this campaign id (the strict scans, sweeps and hunts of this process use it to classify processes of our uid
+    /// whose environ cannot be read). OFF (logged, ledger note `lineage_rule_off`) when a lineage is missing or comes
+    /// from another pid namespace: then such processes keep sweeps inconclusive, as before. Never used to signal.
+    fn install_lineage_rules(
+        &mut self,
+        sessions: &[crate::resources::lineage::RecordedSession],
+        lineages: &[crate::resources::lineage::SessionLineage],
+    ) {
+        use crate::resources::lineage::{LineageRules, install};
+        let built = match &self.lineage {
+            Ok(me) => {
+                LineageRules::build(sessions, lineages, me, crate::launch::is_child_subreaper())
+            }
+            Err(e) => Err(format!("this session's lineage is unavailable: {e}")),
+        };
+        match built {
+            Ok(r) => {
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "lineage: processes of our uid whose environ cannot be read are classified by their parent chain (earliest session start {} ticks, {} possible re-parent target(s) of earlier sessions)",
+                        r.earliest,
+                        r.targets.len()
+                    ),
+                );
+                install(&self.ctx.campaign_key, Some(r));
+            }
+            Err(why) => {
+                install(&self.ctx.campaign_key, None);
+                self.log.line(
+                    "WARN",
+                    &format!("lineage rule OFF ({why}): every unreadable process of our uid started after the bound keeps sweeps inconclusive (exit 8 names them)"),
+                );
+                self.commit(vec![Event::Note {
+                    text: format!("lineage_rule_off {{\"why\":{why:?}}}"),
+                }]);
+            }
+        }
+    }
+
     /// Recovery at start (interface section 4): the FREEZING marker sweep of the whole campaign (gate-B M1), then every
     /// unsettled attempt is settled; an attempt whose launch was journalled but never confirmed is authenticated first
     /// and is never treated as "did not run" without proof (requirement 05:23Z).
     fn recover(&mut self) {
+        // procfix7 (gate7 B1): FIRST read everything recovery decides from (the whole ledger, the intent logs). A read
+        // that fails stops the start typed (exit 71 for a resource limit, else 70) BEFORE anything is decided, written or
+        // signalled: never a partial view (it gave no recovery sweep, the final sweep bounded by this session's start, no
+        // lineage, attempts marked lost without a hunt, and exit 0 with a live marked process).
+        let facts = match self.read_recovery_facts() {
+            Ok(f) => f,
+            Err(e) => {
+                self.recovery_read_failed("the ledger (recovery pass)", &e);
+                return;
+            }
+        };
+        let logs = match self.read_intent_logs(&facts.sessions) {
+            Ok(l) => l,
+            Err(e) => {
+                self.recovery_read_failed("the signal intent log", &e);
+                return;
+            }
+        };
         // THE RECOVERY HOOK, step 1 (ledger-and-progress.md 16; lane int5): every launch journalled in an earlier
         // session and never confirmed becomes `unconfirmed` (EXECUTION UNKNOWN) before anything is decided about it.
         self.mark_unconfirmed();
         // procfix5 (gate4 M1): signals of earlier sessions that never reached the ledger, from the intent log.
-        self.reconcile_intents();
-        if self.ledger_dead.is_some() {
+        self.reconcile_intents(&facts.recorded_intents, logs);
+        if self.stop_cause().is_some() {
             return;
         }
         let unsettled: Vec<(String, u32, AttemptState)> = self
@@ -1309,22 +1870,193 @@ impl Supervisor {
             .into_iter()
             .map(|(id, j)| (id.clone(), j.attempt, j.state))
             .collect();
-        // The boot and start bounds of the previous sessions, from the ledger itself.
+        // The boot and start bounds of the previous sessions, from the ledger itself (read above).
         let mut rules = self.scan_rules();
-        let mut min_ticks: Option<u64> = None;
-        // streamed (ledgerfix2 m10: never every record of a long campaign in memory)
+        let RecoveryFacts {
+            min_ticks,
+            scope_of,
+            started_this_boot,
+            resource_ends,
+            sessions,
+            lineages,
+            recorded_intents: _,
+            recorded_pids,
+            scope_path_of,
+        } = facts;
+        let me = std::process::id();
+        self.recorded_pids = recorded_pids
+            .into_iter()
+            .filter(|(p, _)| *p != me && *p > 1)
+            .collect();
+        self.child_resource_ends = resource_ends;
+        self.install_lineage_rules(&sessions, &lineages);
+        // procfix7 (gate7 MJ-2): a session of this boot in ANOTHER time namespace recorded start times shifted by that
+        // namespace's boottime offset: no start time compares across them, so the bound is 0 (every process of our uid
+        // since boot is a candidate; the lineage rule is OFF, see `LineageRules::build`)
+        let mut min_ticks = min_ticks;
+        {
+            // an unreadable current time namespace against a recorded one counts as different (more conservative)
+            // (Gone: no time namespaces on this kernel; Unreadable: unknown; both compare as "none recorded now")
+            // procfix8-ok: an unknown current one against a recorded one counts as different (the filter below)
+            let now: Option<u64> = crate::resources::lineage::own_time_ns().ok();
+            let mut other: Vec<String> = lineages
+                .iter()
+                .filter(|l| {
+                    l.boot_id == self.boot_id
+                        // gate8 MJ8-1: an explicit unknown recorded by that session counts as another namespace
+                        && (l.time_ns_unknown || (l.time_ns.is_some() && l.time_ns != now))
+                })
+                .map(|l| format!("pid {} (start {})", l.pid, l.start_ticks))
+                .collect();
+            // gate8 MJ8-1: an earlier session recorded as starting AFTER this one cannot be of this time namespace
+            let (own_pid, own_start) = match &self.lineage {
+                Ok(me) => (me.pid, me.start_ticks),
+                Err(_) => (std::process::id(), orphans::own_start_ticks()),
+            };
+            for s in sessions.iter().filter(|s| s.boot_id == self.boot_id) {
+                let label = format!("pid {} (start {})", s.pid, s.start_ticks);
+                if (s.pid, s.start_ticks) != (own_pid, own_start)
+                    && s.start_ticks > own_start
+                    && !other.contains(&label)
+                {
+                    other.push(label);
+                }
+            }
+            if !other.is_empty() {
+                self.log.line(
+                    "WARN",
+                    &format!("session(s) {} of this boot ran in another time namespace (or this one is unreadable): start times do not compare; every sweep of this session starts at 0 (all processes of our uid since boot)", other.join(", ")),
+                );
+                self.note(format!("time_namespace_differs {{\"sessions\":{other:?}}}"));
+                min_ticks = Some(0);
+            }
+        }
+        // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
+        // when no session of this boot launched anything, and then nothing is signalled).
+        rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
+        // A copied / moved directory (--adopt-moved-campaign): nothing recorded is ours; no scan at all.
+        let scan_allowed = min_ticks.is_some() && !self.moved;
+        if scan_allowed {
+            self.campaign_min_ticks = min_ticks;
+        }
+        let report = if scan_allowed {
+            orphans::sweep_seeded(&rules, None, &self.recorded_pids, Duration::from_secs(30))
+        } else {
+            SweepReport {
+                proven: true,
+                ..Default::default()
+            }
+        };
+        self.recover_after_sweep(
+            unsettled,
+            scope_of,
+            scope_path_of,
+            started_this_boot,
+            scan_allowed,
+            report,
+        );
+    }
+
+    /// procfix7 (gate7 B1): the ONE ledger pass of recovery (streamed: ledgerfix2 m10, never every record of a long
+    /// campaign in memory). Err: the ledger could not be read completely: nothing may be decided.
+    fn read_recovery_facts(&self) -> Result<RecoveryFacts, String> {
+        self.recovery_read_fault("the ledger (recovery pass)")
+            .map_err(|e| e.to_string())?;
+        let mut f = RecoveryFacts::default();
         let boot_id = self.boot_id.clone();
-        // gate3 M5: the scope unit of each launch and the leader of each start (this boot), for the scope backstop.
-        let mut scope_of: BTreeMap<(String, u32), String> = BTreeMap::new();
-        let mut started_this_boot: BTreeSet<(String, u32)> = BTreeSet::new();
-        // procfix5 (gate4 m6): the row-15 / 15b count of each job comes from the LEDGER (the trailing run of resource
-        // requeues), so a restart never re-arms it.
-        let mut resource_ends: BTreeMap<String, u32> = BTreeMap::new();
-        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
-            fold_resource_ends(&mut resource_ends, &r.event);
+        if boot_id.is_empty() {
+            return Err("the boot id of this host is unknown".into());
+        }
+        let RecoveryFacts {
+            min_ticks,
+            scope_of,
+            started_this_boot,
+            resource_ends,
+            sessions,
+            lineages,
+            recorded_intents,
+            recorded_pids,
+            scope_path_of,
+        } = &mut f;
+        // the boot of the session whose records are being read (notes carry no boot id: they belong to the session
+        // started last)
+        let mut session_boot = String::new();
+        crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
+            if let Event::SupervisorStarted { identity, .. } = &r.event {
+                session_boot = identity.boot_id.clone();
+            }
+            if session_boot == boot_id {
+                match &r.event {
+                    Event::Job {
+                        ev:
+                            JobEvent::Started {
+                                pid,
+                                start_ticks,
+                                boot_id: b,
+                            },
+                        ..
+                    } if *b == boot_id => {
+                        recorded_pids.insert(*pid, Some(*start_ticks));
+                    }
+                    Event::LockTakeover { orphans, .. } => {
+                        for p in orphans {
+                            recorded_pids.entry(*p).or_insert(None);
+                        }
+                    }
+                    Event::Note { text }
+                        if [
+                            "marked_survivor",
+                            "unproven_end",
+                            "unproven_at_exit",
+                            "recovery_sweep_vanished",
+                            "final_sweep_vanished",
+                            "sweep_vanished",
+                            "descendants_alive",
+                            "final_sweep_unproven",
+                        ]
+                        .iter()
+                        .any(|k| text.starts_with(k)) =>
+                    {
+                        for p in pids_in_note(text) {
+                            recorded_pids.entry(p).or_insert(None);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            fold_resource_ends(resource_ends, &r.event);
+            if let Event::SignalSent { by, .. } = &r.event
+                && let Some(id) = crate::launch::intent_id_in(by)
+            {
+                recorded_intents.insert(id.to_string());
+            }
+            if let Event::SupervisorStarted { identity, .. } = &r.event {
+                sessions.push(crate::resources::lineage::RecordedSession {
+                    pid: identity.pid,
+                    start_ticks: identity.start_ticks,
+                    boot_id: identity.boot_id.clone(),
+                });
+            }
+            if let Event::Note { text } = &r.event
+                && let Some(l) = crate::resources::lineage::SessionLineage::parse_note(text)
+            {
+                lineages.push(l);
+            }
+            // procfix7 round 7 (gate11 m11-rec-path): the verified scope directory of an attempt
+            if let Event::Note { text } = &r.event
+                && let Some(js) = text.strip_prefix("job_containment ")
+                && let Ok(v) = serde_json::from_str::<serde_json::Value>(js)
+                && let (Some(job), Some(attempt), Some(path)) = (
+                    v["job"].as_str(),
+                    v["attempt"].as_u64().and_then(|a| u32::try_from(a).ok()),
+                    v["path"].as_str(),
+                )
+            {
+                scope_path_of.insert((job.to_string(), attempt), path.to_string());
+            }
             match &r.event {
                 Event::SupervisorStarted { identity, .. } if identity.boot_id == boot_id => {
-                    min_ticks = Some(
+                    *min_ticks = Some(
                         min_ticks.map_or(identity.start_ticks, |m| m.min(identity.start_ticks)),
                     );
                 }
@@ -1349,29 +2081,202 @@ impl Supervisor {
                 _ => {}
             }
             Ok(())
-        });
-        self.child_resource_ends = resource_ends;
-        // Sessions of another boot contribute no bound: everything they started is gone (min_ticks stays None
-        // when no session of this boot launched anything, and then nothing is signalled).
-        rules.min_start_ticks = min_ticks.unwrap_or(u64::MAX);
-        // A copied / moved directory (--adopt-moved-campaign): nothing recorded is ours; no scan at all.
-        let scan_allowed = min_ticks.is_some() && !self.moved;
-        if scan_allowed {
-            self.campaign_min_ticks = min_ticks;
+        })
+        .map_err(|e| e.to_string())?;
+        if f.min_ticks.is_none() {
+            // This session's own SupervisorStarted (this boot) is always in the ledger: its absence is a partial read.
+            return Err(
+                "the ledger read gave no supervisor session of this boot (not even this one)"
+                    .into(),
+            );
         }
-        let report = if scan_allowed {
-            orphans::sweep(&rules, None, Duration::from_secs(30))
-        } else {
-            SweepReport {
-                proven: true,
-                ..Default::default()
+        Ok(f)
+    }
+
+    /// procfix7 (gate7 B1): the signal intent logs of earlier sessions (campaign directory + tmpfs fallbacks). Err: a
+    /// resource limit stopped a read (nothing may be decided); other unreadable logs are listed in `unreadable`.
+    fn read_intent_logs(
+        &self,
+        sessions: &[crate::resources::lineage::RecordedSession],
+    ) -> Result<IntentLogs, String> {
+        let mut out = IntentLogs {
+            intents: Vec::new(),
+            bad: 0,
+            unreadable: Vec::new(),
+            merged_fallbacks: Vec::new(),
+            foreign: Vec::new(),
+        };
+        let merge = |out: &mut IntentLogs, f: &Path, what: &str| -> Result<bool, String> {
+            self.recovery_read_fault("a signal intent log")
+                .map_err(|e| format!("{}: {e}", f.display()))?;
+            match crate::launch::read_intent_log(f) {
+                Ok((more, b)) => {
+                    out.bad += b;
+                    for li in more {
+                        // merged by intent id (a completion line wins)
+                        match out.intents.iter_mut().find(|x| x.line.id == li.line.id) {
+                            Some(x) if x.result.is_none() => x.result = li.result,
+                            Some(_) => {}
+                            None => out.intents.push(li),
+                        }
+                    }
+                    Ok(true)
+                }
+                Err(e) if io_resource_errno(&e).is_some() => Err(format!("{}: {e}", f.display())),
+                Err(e) => {
+                    out.unreadable
+                        .push(format!("{} ({what}): {e}", f.display()));
+                    Ok(false)
+                }
             }
         };
+        let primary = self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE);
+        merge(&mut out, &primary, "campaign directory")?;
+        // gate7 m-fb: a fallback log is merged only when its header names THIS campaign and a session this ledger
+        // records (the session string of `install_intent_log`: boot prefix, pid, start ticks)
+        let known: BTreeSet<String> = sessions
+            .iter()
+            .map(|r| {
+                format!(
+                    "{}.{}.{}",
+                    r.boot_id.get(..8).unwrap_or("boot"),
+                    r.pid,
+                    r.start_ticks
+                )
+            })
+            .collect();
+        let mut listing_ok = false;
+        let mut files = match crate::launch::intent_fallback_logs(&self.cdir) {
+            Ok(v) => {
+                listing_ok = true;
+                v
+            }
+            Err(e) if io_resource_errno(&e).is_some() => {
+                return Err(format!("the fallback directory: {e}"));
+            }
+            // procfix7 round 5: an OS error (EIO, EACCES, ...) of the fallback directory or its listing is UNKNOWN (the
+            // end is unproven), never "a foreign directory, nothing of ours"
+            Err(e) if e.raw_os_error().is_some() => {
+                out.unreadable
+                    .push(format!("fallback directory (tmpfs): {e}"));
+                Vec::new()
+            }
+            Err(e) => {
+                // a fallback directory that is not ours (owner / mode / symlink) holds nothing we wrote
+                out.foreign
+                    .push(format!("fallback directory not used: {e}"));
+                Vec::new()
+            }
+        };
+        // procfix7 round 6 (gate10 G10-B1, the listing rule): the fallback log of every RECORDED session of this boot is
+        // probed BY NAME as well (a listing can end early without an error): one that exists is read whether or not the
+        // listing showed it; a probe that cannot be answered is unreadable (the end stays unproven)
+        if listing_ok && let Ok(dir) = crate::launch::intent_fallback_dir(&self.cdir) {
+            for sess in &known {
+                let p = dir.join(format!("{sess}.jsonl"));
+                if files.contains(&p) {
+                    continue;
+                }
+                match crate::fsx::presence_lstat("guard.fallback", &p) {
+                    crate::fsx::Presence::Absent => {}
+                    crate::fsx::Presence::Present(_) => {
+                        out.unreadable.push(format!(
+                            "{} exists but the fallback directory's listing did not show it (an incomplete listing)",
+                            p.display()
+                        ));
+                        files.push(p);
+                    }
+                    crate::fsx::Presence::Unknown(e) => out
+                        .unreadable
+                        .push(format!("{} (tmpfs fallback): {e}", p.display())),
+                }
+            }
+        }
+        for f in files {
+            self.recovery_read_fault("a signal intent log header")
+                .map_err(|e| format!("{}: {e}", f.display()))?;
+            match crate::launch::read_fallback_header(&f) {
+                Ok(Some((c, sess))) if c == self.ctx.campaign_key && known.contains(&sess) => {
+                    if merge(&mut out, &f, "tmpfs fallback")? {
+                        out.merged_fallbacks.push(f);
+                    }
+                }
+                Ok(Some((c, sess))) => out.foreign.push(format!(
+                    "{} (campaign {c:?}, session {sess:?}: not this campaign / not a recorded session)",
+                    f.display()
+                )),
+                Ok(None) => out
+                    .foreign
+                    .push(format!("{} (no header: not a fallback log of this campaign)", f.display())),
+                Err(e) if io_resource_errno(&e).is_some() => return Err(format!("{}: {e}", f.display())),
+                Err(e) => out.unreadable.push(format!("{} (tmpfs fallback): {e}", f.display())),
+            }
+        }
+        Ok(out)
+    }
+
+    /// procfix7 (gate7 B1): test builds only: `recovery_read_fails:<n>` makes the n-th read of recovery fail once with
+    /// EMFILE (every read site of recovery passes here first).
+    fn recovery_read_fault(&self, what: &str) -> std::io::Result<()> {
+        if self.fp.nth("recovery_read_fails") {
+            return Err(std::io::Error::other(format!(
+                "TEST BUILD failpoint recovery_read_fails at {what}: {}",
+                std::io::Error::from_raw_os_error(libc::EMFILE)
+            )));
+        }
+        Ok(())
+    }
+
+    /// procfix7 (gate7 B1): recovery could not read what it decides from: stop typed, deciding nothing (exit 71 for a
+    /// supervisor resource limit, 70 for anything else); a later start with a readable ledger recovers.
+    fn recovery_read_failed(&mut self, what: &str, e: &str) {
+        let resource = text_resource_errno(e);
+        let msg = format!(
+            "recovery cannot read {what} ({e}): nothing was decided, written or signalled; {}",
+            if resource.is_some() {
+                "free the resource (e.g. raise ulimit -n / -u) and run the same command"
+            } else {
+                "check the campaign directory, then run the same command"
+            }
+        );
+        self.log.line("ERROR", &msg);
+        // round 14 (M1): a stop decision; the ledger stays usable
+        self.decide_stop(match resource {
+            Some(_) => RunExit::Resources(msg),
+            None => RunExit::Internal(msg),
+        });
+    }
+
+    /// procfix7 (gate7 B1): one file read of recovery, classified (the failpoint first).
+    fn recovery_read(&self, p: &Path, what: &str) -> RecoveryRead {
+        if let Err(e) = self.recovery_read_fault(what) {
+            return RecoveryRead::Resource(format!("{}: {e}", p.display()));
+        }
+        match std::fs::read(p) {
+            Ok(b) => RecoveryRead::Data(b),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => RecoveryRead::Absent,
+            Err(e) if io_resource_errno(&e).is_some() => {
+                RecoveryRead::Resource(format!("{}: {e}", p.display()))
+            }
+            Err(e) => RecoveryRead::Other(format!("{}: {e}", p.display())),
+        }
+    }
+
+    /// The rest of recovery, after the sweep (split from `recover` by procfix7: everything before it is a pure read).
+    fn recover_after_sweep(
+        &mut self,
+        unsettled: Vec<(String, u32, AttemptState)>,
+        scope_of: BTreeMap<(String, u32), String>,
+        scope_path_of: BTreeMap<(String, u32), String>,
+        started_this_boot: BTreeSet<(String, u32)>,
+        scan_allowed: bool,
+        report: SweepReport,
+    ) {
         if scan_allowed {
             self.log.line(
                 "INFO",
                 &format!(
-                    "recovery: marker sweep: {} marked process(es) seen, {} killed, {} left, {} round(s){}",
+                    "recovery: marker sweep: {} marked process(es) seen, {} killed, {} left, {} round(s){}{}",
                     report.seen,
                     report.killed.len(),
                     report.left.len(),
@@ -1380,9 +2285,26 @@ impl Supervisor {
                         .reason
                         .as_ref()
                         .map(|r| format!("; NOT PROVEN: {r}"))
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| format!(
+                            "; {}",
+                            crate::launch::sweep::proof_words(crate::launch::sweep::PROOF_SCANS)
+                        )),
+                    if report.vanished.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "; WARNING: marked process(es) {:?} seen alive exited before they could be stopped (a successor may run unseen: the end stays unproven unless an atomic proof covers their successors, RUNBOOK 2.10)",
+                            report.vanished.iter().map(|p| p.pid).collect::<Vec<_>>()
+                        )
+                    }
                 ),
             );
+            if !report.vanished.is_empty() {
+                let pids: Vec<u32> = report.vanished.iter().map(|p| p.pid).collect();
+                self.note(format!("recovery_sweep_vanished {{\"pids\":{pids:?}}}"));
+                // procfix7 round 6 (gate10 M10-1): the end is unproven unless an atomic proof covers their successors
+                self.note_vanished(&report, "recovery sweep");
+            }
         }
         for k in &report.killed {
             self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "recovery sweep");
@@ -1393,25 +2315,91 @@ impl Supervisor {
         // names a scope unit AND whose leader is recorded (`started`, this boot) in THIS campaign's ledger, whatever is
         // still in that exact scope (e.g. a descendant that cleared the marker and left the session) is killed, after
         // the guarded sweep. Never by pattern; never inside a private namespace (no systemd scopes are used there).
-        if scan_allowed && !crate::launch::in_private_namespace() {
-            for (job, attempt, _) in &unsettled {
+        // procfix7 round 5 (gate9 M9-1): when the namespace cannot be determined (uid_map unreadable) the backstop is
+        // NOT skipped silently: with recorded scopes to stop, the end is unproven (exit 8, naming them).
+        let ns = if self.fp.armed("uid_map_unreadable") {
+            Err("TEST BUILD failpoint uid_map_unreadable".to_string())
+        } else {
+            crate::launch::namespace_state()
+        };
+        // procfix7 round 7 (gate11 m11-settled-scope): EVERY attempt of this boot that ran in a recorded scope, settled
+        // or not (a job that ended before its scope was verified live was checked without the scope belt; whatever is
+        // left in its scope now is a leftover of this campaign)
+        let scoped: Vec<(String, u32)> = scope_of
+            .keys()
+            .filter(|k| started_this_boot.contains(*k))
+            .cloned()
+            .collect();
+        if scan_allowed && let Err(e) = &ns {
+            let units: Vec<String> = scoped
+                .iter()
+                .filter_map(|(job, attempt)| {
+                    scope_of
+                        .get(&(job.clone(), *attempt))
+                        .map(|u| format!("{u} ({job} a{attempt})"))
+                })
+                .collect();
+            if !units.is_empty() {
+                self.note(format!(
+                    "scope_backstop_unchecked {{\"units\":{units:?},\"error\":{e:?}}}"
+                ));
+                self.end_unproven.push(format!(
+                    "the recorded job scope(s) {} could not be stopped: whether this process runs in a private namespace is unknown ({e})",
+                    units.join(", ")
+                ));
+            }
+        }
+        if scan_allowed && ns == Ok(false) {
+            for (job, attempt) in &scoped {
                 let key = (job.clone(), *attempt);
-                let (Some(unit), true) = (scope_of.get(&key), started_this_boot.contains(&key))
-                else {
+                let Some(unit) = scope_of.get(&key) else {
                     continue;
                 };
                 let label = format!("{job}:a{attempt}");
-                match crate::launch::guard_context("restart: recorded job scope", Some(&label), || {
-                    crate::launch::kill_recorded_scope(unit)
-                }) {
-                    Ok(Some(0)) | Ok(None) => {}
-                    Ok(Some(n)) => self.note(format!(
-                        "scope_killed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"processes\":{n}}}"
-                    )),
-                    Err(e) => self.note(format!(
-                        "scope_backstop_failed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"error\":{:?}}}",
-                        e.to_string()
-                    )),
+                // gate11 m11-rec-path: the scope's verified cgroup directory first
+                let recorded = scope_path_of.get(&key).map(PathBuf::from);
+                match crate::launch::guard_context(
+                    "restart: recorded job scope",
+                    Some(&label),
+                    || crate::launch::kill_recorded_scope_at(unit, recorded.as_deref()),
+                ) {
+                    // M10-1 (b): found EMPTY by the kernel's recursive populated flag
+                    Ok(Some(0)) => {
+                        self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
+                    }
+                    // gate11 m11-gone: no such scope. Emptied only by a POSITIVE answer: verified at the job's start
+                    // and its recorded directory now proven absent (a cgroup with members cannot be removed)
+                    Ok(None) => {
+                        if recorded
+                            .as_deref()
+                            .is_some_and(|r| crate::launch::recorded_scope_removed(unit, r))
+                        {
+                            self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
+                        }
+                    }
+                    Ok(Some(n)) => {
+                        self.note(format!(
+                            "scope_killed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"processes\":{n}}}"
+                        ));
+                        // M10-1 (b): after the (recursive) cgroup.kill, empty once the kernel says so (bounded wait)
+                        if crate::launch::recorded_scope_emptied(
+                            unit,
+                            recorded.as_deref(),
+                            Duration::from_secs(5),
+                        ) {
+                            self.scope_proven_empty.insert(format!("{job}:a{attempt}"));
+                        }
+                    }
+                    Err(e) => {
+                        self.note(format!(
+                            "scope_backstop_failed {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":{unit:?},\"error\":{:?}}}",
+                            e.to_string()
+                        ));
+                        // procfix7 (gate7 B1, the class): what that scope held is unknown: never a clean end
+                        self.end_unproven.push(format!(
+                            "the recorded scope {unit} of {job} a{attempt} could not be stopped ({e})"
+                        ));
+                    }
                 }
             }
         }
@@ -1421,7 +2409,7 @@ impl Supervisor {
             ));
         }
         for (job, attempt, state) in unsettled {
-            if self.ledger_dead.is_some() {
+            if self.stop_cause().is_some() {
                 return;
             }
             if state == AttemptState::Launching {
@@ -1473,6 +2461,10 @@ impl Supervisor {
             // released only after `job.started` is durable): a marked process of it is the exiting shim or a copied
             // environment, never a late confirmation.
             let barrier = unconfirmed && self.barrier_launch(&job, attempt);
+            if self.stop_cause().is_some() {
+                // procfix7 (gate7 B1): a read of this attempt failed: nothing more is decided
+                return;
+            }
             if let Some(alive) = report
                 .left
                 .iter()
@@ -1561,6 +2553,13 @@ impl Supervisor {
                     if let Err(why) =
                         self.authenticate_run(&job, attempt, &rd, &layout, launched.as_deref())
                     {
+                        if let Some(e) = why.strip_prefix(AUTH_RESOURCE) {
+                            self.recovery_read_failed(
+                                &format!("the run directory of {job} a{attempt}"),
+                                e,
+                            );
+                            return;
+                        }
                         self.log.line(
                             "WARN",
                             &format!("{job} a{attempt}: confirmed late, run directory not authenticated ({why}): interrupted, nothing consumed"),
@@ -1597,7 +2596,35 @@ impl Supervisor {
                 .jobs
                 .get(&job)
                 .and_then(|j| j.attempt_spec.clone());
-            match read_spec(&layout, launched.as_deref()) {
+            // procfix7 (gate6 MJ-B): never read a run directory that is not this campaign's; (gate7 B1) a read that fails
+            // for a resource limit stops typed, never "not ours" / "no job.json" (both would decide)
+            let owned = match self
+                .recovery_read(&layout.sup_dir().join(CAMPAIGN_ID_FILE), "RUN/sup/CAMPAIGN")
+            {
+                RecoveryRead::Data(b) => {
+                    String::from_utf8_lossy(&b).trim() == self.ctx.campaign_key
+                }
+                RecoveryRead::Resource(e) => {
+                    self.recovery_read_failed(
+                        &format!("the run directory of {job} a{attempt}"),
+                        &e,
+                    );
+                    return;
+                }
+                RecoveryRead::Absent | RecoveryRead::Other(_) => false,
+            };
+            let spec = if owned {
+                match self.recovery_spec(&layout, launched.as_deref()) {
+                    Ok(x) => x,
+                    Err(e) => {
+                        self.recovery_read_failed(&format!("job.json of {job} a{attempt}"), &e);
+                        return;
+                    }
+                }
+            } else {
+                None
+            };
+            match spec {
                 Some((spec, spec_digest)) => {
                     let kill = if was_killed { CKill::Stop } else { CKill::None };
                     self.settle_at_recovery(
@@ -1914,6 +2941,11 @@ impl Supervisor {
             jr.attempt_spec.as_deref(),
         ) {
             Ok(x) => x,
+            Err(why) if why.starts_with(AUTH_RESOURCE) => {
+                let e = why[AUTH_RESOURCE.len()..].to_string();
+                self.recovery_read_failed(&format!("the run directory of {job} a{attempt}"), &e);
+                return;
+            }
             Err(why) => {
                 self.execution_unknown(
                     job,
@@ -1929,11 +2961,21 @@ impl Supervisor {
         // supervisor's barrier reads EOF (the shim exits without executing anything). The proof is the ABSENCE OF THE
         // LEDGER RECORD; the sentinel's content (written before the spawn, untouchable by a child that never ran) only
         // says that the barrier was used.
-        let barrier_launch = std::fs::read(&sentinel)
-            .map(|b| b == SPAWN_BARRIER_TAG.as_bytes())
-            .unwrap_or(false);
+        let barrier_launch = match self.recovery_barrier_tag(&layout) {
+            Ok(b) => b,
+            Err(e) => {
+                // procfix7 (gate7 B1): never "not a barrier launch" from an unread sentinel
+                self.recovery_read_failed(&format!("the spawn sentinel of {job} a{attempt}"), &e);
+                return;
+            }
+        };
         if barrier_launch {
-            if layout.outcome().exists() {
+            // procfix7 (gate7 B1, the class): an OUTCOME that cannot be ruled out counts as present (never "not spawned")
+            let outcome_absent = matches!(
+                crate::fsx::presence_lstat("supervisor.outcome", &layout.outcome()),
+                crate::fsx::Presence::Absent
+            );
+            if !outcome_absent {
                 self.execution_unknown(
                     job,
                     attempt,
@@ -1966,8 +3008,8 @@ impl Supervisor {
             self.commit(ev);
             return;
         }
-        match std::fs::symlink_metadata(&sentinel) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+        match crate::fsx::presence_lstat("supervisor.sentinel", &sentinel) {
+            crate::fsx::Presence::Absent => {
                 let ev = vec![
                     Event::Job {
                         job: job.into(),
@@ -1994,7 +3036,7 @@ impl Supervisor {
                 self.commit(ev);
                 return;
             }
-            Err(e) => {
+            crate::fsx::Presence::Unknown(e) => {
                 self.execution_unknown(
                     job,
                     attempt,
@@ -2002,7 +3044,7 @@ impl Supervisor {
                 );
                 return;
             }
-            Ok(_) => {}
+            crate::fsx::Presence::Present(_) => {}
         }
         let ev = classify::assess(
             &layout,
@@ -2031,18 +3073,31 @@ impl Supervisor {
 
     /// procfix5 (gate4 m1): was this attempt launched behind the spawn barrier? Its run directory must authenticate and
     /// its `RUN/sup/SPAWN` (written before the spawn) carry the barrier tag.
-    fn barrier_launch(&self, job: &str, attempt: u32) -> bool {
-        let Some(jr) = self.st().jobs.get(job) else {
+    fn barrier_launch(&mut self, job: &str, attempt: u32) -> bool {
+        let Some(jr) = self.st().jobs.get(job).cloned() else {
             return false;
         };
         let Some(rd) = jr.run_dir.clone() else {
             return false;
         };
         let layout = RunLayout::new(&rd);
-        self.authenticate_run(job, attempt, &rd, &layout, jr.attempt_spec.as_deref())
-            .is_ok()
-            && std::fs::read(layout.sup_dir().join(SPAWN_SENTINEL))
-                .is_ok_and(|b| b == SPAWN_BARRIER_TAG.as_bytes())
+        // procfix7 (gate7 B1): an unread file is never "not a barrier launch" (that would decide): stop typed
+        match self.authenticate_run(job, attempt, &rd, &layout, jr.attempt_spec.as_deref()) {
+            Ok(_) => {}
+            Err(why) if why.starts_with(AUTH_RESOURCE) => {
+                let e = why[AUTH_RESOURCE.len()..].to_string();
+                self.recovery_read_failed(&format!("the run directory of {job} a{attempt}"), &e);
+                return false;
+            }
+            Err(_) => return false,
+        }
+        match self.recovery_barrier_tag(&layout) {
+            Ok(b) => b,
+            Err(e) => {
+                self.recovery_read_failed(&format!("the spawn sentinel of {job} a{attempt}"), &e);
+                false
+            }
+        }
     }
 
     /// The job is of its item's current generation and not stale.
@@ -2097,7 +3152,8 @@ impl Supervisor {
             "recovery cannot read the files of {job} a{attempt} for lack of a supervisor resource; free it (e.g. raise ulimit -n / -u) and run the same command"
         );
         self.log.line("ERROR", &msg);
-        self.ledger_dead = Some(RunExit::Resources(msg));
+        // round 14 (M1): a stop decision; the ledger stays usable
+        self.decide_stop(RunExit::Resources(msg));
     }
 
     fn authenticate_run(
@@ -2115,19 +3171,66 @@ impl Supervisor {
                 expected.display()
             ));
         }
-        let id = std::fs::read_to_string(layout.sup_dir().join(CAMPAIGN_ID_FILE))
-            .map_err(|e| format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}"))?;
+        // procfix7 (gate7 B1): a read that fails for a supervisor resource limit is never "not authenticated" (a
+        // decision); the caller stops typed (`AUTH_RESOURCE` prefix)
+        let id = match self
+            .recovery_read(&layout.sup_dir().join(CAMPAIGN_ID_FILE), "RUN/sup/CAMPAIGN")
+        {
+            RecoveryRead::Data(b) => String::from_utf8_lossy(&b).into_owned(),
+            RecoveryRead::Resource(e) => return Err(format!("{AUTH_RESOURCE}{e}")),
+            RecoveryRead::Absent => {
+                return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE}: absent"));
+            }
+            RecoveryRead::Other(e) => return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}")),
+        };
         if id.trim() != self.ctx.campaign_key {
             return Err(format!(
                 "RUN/sup/{CAMPAIGN_ID_FILE} names another campaign id"
             ));
         }
-        let (spec, digest) = read_spec(layout, launched)
+        let (spec, digest) = self
+            .recovery_spec(layout, launched)
+            .map_err(|e| format!("{AUTH_RESOURCE}{e}"))?
             .ok_or("job.json does not have the digest of its launch record")?;
         if spec.job_id != job || spec.attempt != attempt || Path::new(&spec.run_dir) != expected {
             return Err("job.json names another job, attempt or run directory".into());
         }
         Ok((spec, digest))
+    }
+
+    /// procfix7 (gate7 B1): `read_spec` for recovery: Err only when job.json could not be read for a supervisor resource
+    /// limit (nothing may be decided then); Ok(None) when it is absent / unreadable otherwise / not the launched one.
+    fn recovery_spec(
+        &self,
+        layout: &RunLayout,
+        launched: Option<&str>,
+    ) -> Result<Option<(JobSpec, String)>, String> {
+        let Some(d) = launched.map(str::to_string) else {
+            return Ok(None);
+        };
+        if !rustred_campaign_contract::is_blake3_hex(&d) {
+            return Ok(None);
+        }
+        let b = match self.recovery_read(&layout.job_spec(), "job.json") {
+            RecoveryRead::Data(b) => b,
+            RecoveryRead::Resource(e) => return Err(e),
+            RecoveryRead::Absent | RecoveryRead::Other(_) => return Ok(None),
+        };
+        if rustred_campaign_contract::spec::spec_blake3(&b) != d {
+            return Ok(None);
+        }
+        Ok(JobSpec::from_json(&b).ok().map(|spec| (spec, d)))
+    }
+
+    /// procfix7 (gate7 B1): the spawn sentinel says "barrier v1". Ok(false) only for a sentinel READ whose content is not
+    /// the tag, or a PROVEN absent one (ENOENT); procfix7 round 6 (gate10 m10-8: the code now matches this rule): any
+    /// other failed read is Err (the caller stops typed: never "not a barrier launch" from an unread sentinel).
+    fn recovery_barrier_tag(&self, layout: &RunLayout) -> Result<bool, String> {
+        match self.recovery_read(&layout.sup_dir().join(SPAWN_SENTINEL), "RUN/sup/SPAWN") {
+            RecoveryRead::Data(b) => Ok(b == SPAWN_BARRIER_TAG.as_bytes()),
+            RecoveryRead::Resource(e) | RecoveryRead::Other(e) => Err(e),
+            RecoveryRead::Absent => Ok(false),
+        }
     }
 
     /// EXECUTION UNKNOWN of an unconfirmed launch (the attempt stays `unconfirmed`): its item goes to
@@ -2144,7 +3247,7 @@ impl Supervisor {
         self.unknown.insert(job.to_string(), attempt);
         // The cores of its launch record (streamed: never every record of a long campaign in memory, ledgerfix2 m10).
         let mut cores = 1usize;
-        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
+        let read = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
             if let Event::Job {
                 job: j,
                 attempt: a,
@@ -2157,6 +3260,15 @@ impl Supervisor {
             }
             Ok(())
         });
+        if let Err(e) = read {
+            // procfix7 (gate7 B1, the class): an unread launch record charges the WHOLE budget (more conservative:
+            // fewer launches while the execution is unknown), never one core
+            cores = self.policy.budget().max(1);
+            self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: launch record unread ({e}): charged {cores} core(s) (the whole budget)"),
+            );
+        }
         self.unknown_charge
             .insert(job.to_string(), (jr.reserved_bytes, cores));
         self.log.line(
@@ -2207,34 +3319,41 @@ impl Supervisor {
     /// recorded before the supervisor ended", WITHOUT a completion line as "POSSIBLY SENT" (the crash came between the
     /// durable intent and the completion: the signal may or may not have gone out). Never re-sent: whatever still lives is
     /// judged by the recovery sweep's identity checklist. Intents completed `gone` / `failed` were not delivered.
-    fn reconcile_intents(&mut self) {
-        let path = self.cdir.join("log").join(crate::launch::INTENT_LOG_FILE);
-        let (intents, bad) = match crate::launch::read_intent_log(&path) {
-            Ok(x) => x,
-            Err(e) => {
-                self.log.line(
-                    "ERROR",
-                    &format!("signal intent log {} unreadable ({e}): signals of an earlier session may be missing from the ledger", path.display()),
-                );
-                self.note(format!(
-                    "signal_intents_unreadable {{\"error\":{:?}}}",
-                    e.to_string()
-                ));
-                return;
-            }
-        };
+    fn reconcile_intents(&mut self, recorded: &BTreeSet<String>, logs: IntentLogs) {
+        // procfix7 (gate7 B1): the logs and the recorded intent ids were read before anything was decided.
+        let IntentLogs {
+            intents,
+            bad,
+            unreadable,
+            merged_fallbacks,
+            foreign,
+        } = logs;
+        for f in &foreign {
+            // procfix7 (gate7 m-fb): never merged, never removed
+            self.log.line(
+                "WARN",
+                &format!("signal intent fallback log not merged: {f}"),
+            );
+            self.note(format!("signal_intents_foreign {{\"file\":{f:?}}}"));
+        }
+        for u in &unreadable {
+            self.log.line(
+                "ERROR",
+                &format!("signal intent log {u}: signals of an earlier session may be missing from the ledger"),
+            );
+            self.note(format!("signal_intents_unreadable {{\"error\":{u:?}}}"));
+            // procfix7 (gate7 B1, class): the run cannot claim a clean end while the record of earlier signals is unknown
+            self.end_unproven
+                .push(format!("signal intent log unreadable: {u}"));
+        }
+        // the earlier sessions' fallback logs are removed only when every log was read
+        let all_read = unreadable.is_empty();
         if intents.is_empty() && bad == 0 {
+            if all_read {
+                crate::launch::remove_intent_fallbacks(&merged_fallbacks, &self.ctx.campaign_key);
+            }
             return;
         }
-        let mut recorded: BTreeSet<String> = BTreeSet::new();
-        let _ = crate::ledger::for_each_record(&self.cdir, &mut |r, _| {
-            if let Event::SignalSent { by, .. } = &r.event
-                && let Some(id) = crate::launch::intent_id_in(by)
-            {
-                recorded.insert(id.to_string());
-            }
-            Ok(())
-        });
         let (mut delivered, mut possibly) = (0usize, 0usize);
         let mut ev = Vec::new();
         for li in intents {
@@ -2302,6 +3421,9 @@ impl Supervisor {
             });
         }
         if delivered + possibly == 0 && bad == 0 {
+            if all_read {
+                crate::launch::remove_intent_fallbacks(&merged_fallbacks, &self.ctx.campaign_key);
+            }
             return;
         }
         ev.push(Event::Note {
@@ -2316,7 +3438,10 @@ impl Supervisor {
                 if bad > 0 { format!(" ({bad} unparsable line(s): a torn tail)") } else { String::new() }
             ),
         );
-        self.commit(ev);
+        // procfix7 (gate6 m3-a): the earlier sessions' tmpfs fallback logs only once their intents are in the ledger
+        if self.commit(ev) && all_read {
+            crate::launch::remove_intent_fallbacks(&merged_fallbacks, &self.ctx.campaign_key);
+        }
     }
 
     /// gate3 M2 (lane int5): every signal the process layer delivered since the last call (guard and cgroup kills, any
@@ -2384,6 +3509,429 @@ impl Supervisor {
     /// procfix6 (gate5 m5): ONE log line and ONE ledger note per job naming the containment actually in force:
     /// `scope:<unit>` only when the scope exists (verified from the leader's cgroup), else `marker_only` (with why) or
     /// `cgroup:<path>`.
+    /// procfix7 round 8b (host step 1): the note and log line of a job whose requested scope was not verified, and the
+    /// bound: 3 such ENDED-WHILE-ALIVE attempts of one job stop the run (exit 71: the scope mechanism does not work).
+    fn note_scope_end(&mut self, job: &str, attempt: u32, end: &ScopeEnd) {
+        let level = if end.unverified { "WARN" } else { "INFO" };
+        self.log.line(
+            level,
+            &format!("{job} a{attempt}: containment {} ({})", end.word, end.why),
+        );
+        self.commit(vec![Event::Note {
+            text: format!(
+                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{:?},\"why\":{:?}}}",
+                end.word, end.why
+            ),
+        }]);
+        if end.unverified {
+            let n = self.scope_unverified.entry(job.to_string()).or_insert(0);
+            *n += 1;
+            if *n >= SCOPE_UNVERIFIED_LIMIT && self.stop_cause().is_none() {
+                let msg = format!(
+                    "job {job}: {SCOPE_UNVERIFIED_LIMIT} attempts ended because their systemd scope could not be verified \
+                     (last: {}): the scope mechanism does not work as required; stopping (exit 71)",
+                    end.why
+                );
+                self.note(format!(
+                    "scope_unverified_limit {{\"job\":{job:?},\"message\":{msg:?}}}"
+                ));
+                self.log.line("ERROR", &msg);
+                // round 14 (M1): a stop decision, never "the ledger is unavailable"
+                self.decide_stop(RunExit::Resources(msg));
+            }
+        }
+    }
+
+    /// procfix7 round 14 (host step 3, M3): one tick of the user-manager gate: the oldest PENDING scope launch, the probe,
+    /// the notes of a closure / reopening, the per-minute count of our manager calls, and the bounded wait: closed longer
+    /// than `resources.manager_wait_limit_s` = a typed stop (exit 69). Every launcher still pending then is ended through
+    /// its pinned group and its unit goes on the leftover list (the manager may still serve its queued request).
+    fn tick_manager_gate(&mut self) {
+        let warn = Duration::from_secs(self.opts.spec.resources.scope_pending_warn_s);
+        let oldest = self
+            .children
+            .iter()
+            .filter_map(|c| c.pending_since.map(|t| (t, c)))
+            .min_by_key(|(t, _)| *t)
+            .filter(|(t, _)| t.elapsed() > warn)
+            .map(|(t, c)| {
+                format!(
+                    "{} a{} pending {} s",
+                    c.job,
+                    c.attempt,
+                    t.elapsed().as_secs()
+                )
+            });
+        match self.gate.tick(oldest.as_deref()) {
+            manager::GateChange::Closed(why) => {
+                let pending: Vec<String> = self
+                    .children
+                    .iter()
+                    .filter(|c| c.pending_since.is_some())
+                    .filter_map(|c| {
+                        c.handle
+                            .requested_scope_unit()
+                            .map(|u| format!("{u}.scope"))
+                    })
+                    .collect();
+                self.log.line(
+                    "WARN",
+                    &format!("the user manager does not answer ({why}): NO new launch until it answers; running jobs go on; pending launches wait ({})", pending.len()),
+                );
+                self.note(format!(
+                    "manager_unresponsive {{\"why\":{why:?},\"pending\":{pending:?},\"wait_limit_s\":{}}}",
+                    self.opts.spec.resources.manager_wait_limit_s
+                ));
+            }
+            manager::GateChange::Opened(after) => {
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "the user manager answers again after {:.1} s: launches resume",
+                        after.as_secs_f64()
+                    ),
+                );
+                self.note(format!(
+                    "manager_answered {{\"after_s\":{:.1}}}",
+                    after.as_secs_f64()
+                ));
+            }
+            manager::GateChange::None => {}
+        }
+        // our manager calls in the last minute (only when there were any)
+        if self.calls_minute.0.elapsed() >= Duration::from_secs(60) {
+            let now = crate::launch::manager_calls();
+            let d: Vec<u64> = (0..5).map(|k| now[k] - self.calls_minute.1[k]).collect();
+            if d.iter().any(|&n| n > 0) {
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "user-manager calls in the last {} s: systemd-run {}, show {}, reset-failed {}, stop {}, probe {}",
+                        self.calls_minute.0.elapsed().as_secs(),
+                        d[0], d[1], d[2], d[3], d[4]
+                    ),
+                );
+            }
+            self.calls_minute = (Instant::now(), now);
+        }
+        let limit = Duration::from_secs(self.opts.spec.resources.manager_wait_limit_s);
+        if let Some((since, why)) = self.gate.closed().cloned()
+            && since.elapsed() > limit
+            && self.stop_cause().is_none()
+        {
+            let msg = format!(
+                "the user manager has not answered for {} s ({why}; resources.manager_wait_limit_s {}): draining; a HOST condition (not the scope mechanism, not a job): run the same command once the manager answers (exit 69)",
+                since.elapsed().as_secs(),
+                limit.as_secs()
+            );
+            self.log.line("ERROR", &msg);
+            self.decide_stop(RunExit::ManagerUnavailable(msg));
+            // every launcher still waiting: ended through its pinned group; its unit on the leftover list
+            let mut listed = Vec::new();
+            for ch in &mut self.children {
+                if ch.pending_since.is_some() {
+                    ch.stopping = true;
+                    ch.handle.kill_now(KillReason::Stop);
+                    if let Some(u) = ch.handle.requested_scope_unit() {
+                        listed.push((u.to_string(), ch.job.clone(), ch.attempt));
+                    }
+                }
+            }
+            for (u, job, attempt) in listed {
+                self.leftover_add(
+                    &u,
+                    &job,
+                    attempt,
+                    "launcher ended at the manager wait limit while pending",
+                );
+            }
+        }
+    }
+
+    /// procfix7 round 14 (host step 3, M4): put an exact unit name of ours on the durable leftover list (noted).
+    fn leftover_add(&mut self, unit: &str, job: &str, attempt: u32, why: &str) {
+        let e = manager::Leftover {
+            unit: unit.to_string(),
+            attempt: format!("{job}:a{attempt}"),
+            why: why.to_string(),
+            utc: crate::cpu_policy::utc_now(),
+            not_loaded_since: None,
+        };
+        match manager::add_leftovers(&self.cdir, vec![e]) {
+            Ok(_) => self.note(format!(
+                "unit_leftover {{\"unit\":\"{unit}.scope\",\"job\":{job:?},\"attempt\":{attempt},\"why\":{why:?}}}"
+            )),
+            Err(e) => self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: unit {unit}.scope could not be put on the leftover list ({e}); look at that exact unit by hand (its state, then reset or stop it only if it is failed or empty)"),
+            ),
+        }
+    }
+
+    /// procfix7 round 15 (gate16 m16-start-clear): the start's clearing of the leftover list waits for a manager that
+    /// ANSWERS: the gate open and its latest probe answered within the bound; a run that does not probe for its jobs
+    /// uses a probe of its own (one in flight at most, the same back-off) that never touches the launch gate; with
+    /// `resources.manager_probe = "off"` (never a probe; round 16) it clears at once.
+    fn tick_start_clear(&mut self) {
+        if !self.start_clear {
+            return;
+        }
+        if crate::launch::systemd_units_unavailable()
+            && crate::launch::test_manager_stall().is_none()
+        {
+            self.start_clear = false;
+            return;
+        }
+        let answered = if self.gate.probing {
+            self.gate.closed().is_none() && self.gate.answers() == Some(true)
+        } else if self.opts.spec.resources.manager_probe == "off" {
+            // round 16 (gate17 nit m17-off-probe): "off" means NO probe of the manager: cleared at once (each unit's
+            // reads bounded at 10 s, as before round 15)
+            true
+        } else {
+            let allow = self.opts.spec.resources.manager_probe == "on";
+            let g = self
+                .clear_probe
+                .get_or_insert_with(|| manager::ManagerGate::new(true, allow));
+            // this probe's gate only decides the clearing (its changes are not the launch gate's)
+            g.tick(None);
+            g.closed().is_none() && g.answers() == Some(true)
+        };
+        if answered {
+            self.start_clear = false;
+            self.clear_probe = None;
+            self.clear_leftovers("at start");
+        }
+    }
+
+    /// procfix7 round 14 (M4): clear the leftover list (by exact names, each state read first; see `manager`), noting
+    /// every action. `when`: "at start" / "at exit".
+    fn clear_leftovers(&mut self, when: &str) {
+        if crate::launch::systemd_units_unavailable()
+            && crate::launch::test_manager_stall().is_none()
+        {
+            return;
+        }
+        let recorded = manager::recorded_scope_units(&self.cdir);
+        match manager::clear_leftovers(
+            &self.cdir,
+            &self.ctx.campaign_key,
+            recorded.as_ref(),
+            manager::epoch_now(),
+        ) {
+            Ok(done) => {
+                for c in done {
+                    self.log.line(
+                        if c.done { "INFO" } else { "WARN" },
+                        &format!("leftover unit {}.scope ({when}): {}", c.unit, c.action),
+                    );
+                    self.note(format!(
+                        "unit_cleared {{\"unit\":\"{}.scope\",\"action\":{:?},\"done\":{},\"when\":{when:?}}}",
+                        c.unit, c.action, c.done
+                    ));
+                }
+            }
+            Err(e) => self
+                .log
+                .line("WARN", &format!("leftover units ({when}): {e}")),
+        }
+    }
+
+    /// procfix7 round 8b / 9 (gate13 G13-M2): the systemd state of an ENDED attempt's scope, read by its exact unit name
+    /// WHATEVER ended the job (also a kill reason of ours: host step 1's nine killed_memory ends, killed by our sampler
+    /// after the kernel's OOM kill, had FAILED oom-kill scopes that stayed loaded). Read once the attempt is finished
+    /// (its processes proven gone); a unit not yet in a final state is read again for up to [`SCOPE_SETTLE_WAIT`], then
+    /// kept for the exit's last look. A LOADED unit's state is recorded in the ledger (note `scope_result`) BEFORE a
+    /// failed one is reset ([`Self::record_scope_state`]). Classification: a SIGKILL end with NO kill reason of ours whose
+    /// scope failed with result `oom-kill` was killed by the kernel's memory-cgroup OOM killer inside its scope:
+    /// killed_memory, never "lost". Never inside a private namespace. Sends no signal.
+    fn scope_result_class(
+        &mut self,
+        ch: &Child,
+        mut report: crate::launch::FinalReport,
+    ) -> crate::launch::FinalReport {
+        let Some(unit) = ch.handle.requested_scope_unit().map(str::to_string) else {
+            return report;
+        };
+        if crate::launch::systemd_units_unavailable() {
+            return report;
+        }
+        // procfix7 round 14 (host step 3, M3): while the user manager does not answer, the read is DEFERRED to the exit
+        // (host step 3: twelve synchronous 10-s `systemctl show` timeouts blocked the main loop for 120 s)
+        if let Some((_, why)) = self.gate.closed() {
+            self.log.line(
+                "WARN",
+                &format!("{} a{}: the state of scope {unit} is read later (the user manager does not answer: {why})", ch.job, ch.attempt),
+            );
+            self.scope_unsettled
+                .push((ch.job.clone(), ch.attempt, unit));
+            return report;
+        }
+        let st = match read_scope_settled(&unit, SCOPE_SETTLE_WAIT) {
+            Ok(st) => st,
+            Err(e) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{} a{}: the state of scope {unit} could not be read ({e}): classified without it; looked at again at the exit", ch.job, ch.attempt),
+                );
+                self.scope_unsettled
+                    .push((ch.job.clone(), ch.attempt, unit));
+                return report;
+            }
+        };
+        let sigkill = matches!(report.exit, Some(crate::launch::ExitState::Signaled { signal, .. }) if signal == libc::SIGKILL);
+        let oom_ours =
+            sigkill && report.kill_reason.is_none() && st.loaded() && st.result == "oom-kill";
+        if !self.record_scope_state(&ch.job, ch.attempt, &unit, &st, "ended") {
+            self.scope_unsettled
+                .push((ch.job.clone(), ch.attempt, unit.clone()));
+        }
+        if oom_ours {
+            report.kill_reason = Some(KillReason::MemoryCap {
+                rss_bytes: report.peak_rss_bytes.max(ch.peak),
+                cap_bytes: ch.cap,
+            });
+            self.note(format!(
+                "scope_oom_kill {{\"job\":{:?},\"attempt\":{},\"unit\":{unit:?}}}",
+                ch.job, ch.attempt
+            ));
+        }
+        report
+    }
+
+    /// procfix7 round 9 (gate13 G13-M2): a scope state read by its exact name. Not loaded: nothing to do (true). Loaded:
+    /// the state is RECORDED FIRST (note `scope_result`, committed to the ledger), then a FAILED unit is reset by its exact
+    /// name (`systemctl --user reset-failed -- <unit>.scope`); a reset is never attempted when the record could not be
+    /// committed (the evidence would be lost). A loaded unit that is not final yet (active / deactivating) is not
+    /// touched (false: look again later). `when`: "ended" / "at exit".
+    fn record_scope_state(
+        &mut self,
+        job: &str,
+        attempt: u32,
+        unit: &str,
+        st: &crate::launch::ScopeUnitState,
+        when: &str,
+    ) -> bool {
+        if !st.loaded() {
+            return true;
+        }
+        if !st.settled() {
+            self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: scope {unit} is still {} ({when}): not reset; looked at again at the exit", st.active),
+            );
+            return false;
+        }
+        let text = format!(
+            "scope_result {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":\"{unit}.scope\",\"active\":{:?},\"result\":{:?},\"when\":{when:?}}}",
+            st.active, st.result
+        );
+        self.log.line("INFO", &text);
+        if !self.commit(vec![Event::Note { text }]) {
+            self.log.line(
+                "WARN",
+                &format!("{job} a{attempt}: the state of scope {unit} could not be recorded: the unit is NOT reset (left loaded, listed by the operator's checks)"),
+            );
+            return true;
+        }
+        if st.active == "failed" {
+            match crate::launch::scope_reset_failed(unit) {
+                Ok(()) => self.log.line(
+                    "INFO",
+                    &format!("{job} a{attempt}: failed scope {unit}.scope (result {}) reset after its state was recorded", st.result),
+                ),
+                Err(e) => {
+                    self.note(format!(
+                        "scope_reset_error {{\"job\":{job:?},\"attempt\":{attempt},\"unit\":\"{unit}.scope\",\"error\":{e:?}}}"
+                    ));
+                    // round 14 (M4): a failed unit not reset is cleared later by its exact name
+                    self.leftover_add(unit, job, attempt, "failed, reset-failed did not succeed");
+                }
+            }
+        }
+        true
+    }
+
+    /// procfix7 round 9b (gate13b m13b-exit): the scope units of the attempts still listed as children at the exit are
+    /// kept for [`Self::settle_scopes_at_exit`] (the children are dropped before it runs).
+    fn note_exit_scopes(&mut self) {
+        let mut more = Vec::new();
+        for ch in &self.children {
+            if let Some(u) = ch.handle.requested_scope_unit() {
+                more.push((ch.job.clone(), ch.attempt, u.to_string()));
+            }
+        }
+        self.scope_unsettled.extend(more);
+    }
+
+    /// procfix7 round 9 (gate13 G13-M2), round 9b (m13b-exit): at the exit, AFTER the launcher's shutdown and the drop of
+    /// the live jobs, the scopes of this session whose final state was not seen yet (ended attempts kept by
+    /// [`Self::scope_result_class`], and the attempts that were still listed, [`Self::note_exit_scopes`]) are read once
+    /// more by their exact names, recorded, and reset if failed. A scope still active is left alone (its job may run on:
+    /// the restart adopts it). Bound (procfix7 round 10, gate13c m13c-exit-bound): no read STARTS after
+    /// [`SCOPE_EXIT_WAIT`] (10 s); the unit being read when it passes costs at most one more bounded read (10 s) and one
+    /// bounded reset-failed (10 s): the pass takes at most 30 s in the worst case (a user manager that answers nothing);
+    /// units not read by then are named in the log and left as they are.
+    fn settle_scopes_at_exit(&mut self) {
+        if crate::launch::systemd_units_unavailable() {
+            return;
+        }
+        let todo = std::mem::take(&mut self.scope_unsettled);
+        let deadline = Instant::now() + SCOPE_EXIT_WAIT;
+        let mut not_read = Vec::new();
+        for (job, attempt, unit) in todo {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                not_read.push(format!("{job} a{attempt} {unit}.scope"));
+                continue;
+            }
+            match read_scope_settled(&unit, left) {
+                Ok(st) => {
+                    if !self.record_scope_state(&job, attempt, &unit, &st, "at exit") {
+                        self.log.line(
+                            "WARN",
+                            &format!("{job} a{attempt}: scope {unit}.scope still {} at the exit: left alone (leftover list)", st.active),
+                        );
+                        // round 14 (M4): an active unit is cleared later by its exact name (stopped only when empty)
+                        self.leftover_add(&unit, &job, attempt, "still active at the exit");
+                    }
+                }
+                Err(e) => {
+                    self.log.line(
+                        "WARN",
+                        &format!("{job} a{attempt}: the state of scope {unit}.scope could not be read at the exit ({e}): left as it is (leftover list)"),
+                    );
+                    self.leftover_add(&unit, &job, attempt, "state not readable at the exit");
+                }
+            }
+        }
+        for n in &not_read {
+            // round 14 (M4): "<job> a<k> <unit>.scope"
+            let mut it = n.split(' ');
+            if let (Some(job), Some(a), Some(u)) = (it.next(), it.next(), it.next())
+                && let Ok(attempt) = a.trim_start_matches('a').parse::<u32>()
+            {
+                let unit = u.trim_end_matches(".scope").to_string();
+                self.leftover_add(&unit, job, attempt, "not read at the exit");
+            }
+        }
+        // round 14 (M4): the leftover list, cleared by exact names when the manager answers
+        if self.gate.closed().is_none() && self.gate.answers() != Some(false) {
+            self.clear_leftovers("at exit");
+        }
+        if !not_read.is_empty() {
+            self.log.line(
+                "WARN",
+                &format!(
+                    "{} scope(s) not read at the exit within {} s (left as they are): {}",
+                    not_read.len(),
+                    SCOPE_EXIT_WAIT.as_secs(),
+                    not_read.join(", ")
+                ),
+            );
+        }
+    }
+
     fn note_containment(
         &mut self,
         job: &str,
@@ -2392,8 +3940,13 @@ impl Supervisor {
         requested: Option<&str>,
     ) {
         use crate::launch::Containment;
+        // procfix7 round 7 (gate11 m11-rec-path): the verified scope's cgroup directory, for the restart backstop
+        let path = match c {
+            Containment::Scope(_, p) => Some(p.display().to_string()),
+            _ => None,
+        };
         let (word, why) = match c {
-            Containment::Scope(_) => (
+            Containment::Scope(..) => (
                 c.word(),
                 "verified: the job leader's cgroup is this scope".to_string(),
             ),
@@ -2416,9 +3969,10 @@ impl Supervisor {
             level,
             &format!("{job} a{attempt}: containment {word} ({why})"),
         );
+        let path_field = path.map(|p| format!(",\"path\":{p:?}")).unwrap_or_default();
         self.commit(vec![Event::Note {
             text: format!(
-                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{word:?},\"why\":{why:?}}}"
+                "job_containment {{\"job\":{job:?},\"attempt\":{attempt},\"containment\":{word:?},\"why\":{why:?}{path_field}}}"
             ),
         }]);
     }
@@ -2463,10 +4017,16 @@ impl Supervisor {
             );
         }
         if crate::launch::intent_disk_full() && self.ledger_dead.is_none() {
-            self.log.line(
-                "ERROR",
-                "the signal intent log cannot be written (disk full): no signal can be sent; stopping with exit 75 (DISK FULL); free space, then run the same command (its recovery sweep stops what is left)",
-            );
+            match crate::launch::intent_on_fallback() {
+                Some(p) => self.log.line(
+                    "ERROR",
+                    &format!("the signal intent log of the campaign directory cannot be written (disk full): intents go to the tmpfs fallback {} and signals are still sent; stopping with exit 75 (DISK FULL); free space, then run the same command", p.display()),
+                ),
+                None => self.log.line(
+                    "ERROR",
+                    "the signal intent log cannot be written (disk full): no signal can be sent; stopping with exit 75 (DISK FULL); free space, then run the same command (its recovery sweep stops what is left)",
+                ),
+            }
             if !fresh.is_empty() {
                 let pids: Vec<u32> = fresh.iter().map(|n| n.pid).collect();
                 self.commit(vec![Event::Note {
@@ -2566,7 +4126,22 @@ impl Supervisor {
                 Some(_) => changed.push(name.clone()),
                 None => {}
             }
-            let bytes = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+            // procfix7 round 5: the recorded size is a fact: a binary that cannot be checked stops typed (never 0)
+            let bytes = match crate::fsx::presence("real.program", path) {
+                crate::fsx::Presence::Present(m) => m.len(),
+                crate::fsx::Presence::Absent => {
+                    return Err(RunExit::Refused(format!(
+                        "program {} vanished after its digest was taken",
+                        path.display()
+                    )));
+                }
+                crate::fsx::Presence::Unknown(e) => {
+                    return Err(RunExit::Internal(format!(
+                        "program {} cannot be checked ({e})",
+                        path.display()
+                    )));
+                }
+            };
             ev.push(Event::InputRegistered {
                 input: id,
                 role: "binary".into(),
@@ -2634,6 +4209,64 @@ impl Supervisor {
         // The supervisor's own kill reason K is an input of the decision table: a child stopped for time, silence or
         // memory that still writes an `interrupted` OUTCOME is killed_time / killed_memory there (rows 11b / 11c).
         // lane closeloop2 (closeloop.md 13.1): the legacy rr_proof kinds are sealed by the wrapper before classification
+        // procfix7 (gate6 MJ-B): nothing is read from a run directory that is not this campaign's: the attempt is lost
+        // (its work redone in a directory of our own) and the run ends with the typed refusal. A removed / replaced
+        // campaign directory is checked first: it keeps its own typed end (exit 70) and nothing is recorded here.
+        let owner = workdir::run_dir_owner(&layout.root, &self.ctx.campaign_key);
+        // procfix7 (gate7 B1): a resource limit while reading the identity: the settle waits (never a verdict)
+        if let workdir::RunDirOwner::Unreadable(errno, what) = &owner {
+            return SettleEnd::Deferred {
+                errno: *errno,
+                what: format!("reading the identity of {}: {what}", layout.root.display()),
+            };
+        }
+        if owner != workdir::RunDirOwner::Ours
+            && let Err(e) = self.dirs_intact()
+        {
+            self.dirs_gone(e);
+            return SettleEnd::Done;
+        }
+        // procfix7 (gate7 m-rm): a recorded run directory of ours that LOST its identity was damaged or is being removed
+        // (with its campaign / work directory): the typed end of a damaged campaign directory (70), deterministically
+        if let workdir::RunDirOwner::Unknown(why) = &owner {
+            self.dirs_gone(format!(
+                "the run directory {} of {job} a{attempt} lost its identity ({why}): the campaign or work directory was damaged or is being removed",
+                layout.root.display()
+            ));
+            return SettleEnd::Done;
+        }
+        if owner != workdir::RunDirOwner::Ours {
+            let still = self
+                .st()
+                .jobs
+                .get(job)
+                .is_some_and(|j| j.attempt == attempt && !j.state.is_settled());
+            if still && self.st().jobs.get(job).map(|j| j.state) != Some(AttemptState::Unconfirmed)
+            {
+                self.commit(vec![
+                    Event::Job {
+                        job: job.into(),
+                        attempt,
+                        ev: JobEvent::Lose {
+                            reason: "run directory is not this campaign's at settle: nothing read"
+                                .into(),
+                        },
+                    },
+                    Event::Job {
+                        job: job.into(),
+                        attempt: attempt + 1,
+                        ev: JobEvent::Requeue {
+                            reason: "lost (run directory not this campaign's)".into(),
+                        },
+                    },
+                ]);
+            }
+            self.refuse_run_dir(
+                &layout.root,
+                "its identity is not this campaign's at settle",
+            );
+            return SettleEnd::Done;
+        }
         let wait = crate::adapters::legacy::wrap(layout, spec, spec_digest, wait);
         let ev = classify::assess(layout, spec, spec_digest, wait, kill, false);
         // gate (c), lane int5: the SUPERVISOR's own resource failure while reading the attempt's files (EMFILE, ENFILE,
@@ -2643,11 +4276,48 @@ impl Supervisor {
             return SettleEnd::Deferred { errno, what };
         }
         let c = classify::classify(&ev);
+        // procfix7 (gate6 m2-a): the spawn-barrier shim REFUSED the release (garbage or nothing on its pipe: another
+        // process of the uid wrote into it or took the token): the program never ran. A typed attempt end (row 15s:
+        // retried after the launch back-off, bounded by the resource-end rule), never a crash count.
+        let c = match barrier_refused(report.and_then(|r| r.barrier_refused.as_deref()), &ev) {
+            Some(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: the spawn barrier refused its release ({why}): the program never ran; retried (row 15s), not a crash (was row {}{})", c.row, c.sub),
+                );
+                barrier_refused_classification(&c, why)
+            }
+            None => c,
+        };
+        // procfix7 round 14 (host step 3, M2): the launcher ended while waiting for the user manager: the program never
+        // ran (row 15m: lost, retried after the back-off), never a crash count
+        let c = match self.never_ran.remove(&(job.to_string(), attempt)) {
+            Some(why) => {
+                self.log.line(
+                    "WARN",
+                    &format!("{job} a{attempt}: {why}: the program never ran; retried (row 15m), not a crash (was row {}{})", c.row, c.sub),
+                );
+                classify::Classification {
+                    sub: "m".into(),
+                    why: format!(
+                        "{why}; the program never ran (classified row {}{}: {})",
+                        c.row, c.sub, c.why
+                    ),
+                    ..resource_classification(&c, String::new())
+                }
+            }
+            None => c,
+        };
         // procfix6 (gate5 m4): a death attributable to the HOST's disk state (SIGXFSZ, an OUTCOME naming EFBIG, or no /
         // a torn OUTCOME while the run directory's or the campaign directory's file system is full at settle time) is a
         // resource end of the attempt (row 15b: retried after a back-off, then attention `child_resource_failure`),
         // never a crash count.
-        let c = match disk_attributed_end(&ev, &c, &[layout.root.as_path(), self.cdir.as_path()]) {
+        let c = match disk_attributed_end(
+            &ev,
+            &c,
+            &[layout.root.as_path(), self.cdir.as_path()],
+            own_file_size_limit(),
+        ) {
             Some(why) => {
                 self.log.line(
                     "WARN",
@@ -2901,6 +4571,8 @@ impl Supervisor {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the write below reports its own error (disk full -> exit 75)
                 let _ = std::fs::create_dir_all(d);
             }
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
@@ -3006,6 +4678,212 @@ impl Supervisor {
         }
     }
 
+    /// procfix7 (gate6 MJ-B): create `run_dir` with this campaign's identity. An existing directory that is ours (a crash
+    /// between its creation and the launch record) is moved aside first; one that is not ours stops the run (exit 1).
+    fn create_own_run_dir(
+        &mut self,
+        run_dir: &Path,
+        job: &str,
+        attempt: u32,
+    ) -> Result<(), String> {
+        // A removed / replaced campaign directory is never re-created here: its own typed end (exit 70).
+        if let Err(e) = self.dirs_intact() {
+            self.dirs_gone(e.clone());
+            return Err(e);
+        }
+        let key = self.ctx.campaign_key.clone();
+        for _ in 0..2 {
+            // procfix7 (gate7 m-nr): test builds: `run_dir_noreplace:<n>` = a file system without RENAME_NOREPLACE
+            let made = if self.fp.reached("run_dir_noreplace") {
+                Err(workdir::CreateError::Io(std::io::Error::from_raw_os_error(
+                    libc::EINVAL,
+                )))
+            } else {
+                workdir::create_run_dir(run_dir, &key)
+            };
+            match made {
+                Ok(()) => {
+                    self.run_dir_failures = 0;
+                    return Ok(());
+                }
+                Err(workdir::CreateError::Exists) => match workdir::run_dir_owner(run_dir, &key) {
+                    workdir::RunDirOwner::Ours => {
+                        let aside = run_dir.with_file_name(format!(
+                            "{}.unrecorded-{}",
+                            run_dir
+                                .file_name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|| format!("a{attempt}")),
+                            self.clock.now_utc().0
+                        ));
+                        self.log.line(
+                            "WARN",
+                            &format!("{job} a{attempt}: run directory {} of this campaign was never recorded (crash before the launch record): moved aside to {}", run_dir.display(), aside.display()),
+                        );
+                        // procfix7 round 5: a move aside never overwrites (RENAME_NOREPLACE)
+                        crate::fsx::rename_noreplace(run_dir, &aside)
+                            .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
+                    }
+                    workdir::RunDirOwner::Other(id) => {
+                        self.refuse_run_dir(run_dir, &format!("it belongs to campaign {id:?}"));
+                        return Err(format!(
+                            "run directory {} belongs to campaign {id:?}",
+                            run_dir.display()
+                        ));
+                    }
+                    // procfix7 (gate7 B1): a resource limit while reading the identity: back off, never a refusal
+                    workdir::RunDirOwner::Unreadable(c, why) => {
+                        self.resource_failure(c, &format!("reading {}: {why}", run_dir.display()));
+                        return Err(format!("{}: {why}", run_dir.display()));
+                    }
+                    workdir::RunDirOwner::Unknown(why) => {
+                        // procfix7 (gate7 m-rm): a vanishing campaign / work directory is its own typed end (70)
+                        if let Err(e) = self.dirs_intact() {
+                            self.dirs_gone(e.clone());
+                            return Err(e);
+                        }
+                        if !workdir::is_external(&self.work_root, &self.cdir) {
+                            // inside THIS campaign directory nothing but this campaign creates run directories (an
+                            // older binary wrote the identity after job.json): ours, moved aside below
+                            self.log.line(
+                                "WARN",
+                                &format!("{job} a{attempt}: run directory {} without an identity inside this campaign directory ({why}): treated as this campaign's", run_dir.display()),
+                            );
+                            let aside = run_dir.with_file_name(format!(
+                                "{}.unrecorded-{}",
+                                run_dir
+                                    .file_name()
+                                    .map(|n| n.to_string_lossy().into_owned())
+                                    .unwrap_or_else(|| format!("a{attempt}")),
+                                self.clock.now_utc().0
+                            ));
+                            crate::fsx::rename_noreplace(run_dir, &aside)
+                                .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
+                            continue;
+                        }
+                        self.refuse_unidentified_run_dir(run_dir, &why);
+                        return Err(format!(
+                            "run directory {} carries no campaign identity",
+                            run_dir.display()
+                        ));
+                    }
+                },
+                Err(workdir::CreateError::Io(e)) => {
+                    if let Some(c) = io_resource_errno(&e) {
+                        self.resource_failure(c, &format!("creating {}: {e}", run_dir.display()));
+                        return Err(format!("creating {}: {e}", run_dir.display()));
+                    }
+                    // procfix7 (gate7 m-rm): ENOENT after the parent was made = a directory removed under us (the
+                    // campaign or work directory is being removed): the typed end of a damaged campaign directory (70)
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        if !self.dirs_vanishing() {
+                            self.dirs_gone(format!(
+                                "creating the run directory {}: {e}: a directory was removed while it was created (the campaign or work directory is being removed?)",
+                                run_dir.display()
+                            ));
+                        }
+                        return Err(format!("creating {}: {e}", run_dir.display()));
+                    }
+                    // procfix7 (gate7 m-nr): a run directory that cannot be created (e.g. a file system without
+                    // RENAME_NOREPLACE) stops the run after a bounded number of tries in a row, never retried forever
+                    self.run_dir_failures += 1;
+                    if self.run_dir_failures >= MAX_RUN_DIR_FAILURES
+                        && self.refusal_stop.is_none()
+                        && !self.dirs_vanishing()
+                    {
+                        let msg = format!(
+                            "run directories cannot be created in {} ({} tries in a row; last: {e}): the work directory must be on a local file system with renameat2 RENAME_NOREPLACE; fix that, then run the same command",
+                            self.work_root.display(),
+                            self.run_dir_failures
+                        );
+                        self.log.line("ERROR", &msg);
+                        self.refusal_stop = Some(msg);
+                        if self.signals.handle.level() == StopLevel::Running {
+                            self.signals.handle.request_stop();
+                        }
+                    }
+                    return Err(format!("creating {}: {e}", run_dir.display()));
+                }
+            }
+        }
+        Err(format!(
+            "run directory {} reappeared after it was moved aside",
+            run_dir.display()
+        ))
+    }
+
+    /// procfix7 (gate6 MJ-B): a run directory that is not this campaign's: never renamed, removed or read; the run drains
+    /// and ends with the typed refusal (exit 1) naming it (ledger note `run_dir_not_ours`).
+    fn refuse_run_dir(&mut self, run_dir: &Path, why: &str) {
+        // procfix7 (gate7 m-rm): a vanishing campaign / work directory is its own typed end (70), never a refusal
+        if self.dirs_vanishing() {
+            return;
+        }
+        let msg = format!(
+            "run directory {} is not this campaign's ({why}): it was not renamed, removed or read. Another campaign shares              this work directory (a copied campaign directory with the same dirs.work_dir?): give each campaign its own              work_dir, then run the same command",
+            run_dir.display()
+        );
+        self.log.line("ERROR", &msg);
+        self.commit(vec![Event::Note {
+            text: format!(
+                "run_dir_not_ours {{\"run_dir\":{:?},\"why\":{why:?}}}",
+                run_dir.display().to_string()
+            ),
+        }]);
+        // ONE stop request (repeated requests would escalate to a forced stop and an immediate exit)
+        if self.refusal_stop.is_none() {
+            self.refusal_stop = Some(msg);
+            if self.signals.handle.level() == StopLevel::Running {
+                self.signals.handle.request_stop();
+            }
+        }
+    }
+
+    /// procfix7 (gate7 m-rw / m-rm): an unidentified directory (no RUN/sup/CAMPAIGN) in the way under an EXTERNAL work
+    /// directory whose claim is intact: never renamed, removed or read; exit 1 with a TRUE message (not "another campaign").
+    fn refuse_unidentified_run_dir(&mut self, run_dir: &Path, why: &str) {
+        if self.dirs_vanishing() {
+            return;
+        }
+        let msg = format!(
+            "run directory {} carries no campaign identity ({why}): made by hand, by an older binary or damaged; it was not renamed, removed or read; check it, remove it, then run the same command",
+            run_dir.display()
+        );
+        self.log.line("ERROR", &msg);
+        self.commit(vec![Event::Note {
+            text: format!(
+                "run_dir_unidentified {{\"run_dir\":{:?},\"why\":{why:?}}}",
+                run_dir.display().to_string()
+            ),
+        }]);
+        if self.refusal_stop.is_none() {
+            self.refusal_stop = Some(msg);
+            if self.signals.handle.level() == StopLevel::Running {
+                self.signals.handle.request_stop();
+            }
+        }
+    }
+
+    /// procfix7 (gate7 m-rm): checks the directories NOW; true (and the typed end 70 armed) when they are not intact.
+    fn dirs_vanishing(&mut self) -> bool {
+        match self.dirs_intact() {
+            Ok(()) => false,
+            Err(e) => {
+                self.dirs_gone(e);
+                true
+            }
+        }
+    }
+
+    /// The campaign directory (or its ledger directory / lock) was removed or replaced: the existing typed end (exit 70,
+    /// as `check_dirs`), never a verdict about a run directory.
+    fn dirs_gone(&mut self, e: String) {
+        if self.ledger_dead.is_none() {
+            self.log.line("ERROR", &format!("{e}; stopping (exit 70)"));
+            self.ledger_dead = Some(RunExit::Internal(e));
+        }
+    }
+
     fn launch(&mut self, req: &JobRequest, lease: CpuLease) -> Result<(), String> {
         let existing = self.st().jobs.get(&req.job).cloned();
         let attempt = match &existing {
@@ -3019,19 +4897,17 @@ impl Supervisor {
             .cloned()
             .ok_or_else(|| format!("program {} not in the spec", req.program))?;
         let run_dir = attempt_dir(&self.work_root.clone(), &req.job, attempt);
-        if run_dir.exists() {
-            // Left by a crash between job.json and the launch record: never recorded, move it aside.
-            let aside =
-                run_dir.with_file_name(format!("a{attempt}.unrecorded-{}", self.clock.now_utc().0));
-            std::fs::rename(&run_dir, &aside)
-                .map_err(|e| format!("move aside {}: {e}", run_dir.display()))?;
-        }
+        // procfix7 (gate6 MJ-B): the run directory is created WITH this campaign's identity (RUN/sup/CAMPAIGN) in one
+        // atomic step; an existing one is moved aside only when it is ours (left by a crash between its creation and
+        // the launch record); another campaign's (or an unidentified) directory is never renamed, removed or read.
+        self.create_own_run_dir(&run_dir, &req.job, attempt)?;
         let resume = if attempt > 1 {
             let prev_spec = existing.as_ref().and_then(|j| j.prev_attempt_spec.clone());
-            resume_from(
-                &attempt_dir(&self.work_root.clone(), &req.job, attempt - 1),
-                prev_spec.as_deref(),
-            )
+            let prev = attempt_dir(&self.work_root.clone(), &req.job, attempt - 1);
+            // never read from a previous run directory that is not this campaign's
+            (workdir::run_dir_owner(&prev, &self.ctx.campaign_key) == workdir::RunDirOwner::Ours)
+                .then(|| resume_from(&prev, prev_spec.as_deref()))
+                .flatten()
         } else {
             None
         };
@@ -3061,15 +4937,28 @@ impl Supervisor {
                 return Err(format!("run dir: {e}"));
             }
         };
-        // Run directory authentication at recovery (requirement 05:23Z): the campaign's marker id, before the launch record.
-        if let Err(e) = crate::atomic::write_atomic(
-            &RunLayout::new(&run_dir).sup_dir().join(CAMPAIGN_ID_FILE),
-            format!("{}\n", self.ctx.campaign_key).as_bytes(),
-        ) {
-            if let Some(c) = io_resource_errno(&std::io::Error::other(e.to_string())) {
-                self.resource_failure(c, "writing RUN/sup/CAMPAIGN");
+        // Run directory authentication at recovery (requirement 05:23Z): the campaign's marker id was written when the
+        // directory was created (procfix7, before the launch record); it must still be ours.
+        match workdir::run_dir_owner(&run_dir, &self.ctx.campaign_key) {
+            workdir::RunDirOwner::Ours => {}
+            workdir::RunDirOwner::Unreadable(c, why) => {
+                self.resource_failure(c, &format!("reading {}: {why}", run_dir.display()));
+                return Err(format!("{}: {why}", run_dir.display()));
             }
-            return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE}: {e}"));
+            // procfix7 (gate7 m-rm): the directory made just now lost its identity: removed under us (70), deterministically
+            workdir::RunDirOwner::Unknown(why) => {
+                if !self.dirs_vanishing() {
+                    self.dirs_gone(format!(
+                        "the run directory {} made just now lost its identity ({why}): the campaign or work directory was damaged or is being removed",
+                        run_dir.display()
+                    ));
+                }
+                return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} vanished: {why}"));
+            }
+            workdir::RunDirOwner::Other(_) => {
+                self.refuse_run_dir(&run_dir, "its identity changed after it was created");
+                return Err(format!("RUN/sup/{CAMPAIGN_ID_FILE} is not this campaign's"));
+            }
         }
         // lane closeloop (closeloop.md 6.3): `<path> <verb> --job RUN/job.json` for a program with a job verb
         if kind == AdapterKind::Contract
@@ -3151,12 +5040,21 @@ impl Supervisor {
                 // The digest of job.json as written: the ONE record of it (no side file); OUTCOME / RESUME and the
                 // `job.finished` binding are checked against it.
                 spec_blake3: spec_digest.clone(),
-                scope_unit: ls.scope_unit.clone(),
+                // procfix7 round 6 (gate10 mutation M6): test builds: `record_scope_unit:1` RECORDS a scope unit name for
+                // a launch that requested none (the launch itself is unchanged: no systemd, no scope), so that a test in
+                // a namespace can pin the recovery's scope backstop under an unknown namespace (M9-1). Release: never.
+                scope_unit: ls.scope_unit.clone().or_else(|| {
+                    self.fp
+                        .armed("record_scope_unit")
+                        .then(|| crate::launch::scope_unit_name(&self.ctx.campaign_key, &ls.label))
+                }),
             },
         });
         if !self.commit(events) {
             return Err("ledger unavailable".into());
         }
+        // M10-1: an attempt of THIS session (its processes stay in this child subreaper's tree)
+        self.launched_here.insert(ls.label.clone());
         self.fp.hit("after_launch_record");
         // procfix5 (gate4 m1): the child waits behind the spawn barrier until `job.started` is durable (below).
         ls.spawn_barrier = crate::cli::barrier_hosted() && !self.fp.armed("no_spawn_barrier");
@@ -3234,6 +5132,10 @@ impl Supervisor {
         }]);
         // procfix5 (gate4 m1): only now (the spawn is in the ledger) may the child run its program.
         if recorded {
+            // procfix7: test builds only: hold the release (`release_delay_ms:<ms>`) so a test can reach the shim's pipe.
+            if let Some(ms) = self.fp.number("release_delay_ms") {
+                std::thread::sleep(Duration::from_millis(ms));
+            }
             if let Err(e) = handle.release_barrier() {
                 self.log.line(
                     "WARN",
@@ -3269,6 +5171,9 @@ impl Supervisor {
             last_event_utc: None,
             budget_s,
             containment_noted: false,
+            poll_failures: 0,
+            pending_since: None,
+            verify_from: Instant::now(),
         });
         Ok(())
     }
@@ -3285,6 +5190,8 @@ impl Supervisor {
     fn poll_children(&mut self) {
         let mut finished = Vec::new();
         let mut contain = Vec::new();
+        let mut scope_words: Vec<(String, u32, ScopeEnd)> = Vec::new();
+        let mut poll_dead: Vec<String> = Vec::new();
         let stopping_grace = Duration::from_secs(self.opts.spec.resources.grace_seconds + 5);
         let start_timeout = Duration::from_secs(self.opts.spec.resources.start_timeout_s);
         let now_iso = self.clock.now_utc().to_iso();
@@ -3320,27 +5227,105 @@ impl Supervisor {
                     );
                 }
             }
+            // test builds: `poll_fails:1` makes every poll fail (EIO) (gate10 m10-5's every-waitid-failing cell)
+            let polled = if self.fp.armed("poll_fails") {
+                Err(std::io::Error::from_raw_os_error(libc::EIO))
+            } else {
+                ch.handle.poll()
+            };
             // procfix6 (gate5 m5): the containment actually in force, once verified (or after 10 s / at the end).
-            if !ch.containment_noted {
+            // procfix7 round 9 (gate13 m13-alive-order): checked AFTER this tick's poll, so that a leader that exited
+            // before the tick is seen as exited (its end is recorded from the evidence, never as "alive"); an attempt
+            // that finished in this poll is noted by the finished path below.
+            let finished_now = matches!(polled, Ok(ChildProgress::Finished(_)));
+            if !ch.containment_noted && !finished_now {
                 let c = ch.handle.containment();
-                if c != crate::launch::Containment::Pending
-                    || ch.launched_at.elapsed() > Duration::from_secs(10)
-                {
+                // procfix7 round 14 (host step 3, M2): a scope launch whose launcher is still waiting for the user manager
+                // (kernel: the leader's exe is the launcher, then its cgroup is the supervisor's own) is PENDING: the job
+                // program has not started; it is never killed by the 10-s rule and never counted; the 10-s window starts
+                // when it stops being pending (the scope's creation follows that moment)
+                if c == crate::launch::Containment::Pending {
+                    match ch.handle.launch_state() {
+                        crate::launch::LaunchState::Pending => {
+                            ch.pending_since.get_or_insert_with(Instant::now);
+                            ch.verify_from = Instant::now();
+                        }
+                        // round 15 (gate16 m16-pending-exit-race): the launcher ended between this tick's poll and the
+                        // look: the previous look's evidence stands (pending_since and the 10-s window unchanged); the
+                        // next poll sees the end and classifies it from the kernel's record of its exit cgroup. Round 16
+                        // (gate17 m17-gone-sticky): Gone only when the whole thread group ended; a live process whose
+                        // leader thread ended is Unverified (the arm below: the 10-s rule applies)
+                        crate::launch::LaunchState::Gone => {}
+                        _ => ch.pending_since = None,
+                    }
+                }
+                if c != crate::launch::Containment::Pending {
                     ch.containment_noted = true;
+                    ch.pending_since = None;
                     let req = ch.handle.requested_scope_unit().map(str::to_string);
                     contain.push((ch.job.clone(), ch.attempt, c, req));
+                } else if ch.pending_since.is_none()
+                    && ch.verify_from.elapsed() > SCOPE_VERIFY_BOUND
+                {
+                    // procfix7 round 8b (host step 1): a requested scope that is not verified is NEVER run under
+                    // marker_only: a live job is ended at once (SIGKILL through its pinned group and its marked
+                    // processes) and requeued (bounded); a job already dead is recorded from the evidence
+                    ch.containment_noted = true;
+                    let req = ch.handle.requested_scope_unit().map(str::to_string);
+                    let alive = !ch.handle.leader_exited();
+                    let end = scope_end(
+                        &ch.layout.stderr_log(),
+                        req.as_deref(),
+                        alive,
+                        ch.handle.scope_at_exit(),
+                    );
+                    if alive {
+                        ch.stopping = true;
+                        ch.handle
+                            .kill_now(KillReason::Other("its scope could not be verified".into()));
+                    }
+                    scope_words.push((ch.job.clone(), ch.attempt, end));
                 }
             }
-            match ch.handle.poll() {
-                Ok(ChildProgress::Finished(r)) => finished.push((idx, r)),
-                Ok(_) => {}
+            match polled {
+                Ok(ChildProgress::Finished(r)) => {
+                    ch.poll_failures = 0;
+                    finished.push((idx, r))
+                }
+                Ok(_) => ch.poll_failures = 0,
                 Err(e) => {
+                    ch.poll_failures += 1;
+                    #[allow(clippy::let_underscore_must_use)]
+                    // ignored-ok (procfix7): a trace line on stderr (diagnostics only)
                     let _ = writeln!(std::io::stderr(), "poll {}: {e}", ch.job);
+                    // procfix7 round 6 (gate10 m10-5): a child that cannot be polled for a long run (every waitid / pidfd
+                    // read failing) is a typed end, never an endless loop of failures
+                    if ch.poll_failures == MAX_POLL_FAILURES {
+                        poll_dead.push(format!(
+                            "{} a{}: {MAX_POLL_FAILURES} consecutive failed polls of the child (last: {e}): the supervisor cannot observe its job; stopping (exit 70); run the same command (its recovery decides the attempt)",
+                            ch.job, ch.attempt
+                        ));
+                    }
                 }
             }
         }
         for (job, attempt, c, req) in contain {
+            if matches!(c, crate::launch::Containment::Scope(..)) {
+                self.scope_unverified.remove(&job);
+            }
             self.note_containment(&job, attempt, &c, req.as_deref());
+        }
+        for (job, attempt, end) in scope_words {
+            self.note_scope_end(&job, attempt, &end);
+        }
+        for msg in poll_dead {
+            self.note(format!("poll_failures {{\"message\":{msg:?}}}"));
+            // procfix7 round 15 (gate16 m16-poll-stop): a STOP DECISION (exit 70 as before), no longer a dead ledger:
+            // the drain's and the exit's signals are recorded before they are sent while the ledger is writable (round
+            // 14 M1's rule); the ledger's own failures keep theirs
+            self.log.line("ERROR", &msg);
+            self.decide_stop(RunExit::Internal(msg));
+            self.signals.handle.request_stop();
         }
         for (idx, report) in finished.into_iter().rev() {
             let mut ch = self.children.remove(idx);
@@ -3348,9 +5333,64 @@ impl Supervisor {
                 ch.containment_noted = true;
                 let c = ch.handle.containment();
                 let req = ch.handle.requested_scope_unit().map(str::to_string);
-                self.note_containment(&ch.job, ch.attempt, &c, req.as_deref());
+                if c == crate::launch::Containment::Pending
+                    && ch.pending_since.is_some()
+                    && (ch.handle.exited_in_own_cgroup()
+                        || crate::launch::test_manager_stall().is_some())
+                {
+                    // procfix7 round 14 (M2): the launcher ENDED WHILE PENDING and never left the supervisor's cgroup
+                    // (the kernel's record at its exit): the job program never ran (systemd-run gives up on its own after
+                    // its D-Bus timeout during a manager stall). Settled as "never ran" (row 15m: retried after the
+                    // back-off, never a crash count); counted toward the scope limit only when the manager ANSWERED
+                    // (then systemd-run failed for another reason); while it does not answer, the unit goes on the
+                    // leftover list (the manager may still serve the queued request later)
+                    let gate = self.gate.closed().map(|(_, w)| w.clone());
+                    let unit = req.clone().unwrap_or_default();
+                    let end = ScopeEnd {
+                        word: "scope_launcher_ended_pending",
+                        why: format!(
+                            "the launcher ended while waiting for the user manager (its exit record names the supervisor's own cgroup: the job never ran); {}",
+                            match &gate {
+                                Some(w) => format!(
+                                    "the manager does not answer ({w}): not counted; unit {unit}.scope listed as a leftover"
+                                ),
+                                None =>
+                                    "the manager answers: counted toward the scope limit".into(),
+                            }
+                        ),
+                        unverified: gate.is_none(),
+                    };
+                    self.note_scope_end(&ch.job, ch.attempt, &end);
+                    if gate.is_some() && !unit.is_empty() {
+                        self.leftover_add(
+                            &unit,
+                            &ch.job,
+                            ch.attempt,
+                            "launcher ended while pending (manager not answering)",
+                        );
+                    }
+                    self.never_ran.insert(
+                        (ch.job.clone(), ch.attempt),
+                        "its launcher ended while waiting for the user manager".into(),
+                    );
+                } else if c == crate::launch::Containment::Pending {
+                    // procfix7 round 8b: ended before its scope was verified: recorded from the evidence, never
+                    // marker_only
+                    let end = scope_end(
+                        &ch.layout.stderr_log(),
+                        req.as_deref(),
+                        false,
+                        ch.handle.scope_at_exit(),
+                    );
+                    self.note_scope_end(&ch.job, ch.attempt, &end);
+                } else {
+                    self.note_containment(&ch.job, ch.attempt, &c, req.as_deref());
+                }
             }
+            let report = self.scope_result_class(&ch, report);
             let marker = format!("{}:a{}", ch.job, ch.attempt);
+            // round 17: the end-of-job proof's wait, for the exit's summary
+            self.proofs.add(&marker, &report);
             // Leftovers the process layer already killed through its verified path (helpers that outlived the job).
             for l in &report.leftovers_killed {
                 self.orphan_killed(
@@ -3407,6 +5447,8 @@ impl Supervisor {
                 cores: ch.cores,
                 seq: ch.seq,
             });
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): not an error: a field read
             let _ = &ch.item;
         }
         self.drive_pending();
@@ -3464,6 +5506,7 @@ impl Supervisor {
                 );
             }
             self.note_stop_holds(&report, "end-of-job sweep");
+            self.note_vanished(&report, &format!("end-of-job sweep of {label}"));
             if report.empty() {
                 self.survivors.remove(&label);
                 let p = self.pending.remove(i);
@@ -3526,20 +5569,9 @@ impl Supervisor {
         }
         if let Some(l) = p.lease.take() {
             // Released after the settle above has been committed.
-            let lease_after = l;
-            let (r, held) = lease_after.release_checked();
-            let mut notes: Vec<String> = Vec::new();
-            if let Err(e) = r {
-                notes.push(format!("release: {e}"));
-            }
-            for h in held {
-                notes.push(format!(
-                    "CPU {} still held after release by {:?} (unmarked survivor? not signalled; its claim stays in the ledger)",
-                    h.cpu, h.holders
-                ));
-            }
-            if !notes.is_empty() {
-                self.note(format!("lease {label}: {}", notes.join("; ")));
+            let n = release_lease_noted(l);
+            if !n.is_empty() {
+                self.note(format!("lease {label}: {n}"));
             }
         }
     }
@@ -3580,6 +5612,7 @@ impl Supervisor {
                         }
                         self.note_stop_holds(&r, "periodic sweep");
                         self.note_survivors(&r, "periodic sweep");
+                        self.note_vanished(&r, "periodic sweep");
                     }
                 }
             }
@@ -3631,7 +5664,14 @@ impl Supervisor {
             .unwrap_or_else(orphans::own_start_ticks);
         let mut last = None;
         for _ in 0..3 {
-            let mut r = orphans::sweep(&rules, None, Duration::from_secs(10));
+            // procfix7 round 6: seeded with the ledger's recorded pids and every still-open vanished one (M10-1)
+            let seeds: Vec<(u32, Option<u64>)> = self
+                .recorded_pids
+                .iter()
+                .copied()
+                .chain(self.vanished_open.iter().map(|(p, (s, _, _))| (*p, *s)))
+                .collect();
+            let mut r = orphans::sweep_seeded(&rules, None, &seeds, Duration::from_secs(10));
             if self.fp.armed("final_sweep_fails") {
                 r.proven = false;
                 r.reason = Some("TEST BUILD hook final_sweep_fails".into());
@@ -3639,10 +5679,36 @@ impl Supervisor {
             for k in &r.killed {
                 self.orphan_killed(&k.attempt_id, k.pid, k.start_ticks, "final sweep");
             }
+            self.note_vanished(&r, "final sweep");
             self.note_stop_holds(&r, "final sweep");
             self.record_deliveries();
             if r.empty() {
-                return self.hidden_descendants_check();
+                self.hidden_descendants_check()?;
+                let atomic = self.own_tree_check()?;
+                // gate10 m10-9: without the kernel's wait answer (not a child subreaper) the end is not claimed
+                if !atomic {
+                    self.end_unproven.push(
+                        "the supervisor is not a child subreaper: no atomic proof that no descendant of its jobs remains (the /proc sweeps alone cannot prove it: RUNBOOK 2.7)".to_string(),
+                    );
+                }
+                // M10-1: open vanished pids are resolved only by an atomic proof covering their successors
+                self.resolve_vanished(atomic);
+                let open = self.vanished_open.clone();
+                self.vanished_check(&open)?;
+                self.end_unproven_check()?;
+                self.log.line(
+                    "INFO",
+                    &format!(
+                        "final marker sweep: {}; {}",
+                        crate::launch::sweep::proof_words(crate::launch::sweep::PROOF_SCANS),
+                        if atomic {
+                            "no descendant of this supervisor remains (the kernel's wait answer ECHILD: atomic)"
+                        } else {
+                            "the supervisor is not a child subreaper: its own tree has no atomic proof either"
+                        }
+                    ),
+                );
+                return Ok(());
             }
             last = Some(r);
         }
@@ -3653,13 +5719,168 @@ impl Supervisor {
             .reason
             .clone()
             .unwrap_or_else(|| "marked processes left".into());
-        let msg = format!(
-            "final marker sweep not proven ({why}); live marked process(es) not killed: {pids:?}; check each pid (its /proc/PID/environ carries this campaign's id) and kill exactly those, then run the same command"
+        // procfix7 (gate6 MJ-A): processes that could not be inspected are NAMED (never "not killed: []" alone).
+        let hidden: Vec<u32> = r.hidden.iter().map(|h| h.pid).collect();
+        let hidden_text = if r.hidden.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "; process(es) of our uid that cannot be inspected (environ unreadable) and may descend from this campaign: {hidden:?} ({}): nothing was signalled; check each (ps -o pid,ppid,lstart,cmd -p PID; its parent chain)",
+                crate::resources::describe_hidden(&r.hidden)
+            )
+        };
+        let mut msg = format!(
+            "final marker sweep not proven ({why}); live marked process(es) not killed: {pids:?}{hidden_text}; check each pid (its /proc/PID/environ carries this campaign's id) and kill exactly those, then run the same command"
         );
         self.commit(vec![Event::Note {
-            text: format!("final_sweep_unproven {{\"pids\":{pids:?},\"reason\":{why:?}}}"),
+            text: format!(
+                "final_sweep_unproven {{\"pids\":{pids:?},\"hidden\":{hidden:?},\"reason\":{why:?}}}"
+            ),
         }]);
+        // procfix7 round 6 (gate10 M10-1 / M4): vanished pids no proven sweep resolved are named with the sweep that saw
+        // each (note `final_sweep_vanished`); a proven final sweep resolves them above, so only this path reaches here
+        let open = self.vanished_open.clone();
+        if let Err(v) = self.vanished_check(&open) {
+            msg = format!("{msg}; {v}");
+        }
         Err(msg)
+    }
+
+    /// procfix7 round 5 (gate9 G9-B2): the ATOMIC proof for this supervisor's own tree. As a child subreaper (or pid 1)
+    /// every live descendant is in its children tree, so waitid ECHILD (`launch::own_children_state`) proves that no
+    /// descendant exists, whatever forks and exits during a scan. Children still there after the sweep (re-checked for 2 s
+    /// while the reaper collects exited ones) are NAMED and the end is not claimed (exit 8); they are never signalled
+    /// here (not proven ours). Ok(true): proven by the kernel; Ok(false): not a subreaper (no such proof).
+    fn own_tree_check(&mut self) -> Result<bool, String> {
+        // SAFETY: getpid has no preconditions.
+        let pid1 = unsafe { libc::getpid() } == 1;
+        if !pid1 && !crate::launch::is_child_subreaper() {
+            return Ok(false);
+        }
+        let t0 = Instant::now();
+        loop {
+            let r = if self.fp.armed("own_children_unreadable") {
+                Err(std::io::Error::from_raw_os_error(libc::EIO))
+            } else {
+                crate::launch::own_children_state()
+            };
+            match r {
+                Ok(crate::launch::OwnChildren::NoChildren) => return Ok(true),
+                Ok(crate::launch::OwnChildren::Exist { .. })
+                    if t0.elapsed() < Duration::from_secs(2) =>
+                {
+                    crate::resources::request_reap();
+                    std::thread::sleep(Duration::from_millis(50));
+                }
+                Ok(crate::launch::OwnChildren::Exist { zombie }) => {
+                    let listed = match crate::resources::children_of(std::process::id()) {
+                        Ok(v) => format!("{:?}", v.into_iter().collect::<Vec<_>>()),
+                        Err(e) => format!("<the children lists cannot be read: {e}>"),
+                    };
+                    self.commit(vec![Event::Note {
+                        text: format!(
+                            "descendants_alive {{\"children\":{listed:?},\"zombie\":{zombie:?}}}"
+                        ),
+                    }]);
+                    return Err(format!(
+                        "the end is not proven: the kernel reports child process(es) of this supervisor still present after the final sweep (the kernel's wait answer; listed children: {listed}{}); as a child subreaper every descendant of the campaign's jobs ends up here: nothing was signalled (not proven ours); check each (ps -o pid,ppid,lstart,cmd --ppid {}), then run the same command",
+                        zombie
+                            .map(|z| format!("; an exited child {z} is not reaped"))
+                            .unwrap_or_default(),
+                        std::process::id()
+                    ));
+                }
+                Err(e) => {
+                    self.commit(vec![Event::Note {
+                        text: format!("descendants_unchecked {{\"error\":{:?}}}", e.to_string()),
+                    }]);
+                    return Err(format!(
+                        "the end is not proven: this supervisor's children cannot be checked (the kernel's wait answer: {e}); nothing was signalled; run the same command"
+                    ));
+                }
+            }
+        }
+    }
+
+    /// procfix7 round 6 (gate10 M10-1): marked processes of ANY sweep of this session (recovery, end-of-job, periodic,
+    /// final) seen alive and gone before their stop enter `vanished_open` (ledger note `sweep_vanished`; recovery keeps
+    /// its `recovery_sweep_vanished`).
+    fn note_vanished(&mut self, r: &SweepReport, by: &str) {
+        if r.vanished.is_empty() {
+            return;
+        }
+        let pids: Vec<u32> = r.vanished.iter().map(|p| p.pid).collect();
+        for v in &r.vanished {
+            self.vanished_open.entry(v.pid).or_insert((
+                Some(v.start_ticks),
+                by.to_string(),
+                v.attempt_id.clone(),
+            ));
+        }
+        self.log.line(
+            "WARN",
+            &format!(
+                "{by}: marked process(es) {pids:?} were seen alive and were gone (or no longer the same marked process) before their stop: the end stays unproven unless an atomic proof covers every successor they may have started (this session's attempts: the kernel's wait answer; a recorded job scope: emptied by the kernel)"
+            ),
+        );
+        self.note(format!(
+            "sweep_vanished {{\"pids\":{pids:?},\"by\":{by:?}}}"
+        ));
+    }
+
+    /// procfix7 round 6 (gate10 M10-1, the definition of "proves" for a vanished marked process): a /proc sweep never
+    /// proves that a vanished process left no successor (a chain that forks and exits faster than a scan reads it is
+    /// invisible to EVERY scan, seeded or not: gate10 batch_rv). It is resolved only by an ATOMIC kernel answer that
+    /// covers every successor: (a) its attempt was launched by THIS session and the kernel's wait answer says no
+    /// descendant of this child subreaper remains (`atomic`); or (b) its attempt's recorded job scope was found empty by
+    /// the kernel's recursive populated flag (recovery backstop). Anything else stays open: exit 8 naming it.
+    fn resolve_vanished(&mut self, atomic: bool) {
+        let mut done: Vec<(u32, &'static str)> = Vec::new();
+        for (pid, (_, _, attempt)) in &self.vanished_open {
+            if atomic && self.launched_here.contains(attempt) {
+                done.push((*pid, "own tree: the kernel's wait answer ECHILD"));
+            } else if self.scope_proven_empty.contains(attempt) {
+                done.push((*pid, "its job scope: emptied (recursive populated 0)"));
+            }
+        }
+        if done.is_empty() {
+            return;
+        }
+        for (pid, _) in &done {
+            self.vanished_open.remove(pid);
+        }
+        let pids: Vec<u32> = done.iter().map(|(p, _)| *p).collect();
+        let how: Vec<&str> = done.iter().map(|(_, h)| *h).collect();
+        self.log.line(
+            "INFO",
+            &format!("vanished marked process(es) {pids:?} resolved by an atomic proof ({how:?})"),
+        );
+        self.note(format!(
+            "sweep_vanished_resolved {{\"pids\":{pids:?},\"by\":{how:?}}}"
+        ));
+    }
+
+    /// procfix7 round 5 (gate9 G9-B2) / round 6 (M10-1): marked processes seen alive and gone before their stop that no
+    /// atomic proof resolved (`resolve_vanished`): never a clean end (exit 8, naming them and the sweep that saw each).
+    fn vanished_check(
+        &mut self,
+        vanished: &BTreeMap<u32, (Option<u64>, String, String)>,
+    ) -> Result<(), String> {
+        if vanished.is_empty() {
+            return Ok(());
+        }
+        let pids: Vec<u32> = vanished.keys().copied().collect();
+        let seen: Vec<String> = vanished
+            .iter()
+            .map(|(p, (_, by, attempt))| format!("{p} ({attempt}) by the {by}"))
+            .collect();
+        self.commit(vec![Event::Note {
+            text: format!("final_sweep_vanished {{\"pids\":{pids:?}}}"),
+        }]);
+        let seen = seen.join(", ");
+        Err(format!(
+            "the end is not proven: marked process(es) {pids:?} of this campaign were seen alive ({seen}) and were gone (or no longer the same marked process) before they could be stopped, and no atomic proof covers their successors (only this session's own tree or an emptied job scope can); a successor one of them started may be running unseen (a /proc scan cannot see a process chain that forks and exits faster than it reads; a job scope can): look for processes carrying this campaign's marker (ps -eo pid,ppid,lstart,cmd; /proc/PID/environ), then run the same command"
+        ))
     }
 
     /// procfix5 (gate4 m5), after a proven final sweep: descendants of this supervisor (parent chain) that run under our
@@ -3667,14 +5888,28 @@ impl Supervisor {
     /// them. They are REPORTED (note `hidden_descendants`, the pids and names) and the run does not claim a clean end
     /// (exit 8); they are never judged ours and never signalled.
     fn hidden_descendants_check(&mut self) -> Result<(), String> {
-        let hidden = match crate::resources::hidden_descendants() {
+        // procfix7 round 4 (gate8 m8-mut2): test builds: `hidden_descendants_unreadable:1` = the check's /proc reads fail
+        let read = if self.fp.armed("hidden_descendants_unreadable") {
+            Err(std::io::Error::other(
+                "TEST BUILD failpoint hidden_descendants_unreadable: the listing failed",
+            ))
+        } else {
+            crate::resources::hidden_descendants()
+        };
+        let hidden = match read {
             Ok(v) => v,
             Err(e) => {
-                self.log.line(
-                    "WARN",
-                    &format!("non-dumpable descendant check: /proc unreadable ({e})"),
+                // procfix7 (gate7 B1, the class): a check that could not run proves nothing: never a clean end
+                let msg = format!(
+                    "the check for descendants that cannot be inspected could not read /proc ({e}): the end is not proven; nothing was signalled; run the same command"
                 );
-                return Ok(());
+                self.commit(vec![Event::Note {
+                    text: format!(
+                        "hidden_descendants_unchecked {{\"error\":{:?}}}",
+                        e.to_string()
+                    ),
+                }]);
+                return Err(msg);
             }
         };
         if hidden.is_empty() {
@@ -3689,13 +5924,162 @@ impl Supervisor {
             ),
         }]);
         Err(format!(
-            "descendant process(es) of this supervisor under our uid that cannot be inspected (non-dumpable: /proc entry owned by root): {}; their marker is unreadable, nothing was signalled; check them by hand (ps -o pid,ppid,uid,cmd -p PID), then run the same command",
+            "descendant process(es) of this supervisor under our uid that cannot be inspected (environ not ours: non-dumpable or setuid): {}; their marker is unreadable, nothing was signalled; check them by hand (ps -o pid,ppid,uid,cmd -p PID), then run the same command",
             list.join(", ")
         ))
     }
 
+    /// procfix7 (gate7 B1, the class): reads that failed during the run in a way that may hide a process of the campaign
+    /// or a record of its signals: never a clean end (exit 8, ledger note `end_unproven`, each reason named).
+    fn end_unproven_check(&mut self) -> Result<(), String> {
+        if self.end_unproven.is_empty() {
+            return Ok(());
+        }
+        let reasons = self.end_unproven.clone();
+        self.commit(vec![Event::Note {
+            text: format!("end_unproven {{\"reasons\":{reasons:?}}}"),
+        }]);
+        Err(format!(
+            "the end is not proven: {}; nothing was signalled for these; check them, then run the same command",
+            reasons.join("; ")
+        ))
+    }
+
     /// The launcher's quarantine (procfix2): ledger notes for jobs proven gone later (their leases are released then).
+    /// procfix7 (gate7 MJ-1): the processes that may hold attempt `label` (a strict scan: marked processes of the attempt
+    /// and every candidate whose marker cannot be read and that may descend from the campaign), as (pids, text).
+    fn hidden_of(&self, label: &str) -> (Vec<u32>, String) {
+        let bound = self
+            .campaign_min_ticks
+            .unwrap_or_else(orphans::own_start_ticks);
+        match crate::resources::scan_marked_inline(&self.ctx.campaign_key, bound, Some(label)) {
+            Ok(s) => {
+                let mut pids: Vec<u32> = s.processes.iter().map(|p| p.pid).collect();
+                pids.extend(s.hidden.iter().map(|h| h.pid));
+                let mut parts: Vec<String> = s
+                    .processes
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "pid {} ({}, start {}): carries the marker",
+                            p.pid, p.comm, p.start_ticks
+                        )
+                    })
+                    .collect();
+                if !s.hidden.is_empty() {
+                    parts.push(crate::resources::describe_hidden(&s.hidden));
+                }
+                (pids, parts.join("; "))
+            }
+            Err(e) => {
+                // procfix7 round 5 (m8-persist / m9-pn): a failed scan is retried (bounded: 5 tries, 200 ms apart); if it
+                // keeps failing, the text says so (never an empty "none found")
+                let mut last = e;
+                for _ in 0..4 {
+                    std::thread::sleep(Duration::from_millis(200));
+                    match crate::resources::scan_marked_inline(
+                        &self.ctx.campaign_key,
+                        bound,
+                        Some(label),
+                    ) {
+                        Ok(s) if s.processes.is_empty() && s.hidden.is_empty() => {
+                            return (Vec::new(), String::new());
+                        }
+                        Ok(s) => {
+                            let mut pids: Vec<u32> = s.processes.iter().map(|p| p.pid).collect();
+                            pids.extend(s.hidden.iter().map(|h| h.pid));
+                            return (
+                                pids,
+                                format!(
+                                    "marked {:?}{}",
+                                    s.processes.iter().map(|p| p.pid).collect::<Vec<_>>(),
+                                    if s.hidden.is_empty() {
+                                        String::new()
+                                    } else {
+                                        format!(
+                                            "; {}",
+                                            crate::resources::describe_hidden(&s.hidden)
+                                        )
+                                    }
+                                ),
+                            );
+                        }
+                        Err(e) => last = e,
+                    }
+                }
+                (
+                    Vec::new(),
+                    format!(
+                        "the /proc scan for its marker FAILED 5 times ({last}): the processes holding it cannot be named"
+                    ),
+                )
+            }
+        }
+    }
+
+    /// procfix7 (gate7 MJ-1): an attempt whose end stayed unproven longer than `unproven_end_limit_s`: every process that
+    /// may hold it is NAMED (log, note `unproven_end`), its CPU lease is released, and it arms the exit-8 rule
+    /// (`survivors`); the launcher keeps hunting (a later proof settles it normally).
+    fn give_up_unproven_ends(&mut self) {
+        let limit = Duration::from_secs(self.opts.spec.resources.unproven_end_limit_s);
+        for (label, since, reason) in self.launcher.quarantined() {
+            if since < limit || self.unproven_given_up.contains(&label) {
+                continue;
+            }
+            self.unproven_given_up.insert(label.clone());
+            let (pids, text) = self.hidden_of(&label);
+            // the attempt's lease lives with its pending settle (the launcher's quarantine holds one only when handed one)
+            let lease = match self
+                .pending
+                .iter_mut()
+                .find(|p| p.label() == label)
+                .and_then(|p| p.lease.take())
+            {
+                Some(l) => Some(release_lease_noted(l)),
+                None => self.launcher.release_quarantined_lease(&label),
+            };
+            if let Some(n) = lease.as_ref().filter(|n| !n.is_empty()) {
+                self.note(format!("lease {label}: {n}"));
+            }
+            self.log.line(
+                "ERROR",
+                &format!(
+                    "{label}: end UNPROVEN after {}s ({reason}): processes that may hold it, never signalled: {}; CPU lease {}; operator decision needed (exit 8 once nothing else runs)",
+                    since.as_secs(),
+                    if text.is_empty() { "none found by the scan (see the reason)".into() } else { text.clone() },
+                    match &lease {
+                        Some(n) if !n.is_empty() => format!("released ({n})"),
+                        Some(_) => "released".into(),
+                        None => "already released".into(),
+                    }
+                ),
+            );
+            self.commit(vec![Event::Note {
+                text: format!(
+                    "unproven_end {{\"marker\":{label:?},\"after_s\":{},\"pids\":{pids:?},\"reason\":{reason:?},\"processes\":{text:?}}}",
+                    since.as_secs()
+                ),
+            }]);
+            if pids.is_empty() {
+                self.unproven_why.insert(
+                    label.clone(),
+                    format!(
+                        "end unproven after {}s: {reason}{}",
+                        since.as_secs(),
+                        if text.is_empty() {
+                            String::new()
+                        } else {
+                            format!("; {text}")
+                        }
+                    ),
+                );
+            }
+            self.survivors.insert(label, pids);
+        }
+    }
+
     fn tick_quarantine(&mut self) {
+        self.give_up_unproven_ends();
         for ev in self.launcher.tick() {
             match ev {
                 crate::launch::RetireEvent::Cleared {
@@ -3742,13 +6126,26 @@ impl Supervisor {
     /// represent (unparsable file, unknown verb, unknown target) is recorded as a `note` starting `control_refused`.
     fn apply_controls(&mut self) {
         let dir = self.cdir.join("control");
-        let Ok(rd) = std::fs::read_dir(&dir) else {
-            return;
+        // procfix7 round 5: only a COMPLETE listing is applied (a partial one could apply a later request before an
+        // earlier one it missed); a failed listing applies nothing now (read again next tick)
+        let entries = match crate::fsx::list("supervisor.control", &dir) {
+            crate::fsx::Listing::Complete(v) => v,
+            crate::fsx::Listing::Absent => return,
+            crate::fsx::Listing::Failed(e) => {
+                self.log.line(
+                    "WARN",
+                    &format!(
+                        "control requests not read ({}: {e}): none applied now, read again next tick",
+                        dir.display()
+                    ),
+                );
+                return;
+            }
         };
-        let mut files: Vec<PathBuf> = rd
-            .flatten()
-            .map(|e| e.path())
-            .filter(|p| p.is_file() && p.extension().is_some_and(|x| x == "json"))
+        let mut files: Vec<PathBuf> = entries
+            .into_iter()
+            .filter(|e| e.file_type.is_file() && e.path.extension().is_some_and(|x| x == "json"))
+            .map(|e| e.path)
             .collect();
         // gate-B m1: in the order of the CLI's sequence number (then the name); files without one first, by name.
         files.sort_by_key(|p| {
@@ -3761,10 +6158,26 @@ impl Supervisor {
         for p in files {
             let name = p.file_name().unwrap().to_owned();
             let done = dir.join("done");
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
             let _ = std::fs::create_dir_all(&done);
-            let req: Option<ControlRequest> = std::fs::read(&p)
-                .ok()
-                .and_then(|b| serde_json::from_slice(&b).ok());
+            // procfix7 round 5: a request that cannot be READ stays where it is (applied next tick), never "unparsable"
+            // and moved to done/ (that lost it)
+            let req: Option<ControlRequest> =
+                match control_of(crate::fsx::read("supervisor.control", &p)) {
+                    ControlRead::Read(r) => r,
+                    ControlRead::Absent => continue,
+                    ControlRead::Unreadable(e) => {
+                        self.log.line(
+                            "WARN",
+                            &format!(
+                                "control request {} not readable now ({e}): read again next tick",
+                                p.display()
+                            ),
+                        );
+                        continue;
+                    }
+                };
             // lane closeloop4 (closeloop.md 19): an operator decision of the work source (terminal proposals; lane
             // wireflow, closeloop.md 26: a facts-budget raise)
             if let Some(r) = req
@@ -3775,7 +6188,9 @@ impl Supervisor {
                 if self.ledger_dead.is_some() {
                     return;
                 }
-                let _ = std::fs::rename(&p, done.join(&name));
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
+                let _ = archive_control(&p, &done, &name);
                 continue;
             }
             if let Some(r) = req.as_ref().filter(|r| r.verb == "resolve") {
@@ -3783,7 +6198,9 @@ impl Supervisor {
                 if self.ledger_dead.is_some() {
                     return;
                 }
-                let _ = std::fs::rename(&p, done.join(&name));
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
+                let _ = archive_control(&p, &done, &name);
                 continue;
             }
             match req.as_ref().map(|r| (r, self.control_record(r))) {
@@ -3799,7 +6216,9 @@ impl Supervisor {
             if self.ledger_dead.is_some() {
                 return;
             }
-            let _ = std::fs::rename(&p, done.join(&name));
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): a control file that cannot be moved to done/ is applied again next tick; the ledger refuses an illegal repeat
+            let _ = archive_control(&p, &done, &name);
         }
     }
 
@@ -3826,6 +6245,8 @@ impl Supervisor {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the write below reports its own error (disk full -> exit 75)
                 let _ = std::fs::create_dir_all(d);
             }
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
@@ -4132,8 +6553,45 @@ impl Supervisor {
 
     /// CDIR and CDIR/ledger are still the directories the ledger was opened in, and the manifest is there.
     fn dirs_intact(&self) -> Result<(), String> {
+        // procfix7 (gate7 m-rw): an external work directory and its claim, too
+        if let Some(id) = self.work_dir_id {
+            let claim_path = self.work_root.join(workdir::WORK_OWNER_FILE);
+            // a read refused for the supervisor's own resource limit decides nothing here (the launch path reports it);
+            // procfix7 round 5: any other failed read is "cannot be checked" (typed end), never "removed"
+            let claim_ok = match crate::fsx::read_to_string("workdir", &claim_path) {
+                crate::fsx::Read::Content(c) => c.trim() == self.ctx.campaign_key,
+                crate::fsx::Read::Absent => false,
+                crate::fsx::Read::Failed(e) if io_resource_errno(&e).is_some() => true,
+                crate::fsx::Read::Failed(e) => {
+                    return Err(format!(
+                        "the claim {} of the external work directory cannot be read ({e})",
+                        claim_path.display()
+                    ));
+                }
+            };
+            let now = dir_id(&self.work_root).map_err(|e| {
+                format!(
+                    "the external work directory {} cannot be checked ({e})",
+                    self.work_root.display()
+                )
+            })?;
+            if now != Some(id) || !claim_ok {
+                return Err(format!(
+                    "the external work directory {} (or its claim {}) was removed or replaced while the supervisor ran",
+                    self.work_root.display(),
+                    workdir::WORK_OWNER_FILE
+                ));
+            }
+        }
         let ldir = crate::ledger::ledger_dir(&self.cdir);
-        let now = dir_id(&self.cdir).zip(dir_id(&ldir));
+        let now = dir_id(&self.cdir)
+            .and_then(|a| Ok(a.zip(dir_id(&ldir)?)))
+            .map_err(|e| {
+                format!(
+                    "the campaign directory {} (or its ledger directory) cannot be checked ({e})",
+                    self.cdir.display()
+                )
+            })?;
         if self.dir_ids.is_none() || now != self.dir_ids {
             return Err(format!(
                 "the campaign directory {} (or its ledger directory) was removed or replaced while the supervisor ran",
@@ -4146,11 +6604,15 @@ impl Supervisor {
                 self.cdir.display()
             ));
         }
-        if !ldir.join(crate::ledger::MANIFEST_FILE).exists() {
-            return Err(format!(
-                "{} disappeared while the supervisor ran",
-                ldir.join(crate::ledger::MANIFEST_FILE).display()
-            ));
+        match crate::ledger::manifest_state(&self.cdir) {
+            Ok(true) => {}
+            Ok(false) => {
+                return Err(format!(
+                    "{} disappeared while the supervisor ran",
+                    ldir.join(crate::ledger::MANIFEST_FILE).display()
+                ));
+            }
+            Err(e) => return Err(format!("the ledger's manifest cannot be checked ({e})")),
         }
         Ok(())
     }
@@ -4260,8 +6722,22 @@ impl Supervisor {
             b.reasons
                 .push("process sampler stale (> 30 s): no launch".into());
         }
+        // round 15 (gate16 nit m16-paused-spam): the gate's reason without its running seconds is the log's key
+        let mut gate_key = None;
+        if let Some((since, why)) = self.gate.closed() {
+            gate_key = Some((
+                b.reasons.len(),
+                format!("the user manager does not answer ({why})"),
+            ));
+            b.reasons.push(format!(
+                "the user manager does not answer ({why}; {} s): no launch",
+                since.elapsed().as_secs()
+            ));
+        }
         if self.ledger_dead.is_some() {
             b.reasons.push("ledger unavailable".into());
+        } else if let Some(e) = &self.stop_exit {
+            b.reasons.push(format!("stopping (exit {})", e.code()));
         }
         if let Some(t) = self.resource_backoff_until
             && Instant::now() < t
@@ -4277,14 +6753,23 @@ impl Supervisor {
             );
         }
         let joined = b.reasons.join("; ");
-        if joined != self.last_block_log {
+        // round 15 (gate16 nit m16-paused-spam): logged when the reasons change (the manager gate's running seconds
+        // are not a change) and, while they stay, at most once a minute (was: every second during a manager stall)
+        let key = paused_key(&b.reasons, gate_key.as_ref().map(|(i, k)| (*i, k.as_str())));
+        let reminder = !key.is_empty()
+            && self
+                .last_block_logged
+                .is_some_and(|t| t.elapsed() >= Duration::from_secs(60));
+        if key != self.last_block_log || reminder {
             if !joined.is_empty() {
                 self.log
                     .line("INFO", &format!("launching paused: {joined}"));
+                self.last_block_logged = Some(Instant::now());
             } else if !self.last_block_log.is_empty() {
                 self.log.line("INFO", "launching resumed");
+                self.last_block_logged = None;
             }
-            self.last_block_log = joined;
+            self.last_block_log = key;
         }
         b
     }
@@ -4322,6 +6807,8 @@ impl Supervisor {
         for a in &routing.accepts {
             let p = self.cdir.join(&a.path);
             if let Some(d) = p.parent() {
+                #[allow(clippy::let_underscore_must_use)]
+                // ignored-ok (procfix7): the write below reports its own error (disk full -> exit 75)
                 let _ = std::fs::create_dir_all(d);
             }
             if let Err(e) = crate::atomic::write_atomic(&p, &a.bytes) {
@@ -4475,7 +6962,7 @@ impl Supervisor {
             match d {
                 Decision::Admit => {
                     if self.children.len() + self.pending.len() >= max_jobs
-                        || self.ledger_dead.is_some()
+                        || self.stop_cause().is_some()
                     {
                         break;
                     }
@@ -4487,6 +6974,11 @@ impl Supervisor {
                             self.bypassed.remove(&r.job);
                             if let Err(e) = self.launch(r, lease) {
                                 self.log.line("WARN", &format!("{}: {e}", r.job));
+                                // procfix7: a refusal (a run directory not ours) or a removed campaign directory ends
+                                // the launching at once
+                                if self.refusal_stop.is_some() || self.stop_cause().is_some() {
+                                    break;
+                                }
                                 if self.resource_backoff_until.is_some() {
                                     // gate-B M3: a supervisor resource failure ends this pass (back-off).
                                     break;
@@ -4640,11 +7132,41 @@ impl Supervisor {
         }
     }
 
+    /// procfix7 round 7 (gate11 M11-2): every tick, the CPU policy takes its /proc/stat sample (the idleness window
+    /// `idle_min` is judged on; before, nothing called it and no CPU ever had an idleness) and, when it respects foreign
+    /// pinning, gets the latest scan's foreign-pinning set from the sampler: an incomplete scan publishes None (unknown),
+    /// and the policy then grants nothing until a complete scan (fail closed, never a stale set).
+    fn feed_cpu_policy(&mut self) {
+        if let Err(e) = self.policy.refresh() {
+            let now = Instant::now();
+            if self
+                .cpu_refresh_warned
+                .is_none_or(|t| now.duration_since(t) > Duration::from_secs(60))
+            {
+                self.cpu_refresh_warned = Some(now);
+                self.log.line(
+                    "WARN",
+                    &format!("cpu policy: /proc/stat sample failed ({e}): idleness not measured (no CPU counts as idle)"),
+                );
+            }
+        }
+        if self.policy.wants_foreign_pinning()
+            && let Some(snap) = self.sampler.latest()
+        {
+            self.policy
+                .update_foreign_pinned(snap.foreign_pinned.clone());
+        }
+    }
+
     fn main_loop(&mut self) -> RunExit {
         self.recover();
-        if let Some(e) = self.ledger_dead.clone() {
-            return e;
+        if let Some(e) = self.stop_cause() {
+            return self.stop_return(e);
         }
+        // procfix7 round 14 (host step 3, M4): units of earlier sessions that could not be confirmed cleared. Round 15
+        // (gate16 m16-start-clear): cleared once the manager ANSWERS (`tick_start_clear`), never blocking the start on a
+        // stalled manager (each listed unit's reads are bounded at 10 s)
+        self.start_clear = !matches!(manager::load_leftovers(&self.cdir), Ok(l) if l.is_empty());
         if let Err(e) = self.register_binaries() {
             return e;
         }
@@ -4775,13 +7297,18 @@ impl Supervisor {
             self.poll_children();
             self.tick_quarantine();
             self.drive_pending();
-            if self.ledger_dead.is_none() {
+            if self.stop_cause().is_none() {
                 self.periodic_sweep();
             }
+            // procfix7 round 14 (host step 3, M3): the user-manager gate
+            self.tick_manager_gate();
+            // round 15 (gate16 m16-start-clear): the start's leftover clearing, once the manager answers
+            self.tick_start_clear();
             // gate3 M2: every delivered signal becomes a ledger record
             self.record_deliveries();
-            // ledger dead: no launches; children get the grace, then are killed (their attempts stay unsettled).
-            if let Some(e) = self.ledger_dead.clone() {
+            // ledger dead, or (round 14, M1) a stop decided: no launches; children get the grace, then are killed (with a
+            // dead ledger their attempts stay unsettled; after a stop decision every end is still recorded).
+            if let Some(e) = self.stop_cause() {
                 let d = *dead_deadline.get_or_insert_with(|| {
                     let g = Duration::from_secs(self.opts.spec.resources.grace_seconds);
                     for c in &mut self.children {
@@ -4793,12 +7320,14 @@ impl Supervisor {
                 if (self.children.is_empty() && self.pending.iter().all(|p| p.sweep.is_none()))
                     || Instant::now() > d
                 {
-                    return e;
+                    return self.stop_return(e);
                 }
                 self.write_progress(false);
                 std::thread::sleep(self.opts.tick);
                 continue;
             }
+            // gate11 M11-2: the CPU policy's idleness window and the foreign pinning, on the sampler's cadence
+            self.feed_cpu_policy();
             // 4-5. schedule
             if level == StopLevel::Running {
                 // lane closeloop (closeloop.md 6.1): results of the source's own in-process passes
@@ -4811,7 +7340,14 @@ impl Supervisor {
             // 6. progress
             self.write_progress(false);
             // 7. exit conditions
-            if !self.children.is_empty() || !self.pending.is_empty() {
+            // procfix7 (gate7 MJ-1): an attempt held only by processes that could not be killed or inspected (survivors,
+            // incl. an end given up as unproven) does not count as running: it keeps its slot and reservation, so the
+            // exit-8 rule below must see the time admission stays blocked behind it.
+            let only_held = self
+                .pending
+                .iter()
+                .all(|p| self.survivors.contains_key(&p.label()) && p.sweep.is_none());
+            if !self.children.is_empty() || !only_held {
                 self.blocked_since = None;
             }
             if self.children.is_empty() && level > StopLevel::Running {
@@ -4842,6 +7378,9 @@ impl Supervisor {
                     if self.disk_floor_hit {
                         return RunExit::DiskFloor;
                     }
+                    if let Some(m) = self.refusal_stop.clone() {
+                        return RunExit::Refused(m);
+                    }
                     if let Some(m) = self.resource_stop.clone() {
                         return RunExit::Resources(m);
                     }
@@ -4862,9 +7401,9 @@ impl Supervisor {
                     if let Err(msg) = self.final_sweep() {
                         // procfix6 (gate5 m3): a final sweep that could not signal for lack of space is exit 75.
                         self.check_not_signalled();
-                        if let Some(e) = self.ledger_dead.clone() {
+                        if let Some(e) = self.stop_cause() {
                             self.log.line("WARN", &msg);
-                            return e;
+                            return self.stop_return(e);
                         }
                         self.log.line("WARN", &msg);
                         self.commit(vec![Event::Campaign {
@@ -4892,8 +7431,8 @@ impl Supervisor {
                         }]);
                     }
                     // procfix5: a refused / failed finish record is never reported as a finished campaign.
-                    if let Some(e) = self.ledger_dead.clone() {
-                        return e;
+                    if let Some(e) = self.stop_cause() {
+                        return self.stop_return(e);
                     }
                     self.write_progress(true);
                     if let Err(e) = self.final_consistency() {
@@ -4984,10 +7523,15 @@ impl Supervisor {
                         let s: Vec<String> = self
                             .survivors
                             .iter()
-                            .map(|(l, p)| format!("{l}: pids {p:?}"))
+                            .map(|(l, p)| match (p.is_empty(), self.unproven_why.get(l)) {
+                                (true, Some(why)) => {
+                                    format!("{l}: no process could be named ({why})")
+                                }
+                                _ => format!("{l}: pids {p:?}"),
+                            })
                             .collect();
                         parts.push(format!(
-                            "live marked processes that could not be killed hold attempts unsettled ({}): check and kill exactly those pids, then run the same command",
+                            "processes that could not be killed or inspected hold attempts unsettled ({}): check and kill exactly those pids (log / ledger notes `marked_survivor`, `unproven_end` name them), then run the same command",
                             s.join("; ")
                         ));
                     }
@@ -5009,6 +7553,12 @@ impl Supervisor {
     }
 
     fn finish_run(&mut self, r: &RunExit) {
+        // procfix7 (gate6 m3-a): an unused tmpfs fallback intent log of this session is removed (a used one stays).
+        crate::launch::retire_own_intent_fallback();
+        // procfix7 round 9b (gate13b m13b-exit): the scopes of the attempts still listed are noted NOW (the list is
+        // cleared below) and read only after the launcher's shutdown and the drop of the live jobs (the last pinned-group
+        // SIGKILLs of a fast exit), so that a scope failing in those last steps is read and reset too
+        self.note_exit_scopes();
         for ev in self.launcher.shutdown(Duration::from_secs(10)) {
             if let crate::launch::RetireEvent::Cleared { label, .. } = ev {
                 self.log
@@ -5016,14 +7566,26 @@ impl Supervisor {
             }
         }
         for (label, since, reason) in self.launcher.quarantined() {
+            // procfix7 (gate7 MJ-1): any exit (also an operator stop) NAMES what may hold an unproven attempt
+            let (pids, text) = self.hidden_of(&label);
             self.log.line(
                 "WARN",
                 &format!(
-                    "{label}: end still unproven after {}s at exit ({reason}); the restart's orphan scan looks for its marker",
-                    since.as_secs()
+                    "{label}: end still unproven after {}s at exit ({reason}); processes that may hold it, never signalled: {}; the restart's sweeps look for its marker",
+                    since.as_secs(),
+                    if text.is_empty() { "none found by the scan".into() } else { text.clone() }
                 ),
             );
+            if !pids.is_empty() {
+                self.commit(vec![Event::Note {
+                    text: format!(
+                        "unproven_at_exit {{\"marker\":{label:?},\"pids\":{pids:?},\"processes\":{text:?}}}"
+                    ),
+                }]);
+            }
         }
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
         let _ = self.ledger.sync();
         let msg = match r {
             RunExit::Finished => format!(
@@ -5061,12 +7623,47 @@ impl Supervisor {
         if let Some(m) = self.not_signalled_summary() {
             self.log.line("ERROR", &m);
         }
+        // procfix7 round 9 (gate13 G13-M2), round 9b (m13b-exit): no failed scope of this session is left loaded when it
+        // can be helped; after every job of this session was dropped, while the ledger and the locks are still held
+        self.settle_scopes_at_exit();
         // gate3 M2: the last deliveries (shutdown, abandoned quarantine) are recorded while the lock is still held.
         self.record_deliveries();
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): the exit code is decided; an unsynced tail is verified / repaired by the next start (torn-tail recovery)
         let _ = self.ledger.sync();
+        // procfix7 round 17: ONE line on the session's end-of-job proofs (how many waited longer than 10 s, and why)
+        let line = self.proofs.summary();
+        self.log.line("INFO", &line);
+        // procfix7 round 15 (gate16 M16-1): the exit pass above COMMITS after the main loop's last progress write (the
+        // at-exit scope_result / unit_leftover / unit_cleared notes, unproven_at_exit, the deliveries of the dropped
+        // jobs): the progress files are written once more, LAST, while the ledger is usable and the lock still held, so
+        // that they state the ledger's final seq (`verify` exit 0). An unusable ledger keeps its own rule.
+        if self.ledger_dead.is_none() {
+            self.write_progress(true);
+        }
         if let Some(l) = self.lock.take() {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the kernel releases the flock at exit anyway
             let _ = l.release();
         }
+    }
+}
+
+/// procfix7 round 16 (int8b-gate review of the tripwire-flagged lines, defect 3: on the integration line an unreadable
+/// control file was taken as "unparsable" and archived, the operator's request LOST): what a control file's read means.
+/// Only a file that was READ is a request (`Some`) or unparsable (`None`: refused, archived); an unreadable one stays
+/// where it is and is read again next tick; one gone meanwhile is skipped.
+enum ControlRead {
+    Read(Option<ControlRequest>),
+    Absent,
+    Unreadable(std::io::Error),
+}
+
+fn control_of(r: crate::fsx::Read<Vec<u8>>) -> ControlRead {
+    match r {
+        crate::fsx::Read::Content(b) => ControlRead::Read(serde_json::from_slice(&b).ok()),
+        crate::fsx::Read::Absent => ControlRead::Absent,
+        crate::fsx::Read::Failed(e) => ControlRead::Unreadable(e),
     }
 }
 
@@ -5090,6 +7687,38 @@ pub struct ControlRequest {
 
 pub const CONTROL_SCHEMA: &str = "rustred.campaign.control.v1";
 
+/// Release a CPU lease; the text of what went wrong (a release error, CPUs whose flock is still held by another process
+/// afterwards), empty when nothing.
+fn release_lease_noted(lease: CpuLease) -> String {
+    let (r, held) = lease.release_checked();
+    let mut notes: Vec<String> = Vec::new();
+    if let Err(e) = r {
+        notes.push(format!("release: {e}"));
+    }
+    for h in held {
+        notes.push(format!(
+            "CPU {} still held after release by {:?} (unmarked survivor? not signalled; its claim stays in the ledger)",
+            h.cpu, h.holders
+        ));
+    }
+    notes.join("; ")
+}
+
+/// procfix7 round 5: move an applied control request into `done/` WITHOUT overwriting an archived one of the same name
+/// (renameat2 RENAME_NOREPLACE; a taken name gets a numbered suffix).
+fn archive_control(p: &Path, done: &Path, name: &std::ffi::OsStr) -> std::io::Result<()> {
+    let mut target = done.join(name);
+    for k in 1..1000u32 {
+        match crate::fsx::rename_noreplace(p, &target) {
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                target = done.join(format!("{}.{k}", name.to_string_lossy()));
+            }
+            other => return other,
+        }
+    }
+    Err(std::io::Error::other("no free archive name"))
+}
+
 /// The sequence number of a control request file `c-<seq, 12 digits>-...json` (written by [`next_control_seq`]); 0 for
 /// other names (older format: applied first, by name).
 pub fn control_seq_of(name: &str) -> u64 {
@@ -5106,10 +7735,12 @@ pub fn control_seq_of(name: &str) -> u64 {
 pub fn next_control_seq(control_dir: &Path) -> Result<u64, String> {
     let dir = control_dir.join("seq");
     std::fs::create_dir_all(&dir).map_err(|e| format!("control/seq: {e}"))?;
-    let mut n = std::fs::read_dir(&dir)
+    // procfix7 round 5: the largest claimed number from a COMPLETE listing (a partial one could hand out a number below
+    // a claimed one: a later request ordered before an earlier one)
+    let mut n = crate::fsx::list_required("supervisor.control", &dir)
         .map_err(|e| format!("control/seq: {e}"))?
-        .flatten()
-        .filter_map(|e| e.file_name().to_str().and_then(|s| s.parse::<u64>().ok()))
+        .iter()
+        .filter_map(|e| e.name.to_str().and_then(|s| s.parse::<u64>().ok()))
         .max()
         .unwrap_or(0);
     for _ in 0..10_000 {
@@ -5130,11 +7761,35 @@ pub fn next_control_seq(control_dir: &Path) -> Result<u64, String> {
 /// The attempt's spec and the digest its LAUNCH RECORD names (`job.launch.spec_blake3`, fsynced before the spawn):
 /// the classification binds OUTCOME / RESUME to that digest, never to a re-read of job.json; a job.json whose bytes
 /// no longer have that digest is refused (None).
+/// procfix7 round 6: the pids a ledger note names in its `"pids":[..]` field (or the first JSON array of numbers after
+/// `pids`); a note without one names none.
+fn pids_in_note(text: &str) -> Vec<u32> {
+    let Some(i) = text
+        .find("\"pids\":[")
+        .or_else(|| text.find("\"children\":\"["))
+    else {
+        return Vec::new();
+    };
+    let rest = &text[i..];
+    let Some(open) = rest.find('[') else {
+        return Vec::new();
+    };
+    let Some(close) = rest[open..].find(']') else {
+        return Vec::new();
+    };
+    rest[open + 1..open + close]
+        .split(',')
+        .filter_map(|w| w.trim().parse::<u32>().ok())
+        .collect()
+}
+
 fn read_spec(layout: &RunLayout, launched: Option<&str>) -> Option<(JobSpec, String)> {
     let d = launched?.to_string();
     if !rustred_campaign_contract::is_blake3_hex(&d) {
         return None;
     }
+    // procfix9-ok: an unreadable earlier spec means NO resume (the new attempt starts from scratch: more work, never
+    // a wrong result); nothing else is decided from it
     let b = std::fs::read(layout.job_spec()).ok()?;
     if rustred_campaign_contract::spec::spec_blake3(&b) != d {
         return None;
@@ -5385,14 +8040,9 @@ fn fold_resource_ends(map: &mut BTreeMap<String, u32>, ev: &Event) {
     }
 }
 
-/// procfix5 (item 5): does `p version --json` say it is the fake child (`"program": "rr_fake_child"`)? A program
-/// that does not answer counts as real.
-fn fake_program(p: &Path) -> bool {
-    crate::cli::version_line(p)
-        .ok()
-        .and_then(|l| serde_json::from_str::<serde_json::Value>(l.trim()).ok())
-        .is_some_and(|v| v.get("program").and_then(|x| x.as_str()) == Some("rr_fake_child"))
-}
+/// procfix7 round 6 (gate10 m10-5): consecutive failed polls of one child before the typed end (at the 200 ms tick: about
+/// 20 s of every waitid / pidfd read failing).
+const MAX_POLL_FAILURES: u32 = 100;
 
 /// procfix6: the word of an attempt of the ORIGINAL campaign met in a copied / moved directory (note, attention code,
 /// cancel / lose reasons).
@@ -5445,42 +8095,84 @@ fn names_errno(m: &str, n: i32) -> bool {
 /// SIGXFSZ (`ulimit -f` / a file-size limit), its OUTCOME names EFBIG, or it left no usable OUTCOME (absent, torn) while
 /// one of `dirs` (the run directory, the campaign directory) is on a file system with less than
 /// [`DISK_FULL_BELOW_BYTES`] free at settle time. Never for a valid OUTCOME that names something else.
+///
+/// procfix7 (gate6 m4-a): what the CHILD reports (a SIGXFSZ death, the shell's exit 153, an OUTCOME naming EFBIG) is
+/// never evidence by itself: such an end is a resource end only when the SUPERVISOR sees the condition itself: its own
+/// finite file-size limit (`fsize_limit`, inherited by every child) or a full file system (statvfs of `dirs`). Else it
+/// stays a crash (a child that limits itself, or that sends itself SIGXFSZ / exits 153, crashed).
 fn disk_attributed_end(
     ev: &classify::Evidence,
     c: &classify::Classification,
     dirs: &[&Path],
+    fsize_limit: Option<u64>,
 ) -> Option<String> {
     if c.kind != classify::OutcomeKind::Crashed {
         return None;
     }
+    let full = || {
+        dirs.iter().find_map(|d| {
+            free_bytes(d)
+                .filter(|&f| f < DISK_FULL_BELOW_BYTES)
+                .map(|f| {
+                    format!(
+                        "the file system of {} is full ({f} bytes free)",
+                        d.display()
+                    )
+                })
+        })
+    };
+    let evidence = || {
+        fsize_limit
+            .map(|l| {
+                format!("this supervisor runs under a file-size limit of {l} bytes that its children inherit")
+            })
+            .or_else(full)
+    };
     let sig = match ev.wait {
         WaitStatus::Signaled(s) => Some(s),
         WaitStatus::Exited(x) if (129..=192).contains(&x) => Some(x - 128),
         _ => None,
     };
     if sig == Some(libc::SIGXFSZ) {
-        return Some(format!(
-            "{SIGXFSZ_WHY} (a file-size limit: the host's `ulimit -f` or the file system)"
-        ));
+        return evidence().map(|e| format!("{SIGXFSZ_WHY} while {e}"));
     }
     match &ev.outcome {
         OutcomeState::Valid(o) => o
             .error
             .as_ref()
             .filter(|e| names_errno(&e.message, libc::EFBIG))
-            .map(|_| "its OUTCOME names EFBIG (file too large)".to_string()),
+            .and_then(|_| evidence())
+            .map(|e| format!("its OUTCOME names EFBIG (file too large) while {e}")),
         OutcomeState::Absent | OutcomeState::Invalid(_) | OutcomeState::Unreadable(_) => {
-            dirs.iter().find_map(|d| {
-                free_bytes(d)
-                    .filter(|&f| f < DISK_FULL_BELOW_BYTES)
-                    .map(|f| {
-                        format!(
-                            "no usable OUTCOME while the file system of {} is full ({f} bytes free)",
-                            d.display()
-                        )
-                    })
-            })
+            full().map(|e| format!("no usable OUTCOME while {e}"))
         }
+    }
+}
+
+/// procfix7 (gate6 m2-a, gate7 m-br): the refusal the spawn-barrier shim reported on its report pipe (`refusal`, from
+/// the launcher's `FinalReport::barrier_refused`: nothing the program can write) when the attempt ended with
+/// [`crate::launch::BARRIER_NOT_RELEASED`] and no OUTCOME.
+fn barrier_refused(refusal: Option<&str>, ev: &classify::Evidence) -> Option<String> {
+    if ev.wait != WaitStatus::Exited(crate::launch::BARRIER_NOT_RELEASED)
+        || !matches!(ev.outcome, OutcomeState::Absent)
+    {
+        return None;
+    }
+    refusal.map(|r| r.lines().next().unwrap_or("refused").trim().to_string())
+}
+
+/// procfix7 (gate6 m2-a): row 15s, a refused spawn barrier (the program never ran): lost, retried after the back-off.
+fn barrier_refused_classification(
+    c: &classify::Classification,
+    why: String,
+) -> classify::Classification {
+    classify::Classification {
+        sub: "s".into(),
+        why: format!(
+            "spawn barrier refused: {why}; the program never ran (classified row {}{}: {})",
+            c.row, c.sub, c.why
+        ),
+        ..resource_classification(c, String::new())
     }
 }
 
@@ -5500,10 +8192,97 @@ fn resource_classification(c: &classify::Classification, why: String) -> classif
     }
 }
 
+/// procfix7 round 17: a proof that waited longer than this is counted and explained in the exit's summary line.
+const PROOF_WAIT_REPORTED: Duration = Duration::from_secs(10);
+
+/// procfix7 round 17 (host run B, N2.i0158): the session's end-of-job proofs.
+#[derive(Default)]
+struct ProofTally {
+    proofs: u64,
+    over: u64,
+    max_s: f64,
+    max_of: String,
+    why: Vec<crate::launch::ProofWait>,
+}
+
+impl ProofTally {
+    fn add(&mut self, attempt: &str, r: &crate::launch::FinalReport) {
+        let Some(s) = r.proof_seconds else { return };
+        self.proofs += 1;
+        if s > self.max_s {
+            self.max_s = s;
+            self.max_of = attempt.to_string();
+        }
+        if s > PROOF_WAIT_REPORTED.as_secs_f64() {
+            self.over += 1;
+            if r.proof_waits.is_empty() {
+                crate::launch::merge_proof_waits(
+                    &mut self.why,
+                    &[crate::launch::ProofWait {
+                        kind: "no inconclusive round (the proof itself was slow)".into(),
+                        count: 1,
+                        example: attempt.to_string(),
+                    }],
+                );
+            } else {
+                crate::launch::merge_proof_waits(&mut self.why, &r.proof_waits);
+            }
+        }
+    }
+
+    fn summary(&self) -> String {
+        let why = if self.why.is_empty() {
+            String::new()
+        } else {
+            let mut w = self.why.clone();
+            w.sort_by_key(|x| std::cmp::Reverse(x.count));
+            format!(
+                "; why (inconclusive rounds of those proofs): {}",
+                w.iter()
+                    .map(|x| format!("{} x{} (e.g. {})", x.kind, x.count, x.example))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )
+        };
+        format!(
+            "end-of-job proofs: {}, longer than {} s: {} (longest {:.1} s{}){why}",
+            self.proofs,
+            PROOF_WAIT_REPORTED.as_secs(),
+            self.over,
+            self.max_s,
+            if self.max_of.is_empty() {
+                String::new()
+            } else {
+                format!(", {}", self.max_of)
+            }
+        )
+    }
+}
+
+/// procfix7 round 15 (gate16 nit m16-paused-spam): the key of a "launching paused" line: the reasons, the manager gate's
+/// (at index `gate.0`) replaced by its text WITHOUT its running seconds (`gate.1`), so that only a real change of the
+/// reasons is a new line.
+fn paused_key(reasons: &[String], gate: Option<(usize, &str)>) -> String {
+    reasons
+        .iter()
+        .enumerate()
+        .map(|(i, r)| match gate {
+            Some((g, k)) if g == i => k,
+            _ => r.as_str(),
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 /// Is this `job.requeue` reason the one of a host-resource end (decision rows 15 / 15b; written by `settle` as
 /// `"<class> (row 15<sub>)"`)? procfix5 m6: the count of such ends in a row is derived from the ledger at recovery.
 fn is_resource_requeue(reason: &str) -> bool {
-    reason.ends_with("(row 15)") || reason.ends_with("(row 15b)")
+    // procfix7 round 15 (gate16 m16-15m-recovery): "(row 15m)" (never ran: the launcher ended while waiting for the user
+    // manager) too, so that the count of resource ends in a row survives a restart
+    reason.ends_with("(row 15)")
+        || reason.ends_with("(row 15b)")
+        || reason.ends_with("(row 15s)")
+        || reason.ends_with("(row 15m)")
 }
 
 fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
@@ -5525,6 +8304,8 @@ fn ledger_error_is_disk_full(e: &LedgerError) -> bool {
     }
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5967,6 +8748,99 @@ mod tests {
     /// while the run directory's file system is full are RESOURCE ends (row 15b, lost, retried after the back-off);
     /// DECOYS stay what they were: a missing OUTCOME on a file system with space is a crash (row 23); SIGKILL from
     /// outside is row 21 (not a crash, untouched); an OUTCOME naming another errno is not re-read as a disk end.
+    /// procfix7 (gate6 m2-a, gate7 m-br): a shim that REFUSED its release (exit 125 + the refusal on its report pipe, no
+    /// OUTCOME) is a typed attempt end (row 15s: lost, retried after the back-off, counted by the resource-end rule);
+    /// exit 125 WITHOUT a reported refusal (the program's own code, whatever it wrote into its run directory), or with an
+    /// OUTCOME, stays what the decision table says.
+    #[test]
+    fn m2a_refused_barrier_is_a_typed_retry_not_a_crash() {
+        let ev = evidence(WaitStatus::Exited(crate::launch::BARRIER_NOT_RELEASED));
+        let c = classify::classify(&ev);
+        assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
+        assert_eq!(
+            barrier_refused(None, &ev),
+            None,
+            "nothing reported: the program's own exit code"
+        );
+        let why = barrier_refused(Some("wrong token: 32 byte(s)\n"), &ev).expect("refused");
+        assert!(why.starts_with("wrong token"), "{why}");
+        let r = barrier_refused_classification(&c, why);
+        assert_eq!((r.row, r.sub.as_str()), (15, "s"));
+        assert_eq!(r.kind, classify::OutcomeKind::Lost);
+        assert_eq!(r.action, classify::Action::RetryAfterResourceBackoff);
+        assert!(!r.attention);
+        assert!(is_resource_requeue("lost (row 15s)"));
+        // round 17: the exit's line on the end-of-job proofs (counts, the longest, the kinds of their waits by count)
+        let mut tally = ProofTally::default();
+        assert_eq!(
+            tally.summary(),
+            "end-of-job proofs: 0, longer than 10 s: 0 (longest 0.0 s)"
+        );
+        tally.proofs = 3;
+        tally.over = 1;
+        tally.max_s = 12.5;
+        tally.max_of = "N2.i0158.L0-t0:a1".into();
+        tally.why = vec![crate::launch::ProofWait {
+            kind: "proof pass inconclusive: children [..] ended during the pass (hand-off?)".into(),
+            count: 4,
+            example: "proof pass inconclusive: children [57 (gone before its read: no identity)] ended during the pass (hand-off?)".into(),
+        }];
+        let s = tally.summary();
+        assert!(
+            s.starts_with(
+                "end-of-job proofs: 3, longer than 10 s: 1 (longest 12.5 s, N2.i0158.L0-t0:a1); why"
+            ) && s.contains("x4 (e.g. proof pass inconclusive: children [57 (gone before its read"),
+            "{s}"
+        );
+        // round 16 (int8b-gate defect 3): an unreadable control file is never "unparsable" (archived, lost): it is kept
+        let eio = std::io::Error::from_raw_os_error(libc::EIO);
+        assert!(matches!(
+            control_of(crate::fsx::Read::Failed(eio)),
+            ControlRead::Unreadable(_)
+        ));
+        assert!(matches!(
+            control_of(crate::fsx::Read::Absent),
+            ControlRead::Absent
+        ));
+        assert!(matches!(
+            control_of(crate::fsx::Read::Content(b"{not json".to_vec())),
+            ControlRead::Read(None)
+        ));
+        let ok = br#"{"schema":"s","id":"i","utc":"u","verb":"pause"}"#.to_vec();
+        assert!(matches!(
+            control_of(crate::fsx::Read::Content(ok)),
+            ControlRead::Read(Some(r)) if r.verb == "pause"
+        ));
+        // round 15 (gate16 nit m16-paused-spam): the manager gate's running seconds are not a change of the reasons
+        let r = |s: u64, other: &str| {
+            vec![
+                "cpu policy: no free core".to_string(),
+                format!("the user manager does not answer (probe; {s} s): no launch"),
+                other.to_string(),
+            ]
+        };
+        let g = Some((1, "the user manager does not answer (probe)"));
+        assert_eq!(paused_key(&r(53, "x"), g), paused_key(&r(54, "x"), g));
+        assert_ne!(paused_key(&r(53, "x"), g), paused_key(&r(53, "y"), g));
+        assert_eq!(paused_key(&r(53, "x"), None), r(53, "x").join("; "));
+        // round 15 (gate16 m16-15m-recovery): a never-ran end counts at recovery as at run time
+        assert!(is_resource_requeue("lost (row 15m)") && !is_resource_requeue("lost (row 15n)"));
+        let mut map = BTreeMap::new();
+        let rq = |r: &str| Event::Job {
+            job: "j".into(),
+            attempt: 1,
+            ev: JobEvent::Requeue { reason: r.into() },
+        };
+        fold_resource_ends(&mut map, &rq("lost (row 15m)"));
+        fold_resource_ends(&mut map, &rq("lost (row 15m)"));
+        assert_eq!(map.get("j"), Some(&2));
+        // another exit code with a report: not a refused barrier
+        let ev = evidence(WaitStatus::Exited(1));
+        assert_eq!(barrier_refused(Some("eof"), &ev), None);
+    }
+
+    /// procfix7 (gate6 m4-a): the SIGXFSZ / exit-153 ends are resource ends ONLY with the supervisor's own evidence (its
+    /// finite file-size limit, or a full file system); on a roomy disk without a limit they stay crashes.
     #[test]
     fn m4_disk_attributed_child_ends_are_resource_ends() {
         let roomy = std::env::temp_dir();
@@ -5977,7 +8851,14 @@ mod tests {
             let ev = evidence(w);
             let c = classify::classify(&ev);
             assert_eq!(c.kind, classify::OutcomeKind::Crashed, "{c:?}");
-            let why = disk_attributed_end(&ev, &c, &[roomy.as_path()]).expect("SIGXFSZ");
+            // gate6 m4-a: a self-sent SIGXFSZ / exit 153 on a roomy disk without a limit: a crash
+            assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()], None), None);
+            let why =
+                disk_attributed_end(&ev, &c, &[roomy.as_path()], Some(1 << 20)).expect("SIGXFSZ");
+            assert!(
+                why.starts_with(SIGXFSZ_WHY) && why.contains("file-size limit"),
+                "{why}"
+            );
             let r = resource_classification(&c, why);
             assert_eq!((r.row, r.sub.as_str()), (15, "b"));
             assert_eq!(r.kind, classify::OutcomeKind::Lost);
@@ -5988,12 +8869,16 @@ mod tests {
         let ev = evidence(WaitStatus::Exited(1));
         let c = classify::classify(&ev);
         assert_eq!(c.row, 23);
-        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
+        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()], None), None);
+        assert_eq!(
+            disk_attributed_end(&ev, &c, &[roomy.as_path()], Some(1 << 20)),
+            None
+        );
         // decoy: SIGKILL from outside, no OUTCOME: row 21 (lost), never re-classified
         let ev = evidence(WaitStatus::Signaled(libc::SIGKILL));
         let c = classify::classify(&ev);
         assert_eq!(c.row, 21);
-        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()]), None);
+        assert_eq!(disk_attributed_end(&ev, &c, &[roomy.as_path()], None), None);
         // errno renderings
         assert!(names_errno(
             "write OUTCOME: File too large (os error 27)",
@@ -6010,8 +8895,16 @@ mod tests {
             Some(full) => {
                 let ev = evidence(WaitStatus::Exited(1));
                 let c = classify::classify(&ev);
-                let why = disk_attributed_end(&ev, &c, &[full.as_path()]).expect("full fs");
+                let why = disk_attributed_end(&ev, &c, &[full.as_path()], None).expect("full fs");
                 assert!(why.contains("is full"), "{why}");
+                // ... and a SIGXFSZ death on the full file system (the supervisor's own evidence): a resource end
+                let ev = evidence(WaitStatus::Signaled(libc::SIGXFSZ));
+                let c = classify::classify(&ev);
+                let why = disk_attributed_end(&ev, &c, &[full.as_path()], None).expect("full fs");
+                assert!(
+                    why.starts_with(SIGXFSZ_WHY) && why.contains("is full"),
+                    "{why}"
+                );
                 // SAFETY: unmount our own test mount.
                 let cs = std::ffi::CString::new(full.to_string_lossy().as_bytes()).unwrap();
                 unsafe { libc::umount2(cs.as_ptr(), libc::MNT_DETACH) };

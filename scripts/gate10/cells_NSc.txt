@@ -1,0 +1,3 @@
+ns8r.sh inj NSc-trunc-readdir-only-1 r G8_MATCH=/proc G8_OPS=readdir G8_FROM=1 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8r.sh inj NSc-trunc-getdents-only-1 r G8_MATCH=/proc G8_OPS=getdents G8_FROM=1 G8_ERRNO=trunc G8_TIMEOUT=1200
+ns8u.sh inj NSc-trunc-readdir-only-1u u G8_MATCH=/proc G8_OPS=readdir G8_FROM=1 G8_ERRNO=trunc G8_TIMEOUT=1200

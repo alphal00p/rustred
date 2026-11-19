@@ -545,8 +545,11 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
         return super::symrows::wrap(layout, spec, spec_blake3, wait);
     }
     let mapped = legacy_wait(wait);
-    if layout.outcome().exists() {
-        return mapped;
+    // procfix7 round 5: OUTCOME is written only when PROVEN absent (an unreadable one is left to the classification,
+    // which reads it: never a second outcome written on a failed stat)
+    match crate::fsx::presence_lstat("adapters.outcome", &layout.outcome()) {
+        crate::fsx::Presence::Absent => {}
+        crate::fsx::Presence::Present(_) | crate::fsx::Presence::Unknown(_) => return mapped,
     }
     let program = ProgramInfo {
         name: spec.program.name.clone(),
@@ -566,8 +569,33 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
     };
     match mapped {
         WaitStatus::Exited(0) => {
-            let raw =
-                std::fs::read(layout.out_dir().join(child_out(spec.kind))).unwrap_or_default();
+            // procfix7 round 5: answers that cannot be READ are never an empty answer set: an io end (lost, retried
+            // after the back-off), no evidence about the records
+            let raw = match crate::fsx::read(
+                "adapters.outcome",
+                &layout.out_dir().join(child_out(spec.kind)),
+            ) {
+                crate::fsx::Read::Content(b) => b,
+                crate::fsx::Read::Absent => Vec::new(),
+                crate::fsx::Read::Failed(e) => {
+                    let mut io = JobOutcome::for_spec(
+                        spec,
+                        spec_blake3,
+                        program,
+                        ExitCode::Io,
+                        StopInfo {
+                            code: Some(StopCode::IoError),
+                            ..StopInfo::none()
+                        },
+                    );
+                    io.error = Some(ErrorInfo::new(
+                        ErrorClass::Io,
+                        format!("the child's answers could not be read: {e}"),
+                    ));
+                    write(io);
+                    return WaitStatus::Exited(ExitCode::Io.code());
+                }
+            };
             let mut j = JobOutcome::for_spec(
                 spec,
                 spec_blake3,
@@ -634,10 +662,33 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
                     ..StopInfo::none()
                 },
             );
-            let msg = std::fs::read_to_string(layout.stdout_log())
-                .ok()
-                .and_then(|s| s.lines().last().map(str::to_string))
-                .unwrap_or_else(|| "rr_proof exit 2".into());
+            // procfix7 round 5: a log that cannot be READ leaves the cause unknown: an io end, never input evidence
+            let msg = match crate::fsx::read_to_string("adapters.outcome", &layout.stdout_log()) {
+                crate::fsx::Read::Content(s) => s
+                    .lines()
+                    .last()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| "rr_proof exit 2".into()),
+                crate::fsx::Read::Absent => "rr_proof exit 2".into(),
+                crate::fsx::Read::Failed(e) => {
+                    let mut io = JobOutcome::for_spec(
+                        spec,
+                        spec_blake3,
+                        j.program.clone(),
+                        ExitCode::Io,
+                        StopInfo {
+                            code: Some(StopCode::IoError),
+                            ..StopInfo::none()
+                        },
+                    );
+                    io.error = Some(ErrorInfo::new(
+                        ErrorClass::Io,
+                        format!("rr_proof exit 2, its log could not be read: {e}"),
+                    ));
+                    write(io);
+                    return WaitStatus::Exited(ExitCode::Io.code());
+                }
+            };
             j.error = Some(ErrorInfo::new(ErrorClass::Input, msg.clone()));
             // decision row 15b (lane int5): a refusal that names a HOST resource errno is not an input error: exit 51
             // (io) with that message -> lost, retried after back-off, then attention; never evidence about the record
@@ -665,9 +716,18 @@ pub fn wrap(layout: &RunLayout, spec: &JobSpec, spec_blake3: &str, wait: WaitSta
 
 /// Why the wrapper refused an attempt's answers (`RUN/sup/wrapper-refusal.txt`), if it did.
 pub fn refusal(layout: &RunLayout) -> Option<String> {
-    std::fs::read_to_string(layout.sup_dir().join("wrapper-refusal.txt")).ok()
+    // procfix7 round 5: an unreadable refusal record is reported as such, never as "no refusal"
+    match crate::fsx::read_to_string(
+        "adapters.outcome",
+        &layout.sup_dir().join("wrapper-refusal.txt"),
+    ) {
+        crate::fsx::Read::Content(s) => Some(s),
+        crate::fsx::Read::Absent => None,
+        crate::fsx::Read::Failed(e) => Some(format!("<the refusal record cannot be read: {e}>")),
+    }
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

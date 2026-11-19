@@ -106,6 +106,23 @@ pub trait CpuPolicy {
     fn launch_blockers(&self) -> Vec<String>;
     /// Take a /proc/stat sample for the idleness window (cheap; call once per control-loop tick).
     fn refresh(&mut self) -> io::Result<()>;
+    /// procfix7 round 7 (gate11 M11-2): does this policy exclude CPUs pinned by foreign processes? Then the supervisor
+    /// collects them with its sampler and hands them over with [`CpuPolicy::set_foreign_pinned`] on its cadence.
+    fn wants_foreign_pinning(&self) -> bool {
+        false
+    }
+    /// The largest restricted affinity that counts as a pin (see `SiteConfig::foreign_pin_max_cpus`).
+    fn foreign_pin_max_cpus(&self) -> usize {
+        usize::MAX
+    }
+    /// The CPUs pinned by foreign processes now: Some(set) from a COMPLETE scan, None when the latest scan could not read
+    /// every affinity (unknown: nothing is granted until a complete scan).
+    fn update_foreign_pinned(&mut self, _cpus: Option<BTreeSet<usize>>) {}
+    /// procfix7 round 7 (gate11 M11-2, like lane wireflow's admission refusal): a configuration under which this policy
+    /// can NEVER grant a CPU (Some(why)): the supervisor refuses to start (typed), instead of waiting forever.
+    fn never_admits(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Default)]
@@ -159,7 +176,7 @@ fn cpu_word(cpus: &[usize]) -> (&'static str, String) {
 /// The site's files as `SitePolicy` needs them (gate3 m3): `lock_dir` an existing directory, `ledger_file` an existing
 /// regular file (symlinks followed) that does not lie in `lock_dir`. Nothing is created.
 fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
-    match fs::metadata(&c.lock_dir) {
+    match crate::fsx::presence("cpu_policy", &c.lock_dir).metadata() {
         Ok(m) if m.is_dir() => {}
         Ok(_) => {
             return Err(PolicyError::Config(format!(
@@ -174,7 +191,7 @@ fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
             )));
         }
     }
-    match fs::metadata(&c.ledger_file) {
+    match crate::fsx::presence("cpu_policy", &c.ledger_file).metadata() {
         Ok(m) if m.file_type().is_file() => {}
         Ok(m) => {
             return Err(PolicyError::Config(format!(
@@ -190,9 +207,9 @@ fn check_site_files(c: &SiteConfig) -> Result<(), PolicyError> {
             )));
         }
     }
-    let ledger = fs::canonicalize(&c.ledger_file)
+    let ledger = crate::fsx::canonicalize("cpu_policy", &c.ledger_file)
         .map_err(io_err(format!("canonicalize {}", c.ledger_file.display())))?;
-    let locks = fs::canonicalize(&c.lock_dir)
+    let locks = crate::fsx::canonicalize("cpu_policy", &c.lock_dir)
         .map_err(io_err(format!("canonicalize {}", c.lock_dir.display())))?;
     if ledger.starts_with(&locks) {
         return Err(PolicyError::Config(format!(
@@ -282,31 +299,28 @@ pub struct HeldAfterRelease {
     pub holders: Vec<u32>,
 }
 
-/// Processes of our uid that have `path` open (a scan of /proc/<pid>/fd; unreadable entries are skipped). Diagnostics
-/// only (a human decides; nothing is signalled).
+/// Processes of our uid that have `path` open (a scan of the descriptor tables; unreadable tables are skipped).
+/// Diagnostics only (a human decides; nothing is signalled, nothing decided). procfix8: through `resources::procfs`.
 pub fn lock_holders(path: &Path) -> Vec<u32> {
-    let Ok(target) = fs::canonicalize(path) else {
+    let Ok(target) = crate::fsx::canonicalize("cpu_policy", path) else {
         return Vec::new();
     };
     let me = std::process::id();
-    let mut out = Vec::new();
-    let Ok(rd) = fs::read_dir("/proc") else {
-        return out;
+    let root = crate::resources::procfs::sys();
+    let pids = match root.pids() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
     };
-    for e in rd.flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
-            continue;
-        };
+    let mut out = Vec::new();
+    for pid in pids {
         if pid == me {
             continue;
         }
-        let Ok(fds) = fs::read_dir(format!("/proc/{pid}/fd")) else {
-            continue;
+        let holds = match root.fd_targets(pid) {
+            Ok(t) => t.contains(&target),
+            Err(_) => false,
         };
-        if fds
-            .flatten()
-            .any(|f| fs::read_link(f.path()).is_ok_and(|l| l == target))
-        {
+        if holds {
             out.push(pid);
         }
     }
@@ -458,11 +472,18 @@ impl Drop for CpuLease {
     }
 }
 
+/// procfix7 round 5: a pause flag that cannot be checked BLOCKS like a present one (never "not paused").
 fn read_pause(files: &[PathBuf]) -> Vec<String> {
     files
         .iter()
-        .filter(|p| p.exists())
-        .map(|p| format!("pause flag {} present", p.display()))
+        .filter_map(|p| match crate::fsx::presence("cpu_policy", p) {
+            crate::fsx::Presence::Present(_) => Some(format!("pause flag {} present", p.display())),
+            crate::fsx::Presence::Absent => None,
+            crate::fsx::Presence::Unknown(e) => Some(format!(
+                "pause flag {} cannot be checked ({e}): counted as present",
+                p.display()
+            )),
+        })
         .collect()
 }
 
@@ -675,6 +696,12 @@ pub struct SiteConfig {
     /// them from the sampler (`set_foreign_pinned`). Until it has, nothing is granted.
     #[serde(default)]
     pub respect_foreign_pinning: bool,
+    /// procfix7 round 7 (gate11 M11-2): the largest restricted affinity (CPU count) that counts as a PIN. pick.py counts
+    /// every affinity narrower than the machine; on this host the ops rule-15 units run under masks of ~270-344 CPUs (all
+    /// allowed CPUs minus the reserved ones: an exclusion, not a claim), which under that reading pin EVERY CPU
+    /// (measured 2026-11-17: the union of such masks covered the whole allowed set). Default 64.
+    #[serde(default = "default_pin_max")]
+    pub foreign_pin_max_cpus: usize,
     /// Ledger claims under our own tag are not exclusions (pick_free.py ignores its own tag; the flock decides).
     #[serde(default = "default_true")]
     pub ignore_own_tag_claims: bool,
@@ -691,6 +718,9 @@ fn default_idle_min() -> f64 {
 }
 fn default_true() -> bool {
     true
+}
+fn default_pin_max() -> usize {
+    64
 }
 
 impl SiteConfig {
@@ -1418,6 +1448,60 @@ impl CpuPolicy for SitePolicy {
     fn refresh(&mut self) -> io::Result<()> {
         self.idle.refresh(Duration::from_millis(900))
     }
+
+    fn wants_foreign_pinning(&self) -> bool {
+        self.config.respect_foreign_pinning
+    }
+
+    fn foreign_pin_max_cpus(&self) -> usize {
+        self.config.foreign_pin_max_cpus
+    }
+
+    fn update_foreign_pinned(&mut self, cpus: Option<BTreeSet<usize>>) {
+        self.foreign_pinned = cpus;
+    }
+
+    /// procfix7 round 7 (gate11 M11-2): never a grant when no candidate CPU outside the static exclusions has its lock
+    /// file (the campaign never creates one: such a CPU is never available), or when the idle bar cannot be met (an
+    /// idleness of 1.0 is never measured over a window).
+    fn never_admits(&self) -> Option<String> {
+        let usable: Vec<usize> = self
+            .candidates
+            .iter()
+            .copied()
+            .filter(|c| !self.exclude.contains(c))
+            .collect();
+        if usable.is_empty() {
+            return Some(format!(
+                "no candidate CPU outside the site's exclude lists (candidates {})",
+                format_cpu_list(&self.candidates)
+            ));
+        }
+        let mut with_lock = 0usize;
+        for &c in &usable {
+            let path = self
+                .config
+                .lock_dir
+                .join(self.config.lock_name.replace("{n}", &c.to_string()));
+            match crate::fsx::presence("cpu_policy", &path) {
+                crate::fsx::Presence::Present(m) if m.is_file() => with_lock += 1,
+                crate::fsx::Presence::Present(_) | crate::fsx::Presence::Absent => {}
+                // cannot be checked: possibly usable (the acquire decides; never a refusal from an unread file)
+                crate::fsx::Presence::Unknown(_) => with_lock += 1,
+            }
+        }
+        if with_lock == 0 {
+            return Some(format!(
+                "none of the {} candidate CPUs outside the exclude lists has its lock file in {} (the campaign never creates one)",
+                usable.len(),
+                self.config.lock_dir.display()
+            ));
+        }
+        if self.config.idle_min >= 1.0 {
+            return Some("idle_min 1.0: an idleness of 1.0 over a window is never measured".into());
+        }
+        None
+    }
 }
 
 /// "YYYY-MM-DDTHH:MM:SSZ" of the system clock (the ledger's time-stamp format; `date -u +%FT%TZ`).
@@ -1452,21 +1536,28 @@ pub fn utc_string(secs: u64) -> String {
 }
 
 /// SMT siblings of every allowed CPU from `/sys/devices/system/cpu/cpu<n>/topology/thread_siblings_list` (the CPU
-/// itself removed). CPUs without the file are absent from the map. (lane I-SUP)
-pub fn read_smt_siblings() -> BTreeMap<usize, Vec<usize>> {
+/// itself removed). CPUs without the file (proven absent) are absent from the map. (lane I-SUP)
+/// procfix7 round 5: Err when the allowed set or a siblings file cannot be read or parsed (never "no siblings").
+pub fn read_smt_siblings() -> io::Result<BTreeMap<usize, Vec<usize>>> {
     let mut out = BTreeMap::new();
-    let Ok(cpus) = allowed_cpus() else {
-        return out;
-    };
-    for c in cpus {
-        let p = format!("/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list");
-        if let Ok(t) = fs::read_to_string(&p)
-            && let Ok(set) = parse_cpu_list(t.trim())
-        {
-            out.insert(c, set.into_iter().filter(|&s| s != c).collect());
+    for c in allowed_cpus()? {
+        let p = PathBuf::from(format!(
+            "/sys/devices/system/cpu/cpu{c}/topology/thread_siblings_list"
+        ));
+        match crate::fsx::read_to_string("cpu_policy", &p) {
+            crate::fsx::Read::Content(t) => {
+                let set = parse_cpu_list(t.trim()).map_err(|e| {
+                    io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", p.display()))
+                })?;
+                out.insert(c, set.into_iter().filter(|&s| s != c).collect());
+            }
+            crate::fsx::Read::Absent => {}
+            crate::fsx::Read::Failed(e) => {
+                return Err(io::Error::new(e.kind(), format!("{}: {e}", p.display())));
+            }
         }
     }
-    out
+    Ok(out)
 }
 
 /// For the pre-flight: a readable summary of what a site policy would exclude now.
@@ -1481,8 +1572,27 @@ pub fn describe_exclusions(p: &SitePolicy) -> String {
     }
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
+    /// procfix7 round 6 (gate10 m10-6, mutation M8): a pause flag whose presence cannot be checked (here ENOTDIR: a
+    /// component of its path is a file) BLOCKS like a present one; only a proven absent flag (ENOENT) does not.
+    #[test]
+    fn an_unreadable_pause_flag_blocks() {
+        let d = std::env::temp_dir().join(format!("pf10-pause-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("file"), b"x").unwrap();
+        let unknown = d.join("file").join("PAUSE");
+        let absent = d.join("PAUSE");
+        let r = read_pause(std::slice::from_ref(&absent));
+        assert!(r.is_empty(), "a proven absent flag does not block: {r:?}");
+        let r = read_pause(&[unknown, absent]);
+        assert_eq!(r.len(), 1, "{r:?}");
+        assert!(r[0].contains("cannot be checked"), "{r:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     use super::*;
 
     /// The example of `plan/auto-campaign/interfaces/process-layer.md` section 7 (this host's values) parses and

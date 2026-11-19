@@ -1,0 +1,40 @@
+ns8r.sh g12_drop_inner.sh D-g12_depth_2-r-drop r g12:depth:2 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_depth_2-r-dropT r g12:depth:2 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_depth_2-u-drop u g12:depth:2 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_depth_2-u-dropT u g12:depth:2 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_depth_3-r-drop r g12:depth:3 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_depth_3-r-dropT r g12:depth:3 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_depth_3-u-drop u g12:depth:3 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_depth_3-u-dropT u g12:depth:3 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_texit-r-drop r g12:texit: G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_texit-r-dropT r g12:texit: G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_texit-u-drop u g12:texit: G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_texit-u-dropT u g12:texit: G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_texitz-r-drop r g12:texitz: G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_texitz-r-dropT r g12:texitz: G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_texitz-u-drop u g12:texitz: G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_texitz-u-dropT u g12:texitz: G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_churn_0-r-drop r g12:churn:0 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_churn_0-r-dropT r g12:churn:0 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_churn_0-u-drop u g12:churn:0 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_churn_0-u-dropT u g12:churn:0 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_churn_1-r-drop r g12:churn:1 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_churn_1-r-dropT r g12:churn:1 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_churn_1-u-drop u g12:churn:1 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_churn_1-u-dropT u g12:churn:1 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_churn_10-r-drop r g12:churn:10 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_churn_10-r-dropT r g12:churn:10 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_churn_10-u-drop u g12:churn:10 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_churn_10-u-dropT u g12:churn:10 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_hop_0-r-drop r g12:hop:0 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_hop_0-r-dropT r g12:hop:0 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_hop_0-u-drop u g12:hop:0 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_hop_0-u-dropT u g12:hop:0 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_hop_1-r-drop r g12:hop:1 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_hop_1-r-dropT r g12:hop:1 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_hop_1-u-drop u g12:hop:1 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_hop_1-u-dropT u g12:hop:1 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8r.sh g12_drop_inner.sh D-g12_hop_10-r-drop r g12:hop:10 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_drop_inner.sh D-g12_hop_10-r-dropT r g12:hop:10 G11_DROP_FILE=@DPFILE@ G11_TASKS=1
+ns8u.sh g12_drop_inner.sh D-g12_hop_10-u-drop u g12:hop:10 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_drop_inner.sh D-g12_hop_10-u-dropT u g12:hop:10 G11_DROP_FILE=@DPFILE@ G11_TASKS=1

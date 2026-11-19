@@ -1,0 +1,106 @@
+ns8r.sh inj CHr-children-1-5 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-5 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-5 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-5 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-13 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-13 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-13 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-13 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-24 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-24 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-24 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-24 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-23 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-23 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-23 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-23 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-12 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-12 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-12 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-12 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-4 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-4 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-4 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-4 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-11 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-11 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-11 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-11 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-116 r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-3-116 r G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-116 r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-50-116 r G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-short r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-short r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=short G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-1-pshort r G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-10-pshort r G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-p100-5 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-p100-24 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-p300-5 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-p300-24 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-p900-5 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-p900-24 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8r.sh inj CHr-children-every2-5 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clock-1-22 r G8_MATCH=clock:boottime G8_OPS=clock G8_AT=1 G8_ERRNO=22 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clock-5-22 r G8_MATCH=clock:boottime G8_OPS=clock G8_AT=5 G8_ERRNO=22 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clock-20-22 r G8_MATCH=clock:boottime G8_OPS=clock G8_AT=20 G8_ERRNO=22 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clock-1-1 r G8_MATCH=clock:boottime G8_OPS=clock G8_AT=1 G8_ERRNO=1 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clock-5-1 r G8_MATCH=clock:boottime G8_OPS=clock G8_AT=5 G8_ERRNO=1 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clock-20-1 r G8_MATCH=clock:boottime G8_OPS=clock G8_AT=20 G8_ERRNO=1 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clockstep-back r G8_MATCH=clock:boottime G8_OPS=clock G8_FROM=1 G8_CLOCK_STEP=-30 G8_TIMEOUT=1200
+ns8r.sh inj CHr-clockstep-fwd r G8_MATCH=clock:boottime G8_OPS=clock G8_FROM=1 G8_CLOCK_STEP=30 G8_TIMEOUT=1200
+ns8r.sh live LVr-children-p300-5 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8r.sh live LVr-children-p300-24 r G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-5 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-5 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-5 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-5 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-13 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-13 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-13 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-13 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=13 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-24 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-24 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-24 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-24 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-23 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-23 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-23 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-23 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=23 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-12 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-12 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-12 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-12 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=12 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-4 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-4 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-4 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-4 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=4 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-11 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-11 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-11 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-11 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=11 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-116 u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-3-116 u G8_MATCH=/children G8_OPS=open,read G8_AT=3 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-116 u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-50-116 u G8_MATCH=/children G8_OPS=open,read G8_AT=50 G8_ERRNO=116 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-short u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-short u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=short G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-1-pshort u G8_MATCH=/children G8_OPS=open,read G8_AT=1 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-10-pshort u G8_MATCH=/children G8_OPS=open,read G8_AT=10 G8_ERRNO=pshort G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-p100-5 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=100 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-p100-24 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=100 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-p300-5 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-p300-24 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-p900-5 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=900 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-p900-24 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=900 G8_ERRNO=24 G8_TIMEOUT=1200
+ns8u.sh inj CHu-children-every2-5 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_EVERY=2 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clock-1-22 u G8_MATCH=clock:boottime G8_OPS=clock G8_AT=1 G8_ERRNO=22 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clock-5-22 u G8_MATCH=clock:boottime G8_OPS=clock G8_AT=5 G8_ERRNO=22 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clock-20-22 u G8_MATCH=clock:boottime G8_OPS=clock G8_AT=20 G8_ERRNO=22 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clock-1-1 u G8_MATCH=clock:boottime G8_OPS=clock G8_AT=1 G8_ERRNO=1 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clock-5-1 u G8_MATCH=clock:boottime G8_OPS=clock G8_AT=5 G8_ERRNO=1 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clock-20-1 u G8_MATCH=clock:boottime G8_OPS=clock G8_AT=20 G8_ERRNO=1 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clockstep-back u G8_MATCH=clock:boottime G8_OPS=clock G8_FROM=1 G8_CLOCK_STEP=-30 G8_TIMEOUT=1200
+ns8u.sh inj CHu-clockstep-fwd u G8_MATCH=clock:boottime G8_OPS=clock G8_FROM=1 G8_CLOCK_STEP=30 G8_TIMEOUT=1200
+ns8u.sh live LVu-children-p300-5 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=5 G8_TIMEOUT=1200
+ns8u.sh live LVu-children-p300-24 u G8_MATCH=/children G8_OPS=open,read G8_FROM=1 G8_PROB=300 G8_ERRNO=24 G8_TIMEOUT=1200

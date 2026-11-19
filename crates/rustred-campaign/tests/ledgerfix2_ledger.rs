@@ -2,6 +2,7 @@
 //! fsync gate before the recovery record (m11), background snapshots (m10), an older snapshot version, and a
 //! crash-point enumeration of the SUPERVISOR'S START DECISION ("MANIFEST.json present -> open, else create") over
 //! create / appends / rotations: no crash point may make a directory with an acknowledged history look new.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::fs;
@@ -117,12 +118,33 @@ fn m1_rebuild_refuses_a_gap_or_a_damaged_chain() {
 
 #[test]
 fn m1_crashed_create_residue_is_still_recreated() {
+    // procfix7 round 5 (gate9 G9-B1): the residue of a create that died before its manifest is NO LONGER deleted and
+    // recreated: a ledger directory with files and no MANIFEST is refused (ManifestMissing, nothing deleted), and the
+    // documented recovery (rebuild-manifest from the verified chain) restores it. The name is kept for the history of
+    // ledgerfix2 m1; the behaviour is the refuse-not-repair rule.
     let d = scratch("lf2-residue");
     let _c = Cleanup(d.clone());
     drop(new_ledger(&d, as_dyn(&clock()), small())); // record 1 + mark + manifest
     let ldir = ledger::ledger_dir(&d);
     fs::remove_file(ldir.join(ledger::MANIFEST_FILE)).unwrap(); // = a create that died before its manifest
-    let l = Ledger::create(&d, lock_of(&d), as_dyn(&clock()), small(), genesis()).unwrap();
+    let names = |p: &Path| -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(p)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        v.sort();
+        v
+    };
+    let before = names(&ldir);
+    assert!(!before.is_empty());
+    match Ledger::create(&d, lock_of(&d), as_dyn(&clock()), small(), genesis()) {
+        Err(LedgerError::ManifestMissing { .. }) => {}
+        Err(e) => panic!("create over a residue: expected ManifestMissing, got {e}"),
+        Ok(_) => panic!("create over a residue must be refused (never a repair by deletion)"),
+    }
+    assert_eq!(names(&ldir), before, "nothing deleted, nothing added");
+    ledger::rebuild_manifest(&d, lock_of(&d)).unwrap();
+    let (l, _) = open_ledger(&d, as_dyn(&clock()), small()).unwrap();
     assert_eq!(l.seq(), 1);
 }
 
@@ -508,10 +530,51 @@ fn start_path_crash_points_never_make_a_history_look_new() {
                     "op {n}: NO MANIFEST although seq {acked} was acknowledged"
                 ));
             }
-            if let Err(e) = Ledger::create(&d, &lk, as_dyn(&clock()), small(), genesis()) {
-                fails.push(format!(
-                    "op {n}: create after a crashed create refused: {e}"
-                ));
+            // procfix7 round 5 (gate9 G9-B1): create works into an absent or EMPTY ledger directory only; a residue
+            // is refused with nothing deleted and recovered by rebuild-manifest, or, without a complete record 1
+            // (rebuild refuses; nothing was acknowledged), removed by hand before the new create
+            let ldir = ledger::ledger_dir(&d);
+            let names = || -> Vec<String> {
+                let mut v: Vec<String> = fs::read_dir(&ldir)
+                    .map(|r| {
+                        r.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                v.sort();
+                v
+            };
+            let before = names();
+            match Ledger::create(&d, &lk, as_dyn(&clock()), small(), genesis()) {
+                Ok(_) if before.is_empty() => {}
+                Ok(_) => fails.push(format!("op {n}: create over the residue {before:?}")),
+                Err(LedgerError::ManifestMissing { .. }) => {
+                    if names() != before {
+                        fails.push(format!("op {n}: a refused create changed the residue"));
+                    }
+                    match ledger::rebuild_manifest(&d, &lk) {
+                        Ok(_) => match Ledger::open(&d, &lk, as_dyn(&clock()), small()) {
+                            Ok((l, _)) if l.seq() >= acked => {}
+                            Ok((l, _)) => fails.push(format!(
+                                "op {n}: rebuilt at {} < acknowledged {acked}",
+                                l.seq()
+                            )),
+                            Err(e) => fails.push(format!("op {n}: open after rebuild: {e}")),
+                        },
+                        Err(_) if acked == 0 => {
+                            let _ = fs::remove_dir_all(&ldir); // the operator's removal by hand
+                            if let Err(e) =
+                                Ledger::create(&d, &lk, as_dyn(&clock()), small(), genesis())
+                            {
+                                fails.push(format!("op {n}: create after removal: {e}"));
+                            }
+                        }
+                        Err(e) => fails.push(format!(
+                            "op {n}: rebuild refused although seq {acked} was acknowledged: {e}"
+                        )),
+                    }
+                }
+                Err(e) => fails.push(format!("op {n}: create after a crashed create: {e}")),
             }
         }
         drop(lk);

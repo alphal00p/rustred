@@ -15,6 +15,7 @@
 //! (WS/fixtures/campaign-20261114), the licence environment (`source WS/ops/env.sh`), `LIGHT_PIDNS=1` (private pid
 //! namespace: signals reach only our own children), `RR_REAL_OUT` (run directories), optional `RR_AUDIT_SEED`,
 //! `RR_AUDIT_DRILLS` (drills per fixture), `RR_AUDIT_LOG` (one JSON line per drill).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod audit_eng2_common;
 use audit_eng2_common::*;

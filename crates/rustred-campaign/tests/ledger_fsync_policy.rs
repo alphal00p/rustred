@@ -2,6 +2,7 @@
 //! with fsync removed). A recording fake logs every write / fsync / rename / directory fsync; for each durability
 //! class the exact order of operations before `append` returns is asserted. A fault-injecting fake fails the Nth
 //! operation (EIO / ENOSPC) and drives the M1 / M2 / disk-full paths deterministically.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::sync::Arc;

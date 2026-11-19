@@ -4,6 +4,7 @@
 //! a stale lock after SIGKILL with DECOYS (a process without the marker whose identity is recorded as an attempt's, a
 //! process with another campaign key's marker), and a changed binary between stop and resume (refused, then stale
 //! marking with --accept-binary-change). Every run ends equal to its reference (accepted set, dispositions, terminals).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -142,6 +143,39 @@ fn helpers_that_escape_the_group_are_killed_by_marker() {
     assert!(notes(&d, "orphan_killed").is_empty());
     let log = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap();
     assert!(log.contains("contract violation"), "{log}");
+    assert_no_marked(&t.campaign);
+    assert_eq!(verify(&d), 0);
+}
+
+/// procfix7 round 11 (gate14 item 5b): rule jobs that FORK honest helpers (same session and group, PDEATHSIG; half end
+/// on their own while the job runs, half are killed by the job at its end): every end is proven (no unproven end, no
+/// orphan killed by a sweep: nothing outlives its job), and the campaign finishes as usual.
+#[test]
+fn honest_forking_jobs_end_proven_and_nothing_outlives_them() {
+    let _g = serial();
+    let t = Tmp::new("honest");
+    let syn = serde_json::json!({"items": 8, "case_ms": [200, 600], "seed": 5, "p_mem": 0.0,
+        "honest_helpers": 4});
+    let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
+    let d = t.cdir("run");
+    assert_eq!(run_to_end(&spec_p, &d, &[]), vec![finish_code_by_items(&d)]);
+    let forked = std::fs::read_to_string(d.join("log/supervisor.log")).unwrap_or_default();
+    let killed = count(&d, |e| matches!(e, Event::OrphanKilled { .. }));
+    assert_eq!(
+        killed,
+        0,
+        "an honest helper outlived its job: {}",
+        log_tail(&d)
+    );
+    for n in [
+        "unproven_end",
+        "unproven_at_exit",
+        "final_sweep_unproven",
+        "final_sweep_vanished",
+    ] {
+        assert!(notes(&d, n).is_empty(), "{n}: {}", log_tail(&d));
+    }
+    assert!(!forked.contains("end UNPROVEN"), "{}", log_tail(&d));
     assert_no_marked(&t.campaign);
     assert_eq!(verify(&d), 0);
 }

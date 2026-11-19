@@ -1,0 +1,8 @@
+ns8r.sh g12_droplive_inner.sh L-g12_depth_3-r-drop r g12:depth:3 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_droplive_inner.sh L-g12_depth_3-u-drop u g12:depth:3 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_droplive_inner.sh L-g12_texitz-r-drop r g12:texitz: G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_droplive_inner.sh L-g12_texitz-u-drop u g12:texitz: G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_droplive_inner.sh L-g12_hop_1-r-drop r g12:hop:1 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_droplive_inner.sh L-g12_hop_1-u-drop u g12:hop:1 G11_DROP_FILE=@DPFILE@
+ns8r.sh g12_droplive_inner.sh L-g12_churn_0-r-drop r g12:churn:0 G11_DROP_FILE=@DPFILE@
+ns8u.sh g12_droplive_inner.sh L-g12_churn_0-u-drop u g12:churn:0 G11_DROP_FILE=@DPFILE@

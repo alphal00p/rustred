@@ -115,13 +115,22 @@ fn verify_run_dir(layout: &RunLayout, spec_digest: &str) -> Result<(), String> {
     if crate::spec::spec_blake3(&job) != spec_digest {
         return Err("RUN/job.json is not the spec file that was read".into());
     }
-    if std::fs::symlink_metadata(layout.outcome()).is_ok() {
+    // procfix7 round 5 (gate9 G9-B1 class): "not there" ONLY on NotFound; a file that cannot be checked refuses (it was
+    // "absent": the child would have written over a finished run's OUTCOME / journal)
+    let absent = |p: &Path, what: &str| -> Result<bool, String> {
+        match std::fs::symlink_metadata(p) {
+            Ok(_) => Ok(false),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(true),
+            Err(e) => Err(format!("{what} cannot be checked ({e}): nothing written")),
+        }
+    };
+    if !absent(&layout.outcome(), layout::OUTCOME)? {
         return Err(
             "OUTCOME.json already exists (a finished job is final; nothing written)".into(),
         );
     }
     for f in [layout::EVENTS, layout::RESUME, layout::RESERVE] {
-        if std::fs::symlink_metadata(root.join(f)).is_ok() {
+        if !absent(&root.join(f), f)? {
             return Err(format!("{f} exists: the run directory was already started"));
         }
     }

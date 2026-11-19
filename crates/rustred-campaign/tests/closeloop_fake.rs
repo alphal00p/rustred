@@ -5,6 +5,7 @@
 //! The node is a TOY (arity 3, chart 110; closeloop_support): a chain of keys that needs several rounds of recipe solves,
 //! a second face whose answers reach into the first, and a key first met while closing that only the default recipe's
 //! domain contains (R49).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

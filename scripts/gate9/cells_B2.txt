@@ -1,0 +1,94 @@
+ns8r.sh inj S2-inj-r-all-100-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=24
+ns8r.sh inj S2-inj-r-all-100-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=5
+ns8r.sh inj S2-inj-r-all-100-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=12
+ns8r.sh inj S2-inj-r-all-300-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=24
+ns8r.sh inj S2-inj-r-all-300-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=5
+ns8r.sh inj S2-inj-r-all-300-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj S2-inj-r-all-900-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=24
+ns8r.sh inj S2-inj-r-all-900-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=5
+ns8r.sh inj S2-inj-r-all-900-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=12
+ns8u.sh inj S2-inj-u-all-100-24 u G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=24
+ns8u.sh inj S2-inj-u-all-300-24 u G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=24
+ns8u.sh inj S2-inj-u-all-900-24 u G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=24
+ns8r.sh live S2-live-r-all-100-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=24
+ns8r.sh live S2-live-r-all-100-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=5
+ns8r.sh live S2-live-r-all-100-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=12
+ns8r.sh live S2-live-r-all-300-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=24
+ns8r.sh live S2-live-r-all-300-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=5
+ns8r.sh live S2-live-r-all-300-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=12
+ns8r.sh live S2-live-r-all-900-24 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=24
+ns8r.sh live S2-live-r-all-900-5 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=5
+ns8r.sh live S2-live-r-all-900-12 r G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=12
+ns8u.sh live S2-live-u-all-100-24 u G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=100 G8_ERRNO=24
+ns8u.sh live S2-live-u-all-300-24 u G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=300 G8_ERRNO=24
+ns8u.sh live S2-live-u-all-900-24 u G8_MATCH=* G8_OPS=open,read,readdir,stat,getdents,readlink G8_FROM=400 G8_PROB=900 G8_ERRNO=24
+ns8r.sh inj NB-l500-1 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-2 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-3 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-4 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-5 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-6 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-7 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-8 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-9 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-10 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-11 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-12 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-13 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-14 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-15 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-16 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-17 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-18 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-19 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-20 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-21 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-22 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-23 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-24 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-25 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-26 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-27 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-28 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-29 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-30 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-31 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-32 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-33 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-34 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-35 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-36 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-37 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-38 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-39 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l500-40 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=500 G8_ERRNO=5
+ns8r.sh inj NB-l300-1 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-2 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-3 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-4 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-5 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-6 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-7 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-8 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-9 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-10 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-11 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-12 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-13 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-14 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-15 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-16 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-17 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-18 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-19 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-20 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-21 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-22 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-23 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-24 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-25 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-26 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-27 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-28 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-29 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12
+ns8r.sh inj NB-l300-30 r G8_MATCH=@CDIR@/ledger G8_OPS=stat,readdir G8_PROB=300 G8_ERRNO=12

@@ -1,6 +1,7 @@
 //! R31 / R33 / R35 through the ledger: FULL first, BOXED only as a fallback to the SPEC box, OPEN otherwise;
 //! rule retirement needs a coverage-preservation proof on FULL nodes (a box closure pass only on BOXED ones);
 //! supersession is explicit (never deletion) and the reducer reports economy before / after.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use ledger_support::*;

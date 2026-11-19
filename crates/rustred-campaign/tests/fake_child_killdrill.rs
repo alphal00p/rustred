@@ -8,6 +8,7 @@
 //! (c) same with SIGXFSZ ignored (EFBIG -> the child's own I/O-error path); (d) torn_write fault at every op/byte.
 //! Every intermediate attempt is classified; any `accept != Nothing` for an attempt that did not finish is CRITICAL.
 //! Env: AUDIT_KILLS (default 240), AUDIT_SEED (default 0xA0D17B).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod fake_child_common;
 use fake_child_common::drill::*;

@@ -167,6 +167,27 @@ pub struct Resources {
     /// No `job_started` event this long after spawn = unresponsive (contract 6.2: 60 s).
     #[serde(default = "d_start_timeout")]
     pub start_timeout_s: u64,
+    /// procfix7 (gate7 MJ-1): how long a job's end may stay UNPROVEN (e.g. a non-dumpable descendant that keeps its
+    /// marker unreadable) before the supervisor stops waiting for the proof: it names every process that may hold the
+    /// attempt, releases the attempt's CPU lease and arms the exit-8 rule (the hunt keeps going meanwhile). Default 600;
+    /// procfix7 round 4 (gate8 m8-lim): 1 ..= [`MAX_UNPROVEN_END_LIMIT_S`] (one day), else the spec is refused (a huge value
+    /// would bring back the never-ending quarantine of gate7 MJ-1).
+    #[serde(default = "d_unproven_end_limit")]
+    pub unproven_end_limit_s: u64,
+    /// procfix7 round 14 (host step 3, M3): how long the run may wait for a user manager that does not answer (the
+    /// manager gate closed: no launch) before it drains and stops with exit 69 ("manager unavailable"). Default 900;
+    /// 10 ..= [`MAX_MANAGER_WAIT_LIMIT_S`].
+    #[serde(default = "d_manager_wait_limit")]
+    pub manager_wait_limit_s: u64,
+    /// procfix7 round 14 (M2 / M3): a scope launch still PENDING (the launcher waiting for the manager, decided from the
+    /// kernel) longer than this closes the manager gate. Default 5; 1 ..= 600.
+    #[serde(default = "d_scope_pending_warn")]
+    pub scope_pending_warn_s: u64,
+    /// procfix7 round 14 (M3): the manager probe: "auto" (default: probe when job scopes are used), "on" (also inside a
+    /// private namespace, against the `systemctl` on PATH: a rehearsal with a fake manager), "off" (never; the gate
+    /// then closes only on pending launches).
+    #[serde(default = "d_manager_probe")]
+    pub manager_probe: String,
     /// Allow running on a kernel without pidfd (signals then use the documented weaker path). Default false: refused.
     #[serde(default)]
     pub allow_no_pidfd: bool,
@@ -216,6 +237,28 @@ fn d_sampler_ms() -> u64 {
 }
 fn d_start_timeout() -> u64 {
     60
+}
+
+/// The largest `resources.manager_wait_limit_s` a spec may set (one day).
+pub const MAX_MANAGER_WAIT_LIMIT_S: u64 = 86_400;
+
+fn d_manager_wait_limit() -> u64 {
+    900
+}
+
+fn d_scope_pending_warn() -> u64 {
+    5
+}
+
+fn d_manager_probe() -> String {
+    "auto".into()
+}
+
+/// The largest `resources.unproven_end_limit_s` a spec may set (one day).
+pub const MAX_UNPROVEN_END_LIMIT_S: u64 = 86_400;
+
+fn d_unproven_end_limit() -> u64 {
+    600
 }
 
 impl Default for Resources {
@@ -280,6 +323,13 @@ pub struct Synthetic {
     /// marker sweep after the job end must clean up.
     #[serde(default)]
     pub escape_helpers: bool,
+    /// procfix7 round 11 (gate14 item 5b: a host step whose fake children FORK honestly): every rule job forks this many
+    /// COMPLIANT helpers (0-8; its own session and group, PR_SET_PDEATHSIG, SIGTERM default; inside the job's scope):
+    /// the even-numbered ones sleep 150 ms and exit while the job runs, the odd-numbered ones outlive the case and are
+    /// killed by the job itself at its end (registered helpers). Nothing escapes: the end-of-job proof must hold (P5
+    /// strict).
+    #[serde(default)]
+    pub honest_helpers: u8,
     /// Items whose rung-0 job stops its heartbeat and hangs (the heartbeat timeout must kill it).
     #[serde(default)]
     pub hang_items: Vec<u32>,
@@ -447,6 +497,30 @@ impl CampaignSpec {
         if self.resources.max_jobs == 0 {
             return Err("resources.max_jobs is 0".into());
         }
+        if !(10..=MAX_MANAGER_WAIT_LIMIT_S).contains(&self.resources.manager_wait_limit_s) {
+            return Err(format!(
+                "resources.manager_wait_limit_s {}: 10 ..= {MAX_MANAGER_WAIT_LIMIT_S} (one day)",
+                self.resources.manager_wait_limit_s
+            ));
+        }
+        if !(1..=600).contains(&self.resources.scope_pending_warn_s) {
+            return Err(format!(
+                "resources.scope_pending_warn_s {}: 1 ..= 600",
+                self.resources.scope_pending_warn_s
+            ));
+        }
+        if !matches!(self.resources.manager_probe.as_str(), "auto" | "on" | "off") {
+            return Err(format!(
+                "resources.manager_probe {:?}: \"auto\", \"on\" or \"off\"",
+                self.resources.manager_probe
+            ));
+        }
+        if !(1..=MAX_UNPROVEN_END_LIMIT_S).contains(&self.resources.unproven_end_limit_s) {
+            return Err(format!(
+                "resources.unproven_end_limit_s {}: 1 ..= {MAX_UNPROVEN_END_LIMIT_S} (one day)",
+                self.resources.unproven_end_limit_s
+            ));
+        }
         if let Some(s) = &self.synthetic {
             if s.items == 0 || s.nodes == 0 || s.rungs == 0 || s.rungs > 9 {
                 return Err("synthetic: items, nodes > 0 and 1 <= rungs <= 9".into());
@@ -511,8 +585,16 @@ impl CampaignSpec {
     /// Refuses a campaign directory that is (inside) the source campaign of an optimise run (U-13).
     pub fn check_dirs(&self, cdir: &Path) -> Result<(), String> {
         if let Some(src) = &self.source_campaign_dir {
-            let c = std::fs::canonicalize(cdir).unwrap_or_else(|_| cdir.to_path_buf());
-            let s = std::fs::canonicalize(src).unwrap_or_else(|_| src.clone());
+            // procfix7 round 5: a path that cannot be resolved refuses (raw paths can miss an overlap via a symlink)
+            let c = crate::fsx::canonical("supervisor.dirs", cdir).map_err(|e| {
+                format!(
+                    "campaign directory {} cannot be resolved: {e}",
+                    cdir.display()
+                )
+            })?;
+            let s = crate::fsx::canonical("supervisor.dirs", src).map_err(|e| {
+                format!("source campaign {} cannot be resolved: {e}", src.display())
+            })?;
             if c.starts_with(&s) || s.starts_with(&c) {
                 return Err(format!(
                     "campaign directory {} overlaps the source campaign {} of this optimise run: the source is never written",
@@ -534,6 +616,8 @@ impl CampaignSpec {
     }
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -555,6 +639,13 @@ mod tests {
         .unwrap();
         s.validate().unwrap();
         assert_eq!(s.resources.mem_total.0, 4_000_000_000);
+        assert_eq!(s.resources.unproven_end_limit_s, 600);
+        // gate8 m8-lim: the unproven-end limit is bounded (1 s ..= one day)
+        for (v, ok) in [(0u64, false), (1, true), (86_400, true), (86_401, false)] {
+            let mut x = s.clone();
+            x.resources.unproven_end_limit_s = v;
+            assert_eq!(x.validate().is_ok(), ok, "unproven_end_limit_s {v}");
+        }
         assert!(
             serde_json::from_str::<CampaignSpec>(r#"{"schema":"x","campaign":"t","bogus":1}"#)
                 .is_err()

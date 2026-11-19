@@ -1,6 +1,7 @@
 //! The campaign id as the only proof of ownership (gate re-audit C-1), the supervisor's lack of a signal path of its
 //! own (M-1, grep tripwire over the supervisor's sources), and the pidfd probe that never falls back on a transient
 //! failure (m-2). Spawning tests run inside the private pid namespace (rule L10).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "sup_common/mod.rs"]
 mod common;
@@ -110,7 +111,10 @@ fn check_copy(
 fn copied_campaign_directory_signals_nothing_of_the_original() {
     let _g = serial();
     let t = Tmp::new("copy");
-    let syn = serde_json::json!({"items": 8, "case_ms": [6000, 9000], "seed": 5, "p_mem": 0.0, "p_crash": 0.0});
+    // procfix7 round 8b: jobs of 90-120 s (were 6-9 s): all 8 start at once, and the precondition "the original has
+    // live jobs after the pause, the settle and the `cp -a`" failed on a loaded host (every job had ended before the
+    // check: with 20-30 s jobs too, the copy phase took ~30 s)
+    let syn = serde_json::json!({"items": 8, "case_ms": [90000, 120000], "seed": 5, "p_mem": 0.0, "p_crash": 0.0});
     let spec_p = write_spec(&t, "spec.json", &spec(&t, syn, serde_json::json!({})));
     let a_dir = t.cdir("orig");
     let mut a = start(&spec_p, &a_dir, &[], &[]);
@@ -153,7 +157,12 @@ fn copied_campaign_directory_signals_nothing_of_the_original() {
     control(&b_dir, "resume");
     let a_id = identity::recorded_id(&state(&a_dir)).unwrap();
     let a_live_before: Vec<u32> = marked(&t.campaign);
-    assert!(!a_live_before.is_empty());
+    assert!(
+        !a_live_before.is_empty(),
+        "no live process of the original (campaign {}): {}",
+        t.campaign,
+        log_tail(&a_dir)
+    );
     // 1) The copied LOCK.json names the live original: refused by the lock (exit 1), nothing signalled.
     let mut b = start(&spec_p, &b_dir, &[], &[]);
     assert_eq!(
@@ -335,6 +344,7 @@ fn bad_campaign_id_is_refused_at_start() {
         rustred_campaign::resources::Sampler::spawn(rustred_campaign::resources::SamplerConfig {
             interval: Duration::from_millis(500),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     );

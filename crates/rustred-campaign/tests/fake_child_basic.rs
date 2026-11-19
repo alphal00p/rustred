@@ -1,5 +1,6 @@
 //! Fake child, normal paths (child-job.md section 4: F1, F2, F13 and the brief's scenarios 1, 2, 3, 12, 13, 14):
 //! every scenario runs `rr_fake_child` as a real process and classifies its files with the contract's table.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "fake_child_common/mod.rs"]
 mod common;

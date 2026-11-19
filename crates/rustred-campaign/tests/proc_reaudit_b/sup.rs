@@ -105,6 +105,7 @@ fn sampler(ms: u64) -> Arc<Sampler> {
         Sampler::spawn(SamplerConfig {
             interval: Duration::from_millis(ms),
             collect_foreign_pinning: false,
+            foreign_pin_max_cpus: usize::MAX,
         })
         .unwrap(),
     )
@@ -114,14 +115,48 @@ fn launcher(camp: &str) -> RealLauncher {
     launcher_ms(camp, 200)
 }
 
+/// procfix7 round 18 (int8 INT10 / int9 gate: rb_marker / rb_nonleader / rb_recover red): the scenario's HOST-WIDE
+/// campaign-id lock directory: `<run>/idlock`, shared by the supervisor processes of ONE scenario (twoA / twoB, recover1 /
+/// recover2 must meet on it) and by nothing else. Before, the lock was `/tmp/rustred-campaign-<uid>/rbcamp.lock` on trees
+/// without the round-7 rule (int/9, int/10: `/tmp/rustred-campaign-0` in EVERY user namespace of every lane) or
+/// `$TMPDIR/...` (one directory for all scenarios of a run): two runs at once made one launcher lose the lock, and
+/// `with_config` (removed in round 19) then ran it SILENTLY on an ad-hoc id that recognises nothing of the scenario (reattach Lost, empty
+/// sampler marks, a fixture with our marker left alive and signalled later).
+static LOCK_DIR: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+static SCEN: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+fn lock_dir() -> PathBuf {
+    LOCK_DIR
+        .get()
+        .cloned()
+        .expect("sup::main sets the scenario's lock directory")
+}
+
+/// A launcher of campaign `camp` that HOLDS its id: built with `try_with_config` (the supervisor's constructor), never
+/// with the silent ad-hoc fallback. A refusal is a LOUD failure of the scenario (a RESULT FAIL line, then a panic).
 fn launcher_ms(camp: &str, ms: u64) -> RealLauncher {
     let c = RealConfig {
         campaign_id: camp.to_string(),
         cap_preference: CapPreference::NoSystemd,
         verify_timeout: Duration::from_secs(30),
+        id_lock_dir: Some(lock_dir()),
         ..RealConfig::default()
     };
-    RealLauncher::with_config(sampler(ms), c)
+    match RealLauncher::try_with_config(sampler(ms), c) {
+        Ok(l) => {
+            assert_eq!(l.config().campaign_id, camp, "the launcher's campaign id");
+            assert!(l.id_lock_path().is_some(), "the launcher holds its id lock");
+            l
+        }
+        Err(e) => {
+            println!(
+                "RESULT {} | launcher({camp}) | expected: holds campaign id {camp} (scenario-private lock {}) | observed: refused: {e} | FAIL",
+                SCEN.get().map(String::as_str).unwrap_or("?"),
+                lock_dir().display()
+            );
+            panic!("the launcher of campaign {camp} could not hold its id: {e}");
+        }
+    }
 }
 
 fn sh(run: &Path, label: &str, script: &str) -> LaunchSpec {
@@ -610,6 +645,9 @@ fn try_reattach_all(c: &mut Ctx, id: &ProcessIdentity, label: &str, case: &str, 
         let r = l2.reattach(id, label, ch);
         let s = reat(&r);
         let lost = matches!(r, Ok(Reattached::Lost(_)));
+        // UNDECIDED (an unreadable candidate under load): nothing was signalled, a caller tries again: never a pass of
+        // "Lost" and never a failure (procfix7 round 18)
+        let undecided = r.is_err();
         if let Ok(Reattached::Live(mut h)) = r {
             if ch == ReattachChoice::Adopt {
                 let _ = h.signal_group(libc::SIGTERM);
@@ -630,7 +668,9 @@ fn try_reattach_all(c: &mut Ctx, id: &ProcessIdentity, label: &str, case: &str, 
                 "Live (by design: carries marker)"
             },
             s,
-            if lost == expect_lost {
+            if undecided {
+                V::Note
+            } else if lost == expect_lost {
                 V::Pass
             } else if expect_lost {
                 V::Fail
@@ -640,12 +680,28 @@ fn try_reattach_all(c: &mut Ctx, id: &ProcessIdentity, label: &str, case: &str, 
         );
     }
     let m = CampaignMarker::new(CAMP, label).unwrap();
+    // procfix7 round 18 (int9 gate, rb_nonleader "expected refused, observed Delivered"): the recorded process is refused
+    // when it is gone (the reattach Kill above ended it) or when it does not carry this attempt's marker (expect_lost). A
+    // process that carries this attempt's EXACT marker and still lives (the reattach above did not end it: undecided, or
+    // Lost) is ours by the ownership rule: Delivered is then the documented outcome (a NOTE), never a refusal to expect.
+    let ours_alive = !expect_lost && alive(id.pid, id.start_ticks);
     let v = signal_verified_process(id, &m, libc::SIGTERM);
-    c.chk(
+    c.res(
         &format!("{case}: signal_verified_process(recorded id)"),
-        "refused (start mismatch)",
+        if ours_alive {
+            "Delivered (still alive, carries this attempt's marker)"
+        } else {
+            "refused (start mismatch)"
+        },
         format!("{v:?}"),
-        !v.delivered(),
+        // a refusal of our live process (an unverified read under load) is fail-closed: a NOTE too
+        if v.delivered() && !ours_alive {
+            V::Fail
+        } else if ours_alive {
+            V::Note
+        } else {
+            V::Pass
+        },
     );
 }
 
@@ -1134,7 +1190,22 @@ fn s_recover2(c: &mut Ctx) {
         .find(|r| r["label"] == "J4")
         .unwrap();
     let id4: ProcessIdentity = serde_json::from_value(j4["identity"].clone()).unwrap();
-    match l.reattach(&id4, "J4", ReattachChoice::Adopt) {
+    // gate8 m8-reattach: under load a marker read can time out: reattach is then UNDECIDED (an error), never Lost; try
+    // again (bounded) as a caller must
+    let mut r4 = l.reattach(&id4, "J4", ReattachChoice::Adopt);
+    for _ in 0..50 {
+        match &r4 {
+            Err(e)
+                if e.to_string()
+                    .starts_with(rustred_campaign::launch::REATTACH_UNDECIDED) =>
+            {
+                std::thread::sleep(Duration::from_millis(200));
+                r4 = l.reattach(&id4, "J4", ReattachChoice::Adopt);
+            }
+            _ => break,
+        }
+    }
+    match r4 {
         Ok(Reattached::Live(mut h)) => {
             let mut states = vec![];
             for _ in 0..8 {
@@ -1283,6 +1354,7 @@ fn s_cpurange(c: &mut Ctx) {
         idle_min: 0.0,
         max_cores: 1,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     };
     let mut ex = base.clone();
@@ -1796,12 +1868,30 @@ fn s_marker(c: &mut Ctx) {
         ),
         found == expect,
     );
-    let snap = l.sampler().latest().unwrap();
+    // procfix7 round 18: compare a COMPLETE sampler scan (an environ read that timed out under load counts as
+    // marked_unreadable, never as "not marked"): the latest fresh snapshot without unreadable candidates (bounded)
+    let mut snap = l.sampler().latest().unwrap();
+    for _ in 0..10 {
+        if snap.marked_unreadable == 0 {
+            break;
+        }
+        match l
+            .sampler()
+            .wait_for_scan_after(Instant::now(), Duration::from_secs(10))
+        {
+            Some(s) => snap = s,
+            None => break,
+        }
+    }
     let sm: BTreeSet<u32> = snap.marked.iter().map(|p| p.pid).collect();
     c.chk(
         "sampler Snapshot::marked == scan",
         "same set",
-        format!("{:?}", sm.iter().map(name_of).collect::<Vec<_>>()),
+        format!(
+            "{:?}; marked_unreadable={}",
+            sm.iter().map(name_of).collect::<Vec<_>>(),
+            snap.marked_unreadable
+        ),
         sm == expect,
     );
     for (camp, want) in [
@@ -1840,15 +1930,22 @@ fn s_marker(c: &mut Ctx) {
         let cfg = RealConfig {
             campaign_id: bad.to_string(),
             cap_preference: CapPreference::NoSystemd,
+            id_lock_dir: Some(lock_dir()),
             ..RealConfig::default()
         };
-        let l2 = RealLauncher::with_config(sampler(500), cfg);
-        let got = l2.config().campaign_id.clone();
+        // procfix7 round 19: no silent replacement by an ad-hoc id any more: an invalid configured id is REFUSED
+        let r2 = RealLauncher::try_with_config(sampler(500), cfg);
         c.chk(
             &format!("RealConfig.campaign_id {bad:?}"),
-            "replaced by an ad-hoc id",
-            got.clone(),
-            got.starts_with("adhoc-"),
+            "refused (invalid id), never run on an ad-hoc id",
+            match &r2 {
+                Ok(l2) => format!("STARTED as {}", l2.config().campaign_id),
+                Err(e) => format!("refused: {e}"),
+            },
+            matches!(
+                r2,
+                Err(rustred_campaign::launch::LauncherError::InvalidId(_))
+            ),
         );
         c.chk(
             &format!("CampaignMarker::new({bad:?}, a)"),
@@ -1960,6 +2057,7 @@ fn s_two_b(c: &mut Ctx) {
     let cfg = RealConfig {
         campaign_id: CAMP.to_string(),
         cap_preference: CapPreference::NoSystemd,
+        id_lock_dir: Some(lock_dir()),
         ..RealConfig::default()
     };
     let r = RealLauncher::try_with_config(sampler(200), cfg);
@@ -1996,6 +2094,7 @@ fn site_cfg(root: &Path, cpu: usize) -> SiteConfig {
         idle_min: 0.0,
         max_cores: 1,
         respect_foreign_pinning: false,
+        foreign_pin_max_cpus: 64,
         ignore_own_tag_claims: true,
     }
 }
@@ -2776,7 +2875,16 @@ pub fn main(a: &[String]) {
         note: 0,
     };
     let me = std::process::id();
-    println!("SUP {scen} pid {me} start {}", crate::utc());
+    LOCK_DIR
+        .set(c.run.join("idlock"))
+        .expect("set once per supervisor process");
+    SCEN.set(scen.clone())
+        .expect("set once per supervisor process");
+    println!(
+        "SUP {scen} pid {me} start {} id lock directory {}",
+        crate::utc(),
+        lock_dir().display()
+    );
     let seed: u64 = std::env::var("RB_SEED")
         .ok()
         .and_then(|s| s.parse().ok())

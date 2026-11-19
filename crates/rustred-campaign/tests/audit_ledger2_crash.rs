@@ -3,6 +3,7 @@
 //!
 //! Default runs use a stride (debug build); the full sweeps:
 //! `RR_A2_STRIDE=1 cargo test -p rustred-campaign --release --test audit_ledger2_crash -- --nocapture`
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::collections::BTreeMap;
@@ -413,14 +414,62 @@ fn run_workload(cdir: &Path, items: usize, limit: Option<u64>) -> (RunOut, Arc<C
 fn check_reopen(cdir: &Path, full: &[Record], out: &RunOut, need: u64) -> Result<usize, String> {
     let manifest = ledger::ledger_dir(cdir).join(ledger::MANIFEST_FILE);
     if !manifest.exists() {
-        // no ledger yet: only allowed if nothing was acknowledged, and create must work again
+        // no ledger yet: only allowed if nothing was acknowledged. procfix7 round 5 (gate9 G9-B1): create works again
+        // only into an absent or EMPTY ledger directory; the residue of a crashed create is REFUSED (ManifestMissing,
+        // nothing deleted) and recovered by rebuild-manifest, or, when no complete record 1 exists (rebuild refuses),
+        // removed by the operator (here: the checker) before a new create.
         if out.acked > 0 && need > 0 {
             return Err(format!("no manifest but seq {need} acknowledged"));
         }
+        let ldir = ledger::ledger_dir(cdir);
+        let names = || -> Vec<String> {
+            let mut v: Vec<String> = std::fs::read_dir(&ldir)
+                .map(|r| {
+                    r.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            v.sort();
+            v
+        };
+        let before = names();
         let lk = take_lock(cdir);
         let g = Genesis::new("crash-campaign", &digest("spec"), 100);
-        Ledger::create(cdir, &lk, checker_clock(), cfg_small(), g)
-            .map_err(|e| format!("create after a crashed create: {e}"))?;
+        match Ledger::create(cdir, &lk, checker_clock(), cfg_small(), g.clone()) {
+            Ok(_) => {
+                if !before.is_empty() {
+                    return Err(format!(
+                        "create succeeded over a non-empty ledger directory {before:?}"
+                    ));
+                }
+                return Ok(0);
+            }
+            Err(LedgerError::ManifestMissing { .. }) => {
+                if names() != before {
+                    return Err("a refused create changed the ledger directory".into());
+                }
+            }
+            Err(e) => return Err(format!("create after a crashed create: {e}")),
+        }
+        match ledger::rebuild_manifest(cdir, &lk) {
+            Ok(_) => {
+                Ledger::open_with(
+                    cdir,
+                    &lk,
+                    checker_clock(),
+                    cfg_small(),
+                    Arc::new(ledger::RealOps),
+                    OpenOptions::default(),
+                )
+                .map_err(|e| format!("open after rebuild-manifest: {e}"))?;
+            }
+            Err(_) => {
+                // nothing acknowledged and no recoverable record 1: the operator removes the directory by hand
+                std::fs::remove_dir_all(&ldir).map_err(|e| format!("remove residue: {e}"))?;
+                Ledger::create(cdir, &lk, checker_clock(), cfg_small(), g)
+                    .map_err(|e| format!("create after removing the residue: {e}"))?;
+            }
+        }
         return Ok(0);
     }
     let lk = take_lock(cdir);

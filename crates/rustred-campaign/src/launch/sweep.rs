@@ -29,15 +29,15 @@
 //! of one round): call it off the control loop.
 
 use super::guard::{self, ProcessTarget, StartRule, Verdict};
+use crate::resources::procfs::{self, ProcError};
 use crate::resources::{
-    CampaignMarker, FactRead, MarkedProcess, MarkerRead, STRICT_ENVIRON_TIMEOUT, boot_id,
-    children_of, our_uid, owner_uid_at, read_marker_at, read_proc_facts, read_stat, request_reap,
-    scan_marked_inline,
+    CampaignMarker, CandidateCheck, FactRead, HiddenProcess, MarkedProcess, MarkerRead,
+    STRICT_ENVIRON_TIMEOUT, boot_id, check_candidate, children_of, describe_hidden, our_uid,
+    owner_uid_at, read_marker_at, read_proc_facts, read_stat, request_reap, scan_marked_inline,
 };
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::os::fd::OwnedFd;
-use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -99,7 +99,53 @@ pub struct SweepReport {
     pub rounds: u32,
     /// Distinct marked processes seen alive.
     pub seen: usize,
+    /// procfix7 (gate6 MJ-A): when not proven because of unreadable candidates, those of the last scan that may descend
+    /// from the campaign (pid, name, parent, why); never signalled. Empty when proven.
+    pub hidden: Vec<HiddenProcess>,
+    /// procfix7 round 5 (gate9 G9-B2, process churn) / round 6 (gate10 M10-1): marked processes a scan of this sweep saw
+    /// ALIVE that were gone, or no longer the same marked process (pid reused, marker dropped by an exec, another uid),
+    /// before their SIGSTOP (not killed by this sweep; a new holder of the pid is never signalled). Such a process may
+    /// have started a successor that no scan saw (a chain that forks and exits faster than a scan reads it is invisible
+    /// to a /proc scan): a sweep with one is never proven, and the supervisor keeps it open until an ATOMIC proof covers
+    /// its successors (RUNBOOK 2.10), else the end is exit 8 naming it.
+    pub vanished: Vec<MarkedProcess>,
 }
+
+/// procfix7 round 5 (gate9 G9-B2): what a "proven" sweep means. A /proc scan is NOT atomic: a chain of processes that
+/// each fork a successor and exit between a scan's listing and its read of them (a gap of milliseconds in a namespace,
+/// more on a busy host) is never seen, and no userspace reading of /proc can exclude it. Without a job scope / cgroup
+/// (the test namespaces; a run outside systemd) "proven" therefore means exactly this sentence; with a scope, the
+/// kernel's cgroup membership (`cgroup.events` populated 0, `cgroup.kill`) is the atomic proof for the processes inside
+/// it (RUNBOOK 2.7).
+pub fn proof_words(scans: u32) -> String {
+    format!(
+        "no marked process seen in {scans} consecutive stable scans (a /proc scan cannot exclude a process chain that \
+         forks and exits faster than it reads; only a job scope's cgroup membership is atomic)"
+    )
+}
+
+/// procfix7 round 6 (gate10 mutation M4: the vanished rule must be pinned by a test). TEST BUILDS ONLY:
+/// `sweep_vanish_pid:<pid>` in RR_CAMPAIGN_FAILPOINT makes every sweep report that marked process as seen alive and
+/// gone before its stop (it is left alive): the end must stay unproven.
+fn test_vanish_pid() -> Option<u32> {
+    #[cfg(debug_assertions)]
+    {
+        static P: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+        *P.get_or_init(|| {
+            std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV)
+                .ok()?
+                .split(',')
+                .find_map(|p| p.trim().strip_prefix("sweep_vanish_pid:")?.parse().ok())
+        })
+    }
+    #[cfg(not(debug_assertions))]
+    {
+        None
+    }
+}
+
+/// The number of consecutive conclusive scans a proven sweep rests on (step 3 of the module doc).
+pub const PROOF_SCANS: u32 = 2;
 
 impl SweepReport {
     /// Proven AND nothing left alive: no live process carries the swept marker, and no process a sweep stopped is left
@@ -146,6 +192,15 @@ struct Sweep<'a> {
     continued: BTreeMap<Key, LeftMarked>,
     stranded: BTreeMap<Key, (Member, String)>,
     rounds: u32,
+    /// procfix7: the possibly-ours unreadable candidates of the last strict scan.
+    hidden: Vec<HiddenProcess>,
+    /// procfix8 (gate8, item 4): EVERY possibly-ours candidate any scan of this sweep reported (pid -> the start time held,
+    /// if one was read). A suspect leaves only by a COMPLETE direct read ([`check_candidate`]) that proves it dead, not a
+    /// candidate, unmarked or not ours; every proof pass re-checks the suspects its scan did not report, so a later scan
+    /// that misses one (a listing, a misread) cannot make the sweep conclusive.
+    suspects: BTreeMap<u32, Option<u64>>,
+    /// procfix7 round 5: marked processes seen alive and gone before their stop (see [`SweepReport::vanished`]).
+    vanished: BTreeMap<Key, MarkedProcess>,
 }
 
 fn key(p: &MarkedProcess) -> Key {
@@ -153,6 +208,18 @@ fn key(p: &MarkedProcess) -> Key {
 }
 
 impl Sweep<'_> {
+    fn note_suspects(&mut self, hidden: &[HiddenProcess]) {
+        for h in hidden {
+            // the latest start time read wins (another start than the one held means the earlier process died and the
+            // pid names a new suspect)
+            let start = (h.start_ticks != 0).then_some(h.start_ticks);
+            let e = self.suspects.entry(h.pid).or_insert(start);
+            if start.is_some() {
+                *e = start;
+            }
+        }
+    }
+
     fn out_of_time(&self) -> bool {
         self.cancel.load(Ordering::SeqCst) || Instant::now() >= self.deadline
     }
@@ -175,24 +242,30 @@ impl Sweep<'_> {
     }
 
     /// Marked children of a STOPPED member (its list is stable). Unreadable facts of a child: Err (inconclusive).
-    fn marked_children(&self, pid: u32) -> Result<Vec<MarkedProcess>, String> {
+    fn marked_children(&mut self, pid: u32) -> Result<Vec<MarkedProcess>, String> {
         let mut out = Vec::new();
-        let Some(kids) = children_of(pid)? else {
-            return Ok(out);
+        let root = procfs::sys();
+        let kids = match children_of(pid) {
+            Ok(k) => k,
+            Err(ProcError::Gone) => return Ok(out),
+            Err(e) => return Err(format!("children of the stopped member {pid}: {e}")),
         };
         for c in kids {
-            if owner_uid_at(Path::new("/proc"), c) != Some(self.uid) {
-                continue;
+            // procfix7 (gate7 B1, the class): a child whose owner cannot be read makes the round inconclusive
+            match owner_uid_at(&root, c) {
+                Ok(u) if u == self.uid => {}
+                Ok(_) | Err(ProcError::Gone) => continue,
+                Err(e) => return Err(format!("owner of child {c}: {e}")),
             }
             let st = match read_stat(c) {
-                Ok(Some(st)) => st,
-                Ok(None) => continue,
+                Ok(st) => st,
+                Err(ProcError::Gone) => continue,
                 Err(e) => return Err(format!("stat of child {c}: {e}")),
             };
             if st.start_ticks < self.s.not_before_ticks || st.is_dead() {
                 continue;
             }
-            match read_marker_at(Path::new("/proc"), c, None, STRICT_ENVIRON_TIMEOUT) {
+            match read_marker_at(&root, c, None, STRICT_ENVIRON_TIMEOUT) {
                 MarkerRead::Marker(v) => {
                     if let Some(m) = CampaignMarker::parse(&v)
                         && m.campaign_id == self.s.campaign_id
@@ -201,7 +274,24 @@ impl Sweep<'_> {
                         out.push(MarkedProcess::from_stat(&st, m.attempt_id));
                     }
                 }
-                MarkerRead::Unreadable => return Err(format!("environ of child {c} unreadable")),
+                MarkerRead::Unreadable(w) => {
+                    // A child of a stopped member descends from the campaign: never classified away.
+                    self.hidden = vec![HiddenProcess {
+                        pid: c,
+                        start_ticks: st.start_ticks,
+                        ppid: pid,
+                        comm: st.comm.clone(),
+                        why: format!(
+                            "environ unreadable ({w}); a child of the stopped member {pid}"
+                        ),
+                    }];
+                    let h = self.hidden.clone();
+                    self.note_suspects(&h);
+                    return Err(format!(
+                        "environ of child {c} ({}) of the stopped member {pid} unreadable: {w}",
+                        st.comm
+                    ));
+                }
                 MarkerRead::NoMarker | MarkerRead::Gone => {}
             }
         }
@@ -248,9 +338,25 @@ impl Sweep<'_> {
                 out.push(Ok(false));
                 continue;
             }
+            if test_vanish_pid() == Some(p.pid) {
+                // test builds: this candidate "exited before its stop" every time it is seen (it stays alive)
+                self.vanished.insert(k, p);
+                out.push(Ok(false));
+                continue;
+            }
             match guard::open_pidfd(p.pid) {
                 Ok(fd) => cands.push((fd, p)),
-                Err(Verdict::Gone) | Err(Verdict::NotOurs(_)) => out.push(Ok(false)),
+                Err(Verdict::Gone) => {
+                    self.vanished.insert(k, p);
+                    out.push(Ok(false));
+                }
+                // procfix7 round 6 (gate10 M10-1 detail): the scanned MARKED process (this exact start, this marker) is
+                // gone or changed identity before its stop (its pid reused: StartMismatch; an exec without the marker;
+                // another uid): the marked incarnation vanished unproven; whatever holds the pid now is NOT signalled
+                Err(Verdict::NotOurs(_)) => {
+                    self.vanished.insert(k, p);
+                    out.push(Ok(false));
+                }
                 Err(Verdict::Unverified(e)) => out.push(Err(e)),
                 Err(Verdict::Delivered) => out.push(Err("impossible verdict".into())),
             }
@@ -276,7 +382,16 @@ impl Sweep<'_> {
                     );
                     w.map(|()| true)
                 }
-                Verdict::Gone | Verdict::NotOurs(_) => Ok(false),
+                Verdict::Gone => {
+                    self.vanished.insert(k, p);
+                    Ok(false)
+                }
+                // as above (M10-1 detail): reused pid / dropped marker between the scan and the stop = vanished, never
+                // signalled (the guard refused the stop)
+                Verdict::NotOurs(_) => {
+                    self.vanished.insert(k, p);
+                    Ok(false)
+                }
                 Verdict::Unverified(e) => {
                     self.left.insert(
                         k,
@@ -311,16 +426,41 @@ impl Sweep<'_> {
                 self.s.not_before_ticks,
                 self.s.only_attempt.as_deref(),
             ) {
-                Ok(scan) => {
+                Ok(mut scan) => {
+                    self.test_drop_known_suspects(&mut scan);
                     if scan.unreadable > 0 {
                         inconclusive = Some(format!(
-                            "{} candidate(s) with an unreadable environ",
-                            scan.unreadable
+                            "{} candidate(s) with an unreadable environ that may descend from the campaign: {}",
+                            scan.unreadable,
+                            describe_hidden(&scan.hidden)
                         ));
                     }
+                    self.note_suspects(&scan.hidden);
+                    // procfix7 round 7 (gate11 m11-mut M6): the suspects (the seeds: pids the ledger recorded; earlier
+                    // unreadable candidates) this scan did not list are checked BY THEIR OWN PID; a marked one is a
+                    // candidate like any other (stopped and killed through the guard), never only a reason to stay
+                    // unproven
+                    let reported: std::collections::BTreeSet<u32> = scan
+                        .processes
+                        .iter()
+                        .map(|p| p.pid)
+                        .chain(scan.hidden.iter().map(|h| h.pid))
+                        .collect();
+                    let (marked, hidden) = self.check_suspects(&reported);
+                    if !hidden.is_empty() {
+                        inconclusive = Some(format!(
+                            "{} suspect(s) with an unreadable environ that may descend from the campaign: {}",
+                            hidden.len(),
+                            describe_hidden(&hidden)
+                        ));
+                    }
+                    let mut all_hidden = scan.hidden;
+                    all_hidden.extend(hidden);
+                    self.hidden = all_hidden;
                     queue.extend(scan.processes);
+                    queue.extend(marked);
                 }
-                Err(e) => inconclusive = Some(format!("/proc scan: {e}")),
+                Err(e) => inconclusive = Some(format!("proc scan: {e}")),
             }
             let pids: Vec<u32> = self.members.keys().map(|k| k.0).collect();
             for pid in pids {
@@ -531,21 +671,101 @@ impl Sweep<'_> {
         }
     }
 
-    /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive.
+    /// procfix7 round 5 (gate9 minor: the mutation "drop the re-check of earlier suspects" was not caught). TEST BUILDS
+    /// ONLY: with `sweep_scan_drops_suspects:1` in RR_CAMPAIGN_FAILPOINT a scan of this sweep OMITS every process that is
+    /// already a suspect of an earlier scan (a later scan that misses one: a listing, a misread). Only the direct re-check
+    /// of the suspects (`pass`) then still sees it (tests/procfix9.rs `g9_minor_a_suspect_missed_by_later_scans_...`).
+    #[allow(unused_variables)]
+    fn test_drop_known_suspects(&self, scan: &mut crate::resources::CampaignScan) {
+        #[cfg(debug_assertions)]
+        {
+            static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let on = *ON.get_or_init(|| {
+                std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).is_ok_and(|v| {
+                    v.split(',')
+                        .any(|p| p.trim() == "sweep_scan_drops_suspects:1")
+                })
+            });
+            if on {
+                let before = scan.hidden.len();
+                scan.processes
+                    .retain(|p| !self.suspects.contains_key(&p.pid));
+                scan.hidden.retain(|h| !self.suspects.contains_key(&h.pid));
+                scan.unreadable = scan.unreadable.saturating_sub(before - scan.hidden.len());
+            }
+        }
+    }
+
+    /// The suspects (seeds and earlier unreadable candidates) that `reported` (a scan's listing) lacks, each checked by
+    /// its OWN pid: (marked ones: candidates; unreadable ones: still possibly ours). Not candidates / not ours: dropped.
+    fn check_suspects(
+        &mut self,
+        reported: &std::collections::BTreeSet<u32>,
+    ) -> (Vec<MarkedProcess>, Vec<HiddenProcess>) {
+        let root = crate::resources::procfs::sys();
+        let only = self.s.only_attempt.clone();
+        let wanted = |a: &str| only.as_deref().is_none_or(|o| o == a);
+        let pending: Vec<(u32, Option<u64>)> = self
+            .suspects
+            .iter()
+            .filter(|(p, _)| !reported.contains(p))
+            .map(|(p, s)| (*p, *s))
+            .collect();
+        let (mut marked, mut hidden) = (Vec::new(), Vec::new());
+        for (pid, start) in pending {
+            match check_candidate(
+                &root,
+                pid,
+                start,
+                &self.s.campaign_id,
+                self.s.not_before_ticks,
+                &wanted,
+                STRICT_ENVIRON_TIMEOUT,
+            ) {
+                CandidateCheck::NotCandidate | CandidateCheck::NotOurs => {
+                    self.suspects.remove(&pid);
+                }
+                CandidateCheck::Marked(m) => marked.push(m),
+                CandidateCheck::Hidden(mut h) => {
+                    h.why = format!("{} (a suspect of an earlier scan of this sweep)", h.why);
+                    hidden.push(h);
+                }
+            }
+        }
+        (marked, hidden)
+    }
+
+    /// One proof scan: Ok(marked processes alive that are not in `left`) when conclusive. procfix8 (item 4): the
+    /// suspects of earlier scans that this scan did not report are checked directly; one that is still possibly ours
+    /// keeps the pass inconclusive, one that is marked is a survivor.
     fn pass(&mut self) -> Result<Vec<MarkedProcess>, String> {
-        let scan = scan_marked_inline(
+        let mut scan = scan_marked_inline(
             &self.s.campaign_id,
             self.s.not_before_ticks,
             self.s.only_attempt.as_deref(),
         )
-        .map_err(|e| format!("/proc scan: {e}"))?;
+        .map_err(|e| format!("proc scan: {e}"))?;
+        self.test_drop_known_suspects(&mut scan);
+        self.note_suspects(&scan.hidden);
+        let reported: std::collections::BTreeSet<u32> = scan
+            .processes
+            .iter()
+            .map(|p| p.pid)
+            .chain(scan.hidden.iter().map(|h| h.pid))
+            .collect();
+        let (marked, hidden) = self.check_suspects(&reported);
+        scan.processes.extend(marked);
+        scan.unreadable += hidden.len();
+        scan.hidden.extend(hidden);
         // Left entries that are no longer alive and marked drop out of the report.
         let alive: BTreeMap<Key, ()> = scan.processes.iter().map(|p| (key(p), ())).collect();
         self.left.retain(|k, _| alive.contains_key(k));
+        self.hidden = scan.hidden.clone();
         if scan.unreadable > 0 {
             return Err(format!(
-                "{} candidate(s) with an unreadable environ",
-                scan.unreadable
+                "{} candidate(s) with an unreadable environ that may descend from the campaign: {}",
+                scan.unreadable,
+                describe_hidden(&scan.hidden)
             ));
         }
         Ok(scan
@@ -568,12 +788,24 @@ impl Sweep<'_> {
 /// Run one sweep (blocking; call it off the control loop). Signals only through `guard` (see the module documentation);
 /// every delivery is logged with the context "campaign sweep" (gate3 M2).
 pub fn sweep(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
+    sweep_seeded(spec, &[], cancel)
+}
+
+/// procfix7 round 6 (gate10 G10-B1 rule (3), M10-1): a sweep whose SUSPECTS start with `seeds` (pid, start time if
+/// recorded): processes the ledger recorded (job leaders of this boot, marked survivors, vanished processes of earlier
+/// sweeps). Each is proven dead or not ours BY ITS OWN PID (stat: ENOENT / ESRCH, another start time, unmarked, another
+/// uid: `check_candidate`), never by its absence from a listing; one still possibly ours keeps the sweep unproven.
+pub fn sweep_seeded(
+    spec: &SweepSpec,
+    seeds: &[(u32, Option<u64>)],
+    cancel: &AtomicBool,
+) -> SweepReport {
     guard::with_context("campaign sweep", spec.only_attempt.as_deref(), || {
-        sweep_inner(spec, cancel)
+        sweep_inner(spec, seeds, cancel)
     })
 }
 
-fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
+fn sweep_inner(spec: &SweepSpec, seeds: &[(u32, Option<u64>)], cancel: &AtomicBool) -> SweepReport {
     let boot = match boot_id() {
         Ok(b) => b,
         Err(e) => {
@@ -614,10 +846,18 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         continued: BTreeMap::new(),
         stranded: BTreeMap::new(),
         rounds: 0,
+        hidden: Vec::new(),
+        suspects: BTreeMap::new(),
+        vanished: BTreeMap::new(),
     };
+    for &(pid, start) in seeds {
+        w.suspects.entry(pid).or_insert(start);
+    }
     w.retry_stranded();
     let reason = loop {
         // A freeze that hit the bound still ends in the SIGKILL of every member; the proof below decides.
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): a freeze that hit the bound still ends in the kill round; the two proof scans decide
         let _ = w.freeze();
         w.kill_members();
         match w.two_passes() {
@@ -653,18 +893,41 @@ fn sweep_inner(spec: &SweepSpec, cancel: &AtomicBool) -> SweepReport {
         .lock()
         .unwrap_or_else(|p| p.into_inner())
         .extend(keep);
+    let vanished: Vec<MarkedProcess> = std::mem::take(&mut w.vanished)
+        .into_iter()
+        .filter(|(k, _)| !w.killed.contains_key(k) && !w.killed_by_hold.contains_key(k))
+        .map(|(_, p)| p)
+        .collect();
+    // procfix7 round 6 (gate10 M10-1): a sweep in which a marked process was seen alive and exited before its stop is
+    // NEVER proven (a successor it started may run unseen); the caller keeps the end unproven until a LATER sweep, seeded
+    // with these pids, is proven
+    let reason = match reason {
+        None if !vanished.is_empty() => Some(format!(
+            "marked process(es) {:?} were seen alive and exited before their stop (a successor may run unseen)",
+            vanished.iter().map(|p| p.pid).collect::<Vec<_>>()
+        )),
+        r => r,
+    };
     SweepReport {
         killed: w.killed.into_values().collect(),
         killed_by_hold: w.killed_by_hold.into_values().collect(),
         continued: w.continued.into_values().collect(),
         left: left.into_values().collect(),
         proven: reason.is_none(),
+        hidden: if reason.is_none() {
+            Vec::new()
+        } else {
+            w.hidden
+        },
         reason,
         rounds: w.rounds,
         seen: w.seen.len(),
+        vanished,
     }
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -695,11 +958,11 @@ mod tests {
             .unwrap();
         assert!(st.success());
         let t0 = Instant::now();
-        while crate::resources::read_stat(pid).unwrap().unwrap().state != 'T' {
+        while crate::resources::read_stat(pid).unwrap().state != 'T' {
             assert!(t0.elapsed() < Duration::from_secs(10));
             std::thread::sleep(Duration::from_millis(5));
         }
-        let st = crate::resources::read_stat(pid).unwrap().unwrap();
+        let st = crate::resources::read_stat(pid).unwrap();
         let id = "pf6strand.0123456789abcdef";
         let spec = SweepSpec {
             campaign_id: id.into(),
@@ -724,6 +987,9 @@ mod tests {
             continued: BTreeMap::new(),
             stranded: BTreeMap::new(),
             rounds: 0,
+            hidden: Vec::new(),
+            suspects: BTreeMap::new(),
+            vanished: BTreeMap::new(),
         };
         let process = MarkedProcess::from_stat(&st, "j1:a1".into());
         let m = Member {
@@ -756,7 +1022,7 @@ mod tests {
         assert_eq!(s[0].process.pid, pid);
         assert!(!r.empty());
         assert_eq!(
-            crate::resources::read_stat(pid).unwrap().unwrap().state,
+            crate::resources::read_stat(pid).unwrap().state,
             'T',
             "neither killed nor continued (the hold is unusable)"
         );

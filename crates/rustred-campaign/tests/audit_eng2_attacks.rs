@@ -5,6 +5,7 @@
 //!
 //! Needs (all `#[ignore]`): `RR_NODE_BIN`, `RUSTRED_CAMPAIGN_FIXTURES`, the licence environment, `LIGHT_PIDNS=1`
 //! (private user + pid + mount namespace: signals reach only our children; tmpfs mounts stay private), `RR_REAL_OUT`.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod audit_eng2_common;
 use audit_eng2_common::*;

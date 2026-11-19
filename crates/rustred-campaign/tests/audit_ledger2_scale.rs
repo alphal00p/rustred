@@ -3,6 +3,7 @@
 //! `RR_A2_SCALE_DIR=<dir> RR_A2_SCALE_PHASE=build|open|read|verify|final|ops cargo test --release --test
 //! audit_ledger2_scale -- --ignored --nocapture`. A counting global allocator gives the live heap of the reduced
 //! state and of each of its components (what a leaner state could save).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use std::alloc::{GlobalAlloc, Layout, System};

@@ -1,4 +1,5 @@
 //! Stop-counter semantics with real signals delivered to this test process (own binary: handlers are process-wide).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 #[path = "proc_common/mod.rs"]
 mod common;

@@ -502,29 +502,36 @@ pub fn file_blake3_cached(p: &std::path::Path) -> Result<String, String> {
     use std::sync::Mutex;
     type Cache = BTreeMap<(std::path::PathBuf, u64, u128), String>;
     static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
-    let md = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let md = crate::fsx::presence("closeloop.input", p)
+        .metadata()
+        .map_err(|e| format!("{}: {e}", p.display()))?;
+    // procfix7 round 5: an mtime that cannot be read is never 0 in the key: no cache then (hashed every time)
     let mtime = md
         .modified()
         .ok()
         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0, |d| d.as_nanos());
-    let k = (p.to_path_buf(), md.len(), mtime);
-    if let Some(d) = CACHE
-        .lock()
-        .ok()
-        .and_then(|g| g.as_ref().and_then(|m| m.get(&k).cloned()))
+        .map(|d| d.as_nanos());
+    let k = mtime.map(|m| (p.to_path_buf(), md.len(), m));
+    if let Some(k) = &k
+        && let Some(d) = CACHE
+            .lock()
+            .ok()
+            .and_then(|g| g.as_ref().and_then(|m| m.get(k).cloned()))
     {
         return Ok(d);
     }
     let d = crate::atomic::blake3_file(p)
         .map(|(_, d)| d)
         .map_err(|e| format!("{}: {e}", p.display()))?;
-    if let Ok(mut g) = CACHE.lock() {
+    if let Some(k) = k
+        && let Ok(mut g) = CACHE.lock()
+    {
         g.get_or_insert_with(BTreeMap::new).insert(k, d.clone());
     }
     Ok(d)
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

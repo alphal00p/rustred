@@ -8,6 +8,7 @@
 //! elided, bound to an exact per-key proof (regularity), and whose right-hand side has a POSITIVE-numerator term with a
 //! coefficient identically zero in d at the key: Tier C needs that zero fact; rr_proof instantiate would refuse the
 //! record; the exact evaluation supplies it (`producer: exact_eval`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

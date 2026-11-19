@@ -9,8 +9,9 @@
 //! and the only reapers of the supervisor's children are this module (exact pids, never a catch-all wait) and the
 //! launcher (registered leaders, under the registry lock): a pidfd opened on a child pins that child.
 //!
-//! Strictness (RB-C1 a): every function here reports a failed read (EMFILE, ENFILE, EACCES, EIO, a parse failure) as an
-//! error, never as "no process". ENOENT / ESRCH of a whole /proc/<pid> directory means that process no longer exists.
+//! Strictness (RB-C1 a; procfix8: every read through [`procfs`]): every function here reports a failed read (EMFILE,
+//! ENFILE, EACCES, EIO, a torn read, a parse failure) as an error, never as "no process". ENOENT / ESRCH of a whole
+//! /proc/<pid> directory means that process no longer exists; of a task entry, that THREAD.
 //!
 //! The reaper: every zombie child of this process that is NOT a registered leader and NOT in the supervisor's own session
 //! is reaped by exact pid through a pidfd (`launch::guard::reap_adopted`), at most `max` per tick. Children in our own
@@ -19,72 +20,72 @@
 //! process: do not spawn setsid'd children outside the launcher and expect to wait for them yourself (their status would
 //! be taken by this reaper; a wait then fails with ECHILD).
 
-use super::{Leaders, ProcStat, page_size, parse_stat};
+use super::procfs::{self, ProcError, ProcResult};
+use super::{Leaders, ProcStat};
 use std::collections::BTreeSet;
-use std::fs;
-use std::io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
-
-fn is_gone(e: &io::Error) -> bool {
-    matches!(e.raw_os_error(), Some(libc::ENOENT) | Some(libc::ESRCH))
-}
 
 fn getpid() -> u32 {
     // SAFETY: getpid cannot fail.
     unsafe { libc::getpid() as u32 }
 }
 
-/// Children listed in `/proc/<pid>/task/*/children` (all threads). `Ok(None)`: the process does not exist.
-pub(crate) fn children_of(pid: u32) -> Result<Option<BTreeSet<u32>>, String> {
-    let task = format!("/proc/{pid}/task");
-    let rd = match fs::read_dir(&task) {
-        Ok(r) => r,
-        Err(e) if is_gone(&e) => return Ok(None),
-        Err(e) => return Err(format!("{task}: {e}")),
-    };
-    let mut out = BTreeSet::new();
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("{task}: {e}"))?;
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let f = format!("{task}/{tid}/children");
-        match fs::read_to_string(&f) {
-            Ok(t) => {
-                for w in t.split_whitespace() {
-                    out.insert(
-                        w.parse::<u32>()
-                            .map_err(|_| format!("{f}: unparsable {w:?}"))?,
-                    );
-                }
-            }
-            // A thread that exited between the listing and the read has no children to report.
-            Err(e) if is_gone(&e) => {}
-            Err(e) => return Err(format!("{f}: {e}")),
+/// TEST BUILDS ONLY (procfix7 round 10, gate13c G13c-M1): the pause of [`listing_hold`] and how many listings still get
+/// it. Release builds have no such pause.
+#[cfg(debug_assertions)]
+static HOLD_MS: AtomicU64 = AtomicU64::new(0);
+#[cfg(debug_assertions)]
+static HOLD_LEFT: AtomicU64 = AtomicU64::new(0);
+
+/// TEST BUILDS ONLY (procfix7 round 10): the next `n` listings of processes (our children lists, the strict /proc
+/// listing, the strict marker scan) are each followed by a pause of `ms` before their entries are read: a test makes the
+/// hand-off race of a re-forking job (G13c-M1) deterministic with it. Not compiled into release builds.
+#[cfg(debug_assertions)]
+pub fn set_listing_hold(ms: u64, n: u64) {
+    HOLD_MS.store(ms, Ordering::SeqCst);
+    HOLD_LEFT.store(n, Ordering::SeqCst);
+}
+
+/// The pause of [`set_listing_hold`] between a listing and the reads of its entries (test builds; a no-op otherwise).
+#[inline]
+pub(crate) fn listing_hold() {
+    #[cfg(debug_assertions)]
+    {
+        if HOLD_LEFT
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
+            .is_ok()
+        {
+            std::thread::sleep(Duration::from_millis(HOLD_MS.load(Ordering::SeqCst)));
         }
     }
-    Ok(Some(out))
+}
+
+/// Children listed in `/proc/<pid>/task/*/children` (all threads), read until two consecutive reads agree. Gone: the
+/// process does not exist (procfix8: [`procfs`] rules).
+pub(crate) fn children_of(pid: u32) -> ProcResult<BTreeSet<u32>> {
+    procfs::sys().children_of(pid)
 }
 
 /// Our own direct children from the kernel's children lists, read until two consecutive reads agree (at most 4 reads;
-/// the kernel documents the file as unreliable while the list changes).
+/// the kernel documents the file as unreliable while the list changes). procfix8: lists that keep changing are an
+/// error (it was the last read).
 pub(crate) fn own_children() -> Result<BTreeSet<u32>, String> {
-    let me = getpid();
-    let mut prev = children_of(me)?.ok_or("own /proc entry missing")?;
-    for _ in 0..3 {
-        let next = children_of(me)?.ok_or("own /proc entry missing")?;
-        if next == prev {
-            return Ok(next);
-        }
-        prev = next;
+    match children_of(getpid()) {
+        Ok(k) => Ok(k),
+        Err(ProcError::Gone) => Err("own /proc entry missing".into()),
+        Err(ProcError::Unreadable(w)) => Err(w),
     }
-    Ok(prev)
+}
+
+/// procfix7 round 11 (gate14 L14-1): STOP CANDIDATES among our direct children when the strict read fails because the
+/// lists keep changing (a fast relay re-parented to us): never a proof of absence.
+pub(crate) fn own_children_candidates() -> BTreeSet<u32> {
+    // procfix8-ok: stop CANDIDATES only (never a proof): an unreadable list adds no candidate
+    procfs::sys()
+        .children_candidates(getpid())
+        .unwrap_or_default()
 }
 
 /// Our direct children by a STRICT full /proc listing (ppid == us): an independent second enumeration. Any listing or
@@ -100,50 +101,30 @@ pub(crate) fn own_children_by_scan() -> Result<BTreeSet<u32>, String> {
     Ok(out)
 }
 
-/// Every process of /proc with its stat, STRICT: a failed listing entry or a failed stat read (other than the process
-/// having vanished) is an error. Vanished processes are counted in the second value.
+/// Every process of /proc with its stat, STRICT: a failed listing (the two-enumeration rule) or a failed stat read
+/// (other than the process having vanished: ENOENT / ESRCH) is an error. Vanished processes are counted in the second
+/// value.
 pub(crate) fn strict_listing() -> Result<Vec<ProcStat>, String> {
     Ok(strict_listing_counted()?.0)
 }
 
 pub(crate) fn strict_listing_counted() -> Result<(Vec<ProcStat>, usize), String> {
-    let rd = fs::read_dir("/proc").map_err(|e| format!("/proc: {e}"))?;
+    let root = procfs::sys();
     let mut out = Vec::new();
     let mut vanished = 0usize;
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("/proc listing: {e}"))?;
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let p = format!("/proc/{pid}/stat");
-        match fs::read(&p) {
-            Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
-                Some(st) => out.push(st),
-                None => return Err(format!("{p}: unparsable")),
-            },
-            Err(e) if is_gone(&e) => vanished += 1,
-            Err(e) => return Err(format!("{p}: {e}")),
+    // procfix7 round 6 (gate10 G10-B1): the job-end proofs decide absence from this listing: its completeness proof
+    let listed = root
+        .pids_proven(&[])
+        .map_err(|e| format!("proc listing: {e}"))?;
+    listing_hold();
+    for pid in listed {
+        match root.stat(pid) {
+            Ok(st) => out.push(st),
+            Err(ProcError::Gone) => vanished += 1,
+            Err(ProcError::Unreadable(w)) => return Err(w),
         }
     }
     Ok((out, vanished))
-}
-
-/// Read an environ file; an EMPTY read is repeated once after 1 ms. Why: during execve the new mm is installed before
-/// its environment bounds are set (`env_start == env_end`), so a marked process caught in that window reads as empty
-/// (observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` were judged unmarked that way). The window is
-/// microseconds; an environment that is still empty 1 ms later is a real empty environment (`env -i`). Ok(None): empty.
-fn read_environ_settled(path: &str) -> io::Result<Option<Vec<u8>>> {
-    let b = fs::read(path)?;
-    if !b.is_empty() {
-        return Ok(Some(b));
-    }
-    std::thread::sleep(Duration::from_millis(1));
-    let b = fs::read(path)?;
-    Ok((!b.is_empty()).then_some(b))
 }
 
 /// What the environment of a process says about the campaign marker.
@@ -153,7 +134,8 @@ pub(crate) enum MarkerFact {
     Absent,
     /// The environ of a live process stayed empty (`env -i`): no marker NOW. Never cached (a later exec may change it).
     EmptyEnviron,
-    /// EACCES (non-dumpable / other uid), an empty environ of a live process, or another read error.
+    /// EACCES (non-dumpable / other uid), a torn read, a timeout, the live thread read through exited, or another read
+    /// error: unknown (procfix8: never Absent).
     Unreadable(String),
 }
 
@@ -172,51 +154,22 @@ pub(crate) struct ProcFacts {
 }
 
 pub(crate) enum FactRead {
+    /// The PROCESS is gone (ENOENT / ESRCH of its stat, task list or status; never of a thread).
     Gone,
     Facts(ProcFacts),
     Failed(String),
 }
 
-fn read_status_ruid(pid: u32) -> Result<Option<u32>, String> {
-    let p = format!("/proc/{pid}/status");
-    match fs::read_to_string(&p) {
-        Ok(t) => t
-            .lines()
-            .find_map(|l| l.strip_prefix("Uid:"))
-            .and_then(|r| r.split_whitespace().next())
-            .and_then(|v| v.parse::<u32>().ok())
-            .map(Some)
-            .ok_or_else(|| format!("{p}: no Uid line")),
-        Err(e) if is_gone(&e) => Ok(None),
-        Err(e) => Err(format!("{p}: {e}")),
-    }
-}
+/// Bound of the environ read of [`read_proc_facts`] (an environ read takes the target's mmap lock).
+const FACTS_ENVIRON_TIMEOUT: Duration = Duration::from_secs(1);
 
-/// Thread states: (any live thread, all live threads stopped, a live thread id).
-fn thread_states(pid: u32) -> Result<Option<(bool, bool, Option<u32>)>, String> {
-    let task = format!("/proc/{pid}/task");
-    let rd = match fs::read_dir(&task) {
-        Ok(r) => r,
-        Err(e) if is_gone(&e) => return Ok(None),
-        Err(e) => return Err(format!("{task}: {e}")),
-    };
+/// Thread states: (any live thread, all live threads stopped, a live thread id). Gone: the process is gone. A thread
+/// that vanished between the listing and its read is left out (ENOENT / ESRCH of ITS stat).
+fn thread_states(root: &procfs::ProcRoot, pid: u32) -> ProcResult<(bool, bool, Option<u32>)> {
     let (mut any_live, mut all_stopped, mut live_tid) = (false, true, None);
-    for entry in rd {
-        let entry = entry.map_err(|e| format!("{task}: {e}"))?;
-        let Some(tid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|s| s.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        let f = format!("{task}/{tid}/stat");
-        match fs::read(&f) {
-            // A task being released reads as empty: it is gone.
-            Ok(b) if b.is_empty() => {}
-            Ok(b) => {
-                let st = parse_stat(pid, &String::from_utf8_lossy(&b), page_size())
-                    .ok_or_else(|| format!("{f}: unparsable"))?;
+    for tid in root.tasks(pid)? {
+        match root.task_stat(pid, tid) {
+            Ok(st) => {
                 if !st.is_dead() {
                     any_live = true;
                     live_tid.get_or_insert(tid);
@@ -225,31 +178,47 @@ fn thread_states(pid: u32) -> Result<Option<(bool, bool, Option<u32>)>, String> 
                     }
                 }
             }
-            Err(e) if is_gone(&e) => {}
-            Err(e) => return Err(format!("{f}: {e}")),
+            Err(ProcError::Gone) => {}
+            Err(e) => return Err(e),
         }
     }
-    Ok(Some((any_live, all_stopped, live_tid)))
+    Ok((any_live, all_stopped, live_tid))
 }
 
 /// Read the facts of `pid` strictly. `want_marker`: also read the environ (else `marker` = Absent, unused).
+/// procfix8: every read through [`procfs`]: Gone only for ENOENT / ESRCH of the process; everything else Failed (or
+/// `MarkerFact::Unreadable` for the environ).
 pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
-    let sp = format!("/proc/{pid}/stat");
-    let stat = match fs::read(&sp) {
-        Ok(b) if b.is_empty() => return FactRead::Gone,
-        Ok(b) => match parse_stat(pid, &String::from_utf8_lossy(&b), page_size()) {
-            Some(s) => s,
-            None => return FactRead::Failed(format!("{sp}: unparsable")),
-        },
-        Err(e) if is_gone(&e) => return FactRead::Gone,
-        Err(e) => return FactRead::Failed(format!("{sp}: {e}")),
+    let root = procfs::sys();
+    let stat = match root.stat(pid) {
+        Ok(s) => s,
+        Err(ProcError::Gone) => return FactRead::Gone,
+        Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let (any_live, all_stopped, live_tid) = match thread_states(pid) {
-        Ok(Some(x)) => x,
-        Ok(None) => return FactRead::Gone,
-        Err(e) => return FactRead::Failed(e),
+    let (any_live, all_stopped, mut live_tid) = match thread_states(&root, pid) {
+        Ok(x) => x,
+        Err(ProcError::Gone) => return FactRead::Gone,
+        Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let dead = stat.is_dead() && !any_live;
+    // procfix7 round 5 (gate9 G9-B2): "dead" (a zombie without live threads) ONLY by the kernel's atomic thread count
+    // (`live_thread_at`), never because one task listing showed no live thread (threads replacing themselves are
+    // created after the listing began). `all_stopped` stays a listing fact: it is consulted only after a SIGSTOP was
+    // delivered to the GROUP, and from then on the kernel stops every thread, a thread created later included
+    // (task_join_group_stop), and refuses new clones while the stop is pending (signal_pending in copy_process); with
+    // no live thread listed it is false.
+    let dead = if stat.is_dead() {
+        match super::live_thread_at(&root, pid) {
+            Ok(super::LiveThread::NoneAlive) => true,
+            Ok(super::LiveThread::Found(t, _)) => {
+                live_tid.get_or_insert(t);
+                false
+            }
+            Err(ProcError::Gone) => return FactRead::Gone,
+            Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
+        }
+    } else {
+        false
+    };
     if dead {
         // A zombie without live threads: no survivor; nothing more to read (fast path for re-parented zombies).
         return FactRead::Facts(ProcFacts {
@@ -260,25 +229,30 @@ pub(crate) fn read_proc_facts(pid: u32, want_marker: bool) -> FactRead {
             all_stopped: false,
         });
     }
-    let real_uid = match read_status_ruid(pid) {
-        Ok(Some(u)) => u,
-        Ok(None) => return FactRead::Gone,
-        Err(e) => return FactRead::Failed(e),
+    let real_uid = match root.status(pid).and_then(|s| s.real_uid()) {
+        Ok(u) => u,
+        Err(ProcError::Gone) => return FactRead::Gone,
+        Err(ProcError::Unreadable(w)) => return FactRead::Failed(w),
     };
-    let marker = if want_marker && !dead {
-        let path = match (stat.is_dead(), live_tid) {
-            (true, Some(t)) => format!("/proc/{pid}/task/{t}/environ"),
-            _ => format!("/proc/{pid}/environ"),
+    let marker = if want_marker {
+        let tid = match (stat.is_dead(), live_tid) {
+            (true, Some(t)) => Some(t),
+            _ => None,
         };
-        match read_environ_settled(&path) {
-            Ok(Some(b)) => match super::marker_in_environ(&b) {
+        // The execve window (observed: 16 of 4,000 self-ending jobs with a setsid'd `sleep` read empty once) is handled
+        // by evidence inside `ProcRoot::environ` (gate8 m8-ew); an EMPTY result is a real empty environment (`env -i`).
+        match root.environ(pid, tid, FACTS_ENVIRON_TIMEOUT) {
+            Ok(b) if b.is_empty() => MarkerFact::EmptyEnviron,
+            Ok(b) => match super::marker_in_environ(&b) {
                 Some(v) => MarkerFact::Value(v),
                 None => MarkerFact::Absent,
             },
-            // Empty twice, 1 ms apart: a live process without environment (`env -i`).
-            Ok(None) => MarkerFact::EmptyEnviron,
-            Err(e) if is_gone(&e) => return FactRead::Gone,
-            Err(e) => MarkerFact::Unreadable(format!("{path}: {e}")),
+            Err(ProcError::Gone) if tid.is_none() => return FactRead::Gone,
+            Err(ProcError::Gone) => MarkerFact::Unreadable(format!(
+                "the live thread {} of {pid} exited while its environ was read",
+                tid.unwrap_or(0)
+            )),
+            Err(ProcError::Unreadable(w)) => MarkerFact::Unreadable(w),
         }
     } else {
         MarkerFact::Absent
@@ -347,6 +321,41 @@ pub fn request_reap() {
     s.cv.notify_all();
 }
 
+/// procfix7 round 17 (host run B, N2.i0158): the identities of the children THIS reaper reaped (pid, start ticks,
+/// session, when), the latest [`REAPED_KEPT`]: a listing that named a pid which is gone at its read takes its identity
+/// from here when the reap came AFTER that listing ended (the process listed is then the one reaped: a pid names one
+/// process until that process is reaped).
+const REAPED_KEPT: usize = 4096;
+
+/// One reap of ours: pid, start ticks, session, when the reap began.
+type Reaped = (u32, u64, u32, Instant);
+
+fn reaped_ring() -> &'static Mutex<std::collections::VecDeque<Reaped>> {
+    static R: OnceLock<Mutex<std::collections::VecDeque<Reaped>>> = OnceLock::new();
+    R.get_or_init(|| Mutex::new(std::collections::VecDeque::with_capacity(REAPED_KEPT)))
+}
+
+/// Record a reap of ours: `began` is taken BEFORE the reap; call it under the registry lock, after the reap succeeded.
+pub(crate) fn note_reaped(pid: u32, start: u64, session: u32, began: Instant) {
+    let mut r = reaped_ring().lock().unwrap_or_else(|p| p.into_inner());
+    if r.len() >= REAPED_KEPT {
+        r.pop_front();
+    }
+    r.push_back((pid, start, session, began));
+}
+
+/// procfix7 round 17: (start, session) of `pid` if we reaped it in a reap that began at or after `listed_end` (the
+/// end of the listing that named it). Records are kept in the order their reaps began.
+pub(crate) fn reaped_after(pid: u32, listed_end: Instant) -> Option<(u64, u32)> {
+    reaped_ring()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .iter()
+        .filter(|&&(_, _, _, t)| t >= listed_end)
+        .find(|&&(p, _, _, _)| p == pid)
+        .map(|&(_, s, sess, _)| (s, sess))
+}
+
 /// One reaper tick: reap at most `max` zombie children that are not registered leaders and not in our own session.
 /// Returns how many were reaped.
 pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
@@ -366,8 +375,14 @@ pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
     let mut reaped = 0usize;
     let mut outstanding = 0u64;
     for pid in kids {
-        let Ok(Some(st)) = super::read_stat(pid) else {
-            continue;
+        let st = match super::read_stat(pid) {
+            Ok(st) => st,
+            Err(ProcError::Gone) => continue,
+            // procfix8: not reaped this tick (it waits), counted
+            Err(ProcError::Unreadable(_)) => {
+                outstanding += 1;
+                continue;
+            }
         };
         if !st.is_dead() || st.ppid != me {
             continue;
@@ -383,7 +398,13 @@ pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
             outstanding += 1;
             continue;
         }
+        let began = Instant::now();
         let ok = crate::launch::reap_adopted(pid, st.start_ticks, own_session);
+        if ok {
+            // round 17: recorded BEFORE the registry lock is released (a hunt that found the entry gone looks it up
+            // under the same lock), with the time taken before the reap
+            note_reaped(pid, st.start_ticks, st.session, began);
+        }
         drop(guard);
         if ok {
             reaped += 1;
@@ -400,6 +421,8 @@ pub(crate) fn reap_tick(leaders: &Leaders, max: usize) -> usize {
 pub(crate) fn start_reaper(leaders: Arc<Leaders>, period: Duration, max_per_tick: usize) {
     static STARTED: OnceLock<()> = OnceLock::new();
     STARTED.get_or_init(|| {
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): without the reaper thread zombies wait; leaders are reaped by the launcher
         let _ = std::thread::Builder::new()
             .name("rr-adopted-reaper".into())
             .spawn(move || {
@@ -427,4 +450,29 @@ pub(crate) fn start_reaper(leaders: Arc<Leaders>, period: Duration, max_per_tick
                 }
             });
     });
+}
+
+#[cfg(test)]
+mod round17_tests {
+    use super::*;
+
+    /// procfix7 round 17: a reap of ours names the listed process only if it BEGAN at or after the end of the listing
+    /// that named it (then the pid could not have been another process meanwhile); the first such reap is the one.
+    #[test]
+    fn a_reap_identifies_a_listed_pid_only_when_it_began_after_the_listing() {
+        let pid = 4_000_000 + std::process::id() % 100_000;
+        note_reaped(pid, 11, 100, Instant::now());
+        std::thread::sleep(Duration::from_millis(2));
+        let listed_end = Instant::now();
+        assert_eq!(
+            reaped_after(pid, listed_end),
+            None,
+            "a reap before the listing ended"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+        note_reaped(pid, 22, 200, Instant::now());
+        note_reaped(pid, 33, 300, Instant::now());
+        assert_eq!(reaped_after(pid, listed_end), Some((22, 200)));
+        assert_eq!(reaped_after(pid + 1, listed_end), None);
+    }
 }

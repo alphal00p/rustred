@@ -345,15 +345,20 @@ impl DirSource {
     }
 
     fn ledger_bytes(&self) -> Option<u64> {
+        // procfix7 round 5: a size from a COMPLETE listing and every segment's stat, else unknown (None), never a
+        // smaller number
         let dir = crate::ledger::ledger_dir(&self.cdir);
-        let rd = std::fs::read_dir(&dir).ok()?;
+        let crate::fsx::Listing::Complete(entries) = crate::fsx::list("tui", &dir) else {
+            return None;
+        };
         let mut total = 0u64;
-        for e in rd.flatten() {
-            let name = e.file_name().to_string_lossy().into_owned();
-            if name.starts_with("segment-")
-                && let Ok(m) = e.metadata()
-            {
-                total += m.len();
+        for e in entries {
+            if e.name_lossy().starts_with("segment-") {
+                match crate::fsx::presence_lstat("tui", &e.path) {
+                    crate::fsx::Presence::Present(m) => total += m.len(),
+                    crate::fsx::Presence::Absent => {}
+                    crate::fsx::Presence::Unknown(_) => return None,
+                }
             }
         }
         Some(total)
@@ -427,8 +432,12 @@ fn now_hms() -> String {
     crate::tui::format::hms(&crate::clock::UtcMillis(ms).to_iso())
 }
 
+/// None: unknown (absent or not readable; shown as unknown, never as a time).
 fn mtime_s(path: &Path) -> Option<f64> {
-    let m = std::fs::metadata(path).ok()?.modified().ok()?;
+    let crate::fsx::Presence::Present(md) = crate::fsx::presence("tui", path) else {
+        return None;
+    };
+    let m = md.modified().ok()?;
     m.duration_since(SystemTime::UNIX_EPOCH)
         .ok()
         .map(|d| d.as_secs_f64())
@@ -530,11 +539,23 @@ impl ProgressSource for DirSource {
                 }
             }
         }
-        if names.is_empty()
-            && let Ok(rd) = std::fs::read_dir(self.cdir.join(PROGRESS_DIR).join("nodes"))
-        {
-            for e in rd.flatten() {
-                let n = e.file_name().to_string_lossy().into_owned();
+        let node_dir = self.cdir.join(PROGRESS_DIR).join("nodes");
+        let listed = if names.is_empty() {
+            match crate::fsx::list("tui", &node_dir) {
+                crate::fsx::Listing::Complete(v) => Some(v),
+                crate::fsx::Listing::Absent => None,
+                crate::fsx::Listing::Failed(e) => {
+                    // procfix7 round 5: never shown as "no nodes"
+                    notes.push(format!("{} cannot be listed: {e}", node_dir.display()));
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        if let Some(entries) = listed {
+            for e in entries {
+                let n = e.name_lossy();
                 if !n.starts_with('.')
                     && let Some(id) = n.strip_suffix(".json")
                     && !id.ends_with(".items")
@@ -604,6 +625,7 @@ impl ProgressSource for DirSource {
     }
 }
 
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

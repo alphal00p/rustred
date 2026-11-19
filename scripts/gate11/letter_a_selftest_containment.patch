@@ -1,0 +1,4 @@
+330c330
+<     RES="\"policy\":\"plain\",\"cpus\":\"$CPUS\""
+---
+>     RES="\"policy\":\"plain\",\"cpus\":\"$CPUS\",\"containment\":\"marker_only\""

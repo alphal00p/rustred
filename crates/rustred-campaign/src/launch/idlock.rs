@@ -62,9 +62,23 @@ impl Drop for IdLock {
     fn drop(&mut self) {
         // An ad-hoc id is unique to this process: remove its file while still holding the lock. A campaign's file stays
         // (removing a lock file another process may be opening would split the lock).
-        if self.adhoc {
+        // procfix7 round 5 (positive proof): only while the path still names the file we hold (same device and inode,
+        // read back now)
+        use std::os::unix::fs::MetadataExt;
+        let ours = match (
+            self.file.metadata(),
+            crate::fsx::presence_lstat("idlock", &self.path),
+        ) {
+            (Ok(a), crate::fsx::Presence::Present(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        };
+        if self.adhoc && ours {
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the flock is the lock; the file is only removed as a courtesy
             let _ = fs::remove_file(&self.path);
         }
+        #[allow(clippy::let_underscore_must_use)]
+        // ignored-ok (procfix7): not an error: keeps the locked file alive until here
         let _ = &self.file;
     }
 }
@@ -74,11 +88,23 @@ impl Drop for IdLock {
 /// `/run/user/<uid>` disappears at a full logout). The directory checks of `prepare_dir` (a real directory, owned by us,
 /// not group / other writable; a foreign pre-created one is refused) are unchanged; the sticky /tmp keeps others from
 /// replacing our entry. The CDIR flock remains the second, independent guard against two supervisors of one directory.
+///
+/// procfix7 round 7 (gate11 m11-tmp): INSIDE A PRIVATE PID NAMESPACE (the test suites; the host refuses to start there
+/// without the test override) the host's /tmp is shared by every namespace of every lane: the namespaced runs had left
+/// ~25,000 lock files in /tmp/rustred-campaign-0. There the directory is `$TMPDIR/rustred-campaign-<uid>` when TMPDIR names
+/// a private directory (absolute, not /tmp itself): every supervisor that can be a copy of another in such a run shares
+/// that TMPDIR (one test, one namespace). On the host: unchanged.
 pub fn default_lock_dir() -> PathBuf {
-    PathBuf::from(format!(
-        "/tmp/rustred-campaign-{}",
-        crate::resources::our_uid()
-    ))
+    let uid = crate::resources::our_uid();
+    if crate::launch::namespace_state() == Ok(true)
+        && let Some(t) = std::env::var_os("TMPDIR").map(PathBuf::from)
+        && t.is_absolute()
+        && t.as_os_str() != "/tmp"
+        && t.as_os_str() != "/tmp/"
+    {
+        return t.join(format!("rustred-campaign-{uid}"));
+    }
+    PathBuf::from(format!("/tmp/rustred-campaign-{uid}"))
 }
 
 fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {
@@ -86,9 +112,9 @@ fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {
         path: dir.to_path_buf(),
         why,
     };
-    match fs::symlink_metadata(dir) {
-        Ok(_) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+    match crate::fsx::presence_lstat("idlock", dir) {
+        crate::fsx::Presence::Present(_) => {}
+        crate::fsx::Presence::Absent => {
             fs::DirBuilder::new()
                 .mode(0o700)
                 .create(dir)
@@ -101,9 +127,11 @@ fn prepare_dir(dir: &Path) -> Result<(), IdLockError> {
                 })
                 .map_err(|e| unusable(format!("create: {e}")))?;
         }
-        Err(e) => return Err(unusable(e.to_string())),
+        crate::fsx::Presence::Unknown(e) => return Err(unusable(e.to_string())),
     }
-    let m = fs::symlink_metadata(dir).map_err(|e| unusable(e.to_string()))?;
+    let m = crate::fsx::presence_lstat("idlock", dir)
+        .metadata()
+        .map_err(|e| unusable(e.to_string()))?;
     if !m.file_type().is_dir() {
         return Err(unusable("not a directory (or a symlink)".into()));
     }
@@ -150,6 +178,8 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
         Ok(()) => {}
         Err(fs::TryLockError::WouldBlock) => {
             let mut s = String::new();
+            #[allow(clippy::let_underscore_must_use)]
+            // ignored-ok (procfix7): the holder pid is read for the refusal message only
             let _ = file.read_to_string(&mut s);
             let holder = s.split_whitespace().next().and_then(|w| w.parse().ok());
             return Err(IdLockError::InUse { path, holder });
@@ -162,12 +192,19 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
         }
     }
     // Informational content: who holds it.
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): diagnostic content of the lock file (the flock is the lock)
     let _ = file.set_len(0);
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): diagnostic content of the lock file (the flock is the lock)
     let _ = file.rewind();
+    #[allow(clippy::let_underscore_must_use)]
+    // ignored-ok (procfix7): diagnostic content of the lock file (the flock is the lock)
     let _ = writeln!(
         file,
         "{} {}",
         std::process::id(),
+        // procfix8-ok: diagnostic content of the lock file (the flock is the lock; nothing is decided by it)
         crate::resources::boot_id().unwrap_or_default()
     );
     let l = Arc::new(IdLock {

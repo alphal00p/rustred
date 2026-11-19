@@ -498,6 +498,9 @@ impl ChildHandle for ScriptedChild {
             });
         }
         let report = FinalReport {
+            barrier_refused: None,
+            proof_seconds: None,
+            proof_waits: Vec::new(),
             label: p.label.clone(),
             identity: p.identity.clone(),
             marker: crate::resources::CampaignMarker {
@@ -533,6 +536,8 @@ impl ChildHandle for ScriptedChild {
     }
 }
 
+#[allow(clippy::let_underscore_must_use)] // test cleanup (outside the reviewed scope, procfix7)
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 #[cfg(test)]
 mod tests {
     use super::*;

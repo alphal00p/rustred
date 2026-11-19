@@ -1,5 +1,6 @@
 //! Lane ledgerfix2: reducer tests of the re-audit fixes and of the UNCONFIRMED LAUNCH state (execution unknown).
 //! Pure state machines (no files, no processes).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 mod ledger_support;
 
 use ledger_support::*;
