@@ -153,6 +153,11 @@ pub struct Stats {
     pub records_written: u64,
     pub records_bytes: u64,
     pub pole_jobs: u64,
+    /// procfix7 round 19 (landing, int8b-gate review (ii) seedmin.rs:384): records that could not be written (each written again later), and the last error.
+    #[serde(default)]
+    pub records_write_errors: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub records_last_error: Option<String>,
 }
 
 /// The child solver.
@@ -250,7 +255,14 @@ impl ChildTrialSolver {
         std::fs::create_dir_all(cfg.work_root.join("recipes")).map_err(|e| e.to_string())?;
         let journal_path = cfg.work_root.join("journal.jsonl");
         let mut journal = BTreeMap::new();
-        if let Ok(t) = std::fs::read_to_string(&journal_path) {
+        // procfix7 round 19 (landing, int8b-gate review (ii) seedmin.rs:253): a journal that is not there is empty; one that cannot be READ is an
+        // error (refused at start; it was a silent fresh start, every trial run again)
+        let journal_text = match crate::fsx::read_to_string("closeloop.input", &journal_path) {
+            crate::fsx::Read::Content(t) => Some(t),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", journal_path.display())),
+        };
+        if let Some(t) = journal_text {
             for (i, l) in t.lines().enumerate() {
                 if l.trim().is_empty() {
                     continue;
@@ -271,7 +283,14 @@ impl ChildTrialSolver {
         }
         // relations journaled before their pole order came back (an interrupted pole job): asked again on first use
         let mut poles_pending: BTreeMap<String, Vec<(usize, Key, Value)>> = BTreeMap::new();
-        if let Ok(t) = std::fs::read_to_string(cfg.work_root.join("poles_pending.jsonl")) {
+        // procfix7 round 19 (landing, int8b-gate review (ii) seedmin.rs:274): as the journal (it was "none pending": those pole orders never asked)
+        let pending_path = cfg.work_root.join("poles_pending.jsonl");
+        let pending_text = match crate::fsx::read_to_string("closeloop.input", &pending_path) {
+            crate::fsx::Read::Content(t) => Some(t),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", pending_path.display())),
+        };
+        if let Some(t) = pending_text {
             for l in t.lines() {
                 // a torn last line (a crash while writing) is ignored: that order stays undecided
                 let Ok(p) = serde_json::from_str::<PendingLine>(l) else {
@@ -381,15 +400,24 @@ impl ChildTrialSolver {
         }
         let mut line = rec.to_string();
         line.push('\n');
-        if let Ok(mut f) = std::fs::OpenOptions::new()
+        // procfix7 round 19 (landing, int8b-gate review (ii) seedmin.rs:384): a record that cannot be written is NAMED in the stats (count and the
+        // last error; it was dropped silently); not marked seen, so it is written again later
+        let written = std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&path)
-            && f.write_all(line.as_bytes()).is_ok()
-        {
-            self.seen_records.insert(d.to_string());
-            self.stats.records_written += 1;
-            self.stats.records_bytes += line.len() as u64;
+            .and_then(|mut f| f.write_all(line.as_bytes()))
+            .map_err(|e| format!("{}: {e}", path.display()));
+        match written {
+            Ok(()) => {
+                self.seen_records.insert(d.to_string());
+                self.stats.records_written += 1;
+                self.stats.records_bytes += line.len() as u64;
+            }
+            Err(e) => {
+                self.stats.records_write_errors += 1;
+                self.stats.records_last_error = Some(e);
+            }
         }
     }
 
@@ -477,8 +505,8 @@ impl ChildTrialSolver {
                         return Err(format!("{} plans for one trial", plans.len()));
                     }
                     // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
-                    let mut l = RealLauncher::new(sampler)
-                        .map_err(|e| format!("launcher refused: {e}"))?;
+                    let mut l =
+                        RealLauncher::new(sampler).map_err(|e| format!("launcher refused: {e}"))?;
                     let (out, rep) = run_attempt(&mut l, &ad, &reqs, &plans[0], &work, 1, &opts)
                         .map_err(|e| format!("{e:?}"))?;
                     let run_dir = rep.prepared.spec.run_dir.clone();
@@ -606,8 +634,14 @@ impl ChildTrialSolver {
         // (an earlier run's job directory, e.g. of an interrupted or failed pole job, is never reused)
         let base = self.cfg.work_root.join("poles");
         let mut n = self.stats.pole_jobs;
-        while base.join(format!("{n:06}")).exists() {
-            n += 1;
+        // procfix7 round 19 (landing, int8b-gate review (ii) seedmin.rs:607) / INT8-STAGE2 section 8 row 5): a number whose directory cannot be
+        // checked is never taken as free (no pole job: the poles stay undecided, as after a failed one)
+        loop {
+            match crate::fsx::presence_lstat("closeloop.output", &base.join(format!("{n:06}"))) {
+                crate::fsx::Presence::Absent => break,
+                crate::fsx::Presence::Present(_) => n += 1,
+                crate::fsx::Presence::Unknown(_) => return none(),
+            }
         }
         let work = base.join(format!("{n:06}"));
         let opts = RunOptions {
