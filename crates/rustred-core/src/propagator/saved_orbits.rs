@@ -66,6 +66,16 @@ pub struct PSavedOrbits {
     orbits: BTreeMap<(PresentationId, u64), SavedOrbit>,
 }
 
+impl PSavedOrbits {
+    /// Whether a group is saved for some sector of `presentation`.
+    pub fn covers_presentation(&self, presentation: PresentationId) -> bool {
+        self.orbits
+            .range((presentation, 0)..=(presentation, u64::MAX))
+            .next()
+            .is_some()
+    }
+}
+
 impl std::fmt::Debug for PSavedOrbits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PSavedOrbits({} sectors)", self.orbits.len())

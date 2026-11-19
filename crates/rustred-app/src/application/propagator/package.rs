@@ -313,6 +313,7 @@ fn p_library_parts(
                 })
             })
             .collect::<Result<Vec<_>, PError>>()?,
+        orbit_required_nodes: library.orbit_required_nodes(),
     };
     files.insert(
         LIBRARY_FILE.to_owned(),

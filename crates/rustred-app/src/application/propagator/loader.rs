@@ -1105,6 +1105,44 @@ pub fn load_p_library(
     if manifest.files.orbits.is_some() && options.verify_descent {
         library.set_orbit_canonicalization(rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS);
     }
+    // T266-STUDY 7.1: tables complete only with orbit canonicalisation.
+    if !manifest.orbit_required_nodes.is_empty() {
+        let nodes = manifest.orbit_required_nodes.join(", ");
+        if manifest.files.orbits.is_none() {
+            return Err(malformed(format!(
+                "{LIBRARY_FILE}: the tables of {nodes} are complete only with orbit canonicalisation, \
+                 and the package has no {ORBITS_FILE}"
+            )));
+        }
+        if let Some(saved) = library.saved_orbits() {
+            for node in &manifest.orbit_required_nodes {
+                let presentations: Vec<_> = library
+                    .presentations()
+                    .iter()
+                    .filter(|p| p.family.name() == node.as_str())
+                    .collect();
+                if presentations.is_empty() {
+                    return Err(malformed(format!(
+                        "{LIBRARY_FILE}: orbit_required_nodes names {node}, which has no presentation"
+                    )));
+                }
+                if let Some(p) = presentations
+                    .iter()
+                    .find(|p| !saved.covers_presentation(p.id))
+                {
+                    return Err(malformed(format!(
+                        "{ORBITS_FILE} has no group for presentation {} of {node}, whose table is \
+                         complete only with orbit canonicalisation",
+                        p.id.0
+                    )));
+                }
+            }
+        }
+        library.set_orbit_required_nodes(manifest.orbit_required_nodes.clone());
+        if let Some(refusal) = library.orbit_requirement_refusal() {
+            return Err(malformed(refusal.to_string()));
+        }
+    }
 
     if library.identity() != manifest.identity {
         return Err(malformed(format!(

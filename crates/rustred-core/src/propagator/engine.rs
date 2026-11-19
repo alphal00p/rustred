@@ -902,6 +902,9 @@ impl PEngine {
         // be attached or reopened across modes.
         let zero_pruning =
             super::library::prune_zero_children_enabled().then(ZeroPruningCounters::default);
+        if let Some(refusal) = library.orbit_requirement_refusal() {
+            return Err(refusal);
+        }
         let canonical = library.orbit_canonicalization();
         let canonical_routes = canonical && library.route_canonicalization();
         // fwd-opt: setup tasks for the workers of a multi-thread request.

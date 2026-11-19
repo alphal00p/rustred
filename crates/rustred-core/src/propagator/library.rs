@@ -435,6 +435,10 @@ pub struct PLibrary {
     program_budget: Option<Arc<PProgramBudget>>,
     /// vk5l WP1: nodes declared not closed, by owner class.
     open_nodes: BTreeMap<OwnerClassId, POpenNode>,
+    /// Nodes whose tables are complete only with orbit canonicalisation (the
+    /// package's `orbit_required_nodes`): a request with canonicalisation off,
+    /// or with such a node in `RUSTRED_P_ORBIT_OFF`, is refused.
+    orbit_required: std::sync::RwLock<Vec<String>>,
     /// vk5l WP1: keys retained by Retain requests.
     retained: std::sync::Mutex<PRetained>,
     /// vk5l WP1: where the library was loaded from (a package directory),
@@ -732,6 +736,50 @@ impl PLibrary {
     /// cache binding: set it before the first request that uses a cache.
     pub fn set_orbit_canonicalization(&self, on: bool) {
         self.orbit_canonicalization.store(on, Ordering::Relaxed);
+    }
+
+    /// Declare the nodes whose tables are complete only with orbit
+    /// canonicalisation on (set by the package loader).
+    pub fn set_orbit_required_nodes(&self, nodes: Vec<String>) {
+        *self
+            .orbit_required
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = nodes;
+    }
+
+    /// The nodes of [`Self::set_orbit_required_nodes`].
+    pub fn orbit_required_nodes(&self) -> Vec<String> {
+        self.orbit_required
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The refusal of a request that would run a node whose table needs orbit
+    /// canonicalisation without it; `None` when allowed.
+    pub fn orbit_requirement_refusal(&self) -> Option<PError> {
+        let required = self.orbit_required_nodes();
+        if required.is_empty() {
+            return None;
+        }
+        if !self.orbit_canonicalization() {
+            return Some(PError::MalformedLibrary(format!(
+                "the tables of {} are complete only with orbit canonicalisation, which is off",
+                required.join(", ")
+            )));
+        }
+        let off = orbit_off_nodes();
+        let named: Vec<&str> = required
+            .iter()
+            .filter(|node| off.contains(*node))
+            .map(String::as_str)
+            .collect();
+        (!named.is_empty()).then(|| {
+            PError::MalformedLibrary(format!(
+                "RUSTRED_P_ORBIT_OFF names {}, whose tables are complete only with orbit canonicalisation",
+                named.join(", ")
+            ))
+        })
     }
 
     /// Whether requests canonicalise Apply keys under owner automorphisms.
@@ -2162,6 +2210,7 @@ impl PLibraryBuilder {
             saved_orbits: self.saved_orbits,
             program_budget: PProgramBudget::from_env(max_loops),
             open_nodes: self.open_nodes,
+            orbit_required: Default::default(),
             retained: Default::default(),
             source: OnceLock::new(),
             engine: OnceLock::new(),
