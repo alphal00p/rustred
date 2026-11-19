@@ -3242,8 +3242,12 @@ mod kite_tests {
             keys.extend(two.iter().filter(|k| *k != x).map(|k| k.to_vec()));
             super::super::certified_keys::CertifiedKeySet::new(node, 5, "table", keys).unwrap()
         };
-        let table = boxed_kite_table_d2(node, &[]);
-        let full = boxed_kite_library_with_recipes(&table, Some(certified(node)), None).unwrap();
+        let full = boxed_kite_library_with_recipes(
+            &boxed_kite_table_d2(node, &[]),
+            Some(certified(node)),
+            None,
+        )
+        .unwrap();
         full.set_orbit_canonicalization(false);
         let reference: Vec<_> = two
             .iter()
@@ -3255,8 +3259,14 @@ mod kite_tests {
             .collect();
         let mut checked = 0;
         for x in &two {
-            let library =
-                boxed_kite_library_with_recipes(&table, Some(certified_without(x)), None).unwrap();
+            // X leaves the certified set and the table (an import refuses a
+            // rule whose target is not certified)
+            let library = boxed_kite_library_with_recipes(
+                &boxed_kite_table_d2(node, &[*x]),
+                Some(certified_without(x)),
+                None,
+            )
+            .unwrap();
             library.set_orbit_canonicalization(true);
             for (k, expected) in two.iter().zip(&reference) {
                 if k == x {
@@ -3556,6 +3566,9 @@ mod kite_tests {
                 node,
                 POutsideSettings {
                     max_size_ratio: ratio,
+                    // the size ratio applies to the opt-in d = 4 preference
+                    // (rule 21: not the default)
+                    prefer_regular_at_4: true,
                     ..POutsideSettings::default()
                 },
             );
