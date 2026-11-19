@@ -304,6 +304,10 @@ impl Emitter {
         side: &Path,
         work: &Path,
     ) -> Result<Emitter, String> {
+        // the policy is judged under the CURRENT rule (version 2 = rule 21: d = 4 regularity reported, tie-break only),
+        // whatever version a config states; the stored policy (named by every derivation) says so
+        let mut policy = policy;
+        policy.version = rustred_campaign_core::emission::class::POLICY_VERSION;
         let text = serde_json::to_vec(&policy).map_err(|e| e.to_string())?;
         // ABSOLUTE paths: the children run in their own work directory, so a relative --work / side named files they could
         // not find (round 6: emit-table --work work failed with descent_not_checked)

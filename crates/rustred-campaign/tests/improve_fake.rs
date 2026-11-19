@@ -402,6 +402,8 @@ fn improve_subtree_replaces_a_rule_by_a_complete_smaller_sub_table() {
 /// scored (here: given); run 2 decides from the scores without generating again: rule 1 <- `rung` (regular, larger but
 /// within the tolerance 2), rule 2 <- `rung` (equal poles, smaller), rule 2's `tight` (order 2) refused. Run 3 on the
 /// improved table: the old `original` scores are bound to the old table, nothing to do.
+/// USER RULING 2026-11-19 (rule 21): this pole-first protocol is the EXPLICIT, non-default option: the config names the
+/// withdrawn order (`measures` regular first, ratio 4); the default `poles: {}` is size first and runs improve in size mode.
 #[test]
 fn improve_poles_generates_then_decides_from_scores_and_never_regenerates() {
     let _g = serial();
@@ -444,7 +446,7 @@ fn improve_poles_generates_then_decides_from_scores_and_never_regenerates() {
             node["record"] = json!({"path": r.display().to_string(), "sha256": sha256_file(r)});
         }
         let c = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node","nodes":[node],
-            "improve":{"filter":{"largest":3},"poles":{},
+            "improve":{"filter":{"largest":3},"poles":{"measures":["regular","max_pole_order","size"],"max_size_ratio":"4"},
                        "candidates":[{"name":"rung","args":["--seed-pose-rung"]},{"name":"tight","args":["--seed-layer-cap","0,0,1","--max-depth","3"]}]},
             "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
                    "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},

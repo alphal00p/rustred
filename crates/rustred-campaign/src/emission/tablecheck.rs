@@ -44,6 +44,8 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     let mut rules = 0u64;
     let mut rechecked = 0u64;
     let mut descent_rechecked = 0u64;
+    let mut notes_n = 0u64;
+    let mut notes: Vec<Value> = vec![];
     let mut manifest: Option<std::io::BufWriter<std::fs::File>> = match &a.manifest {
         Some(p) => Some(std::io::BufWriter::new(
             std::fs::File::create(p).map_err(|e| format!("{}: {e}", p.display()))?,
@@ -125,6 +127,12 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
                 (None, _) => verdict.problems.push(format!("the descent re-run gave no output ({})", r.stderr_tail(200))),
             }
         }
+        if !verdict.notes.is_empty() {
+            notes_n += 1;
+            if notes.len() < 50 {
+                notes.push(json!({"position": position, "index": verdict.index, "chart": chart, "notes": verdict.notes}));
+            }
+        }
         let class = verdict.class.unwrap_or(ClassWord::None);
         classes.insert(verdict.index, class);
         *counts.entry(class.word().to_string()).or_default() += 1;
@@ -159,7 +167,10 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     Ok((
         json!({"schema": "rustred.campaign.table-check.v1", "table": a.table.display().to_string(),
             "side": side.display().to_string(), "rules": rules, "refused": n_refused, "classes": counts, "subclasses": subclasses,
-            "rechecked": rechecked, "descent_rechecked": descent_rechecked, "verdict": if ok { "ACCEPTED" } else { "REFUSED" }, "refusals": refused}),
+            "rechecked": rechecked, "descent_rechecked": descent_rechecked,
+            "reported": {"records_with_notes": notes_n, "notes": notes,
+                         "role": "reported numbers (d = 4 regularity: tie-break only, LANE_RULES rule 21); they refuse nothing"},
+            "verdict": if ok { "ACCEPTED" } else { "REFUSED" }, "refusals": refused}),
         ok,
     ))
 }

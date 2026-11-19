@@ -431,7 +431,8 @@ pub struct ImprovePolicy {
     /// which candidates are never tried, so it is written in the config (`"yield_stop": {}` = the documented values);
     /// until v1.6 an absent key silently meant `Some(YieldStop::default())`.
     pub yield_stop: Option<YieldStop>,
-    /// IMPROVE POLES (section 6): the pole objective instead of size (None = size). Targets = the rules whose own
+    /// IMPROVE POLES (section 6): the pole objective instead of size (None = size; since rule 21 only an EXPLICIT pole-first
+    /// `measures` list turns the mode on, see [`ImprovePolicy::poles_on`]). Targets = the rules whose own
     /// rule-scope score has a pole (worst first); candidates run single-case (`--descend open`); a fresh candidate is
     /// `pole_score_pending` until its rule-scope score is supplied (node `pole_scores`), then decided by
     /// [`crate::economy::polescore::rule_pole_verdict`] without being generated again.
@@ -559,9 +560,12 @@ pub fn skipped_by_record(rules: &[TableRule], rec: &ImproveRecord, p: &ImprovePo
 }
 
 impl ImprovePolicy {
-    /// The pole objective is in force (configured and not ignored).
+    /// The POLE-FIRST improve mode is in force: configured, not ignored, AND its measures put a pole measure before size.
+    /// USER RULING 2026-11-19 (rule 21): the default pole policy is size first, so improve runs in SIZE mode (no pole targets,
+    /// no `pole_score_pending` hold: a cheaper rule replaces on size); the pole-first mode is the explicit, non-default option
+    /// of the withdrawn rule and reports itself (`objective: poles`, policy version in the record).
     pub fn poles_on(&self) -> bool {
-        self.poles.as_ref().is_some_and(|p| !p.is_ignored())
+        self.poles.as_ref().is_some_and(|p| !p.is_ignored() && p.measures.first().map(String::as_str) != Some("size"))
     }
     /// Candidate jobs solve the target case only (single mode): sub-tree off, or the pole objective.
     pub fn single(&self) -> bool {

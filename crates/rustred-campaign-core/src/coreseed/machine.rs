@@ -207,7 +207,7 @@ struct KeyState {
 }
 
 /// int7 (wire-in B1): THE selection among a key's certified alternatives is `poles::pole_objective` (one function for
-/// every choice). Mode regular_preferred: the user's default objective (eps box excess, max pole order, sum of pole
+/// every choice). Mode regular_preferred (EXPLICIT since rule 21): the withdrawn objective (eps box excess, max pole order, sum of pole
 /// orders, singular terms, size; max_size_ratio unbounded) on each alternative's d0 verdict (regular = order 0,
 /// singular of known order p = p, singular of unknown order / undecided = unknown, ranked worst); otherwise economy first
 /// (size, then regularity / pole order). Ties: fewer seeds, then the relation digest (the candidate id), independent of
@@ -227,7 +227,9 @@ fn choose(alts: &[Alternative], regular_first: bool) -> Option<usize> {
         })
         .collect();
     let obj = if regular_first {
-        PoleObjective::default()
+        // the EXPLICIT mode regular_preferred names the withdrawn order itself (the default objective is size first
+        // since rule 21, 2026-11-19)
+        PoleObjective::withdrawn_pole_first()
     } else {
         PoleObjective::from_criteria(MaxSizeRatio::Unbounded, CriteriaOrder::EconomyFirst)
     };

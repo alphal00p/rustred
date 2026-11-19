@@ -16,8 +16,9 @@
 //! nothing is written.
 //!
 //! ENTRY-CHECK: an entry is refused without its emitted record, without a derivation of an EMITTED record (origin lift),
-//! without its regularity verdict (`replaces`), without a LOWER descent verdict, when table-check's record check refuses
-//! the record, or when the entry's key / target / rhs / pole order are not the record's.
+//! without a LOWER descent verdict, when table-check's record check refuses the record, or when the entry's key / target /
+//! rhs / stated pole order are not the record's. Since the user ruling of 2026-11-19 (LANE_RULES rule 21) the d = 4 verdict
+//! is REPORTED (tie-break only): it is written when an old object exists and refuses nothing; worse is not a refusal.
 use super::regcheck::{compare, dispatcher_of, header_of, read_line_at};
 use super::tablecheck;
 use rustred_campaign_core::emission::body::{attach_derivation, body_ids, sha256_hex, strip_derivation};
@@ -303,34 +304,39 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
                 _ => None,
             },
         };
-        let Some(old) = old else {
-            refusals.push(json!({"index": v["index"], "key": key, "reason": "no old object at the key (no stored entry, no first-match rule): nothing to compare (contract section 16)"}));
-            continue;
-        };
         let chart = v["chart"].as_str().unwrap_or("").to_string();
-        let ver = verdict_at_key(&old.kind(), &old.id(), &old.relation(key)?, key, &[body.clone()], &header, &chart, &a.work.join(format!("reg-{i}")))?;
-        let mut vj = serde_json::to_value(&ver).map_err(|e| e.to_string())?;
-        vj["old"] = old.describe();
-        let vb = serde_json::to_vec(&vj).map_err(|e| e.to_string())?;
-        let vsha = sha256_hex(&vb);
-        let vp = side.join(side_rel(AREA_REGULARITY, &vsha));
-        std::fs::create_dir_all(vp.parent().expect("area")).map_err(|e| e.to_string())?;
-        std::fs::write(&vp, &vb).map_err(|e| format!("{}: {e}", vp.display()))?;
-        let pole_old = regularity_at(&Relation::parse(&old.relation(key)?)?, key)?.max_pole;
         let pole_new = regularity_at(&Relation::parse(body)?, key)?.max_pole;
-        verdicts.push(json!({"key": key, "old": old.describe(), "old_pole": pole_old, "new_pole": pole_new, "not_worse": ver.not_worse,
-                             "regularity_sha256": vsha}));
-        if !ver.not_worse || ver.keys.compared != 1 {
-            refusals.push(json!({"index": v["index"], "key": key, "reason": format!("regularity_d4_worse at the key (old pole {pole_old}, new {pole_new})")}));
-            continue;
-        }
+        // the d = 4 measure against the old object at the key: a REPORTED NUMBER, tie-break only (rule 21); a key without an
+        // old object (a new key) is written all the same, its regularity "not compared"
+        let (vsha, pole_old, old_desc) = match &old {
+            Some(old) => {
+                let ver = verdict_at_key(&old.kind(), &old.id(), &old.relation(key)?, key, &[body.clone()], &header, &chart, &a.work.join(format!("reg-{i}")))?;
+                let mut vj = serde_json::to_value(&ver).map_err(|e| e.to_string())?;
+                vj["old"] = old.describe();
+                let vb = serde_json::to_vec(&vj).map_err(|e| e.to_string())?;
+                let vsha = sha256_hex(&vb);
+                let vp = side.join(side_rel(AREA_REGULARITY, &vsha));
+                std::fs::create_dir_all(vp.parent().expect("area")).map_err(|e| e.to_string())?;
+                std::fs::write(&vp, &vb).map_err(|e| format!("{}: {e}", vp.display()))?;
+                let po = regularity_at(&Relation::parse(&old.relation(key)?)?, key)?.max_pole;
+                verdicts.push(json!({"key": key, "old": old.describe(), "old_pole": po, "new_pole": pole_new, "not_worse": ver.not_worse,
+                                     "regularity_sha256": vsha, "role": "reported, tie-break only"}));
+                (Some(vsha), Some(po), old.describe())
+            }
+            None => {
+                verdicts.push(json!({"key": key, "old": null, "new_pole": pole_new, "regularity": "not compared (no old object at the key)"}));
+                (None, None, json!({"kind": "none (a new key)"}))
+            }
+        };
         // the record's derivation names the verdict (it is a replacement of the old object at the key)
         let mut dv: Value = serde_json::from_str(der).map_err(|e| format!("derivation: {e}"))?;
         if dv["descent"]["verdict"] != "LOWER" {
             refusals.push(json!({"index": v["index"], "key": key, "reason": "the record's descent verdict is not LOWER"}));
             continue;
         }
-        dv["replaces"] = json!({"old_body_sha256": old.id(), "regularity_sha256": vsha});
+        if let Some(old) = &old {
+            dv["replaces"] = json!({"old_body_sha256": old.id(), "regularity_sha256": vsha});
+        }
         let stamped = attach_derivation(body, &dv)?;
         let kind = v["origin"]["kind"].as_str().unwrap_or("point").to_string();
         let target = v["target"].as_str().unwrap_or("").to_string();
@@ -360,7 +366,7 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
                          "tool_digest": dv["check"]["tool_sha256"], "record_sha256": digest, "verdict": "SOLVED"},
                          "fact": rec_sha},
             "diagnostics": {"pole_order_at": {"4": pole_new}, "regular_alternative": "not_tried", "recipe": rid,
-                            "outside_certified_set": false, "replaces": old.describe(), "old_pole_order_at_4": pole_old},
+                            "outside_certified_set": false, "replaces": old_desc, "old_pole_order_at_4": pole_old},
             "written": {"by": "rustred-campaign emit-entries"}}));
     }
     let summary = |written: Option<&Path>| {
@@ -521,9 +527,7 @@ pub fn check_entry(l: &str, manifest: &Value, lookup: &dyn Fn(&str, &str) -> Opt
     if der["origin"] != "lift" {
         p.push("the record was not emitted (origin is not lift)".into());
     }
-    if der["replaces"]["regularity_sha256"].as_str().is_none() {
-        p.push("an entry without its d = 4 regularity verdict against the old object at its key (contract sections 13, 16)".into());
-    }
+    // (since rule 21 the d = 4 regularity verdict is a reported number: an entry without one is not refused)
     if der["descent"]["verdict"] != "LOWER" {
         p.push("an entry without a LOWER descent verdict (contract section 14)".into());
     }

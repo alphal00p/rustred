@@ -1,5 +1,6 @@
-//! The d = 4 REGULARITY ACCEPTANCE of a replacement (emission contract section 13; implementer 2026-11-19, binding user
-//! rule: a relation regular at d = 4 wins whatever its size; a replacement may never trade d = 4 regularity for speed).
+//! The d = 4 REGULARITY MEASURE of a replacement (emission contract section 13). SINCE THE USER RULING OF 2026-11-19
+//! (LANE_RULES rule 21) A REPORTED NUMBER, TIE-BREAK ONLY: it never refuses, drops or deprioritises a replacement. (The
+//! rule of the same morning, "a relation regular at d = 4 wins whatever its size", is withdrawn; section 13-OLD.)
 //!
 //! Keys: the keys the OLD record serves as FIRST MATCH in the cone D + r <= R, found by the campaign core's dispatcher
 //! (`cover::Dispatcher`, the engine's find_rule order) over the OLD record's table: every key of the old record's face in
@@ -9,7 +10,8 @@
 //! assigned to the FIRST new piece whose domain applies (the replacement's own dispatch order); the old relation and
 //! that piece's relation are measured at the key (`emission::regularity`, exact).
 //!
-//! Verdict: NOT WORSE on every compared key -> the replacement may be accepted; worse on ANY served key -> refused.
+//! Verdict: NOT WORSE on every compared key, or worse at some keys: REPORTED (counts, per branch, first regressions) in
+//! the side file every piece names; the replacement is accepted either way (under schema v1 a worse key refused it).
 use rustred_campaign_core::cover::{Dispatcher, Table};
 use rustred_campaign_core::domain::DomainOptions;
 use rustred_campaign_core::emission::body::{body_ids, strip_derivation};
@@ -519,21 +521,15 @@ pub fn acceptance(
 ) -> Result<Acceptance, String> {
     let (keys, ks) = served_keys_with(&table.disp, &table.chart, index, old_line, o)?;
     let v = compare(old_line, pieces, &keys, ks, &table.header, &table.chart, work, o.threads)?;
-    // FAIL CLOSED: a comparison over no served key proves nothing (a cone too small, or a dispatch that serves the
-    // old record nowhere: e.g. a strict witness check on a table without witness loci blocked every key)
-    if v.keys.compared == 0 {
-        return Ok(Acceptance {
-            accepted: false,
-            reason: Some(format!(
-                "regularity_d4_not_compared (the old record serves no key in {}: enlarge the cone or check the table)",
-                v.keys.cone
-            )),
-            verdict: Some(v),
-        });
-    }
-    let reason = (!v.not_worse).then(|| {
+    // USER RULING 2026-11-19 (LANE_RULES rule 21): the d = 4 comparison is a REPORTED NUMBER, tie-break only. The replacement
+    // is ACCEPTED whatever it says (validity: derivation, descent, partition, is decided elsewhere); `reason` carries the report
+    let reason = Some(if v.keys.compared == 0 {
+        format!("regularity_d4_not_compared (the old record serves no key in {}; reported only)", v.keys.cone)
+    } else if v.not_worse {
+        format!("regularity_d4_reported: not worse at {} compared keys ({} better)", v.counts.keys, v.counts.better)
+    } else {
         format!(
-            "regularity_d4_worse ({} of {} served keys worse at d = 4: {} regular -> singular{})",
+            "regularity_d4_reported: {} of {} served keys worse at d = 4 ({} regular -> singular{}); reported only, not a refusal",
             v.counts.worse,
             v.counts.keys,
             v.counts.regular_to_singular,
@@ -541,7 +537,7 @@ pub fn acceptance(
         )
     });
     Ok(Acceptance {
-        accepted: v.not_worse,
+        accepted: true,
         reason,
         verdict: Some(v),
     })
@@ -560,10 +556,11 @@ pub struct Stamped {
     pub lines: Option<Vec<String>>,
 }
 
-/// THE ACCEPTANCE STEP of a closed replacement (emit-replace, the ladder, the improve writer): the d = 4 comparison of
-/// the old record (`index` of `table`) with the emitted piece lines (an identical relation is NOT WORSE by
-/// construction), the verdict stored beside the table (`emitter`'s side directory), and, when accepted, every piece's
-/// derivation stamped with `replaces` (table-check refuses a replacement without it).
+/// THE REPORTING STEP of a closed replacement (emit-replace, the ladder, the improve writer): the d = 4 comparison of the
+/// old record (`index` of `table`) with the emitted piece lines (an identical relation: same relation, nothing compared),
+/// the verdict stored beside the table (`emitter`'s side directory), and every piece's derivation stamped with `replaces`.
+/// Since the user ruling of 2026-11-19 (LANE_RULES rule 21) the replacement is ALWAYS accepted here: the verdict is a
+/// reported number, a tie-break only.
 pub fn accept_and_stamp(
     emitter: &super::emitter::Emitter,
     table: &OldTable,
@@ -580,7 +577,7 @@ pub fn accept_and_stamp(
     let same = new_ids.len() == 1 && new_ids[0].relation_sha256 == old_ids.relation_sha256;
     let (verdict, ok, reason) = if same {
         (
-            json!({"schema": regularity::SCHEMA, "tool": regularity::TOOL, "same_relation": true, "not_worse": true,
+            json!({"schema": regularity::SCHEMA, "tool": regularity::TOOL, "role": regularity::ROLE, "same_relation": true, "not_worse": true,
                    "old_body_sha256": old_ids.body_sha256, "new_body_sha256": [new_ids[0].body_sha256],
                    "note": "identical relation (target + rhs): identical coefficients at every key, nothing to compare"}),
             true,

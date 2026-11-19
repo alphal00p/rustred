@@ -26,6 +26,8 @@ pub struct RecordVerdict {
     pub kind: Option<Kind>,
     /// the stored checker output line (for a re-run comparison by the caller)
     pub check_output: Option<String>,
+    /// REPORTED facts that refuse nothing (the d = 4 regularity verdict since rule 21)
+    pub notes: Vec<String>,
     pub certificate_sha256: Option<String>,
     pub body_sha256: Option<String>,
 }
@@ -51,6 +53,7 @@ pub fn check_record(
         class: None,
         kind: None,
         check_output: None,
+        notes: vec![],
         certificate_sha256: None,
         body_sha256: None,
     };
@@ -228,39 +231,35 @@ pub fn check_record(
         }
         v.check_output = Some(text);
     }
-    // A REPLACEMENT (a record the ladder / emit-replace wrote, `ladder` member, or one stating `replaces`) must name its
-    // d = 4 regularity verdict (contract section 13): the verdict binds the old record's body and this body and says
-    // NOT WORSE at every compared key (or an identical relation)
+    // A REPLACEMENT (a record the ladder / emit-replace wrote, `ladder` member, or one stating `replaces`) MAY name its d = 4
+    // regularity verdict (contract section 13). Since the user ruling of 2026-11-19 (LANE_RULES rule 21) it is a REPORTED
+    // NUMBER, tie-break only: a missing, "worse" or v1 verdict refuses nothing; what it says goes into the record's notes
     let is_replacement = !d["ladder"].is_null() || d.get("replaces").is_some_and(|x| !x.is_null());
     if is_replacement && origin == Origin::Lift {
         match d["replaces"]["regularity_sha256"].as_str() {
-            None => v
-                .problems
-                .push("a replacement without its d = 4 regularity verdict (contract section 13)".into()),
-            Some(sha) => {
-                if let Some(b) = fetch(AREA_REGULARITY, sha, "regularity verdict", &mut v.problems) {
-                    match serde_json::from_slice::<Value>(&b) {
-                        Ok(r) => {
-                            if r["schema"].as_str() != Some(super::regularity::SCHEMA) {
-                                v.problems.push(format!("regularity verdict schema {}", r["schema"]));
-                            }
-                            if r["not_worse"].as_bool() != Some(true) {
-                                v.problems.push("the regularity verdict is not NOT WORSE".into());
-                            }
-                            if r["old_body_sha256"] != d["replaces"]["old_body_sha256"] {
-                                v.problems.push("the regularity verdict compares another old record".into());
-                            }
-                            let mine = r["new_body_sha256"]
-                                .as_array()
-                                .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(ids.body_sha256.as_str())));
-                            if !mine {
-                                v.problems.push("the regularity verdict does not name this body".into());
-                            }
+            None => v.notes.push("regularity d4: not reported (no verdict named)".into()),
+            Some(sha) => match side(AREA_REGULARITY, sha) {
+                Some(b) if sha256_hex(&b) == sha => match serde_json::from_slice::<Value>(&b) {
+                    Ok(r) => {
+                        let rule = if r["schema"].as_str() == Some(super::regularity::SCHEMA_V1) { " (v1 verdict, old rule)" } else { "" };
+                        let c = &r["counts"];
+                        v.notes.push(if r["same_relation"] == true {
+                            format!("regularity d4: same relation{rule}")
+                        } else {
+                            format!(
+                                "regularity d4 (reported{rule}): {} keys compared, {} worse ({} regular -> singular), {} better ({} singular -> regular)",
+                                c["keys"], c["worse"], c["regular_to_singular"], c["better"], c["singular_to_regular"]
+                            )
+                        });
+                        let mine = r["new_body_sha256"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some(ids.body_sha256.as_str())));
+                        if !mine || r["old_body_sha256"] != d["replaces"]["old_body_sha256"] {
+                            v.notes.push("regularity d4: the named verdict is of another body / old record (reported only)".into());
                         }
-                        Err(e) => v.problems.push(format!("regularity verdict: {e}")),
                     }
-                }
-            }
+                    Err(e) => v.notes.push(format!("regularity d4: verdict unreadable ({e})")),
+                },
+                _ => v.notes.push(format!("regularity d4: verdict {sha} missing beside the table (reported only)")),
+            },
         }
     }
     // DESCENT (contract section 14): every EMITTED record (origin lift; the lifted path only assumed descent) names the

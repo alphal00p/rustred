@@ -105,8 +105,10 @@ fn gap2a_more_regular_than_the_stored_entry_is_written_over_table_and_entry_chec
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// RULE 21 (user ruling 2026-11-19): an entry WORSE at d = 4 than the old object at its key is WRITTEN, the regression
+/// REPORTED (old pole 0 -> new pole 1); a key without an old object is written too ("not compared").
 #[test]
-fn gap2_worse_than_the_old_object_or_no_old_object_is_refused_and_nothing_is_written() {
+fn gap2_worse_than_the_old_object_is_written_and_reported_and_a_new_key_is_written() {
     let d = tmp("worse");
     let em = emitted(&d, &[point(0, [1, 2, 0], "1/(d-4)")]);
     let olds = d.join("old.jsonl");
@@ -114,13 +116,18 @@ fn gap2_worse_than_the_old_object_or_no_old_object_is_refused_and_nothing_is_wri
     let mut a = args(&d, &em);
     a.old_entries = vec![olds];
     let (s, ok) = write_entries(&a).unwrap();
-    assert!(!ok, "{s:#}");
-    assert!(s["refusals"][0]["reason"].as_str().unwrap().contains("regularity_d4_worse"), "{s:#}");
-    assert!(!node_dir(&d.join("root"), "TOY", IDENT).exists(), "nothing written");
-    // no old object at the key: refused
-    let (s, ok) = write_entries(&args(&d, &em)).unwrap();
-    assert!(!ok && s["refusals"][0]["reason"].as_str().unwrap().contains("no old object"), "{s:#}");
+    assert!(ok, "{s:#}");
+    assert_eq!((s["regularity"][0]["old_pole"].as_u64(), s["regularity"][0]["new_pole"].as_u64()), (Some(0), Some(1)), "{s:#}");
+    assert_eq!(s["regularity"][0]["not_worse"], false);
+    assert!(entry_check(&node_dir(&d.join("root"), "TOY", IDENT)).unwrap().1);
+    // no old object at the key: written, "not compared"
+    let d2 = tmp("newkey");
+    let em2 = emitted(&d2, &[point(0, [1, 2, 0], "1")]);
+    let (s, ok) = write_entries(&args(&d2, &em2)).unwrap();
+    assert!(ok, "{s:#}");
+    assert!(s["regularity"][0]["regularity"].as_str().unwrap().contains("not compared"), "{s:#}");
     let _ = std::fs::remove_dir_all(&d);
+    let _ = std::fs::remove_dir_all(&d2);
 }
 
 #[test]
@@ -138,7 +145,7 @@ fn gap2b_one_key_of_the_first_match_table_rule() {
     assert!(ok, "{s:#}");
     assert_eq!(s["regularity"][0]["old"]["kind"], "table rule at one key");
     assert_eq!(s["regularity"][0]["old"]["rule"], 0);
-    // the same rule made regular: the new relation with a pole is refused there
+    // the same rule made regular: the new relation with a pole is WRITTEN there, its regression reported (rule 21)
     r["rhs"] = json!([["I(n0-1,n1,n2)","1"]]);
     std::fs::write(&old, format!("{}\n{r}\n{}\n", header(), json!({"type":"end","charts":1,"rules":1}))).unwrap();
     let d2 = tmp("b2");
@@ -146,7 +153,7 @@ fn gap2b_one_key_of_the_first_match_table_rule() {
     let mut a2 = args(&d2, &em2);
     a2.old_table = Some(old);
     let (s, ok) = write_entries(&a2).unwrap();
-    assert!(!ok, "{s:#}");
+    assert!(ok && s["regularity"][0]["not_worse"] == false, "{s:#}");
     let _ = std::fs::remove_dir_all(&d);
     let _ = std::fs::remove_dir_all(&d2);
 }
@@ -182,12 +189,22 @@ fn gap3_entry_check_refuses_entries_without_their_members() {
         e["body"].as_object_mut().unwrap().remove("emitted_record");
     });
     assert!(s.to_string().contains("without its emitted record"), "{s:#}");
-    let s = check("no-regularity", &|e| {
-        with_der(e, &|dv| {
+    // rule 21: an entry WITHOUT its regularity verdict is accepted (the verdict is a reported number)
+    {
+        let mut e = e0.clone();
+        with_der(&mut e, &|dv| {
             dv.as_object_mut().unwrap().remove("replaces");
-        })
-    });
-    assert!(s.to_string().contains("regularity verdict"), "{s:#}");
+        });
+        e["entry_digest"] = json!(entry_digest(&e["body"]).unwrap());
+        let c = d.join("variant-no-regularity");
+        std::fs::create_dir_all(&c).unwrap();
+        std::fs::copy(dir.join("MANIFEST.json"), c.join("MANIFEST.json")).unwrap();
+        let f = c.join("entries-emitted.jsonl");
+        std::fs::write(&f, format!("{e}\n")).unwrap();
+        rustred_campaign::emission::carry_side(&side_dir(&dir.join("entries-emitted.jsonl")), &side_dir(&f)).unwrap();
+        let (s, ok) = entry_check(&c).unwrap();
+        assert!(ok, "{s:#}");
+    }
     let s = check("no-descent", &|e| with_der(e, &|dv| dv["descent"] = Value::Null));
     assert!(s.to_string().contains("descent"), "{s:#}");
     let s = check("pole", &|e| {

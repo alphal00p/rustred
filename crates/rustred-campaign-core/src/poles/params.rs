@@ -12,7 +12,7 @@
 //!   "inherent": {"enabled": true, "max_cone_keys": 200000, "budget_s": 600},
 //!   "max_cpu_h_per_node": 8},
 //! "repair_policy": {"prefer_regular_at": ["4"],
-//!   "prefer_regular": {"criteria_order": "regular_first", "max_size_ratio": "unbounded", "max_further_steps": 1,
+//!   "prefer_regular": {"criteria_order": "economy_first", "max_size_ratio": "unbounded", "max_further_steps": 1,
 //!     "probe": {"key_budget_s": 60, "primes": 2}, "solve": {"key_budget_s": 600}, "max_keys_per_node": 1000,
 //!     "max_cpu_h_per_node": 2, "revert_if_open": true,
 //!     "terminal_set": {"enabled": true, "max_candidates": 32, "max_rotations": "deficiency", "export": "regular",
@@ -47,8 +47,8 @@
 //! | `inherent.budget_s` | 600 | composition wall budget per relation; over it: `undecided: budget` (time-decided) |
 //! | `max_cpu_h_per_node` | 8 | cap of all diagnostics of one node |
 //! | `prefer_regular_at` | ["4"] | dimensions of the preference; [] = OFF |
-//! | `criteria_order` | regular_first | `regular_first` (addendum 4/7) or `economy_first` (regularity breaks exact ties only) |
-//! | `max_size_ratio` | "unbounded" | USER RULING 2026-11-15 (addendum 7): a regular candidate always wins; a rational >= 1 bounds it |
+//! | `criteria_order` | economy_first | USER RULING 2026-11-19 (rule 21): `economy_first` (size first; regularity breaks exact ties only) is the default; `regular_first` (addendum 4/7, withdrawn) only when named |
+//! | `max_size_ratio` | "unbounded" | bounds the regular class under the explicit `regular_first` only (the 2026-11-15 ruling it served is withdrawn) |
 //! | `max_further_steps` | 1 | escalation steps after the serving step tried for a regular relation |
 //! | `probe.key_budget_s` / `probe.primes` | 60 / 2 | probe wall cap per key / primes |
 //! | `solve.key_budget_s` | 600 | wall cap of a d0-pivoted solve |
@@ -152,13 +152,15 @@ impl MaxSizeRatio {
     }
 }
 
-/// `criteria_order` of the preference.
+/// `criteria_order` of the preference. USER RULING 2026-11-19 (rule 21): `economy_first` is the DEFAULT; `regular_first`
+/// is an explicit, non-default option (its choices say so in their record).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CriteriaOrder {
-    /// Addendum 4 / 7 (default): regular first (with the size guard), then lower pole order, then fewer terms.
-    #[default]
+    /// Addendum 4 / 7 (the default until 2026-11-19): regular first (with the size guard), then lower pole order, then
+    /// fewer terms. Explicit only.
     RegularFirst,
-    /// Size first; regularity, then pole order, break exact ties only.
+    /// THE DEFAULT: size first; regularity, then pole order, break exact ties only.
+    #[default]
     EconomyFirst,
 }
 
@@ -291,7 +293,7 @@ impl Default for PoleParams {
             max_cpu_h_per_node: 8.0,
             prefer_regular_at: vec!["4".into()],
             prefer: PreferParams {
-                criteria_order: CriteriaOrder::RegularFirst,
+                criteria_order: CriteriaOrder::EconomyFirst,
                 max_size_ratio: MaxSizeRatio::Unbounded,
                 max_further_steps: 1,
                 probe_key_budget_s: 60,
@@ -696,6 +698,7 @@ impl PoleParams {
         serde_json::json!({
             "prefer_regular_at": self.prefer_regular_at,
             "criteria_order": match p.criteria_order { CriteriaOrder::RegularFirst => "regular_first", CriteriaOrder::EconomyFirst => "economy_first" },
+            "d4_rule_version": 2,
             "max_size_ratio": p.max_size_ratio.text(),
             "max_further_steps": p.max_further_steps,
             "probe": {"key_budget_s": p.probe_key_budget_s, "primes": p.probe_primes},

@@ -1062,6 +1062,12 @@ impl GenChoiceSource {
             let d = ps::choose_poles(&pc, winner, &p.poles)?;
             poles_section = Some(json!({
                 "score_form": p.poles.score.word(), "score_level": p.poles.level.word(),
+                "measures": p.poles.measures, "policy_version": p.poles.version,
+                "d4_rule": if p.poles.measures.first().map(String::as_str) == Some("size") {
+                    "rule 21 (2026-11-19): size first, d = 4 regularity a tie-break only"
+                } else {
+                    "EXPLICIT non-default pole-first objective (the withdrawn rule of 2026-11-15)"
+                },
                 "dependences": self.nodes[i].e.dependences.as_ref().map_or(json!("upper_bound"), |f| json!(f)),
                 "scores_file": self.nodes[i].e.pole_scores,
                 "scores": pc.iter().map(|c| json!({"cand": cands[c.cand].id, "size": c.size,

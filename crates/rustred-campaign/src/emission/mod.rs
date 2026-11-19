@@ -400,9 +400,8 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         "log": rep.log, "seconds": t0.elapsed().as_secs_f64(),
         "checker": {"binary": checker.display().to_string(), "sha256": emitter.checker.sha256, "recover_rows": recover},
         "producer": {"binary": rr_node.display().to_string(), "sha256": lifter.sha256}});
-    // THE d = 4 REGULARITY ACCEPTANCE (contract section 13; binding user rule 2026-11-19): a closed replacement is
-    // accepted only when it is NOT WORSE at d = 4 than the old record at every key the old record serves as first match
-    // (an identical relation is not worse by construction); the verdict is a side file named by every piece
+    // THE d = 4 REGULARITY MEASURE (contract section 13): REPORTED, tie-break only since the user ruling of 2026-11-19
+    // (LANE_RULES rule 21); a closed replacement is accepted whatever it says; the verdict is a side file named by every piece
     let mut lines_ok: Option<Vec<String>> = None;
     if closed {
         let lines = rep.lines(index)?;
@@ -410,21 +409,13 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         let ot = regcheck::OldTable::load(&rt)?;
         let st = regcheck::accept_and_stamp(&emitter, &ot, index, &line, &lines, &reg, &out.join("regularity-work"))?;
         let (verdict, ok, reason, reg_sha, same) = (st.verdict, st.accepted, st.reason, st.sha256, st.same_relation);
-        summary["regularity"] = json!({"accepted": ok, "reason": reason, "sha256": reg_sha, "same_relation": same,
+        summary["regularity"] = json!({"role": rustred_campaign_core::emission::regularity::ROLE, "accepted": ok, "report": reason,
+            "sha256": reg_sha, "same_relation": same,
             "keys": verdict["keys"], "counts": verdict["counts"], "by_branch": verdict["by_branch"],
             "first_regressions": verdict["first_regressions"], "structural": verdict["structural"]});
-        if ok {
-            lines_ok = st.lines;
-        } else {
-            closed = false;
-            summary["outcome"] = json!({"outcome": "regularity_refused", "reason": reason});
-            let mut pj = String::new();
-            for l in &lines {
-                pj.push_str(l);
-                pj.push('\n');
-            }
-            std::fs::write(out.join("pieces.refused.jsonl"), &pj).map_err(|e| e.to_string())?;
-        }
+        // never refused for regularity (rule 21): the stamped lines are the pieces
+        lines_ok = st.lines.or(Some(lines));
+        let _ = (ok, &mut closed);
     }
     if let Some(lines) = lines_ok {
         let mut pj = String::new();

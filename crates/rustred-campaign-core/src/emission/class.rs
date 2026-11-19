@@ -434,7 +434,19 @@ pub struct Policy {
     /// (`replaces.cone_sha256`). Off by default; a policy without it serialises as before (same sha256).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cone_pricing: bool,
+    /// POLICY VERSION. 2 = the user ruling of 2026-11-19 (LANE_RULES rule 21): d = 4 regularity is a reported number and a
+    /// tie-break only, never an acceptance condition. A policy without this member is version 1 (regularity was an
+    /// acceptance condition): records and verdicts naming it are recognisably from the old rule.
+    #[serde(default = "policy_v1")]
+    pub version: u32,
 }
+
+fn policy_v1() -> u32 {
+    1
+}
+
+/// The current policy version (see [`Policy::version`]).
+pub const POLICY_VERSION: u32 = 2;
 
 impl Default for Policy {
     fn default() -> Self {
@@ -451,6 +463,7 @@ impl Default for Policy {
             min_sample: 200,
             liveness_cone: None,
             cone_pricing: false,
+            version: POLICY_VERSION,
         }
     }
 }

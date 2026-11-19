@@ -1,6 +1,7 @@
-//! THE d = 4 REGULARITY COMPARISON of a replacement (emission contract section 13; implementer's binding user rule of
-//! 2026-11-19: "a relation regular at d = 4 wins whatever its size; a replacement may never trade d = 4 regularity for
-//! speed"). PURE: no process, no file.
+//! THE d = 4 REGULARITY COMPARISON of a replacement (emission contract section 13). A REPORTED NUMBER, tie-break only,
+//! since the user ruling of 2026-11-19 (LANE_RULES rule 21; [`ROLE`]); the rule of the same morning ("a relation regular
+//! at d = 4 wins whatever its size; a replacement may never trade d = 4 regularity for speed") is withdrawn. PURE: no
+//! process, no file.
 //!
 //! At an integer key the relation `target -> sum_t c_t(n, d) * daughter_t` becomes, after evaluating the indices, a sum
 //! over DISTINCT daughter keys of univariate rational functions in d (terms with the same daughter key are MERGED, as
@@ -19,7 +20,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-pub const SCHEMA: &str = "rustred.emission.regularity-d4.v1";
+pub const SCHEMA: &str = "rustred.emission.regularity-d4.v2";
+/// verdicts written under the OLD rule (2026-11-19, withdrawn the same day): NOT WORSE was an acceptance condition then
+pub const SCHEMA_V1: &str = "rustred.emission.regularity-d4.v1";
+/// the role of the measure since the user ruling of 2026-11-19 (WS/ops/LANE_RULES.md rule 21)
+pub const ROLE: &str = "REPORTED NUMBER, tie-break only (user ruling 2026-11-19, LANE_RULES rule 21): never a reason to refuse, drop or deprioritise";
 /// The tool id stated in every regularity member (bump on any change of the measure).
 pub const TOOL: &str = "rustred-campaign-core emission::regularity v1 (exact, merged daughters, Taylor shift at d = 4)";
 
@@ -437,8 +442,11 @@ pub struct Verdict {
     /// a structural finding (a denominator factor of the new relation vanishing at d = 4 where the old has none)
     #[serde(default)]
     pub structural: Vec<String>,
-    /// NOT WORSE on every compared key
+    /// NOT WORSE on every compared key (a REPORTED number since rule 21; under schema v1 it was an acceptance condition)
     pub not_worse: bool,
+    /// the measure's role (absent in v1 verdicts)
+    #[serde(default)]
+    pub role: String,
     /// information (not a verdict): the records' stated `witness_d_poles` factors that vanish at d = 4 for every index
     /// value (a pure d factor, e.g. "-4+d"): the producer's own statement of a d = 4 pole on the whole domain
     #[serde(default)]
@@ -503,6 +511,7 @@ pub fn verdict(
         first_regressions: first,
         structural,
         d4_factors_info: vec![],
+        role: ROLE.into(),
     }
 }
 

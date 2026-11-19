@@ -3,7 +3,12 @@
 //! choice, the recipe relation choice, the seed-minimisation centre scan, the relation cache), this one pure function
 //! chooses.
 //!
-//! Order (criteria `regular_first`, the default):
+//! USER RULING 2026-11-19 (WS/ops/LANE_RULES.md rule 21): d = 4 regularity is a TIE-BREAK ONLY. The DEFAULT is
+//! `economy_first` (size first; regularity, then pole order, break exact ties) and the default [`PoleObjective`] puts `size`
+//! before every pole measure. `regular_first` stays as an EXPLICIT, non-default option; a choice made under it says so in
+//! its record (`d4_rule`).
+//!
+//! Order under the explicit option `regular_first` (the default until 2026-11-19):
 //! 1. higher evidence level (the caller's rank; equal when not used);
 //! 2. regular at d0 over singular, with the size guard `max_size_ratio` (addendum 7, DEFAULT `"unbounded"`: a regular
 //!    candidate ALWAYS wins, whatever its size; with a finite ratio R a regular candidate wins only up to R x the
@@ -11,7 +16,7 @@
 //! 3. among regular candidates: fewer terms; among singular ones: lower pole order, then fewer terms;
 //! 4. ties: the smaller `id` (a relation digest or any stable text): the result does not depend on the input order.
 //!
-//! Criteria `economy_first`: fewer terms first; regularity, then pole order, break exact ties only.
+//! Criteria `economy_first` (THE DEFAULT since rule 21): fewer terms first; regularity, then pole order, break exact ties only.
 //!
 //! GENERALISED (lane epsdepth, addendum 8; interfaces/epsdepth.md 6): [`pole_objective`] is THE ranking function: a
 //! lexicographic list of [`Measure`]s (spec data, default (a0) eps box excess, (a) max pole order, (b) sum of pole orders,
@@ -227,9 +232,28 @@ pub struct PoleObjective {
 }
 
 impl Default for PoleObjective {
-    /// Addendum 8 + 7: (a0) eps box excess, (a) max pole order, (b) sum of pole orders, (c) singular terms, (d) size;
-    /// `max_size_ratio` "unbounded".
+    /// USER RULING 2026-11-19 (rule 21): (d) size FIRST, then the pole measures as tie-breaks: (a0) eps box excess, (a) max
+    /// pole order, (b) sum of pole orders, (c) singular terms; `max_size_ratio` "unbounded". (Until 2026-11-19 size came
+    /// last: [a0, a, b, c, d].)
     fn default() -> Self {
+        PoleObjective {
+            measures: vec![
+                Measure::Size,
+                Measure::EpsBoxExcess,
+                Measure::MaxPoleOrder,
+                Measure::SumPoleOrders,
+                Measure::SingularTerms,
+            ],
+            max_size_ratio: MaxSizeRatio::Unbounded,
+        }
+    }
+}
+
+impl PoleObjective {
+    /// The objective of the WITHDRAWN rule of 2026-11-15 (the default until 2026-11-19): (a0) eps box excess, (a) max pole
+    /// order, (b) sum of pole orders, (c) singular terms, (d) size LAST; `max_size_ratio` "unbounded". EXPLICIT, non-default
+    /// (rule 21): only a caller that names the old order (e.g. coreseed mode `regular_preferred`) uses it.
+    pub fn withdrawn_pole_first() -> PoleObjective {
         PoleObjective {
             measures: vec![
                 Measure::EpsBoxExcess,
@@ -241,9 +265,7 @@ impl Default for PoleObjective {
             max_size_ratio: MaxSizeRatio::Unbounded,
         }
     }
-}
 
-impl PoleObjective {
     /// Lane poles' B3 orders as objectives: `regular_first` = [regular, max_pole_order, size] (the guard bounds the regular
     /// class only), `economy_first` = [size, regular, max_pole_order].
     pub fn from_criteria(ratio: MaxSizeRatio, criteria: CriteriaOrder) -> PoleObjective {
@@ -740,6 +762,11 @@ impl Choice {
         json!({"chosen": self.id, "reason": self.reason.word(), "pole_order": self.chosen_pole_order,
             "max_size_ratio": self.max_size_ratio, "chosen_size": self.chosen_size, "smallest_size": self.smallest_size,
             "criteria_order": match self.criteria_order { CriteriaOrder::RegularFirst => "regular_first", CriteriaOrder::EconomyFirst => "economy_first" },
+            "d4_rule": if self.measures.first().copied() == Some("size") {
+                "rule 21 (2026-11-19): size first, d = 4 regularity a tie-break only"
+            } else {
+                "EXPLICIT non-default objective: a pole measure before size (the withdrawn rule of 2026-11-15)"
+            },
             "regular_alternative": alt, "profile_used": self.profile_used, "measures": self.measures, "decided_by": self.decided_by,
             "chosen_measures": self.chosen_measures, "lacking_composed": self.lacking_composed,
             "rejected_for_size": self.rejected_for_size.iter().map(|(i, r)| json!({"id": i, "ratio": r})).collect::<Vec<_>>()})

@@ -441,8 +441,10 @@ impl VariantSpec {
 fn d_schema() -> String {
     POLICY_SCHEMA.into()
 }
+/// USER RULING 2026-11-19 (rule 21): `any_relation` (economy first; regularity breaks ties) is the default; the
+/// `regular_preferred` mode (and its regular escalation) runs only when a spec names it.
 fn d_mode_rel() -> String {
-    "regular_preferred".into()
+    "any_relation".into()
 }
 fn d_d0() -> String {
     "4".into()

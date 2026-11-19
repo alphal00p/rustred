@@ -989,7 +989,7 @@ impl ShipState {
             order: cfg.order.clone(),
             max_trace_rows: p.recipe.max_trace_rows,
             key_budget_s: p.recipe.key_budget_s,
-            // the user's pole objective (regular at d = 4 wins by default): the SOLVED lines carry its annotation
+            // the default pole objective (rule 21, 2026-11-19: size first, d = 4 regularity a tie-break): the SOLVED lines carry its annotation
             pole_objective: Some(rustred_campaign_core::poles::PoleObjective::default()),
             // int8 (wireflow x shipecon): wireflow (h) added the engine's per-key pole order as the choice's profile,
             // default false = "no profile"; the guard's annotation stays as lane shipecon built and tested it

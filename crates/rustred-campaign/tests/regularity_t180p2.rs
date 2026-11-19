@@ -1,7 +1,9 @@
-//! Lane gencheck round 4 (implementer 2026-11-19, binding user rule: a replacement may never trade d = 4 regularity for
-//! speed): the OUTSIDE REVIEW's witness (astra_5L/review-20261119/T180p2-v5/regularity/WITNESS.json) as a TEST. The
-//! emitted replacement of T180p2 position 670 (v5 position 672, lane rulecost's r2/670 piece) is a true identity, but it
-//! turns first-match keys that were REGULAR at d = 4 into SINGULAR ones: its acceptance must REFUSE it.
+//! Lane gencheck round 4, REVERSED in round 7 by the user ruling of 2026-11-19 (WS/ops/LANE_RULES.md rule 21: d = 4
+//! regularity is a REPORTED NUMBER and a tie-break only). The OUTSIDE REVIEW's witness
+//! (astra_5L/review-20261119/T180p2-v5/regularity/WITNESS.json) as a TEST: the emitted replacement of T180p2 position 670
+//! (v5 position 672, lane rulecost's r2/670 piece) is a true identity that turns first-match keys REGULAR at d = 4 into
+//! SINGULAR ones. Under the old rule its acceptance refused it; now it is ACCEPTED and the regression is REPORTED exactly
+//! (495 of 495 served keys regular -> singular; the review's 315 simple-pole daughters at its witness key).
 //!
 //! Real data (read only): RUSTRED_REG_T180P2 = lane rulecost's scratch directory (t180min/F.min.table.jsonl = the old
 //! table, r2/670/run/pieces.jsonl = the replacement). The test SKIPS with a message when it is not set.
@@ -13,7 +15,7 @@ use std::path::PathBuf;
 const ENV: &str = "RUSTRED_REG_T180P2";
 
 #[test]
-fn review_witness_670_to_672_is_refused() {
+fn review_witness_670_to_672_is_accepted_and_its_regression_reported() {
     let Ok(root) = std::env::var(ENV) else {
         eprintln!("SKIP: {ENV} not set (lane rulecost's scratch directory)");
         return;
@@ -49,14 +51,17 @@ fn review_witness_670_to_672_is_refused() {
     let singular = poles.values().filter(|&&p| p > 0).count();
     eprintln!("witness key: new relation has {singular} singular merged daughters ({simple} simple poles)");
     assert_eq!(simple, 315, "the review counts 315 merged daughters with a simple pole");
-    // 2. THE ACCEPTANCE over the old record's first-match keys in the cone: REFUSED
+    // 2. THE MEASURE over the old record's first-match keys in the cone: ACCEPTED, the regression REPORTED
     let tmp = std::env::temp_dir().join(format!("reg670-{}", std::process::id()));
     let ot = rustred_campaign::emission::regcheck::OldTable::load(&table).unwrap();
     let a = acceptance(&ot, 670, &old_line, &[piece_line], &Options::default(), &tmp).unwrap();
     let _ = std::fs::remove_dir_all(&tmp);
-    assert!(!a.accepted, "670 -> 672 trades d = 4 regularity: it must be refused");
-    let v = a.verdict.expect("a refusal carries its regularity verdict");
-    eprintln!("{}", serde_json::to_string(&v.counts).unwrap());
-    assert!(v.counts.regular_to_singular > 0 && v.counts.worse > 0);
-    assert!(!v.first_regressions.is_empty());
+    assert!(a.accepted, "rule 21: d = 4 regularity refuses nothing");
+    let v = a.verdict.expect("the acceptance carries its regularity verdict");
+    eprintln!("{} | {:?}", serde_json::to_string(&v.counts).unwrap(), a.reason);
+    assert_eq!((v.counts.keys, v.counts.regular_to_singular, v.counts.worse), (495, 495, 495), "the regression, reported exactly");
+    assert!(!v.not_worse && !v.first_regressions.is_empty());
+    assert!(a.reason.unwrap_or_default().starts_with("regularity_d4_reported"));
+    assert_eq!(v.schema, rustred_campaign_core::emission::regularity::SCHEMA);
+    assert!(v.role.contains("tie-break only"));
 }

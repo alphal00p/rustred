@@ -929,17 +929,11 @@ impl ImproveSource {
                         }
                     }
                 }
-                // the acceptance step: refused at d = 4 -> the old rule stays (its reason recorded)
+                // the d = 4 REPORT (rule 21: a tie-break only, never a refusal): the verdict is stamped when it can be measured;
+                // when it cannot, the replacement goes in without one
                 if refused.is_none() {
                     match (&old_table, old_lines.get(&idx)) {
-                        (Err(e), _) => {
-                            refused = Some(format!("regularity_d4_not_compared (old table: {e})"))
-                        }
-                        (Ok(_), None) => {
-                            refused = Some(format!(
-                                "regularity_d4_not_compared (rule {idx} not in the input table)"
-                            ))
-                        }
+                        (Err(_), _) | (Ok(_), None) => {}
                         (Ok(ot), Some(old_line)) => {
                             let st = crate::emission::regcheck::accept_and_stamp(
                                 &em,
@@ -950,11 +944,8 @@ impl ImproveSource {
                                 &reg_opts,
                                 &work.join(format!("regularity-r{idx}")),
                             )?;
-                            match st.lines {
-                                Some(stamped) => out_lines = stamped,
-                                None => {
-                                    refused = Some(st.reason.unwrap_or_else(|| "regularity_d4_worse".into()))
-                                }
+                            if let Some(stamped) = st.lines {
+                                out_lines = stamped;
                             }
                         }
                     }

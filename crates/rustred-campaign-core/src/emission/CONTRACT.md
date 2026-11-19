@@ -221,7 +221,31 @@ read.
   2469), every 115, sampled 48, dead 215, none 0; table-check ACCEPTED (1,930 rules, 0 refused).
 
 
-## 13. d = 4 REGULARITY ACCEPTANCE of a replacement (ROUND 4, 2026-11-19; binding user rule)
+## 13. d = 4 REGULARITY: REPORTED, TIE-BREAK ONLY (ROUND 7, 2026-11-19; USER RULING, WS/ops/LANE_RULES.md rule 21)
+SUPERSEDES the round-4 text below (kept, marked SUPERSEDED). The user withdrew the 2026-11-15 rule ("a relation regular at
+d = 4 wins whatever its size"). Pole structure at d = 4 is a property of the final basis; the basis rotation is done on an
+exact-d result. Therefore:
+- ORDER when a record or candidate is chosen or accepted:
+  validity (derivation exact, DESCENT, domain / partition) -> downstream SINGLE-CORE COST (the cone price where a policy asks
+  for it, section 17; measured ops / record seconds; else the modelled cost, section 19) -> size -> d = 4 regularity LAST,
+  tie-break only.
+- NOTHING is refused, dropped or deprioritised because it is singular at d = 4.
+  - emit-replace, the ladder, the improve writer and emit-entries ACCEPT a valid replacement whatever its regularity.
+  - table-check and entry-check never refuse for a missing, "worse" or v1 verdict.
+- The MEASURE STAYS, as a REPORTED NUMBER: the same exact measure, keys and verdict file (schema
+  rustred.emission.regularity-d4.v2 with `role`); the derivation still names it in `replaces {old_body_sha256,
+  regularity_sha256}`; table-check lists what it says in `reported.notes` (counts regular -> singular, singular -> regular,
+  ...). `regularity-compare`, `regularity-at-key` and `regularity-pairs` stay as measuring tools.
+- RECOGNISABLE OLD RESULTS:
+  - verdicts of schema regularity-d4.v1 were written under the old rule (where `not_worse: false` meant REFUSED);
+  - the emission policy carries `version` 2 since this ruling, and stored policies without it are version 1;
+  - genchoice / improve pole policies carry `version` 2;
+  - seedmin / repairflow policy schemas are v2.
+- TESTS: tests/regularity_t180p2.rs. 670 -> 672 is ACCEPTED, with the regression reported exactly: 495 of 495 served keys
+  regular -> singular, and the review's 315 simple-pole daughters at its witness key. The descent negative test (T266 K2,
+  section 14) stays a refusal: descent is validity.
+
+## 13-OLD. d = 4 REGULARITY ACCEPTANCE of a replacement (ROUND 4, 2026-11-19; SUPERSEDED 2026-11-19T17:46Z by rule 21: kept for the record)
 RULE: a relation regular at d = 4 wins whatever its size; a replacement may never trade d = 4 regularity for speed. Part of
 the ACCEPTANCE of every replacement (emit-replace, the replacement ladder, the improve writer); no policy switch turns it off
 for a live replacement; a legacy import records "not compared".
@@ -326,6 +350,15 @@ refuses the seedless record (`MISSING_SEEDS`: lane t266's emitter attempt, and t
   table-check refuses; coefficient 2 -> NOT_ALL_KEYS_IN_SPAN, refused. Fake-checker coverage in emission_gate_fake.rs.
 
 ## 16. RELATION ENTRIES from emitted records (ROUND 5 H0 GAP-2 + GAP-3, 2026-11-19; lane t266's request)
+AMENDED 2026-11-19 (rule 21):
+- The d = 4 comparison at a key against its old object is REPORTED (verdict side file, `replaces`, the summary's
+  old / new pole); an entry WORSE at d = 4 is written.
+- A key WITHOUT an old object is written too ("not compared").
+- entry-check no longer requires the regularity verdict; it still checks the stated pole order against the relation (the
+  engine reads that number).
+- The text below that refuses for "worse" or "no old object" is superseded.
+- ENGINE NOTE: at 4186f4472 the relation store ranks shipped entries (evidence, -pole, -terms); the engine lane flips it
+  (D4-REVISIT M9).
 GAP-2, THE d = 4 ACCEPTANCE AT ONE KEY (section 13's measure and rule, another old object):
 - (a) the old object of a key K is the stored `rustred.relation-entry.v1` the engine would serve at K: among the given entry
   files' entries of the node identity at K with a valid digest, the engine's rank (evidence level, then the smaller pole order
@@ -363,6 +396,10 @@ entry-check refuses an entry without its emitted record, its regularity verdict,
 another rhs. tests/entries_t266.rs: the digest of a shipped T266 entry reproduced.
 
 ## 17. CONE-PRICING ACCEPTANCE of a replacement (ROUND 6 J4, 2026-11-19; design of lane rulecost 13:25Z, agreed by the coordinator)
+AMENDED 2026-11-19 (rule 21):
+- The order is validity -> cone price (this section) -> size -> regularity.
+- The line "the d = 4 guard first; a candidate worse at d = 4 is refused before it is priced" is SUPERSEDED: the d = 4 measure is
+  reported only.
 BINDING ORDER: the d = 4 guard (section 13) first; a candidate worse at d = 4 is refused before it is priced; a relation regular
 at d = 4 wins whatever its size. OPT-IN by policy (`cone_pricing: true`; it needs engine runs). A policy without it serialises
 as before (same sha256).
@@ -407,6 +444,9 @@ as before (same sha256).
   - shells: dots-5 keys 2,997 -> 5,133, mean dots 3.47 -> 3.61 at equal rank.
 
 ## 18. THE (key, image) d = 4 PAIR MEASURE (ROUND 6 J3; lane rulecost's O4 item 6)
+AMENDED 2026-11-19 (rule 21): a MEASURING TOOL. The T164 numbers below are reported facts: 1,337 of 28,681 moved keys get a
+higher pole order. Under rule 21 they are no reason to scope or switch off orbit canonicalisation; only a measurement showing
+it SLOWER is.
 - For an owner whose TABLE IS ON DISK: `rr_campaign regularity-pairs --table T --pairs P.jsonl --out DIR [--threads N]
   [--descent-out F]`.
   - Each pair (key K, exact orbit image K' = sigma(K), sign; I(K) = sign I(K')) compares the section-13 pole order of the
