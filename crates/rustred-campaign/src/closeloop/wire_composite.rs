@@ -723,6 +723,7 @@ impl Stage {
         let dir = c.cdir.join(round_dir(n, k));
         let pol = dir.join("policy.json");
         let pb = policy_file_bytes(c.policy);
+        // procfix9-ok: compare-then-write_atomic; the write's errors propagate (int8b-gate review (i))
         if std::fs::read(&pol).ok().as_deref() != Some(pb.as_slice()) {
             crate::atomic::write_atomic(&pol, &pb)
                 .map_err(|e| format!("{}: {e}", pol.display()))?;

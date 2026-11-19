@@ -542,6 +542,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
             Some(x) => x.case.to_string(),
             None => rf::case_line(&face.face(), p1.frame.mask()).to_string(),
         } + "\n";
+        // procfix9-ok: compare-then-write_atomic: an unreadable file is rewritten with the same content; the write's errors propagate (int8b-gate review (i))
         if std::fs::read(&cases_abs).ok().as_deref() != Some(line.as_bytes()) {
             if let Some(d) = cases_abs.parent() {
                 std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
@@ -554,6 +555,7 @@ impl<S: WorkSource> RepairFlowSource<S> {
             Some((text, _)) => {
                 let b3 = blake3_hex(text.as_bytes());
                 let p = self.abs(&format!("{}/family.{}.sym", rf_dir(&r.n), &b3[..16]));
+                // procfix9-ok: compare-then-write_atomic, content-addressed (int8b-gate review (i))
                 if std::fs::read(&p).ok().as_deref() != Some(text.as_bytes()) {
                     crate::atomic::write_atomic(&p, text.as_bytes())
                         .map_err(|e| format!("{}: {e}", p.display()))?;

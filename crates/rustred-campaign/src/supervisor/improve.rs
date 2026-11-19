@@ -1430,6 +1430,7 @@ impl WorkSource for ImproveSource {
                             + "\n";
                     let rel = format!("{}/cases/{}.jsonl", dir(&node), r.index);
                     let abs = self.cdir.join(&rel);
+                    // procfix9-ok: compare-then-write_atomic; a failed write skips this job this round (int8b-gate review (i))
                     if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
                         // procfix7 round 19 (landing): a directory or write that fails skips this job this round
                         // (retried next ready()), as before; the dropped create_dir_all result is folded in

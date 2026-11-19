@@ -841,6 +841,7 @@ impl ProgramRun {
 
     /// The last 2,000 bytes of the child's stderr (empty when unreadable).
     pub fn stderr_tail(&self) -> String {
+        // procfix9-ok: a stderr tail for a message, documented "empty when unreadable" (int8b-gate review (i))
         let b = std::fs::read(self.run_dir.join("stderr.log")).unwrap_or_default();
         let from = b.len().saturating_sub(2000);
         String::from_utf8_lossy(&b[from..]).trim().to_string()

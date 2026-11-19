@@ -221,6 +221,7 @@ fn decided(a: &TrialAnswer) -> bool {
 /// supervisor goes through the ONE launch path); a missing or unreadable manifest gives no capability (typed refusals
 /// downstream, never a guess).
 pub fn engine_caps_from_manifest(manifest: &Path) -> EngineCaps {
+    // procfix9-ok: unreadable manifest = no capability, typed refusals downstream, never a guess (int8b-gate review (i))
     let features: Vec<String> = std::fs::read(manifest)
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())

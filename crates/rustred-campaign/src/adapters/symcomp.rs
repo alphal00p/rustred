@@ -763,6 +763,7 @@ impl JobAdapter for SymmetryCompositeAdapter {
             classification: c.clone(),
             mapped_wait: mapped,
             routed: None,
+            // procfix9-ok: refusal text for a report field only; the classification decides (int8b-gate review (i))
             refusal: std::fs::read_to_string(prep.layout.sup_dir().join(symcomp::REFUSAL_FILE))
                 .ok(),
         };
@@ -948,6 +949,7 @@ pub fn composite_second_route_configured(kernel: Option<&Program>) -> CompositeR
 pub fn composite_second_route(engine_dir: &Path, program: &str) -> CompositeRoute {
     let same = |why: String| CompositeRoute::SameBackend { why };
     let manifest = engine_dir.join("version.json");
+    // procfix9-ok: unreadable version.json = no features = SameBackend, the conservative documented choice, never a guess (int8b-gate review (i))
     let features: Vec<String> = match std::fs::read(&manifest)
         .ok()
         .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
@@ -972,6 +974,7 @@ pub fn composite_second_route(engine_dir: &Path, program: &str) -> CompositeRout
         ));
     }
     let sums = engine_dir.join("SHA256SUMS");
+    // procfix9-ok: unreadable SHA256SUMS = "does not list" = SameBackend, conservative (int8b-gate review (i))
     let listed = std::fs::read_to_string(&sums).ok().and_then(|t| {
         t.lines().find_map(|l| {
             let mut it = l.split_whitespace();
