@@ -1,7 +1,18 @@
 //! One child process of the emitter (the producer's lift, the independent checker): own process group, stdout / stderr
-//! to files, a WALL BUDGET (on overrun: SIGTERM then SIGKILL to the process group this module created, never anything
-//! else), the child's own peak RSS from `wait4` (ru_maxrss of that child). Runs inside the caller's namespace and memory
-//! scope (L10: the emitter is started in a private pid namespace under a systemd unit with its MemoryMax).
+//! to files, a WALL BUDGET, the child's own peak RSS from `wait4` (ru_maxrss of that child). Runs inside the caller's
+//! namespace and memory scope (L10: the emitter is started in a private pid namespace under a systemd unit with its
+//! MemoryMax).
+//!
+//! ON OVERRUN (gate R-C, the process-layer tripwires): SIGTERM, then SIGKILL every 10 s until it is gone, to each member
+//! of the process group this module created. Every signal goes through the campaign's VERIFIED path
+//! (`launch::guard::signal_verified_process`: exact start time, our uid, this boot, the marker); this module makes no
+//! signal syscall itself.
+//! - Every child carries the marker `RR_CAMPAIGN_JOB`: the caller's own when it runs under a campaign job, so its
+//!   children stay visible to that campaign's orphan scan; else one of this emitter process.
+//! - The members are found in /proc by process group. The group's leader is our unreaped child, so the group number
+//!   cannot be reused while we wait.
+use crate::launch::guard;
+use crate::resources::{CampaignMarker, MARKER_VAR, ProcessIdentity, boot_id, read_stat};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -87,6 +98,8 @@ pub fn run(
     for (k, v) in env {
         cmd.env(k, v);
     }
+    let marker = child_marker();
+    cmd.env(MARKER_VAR, marker.value());
     let mut t0 = Instant::now();
     let mut started = wrapper.is_none();
     let child = cmd
@@ -126,17 +139,69 @@ pub fn run(
         if started && !over && t0.elapsed().as_secs_f64() > budget_s {
             over = true;
             term_at = Some(Instant::now());
-            // the process group THIS module created (process_group(0) above): never a foreign process
-            unsafe { libc::kill(-pid, libc::SIGTERM) };
+            // the process group THIS module created (process_group(0) above), member by member through the guard
+            signal_group(pid as u32, &marker, libc::SIGTERM, name);
         }
         if let Some(t) = term_at
             && t.elapsed() > Duration::from_secs(10)
         {
-            unsafe { libc::kill(-pid, libc::SIGKILL) };
-            term_at = None;
+            // SIGKILL, repeated every 10 s while the child lives (a member the guard could not verify this round is
+            // tried again; nothing unverified is ever signalled)
+            signal_group(pid as u32, &marker, libc::SIGKILL, name);
+            term_at = Some(Instant::now());
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+/// The marker of an emission child: the caller's `RR_CAMPAIGN_JOB` when it has a valid one, else one of this process.
+fn child_marker() -> CampaignMarker {
+    std::env::var(MARKER_VAR)
+        .ok()
+        .and_then(|v| CampaignMarker::parse(&v))
+        .unwrap_or_else(|| {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            CampaignMarker::new("rr-emission", format!("{}-{nanos}", std::process::id()))
+                .expect("a valid emission marker")
+        })
+}
+
+/// Signal each member of process group `pgid` (read from /proc now) through the guard's verified path with `marker` as
+/// the proof. Returns how many deliveries the guard confirmed.
+fn signal_group(pgid: u32, marker: &CampaignMarker, sig: i32, label: &str) -> usize {
+    let Ok(boot) = boot_id() else {
+        return 0;
+    };
+    let Ok(rd) = std::fs::read_dir("/proc") else {
+        return 0;
+    };
+    let mut delivered = 0;
+    for e in rd.flatten() {
+        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+            continue;
+        };
+        let Ok(Some(st)) = read_stat(pid) else {
+            continue;
+        };
+        if st.pgrp != pgid {
+            continue;
+        }
+        let id = ProcessIdentity {
+            pid,
+            start_ticks: st.start_ticks,
+            boot_id: boot.clone(),
+        };
+        let v = guard::with_context("emission-budget", Some(label), || {
+            guard::signal_verified_process(&id, marker, sig)
+        });
+        if v.delivered() {
+            delivered += 1;
+        }
+    }
+    delivered
 }
 
 /// sha256 of a file (hex). Files of 1 MiB or more (binaries) are memoised per process on (canonical path, size, mtime): an
@@ -171,4 +236,53 @@ pub fn file_sha256(p: &Path) -> Result<String, String> {
             .insert(key, s.clone());
     }
     Ok(s)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Over budget, the child AND its grandchild (same process group) are stopped, member by member, through the guard's
+    /// verified path (marker proof); the run returns promptly with `over_budget`.
+    #[test]
+    fn an_overrun_stops_the_whole_group_through_the_guard() {
+        if std::env::var_os(SLOT_WRAPPER_ENV).is_some() {
+            eprintln!("SKIP: {SLOT_WRAPPER_ENV} set");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("emission-child-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gp = dir.join("grandchild.pid");
+        let script = format!("sleep 300 & echo $! > {}; wait", gp.display());
+        let t = Instant::now();
+        let r = run(
+            Path::new("/bin/sh"),
+            &["-c".to_string(), script],
+            &[],
+            &dir,
+            "t",
+            1.0,
+        )
+        .unwrap();
+        assert!(r.over_budget, "{r:?}");
+        assert_ne!(r.code, Some(0), "{r:?}");
+        assert!(t.elapsed() < Duration::from_secs(30), "{:?}", t.elapsed());
+        let g: u32 = std::fs::read_to_string(&gp)
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        // the grandchild got the signal too: gone, or a zombie waiting for its new parent to reap it
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            match read_stat(g) {
+                Ok(None) => break,
+                Ok(Some(st)) if st.state == 'Z' || st.state == 'X' => break,
+                _ if Instant::now() > deadline => panic!("grandchild {g} still alive"),
+                _ => std::thread::sleep(Duration::from_millis(50)),
+            }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
