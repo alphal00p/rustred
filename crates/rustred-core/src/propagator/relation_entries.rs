@@ -333,8 +333,10 @@ pub fn check_entry_with(
     Ok(key)
 }
 
-/// The rank of an entry: (evidence, -(pole order at d = 4), -(rhs terms),
-/// digest), larger is better except for the digest (smaller wins).
+/// The rank of an entry: (evidence, -(rhs terms), -(pole order at d = 4),
+/// digest), larger is better except for the digest (smaller wins). Size comes
+/// before the d = 4 pole order (LANE_RULES rule 21, user 2026-11-19: d = 4
+/// regularity is the last tie-break only).
 fn rank(entry: &Value) -> (u8, i64, i64) {
     let evidence = evidence_rank(entry["evidence"]["level"].as_str().unwrap_or("none"));
     let pole = entry["diagnostics"]["pole_order_at"]["4"]
@@ -343,7 +345,7 @@ fn rank(entry: &Value) -> (u8, i64, i64) {
     let terms = entry["body"]["rhs"]
         .as_array()
         .map_or(i64::MAX / 2, |rhs| rhs.len() as i64);
-    (evidence, -pole, -terms)
+    (evidence, -terms, -pole)
 }
 
 // ----- counters -----
@@ -1044,14 +1046,16 @@ fn read_index(
                 number + 1
             ));
         }
+        // on disk (unchanged since v1): [evidence, -pole order, -rhs terms];
+        // in memory: (evidence, -rhs terms, -pole order), see `rank`
         let rank = row["rank"]
             .as_array()
             .filter(|rank| rank.len() == 3)
             .map_or((0, 0, 0), |rank| {
                 (
                     rank[0].as_u64().unwrap_or(0) as u8,
-                    rank[1].as_i64().unwrap_or(0),
                     rank[2].as_i64().unwrap_or(0),
+                    rank[1].as_i64().unwrap_or(0),
                 )
             });
         own.insert(
@@ -1170,10 +1174,11 @@ pub fn write_node_service(
         let offset = merged.len() as u64;
         merged.extend_from_slice(&bytes);
         merged.push(b'\n');
-        let (a, b, c) = located.rank;
+        // disk order [evidence, -pole order, -rhs terms] (index format v1)
+        let (evidence, terms, pole) = located.rank;
         index.push(
             json!({"key": key, "file": merged_file, "offset": offset, "len": bytes.len(),
-                   "entry_digest": located.digest, "rank": [a, b, c]})
+                   "entry_digest": located.digest, "rank": [evidence, pole, terms]})
             .to_string(),
         );
     }
@@ -1301,7 +1306,8 @@ mod tests {
 
     /// Segments: written entries are found by a new store (restart), a torn
     /// last line and a foreign node identity are ignored, the better entry
-    /// (regular at d = 4) wins, the size cap stops inserts.
+    /// (at equal size, the one regular at d = 4) wins, the size cap stops
+    /// inserts.
     #[test]
     fn segments_reload_across_stores_and_ignore_torn_and_foreign_lines() {
         let root = std::env::temp_dir().join(format!("rr-relentry-{}", std::process::id()));
