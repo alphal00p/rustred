@@ -3585,6 +3585,19 @@ impl OrderedKernel for PKernel<'_, '_> {
                  route {route} computed / {route_moved} moved"
             );
         }
+        // stale memory: no step follows the forward pass of this request; its
+        // step caches go before the replay (T241: ~5 GiB at record end).
+        self.release_step_caches();
+    }
+
+    fn release_step_caches(&mut self) -> usize {
+        let memo = super::step_memo::counters()[6] as usize;
+        super::step_memo::release_thread_pools();
+        super::insertion::release_prepared();
+        super::custom::release_zero_certificate_cache();
+        canon_cache::release();
+        order_cache::release();
+        memo
     }
 
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), PError> {

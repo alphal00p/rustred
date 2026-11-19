@@ -150,6 +150,14 @@ pub(crate) trait OrderedKernel {
     /// by design (a target selection). A non-empty selection also enters the
     /// request directory, so a projected and a full run never share one.
     fn resume_selection(&self, _out: &mut Vec<u8>) {}
+    /// stale memory: drop the step caches of this thread (the step memo with
+    /// its coefficient table, prepared weights, zero certificates, canon /
+    /// order caches): value-neutral, rebuilt on use. The caller drops the
+    /// arithmetic's light-handle cache at the same time (the memo issued the
+    /// handles). Returns the memo coefficients dropped.
+    fn release_step_caches(&mut self) -> usize {
+        0
+    }
     /// Append the compact identity of `key` in a tail table (`false`, `out`
     /// unchanged: no compact form, nothing of the run is tabulated). The
     /// default is the step-cache encoding of the key's public view; adapters
@@ -659,6 +667,11 @@ pub(crate) trait OrderedWeights {
     /// fwd-opt: whether this arithmetic takes light children (one thread).
     fn takes_light(&self) -> bool {
         false
+    }
+    /// stale memory: forget the light-handle -> coefficient cache (with
+    /// [`OrderedKernel::release_step_caches`]); returns the entries dropped.
+    fn release_handles(&mut self) -> usize {
+        0
     }
     /// Store a new frontier entry from a nonzero contribution.
     fn insert(&mut self, contribution: Self::Contribution) -> Result<Self::Weight, ReductionError>;
@@ -2463,6 +2476,14 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             tail.phase_finished(phase);
         }
         state.finish_phase(kernel, phase)?;
+        // stale memory (RUSTRED_PHASE_REFRESH=1, one thread): at a phase end
+        // drop the step caches and the light-handle cache together: exactly
+        // the state a process restarted from this phase's saved state starts
+        // with (T241: -5.7 GiB at phase 19, saved state byte-identical).
+        if phase_refresh() && steps.threads() <= 1 {
+            kernel.release_step_caches();
+            weights.release_handles();
+        }
         if let Some(dir) = &resume_dir {
             let stop = resume::stop_after_phase() == Some(phase);
             if stop || last_save.elapsed().as_secs_f64() >= resume::interval() {
@@ -2592,6 +2613,12 @@ pub(crate) fn modular_channels_set<K: FrontierKey>(
 /// The per-channel terminals the last channel replay left on this thread.
 pub(crate) fn modular_channels_take_out() -> Option<Vec<BTreeMap<IntegralKey, Coefficient>>> {
     modular::channels::take_out()
+}
+
+/// stale memory: `RUSTRED_PHASE_REFRESH=1` (see the phase loop).
+fn phase_refresh() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RUSTRED_PHASE_REFRESH").as_deref() == Ok("1"))
 }
 
 /// vk5l-physrun: the saved scheduler state after `phase` (see `resume`).

@@ -1989,6 +1989,12 @@ impl OrderedWeights for ModularRecorder {
         true
     }
 
+    fn release_handles(&mut self) -> usize {
+        let n = self.handles.len();
+        self.handles = Default::default();
+        n
+    }
+
     fn scale_handle(
         &mut self,
         weight: &ModularWeight,
