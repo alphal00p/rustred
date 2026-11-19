@@ -6,6 +6,8 @@
 //! rule L10): `LIGHT_PIDNS=1 light_build.sh shipecon test -p rustred-campaign --test shipecon_fake`
 #![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
+#[path = "pf19_support/mod.rs"]
+mod pf19;
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::shipecon::{ShipFake, ShipRunConfig, run_ship};
 use rustred_campaign_core::economy::ship::ShipPolicy;
@@ -210,4 +212,44 @@ fn the_ship_economy_migrates_a_heavy_point_rule_and_a_rerun_changes_nothing() {
     );
     assert_eq!(rep2["totals"], rep["totals"]);
     assert_eq!(rep2["closing_check"]["holds"], true);
+}
+
+/// procfix7 round 19 (the coordinator's landing condition): the ship economy when its job launcher cannot hold its
+/// (ad-hoc) id: every trial job is refused (named), no rule is migrated by a job, nothing is saved.
+#[test]
+fn pf19_a_refused_launcher_migrates_nothing() {
+    if !rustred_campaign::launch::in_private_namespace() {
+        eprintln!("SKIPPED: builds launchers: only inside a private pid namespace (rule L10)");
+        return;
+    }
+    if let Some(v) = pf19::in_fresh_process("pf19_a_refused_launcher_migrates_nothing") {
+        assert!(v.starts_with("PASS"), "{v}");
+        return;
+    }
+    let _held = pf19::hold_own_adhoc_lock();
+    let dir = root("pf19");
+    let mut answers = BTreeMap::new();
+    answers.insert(
+        STEP.to_string(),
+        BTreeMap::from([(vec![2, 1, 0], vec![vec![1, 1, 0]])]),
+    );
+    let cfg = config(&dir, "r1", None, ShipFake { answers, ms: 1 });
+    let rep = run_ship(&cfg).unwrap();
+    let j = rep.to_string();
+    eprintln!("PF19E {j}");
+    // rule 0 (the one the trial job would migrate): its guard fails with the refusal named; no job-decided outcome
+    let r0 = rep["decisions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|d| d["rule"]["label"] == 0)
+        .unwrap_or_else(|| panic!("rule 0: {}", rep["decisions"]))
+        .clone();
+    assert_eq!(r0["guard_holds"], false, "{r0}");
+    let o0 = r0["outcome"].as_str().unwrap_or("");
+    assert!(o0 != "stored_relations" && o0 != "recipe", "{r0}");
+    let why = r0["why"].as_str().unwrap_or("").to_string();
+    assert!(why.contains("launcher refused"), "{r0}");
+    let detail = why;
+    pf19::passed(&detail);
 }

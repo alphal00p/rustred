@@ -5,6 +5,8 @@
 //! `LIGHT_PIDNS=1 light_build.sh seedmin test -p rustred-campaign --test seedmin_fake`
 #![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
+#[path = "pf19_support/mod.rs"]
+mod pf19;
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::seedmin::{
     ChildConfig, ChildTrialSolver, FakeAlt, FakeOracle, engine_caps_from_manifest,
@@ -340,4 +342,53 @@ fn undecided_pole_orders_come_from_the_pole_regular_at_child_job() {
     assert_eq!(pole_of(&ka), PoleOrder::Order { order: 1 });
     assert_eq!(pole_of(&kb), PoleOrder::Order { order: 0 });
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// procfix7 round 19 (the coordinator's landing condition): a seed-minimisation trial whose launcher cannot hold its
+/// (ad-hoc) id is UNDECIDED "refused" with the refusal (never "no relation", never journaled), no child runs.
+#[test]
+fn pf19_a_refused_launcher_leaves_the_trial_undecided() {
+    if !rustred_campaign::launch::in_private_namespace() {
+        eprintln!("SKIPPED: builds launchers: only inside a private pid namespace (rule L10)");
+        return;
+    }
+    if let Some(v) = pf19::in_fresh_process("pf19_a_refused_launcher_leaves_the_trial_undecided") {
+        assert!(v.starts_with("PASS"), "{v}");
+        return;
+    }
+    let _held = pf19::hold_own_adhoc_lock();
+    use rustred_campaign_core::seedmin::{Trial, TrialAnswer, TrialMode, TrialSolver};
+    let dir = root("pf19");
+    let oracle = FakeOracle {
+        ms: 5,
+        ..Default::default()
+    };
+    let mut solver = ChildTrialSolver::new(
+        config(&dir, oracle),
+        sampler(),
+        Box::new(LocalValuationJudge),
+        EngineCaps::default(),
+    )
+    .unwrap();
+    let trial = Trial {
+        label: "pf19".into(),
+        centre: vec![0, 0, 0],
+        list: vec![vec![0, 0, 0], vec![1, 0, 0]],
+        keys: vec![vec![3, 2, -1]],
+        mode: TrialMode::Solve,
+        engine_minimise: None,
+    };
+    let a = solver.solve(&[trial]).unwrap();
+    eprintln!("PF19M {a:?}");
+    match &a[0][0] {
+        TrialAnswer::Undecided { class, message } => {
+            assert_eq!(class, "refused");
+            assert!(
+                message.contains("launcher refused") && message.contains("in use"),
+                "{message}"
+            );
+            pf19::passed(message);
+        }
+        other => panic!("not undecided: {other:?}"),
+    }
 }

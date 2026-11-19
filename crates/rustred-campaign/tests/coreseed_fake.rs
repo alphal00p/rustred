@@ -8,6 +8,8 @@
 mod sup_common;
 mod termmin_support;
 
+#[path = "pf19_support/mod.rs"]
+mod pf19;
 use rustred_campaign::adapters::job::{Invocation, Program};
 use rustred_campaign::closeloop::coreseed::{
     ChildSolver, CoreDriverConfig, DriverJudge, FakeCore, FakeOpt, PolesCfg,
@@ -432,4 +434,49 @@ fn pole_orders_come_from_the_diagnostic_child_job_and_its_failure_never_blocks()
             .flat_map(|k| k.alternatives.iter())
             .all(|a| a.d0 == D0Verdict::Undecided)
     );
+}
+
+/// procfix7 round 19 (the coordinator's landing condition): the core-seed child solve when its launcher cannot hold its
+/// (ad-hoc) id: no key gets a relation, the refusal is recorded, no child runs.
+#[test]
+fn pf19_a_refused_launcher_decides_no_key() {
+    if !rustred_campaign::launch::in_private_namespace() {
+        eprintln!("SKIPPED: builds launchers: only inside a private pid namespace (rule L10)");
+        return;
+    }
+    if let Some(v) = pf19::in_fresh_process("pf19_a_refused_launcher_decides_no_key") {
+        assert!(v.starts_with("PASS"), "{v}");
+        return;
+    }
+    let _held = pf19::hold_own_adhoc_lock();
+    let f = fake(&[(A, vec![opt(&[[1, 0, 0]], &[R1])])], &[]);
+    let tmp = Tmp::new("cs-pf19");
+    let files = toy(&tmp.path.join("material"), &TmToy::default());
+    let mut set = load_set(&files);
+    let journal = tmp.path.join("out/journal.jsonl");
+    let p: CoreSeedPolicy = serde_json::from_str(r#"{"centre_scan": {"enabled": false}}"#).unwrap();
+    let mut s = ChildSolver::new(
+        config(&tmp.path, &files, f, &journal),
+        &mut set,
+        Box::new(TestJudge),
+        sampler(),
+    )
+    .unwrap();
+    let detail = match solve_core(&[A.to_vec()], &LINES, &p, &mut s) {
+        Ok(r) => {
+            let j = serde_json::to_string(&r).unwrap();
+            eprintln!("PF19C {j}");
+            // the key stays UNDECIDED; its step failed with the refusal (job_error), never "no relation"
+            assert!(r.keys.iter().all(|k| k.status == "undecided"), "{j}");
+            assert!(j.contains("job_error: launcher refused"), "{j}");
+            "every key undecided; job_error: launcher refused".to_string()
+        }
+        Err(e) => {
+            let e = format!("{e:?}");
+            eprintln!("PF19C Err {e}");
+            assert!(e.contains("launcher refused"), "{e}");
+            e
+        }
+    };
+    pf19::passed(&detail);
 }
