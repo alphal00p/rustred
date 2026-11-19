@@ -1108,12 +1108,12 @@ pub(crate) fn orbit_across_sectors() -> bool {
 /// Orbit canonicalisation counters and the moved-key dump.
 ///
 /// Counters (process-wide): keys whose image was computed (cache misses) and
-/// keys moved, for Apply and Route keys; [`canon_stats::report`] prints them.
+/// keys moved, for Apply and Route keys; [`canon_counts::report`] prints them.
 /// `RUSTRED_P_CANON_DUMP=<file>`: one line per computed move,
 /// `apply|route <TAB> owner class|presentation <TAB> key <TAB> image <TAB> sign`
 /// (a key evicted from the canonicalisation cache and met again is written
 /// again).
-pub(crate) mod canon_stats {
+pub(crate) mod canon_counts {
     use std::io::Write;
     use std::sync::Mutex;
     use std::sync::OnceLock;
@@ -2412,7 +2412,7 @@ impl<'l> PStepper<'l> {
                 powers,
                 || {
                     let moved = self.canonical_powers(class, powers)?;
-                    canon_stats::computed(false, moved.as_ref(), || {
+                    canon_counts::computed(false, moved.as_ref(), || {
                         format!("apply\t{:016x}\t{powers:?}", class.0)
                     });
                     Ok(moved)
@@ -2490,7 +2490,7 @@ impl<'l> PStepper<'l> {
                         (None, Some(inside)) => Some(inside),
                         (Some((_, first)), Some((image, second))) => Some((image, first != second)),
                     };
-                    canon_stats::computed(true, moved.as_ref(), || {
+                    canon_counts::computed(true, moved.as_ref(), || {
                         format!("route\tp{}\t{powers:?}", presentation.0)
                     });
                     Ok(moved)
@@ -3579,7 +3579,7 @@ impl OrderedKernel for PKernel<'_, '_> {
             budget.release_unheld();
         }
         if self.stepper.canonical {
-            let (apply, apply_moved, route, route_moved) = canon_stats::report();
+            let (apply, apply_moved, route, route_moved) = canon_counts::report();
             eprintln!(
                 "rustred orbit canonicalisation (process totals): apply {apply} computed / {apply_moved} moved, \
                  route {route} computed / {route_moved} moved"
