@@ -1087,6 +1087,21 @@ pub(crate) mod light {
 /// contribution. `RUSTRED_P_CANON_CACHE=off` disables it,
 /// `RUSTRED_P_CANON_CACHE=<b>` sets 2^b entries per thread (default 2^13).
 /// Errors are not cached (computed again). Value-neutral.
+/// `RUSTRED_P_ORBIT_ACROSS=on`: the presentation-wide step of Route
+/// canonicalisation may move a key onto another subsector (orbit
+/// canonicalisation version 3). Default off: images stay in the key's sector.
+pub(crate) fn orbit_across_sectors() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_P_ORBIT_ACROSS")
+                .as_deref()
+                .map(str::trim),
+            Ok("1" | "on" | "yes" | "true")
+        )
+    })
+}
+
 pub(crate) mod canon_cache {
     use std::cell::RefCell;
     use std::sync::OnceLock;
@@ -2309,6 +2324,7 @@ impl<'l> PStepper<'l> {
     ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonApply);
         if self.canonical
+            && !self.orbit(class)?.actions.is_empty()
             && let Some((image, negative)) = canon_cache::lookup(
                 self.engine.uid,
                 (1 << 63) | (class.0 & !(1 << 63)),
@@ -2367,7 +2383,7 @@ impl<'l> PStepper<'l> {
         negate: fn(C) -> C,
     ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonRoute);
-        if self.canonical_routes {
+        if self.canonical_routes && self.route_has_group(presentation, powers)? {
             // First across the subsectors of the presentation, then inside the
             // sector reached (its own automorphisms can be more than the
             // presentation's); each step is exact, the signs compose.
@@ -2413,6 +2429,24 @@ impl<'l> PStepper<'l> {
         ))
     }
 
+    /// Whether a Route key of `presentation` can move at all: the
+    /// presentation's group or its sector's routed group is nontrivial. Both
+    /// orbits are built once (per presentation, per sector), so a key whose
+    /// groups are empty costs two lookups and no cache traffic.
+    fn route_has_group(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Result<bool, PError> {
+        if !self.presentation_orbit(presentation)?.actions.is_empty() {
+            return Ok(true);
+        }
+        let support = self.engine.shape(presentation)?.support(powers);
+        Ok(self
+            .route_orbit(presentation, support)?
+            .is_some_and(|orbit| !orbit.actions.is_empty()))
+    }
+
     /// The least exact image of a Route key of `presentation` under the
     /// automorphisms of the presentation's whole line set, on any sector the
     /// census knows (the image of a sector is a sector with the same number
@@ -2429,8 +2463,20 @@ impl<'l> PStepper<'l> {
             return Ok(None);
         }
         let fates = &self.engine.fates;
+        // Images stay in the key's own sector (P_ORBIT_CANON_VERSION 4): an
+        // image on another subsector lands on another route / owner and stops
+        // merging with the unmoved keys there (R1, T278: 13.0 instead of 5.5
+        // children per Route key). RUSTRED_P_ORBIT_ACROSS=on restores the
+        // version-3 choice (any sector the census knows).
+        let support = shape.support(powers);
+        let across = orbit_across_sectors();
         Ok(orbit.least_image(powers, self.prefer_high, |image| {
-            fates.contains_key(&(presentation, shape.support(image)))
+            let image_support = shape.support(image);
+            if across {
+                fates.contains_key(&(presentation, image_support))
+            } else {
+                image_support == support
+            }
         }))
     }
 
@@ -2449,6 +2495,9 @@ impl<'l> PStepper<'l> {
             .get_or_init(|| {
                 crate::prof!(OrbitInit);
                 let source = self.library.presentation(presentation);
+                if super::library::orbit_off_nodes().contains(source.family.name()) {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
                 if let Some(orbit) = self
                     .library
                     .saved_orbits()
@@ -2467,15 +2516,39 @@ impl<'l> PStepper<'l> {
         presentation: PresentationId,
         powers: &[i64],
     ) -> Result<Option<(Vec<i64>, bool)>, PError> {
-        let engine = self.engine;
-        let shape = engine.shape(presentation)?;
+        let shape = self.engine.shape(presentation)?;
         let support = shape.support(powers);
+        let Some(orbit) = self.route_orbit(presentation, support)? else {
+            return Ok(None);
+        };
+        if orbit.actions.is_empty() {
+            return Ok(None);
+        }
+        Ok(orbit.least_image(powers, self.prefer_high, |image| {
+            shape.support(image) == support
+        }))
+    }
+
+    /// The automorphisms of the routed sector `support` of `presentation`
+    /// (the owner's carried over by the route), built once per sector;
+    /// `None` for a sector the census does not route.
+    fn route_orbit(
+        &self,
+        presentation: PresentationId,
+        support: u64,
+    ) -> Result<Option<&Arc<OwnerOrbit>>, PError> {
+        let engine = self.engine;
         let Some(cell) = engine.route_orbits.get(&(presentation, support)) else {
             return Ok(None);
         };
         let orbit = cell
             .get_or_init(|| {
                 crate::prof!(OrbitInit);
+                if super::library::orbit_off_nodes()
+                    .contains(self.library.presentation(presentation).family.name())
+                {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
                 let Ok(Sector::Routed { class, map }) =
                     engine.sector(self.library, presentation, support)
                 else {
@@ -2514,9 +2587,7 @@ impl<'l> PStepper<'l> {
             })
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(orbit.least_image(powers, self.prefer_high, |image| {
-            shape.support(image) == support
-        }))
+        Ok(Some(orbit))
     }
 
     /// The verified automorphisms of the sector of `class`.
@@ -2537,6 +2608,9 @@ impl<'l> PStepper<'l> {
                     return self.presentation_orbit(slot.presentation).map(Arc::clone);
                 }
                 let source = self.library.presentation(slot.presentation);
+                if super::library::orbit_off_nodes().contains(source.family.name()) {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
                 if let Some(orbit) = self
                     .library
                     .saved_orbits()

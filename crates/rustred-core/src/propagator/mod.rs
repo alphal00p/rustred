@@ -155,7 +155,9 @@ pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
 /// [`library::PLibrary::step_identity`] only while canonicalisation is on, so a
 /// library with it off keeps the step caches it had before; the library
 /// identity ([`library::PLibrary::identity`]) never carries it.
-pub const P_ORBIT_CANON_VERSION: u32 = 3;
+/// 4: Route images stay in the key's sector unless `RUSTRED_P_ORBIT_ACROSS`
+/// (scope marker `-across`).
+pub const P_ORBIT_CANON_VERSION: u32 = 4;
 /// Whether a new [`library::PLibrary`] canonicalises keys under orbits
 /// ([`library::PLibrary::set_orbit_canonicalization`]). Off: the reduction
 /// path, the step identity and the step records are the ones without A2.
