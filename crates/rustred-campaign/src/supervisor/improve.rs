@@ -404,27 +404,52 @@ impl ImproveSource {
         Some((p.next()?.parse().ok()?, p.next()?.to_string()))
     }
 
+    /// The settled answer of `item` for the cost estimates (saved so far, settled gains): an answer that cannot be READ
+    /// counts as not answered yet (never cached: read again on the next call); the improved table's writer uses
+    /// [`Self::answer_read`], which fails instead.
     fn answer(&mut self, st: &CampaignState, item: &str) -> Option<ImproveAnswer> {
+        self.answer_read(st, item).unwrap_or(None)
+    }
+
+    /// procfix7 round 19 (landing, int8b-gate review (ii) improve.rs:417): the settled answer of `item`; an answer input
+    /// that cannot be READ is an ERROR (it was "no answer": the rule silently left unimproved); one not there, or that
+    /// differs from its recorded BLAKE3 or does not parse, is none.
+    fn answer_read(
+        &mut self,
+        st: &CampaignState,
+        item: &str,
+    ) -> Result<Option<ImproveAnswer>, String> {
         if let Some(a) = self.answers.get(item) {
-            return Some(a.clone());
+            return Ok(Some(a.clone()));
         }
-        let it = st.items.get(item)?;
+        let Some(it) = st.items.get(item) else {
+            return Ok(None);
+        };
         for job in it.jobs.iter().rev() {
-            let j = st.jobs.get(job)?;
+            let Some(j) = st.jobs.get(job) else {
+                return Ok(None);
+            };
             for att in (0..=j.attempt).rev() {
                 let id = input_answer(item, job, att);
                 if let Some(r) = st.inputs.get(&id) {
-                    let b = std::fs::read(&r.path).ok()?;
+                    let b = match crate::fsx::read("closeloop.input", std::path::Path::new(&r.path))
+                    {
+                        crate::fsx::Read::Content(b) => b,
+                        crate::fsx::Read::Absent => return Ok(None),
+                        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", r.path)),
+                    };
                     if blake3_hex(&b) != r.blake3 {
-                        return None;
+                        return Ok(None);
                     }
-                    let a: ImproveAnswer = serde_json::from_slice(&b).ok()?;
+                    let Ok(a) = serde_json::from_slice::<ImproveAnswer>(&b) else {
+                        return Ok(None);
+                    };
                     self.answers.insert(item.to_string(), a.clone());
-                    return Some(a);
+                    return Ok(Some(a));
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     fn final_phase(p: &ItemPhase) -> bool {
@@ -666,7 +691,7 @@ impl ImproveSource {
                 let item = item_id(&node, idx, c);
                 let phase = st.items.get(&item).map(|it| it.phase.clone());
                 let fin = phase.as_ref().is_some_and(Self::final_phase);
-                match (fin, self.answer(st, &item)) {
+                match (fin, self.answer_read(st, &item)?) {
                     (true, Some(a)) => per_rule.entry(idx).or_default().push(a),
                     _ => {
                         let why = if phase == Some(ItemPhase::Skipped) {
@@ -1406,10 +1431,13 @@ impl WorkSource for ImproveSource {
                     let rel = format!("{}/cases/{}.jsonl", dir(&node), r.index);
                     let abs = self.cdir.join(&rel);
                     if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
-                        if let Some(d) = abs.parent() {
-                            let _ = std::fs::create_dir_all(d);
-                        }
-                        if crate::atomic::write_atomic(&abs, line.as_bytes()).is_err() {
+                        // procfix7 round 19 (landing): a directory or write that fails skips this job this round
+                        // (retried next ready()), as before; the dropped create_dir_all result is folded in
+                        let dir_made = abs
+                            .parent()
+                            .is_none_or(|d| std::fs::create_dir_all(d).is_ok());
+                        if !dir_made || crate::atomic::write_atomic(&abs, line.as_bytes()).is_err()
+                        {
                             continue;
                         }
                     }
@@ -1615,11 +1643,20 @@ impl WorkSource for ImproveSource {
             vec![]
         } else {
             let rd = Path::new(&run_dir);
-            let rd_text = |f: &str| std::fs::read_to_string(rd.join(f)).unwrap_or_default();
+            // procfix7 round 19 (landing, int8b-gate review (ii) improve.rs:1618): a job file that cannot be READ is an
+            // error of the route (it was "": the improved rules without / with partial derivation records, silently)
+            let rd_text = |f: &str| -> Result<String, String> {
+                let p = rd.join(f);
+                match crate::fsx::read_to_string("supervisor.run_dir", &p) {
+                    crate::fsx::Read::Content(t) => Ok(t),
+                    crate::fsx::Read::Absent => Ok(String::new()),
+                    crate::fsx::Read::Failed(e) => Err(format!("{}: {e}", p.display())),
+                }
+            };
             let (spec_t, events_t, stderr_t) = (
-                rd_text("job.json"),
-                rd_text("EVENTS.jsonl"),
-                rd_text("stderr.log"),
+                rd_text("job.json")?,
+                rd_text("EVENTS.jsonl")?,
+                rd_text("stderr.log")?,
             );
             dv::rule_derivations(&dv::JobFiles {
                 node: &it.node,
