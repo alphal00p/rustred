@@ -204,8 +204,10 @@ fn flag_value(rest: &[String], i: usize) -> Result<String, String> {
 
 /// `rr_campaign emit-replace --table T --rule N [--offset B] --rr-node BIN --checker BIN --out DIR [--max-depth 6]
 /// [--max-pieces 16] [--case-budget S] [--cone S] [--policy FILE] [--family F] [--no-recover-rows] [--write-table]
-/// [--witness-off] [--check-floor S] [--check-ratio R]` (check budget = max(floor, ratio x lift seconds), default 120 s / 1): certify rule N of T by replacement; writes DIR/report.json, DIR/cand.emission/ (side files) and,
+/// [--witness-off] [--check-floor S] [--check-ratio R] [--cone-verdict V.json]` (check budget = max(floor, ratio x lift seconds), default 120 s / 1): certify rule N of T by replacement; writes DIR/report.json, DIR/cand.emission/ (side files) and,
 /// when the ladder closed, DIR/pieces.jsonl, DIR/pieces.mini.table.jsonl and (with --write-table) DIR/cand.table.jsonl.
+/// `--cone-verdict` (contract section 17, opt-in): every piece names that ACCEPTED cone verdict (`replaces.cone_sha256`, side
+/// file cone/<sha>.json), or the replacement is refused: outcome `cone_refused`, the pieces kept aside in pieces.refused.jsonl.
 pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let (mut table, mut out, mut rr_node, mut checker) = (None, None, None, None);
     let mut index: Option<i64> = None;
@@ -221,6 +223,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let (mut zero_sectors, mut symmetry_group): (Option<PathBuf>, Option<PathBuf>) = (None, None);
     let mut reg_table: Option<PathBuf> = None;
     let mut descent_node: Option<PathBuf> = None;
+    let mut cone_verdict: Option<PathBuf> = None;
     let mut reg = regcheck::Options::default();
     let mut i = 0;
     while i < rest.len() {
@@ -229,6 +232,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
             "--table" => table = Some(PathBuf::from(flag_value(rest, i)?)),
             "--regularity-table" => reg_table = Some(PathBuf::from(flag_value(rest, i)?)),
             "--descent-node" => descent_node = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--cone-verdict" => cone_verdict = Some(PathBuf::from(flag_value(rest, i)?)),
             "--regularity-cone" => {
                 reg.cone = flag_value(rest, i)?
                     .parse()
@@ -415,7 +419,37 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
             "first_regressions": verdict["first_regressions"], "structural": verdict["structural"]});
         // never refused for regularity (rule 21): the stamped lines are the pieces
         lines_ok = st.lines.or(Some(lines));
-        let _ = (ok, &mut closed);
+        let _ = ok;
+    }
+    // THE CONE PRICE (contract section 17, opt-in): the first cost criterion of rule 21; a refusing verdict, or one that does
+    // not price these pieces against this old record, refuses the replacement
+    if let (Some(vp), Some(lines)) = (&cone_verdict, lines_ok.take()) {
+        let vb = std::fs::read(vp).map_err(|e| format!("{}: {e}", vp.display()))?;
+        match coneprice::apply_to_pieces(&lines, &vb, &side)? {
+            coneprice::Applied::Stamped { lines, sha256 } => {
+                summary["cone"] = json!({"verdict": vp.display().to_string(), "sha256": sha256, "accepted": true,
+                                         "stamped_pieces": lines.len()});
+                lines_ok = Some(lines);
+            }
+            coneprice::Applied::Refused { reason, piece, sha256 } => {
+                closed = false;
+                summary["cone"] = json!({"verdict": vp.display().to_string(), "sha256": sha256, "accepted": false,
+                                         "reason": reason, "piece": piece});
+                summary["outcome"] = json!({"outcome": "cone_refused", "reason": reason});
+                let mut pj = String::new();
+                for l in &lines {
+                    pj.push_str(l);
+                    pj.push('\n');
+                }
+                std::fs::write(out.join("pieces.refused.jsonl"), &pj).map_err(|e| e.to_string())?;
+            }
+        }
+    } else if cone_verdict.is_some() {
+        summary["cone"] = json!({"verdict": cone_verdict.as_ref().map(|p| p.display().to_string()), "applied": false,
+                                 "reason": "the replacement did not close: nothing to price"});
+    } else if emitter.policy.cone_pricing && lines_ok.is_some() {
+        summary["cone"] = json!({"applied": false, "reason": "the policy asks for cone pricing and no --cone-verdict was given: \
+            table-check will refuse these pieces until `cone-stamp` names an accepted verdict"});
     }
     if let Some(lines) = lines_ok {
         let mut pj = String::new();

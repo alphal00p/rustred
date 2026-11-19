@@ -436,6 +436,17 @@ as before (same sha256).
 - CALL: `rr_campaign cone-price --old-stats A --new-stats B --entrance N --out V.json`, or `cone-price --run --binary
   p5l_library-diag4186 --old-lib L --old-inputs I1 [--new-lib L2] --new-inputs I2 --entrance N --out DIR [--third-level]
   [--env K=V,...]` (exit 0 accepted, 3 refused); `rr_campaign cone-stamp --table T --index I --verdict V --out T2`.
+- IN emit-replace (added 2026-11-19, consolidation): `rr_campaign emit-replace ... --cone-verdict V.json`.
+  - After the derivation, descent and the regularity report, EVERY piece of the replacement must be allowed to name the verdict.
+    The checks are those of cone-stamp: an accepted verdict, of this old record, naming each piece's body when it names bodies.
+  - Then each piece carries `replaces.cone_sha256` and the verdict is written once as `cand.emission/cone/<sha256>.json`;
+    report.json has `cone {verdict, sha256, accepted, stamped_pieces}`.
+  - Otherwise nothing is stamped or written: outcome `cone_refused` (reason, first piece that may not name it), the pieces
+    kept aside in pieces.refused.jsonl, exit 3.
+  - Without the flag under a `cone_pricing` policy the report says that table-check will refuse the pieces until cone-stamp
+    names an accepted verdict.
+  - The view builder (the old package with only the candidate owner's payload replaced) is NOT part of it: the arms are
+    built by the caller (DEFERRED: reports/DEFERRED/gencheck-cone-verdict-emit-replace.md).
 - TEST (permanent negative): tests/cone_t269.rs on lane t162opt's ab2 statistics, plus the same A/B re-run through `--run`
   (round 6: diag4186, 176 / 167 s, 12 GB per arm). The review's T269 glued triangle is REFUSED `cone_worse`:
   - entrance (twelve-line Route): 327 -> 12 keys;

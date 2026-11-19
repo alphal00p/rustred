@@ -8,7 +8,9 @@
 //!   one Symbolica process (its licence slot through RR_EMISSION_SLOT_WRAPPER). The run ends with "stopped after a saved phase"
 //!   (non-zero rc: expected); the statistics are flushed on that path;
 //! - `cone-stamp --table T --index I --verdict V.json --out T2`: a replacement record names an ACCEPTED verdict
-//!   (`replaces.cone_sha256`, side file cone/<sha>.json); a refused verdict, or one of another old record / body, is not stamped.
+//!   (`replaces.cone_sha256`, side file cone/<sha>.json); a refused verdict, or one of another old record / body, is not stamped;
+//! - `emit-replace ... --cone-verdict V.json` ([`apply_to_pieces`], the same checks): every piece of the replacement names the
+//!   accepted verdict, or the replacement is refused (outcome `cone_refused`, the pieces kept aside in pieces.refused.jsonl).
 use super::child;
 use rustred_campaign_core::emission::body::{attach_derivation, body_ids, sha256_hex, string_member, strip_derivation};
 use rustred_campaign_core::emission::cone::{self, Rules, Verdict};
@@ -121,6 +123,71 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
         verdict.accepted))
 }
 
+/// Why `line` (a replacement record with its derivation) may NOT name the verdict `c`; `None` = it may.
+pub fn check_line(line: &str, c: &Verdict) -> Result<Option<String>, String> {
+    let (body, raw) = strip_derivation(line)?;
+    let d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?).map_err(|e| e.to_string())?;
+    if d.get("replaces").is_none_or(Value::is_null) {
+        return Ok(Some("the record is not a replacement (no `replaces` member: emit it through emit-replace or descent-stamp first)".into()));
+    }
+    if !c.accepted {
+        return Ok(Some(format!("the cone verdict refuses the candidate: {}", c.reason.clone().unwrap_or_default())));
+    }
+    let bs = body_ids(&body)?.body_sha256;
+    if !c.new_body_sha256.is_empty() && !c.new_body_sha256.contains(&bs) {
+        return Ok(Some("the cone verdict does not name this body".into()));
+    }
+    if c.old_body_sha256.as_deref().is_some_and(|o| Some(o) != d["replaces"]["old_body_sha256"].as_str()) {
+        return Ok(Some("the cone verdict prices another old record".into()));
+    }
+    Ok(None)
+}
+
+/// `line` with `replaces.cone_sha256 = sha` (call after [`check_line`] said None).
+pub fn stamp_line(line: &str, sha: &str) -> Result<String, String> {
+    let (body, raw) = strip_derivation(line)?;
+    let mut d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?).map_err(|e| e.to_string())?;
+    d["replaces"]["cone_sha256"] = json!(sha);
+    attach_derivation(&body, &d)
+}
+
+/// Write the verdict bytes as the side file `cone/<sha256>.json` under `side`; returns the sha256.
+pub fn write_side(side: &Path, vb: &[u8]) -> Result<String, String> {
+    let sha = sha256_hex(vb);
+    let p = side.join(side_rel(AREA_CONE, &sha));
+    std::fs::create_dir_all(p.parent().expect("area")).map_err(|e| e.to_string())?;
+    std::fs::write(&p, vb).map_err(|e| format!("{}: {e}", p.display()))?;
+    Ok(sha)
+}
+
+/// What a cone verdict did to the pieces of one replacement.
+#[derive(Debug)]
+pub enum Applied {
+    /// every piece names the verdict (`replaces.cone_sha256`); the verdict side file is written
+    Stamped { lines: Vec<String>, sha256: String },
+    /// the verdict refuses, or does not belong to these pieces (the first piece that may not name it): nothing written
+    Refused { reason: String, piece: usize, sha256: String },
+}
+
+/// emit-replace `--cone-verdict` (contract section 17): ALL pieces of the replacement must be allowed to name the verdict
+/// ([`check_line`]: an accepted verdict, of this old record, naming each piece's body when it names bodies); then each is
+/// stamped and the verdict written under `side`. Otherwise nothing is written and the replacement is refused.
+pub fn apply_to_pieces(lines: &[String], vb: &[u8], side: &Path) -> Result<Applied, String> {
+    let c: Verdict = serde_json::from_slice(vb).map_err(|e| format!("cone verdict: {e}"))?;
+    let sha = sha256_hex(vb);
+    if lines.is_empty() {
+        return Err("no pieces to stamp".into());
+    }
+    for (i, l) in lines.iter().enumerate() {
+        if let Some(reason) = check_line(l, &c)? {
+            return Ok(Applied::Refused { reason, piece: i, sha256: sha });
+        }
+    }
+    let stamped = lines.iter().map(|l| stamp_line(l, &sha)).collect::<Result<Vec<_>, _>>()?;
+    write_side(side, vb)?;
+    Ok(Applied::Stamped { lines: stamped, sha256: sha })
+}
+
 /// CLI `cone-stamp --table T --index I --verdict V.json --out T2`: exit 0 stamped, 3 refused (nothing written).
 pub fn stamp_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let val = |k: &str| -> Result<String, String> {
@@ -136,30 +203,97 @@ pub fn stamp_cmd(rest: &[String]) -> Result<(String, bool), String> {
         .iter()
         .position(|l| string_member(l, "type").as_deref() == Some("rule") && serde_json::from_str::<Value>(&strip_derivation(l).map(|x| x.0).unwrap_or_default()).ok().and_then(|v| v["index"].as_i64()) == Some(index))
         .ok_or(format!("no rule record with index {index}"))?;
-    let (body, raw) = strip_derivation(&lines[pos])?;
-    let mut d: Value = serde_json::from_str(&raw.ok_or("the record has no derivation member")?).map_err(|e| e.to_string())?;
-    let refuse = |why: String| Ok((json!({"stamped": false, "reason": why}).to_string(), false));
-    if d.get("replaces").is_none_or(Value::is_null) {
-        return refuse("the record is not a replacement (no `replaces` member: the d = 4 guard comes first)".into());
+    if let Some(why) = check_line(&lines[pos], &c)? {
+        return Ok((json!({"stamped": false, "reason": why}).to_string(), false));
     }
-    if !c.accepted {
-        return refuse(format!("the cone verdict refuses the candidate: {}", c.reason.unwrap_or_default()));
-    }
-    let bs = body_ids(&body)?.body_sha256;
-    if !c.new_body_sha256.is_empty() && !c.new_body_sha256.contains(&bs) {
-        return refuse("the cone verdict does not name this body".into());
-    }
-    if c.old_body_sha256.as_deref().is_some_and(|o| Some(o) != d["replaces"]["old_body_sha256"].as_str()) {
-        return refuse("the cone verdict prices another old record".into());
-    }
-    let sha = sha256_hex(&vb);
     let side = side_dir(&out);
     super::carry_side(&side_dir(&t), &side)?;
-    let p = side.join(side_rel(AREA_CONE, &sha));
-    std::fs::create_dir_all(p.parent().expect("area")).map_err(|e| e.to_string())?;
-    std::fs::write(&p, &vb).map_err(|e| e.to_string())?;
-    d["replaces"]["cone_sha256"] = json!(sha);
-    lines[pos] = attach_derivation(&body, &d)?;
+    let sha = write_side(&side, &vb)?;
+    lines[pos] = stamp_line(&lines[pos], &sha)?;
     std::fs::write(&out, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
     Ok((json!({"stamped": true, "table": out.display().to_string(), "cone_sha256": sha}).to_string(), true))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn piece(target: i64, old: &str) -> String {
+        let body = format!(r#"{{"type":"rule","index":7,"target":[{target},1],"rhs":[[[0,1],"1/(d-4)"]]}}"#);
+        attach_derivation(&body, &json!({"class": {"word": "whole domain"}, "replaces": {"old_body_sha256": old, "regularity_sha256": "r"}}))
+            .unwrap()
+    }
+
+    fn verdict(accepted: bool, old: &str, bodies: Vec<String>) -> Vec<u8> {
+        let v = Verdict {
+            schema: "rustred.emission.cone-price.v1".into(),
+            old_body_sha256: Some(old.into()),
+            new_body_sha256: bodies,
+            request: json!({}),
+            entrance_phase: 4,
+            phases_read: vec![4, 5, 6, 7],
+            levels: vec![],
+            entrance_ratio_old_over_new: Some(2.0),
+            second_apply_ratio_old_over_new: Some(if accepted { 1.5 } else { 0.98 }),
+            owners_grown: vec![],
+            second_apply_shells: Value::Null,
+            second_apply_owners: vec![],
+            values_note: String::new(),
+            third_level: None,
+            rules: Rules::default(),
+            accepted,
+            reason: (!accepted).then(|| "cone_worse: more children at the second Apply".to_string()),
+            rank_key: None,
+        };
+        serde_json::to_vec(&v).unwrap()
+    }
+
+    fn body_sha(l: &str) -> String {
+        body_ids(&strip_derivation(l).unwrap().0).unwrap().body_sha256
+    }
+
+    #[test]
+    fn emit_replace_cone_verdict_stamps_every_piece_or_refuses_the_replacement() {
+        let side = std::env::temp_dir().join(format!("coneprice-apply-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&side);
+        let lines = vec![piece(1, "OLD"), piece(2, "OLD")];
+        let both: Vec<String> = lines.iter().map(|l| body_sha(l)).collect();
+        // accepted, of this old record, naming both bodies: every piece stamped, the side file written once
+        let vb = verdict(true, "OLD", both.clone());
+        match apply_to_pieces(&lines, &vb, &side).unwrap() {
+            Applied::Stamped { lines: st, sha256 } => {
+                assert_eq!(sha256, sha256_hex(&vb));
+                assert_eq!(st.len(), 2);
+                for (a, b) in st.iter().zip(&lines) {
+                    let d: Value = serde_json::from_str(&strip_derivation(a).unwrap().1.unwrap()).unwrap();
+                    assert_eq!(d["replaces"]["cone_sha256"], json!(sha256));
+                    assert_eq!(d["replaces"]["regularity_sha256"], json!("r"), "the regularity member is kept");
+                    assert_eq!(body_sha(a), body_sha(b), "the body is unchanged");
+                }
+                assert_eq!(std::fs::read(side.join(side_rel(AREA_CONE, &sha256))).unwrap(), vb);
+            }
+            other => panic!("{other:?}"),
+        }
+        let side2 = side.join("refusals");
+        let refused = |vb: Vec<u8>, ls: &[String]| match apply_to_pieces(ls, &vb, &side2).unwrap() {
+            Applied::Refused { reason, piece, .. } => (reason, piece),
+            other => panic!("{other:?}"),
+        };
+        // a verdict naming only the first body refuses at the second piece
+        let (r, p) = refused(verdict(true, "OLD", vec![both[0].clone()]), &lines);
+        assert_eq!((r.as_str(), p), ("the cone verdict does not name this body", 1));
+        // a refusing verdict
+        let (r, p) = refused(verdict(false, "OLD", both.clone()), &lines);
+        assert!(r.starts_with("the cone verdict refuses the candidate: cone_worse") && p == 0, "{r}");
+        // a verdict pricing another old record
+        let (r, _) = refused(verdict(true, "OTHER", both.clone()), &lines);
+        assert_eq!(r, "the cone verdict prices another old record");
+        // a piece that is not a replacement (no `replaces`)
+        let plain = attach_derivation(r#"{"type":"rule","index":7,"target":[1,1],"rhs":[]}"#, &json!({"class": {}})).unwrap();
+        let (r, _) = refused(verdict(true, "OLD", vec![]), &[plain]);
+        assert!(r.starts_with("the record is not a replacement"), "{r}");
+        // nothing written by a refusal
+        assert!(!side2.exists());
+        let _ = std::fs::remove_dir_all(&side);
+    }
 }

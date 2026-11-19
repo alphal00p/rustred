@@ -1,6 +1,7 @@
 //! THE CONE-PRICING ACCEPTANCE of a replacement (emission contract section 17; round 6 J4; design of lane rulecost 2026-11-19T13:25Z,
-//! agreed by the coordinator). BINDING ORDER: the d = 4 regularity guard (section 13) comes first; a candidate worse at d = 4 is
-//! refused before it is priced; a relation regular at d = 4 wins whatever its size.
+//! agreed by the coordinator). ORDER since the user ruling of 2026-11-19 (LANE_RULES rule 21): validity (derivation, descent),
+//! then this price (the downstream single-core cost), then size; d = 4 regularity (section 13) is a reported tie-break only.
+//! (The order of the design, "the d = 4 guard first; regular wins whatever its size", is withdrawn.)
 //!
 //! PURPOSE: refuse or rank a candidate by the WORK IT HANDS DOWN on the real request, counted on merged receiver keys, not by its
 //! bytes. An A/B partial record pass of the same request (old arm: the old table / input; new arm: the candidate), each stopped
