@@ -357,7 +357,9 @@ limit (for example `systemd-run --user --scope -p MemoryMax=40G rustred
 sector-box-reduce ...`) or a watchdog that stops the process tree. A stopped run
 resumes from `checkpoint_dir`.
 
-The command dispatches the family arities 3, 6, 10 and 15. Another arity is
+The command dispatches the family arities 3, 6, 10 and 15 (vacuum families,
+2-5 loops) and 5, 9, 14 and 20 (propagator families with one external
+momentum, 2-5 loops: L(L+3)/2 coordinates). Another arity is
 an input error: the engine is compiled once per storage width, so each width
 costs build time.
 

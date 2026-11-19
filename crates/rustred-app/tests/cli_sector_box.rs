@@ -442,3 +442,34 @@ fn solution_names_are_file_safe() {
         "solution-m7_2.json"
     );
 }
+
+/// Two-loop massless propagator family (kite, one external momentum q with
+/// q.q = -1, arity 5) with mass z on the rung: the derivative closure in z
+/// closes with the six masters of the one-mass kite family and both
+/// certificates hold.
+#[test]
+fn two_loop_one_mass_kite_propagator_family_closes() {
+    let dir = scratch("p2l-kite");
+    let spec = json!({
+        "schema": "rustred.sector-box-reduce-spec.v1",
+        "family": format!("{FIXTURES}/p2l_kite/family.toml"),
+        "out_dir": dir.join("out"),
+        "targets": [[1, 1, 1, 1, 1]],
+        "derivative_slot": 1,
+        "d_list": ["37/11"],
+        "free": "z",
+        "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+        "lp_gate": false,
+        "exact_certificate": true,
+        "workers": 1,
+    });
+    let (code, report) = run(&dir, &spec);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(
+        report["modular"]["masters"].as_array().unwrap().len(),
+        6,
+        "{report}"
+    );
+    let closure = report["modular"]["closure"].as_array().unwrap();
+    assert_eq!(closure.last().unwrap()["added"], 0);
+}
