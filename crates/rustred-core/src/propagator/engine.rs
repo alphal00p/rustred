@@ -1102,6 +1102,83 @@ pub(crate) fn orbit_across_sectors() -> bool {
     })
 }
 
+/// Orbit canonicalisation counters and the moved-key dump.
+///
+/// Counters (process-wide): keys whose image was computed (cache misses) and
+/// keys moved, for Apply and Route keys; [`canon_stats::report`] prints them.
+/// `RUSTRED_P_CANON_DUMP=<file>`: one line per computed move,
+/// `apply|route <TAB> owner class|presentation <TAB> key <TAB> image <TAB> sign`
+/// (a key evicted from the canonicalisation cache and met again is written
+/// again).
+pub(crate) mod canon_stats {
+    use std::io::Write;
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COMPUTED: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+    static MOVED: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+
+    fn dump() -> Option<&'static Mutex<std::io::BufWriter<std::fs::File>>> {
+        static DUMP: OnceLock<Option<Mutex<std::io::BufWriter<std::fs::File>>>> = OnceLock::new();
+        DUMP.get_or_init(|| {
+            let path = std::env::var_os("RUSTRED_P_CANON_DUMP")?;
+            match std::fs::File::create(&path) {
+                Ok(file) => Some(Mutex::new(std::io::BufWriter::new(file))),
+                Err(error) => {
+                    eprintln!(
+                        "rustred: RUSTRED_P_CANON_DUMP {}: {error}",
+                        path.to_string_lossy()
+                    );
+                    None
+                }
+            }
+        })
+        .as_ref()
+    }
+
+    /// One computed canonicalisation (`route`: a Route key, else Apply).
+    pub(crate) fn computed<I: AsRef<[i64]>>(
+        route: bool,
+        moved: Option<&(I, bool)>,
+        line: impl FnOnce() -> String,
+    ) {
+        let at = usize::from(route);
+        COMPUTED[at].fetch_add(1, Ordering::Relaxed);
+        let Some((image, negative)) = moved else {
+            return;
+        };
+        MOVED[at].fetch_add(1, Ordering::Relaxed);
+        if let Some(dump) = dump()
+            && let Ok(mut out) = dump.lock()
+        {
+            let _ = writeln!(
+                out,
+                "{}\t{:?}\t{}",
+                line(),
+                image.as_ref(),
+                if *negative { "-" } else { "+" }
+            );
+        }
+    }
+
+    /// `(apply computed, apply moved, route computed, route moved)`; flushes
+    /// the dump.
+    pub(crate) fn report() -> (u64, u64, u64, u64) {
+        if let Some(dump) = dump()
+            && let Ok(mut out) = dump.lock()
+        {
+            let _ = out.flush();
+        }
+        (
+            COMPUTED[0].load(Ordering::Relaxed),
+            MOVED[0].load(Ordering::Relaxed),
+            COMPUTED[1].load(Ordering::Relaxed),
+            MOVED[1].load(Ordering::Relaxed),
+        )
+    }
+}
+
 pub(crate) mod canon_cache {
     use std::cell::RefCell;
     use std::sync::OnceLock;
@@ -2330,7 +2407,13 @@ impl<'l> PStepper<'l> {
                 (1 << 63) | (class.0 & !(1 << 63)),
                 u8::from(self.prefer_high),
                 powers,
-                || self.canonical_powers(class, powers),
+                || {
+                    let moved = self.canonical_powers(class, powers)?;
+                    canon_stats::computed(false, moved.as_ref(), || {
+                        format!("apply\t{:016x}\t{powers:?}", class.0)
+                    });
+                    Ok(moved)
+                },
             )?
         {
             // A sign flip of a coefficient the library already sealed: same
@@ -2398,12 +2481,16 @@ impl<'l> PStepper<'l> {
                         .as_ref()
                         .map_or(powers, |(image, _)| image.as_slice());
                     let inside = self.canonical_route(presentation, base)?;
-                    Ok(match (across, inside) {
+                    let moved = match (across, inside) {
                         (None, None) => None,
                         (Some(across), None) => Some(across),
                         (None, Some(inside)) => Some(inside),
                         (Some((_, first)), Some((image, second))) => Some((image, first != second)),
-                    })
+                    };
+                    canon_stats::computed(true, moved.as_ref(), || {
+                        format!("route\tp{}\t{powers:?}", presentation.0)
+                    });
+                    Ok(moved)
                 },
             )?;
             if let Some((image, negative)) = image {
@@ -3487,6 +3574,13 @@ impl OrderedKernel for PKernel<'_, '_> {
     fn forward_finished(&mut self) {
         if let Some(budget) = self.stepper.library.program_budget() {
             budget.release_unheld();
+        }
+        if self.stepper.canonical {
+            let (apply, apply_moved, route, route_moved) = canon_stats::report();
+            eprintln!(
+                "rustred orbit canonicalisation (process totals): apply {apply} computed / {apply_moved} moved, \
+                 route {route} computed / {route_moved} moved"
+            );
         }
     }
 
