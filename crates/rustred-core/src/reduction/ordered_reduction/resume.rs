@@ -89,6 +89,40 @@ pub(crate) fn commit() -> usize {
     pending.len()
 }
 
+/// A save inside a phase is due: every `RUSTRED_RESUME_INPHASE_SECONDS`
+/// (default: the phase-end interval, `RUSTRED_RESUME_SECONDS`), checked every
+/// 4096 keys; `RUSTRED_RESUME_INPHASE_KEYS=<n>` (tests): every n keys instead.
+/// `RUSTRED_RESUME_INPHASE=0` disables saves inside phases.
+pub(crate) fn inphase_due(keys: usize, last_save: &std::time::Instant) -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    static KEYS: OnceLock<Option<usize>> = OnceLock::new();
+    static SECONDS: OnceLock<f64> = OnceLock::new();
+    if !*ON.get_or_init(|| std::env::var("RUSTRED_RESUME_INPHASE").as_deref() != Ok("0")) {
+        return false;
+    }
+    if let Some(every) = *KEYS.get_or_init(|| {
+        std::env::var("RUSTRED_RESUME_INPHASE_KEYS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+    }) {
+        return every > 0 && keys % every == 0;
+    }
+    keys % 4096 == 0
+        && last_save.elapsed().as_secs_f64()
+            >= *SECONDS.get_or_init(|| {
+                std::env::var("RUSTRED_RESUME_INPHASE_SECONDS")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or_else(interval)
+            })
+}
+
+/// Test hook: stop right after the first save inside a phase.
+pub(crate) fn stop_inphase() -> bool {
+    std::env::var("RUSTRED_RESUME_STOP_INPHASE").as_deref() == Ok("1")
+}
+
 pub(crate) fn stop_after_phase() -> Option<usize> {
     std::env::var("RUSTRED_RESUME_STOP_AFTER_PHASE")
         .ok()

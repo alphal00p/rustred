@@ -2454,6 +2454,44 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 }
             }
             progress.processed_keys = progress.processed_keys.saturating_add(1);
+            // A resumable save INSIDE a long phase (one thread, at a key
+            // boundary): written as the state after phase - 1, so a restore
+            // continues this phase from the remaining frontier (the pop order
+            // depends only on the frontier: the same sequence as without a stop).
+            if phase > 0
+                && let Some(dir) = &resume_dir
+                && steps.threads() <= 1
+                && resume::inphase_due(progress.processed_keys, &last_save)
+            {
+                match resume_save_parts(
+                    kernel,
+                    weights,
+                    nonzero_conditions,
+                    frontier,
+                    output,
+                    phase - 1,
+                ) {
+                    Ok(bytes) => {
+                        resume::write_atomic(&dir.join("state.bin"), &bytes)
+                            .map_err(|e| modular::error(format!("resume state write: {e}")))?;
+                        eprintln!(
+                            "rustred resume: state saved INSIDE phase {phase} ({} bytes, {} keys processed): continues this phase",
+                            bytes.len(),
+                            progress.processed_keys
+                        );
+                        last_save = std::time::Instant::now();
+                        if resume::stop_inphase() {
+                            return Err(invariant(
+                                "stopped after a save inside a phase (RUSTRED_RESUME_STOP_INPHASE)",
+                            )
+                            .into());
+                        }
+                    }
+                    Err(reason) => {
+                        eprintln!("rustred resume: no state inside phase {phase} ({reason})")
+                    }
+                }
+            }
             progress.frontier_keys = frontier.len();
             progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
             progress.terminal_keys = output.len();
@@ -2628,20 +2666,40 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
     state: &Admitted<K, A>,
     phase: usize,
 ) -> Result<Vec<u8>, String> {
+    resume_save_parts(
+        kernel,
+        weights,
+        &state.nonzero_conditions,
+        &state.frontier,
+        &state.output,
+        phase,
+    )
+}
+
+/// The saved state from its parts (`phase`: the last COMPLETED phase; a
+/// save inside phase `p` is written as after `p - 1`, see the phase loop).
+fn resume_save_parts<K: OrderedKernel, A: OrderedWeights>(
+    kernel: &K,
+    weights: &mut A,
+    nonzero_conditions: &[Coefficient],
+    frontier: &FrontierOf<K, A>,
+    output: &BTreeMap<IntegralKey, A::Weight>,
+    phase: usize,
+) -> Result<Vec<u8>, String> {
     let mut w = step_cache::codec::Writer { bytes: Vec::new() };
     w.raw(resume::STATE_FORMAT.as_bytes());
     w.varint(phase as u64);
     weights.resume_save(&mut w).map_err(|e| e.to_string())?;
-    w.len(state.nonzero_conditions.len());
-    for condition in &state.nonzero_conditions {
+    w.len(nonzero_conditions.len());
+    for condition in nonzero_conditions {
         resume::put_coefficient(&mut w, condition);
     }
     // 4A: pending keys in the order of their compact form, so that the state
     // file is a function of the request and the phase only, not of the
     // frontier layout or hasher (which differ between one thread and the
     // pipelined scheduler). The restore re-admits them in any order.
-    let mut entries = Vec::with_capacity(state.frontier.iter().count());
-    for (scheduled, weight) in state.frontier.iter() {
+    let mut entries = Vec::with_capacity(frontier.iter().count());
+    for (scheduled, weight) in frontier.iter() {
         let mut bytes = Vec::new();
         if !K::tail_encode(&scheduled.key, &mut bytes) || kernel.tail_key(&bytes).is_none() {
             return Err("a pending key has no decodable compact form".to_owned());
@@ -2655,8 +2713,8 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
         w.raw(&bytes);
         weights.resume_put_weight(weight, &mut w);
     }
-    w.len(state.output.len());
-    for (key, weight) in &state.output {
+    w.len(output.len());
+    for (key, weight) in output {
         w.len(key.powers().len());
         for &power in key.powers() {
             w.zigzag(power);
