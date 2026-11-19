@@ -88,6 +88,18 @@ pub(crate) fn max_children() -> usize {
 /// give identical results); it only changes which steps the memo holds.
 pub(crate) fn admit_large(key: &[i64]) -> bool {
     use std::hash::{Hash, Hasher};
+    // RUSTRED_P_STEP_MEMO_LARGE=never: large steps are never memoised (the
+    // plain bound: T277's phase-15 stretch stayed <= 34 GiB through 4.92 G
+    // ops, at 2x the record time in ordinary phases); default 'second'.
+    static NEVER: OnceLock<bool> = OnceLock::new();
+    if *NEVER.get_or_init(|| {
+        std::env::var("RUSTRED_P_STEP_MEMO_LARGE")
+            .as_deref()
+            .map(str::trim)
+            == Ok("never")
+    }) {
+        return false;
+    }
     static SEEN: std::sync::Mutex<Option<std::collections::HashSet<u64>>> =
         std::sync::Mutex::new(None);
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
