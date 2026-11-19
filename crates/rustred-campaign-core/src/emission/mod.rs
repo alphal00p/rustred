@@ -15,6 +15,8 @@
 //! `rustred_campaign::emission`.
 pub mod body;
 pub mod class;
+pub mod descent;
+pub mod symrows;
 pub mod ladder;
 pub mod legacy;
 pub mod regularity;
@@ -35,6 +37,10 @@ pub const AREA_KEYS: &str = "keys";
 pub const AREA_EVID: &str = "evid";
 /// the d = 4 regularity verdict of a replacement (contract section 13), named by every piece (`derivation.replaces`)
 pub const AREA_REGULARITY: &str = "regularity";
+/// the engine's descent verdict on the record (contract section 14), named by `derivation.descent`
+pub const AREA_DESCENT: &str = "descent";
+/// the symrows request and the symmetry group of a symmetry-relation check (contract section 15)
+pub const AREA_SYMROWS: &str = "symrows";
 
 /// The side directory of a table path (`x/T.table.jsonl` -> `x/T.emission`).
 pub fn side_dir(table: &std::path::Path) -> std::path::PathBuf {
@@ -89,6 +95,9 @@ pub struct Settings {
     /// 10, 20,000 face keys). The acceptance itself cannot be switched off.
     #[serde(default)]
     pub regularity: Option<RegularitySettings>,
+    /// the engine binary of the DESCENT test (`rr_node descent`, contract section 14); without it every record is refused
+    #[serde(default)]
+    pub descent_node: Option<String>,
 }
 
 /// Cone and key cap of the d = 4 regularity acceptance.
@@ -115,6 +124,10 @@ pub struct Parts {
     pub check: Result<(String, String, CheckSummary), String>,
     /// POINT / SYMMETRY kinds: the instance-span check instead (checker sha256, output sha256, its verdict word)
     pub span: Option<(String, String, String)>,
+    /// the engine's DESCENT test on the record (rr_node sha256, output sha256, LOWER / NOT_LOWER, the first not-lower term)
+    pub descent: Option<(String, String, String, Option<String>)>,
+    /// a SYMMETRY RELATION's check (contract section 15): {element, request_sha256, group_sha256, only, rows}
+    pub symrows: Option<Value>,
     pub classed: Classed,
     pub cone: Option<ConeEvidence>,
     pub sample: Option<SampleEvidence>,
@@ -129,7 +142,11 @@ pub struct Parts {
 pub fn derivation(p: &Parts) -> Value {
     let check = match (&p.span, &p.check) {
         (Some((tool, out, verdict)), _) => {
-            json!({"tool_sha256": tool, "output_sha256": out, "mode": "instance-span", "verdict": verdict})
+            let mut c = json!({"tool_sha256": tool, "output_sha256": out, "mode": "instance-span", "verdict": verdict});
+            if let Some(s) = &p.symrows {
+                c["symrows"] = s.clone();
+            }
+            c
         }
         (None, Ok((tool, out, s))) => {
             json!({"tool_sha256": tool, "output_sha256": out, "stages": s.record_json()})
@@ -149,6 +166,14 @@ pub fn derivation(p: &Parts) -> Value {
     if let Some(l) = &p.legacy {
         class["legacy"] = l.clone();
     }
+    // an IMPORT states that descent was NOT CHECKED (contract section 14: imports are exempt, and say so)
+    let descent = match (&p.descent, p.origin) {
+        (Some((tool, out, verdict, first)), _) => {
+            json!({"tool_sha256": tool, "output_sha256": out, "verdict": verdict, "first": first})
+        }
+        (None, Origin::Import) => json!({"verdict": "NOT_CHECKED"}),
+        (None, Origin::Lift) => Value::Null,
+    };
     json!({
         "schema": SCHEMA,
         "body_sha256": p.body_sha256,
@@ -159,6 +184,7 @@ pub fn derivation(p: &Parts) -> Value {
         "check": check,
         "class": class,
         "ladder": p.ladder,
+        "descent": descent,
         "policy": {"name": p.policy.0, "sha256": p.policy.1},
     })
 }

@@ -439,6 +439,7 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
     let policy_text = serde_json::to_vec(&policy).unwrap();
     let classed = class_of(Kind::Lifted, Origin::Lift, Some(&s), &Evidence::default());
     assert_eq!(classed.class, ClassWord::WholeDomain);
+    let descent_out = br#"{"failing_rules":[],"first":null,"not_lower":0,"order":{"name":"t"},"rules":1,"terms":3}"#.to_vec();
     let parts = Parts {
         kind: Kind::Lifted,
         origin: Origin::Lift,
@@ -447,6 +448,8 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
         certificate: Some((sha256_hex(b"cert"), 4, "v0+rows".into())),
         check: Ok((sha256_hex(b"checker"), sha256_hex(check_line.as_bytes()), s)),
         span: None,
+        descent: Some((sha256_hex(b"node"), sha256_hex(&descent_out), "LOWER".into(), None)),
+        symrows: None,
         classed,
         cone: None,
         sample: None,
@@ -456,7 +459,8 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
     };
     let d = derivation(&parts);
     assert!(
-        d.to_string().len() < 1024,
+        // contract section 11: < 1.25 kB (1 kB before the descent member of section 14, ~190 bytes)
+        d.to_string().len() < 1280,
         "derivation member {} bytes",
         d.to_string().len()
     );
@@ -464,12 +468,30 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
     let files = [
         (AREA_CERT, b"cert".to_vec()),
         (AREA_CHECK, check_line.clone().into_bytes()),
-        (AREA_POLICY, policy_text),
+        (AREA_POLICY, policy_text.clone()),
+        (AREA_DESCENT, descent_out.clone()),
     ];
     let side = side_map(&files);
     let none_alias = |_: i64| None;
     let v = check_record(&line, 0, &side, &none_alias);
     assert!(v.ok(), "{:?}", v.problems);
+    // DESCENT (contract section 14): without the stored engine output, or with an output of another record (2 terms), or
+    // a NOT LOWER output: refused
+    let no_descent = side_map(&files[..3]);
+    let v = check_record(&line, 0, &no_descent, &none_alias);
+    assert!(v.problems.iter().any(|p| p.contains("descent output")), "{:?}", v.problems);
+    for bad in [
+        br#"{"failing_rules":[],"first":null,"not_lower":0,"order":{"name":"t"},"rules":1,"terms":2}"#.to_vec(),
+        br#"{"failing_rules":["10#0"],"first":"NotLower","not_lower":1,"order":{"name":"t"},"rules":1,"terms":3}"#.to_vec(),
+    ] {
+        let mut d2 = d.clone();
+        d2["descent"]["output_sha256"] = json!(sha256_hex(&bad));
+        let l2 = attach_derivation(TOY, &d2).unwrap();
+        let mut f2 = files.to_vec();
+        f2[3] = (AREA_DESCENT, bad);
+        let v = check_record(&l2, 0, &side_map(&f2), &none_alias);
+        assert!(v.problems.iter().any(|p| p.contains("descent") || p.contains("not_lower")), "{:?}", v.problems);
+    }
     assert_eq!(v.class, Some(ClassWord::WholeDomain));
     // index != position
     assert!(!check_record(&line, 3, &side, &none_alias).ok());

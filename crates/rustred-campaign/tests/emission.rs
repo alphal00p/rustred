@@ -169,6 +169,9 @@ fn rule_and_cert(
 fn emitter(bin: &Path, dir: &Path) -> Emitter {
     let mut c = Checker::new(bin).unwrap();
     c.floor_s = 300.0;
+    // descent (contract section 14) by the FAKE engine test: these toy tables have no engine order; the weight-cert path is under test
+    let fake = Path::new(env!("CARGO_BIN_EXE_rr_fake_child"));
+    c.descent_node = Some((fake.to_path_buf(), rustred_campaign::emission::child::file_sha256(fake).unwrap()));
     Emitter::new(
         c,
         Policy::default(),

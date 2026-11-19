@@ -1927,6 +1927,7 @@ fn main() {
         ["job", path] => run_job(Path::new(path)),
         ["--mode", "weight-cert", ..] => wcert::main(&args),
         ["--mode", "instance-span", ..] => wcert::span_main(&args),
+        ["descent", ..] => wcert::descent_main(&args),
         _ => {
             eprintln!("usage: rr_fake_child job RUN/job.json | rr_fake_child version --json");
             std::process::exit(2);

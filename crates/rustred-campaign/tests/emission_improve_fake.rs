@@ -87,7 +87,7 @@ fn config(dir: &Path, table: &Path) -> PathBuf {
     let cfg = json!({"schema":"rustred.campaign.improve.v1","program":"rr_node","nodes":[node],
         "improve":{"filter":{"largest":2},"subtree":false,
                    "candidates":[{"name":"rung","args":["--seed-pose-rung"]},{"name":"tight","args":["--seed-layer-cap","0,0,1","--max-depth","3"]}]},
-        "emission": {"checker": FAKE, "recover_rows": false, "cert_dir": "out/wcert"},
+        "emission": {"checker": FAKE, "recover_rows": false, "cert_dir": "out/wcert", "descent_node": FAKE},
         "job":{"cap_bytes":268435456u64,"expected_peak_bytes":67108864u64,"full_cap_bytes":268435456u64,
                "full_expected_peak_bytes":67108864u64,"heartbeat_s":1,"stop_grace_s":3},
         "fake":{"program":"rr_fake_child","ms":5,"runs":runs}});

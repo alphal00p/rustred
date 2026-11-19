@@ -237,6 +237,9 @@ pub fn emitter_from(
     if let Some(f) = es.floor_s {
         ck.floor_s = f;
     }
+    if let Some(n) = &es.descent_node {
+        ck.descent_node = Some((PathBuf::from(n), super::child::file_sha256(Path::new(n))?));
+    }
     Emitter::new(ck, es.policy.clone().unwrap_or_default(), side, work)
 }
 
@@ -316,6 +319,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut certs: Vec<PathBuf> = vec![];
     let mut kind = GateKind::Auto;
     let (mut policy, mut family, mut zeros, mut sym, mut work) = (None, None, None, None, None);
+    let mut descent: Option<PathBuf> = None;
     let mut recover = true;
     let mut floor: Option<f64> = None;
     let mut i = 0;
@@ -332,6 +336,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
             "--zero-sectors" => zeros = Some(PathBuf::from(val(i)?)),
             "--symmetry-group" => sym = Some(PathBuf::from(val(i)?)),
             "--work" => work = Some(PathBuf::from(val(i)?)),
+            "--descent-node" => descent = Some(PathBuf::from(val(i)?)),
             "--check-floor" => floor = Some(val(i)?.parse().map_err(|e| format!("--check-floor: {e}"))?),
             "--no-recover-rows" => {
                 recover = false;
@@ -358,6 +363,9 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
         ck.symmetry_group = sym.clone();
         if let Some(f) = floor {
             ck.floor_s = f;
+        }
+        if let Some(n) = &descent {
+            ck.descent_node = Some((n.clone(), super::child::file_sha256(n)?));
         }
         Emitter::new(ck, pol.clone(), side, &work)
     };

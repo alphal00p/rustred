@@ -11,7 +11,8 @@ use super::class::{
 };
 use super::legacy::verify_row;
 use super::{
-    AREA_CERT, AREA_CHECK, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, AREA_REGULARITY, SCHEMA,
+    AREA_CERT, AREA_CHECK, AREA_DESCENT, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, AREA_REGULARITY,
+    AREA_SYMROWS, SCHEMA,
 };
 use serde_json::Value;
 
@@ -167,6 +168,29 @@ pub fn check_record(
                 }
                 Err(e) => v.problems.push(e),
             }
+            // a SYMMETRY RELATION (contract section 15): proven on the expanded symmetry row alone, its exact certificate
+            // made on these record bytes, the request of the record's own element at its key
+            if origin == Origin::Lift && let Some(e) = super::symrows::element(&body) {
+                let s = &d["check"]["symrows"];
+                match (s["request_sha256"].as_str(), s["group_sha256"].as_str(), cert_sha.as_deref()) {
+                    (Some(rq), Some(g), Some(cs)) => {
+                        let req = fetch(AREA_SYMROWS, rq, "symrows request", &mut v.problems);
+                        let _ = fetch(AREA_SYMROWS, g, "symmetry group", &mut v.problems);
+                        let cert = fetch(AREA_CERT, cs, "symmetry-relation certificate", &mut v.problems);
+                        if let (Some(req), Some(cert)) = (req, cert)
+                            && let Err(x) = super::symrows::verify(&text, &cert, &req, &body)
+                        {
+                            v.problems.push(format!("symmetry relation (element {e}): {x}"));
+                        }
+                        if s["element"].as_u64() != Some(e) {
+                            v.problems.push(format!("the check names element {}, the record element {e}", s["element"]));
+                        }
+                    }
+                    _ => v.problems.push(format!(
+                        "a symmetry relation (element {e}) without its symrows check and certificate (contract section 15)"
+                    )),
+                }
+            }
             v.check_output = Some(text);
         }
     } else if let Some(out_sha) = d["check"]["output_sha256"].as_str()
@@ -231,6 +255,39 @@ pub fn check_record(
                             }
                         }
                         Err(e) => v.problems.push(format!("regularity verdict: {e}")),
+                    }
+                }
+            }
+        }
+    }
+    // DESCENT (contract section 14): every EMITTED record (origin lift; the lifted path only assumed descent) names the
+    // engine's descent output on this record; the output must be of this one record (1 rule, as many terms as its rhs),
+    // say every term LOWER, and agree with the stated verdict. An exact, regular record that ascends is refused.
+    if origin == Origin::Lift {
+        match d["descent"]["output_sha256"].as_str() {
+            None => v
+                .problems
+                .push("an emitted record without its descent verdict (contract section 14)".into()),
+            Some(sha) => {
+                if let Some(b) = fetch(AREA_DESCENT, sha, "descent output", &mut v.problems) {
+                    let out = String::from_utf8_lossy(&b);
+                    match super::descent::verify(&out, &body) {
+                        Ok(lower) => {
+                            let word = if lower { "LOWER" } else { "NOT_LOWER" };
+                            if d["descent"]["verdict"].as_str() != Some(word) {
+                                v.problems.push(format!(
+                                    "stated descent verdict {} but the stored output says {word}",
+                                    d["descent"]["verdict"]
+                                ));
+                            }
+                            if !lower {
+                                v.problems.push(format!(
+                                    "not_lower: a right-hand-side term is not lower than its target ({})",
+                                    super::descent::parse(&out).ok().and_then(|x| x.first).unwrap_or_default()
+                                ));
+                            }
+                        }
+                        Err(e) => v.problems.push(format!("descent output: {e}")),
                     }
                 }
             }

@@ -36,7 +36,7 @@ fn closeloop_relation_tables_are_emitted_inside_the_flow_and_table_check_accepts
     std::fs::write(&files.hand, "").unwrap();
     // emission ON for the node (the fake checker)
     let mut cfg: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
-    cfg["nodes"][0]["emission"] = json!({"checker": FAKE, "recover_rows": false});
+    cfg["nodes"][0]["emission"] = json!({"checker": FAKE, "recover_rows": false, "descent_node": FAKE});
     std::fs::write(&files.config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
     let spec = campaign_spec(&t.campaign, &files, FAKE, &cpus());
     let sp = write_spec(&t, "spec.json", &spec);

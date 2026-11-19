@@ -86,7 +86,32 @@ pub fn span_main(args: &[String]) -> ! {
         .unwrap_or_else(|e| die(&e.to_string()));
     let line = line.trim_end_matches('\n');
     let rec: Value = serde_json::from_str(line).unwrap_or(Value::Null);
+    // a SYMMETRY RELATION (origin.kind symmetry_relation) has no seeds: like the real kernel, it needs --symrows (contract
+    // section 15); with --symrows-only the rows are used alone and --emit-certs writes the certificate bound to the line
+    let symrows = flag("--symrows");
+    let only = args.iter().any(|a| a == "--symrows-only");
+    if rec["origin"]["kind"] == "symmetry_relation" && symrows.is_none() {
+        println!("{}", json!({"verdict": "ERROR", "error": "MISSING_SEEDS: the rule record has no seeds; instance-span needs the seed set"}));
+        std::process::exit(2)
+    }
+    let given = symrows
+        .as_ref()
+        .map(|p| std::fs::read_to_string(p).unwrap_or_default().lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0);
     let status = rec["fake_span"].as_str().unwrap_or("EXACT_IN_SPAN_AT_KEY").to_string();
+    if let Some(c) = flag("--emit-certs")
+        && status == "EXACT_IN_SPAN_AT_KEY"
+    {
+        // `fake_symcert: "ibp"` = a certificate on an IBP row (m >= 0), for the negative test
+        let m = if rec["fake_symcert"] == "ibp" { 4 } else { -1000000 };
+        let cert = json!({"schema": "rustred.proof-kernel.span-cert.v1", "rule": rec["index"], "record_sha256": sha256_hex(line.as_bytes()),
+            "key": rec["fixed"], "L": ["1"], "weights": [[0, m, ["1"]]], "fake": true});
+        // like the kernel: --emit-certs is a DIRECTORY, one cert_<key>.json per exact key
+        let kv = rec["fixed"].as_array().map(|a| a.iter().map(|x| x.to_string()).collect::<Vec<_>>().join("_")).unwrap_or_default();
+        let _ = std::fs::create_dir_all(&c);
+        let f = format!("{c}/cert_{kv}.json");
+        std::fs::write(&f, cert.to_string()).unwrap_or_else(|e| die(&format!("{f}: {e}")));
+    }
     let ks: Vec<Value> = std::fs::read_to_string(&keys)
         .unwrap_or_else(|e| die(&format!("{keys}: {e}")))
         .lines()
@@ -98,8 +123,40 @@ pub fn span_main(args: &[String]) -> ! {
     let exact = status == "EXACT_IN_SPAN_AT_KEY";
     let out = json!({"schema": "rustred.proof-kernel.span.v1", "mode": "instance-span", "fake": true,
         "rule": rec["index"], "record_sha256": sha256_hex(line.as_bytes()), "keys": ks,
+        "symrows": {"given": given, "only": only},
         "verdict": if exact { "EXACT_ALL_KEYS_IN_SPAN" } else { "NOT_ALL_KEYS_IN_SPAN" },
         "counts": {"in_span": if exact { n } else { 0 }, "not_in_span": if exact { 0 } else { n }, "other": 0}});
     println!("{out}");
     std::process::exit(0)
+}
+
+/// `rr_fake_child descent --table T [--order X]`: a FAKE of `rr_node descent` (contract section 14) for tests: every rule of
+/// T is LOWER unless its line carries `"fake_descent": "NotLower"`; output in the engine's form; exit 0 pass / 1 fail.
+pub fn descent_main(args: &[String]) -> ! {
+    let table = args
+        .iter()
+        .position(|a| a == "--table")
+        .and_then(|i| args.get(i + 1))
+        .cloned()
+        .unwrap_or_else(|| die("fake descent: --table is required"));
+    let text = std::fs::read_to_string(&table).unwrap_or_else(|e| die(&format!("{table}: {e}")));
+    let (mut rules, mut terms, mut failing, mut first) = (0u64, 0u64, vec![], Value::Null);
+    for l in text.lines() {
+        let v: Value = serde_json::from_str(l).unwrap_or(Value::Null);
+        if v["type"] != "rule" {
+            continue;
+        }
+        let id = format!("{}#{}", v["chart"].as_str().unwrap_or(""), v["index"].as_i64().unwrap_or(0));
+        rules += 1;
+        terms += v["rhs"].as_array().map_or(0, Vec::len) as u64;
+        if v["fake_descent"] == "NotLower" {
+            if first.is_null() {
+                first = json!(format!("NotLower {{ rule: {id:?}, target: {:?}, term: (fake) }}", v["target"].as_str().unwrap_or("")));
+            }
+            failing.push(id);
+        }
+    }
+    let n = failing.len();
+    println!("{}", json!({"failing_rules": failing, "first": first, "not_lower": n, "order": {"name": "fake"}, "rules": rules, "terms": terms}));
+    std::process::exit(if n == 0 { 0 } else { 1 })
 }

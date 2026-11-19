@@ -828,6 +828,9 @@ impl ImproveSource {
             if let Some(f) = es.floor_s {
                 ck.floor_s = f;
             }
+            if let Some(n) = &es.descent_node {
+                ck.descent_node = Some((PathBuf::from(n), crate::emission::child::file_sha256(Path::new(n))?));
+            }
             let em = crate::emission::emitter::Emitter::new(
                 ck,
                 es.policy.clone().unwrap_or_default(),

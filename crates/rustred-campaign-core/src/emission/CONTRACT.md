@@ -172,7 +172,8 @@ and counted in its budget.
 ## 11. Implementation (ac/gencheck) and routing
 - Pure: `rustred-campaign-core::emission` (body, class, ladder incl. partition proof and curve-key enumeration, validate).
 - Process: `rustred-campaign::emission` (child, emitter, replace, tablecheck). Side files are CONTENT-ADDRESSED in
-  `<stem>.emission/{cert,check,prov,policy,keys}/<sha256>.json(l)`: the record names sha256s only (member < 1 kB).
+  `<stem>.emission/{cert,check,prov,policy,keys}/<sha256>.json(l)`: the record names sha256s only (member < 1.25 kB;
+  1 kB before the descent member of section 14, about 190 bytes, was added on 2026-11-19).
 - Checker: `rr_proof --mode weight-cert ... --recover-rows` (row recovery, section 10) and `rr_proof --mode source-rows`.
 - CLI: `rr_campaign table-check --table T [--recheck --checker BIN [--every K]] [--manifest OUT]` (exit 2 = REFUSED;
   the manifest is one line per rule: chart, position, index, body_sha256, kind, class, certificate sha256, check output
@@ -260,3 +261,66 @@ for a live replacement; a legacy import records "not compared".
 - TEST: the outside review's witness (astra_5L/review-20261119/T180p2-v5/regularity/WITNESS.json) is
   tests/regularity_t180p2.rs: T180p2 670 -> 672 is REFUSED (495 / 495 served keys regular -> singular in D + r <= 10; the
   review's 315 simple-pole daughters at its witness key reproduced exactly).
+
+## 14. DESCENT of every emitted record (ROUND 5 H0 GAP-4, 2026-11-19; lane t266's correction)
+RULE: every right-hand-side term of an emitted relation must be LOWER than its target in the node's order, by the ENGINE's
+own descent test. Exact + d = 4 regular + NOT LOWER = REFUSED (lane t266's candidate (i): four exact, regular symmetry
+relations of T266 that ascend in phys_rev and close a cycle with the partner's rule). Part of the ACCEPTANCE of every emitted
+record (emit-table / the in-flow gate / emit-replace / the improve writer / the closeloop repair gate); no policy switch turns
+it off.
+- WHY EVERY RECORD: the lifted path only ASSUMES descent, it does not guarantee it by construction. The node driver records
+  a failure as data (`native_descent_not_lower` in its end record) and goes on; the T162 final certification needed a
+  separate strict-descent step (b1). So the member applies to every emitted rule, lifted, point, symmetry and replacement.
+- TEST: `rr_node descent --table <the table header + this one record>` (the order is the header's; the engine prints
+  `{failing_rules, first, not_lower, order{name, ...}, rules, terms}`, exit 0 pass / 1 fail). The emitter runs it FIRST, on
+  exactly the record bytes, before policy admission. Bound to the record: the output must be of 1 rule with as many terms
+  as the record's rhs. No engine binary, no JSON output or a binding mismatch = refused (`descent_not_checked`); NOT LOWER =
+  refused (`not_lower (<first>)`).
+- EVIDENCE: the engine's output line is a side file `<stem>.emission/descent/<sha256>.json`; the derivation carries
+  `descent: {tool_sha256 (the rr_node binary), output_sha256, verdict LOWER | NOT_LOWER, first}`. An IMPORT states
+  `descent: {verdict: NOT_CHECKED}` (exempt, and says so).
+- table-check REFUSES an emitted record (origin lift) without the member, with an output missing beside the table, of
+  another record (rule / term count), with NOT LOWER, or with a stated verdict that differs from the stored output.
+- BINDING LIMIT AND THE RE-RUN: a PASSING engine output names no record (only counts and the order), so the record-level
+  binding is 1 rule + the rhs term count. `rr_campaign table-check --descent-node BIN` RE-RUNS the engine's test on header +
+  each emitted record's own bytes and refuses a record whose stored output differs (test: K2 emitted with a wrong descent
+  binary carries a forged LOWER of the right shape; the record-level check passes it, the re-run refuses it).
+- CALL: `rr_campaign emit-replace ... [--descent-node BIN]` (default: the producer `--rr-node`); `rr_campaign emit-table ...
+  --descent-node BIN`; the node / improve / closeloop config `emission.descent_node: BIN`. The binary's sha256 is recorded
+  per record. Reference binary (round 5): int/9-land2 rr_node built on the gate-PASS head (origin 4186f4472), sha256
+  2bac8f270e176d1d347f77ee730fc84ab6ae04e1450ba9c2e7c5f3b2127ad637 (no frozen engine-line5 rr_node with the `descent` verb
+  was found among the gated directories).
+- TEST (permanent negative): tests/descent_t266.rs. Candidate (i) K2 (frozen, implementer-scratch/t266study/candidates/
+  T266-cand-i-symrel-20261119T1401Z) with a stand-in EXACT checker is REFUSED `not_lower`, verdict NOT_LOWER (first: the
+  term I(..,0,0,0,0,-2,0) above the target I(..,0,0,0,-2,0,0) in phys_rev); the one-dot terminal image
+  I(1,2,1^12;0^6) -> I(2,1^13;0^6) descends and is accepted (LOWER). Fake-checker coverage in emission_gate_fake.rs (the
+  gate refuses an ascending record and writes nothing; no descent binary = refused; table-check refuses a removed or
+  restated member).
+
+## 15. SYMMETRY RELATIONS: the checker's symmetry-row mode (ROUND 5 H0 GAP-1, 2026-11-19; lane t266's request)
+A record that states it is a symmetry relation, `origin: {kind: "symmetry_relation", element: e}` (a point record: its own key),
+is proven by the independent checker on the EXPANDED SYMMETRY ROW of element e at its key, alone:
+`rr_proof --mode instance-span --table <header + record> --rule N --offset B --keys <the key> --symmetry-group G
+ --symrows R --symrows-only --emit-certs DIR`, R = one line `{element: e, id, offset: 0^arity}` (the kernel derives the line
+permutation and the numerator decomposition from the element's matrix and checks unimodularity). Without the rows the kernel
+refuses the seedless record (`MISSING_SEEDS`: lane t266's emitter attempt, and the red control of the test).
+- G is the checker's `--symmetry-group` (emit-table `--symmetry-group`, flow config `emission.symmetry_group`); none given =
+  refused (`a symmetry relation needs the symmetry group`).
+- The kernel writes the exact certificate `DIR/cert_<key>.json` (schema rustred.proof-kernel.span-cert.v1: rule,
+  record_sha256 of the record line, key, L, weights; a symmetry row is m < 0). BINDING (emitter and table-check,
+  `symrows::verify`): the output says `symrows: {given >= 1, only: true}` and was made on these record bytes; the certificate
+  was made on these record bytes, at this rule index and key, with weights on symmetry rows only (no IBP row, m >= 0); the
+  request names the record's own element at offset 0. Anything else = refused (`symrows_binding (...)`).
+- EVIDENCE: the request and the group are side files `<stem>.emission/symrows/<sha256>.json`, the certificate is
+  `<stem>.emission/cert/<sha256>.json`; the derivation's check carries `symrows: {element, request_sha256, group_sha256, only:
+  true, rows}` and `certificate: {sha256, bytes, form: "span-cert"}`. Class: whole domain (a point record proven at its key).
+- table-check REFUSES a record naming a symmetry element without the `symrows` member and certificate, or whose output,
+  certificate or request does not bind to its bytes; an edited record (other bytes) is refused (body sha256).
+- Records without `origin.element` (plain point records, the closeloop symmetry tables) keep the plain instance-span check.
+- Descent (section 14) applies as to every record: lane t266's candidate (i) K2..K5 are EXACT on their symmetry row and
+  REFUSED for not lower.
+- TEST: tests/symrows_t266.rs (REAL rr_proof 03f436f7 + REAL rr_node descent 2bac8f27, one licence slot): K2 without its
+  element -> MISSING_SEEDS (red control); K2 with element 0 -> EXACT, certificate weights and key equal to the lane's frozen
+  K2.certificate.json, refused for descent only; the X15 form (element 1: I(1^14; -1,0^5) = I(1^13,0; 0^6) + I(1^14; 0^6))
+  -> exact, LOWER, EMITTED, table-check ACCEPTED (whole domain), also with the descent re-run; edited after emission ->
+  table-check refuses; coefficient 2 -> NOT_ALL_KEYS_IN_SPAN, refused. Fake-checker coverage in emission_gate_fake.rs.

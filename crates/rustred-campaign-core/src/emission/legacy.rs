@@ -904,7 +904,7 @@ mod tests {
     /// `exact_at_key` is not read; an output of another line is refused.
     #[test]
     fn point_records_need_a_stored_instance_span_output_of_their_own_body() {
-        use crate::emission::AREA_CHECK;
+        use crate::emission::{AREA_CHECK, AREA_DESCENT};
         let line = r#"{"type":"rule","chart":"110","index":0,"case":"Coordinate(P)","fixed":[1,1,0],"equations":[],"target":"I(1,1,0)","rhs":[["I(0,1,0)","1"]],"exceptions":[],"domain_bounds":null}"#;
         let ids = body_ids(line).unwrap();
         let policy = Policy::default();
@@ -912,6 +912,10 @@ mod tests {
         let mk = |span: Option<(String, Vec<u8>)>, stated: bool| {
             let mut side: BTreeMap<(String, String), Vec<u8>> = BTreeMap::new();
             side.insert((AREA_POLICY.into(), sha256_hex(&pt)), pt.clone());
+            // the engine's descent output on this one-term record (contract section 14): LOWER
+            let dout = br#"{"failing_rules":[],"first":null,"not_lower":0,"order":{"name":"t"},"rules":1,"terms":1}"#.to_vec();
+            let dsha = sha256_hex(&dout);
+            side.insert((AREA_DESCENT.into(), dsha.clone()), dout);
             let sp = span.map(|(verdict, out)| {
                 let sha = sha256_hex(&out);
                 side.insert((AREA_CHECK.into(), sha.clone()), out);
@@ -925,6 +929,8 @@ mod tests {
                 certificate: None,
                 check: Err("point record: instance-span check".into()),
                 span: sp,
+                descent: Some(("node".into(), dsha, "LOWER".into(), None)),
+                symrows: None,
                 classed: Classed { class: ClassWord::WholeDomain, reason: None, evidence: vec!["exact_at_key"] },
                 cone: None,
                 sample: None,
@@ -999,6 +1005,8 @@ mod tests {
                 certificate: None,
                 check: Err("legacy record".into()),
                 span: None,
+                descent: None,
+                symrows: None,
                 classed: Classed { class, reason: None, evidence: ev },
                 cone,
                 sample: None,

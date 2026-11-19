@@ -216,6 +216,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut given: Option<PathBuf> = None;
     let (mut zero_sectors, mut symmetry_group): (Option<PathBuf>, Option<PathBuf>) = (None, None);
     let mut reg_table: Option<PathBuf> = None;
+    let mut descent_node: Option<PathBuf> = None;
     let mut reg = regcheck::Options::default();
     let mut i = 0;
     while i < rest.len() {
@@ -223,6 +224,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         match rest[i].as_str() {
             "--table" => table = Some(PathBuf::from(flag_value(rest, i)?)),
             "--regularity-table" => reg_table = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--descent-node" => descent_node = Some(PathBuf::from(flag_value(rest, i)?)),
             "--regularity-cone" => {
                 reg.cone = flag_value(rest, i)?
                     .parse()
@@ -337,6 +339,9 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     if let Some(r) = check_ratio {
         ck.ratio = r;
     }
+    // the DESCENT test (contract section 14): --descent-node, else the producer rr_node (it has the engine's `descent` verb)
+    let dn = descent_node.clone().unwrap_or_else(|| rr_node.clone());
+    ck.descent_node = Some((dn.clone(), child::file_sha256(&dn)?));
     let cand = out.join("cand.table.jsonl");
     let side = side_dir(&cand);
     let emitter = Emitter::new(ck, policy, &side, &out.join("work"))?;

@@ -24,6 +24,9 @@ pub struct Args {
     pub every: usize,
     pub manifest: Option<PathBuf>,
     pub work: Option<PathBuf>,
+    /// RE-RUN the engine's descent test (`BIN descent`, contract section 14) on every emitted record's own bytes and
+    /// compare with its stored output (a passing output names no record: this re-run is the strong binding)
+    pub descent_recheck: Option<PathBuf>,
 }
 
 /// Check a table; returns (summary, every record accepted).
@@ -40,6 +43,7 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     let mut n_refused = 0u64;
     let mut rules = 0u64;
     let mut rechecked = 0u64;
+    let mut descent_rechecked = 0u64;
     let mut manifest: Option<std::io::BufWriter<std::fs::File>> = match &a.manifest {
         Some(p) => Some(std::io::BufWriter::new(
             std::fs::File::create(p).map_err(|e| format!("{}: {e}", p.display()))?,
@@ -99,6 +103,28 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
                 }
             }
         }
+        // descent re-run: the engine's test again on header + the record's own bytes; equal to the stored output
+        if let Some(node) = &a.descent_recheck
+            && let (body, Some(raw)) = strip_derivation(&l)?
+            && let Ok(d) = serde_json::from_str::<Value>(&raw)
+            && let Some(sha) = d["descent"]["output_sha256"].as_str()
+        {
+            let dir = work.join(format!("descent-{chart}-{position}"));
+            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+            let input = dir.join("descent-input.table.jsonl");
+            std::fs::write(&input, format!("{}\n{body}\n", header.trim_end())).map_err(|e| format!("{}: {e}", input.display()))?;
+            let args: Vec<String> = vec!["descent".into(), "--table".into(), input.display().to_string()];
+            let r = super::child::run(node, &args, &[], &dir, "descent", 600.0)?;
+            descent_rechecked += 1;
+            let again = r.stdout_text().lines().rev().find(|l| l.trim_start().starts_with('{')).map(str::to_string);
+            let stored = lookup(rustred_campaign_core::emission::AREA_DESCENT, sha);
+            let parse = |b: &[u8]| serde_json::from_slice::<Value>(b).ok();
+            match (again, stored) {
+                (Some(x), Some(s)) if parse(x.as_bytes()).is_some() && parse(x.as_bytes()) == parse(&s) => {}
+                (Some(x), _) => verdict.problems.push(format!("the descent re-run on the record's bytes differs from the stored output: {x}")),
+                (None, _) => verdict.problems.push(format!("the descent re-run gave no output ({})", r.stderr_tail(200))),
+            }
+        }
         let class = verdict.class.unwrap_or(ClassWord::None);
         classes.insert(verdict.index, class);
         *counts.entry(class.word().to_string()).or_default() += 1;
@@ -133,13 +159,14 @@ pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     Ok((
         json!({"schema": "rustred.campaign.table-check.v1", "table": a.table.display().to_string(),
             "side": side.display().to_string(), "rules": rules, "refused": n_refused, "classes": counts, "subclasses": subclasses,
-            "rechecked": rechecked, "verdict": if ok { "ACCEPTED" } else { "REFUSED" }, "refusals": refused}),
+            "rechecked": rechecked, "descent_rechecked": descent_rechecked, "verdict": if ok { "ACCEPTED" } else { "REFUSED" }, "refusals": refused}),
         ok,
     ))
 }
 
-/// CLI: `table-check --table T [--recheck --checker BIN [--every K] [--no-recover-rows] [--family F]] [--manifest OUT]
-/// [--work DIR]`. Exit 0 accepted, 2 refused.
+/// CLI: `table-check --table T [--recheck --checker BIN [--every K] [--no-recover-rows] [--family F]] [--descent-node BIN]
+/// [--manifest OUT] [--work DIR]`. Exit 0 accepted, 2 refused. `--descent-node`: re-run the descent test of every emitted
+/// record (contract section 14).
 pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     let mut a = Args {
         every: 1,
@@ -163,6 +190,7 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
             "--checker" => checker = Some(val(i)?.into()),
             "--every" => a.every = val(i)?.parse().map_err(|_| "--every: a number")?,
             "--family" => family = Some(PathBuf::from(val(i)?)),
+            "--descent-node" => a.descent_recheck = Some(PathBuf::from(val(i)?)),
             "--recheck" => {
                 recheck = true;
                 i += 1;
