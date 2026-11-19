@@ -48,7 +48,8 @@ impl std::error::Error for IdLockError {}
 #[derive(Debug)]
 pub(crate) struct IdLock {
     path: PathBuf,
-    file: File,
+    /// The locked descriptor (None only inside `drop`, which closes it under the registry mutex).
+    file: Option<File>,
     adhoc: bool,
 }
 
@@ -60,16 +61,23 @@ impl IdLock {
 
 impl Drop for IdLock {
     fn drop(&mut self) {
+        // procfix7 round 19 (the in-process race, tests/procfix19_idlock_race.rs: 13,403 of 45,748 launchers of 8
+        // threads refused): the whole drop runs under the REGISTRY mutex and ends by removing this lock's (dead) entry, so
+        // an `acquire` of the same path either shared the lock before its last owner went, or waits for the entry to go
+        // (see `acquire`) and then opens the file afresh: it never meets this descriptor's flock.
+        let mut reg = registry().lock().unwrap_or_else(|p| p.into_inner());
         // An ad-hoc id is unique to this process: remove its file while still holding the lock. A campaign's file stays
         // (removing a lock file another process may be opening would split the lock).
         // procfix7 round 5 (positive proof): only while the path still names the file we hold (same device and inode,
         // read back now)
         use std::os::unix::fs::MetadataExt;
         let ours = match (
-            self.file.metadata(),
+            self.file.as_ref().map(File::metadata),
             crate::fsx::presence_lstat("idlock", &self.path),
         ) {
-            (Ok(a), crate::fsx::Presence::Present(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            (Some(Ok(a)), crate::fsx::Presence::Present(b)) => {
+                a.dev() == b.dev() && a.ino() == b.ino()
+            }
             _ => false,
         };
         if self.adhoc && ours {
@@ -77,9 +85,12 @@ impl Drop for IdLock {
             // ignored-ok (procfix7): the flock is the lock; the file is only removed as a courtesy
             let _ = fs::remove_file(&self.path);
         }
-        #[allow(clippy::let_underscore_must_use)]
-        // ignored-ok (procfix7): not an error: keeps the locked file alive until here
-        let _ = &self.file;
+        // the descriptor (and its flock) is released HERE, still under the registry mutex
+        drop(self.file.take());
+        // this lock's entry is dead (its last owner is being dropped): it goes, a waiting acquire proceeds
+        if reg.get(&self.path).is_some_and(|w| w.strong_count() == 0) {
+            reg.remove(&self.path);
+        }
     }
 }
 
@@ -157,10 +168,26 @@ fn registry() -> &'static Mutex<HashMap<PathBuf, Weak<IdLock>>> {
 pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLockError> {
     let dir = dir.map(Path::to_path_buf).unwrap_or_else(default_lock_dir);
     let path = dir.join(format!("{id}.lock"));
-    let mut reg = registry().lock().unwrap_or_else(|p| p.into_inner());
-    if let Some(l) = reg.get(&path).and_then(Weak::upgrade) {
-        return Ok(l);
-    }
+    // procfix7 round 19 (the in-process race): an entry whose lock is DEAD (its last owner is being dropped: the strong
+    // count reached 0 but `drop` has not yet released the descriptor) is waited for (bounded, 2 s), never raced: opening
+    // and locking the file then would meet that descriptor's flock (a spurious InUse of our own id)
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut reg = loop {
+        let reg = registry().lock().unwrap_or_else(|p| p.into_inner());
+        match reg.get(&path) {
+            None => break reg,
+            Some(w) => {
+                if let Some(l) = w.upgrade() {
+                    return Ok(l);
+                }
+                if std::time::Instant::now() >= deadline {
+                    break reg;
+                }
+            }
+        }
+        drop(reg);
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
     prepare_dir(&dir)?;
     let mut file = OpenOptions::new()
         .read(true)
@@ -209,7 +236,7 @@ pub(crate) fn acquire(id: &str, dir: Option<&Path>) -> Result<Arc<IdLock>, IdLoc
     );
     let l = Arc::new(IdLock {
         path: path.clone(),
-        file,
+        file: Some(file),
         adhoc: id.starts_with("adhoc-"),
     });
     reg.insert(path, Arc::downgrade(&l));
