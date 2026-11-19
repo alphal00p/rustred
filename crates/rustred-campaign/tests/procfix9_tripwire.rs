@@ -302,3 +302,87 @@ fn the_mechanical_list_catches_every_known_evasion_form() {
         missed.join("\n")
     );
 }
+
+/// The string literal right after each occurrence of `pat` in `line` (the literal starts where `pat` ends).
+fn literals_after(line: &str, pat: &str) -> Vec<(String, usize)> {
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some(i) = line[from..].find(pat) {
+        let start = from + i + pat.len();
+        match line[start..].find('"') {
+            Some(j) => {
+                out.push((line[start..start + j].to_string(), start + j + 1));
+                from = start + j + 1;
+            }
+            None => break,
+        }
+    }
+    out
+}
+
+/// procfix7 round 20 (gate R-C; the pf7land gate's finding: `ship-gate.json` and `shipecon/proposal.json` registered without
+/// a sentinel): every file a closing-loop node writes under a FIXED name in its `final/` directory is a sentinel of the final
+/// walk (`closeloop::pass::FINAL_SENTINELS`), so a listing cut short cannot drop it from the registry unnoticed. Scanned
+/// forms (production code of src/closeloop): `final_dir.join("<f>")`, `final_dir.join("<d>").join("<f>")`,
+/// `sdir.join("<f>")` / `statement_dir.join("<f>")` (= `statement/<f>`), and the literals `"final/<p>"` and
+/// `"{..}/final/<p>"` without a placeholder in `<p>`. Directories and the names the walk does not register are skipped
+/// (NOT_REGISTERED). A path built otherwise (the ship economy's proposal: `<statement>/../shipecon/proposal.json`) is covered
+/// by procfix10's control, which checks a real run's registry against the same list.
+#[test]
+fn every_fixed_final_output_is_a_listing_sentinel() {
+    const NOT_REGISTERED: &[&str] = &["result.json", "terminal_proposals.json"];
+    let sentinels = rustred_campaign::closeloop::pass::FINAL_SENTINELS;
+    let is_file = |n: &str| n.contains('.') || n.ends_with("SHA256SUMS");
+    let mut seen = std::collections::BTreeSet::new();
+    let mut bad = Vec::new();
+    for p in sources() {
+        let r = rel(&p);
+        if !r.starts_with("src/closeloop/") {
+            continue;
+        }
+        for (n, l) in code_lines(&p) {
+            let t = l.trim_start();
+            if t.starts_with("//") {
+                continue;
+            }
+            let mut names = Vec::new();
+            for (lit, end) in literals_after(&l, "final_dir.join(\"") {
+                match l[end..].strip_prefix(").join(\"") {
+                    Some(rest) => {
+                        if let Some(j) = rest.find('"') {
+                            names.push(format!("{lit}/{}", &rest[..j]));
+                        }
+                    }
+                    None => names.push(lit),
+                }
+            }
+            for pat in ["sdir.join(\"", "statement_dir.join(\""] {
+                for (lit, _) in literals_after(&l, pat) {
+                    names.push(format!("statement/{lit}"));
+                }
+            }
+            for pat in ["\"final/", "}/final/"] {
+                for (lit, _) in literals_after(&l, pat) {
+                    names.push(lit);
+                }
+            }
+            for name in names {
+                if name.contains('{') || !is_file(&name) || NOT_REGISTERED.contains(&name.as_str())
+                {
+                    continue;
+                }
+                seen.insert(name.clone());
+                if !sentinels.contains(&name.as_str()) {
+                    bad.push(format!("{r}:{n}: final/{name}"));
+                }
+            }
+        }
+    }
+    eprintln!("fixed-name final outputs found in the sources: {seen:?}");
+    assert!(seen.len() >= 10, "the scan found too few outputs: {seen:?}");
+    assert!(
+        bad.is_empty(),
+        "fixed-name outputs of final/ without a sentinel in closeloop::pass::FINAL_SENTINELS (a truncated listing could drop them unnoticed):\n{}",
+        bad.join("\n")
+    );
+}

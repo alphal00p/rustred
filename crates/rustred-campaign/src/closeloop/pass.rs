@@ -106,6 +106,40 @@ pub struct ProofPlan {
     pub max_fact_terms_per_job: Option<u64>,
 }
 
+/// procfix7 round 6 (gate10 G10-B1, the listing rule) and round 20 (gate R-C, the int line's outputs): the files a pass
+/// and the phases before and after it write under FIXED names in a node's `final/` directory: SENTINELS of the final walk's
+/// listings (a listing can end early without an error): one that exists but was not listed fails the pass. Names derived
+/// from data (`clauses/<id>.*`, `terminal_proposals.r<k>.json`) have no sentinel; `result.json` and `terminal_proposals*` are
+/// not registered. Round 20 adds the int line's `ship-gate.json` (the ship gate), `shipecon/proposal.json` (the ship
+/// economy's proposal), `leafset.v1` (layers), `regbasis/*.json` (the P5 step, after the close) and the clauses'
+/// `statement/clause-keys.jsonl` (missed in round 6). procfix9_tripwire `every_fixed_final_output_is_a_listing_sentinel` checks
+/// the sources against this list; procfix10's control checks a real run's registry against it.
+pub const FINAL_SENTINELS: &[&str] = &[
+    "statement/statement.jsonl",
+    "statement/decisive_zeros.jsonl",
+    "statement/timing.json",
+    "statement/SHA256SUMS",
+    "statement/summary.json",
+    "statement/terminals.json",
+    "statement/solve-requests.jsonl",
+    "statement/fact-requests.jsonl",
+    "statement/proof-requests.jsonl",
+    "statement/clause-keys.jsonl",
+    "open_keys.jsonl",
+    "clause_keys.jsonl",
+    "faces.json",
+    "rows.jsonl",
+    "comparison/comparison.json",
+    "comparison/differences.jsonl",
+    "comparison-keys-only/comparison.json",
+    "comparison-keys-only/differences.jsonl",
+    "ship-gate.json",
+    "shipecon/proposal.json",
+    "leafset.v1",
+    "regbasis/regular_basis.json",
+    "regbasis/tower.json",
+];
+
 /// Input of one pass.
 #[derive(Clone, Debug)]
 pub struct PassIn {
@@ -2902,25 +2936,7 @@ fn write_final(
     // FIXED names are SENTINELS of the walk's listings (a listing can end early without an error): one that exists but
     // was not listed fails the pass. (Names derived from data, e.g. an earlier pass's clauses/<id>.rows.jsonl, have no
     // sentinel: a truncated listing leaves such a file out of the registry; nothing is decided or removed from it.)
-    for rel in [
-        "statement/statement.jsonl",
-        "statement/decisive_zeros.jsonl",
-        "statement/timing.json",
-        "statement/SHA256SUMS",
-        "statement/summary.json",
-        "statement/terminals.json",
-        "statement/solve-requests.jsonl",
-        "statement/fact-requests.jsonl",
-        "statement/proof-requests.jsonl",
-        "open_keys.jsonl",
-        "clause_keys.jsonl",
-        "faces.json",
-        "rows.jsonl",
-        "comparison/comparison.json",
-        "comparison/differences.jsonl",
-        "comparison-keys-only/comparison.json",
-        "comparison-keys-only/differences.jsonl",
-    ] {
+    for rel in FINAL_SENTINELS.iter().copied() {
         let p = inp.final_dir.join(rel);
         match crate::fsx::presence_lstat("closeloop.output", &p) {
             crate::fsx::Presence::Present(m) if m.is_file() && !files.contains_key(rel) => {

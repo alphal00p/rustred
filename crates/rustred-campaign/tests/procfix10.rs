@@ -786,26 +786,9 @@ fn g10_b1_truncated_fallback_listing_never_drops_a_recorded_session_log() {
     assert!(seen_hidden);
 }
 
-/// The phase-D files a closing-loop pass writes under FIXED names (its registry sentinels, closeloop/pass.rs).
-const CLOSELOOP_FIXED: &[&str] = &[
-    "statement/statement.jsonl",
-    "statement/decisive_zeros.jsonl",
-    "statement/timing.json",
-    "statement/SHA256SUMS",
-    "statement/summary.json",
-    "statement/terminals.json",
-    "statement/solve-requests.jsonl",
-    "statement/fact-requests.jsonl",
-    "statement/proof-requests.jsonl",
-    "open_keys.jsonl",
-    "clause_keys.jsonl",
-    "faces.json",
-    "rows.jsonl",
-    "comparison/comparison.json",
-    "comparison/differences.jsonl",
-    "comparison-keys-only/comparison.json",
-    "comparison-keys-only/differences.jsonl",
-];
+/// The files a closing-loop pass writes under FIXED names: its registry sentinels (procfix7 round 20: the product's own
+/// list, so that the test and the walk cannot drift apart).
+const CLOSELOOP_FIXED: &[&str] = rustred_campaign::closeloop::pass::FINAL_SENTINELS;
 
 /// G10-B1 for the closing loop's final-directory walk (site `closeloop.output`: which phase-D files enter the registry
 /// that resume and `verify` re-check): every listing of the walk ends early WITHOUT an error after k entries. A file
