@@ -272,7 +272,23 @@ pub fn compare(
         structural.push(format!("{gaps} served key(s) are served by NO piece (the replacement leaves them open)"));
     }
     ks.compared = cmp.len() as u64;
-    Ok(regularity::verdict(&body_ids(&old_body)?.body_sha256, &bodies, ks, &cmp, structural))
+    let mut v = regularity::verdict(&body_ids(&old_body)?.body_sha256, &bodies, ks, &cmp, structural);
+    // information: the producer's own d = 4 pole statements (pure d factors of `witness_d_poles`)
+    match regularity::d4_factors(&old_body) {
+        Some(f) if !f.is_empty() => v.d4_factors_info.push(format!("old record states d = 4 pole factors {f:?}")),
+        Some(_) => v.d4_factors_info.push("old record states no pure d = 4 pole factor".into()),
+        None => v.d4_factors_info.push("old record carries no witness_d_poles".into()),
+    }
+    for (i, p) in pieces.iter().enumerate() {
+        let (b, _) = strip_derivation(p)?;
+        if let Some(f) = regularity::d4_factors(&b)
+            && !f.is_empty()
+        {
+            v.d4_factors_info
+                .push(format!("piece {i} states d = 4 pole factors {f:?} (a pole at d = 4 wherever their terms survive)"));
+        }
+    }
+    Ok(v)
 }
 
 /// Batch: one old table, many replacements. `spec` = JSON lines {"label", "rule", "pieces": FILE}; writes

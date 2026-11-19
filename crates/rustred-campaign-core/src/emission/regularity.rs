@@ -439,6 +439,37 @@ pub struct Verdict {
     pub structural: Vec<String>,
     /// NOT WORSE on every compared key
     pub not_worse: bool,
+    /// information (not a verdict): the records' stated `witness_d_poles` factors that vanish at d = 4 for every index
+    /// value (a pure d factor, e.g. "-4+d"): the producer's own statement of a d = 4 pole on the whole domain
+    #[serde(default)]
+    pub d4_factors_info: Vec<String>,
+}
+
+/// The stated `witness_d_poles` factors of a record that vanish at d = 4 whatever the indices (pure d factors).
+pub fn d4_factors(line: &str) -> Option<Vec<String>> {
+    let v: Value = serde_json::from_str(line).ok()?;
+    let a = v.get("witness_d_poles")?.as_array()?;
+    Some(
+        a.iter()
+            .filter_map(Value::as_str)
+            .filter(|f| {
+                Poly::parse_exact(f, 64, true).is_ok_and(|p| {
+                    p.support().is_empty()
+                        && shift4(p.d_coefficients().iter().fold(vec![], |mut c, (k, q)| {
+                            let k = *k as usize;
+                            if c.len() <= k {
+                                c.resize(k + 1, BigInt::zero());
+                            }
+                            c[k] = q.as_constant().map_or(BigInt::zero(), BigInt::from_i128);
+                            c
+                        }))
+                        .first()
+                        .is_some_and(BigInt::is_zero)
+                })
+            })
+            .map(str::to_string)
+            .collect(),
+    )
 }
 
 /// Compare per key and summarise. `cmp` = the per-key comparisons in key order.
@@ -471,6 +502,7 @@ pub fn verdict(
         by_branch,
         first_regressions: first,
         structural,
+        d4_factors_info: vec![],
     }
 }
 
