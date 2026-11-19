@@ -51,7 +51,8 @@ fn review_witness_670_to_672_is_refused() {
     assert_eq!(simple, 315, "the review counts 315 merged daughters with a simple pole");
     // 2. THE ACCEPTANCE over the old record's first-match keys in the cone: REFUSED
     let tmp = std::env::temp_dir().join(format!("reg670-{}", std::process::id()));
-    let a = acceptance(&table, 670, &old_line, &[piece_line], &Options::default(), &tmp).unwrap();
+    let ot = rustred_campaign::emission::regcheck::OldTable::load(&table).unwrap();
+    let a = acceptance(&ot, 670, &old_line, &[piece_line], &Options::default(), &tmp).unwrap();
     let _ = std::fs::remove_dir_all(&tmp);
     assert!(!a.accepted, "670 -> 672 trades d = 4 regularity: it must be refused");
     let v = a.verdict.expect("a refusal carries its regularity verdict");

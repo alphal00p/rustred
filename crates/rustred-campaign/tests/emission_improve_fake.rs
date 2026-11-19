@@ -31,7 +31,7 @@ fn rec(fixed: Value, target: &str, exc: Value, monomials: u64) -> Value {
 /// rule's own relation and domain sha256).
 fn table_and_evidence(dir: &Path) -> (PathBuf, PathBuf) {
     let t = dir.join("T.table.jsonl");
-    let mut lines = vec![json!({"type":"header","schema":"table_dump.v1","family":"TOY",
+    let mut lines = vec![json!({"type":"header","schema":"table_dump.v1","family":"TOY","mask":"110","denominators":3,
         "node_order":{"name":"id","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}})];
     let rules = [
         (json!([null, null, null]), "I(n0,n1,n2)", json!([["-1+n0"], ["n2"]]), 5000u64),

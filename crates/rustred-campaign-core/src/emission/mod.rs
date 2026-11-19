@@ -33,6 +33,8 @@ pub const AREA_POLICY: &str = "policy";
 pub const AREA_KEYS: &str = "keys";
 /// bound evidence rows of a legacy import (the verdict row a class rests on)
 pub const AREA_EVID: &str = "evid";
+/// the d = 4 regularity verdict of a replacement (contract section 13), named by every piece (`derivation.replaces`)
+pub const AREA_REGULARITY: &str = "regularity";
 
 /// The side directory of a table path (`x/T.table.jsonl` -> `x/T.emission`).
 pub fn side_dir(table: &std::path::Path) -> std::path::PathBuf {
@@ -83,6 +85,18 @@ pub struct Settings {
     /// the zero_sectors record (file) stated to the checker (`--zero-sectors`)
     #[serde(default)]
     pub zero_sectors: Option<String>,
+    /// the d = 4 regularity acceptance of replacements (contract section 13): its cone and key cap (default D + r <=
+    /// 10, 20,000 face keys). The acceptance itself cannot be switched off.
+    #[serde(default)]
+    pub regularity: Option<RegularitySettings>,
+}
+
+/// Cone and key cap of the d = 4 regularity acceptance.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegularitySettings {
+    pub cone: i64,
+    pub max_keys: usize,
 }
 
 /// The parts of a `derivation` member (everything bulky lives in the side directory, referenced by sha256).

@@ -219,3 +219,44 @@ read.
   domain 1,552 (1,526 helper A own + 24 helper B own + 2 identical statement: 1292 = reference 2863, 1299 = reference
   2469), every 115, sampled 48, dead 215, none 0; table-check ACCEPTED (1,930 rules, 0 refused).
 
+
+## 13. d = 4 REGULARITY ACCEPTANCE of a replacement (ROUND 4, 2026-11-19; binding user rule)
+RULE: a relation regular at d = 4 wins whatever its size; a replacement may never trade d = 4 regularity for speed. Part of
+the ACCEPTANCE of every replacement (emit-replace, the replacement ladder, the improve writer); no policy switch turns it off
+for a live replacement; a legacy import records "not compared".
+- MEASURE (`rustred-campaign-core::emission::regularity`, exact): at an integer key, every rhs coefficient (num/den,
+  polynomials in the indices and d) is evaluated in exact integers, expanded around d = 4 (Taylor shift), terms with the
+  same DAUGHTER KEY are merged (the engine adds them) and the pole order of each merged coefficient is the order of its
+  numerator over the common denominator (a 0/0 is resolved; a merged coefficient that is identically zero is no daughter).
+  The key's regularity = the LARGEST pole order among the merged daughters (0 = regular). A term whose denominator is
+  identically zero at the key makes the relation UNDEFINED there.
+- KEYS: every key the OLD record serves as FIRST MATCH in the cone D + r <= R (default R = 10): the old record's face keys
+  in the cone, dispatched by the core dispatcher (`cover::Dispatcher`, the engine's find_rule order; witness loci off: the
+  engine writes their factors into `exceptions`) over the OLD table. More than `max_keys` (default 20,000) face keys: a
+  STATED SAMPLE (the first `max_keys` face keys in shell order; the sampling text is in the verdict). Each served key is
+  measured with the old record and with the FIRST replacement piece whose domain applies (the replacement's own order).
+- VERDICT per replacement: worse at a key = the new pole order is larger than the old one (regular -> singular included)
+  or the new relation is undefined where the old one is not; ACCEPTED iff NOT WORSE at every compared key AND at least one
+  key was compared (zero compared keys = refused, `regularity_d4_not_compared`: never a vacuous pass). A served key no
+  piece serves is a structural finding (refused). An identical relation (a single piece, same target + rhs: an in-place
+  re-certification) is NOT WORSE by construction (verdict `same_relation: true`, nothing compared).
+- REFUSED: the old record stays (emit-replace: outcome `regularity_refused`, the pieces kept aside in pieces.refused.jsonl;
+  improve: the old rule kept, reason in the record's untried notes). A SPLIT (the new rule only where it is not worse) is
+  not built automatically: it is a new set of pieces (e.g. case branches cutting out the worse keys) that must pass this same
+  acceptance (each piece whole domain, partition of the old domain proven).
+- EVIDENCE: the verdict (schema `rustred.emission.regularity-d4.v1`: tool, old body sha256, new body sha256 per piece, the key
+  set (kind, cone, served, compared, sampling, keys sha256), counts (keys, regular_to_singular, singular_to_regular,
+  unchanged, worse, better, new_undefined), the same counts PER BRANCH (piece), the first regressions (key, piece, old / new
+  pole order, worst new daughter), structural findings, not_worse) is a side file `<stem>.emission/regularity/<sha256>.json`;
+  every accepted piece's derivation carries `replaces: {old_body_sha256, regularity_sha256}`.
+- table-check REFUSES a replacement record (a `ladder` member, or `replaces`) without the verdict, with a verdict that is not
+  NOT WORSE, that compares another old record, or that does not name this body.
+- CALL (lane rulecost, v6): `rr_campaign emit-replace ... [--regularity-table OLD_FULL_TABLE] [--regularity-cone R]
+  [--regularity-max-keys K]` (the old table defaults to --table: give the FULL old table when --table is a mini / job-header
+  table, else the first-match set is the old record's whole face); the improve config's `emission.regularity: {cone,
+  max_keys}`; standalone (already emitted pieces): `rr_campaign regularity-compare --old-table T --rule N --pieces P.jsonl
+  [--cone R] [--max-keys K] --out DIR` (exit 0 not worse, 3 worse) or `--batch SPEC.jsonl` (lines {label, rule, pieces}: the
+  table read once).
+- TEST: the outside review's witness (astra_5L/review-20261119/T180p2-v5/regularity/WITNESS.json) is
+  tests/regularity_t180p2.rs: T180p2 670 -> 672 is REFUSED (495 / 495 served keys regular -> singular in D + r <= 10; the
+  review's 315 simple-pole daughters at its witness key reproduced exactly).

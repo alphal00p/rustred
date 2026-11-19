@@ -10,7 +10,9 @@ use super::class::{
     span_exact,
 };
 use super::legacy::verify_row;
-use super::{AREA_CERT, AREA_CHECK, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, SCHEMA};
+use super::{
+    AREA_CERT, AREA_CHECK, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, AREA_REGULARITY, SCHEMA,
+};
 use serde_json::Value;
 
 /// The verdict on one record.
@@ -198,6 +200,41 @@ pub fn check_record(
             Err(e) => v.problems.push(format!("check output: {e}")),
         }
         v.check_output = Some(text);
+    }
+    // A REPLACEMENT (a record the ladder / emit-replace wrote, `ladder` member, or one stating `replaces`) must name its
+    // d = 4 regularity verdict (contract section 13): the verdict binds the old record's body and this body and says
+    // NOT WORSE at every compared key (or an identical relation)
+    let is_replacement = !d["ladder"].is_null() || d.get("replaces").is_some_and(|x| !x.is_null());
+    if is_replacement && origin == Origin::Lift {
+        match d["replaces"]["regularity_sha256"].as_str() {
+            None => v
+                .problems
+                .push("a replacement without its d = 4 regularity verdict (contract section 13)".into()),
+            Some(sha) => {
+                if let Some(b) = fetch(AREA_REGULARITY, sha, "regularity verdict", &mut v.problems) {
+                    match serde_json::from_slice::<Value>(&b) {
+                        Ok(r) => {
+                            if r["schema"].as_str() != Some(super::regularity::SCHEMA) {
+                                v.problems.push(format!("regularity verdict schema {}", r["schema"]));
+                            }
+                            if r["not_worse"].as_bool() != Some(true) {
+                                v.problems.push("the regularity verdict is not NOT WORSE".into());
+                            }
+                            if r["old_body_sha256"] != d["replaces"]["old_body_sha256"] {
+                                v.problems.push("the regularity verdict compares another old record".into());
+                            }
+                            let mine = r["new_body_sha256"]
+                                .as_array()
+                                .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(ids.body_sha256.as_str())));
+                            if !mine {
+                                v.problems.push("the regularity verdict does not name this body".into());
+                            }
+                        }
+                        Err(e) => v.problems.push(format!("regularity verdict: {e}")),
+                    }
+                }
+            }
+        }
     }
     let cone = serde_json::from_value::<ConeEvidence>(d["class"]["cone"].clone()).ok();
     let sample = serde_json::from_value::<SampleEvidence>(d["class"]["sample"].clone()).ok();

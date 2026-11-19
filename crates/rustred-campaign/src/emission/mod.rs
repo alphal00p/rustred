@@ -215,11 +215,24 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     let (mut check_floor, mut check_ratio) = (None, None);
     let mut given: Option<PathBuf> = None;
     let (mut zero_sectors, mut symmetry_group): (Option<PathBuf>, Option<PathBuf>) = (None, None);
+    let mut reg_table: Option<PathBuf> = None;
+    let mut reg = regcheck::Options::default();
     let mut i = 0;
     while i < rest.len() {
         let mut one = false;
         match rest[i].as_str() {
             "--table" => table = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--regularity-table" => reg_table = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--regularity-cone" => {
+                reg.cone = flag_value(rest, i)?
+                    .parse()
+                    .map_err(|_| "--regularity-cone: the D + r bound")?
+            }
+            "--regularity-max-keys" => {
+                reg.max_keys = flag_value(rest, i)?
+                    .parse()
+                    .map_err(|_| "--regularity-max-keys: a count")?
+            }
             "--rule" => {
                 index = Some(
                     flag_value(rest, i)?
@@ -356,7 +369,7 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
             )?
         }
     };
-    let closed = rep.outcome == Outcome::Closed;
+    let mut closed = rep.outcome == Outcome::Closed;
     let orig_rhs = original["rhs"].as_array().map_or(0, Vec::len);
     let mut summary = json!({"schema": "rustred.campaign.emit-replace.v1", "table": table.display().to_string(), "rule": index,
         "outcome": rep.outcome.json(), "original": {"bytes": line.len(), "rhs_terms": orig_rhs,
@@ -373,8 +386,33 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
         "log": rep.log, "seconds": t0.elapsed().as_secs_f64(),
         "checker": {"binary": checker.display().to_string(), "sha256": emitter.checker.sha256, "recover_rows": recover},
         "producer": {"binary": rr_node.display().to_string(), "sha256": lifter.sha256}});
+    // THE d = 4 REGULARITY ACCEPTANCE (contract section 13; binding user rule 2026-11-19): a closed replacement is
+    // accepted only when it is NOT WORSE at d = 4 than the old record at every key the old record serves as first match
+    // (an identical relation is not worse by construction); the verdict is a side file named by every piece
+    let mut lines_ok: Option<Vec<String>> = None;
     if closed {
         let lines = rep.lines(index)?;
+        let rt = reg_table.clone().unwrap_or_else(|| table.clone());
+        let ot = regcheck::OldTable::load(&rt)?;
+        let st = regcheck::accept_and_stamp(&emitter, &ot, index, &line, &lines, &reg, &out.join("regularity-work"))?;
+        let (verdict, ok, reason, reg_sha, same) = (st.verdict, st.accepted, st.reason, st.sha256, st.same_relation);
+        summary["regularity"] = json!({"accepted": ok, "reason": reason, "sha256": reg_sha, "same_relation": same,
+            "keys": verdict["keys"], "counts": verdict["counts"], "by_branch": verdict["by_branch"],
+            "first_regressions": verdict["first_regressions"], "structural": verdict["structural"]});
+        if ok {
+            lines_ok = st.lines;
+        } else {
+            closed = false;
+            summary["outcome"] = json!({"outcome": "regularity_refused", "reason": reason});
+            let mut pj = String::new();
+            for l in &lines {
+                pj.push_str(l);
+                pj.push('\n');
+            }
+            std::fs::write(out.join("pieces.refused.jsonl"), &pj).map_err(|e| e.to_string())?;
+        }
+    }
+    if let Some(lines) = lines_ok {
         let mut pj = String::new();
         for l in &lines {
             pj.push_str(l);

@@ -415,6 +415,49 @@ pub fn cmd(rest: &[String]) -> Result<(String, bool), String> {
     ))
 }
 
+/// The OLD table of a replacement, loaded once (dispatcher over its domains, chart, header): reused for every
+/// replacement of a run.
+pub struct OldTable {
+    pub path: PathBuf,
+    pub disp: Dispatcher,
+    pub chart: String,
+    pub header: String,
+}
+
+impl OldTable {
+    pub fn load(path: &Path) -> Result<OldTable, String> {
+        let (disp, chart) = dispatcher_of(path)?;
+        Ok(OldTable {
+            path: path.to_path_buf(),
+            disp,
+            chart,
+            header: header_of(path)?,
+        })
+    }
+    /// The rule lines of the given indices (one scan of the table).
+    pub fn lines_of(&self, want: &std::collections::BTreeSet<i64>) -> Result<BTreeMap<i64, String>, String> {
+        let mut old = BTreeMap::new();
+        let f = std::fs::File::open(&self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
+        for l in std::io::BufReader::new(f).lines() {
+            let l = l.map_err(|e| e.to_string())?;
+            if rustred_campaign_core::emission::body::string_member(&l, "type").as_deref() != Some("rule") {
+                continue;
+            }
+            let ix = l
+                .find("\"index\"")
+                .and_then(|i| l[i + 7..].trim_start().strip_prefix(':'))
+                .and_then(|r| r.trim_start().split(|c: char| !c.is_ascii_digit()).next())
+                .and_then(|d| d.parse::<i64>().ok());
+            if let Some(ix) = ix
+                && want.contains(&ix)
+            {
+                old.insert(ix, l);
+            }
+        }
+        Ok(old)
+    }
+}
+
 /// The regularity ACCEPTANCE of a replacement (what emit-replace and the ladder decide with).
 #[derive(Clone, Debug)]
 pub struct Acceptance {
@@ -427,16 +470,15 @@ pub struct Acceptance {
 /// of the old record and of the serving piece, compared at every key the old record serves as first match in the cone
 /// (or the stated sample); accepted iff NOT WORSE on every compared key. Not switchable for a live replacement.
 pub fn acceptance(
-    table: &Path,
+    table: &OldTable,
     index: i64,
     old_line: &str,
     pieces: &[String],
     o: &Options,
     work: &Path,
 ) -> Result<Acceptance, String> {
-    let (keys, ks, chart) = served_keys(table, index, old_line, o)?;
-    let header = header_of(table)?;
-    let v = compare(old_line, pieces, &keys, ks, &header, &chart, work)?;
+    let (keys, ks) = served_keys_with(&table.disp, &table.chart, index, old_line, o)?;
+    let v = compare(old_line, pieces, &keys, ks, &table.header, &table.chart, work)?;
     // FAIL CLOSED: a comparison over no served key proves nothing (a cone too small, or a dispatch that serves the
     // old record nowhere: e.g. a strict witness check on a table without witness loci blocked every key)
     if v.keys.compared == 0 {
@@ -464,3 +506,75 @@ pub fn acceptance(
         verdict: Some(v),
     })
 }
+
+/// What [`accept_and_stamp`] decided.
+#[derive(Clone, Debug)]
+pub struct Stamped {
+    pub accepted: bool,
+    pub reason: Option<String>,
+    /// the verdict (side file `regularity/<sha256>.json`)
+    pub verdict: Value,
+    pub sha256: String,
+    pub same_relation: bool,
+    /// the piece lines with `derivation.replaces` = {old_body_sha256, regularity_sha256} (only when accepted)
+    pub lines: Option<Vec<String>>,
+}
+
+/// THE ACCEPTANCE STEP of a closed replacement (emit-replace, the ladder, the improve writer): the d = 4 comparison of
+/// the old record (`index` of `table`) with the emitted piece lines (an identical relation is NOT WORSE by
+/// construction), the verdict stored beside the table (`emitter`'s side directory), and, when accepted, every piece's
+/// derivation stamped with `replaces` (table-check refuses a replacement without it).
+pub fn accept_and_stamp(
+    emitter: &super::emitter::Emitter,
+    table: &OldTable,
+    index: i64,
+    old_line: &str,
+    lines: &[String],
+    o: &Options,
+    work: &Path,
+) -> Result<Stamped, String> {
+    use rustred_campaign_core::emission::body::attach_derivation;
+    let (old_body, _) = strip_derivation(old_line)?;
+    let old_ids = body_ids(&old_body)?;
+    let new_ids: Vec<_> = lines.iter().map(|l| body_ids(l)).collect::<Result<Vec<_>, _>>()?;
+    let same = new_ids.len() == 1 && new_ids[0].relation_sha256 == old_ids.relation_sha256;
+    let (verdict, ok, reason) = if same {
+        (
+            json!({"schema": regularity::SCHEMA, "tool": regularity::TOOL, "same_relation": true, "not_worse": true,
+                   "old_body_sha256": old_ids.body_sha256, "new_body_sha256": [new_ids[0].body_sha256],
+                   "note": "identical relation (target + rhs): identical coefficients at every key, nothing to compare"}),
+            true,
+            None,
+        )
+    } else {
+        let a = acceptance(table, index, old_line, lines, o, work)?;
+        let mut v = serde_json::to_value(&a.verdict).map_err(|e| e.to_string())?;
+        v["old_table"] = json!(table.path.display().to_string());
+        (v, a.accepted, a.reason)
+    };
+    let sha = emitter.put_side(
+        rustred_campaign_core::emission::AREA_REGULARITY,
+        &serde_json::to_vec(&verdict).map_err(|e| e.to_string())?,
+    )?;
+    let lines = if ok {
+        let mut out = vec![];
+        for l in lines {
+            let (b, d) = strip_derivation(l)?;
+            let mut dv: Value = serde_json::from_str(&d.ok_or("a piece without derivation")?).map_err(|e| e.to_string())?;
+            dv["replaces"] = json!({"old_body_sha256": old_ids.body_sha256, "regularity_sha256": sha});
+            out.push(attach_derivation(&b, &dv)?);
+        }
+        Some(out)
+    } else {
+        None
+    };
+    Ok(Stamped {
+        accepted: ok,
+        reason,
+        verdict,
+        sha256: sha,
+        same_relation: same,
+        lines,
+    })
+}
+

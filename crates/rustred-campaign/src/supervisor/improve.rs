@@ -842,6 +842,23 @@ impl ImproveSource {
             .transpose()
             .map_err(|e| e.to_string())?
             .unwrap_or_default();
+            // THE d = 4 REGULARITY ACCEPTANCE (contract section 13): the old table loaded once, the old rule lines read
+            // once; every replacement compared with its old rule at the old rule's first-match keys before it is written
+            // (an old table the dispatcher cannot read refuses every replacement, fail closed; the flow goes on)
+            let old_table = crate::emission::regcheck::OldTable::load(Path::new(&self.nodes[i].e.table.path));
+            let want: std::collections::BTreeSet<i64> = repl.keys().copied().collect();
+            let old_lines = match &old_table {
+                Ok(ot) => ot.lines_of(&want)?,
+                Err(_) => BTreeMap::new(),
+            };
+            let reg_opts = es
+                .regularity
+                .as_ref()
+                .map(|r| crate::emission::regcheck::Options {
+                    cone: r.cone,
+                    max_keys: r.max_keys,
+                })
+                .unwrap_or_default();
             for (idx, lines) in repl.clone() {
                 let run_dir = chosen
                     .get(&idx)
@@ -905,6 +922,36 @@ impl ImproveSource {
                         None => {
                             refused = Some(last);
                             break;
+                        }
+                    }
+                }
+                // the acceptance step: refused at d = 4 -> the old rule stays (its reason recorded)
+                if refused.is_none() {
+                    match (&old_table, old_lines.get(&idx)) {
+                        (Err(e), _) => {
+                            refused = Some(format!("regularity_d4_not_compared (old table: {e})"))
+                        }
+                        (Ok(_), None) => {
+                            refused = Some(format!(
+                                "regularity_d4_not_compared (rule {idx} not in the input table)"
+                            ))
+                        }
+                        (Ok(ot), Some(old_line)) => {
+                            let st = crate::emission::regcheck::accept_and_stamp(
+                                &em,
+                                ot,
+                                idx,
+                                old_line,
+                                &out_lines,
+                                &reg_opts,
+                                &work.join(format!("regularity-r{idx}")),
+                            )?;
+                            match st.lines {
+                                Some(stamped) => out_lines = stamped,
+                                None => {
+                                    refused = Some(st.reason.unwrap_or_else(|| "regularity_d4_worse".into()))
+                                }
+                            }
                         }
                     }
                 }

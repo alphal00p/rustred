@@ -447,11 +447,41 @@ fn open_locus_becomes_a_ladder_of_two_pieces_that_partition_the_domain() {
         .map(|(k, l)| rustred_campaign_core::economy::improve::set_index(l, k as i64).unwrap())
         .collect();
     // (the emitter's side directory is the one of DIR/t.table.jsonl: the table must be written there)
+    // round 4: a replacement WITHOUT its d = 4 regularity verdict is refused by table-check
     let (s, ok) = check_table(&write_table(&dir, &pos), &bin, false);
-    assert!(ok, "{s}");
-    // the same lines in another directory have no side files: refused
-    let (_, ok) = check_table(&write_table(&dir.join("l"), &pos), &bin, false);
-    assert!(!ok);
+    assert!(!ok && s.to_string().contains("regularity"), "{s}");
+    // the acceptance step: the old record's first-match keys (a table of the old record), compared at d = 4
+    let old_table = dir.join("old.table.jsonl");
+    let orig_line = orig.to_string();
+    std::fs::write(&old_table, format!("{}\n{orig_line}\n", header())).unwrap();
+    let ot = rustred_campaign::emission::regcheck::OldTable::load(&old_table).unwrap();
+    let st = rustred_campaign::emission::regcheck::accept_and_stamp(
+        &em,
+        &ot,
+        7,
+        &orig_line,
+        &lines,
+        &rustred_campaign::emission::regcheck::Options { cone: 6, max_keys: 2000 },
+        &dir.join("reg"),
+    )
+    .unwrap();
+    eprintln!("ladder regularity: accepted {} {}", st.accepted, st.verdict["counts"]);
+    assert!(st.verdict["keys"]["compared"].as_u64().unwrap() > 0, "{}", st.verdict);
+    match st.lines {
+        Some(stamped) => {
+            let pos: Vec<String> = stamped
+                .iter()
+                .enumerate()
+                .map(|(k, l)| rustred_campaign_core::economy::improve::set_index(l, k as i64).unwrap())
+                .collect();
+            let (s, ok) = check_table(&write_table(&dir, &pos), &bin, false);
+            assert!(ok, "{s}");
+            // the same lines in another directory have no side files: refused
+            let (_, ok) = check_table(&write_table(&dir.join("l"), &pos), &bin, false);
+            assert!(!ok);
+        }
+        None => assert!(!st.accepted && st.reason.is_some()),
+    }
 }
 
 #[test]

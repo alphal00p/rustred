@@ -704,7 +704,8 @@ pub fn decide(
 
 /// The `legacy` member of the derivation's class (references only; the bound row lives in the side file).
 pub fn legacy_member(d: &Decision, row_sha256: Option<&str>, counts: Option<&Counts>, cone_bound: i64) -> Value {
-    let mut m = json!({"schema": SCHEMA});
+    // contract section 13: a legacy record brought in unchanged replaces nothing: its d = 4 regularity is not compared
+    let mut m = json!({"schema": SCHEMA, "regularity_d4": "not compared (legacy record brought in unchanged)"});
     if let (Some(p), Some(sha)) = (&d.proof, row_sha256) {
         m["proof_object"] = json!({"row_sha256": sha, "binding": p.binding});
     }
