@@ -131,7 +131,7 @@ fn setup(tag: &str, mat: &Path, frontier: Option<Value>, ms: u64) -> (Tmp, PathB
     let spec = json!({
         "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
         "programs": {"rr_fake_child": {"path": FAKE}},
-        "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+        "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                       "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                       "start_timeout_s": 120},
         "progress": {"cadence_seconds": 1},
@@ -428,7 +428,7 @@ fn the_frontier_advances_while_slow_solves_run_and_ends_where_all_at_once_ends()
         let spec = json!({
             "schema": "rustred.campaign.spec.v1", "campaign": t.campaign,
             "programs": {"rr_fake_child": {"path": FAKE}},
-            "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+            "resources": {"containment": "marker_only", "policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                           "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                           "start_timeout_s": 120},
             "progress": {"cadence_seconds": 1},
