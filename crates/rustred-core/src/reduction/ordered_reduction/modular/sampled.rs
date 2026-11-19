@@ -329,6 +329,8 @@ pub(super) struct PointStore {
     /// (prime, x) -> (finite, value per output column).
     points: std::collections::HashMap<(u64, u64), (bool, Vec<u64>)>,
     pub(super) imported: usize,
+    /// Batches appended by this process (test hook).
+    appended: usize,
 }
 
 impl PointStore {
@@ -374,6 +376,7 @@ impl PointStore {
             binding,
             points,
             imported: 0,
+            appended: 0,
         })
     }
 
@@ -624,7 +627,20 @@ impl<'a> SampledSource<'a> {
             for (owner, points, batch) in &replayed {
                 if let Some(batch) = batch {
                     store.append(&samples[*owner].field, points, batch, self.columns());
+                    store.appended += 1;
                 }
+            }
+            // Test hook: a stop after `n` newly stored batches (as a memory
+            // bound or a host stop would), the store kept for the restart.
+            if let Some(n) = std::env::var("RUSTRED_SAMPLED_STOP_AFTER")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                && store.appended >= n
+            {
+                return Err(super::error(format!(
+                    "stopped after {} stored replay batches (RUSTRED_SAMPLED_STOP_AFTER)",
+                    store.appended
+                )));
             }
         }
         if !imported.is_empty() {
