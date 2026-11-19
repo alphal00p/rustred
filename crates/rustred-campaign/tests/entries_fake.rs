@@ -90,6 +90,10 @@ fn gap2a_more_regular_than_the_stored_entry_is_written_over_table_and_entry_chec
     assert_eq!(m["entries"]["over_table_keys"], json!([[1, 2, 0]]));
     let (c, ok) = entry_check(&dir).unwrap();
     assert!(ok, "{c:#}");
+    // the index carries the engine's rank (per-key evidence 2, -pole 0, -1 term): a missing rank would be (0, 0, 0) and lose to
+    // a later per-key layer at the key
+    let ix: Value = serde_json::from_str(std::fs::read_to_string(dir.join("index.jsonl")).unwrap().lines().next().unwrap()).unwrap();
+    assert_eq!(ix["rank"], json!([2, 0, -1]));
     // the entry names the per-key old entry (1/(d-4)), not the imported one
     let e: Value = serde_json::from_str(std::fs::read_to_string(dir.join("entries-emitted.jsonl")).unwrap().lines().next().unwrap()).unwrap();
     let rec = e["body"]["emitted_record"].as_str().unwrap();

@@ -388,8 +388,11 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
     let mut index = String::new();
     for e in &entries {
         let line = serde_json::to_string(e).map_err(|x| x.to_string())?;
+        // the engine's rank (evidence, -pole, -terms): read_index defaults a missing rank to (0, 0, 0), and merge_layer lets
+        // a LATER layer with higher evidence replace an earlier one at the key (a per-key r2 entry would displace ours)
+        let r = rank(e);
         index.push_str(&format!("{}\n", json!({"key": e["key"], "file": ENTRY_FILE, "offset": merged.len(), "len": line.len(),
-                                                  "entry_digest": e["entry_digest"]})));
+                                                  "entry_digest": e["entry_digest"], "rank": [r.0, r.1, r.2]})));
         merged.extend_from_slice(line.as_bytes());
         merged.push(b'\n');
     }
@@ -407,7 +410,9 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
         "verification": {"entries_checked": entries.len(), "d4": {"entry_regular": regular, "entry_pole": entries.len() - regular},
                          "tool": "rustred-campaign emit-entries (emission contract sections 13-16)",
                          "note": "every entry carries its emitted record (derivation: check, class, descent LOWER, d = 4 verdict \
-                                  NOT WORSE against the old object at its key); entry-check re-verifies them"}});
+                                  NOT WORSE against the old object at its key); entry-check re-verifies them"},
+        "layer_order": "list this root BEFORE the root of the entries it replaces: at a key held by two layers of equal \
+                        evidence the engine keeps the FIRST layer (relation_entries.rs merge_layer); over_table puts it before the table"});
     std::fs::write(dir.join("MANIFEST.json"), serde_json::to_vec_pretty(&manifest).map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     std::fs::write(
