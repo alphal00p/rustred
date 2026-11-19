@@ -876,7 +876,8 @@ pub fn run_program_child(
     if let Some(name) = &opts.licence_env {
         ls.env_passthrough.push(name.clone());
     }
-    let mut l = RealLauncher::new(sampler.clone());
+    // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+    let mut l = RealLauncher::new(sampler.clone()).map_err(|e| format!("launcher refused: {e}"))?;
     let mut h = l
         .launch(&ls)
         .map_err(|e| format!("launch of {}: {e}", program.display()))?;
@@ -1051,7 +1052,10 @@ fn group_job(
         {
             attempt += 1;
         }
-        let mut l = RealLauncher::new(ctx.sampler.clone());
+        // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock (an
+        // infrastructure error of the report, as a failed store)
+        let mut l = RealLauncher::new(ctx.sampler.clone())
+            .map_err(|e| format!("launcher refused: {e}"))?;
         let (b, rep) = run_attempt(
             &mut l,
             ctx.adapter,

@@ -476,7 +476,9 @@ impl ChildTrialSolver {
                     if plans.len() != 1 {
                         return Err(format!("{} plans for one trial", plans.len()));
                     }
-                    let mut l = RealLauncher::new(sampler);
+                    // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+                    let mut l = RealLauncher::new(sampler)
+                        .map_err(|e| format!("launcher refused: {e}"))?;
                     let (out, rep) = run_attempt(&mut l, &ad, &reqs, &plans[0], &work, 1, &opts)
                         .map_err(|e| format!("{e:?}"))?;
                     let run_dir = rep.prepared.spec.run_dir.clone();
@@ -616,7 +618,11 @@ impl ChildTrialSolver {
             grace: Some(Duration::from_secs(self.cfg.site.pole_grace_s)),
         };
         for attempt in 1..=2u32 {
-            let mut l = RealLauncher::new(self.sampler.clone());
+            // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock (the poles stay
+            // undecided, as after a failed attempt)
+            let Ok(mut l) = RealLauncher::new(self.sampler.clone()) else {
+                return none();
+            };
             match run_attempt(&mut l, &ad, &reqs, plan, &work, attempt, &opts) {
                 Ok((b, _)) if b.unread.is_none() => {
                     let by_id: BTreeMap<String, (String, Option<u64>)> = b

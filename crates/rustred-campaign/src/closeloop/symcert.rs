@@ -221,7 +221,19 @@ fn run_one(
     }
     let first = attempt;
     loop {
-        let mut l = RealLauncher::new(sampler.clone());
+        // procfix7 round 19: a launcher that cannot hold its (ad-hoc) id is refused, never run without its lock
+        let mut l = match RealLauncher::new(sampler.clone()) {
+            Ok(l) => l,
+            Err(e) => {
+                return verdict_of(
+                    &rel,
+                    digest,
+                    &kernel,
+                    "failed",
+                    format!("launcher refused: {e}"),
+                );
+            }
+        };
         let res = run_attempt(&mut l, &ad, &reqs, &plan, &cfg.work_root, attempt, &opts);
         let (out, rep) = match res {
             Ok(x) => x,
