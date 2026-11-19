@@ -32,6 +32,7 @@ mod compose;
 mod executor;
 #[cfg(test)]
 pub(crate) use executor::pools_built_on_this_thread;
+mod entries;
 mod field;
 mod lift;
 mod polynomial;
@@ -669,7 +670,7 @@ pub(crate) struct ModularRecorder {
     probe_field: Zp64,
     probe_points: [Fe; PROBES],
     table: HashTable<u32>,
-    entries: Vec<Coefficient>,
+    entries: entries::Entries,
     entry_refs: Vec<CoefRef>,
     entry_hashes: Vec<u64>,
     constant_probe: Vec<Fe>,
@@ -919,7 +920,7 @@ impl ModularRecorder {
         let probe_field = Zp64::new(prime);
         let probe_points =
             std::array::from_fn(|_| probe_field.to_element(rng.random_range(2..prime)));
-        Ok(Self {
+        let mut recorder = Self {
             common,
             lifter,
             context: context.clone(),
@@ -927,7 +928,7 @@ impl ModularRecorder {
             probe_field,
             probe_points,
             table: HashTable::new(),
-            entries: Vec::new(),
+            entries: Default::default(),
             entry_refs: Vec::new(),
             entry_hashes: Vec::new(),
             constant_probe: Vec::new(),
@@ -955,7 +956,11 @@ impl ModularRecorder {
                 ))),
                 None => None,
             },
-        })
+        };
+        if let Some(dir) = spill::spill_dir() {
+            recorder.entries.enable_spill(&dir, context.zero());
+        }
+        Ok(recorder)
     }
 
     /// Ops recorded so far (spilled and in memory).
@@ -1070,7 +1075,7 @@ impl ModularRecorder {
                             by_value.insert(value.clone(), reference);
                             value.clone()
                         }
-                        None => self.entries[entry as usize].clone(),
+                        None => self.entries.get(entry as usize)?.into_owned(),
                     });
                     entry_refs.push(CoefRef(reference));
                     renumber.insert(old, reference);
@@ -1081,7 +1086,7 @@ impl ModularRecorder {
         }
         let mut copy = self.clone_for_channel();
         copy.ops = ops;
-        copy.entries = entries;
+        copy.entries = entries::Entries::from_vec(entries);
         copy.entry_refs = entry_refs;
         copy.constant_count = constants;
         copy.polynomial_count = polynomials;
@@ -1099,7 +1104,7 @@ impl ModularRecorder {
             probe_field: self.probe_field.clone(),
             probe_points: self.probe_points,
             table: HashTable::new(),
-            entries: Vec::new(),
+            entries: Default::default(),
             entry_refs: Vec::new(),
             entry_hashes: Vec::new(),
             constant_probe: Vec::new(),
@@ -1231,8 +1236,9 @@ impl ModularRecorder {
     fn intern_entry(&mut self, entry: &InternEntry) -> Result<CoefRef, ReductionError> {
         self.lookups += 1;
         let entries = &self.entries;
+        let cache = std::cell::Cell::new(None);
         if let Some(&index) = self.table.find(entry.hash, |&index| {
-            entries[index as usize] == entry.coefficient
+            entries.eq_at(index, &entry.coefficient, &cache)
         }) {
             return Ok(self.entry_refs[index as usize]);
         }
@@ -1268,7 +1274,7 @@ impl ModularRecorder {
         };
         let index = u32::try_from(self.entries.len())
             .map_err(|_| error("too many distinct coefficients"))?;
-        self.entries.push(coefficient.clone());
+        self.entries.push(coefficient)?;
         self.entry_refs.push(reference);
         self.entry_hashes.push(hash);
         let hashes = &self.entry_hashes;
@@ -1289,9 +1295,10 @@ impl ModularRecorder {
     ) -> Result<CoefRef, ReductionError> {
         self.lookups += 1;
         let entries = &self.entries;
+        let cache = std::cell::Cell::new(None);
         if let Some(&index) = self
             .table
-            .find(hash, |&index| entries[index as usize] == *coefficient)
+            .find(hash, |&index| entries.eq_at(index, coefficient, &cache))
         {
             return Ok(self.entry_refs[index as usize]);
         }
@@ -1380,13 +1387,12 @@ impl ModularRecorder {
         ];
         // The polynomial arithmetic factors every polynomial coefficient's
         // denominator over one basis, in reference order.
-        let mut factored: Vec<Option<&Coefficient>> = vec![];
+        let mut factored: Vec<Option<std::borrow::Cow<'_, Coefficient>>> = vec![];
         if matches!(self.lifter, Lifter::Polynomial(_)) {
             factored = vec![None; polynomial_total];
         }
-        for (index, (coefficient, reference)) in
-            self.entries.iter().zip(&self.entry_refs).enumerate()
-        {
+        for (index, reference) in self.entry_refs.iter().enumerate() {
+            let coefficient = self.entries.get(index)?;
             if index % FINISH_CHECKPOINT_ENTRIES == 0 {
                 symbolica::utils::resources::checkpoint()?;
             }
@@ -1400,7 +1406,7 @@ impl ModularRecorder {
                 // basis only; no dense copy of the coefficient.
                 *slot = Some(coefficient);
             } else {
-                polynomials[reference.index()] = DenseRational::from_coefficient(coefficient);
+                polynomials[reference.index()] = DenseRational::from_coefficient(&coefficient);
             }
         }
         let factoring = Instant::now();
@@ -1410,7 +1416,7 @@ impl ModularRecorder {
             for coefficient in factored.into_iter().flatten() {
                 // Factoring a denominator is a CAS call: one checkpoint each.
                 symbolica::utils::resources::checkpoint()?;
-                builder.push(coefficient)?;
+                builder.push(&coefficient)?;
             }
             builder.finish()
         };
@@ -1843,16 +1849,18 @@ impl ModularRecorder {
     pub(crate) fn memstats(&self) -> serde_json::Value {
         use super::memstats::{block, measure_clone};
         use std::mem::size_of;
-        let entries_heap: usize = self.entries.iter().map(super::coefficient_heap_bytes).sum();
+        let (entries_heap, entries_spilled, entries_spill_bytes) = self.entries.census();
         serde_json::json!({
             "ops": self.ops.len(),
             "ops_capacity": self.ops.capacity(),
             "op_size": size_of::<Op>(),
             "ops_bytes": block(self.ops.as_ptr(), self.ops.capacity()),
             "entries": self.entries.len(),
-            "entries_vec_bytes": block(self.entries.as_ptr(), self.entries.capacity()),
+            "entries_vec_bytes": self.entries.vec_bytes(),
+            "entries_spilled": entries_spilled,
+            "entries_spill_bytes": entries_spill_bytes,
             "entries_heap_bytes": entries_heap,
-            "entries_clone_bytes": measure_clone(|| self.entries.clone()),
+            "entries_clone_bytes": 0,
             "entry_refs_bytes": block(self.entry_refs.as_ptr(), self.entry_refs.capacity()),
             "entry_hashes_bytes": block(self.entry_hashes.as_ptr(), self.entry_hashes.capacity()),
             "table_capacity": self.table.capacity(),
@@ -1894,7 +1902,7 @@ impl OrderedWeights for ModularRecorder {
             }
             let index = u32::try_from(self.entries.len())
                 .map_err(|_| error("too many distinct coefficients"))?;
-            self.entries.push(coefficient.clone());
+            self.entries.push(&coefficient)?;
             self.entry_refs.push(reference);
             self.entry_hashes.push(0);
             if let Some(inputs) = &mut self.multi_inputs {
@@ -2046,6 +2054,7 @@ impl OrderedWeights for ModularRecorder {
         self.spill = Some(std::sync::Arc::new(std::sync::Mutex::new(
             spill::Spill::at(dir, resume)?,
         )));
+        self.entries.enable_spill(dir, self.context.zero());
         Ok(true)
     }
 
@@ -2068,7 +2077,8 @@ impl OrderedWeights for ModularRecorder {
         w.raw(&digest);
         drop(spill);
         w.len(self.entries.len());
-        for (coefficient, reference) in self.entries.iter().zip(&self.entry_refs) {
+        for (index, reference) in self.entry_refs.iter().enumerate() {
+            let coefficient = &*self.entries.get(index)?;
             super::resume::put_coefficient(w, coefficient);
             w.varint(u64::from(reference.0));
         }
@@ -2111,7 +2121,8 @@ impl OrderedWeights for ModularRecorder {
         }
         let template = self.context.zero();
         let n = r.len(usize::MAX).map_err(e)?;
-        self.entries = Vec::with_capacity(n);
+        // the dictionary is empty here (bound before the load; a spill
+        // enabled at bind is rebuilt from the state's entries)
         self.entry_refs = Vec::with_capacity(n);
         self.entry_hashes = Vec::with_capacity(n);
         self.table = HashTable::new();
@@ -2119,7 +2130,7 @@ impl OrderedWeights for ModularRecorder {
             let coefficient = super::resume::get_coefficient(r, &template).map_err(e)?;
             let reference = CoefRef(r.varint().map_err(e)? as u32);
             let hash = FxBuild.hash_one(&coefficient);
-            self.entries.push(coefficient);
+            self.entries.push(&coefficient)?;
             self.entry_refs.push(reference);
             self.entry_hashes.push(hash);
             let hashes = &self.entry_hashes;
