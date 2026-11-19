@@ -50,22 +50,25 @@ fn key_choices_become_candidates_and_one_term_images_onto_open_keys_are_hand_dow
     assert_eq!(k.candidates[1].regular_at_4, Some(false));
     let z = inp.keys.iter().find(|k| k.key == vec![3, 1, 0, 0]).unwrap();
     assert_eq!((z.face.as_str(), z.candidates.len()), ("Z", 0));
+    // USER RULING 2026-11-19 (rule 21): by default the composite (first by kind) is chosen although it is singular at
+    // d = 4; the plan says which rule ranked
     let p = plan(&c, &inp).unwrap();
-    // the composite is singular at d = 4: the regular hand-down wins although composites rank first by kind
     let ch = p.chosen.iter().find(|x| x.key == vec![1, 3, 0, 0]).unwrap();
-    assert_eq!(ch.kind, Some(ServiceKind::HandDown));
-    assert_eq!(ch.hand_down_target, Some(HandDownTarget::OtherFace));
+    assert_eq!(ch.kind, Some(ServiceKind::Composite));
     assert_eq!(p.core_open, vec![vec![3, 1, 0, 0]]);
-    // without the regularity preference the composite is chosen
+    assert!(p.d4_rule.as_deref().unwrap().starts_with("rule 21"));
+    // the EXPLICIT, non-default singular_last (the withdrawn order): the regular hand-down wins, and the plan says so
     let mut inp2 = inp.clone();
-    inp2.ranking.singular_last = false;
+    inp2.ranking.singular_last = true;
     let p2 = plan(&c, &inp2).unwrap();
     let ch = p2
         .chosen
         .iter()
         .find(|x| x.key == vec![1, 3, 0, 0])
         .unwrap();
-    assert_eq!(ch.kind, Some(ServiceKind::Composite));
+    assert_eq!(ch.kind, Some(ServiceKind::HandDown));
+    assert_eq!(ch.hand_down_target, Some(HandDownTarget::OtherFace));
+    assert!(p2.d4_rule.as_deref().unwrap().starts_with("EXPLICIT singular_last"));
 }
 
 #[test]
