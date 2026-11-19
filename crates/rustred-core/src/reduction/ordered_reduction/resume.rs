@@ -106,9 +106,9 @@ pub(crate) fn inphase_due(keys: usize, last_save: &std::time::Instant) -> bool {
             .ok()
             .and_then(|v| v.parse().ok())
     }) {
-        return every > 0 && keys % every == 0;
+        return every > 0 && keys.is_multiple_of(every);
     }
-    keys % 4096 == 0
+    keys.is_multiple_of(4096)
         && last_save.elapsed().as_secs_f64()
             >= *SECONDS.get_or_init(|| {
                 std::env::var("RUSTRED_RESUME_INPHASE_SECONDS")
