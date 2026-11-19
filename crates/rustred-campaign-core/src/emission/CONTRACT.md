@@ -361,3 +361,77 @@ TESTS: tests/entries_fake.rs (4): (a) over a stored entry (the engine's choice o
 entry-check ACCEPTED; worse = refused and nothing written; no old object = refused; (b) one key of the first-match table rule;
 entry-check refuses an entry without its emitted record, its regularity verdict, its descent verdict, with a wrong pole order or
 another rhs. tests/entries_t266.rs: the digest of a shipped T266 entry reproduced.
+
+## 17. CONE-PRICING ACCEPTANCE of a replacement (ROUND 6 J4, 2026-11-19; design of lane rulecost 13:25Z, agreed by the coordinator)
+BINDING ORDER: the d = 4 guard (section 13) first; a candidate worse at d = 4 is refused before it is priced; a relation regular
+at d = 4 wins whatever its size. OPT-IN by policy (`cone_pricing: true`; it needs engine runs). A policy without it serialises
+as before (same sha256).
+- MEASURE: an A/B PARTIAL RECORD PASS of the real request. The old arm is the old table / input; the new arm is the candidate
+  (a package view with only the owner payload replaced, or the candidate's inputs).
+  - Engine: the existing stop-after-phase (RUSTRED_RESUME_DIR + RUSTRED_RESUME_STOP_AFTER_PHASE = entrance + 3, or + 5 for a
+    third level) and owner statistics (RUSTRED_P_OWNER_STATS).
+  - ONE thread (`reduce-file <lib> <inputs> modular 1`), each arm one licence slot. The run ends with "stopped after a saved
+    phase" (non-zero rc, expected).
+- READ two full levels from the ENTRANCE (the Route phase where the replaced relation's children first arrive; Route = even
+  phase 2 (14 - lines)): Route, Apply, Route, Apply. The price at the SECOND Apply:
+  - children handed down;
+  - keys, seconds and children per RECEIVING owner;
+  - the high-shell population (keys with D + r above the request's);
+  - THE (lines, dots, rank) SHELL HISTOGRAM of the keys stepped, old vs new (by rank, by dots, mean dots / rank, keys weighted
+    x4 per rank step as information). This is the coordinator's addition after LIT-AUDIT-SZ-CL: a no-raise relation trading
+    dots for rank downstream must show.
+- VERDICT (refusal rules):
+  - `cone_worse`: more children at the second Apply than today;
+  - `cone_owner_grows`: a receiving owner grows by more than 1.25x in keys received or children handed down (owners under 100
+    on both sides ignored);
+  - `cone_absorbed`: an ENTRANCE-ONLY WIN, i.e. an entrance gain above the tolerance (4 %) and a second-Apply gain below it.
+  - Otherwise ACCEPTED.
+  - RANK among accepted candidates: children at the second Apply, then high shell, then seconds.
+  - A third level is reported when the arms carry it and the second-level difference is still moving.
+- WORK, NOT VALUES: the partial pass stops before the terminals. Exactness is the derivation's check; a full A/B compares
+  tagged terminal VALUES, not expansions (CL Theorem 2.4).
+- EVIDENCE: the verdict (schema rustred.emission.cone-price.v1: old / new body sha256, the request with binary, inputs and
+  per-arm runs, the phases read, levels, ratios, the shell histogram, per-owner table, owners grown, rules, accepted, reason,
+  rank key) is a side file `<stem>.emission/cone/<sha256>.json`; the replacement's derivation names it in
+  `replaces.cone_sha256` (`rr_campaign cone-stamp`).
+- table-check (policy cone_pricing) REFUSES a replacement without the member, or with a verdict that refuses, prices another
+  old record, or does not name this body.
+- CALL: `rr_campaign cone-price --old-stats A --new-stats B --entrance N --out V.json`, or `cone-price --run --binary
+  p5l_library-diag4186 --old-lib L --old-inputs I1 [--new-lib L2] --new-inputs I2 --entrance N --out DIR [--third-level]
+  [--env K=V,...]` (exit 0 accepted, 3 refused); `rr_campaign cone-stamp --table T --index I --verdict V --out T2`.
+- TEST (permanent negative): tests/cone_t269.rs on lane t162opt's ab2 statistics, plus the same A/B re-run through `--run`
+  (round 6: diag4186, 176 / 167 s, 12 GB per arm). The review's T269 glued triangle is REFUSED `cone_worse`:
+  - entrance (twelve-line Route): 327 -> 12 keys;
+  - twelve-line Apply: 23,780 vs 23,886 children;
+  - second Apply (eleven lines): 905,807 vs 922,379 children (+1.83 %), with several receiving owners above 1.25x in keys;
+  - shells: dots-5 keys 2,997 -> 5,133, mean dots 3.47 -> 3.61 at equal rank.
+
+## 18. THE (key, image) d = 4 PAIR MEASURE (ROUND 6 J3; lane rulecost's O4 item 6)
+- For an owner whose TABLE IS ON DISK: `rr_campaign regularity-pairs --table T --pairs P.jsonl --out DIR [--threads N]
+  [--descent-out F]`.
+  - Each pair (key K, exact orbit image K' = sigma(K), sign; I(K) = sign I(K')) compares the section-13 pole order of the
+    key's first-match rule at K (today) with the image's first-match rule at K' (after canonicalisation). A declared-terminal
+    image is regular.
+  - WORSE = the image's pole order is higher, or it is undefined only there.
+  - The command writes the one-term descent table K -> sign K' for the engine's order. `--descent-out` restricts the verdict to
+    LOWER images.
+  - The engine's choice (the least orbit member) is found with gencheck S/bin/orbit_least.py: all ordered member pairs through
+    `rr_node descent`.
+- Pairs: gencheck S/bin/key_images.py (the exact one-key images of lane rulecost's cone_images.py, plus the sign of ISPs mapped
+  onto negated forms) from reached keys and the saved verified groups.
+- TEST: tests/pairs_toy.rs. RESULT on T164 (lane rulecost's 53,518 reached keys of T278's record, phase 9; the minimised T164
+  table = the original minus the minimiser's 680-record removal set, 357 rules):
+  - 43,585 keys have an exact image; 28,281 orbits, each with a unique least member in the table's order;
+  - 28,681 keys move to their orbit's least member: 1,337 WORSE (1,325 regular -> singular), 688 better (677 singular ->
+    regular), 26,656 equal.
+  - So unscoped canonicalisation at T164 makes 1,337 reached keys less regular.
+- NEEDED FROM THE ENGINE where no table is on disk (template lanes Insertion / SeriesParallel; T278, whose payload is only in the
+  package):
+  - (1) a ONE-KEY STEP DUMP: for an owner class and a key, the relation the engine applies there, exactly in d, as a rule line
+    (target, rhs [[daughter, coefficient]]) in the owner's frame. For a template lane: the lane's generated expansion. For a
+    Custom owner: its first-match payload rule at the key. A verb (`p5l_library step-key <lib> <class> <key>`) or
+    RUSTRED_P_STEP_DUMP=<file> during a reduce.
+  - (2) the MOVED-KEY DUMP that lane rulecost requested (RUSTRED_P_CANON_DUMP: owner class, key, image, sign), i.e. the
+    engine's own choice under its order key.
+  - Alternatively for Custom owners: a payload export of the owner's rules as table_dump.v1 records, after which
+    regularity-pairs runs unchanged.
