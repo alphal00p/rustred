@@ -273,6 +273,17 @@ fn min_width(options: &SampledOptions) -> usize {
         .max(1)
 }
 
+/// `RUSTRED_SAMPLED_FIRST` (0 / unset: half of batch_points).
+fn first_round() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_SAMPLED_FIRST")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
+}
+
 /// The points one vector instruction of the replay kernel carries.
 const SIMD_POINTS: usize = 8;
 
@@ -303,7 +314,130 @@ fn batches(options: &SampledOptions, points: usize, primes: usize, threads: usiz
 /// Seed salt of the verification points.
 const VERIFICATION_POINTS_SALT: u64 = 0x7665_7269_6670;
 
+/// Resumable sampled replay: every completed replay batch of a request with a
+/// resume directory is appended to `<dir>/samples.jsonl` (prime, points,
+/// finite mask, cancellation checks, the value of every output column), each
+/// line bound to the request's final saved state (`binding`: BLAKE3 of the
+/// state's own digest and the seed) and carrying its own BLAKE3. A restarted
+/// replay re-imports the points instead of replaying them: a job whose points
+/// are all stored is not replayed; the values enter the interpolation exactly
+/// as fresh ones (and the lift's verification prime stays). A line of another
+/// binding, or an altered line, is refused (hard error naming the file).
+pub(super) struct PointStore {
+    path: std::path::PathBuf,
+    binding: String,
+    /// (prime, x) -> (finite, value per output column).
+    points: std::collections::HashMap<(u64, u64), (bool, Vec<u64>)>,
+    pub(super) imported: usize,
+}
+
+impl PointStore {
+    pub(super) fn open(dir: &std::path::Path, binding: [u8; 32]) -> Result<Self, ReductionError> {
+        let path = dir.join("samples.jsonl");
+        let binding = blake3::Hash::from_bytes(binding).to_hex().to_string();
+        let mut points = std::collections::HashMap::new();
+        if let Ok(text) = std::fs::read_to_string(&path) {
+            for (n, line) in text.lines().enumerate() {
+                let refuse = |why: &str| {
+                    super::error(format!(
+                        "sample store {} refused at line {}: {why}",
+                        path.display(),
+                        n + 1
+                    ))
+                };
+                let Some((body, digest)) = line.rsplit_once("\t") else {
+                    return Err(refuse("no line digest"));
+                };
+                if blake3::hash(body.as_bytes()).to_hex().as_str() != digest {
+                    return Err(refuse("altered (line digest mismatch)"));
+                }
+                let record: serde_json::Value =
+                    serde_json::from_str(body).map_err(|e| refuse(&e.to_string()))?;
+                if record["binding"].as_str() != Some(binding.as_str()) {
+                    return Err(refuse("written for another record (binding mismatch)"));
+                }
+                let prime = record["prime"].as_u64().ok_or_else(|| refuse("prime"))?;
+                let xs: Vec<u64> = serde_json::from_value(record["points"].clone())
+                    .map_err(|e| refuse(&e.to_string()))?;
+                let finite: Vec<bool> = serde_json::from_value(record["finite"].clone())
+                    .map_err(|e| refuse(&e.to_string()))?;
+                let values: Vec<Vec<u64>> = serde_json::from_value(record["values"].clone())
+                    .map_err(|e| refuse(&e.to_string()))?;
+                for (j, &x) in xs.iter().enumerate() {
+                    let column: Vec<u64> = values.iter().map(|row| row[j]).collect();
+                    points.insert((prime, x), (finite[j], column));
+                }
+            }
+        }
+        Ok(Self {
+            path,
+            binding,
+            points,
+            imported: 0,
+        })
+    }
+
+    /// The batch of `points` if every point is stored.
+    fn lookup(&mut self, field: &Zp64, points: &[Fe], columns: &[usize]) -> Option<ReplayBatch> {
+        let prime = field.get_prime();
+        let width = points.len();
+        let rows = columns.iter().max().map_or(0, |m| m + 1);
+        let mut values = vec![field.zero(); rows * width];
+        let mut good = vec![true; width];
+        for (j, x) in points.iter().enumerate() {
+            let (finite, column) = self.points.get(&(prime, field::to_u64(field, x)))?;
+            good[j] = *finite;
+            for (&slot, &value) in columns.iter().zip(column) {
+                values[slot * width + j] = field.to_element(value);
+            }
+        }
+        self.imported += width;
+        Some(ReplayBatch {
+            values,
+            good,
+            cancel_checks: 0,
+        })
+    }
+
+    fn append(&mut self, field: &Zp64, points: &[Fe], batch: &ReplayBatch, columns: &[usize]) {
+        let width = points.len();
+        let prime = field.get_prime();
+        let xs: Vec<u64> = points.iter().map(|x| field::to_u64(field, x)).collect();
+        let values: Vec<Vec<u64>> = columns
+            .iter()
+            .map(|&slot| {
+                (0..width)
+                    .map(|j| field::to_u64(field, &batch.values[slot * width + j]))
+                    .collect()
+            })
+            .collect();
+        let body = serde_json::json!({
+            "binding": self.binding, "prime": prime, "points": xs, "finite": batch.good,
+            "cancel_checks": batch.cancel_checks, "values": values,
+        })
+        .to_string();
+        for (j, &x) in xs.iter().enumerate() {
+            self.points.insert(
+                (prime, x),
+                (batch.good[j], values.iter().map(|row| row[j]).collect()),
+            );
+        }
+        let line = format!("{body}\t{}\n", blake3::hash(body.as_bytes()).to_hex());
+        use std::io::Write;
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+        {
+            let _ = file.write_all(line.as_bytes());
+            let _ = file.sync_data();
+        }
+    }
+}
+
 pub(super) struct SampledSource<'a> {
+    /// Resumable replay (requests with a resume directory).
+    store: Option<std::sync::Mutex<PointStore>>,
     trace: &'a Trace,
     /// Terminal accumulator slot of every output terminal.
     slots: &'a [usize],
@@ -326,8 +460,10 @@ impl<'a> SampledSource<'a> {
         options: SampledOptions,
         seed: u64,
         compose: Option<&'a Program>,
+        store: Option<PointStore>,
     ) -> Self {
         Self {
+            store: store.map(std::sync::Mutex::new),
             trace,
             slots,
             structure: Arc::new(()),
@@ -465,7 +601,45 @@ impl<'a> SampledSource<'a> {
                 });
             }
         }
-        for (owner, points, batch) in self.replay(jobs, executor, statistics)? {
+        // Resumable replay: stored batches are re-imported, not replayed.
+        let mut imported = vec![];
+        if let Some(store) = &self.store {
+            let mut store = store
+                .lock()
+                .map_err(|_| super::error("sample store poisoned"))?;
+            let columns = self.columns();
+            jobs.retain(|job| match store.lookup(&job.field, &job.points, columns) {
+                Some(batch) => {
+                    imported.push((job.owner, job.points.clone(), Some(batch)));
+                    false
+                }
+                None => true,
+            });
+        }
+        let mut replayed = self.replay(jobs, executor, statistics)?;
+        if let Some(store) = &self.store {
+            let mut store = store
+                .lock()
+                .map_err(|_| super::error("sample store poisoned"))?;
+            for (owner, points, batch) in &replayed {
+                if let Some(batch) = batch {
+                    store.append(&samples[*owner].field, points, batch, self.columns());
+                }
+            }
+        }
+        if !imported.is_empty() {
+            eprintln!(
+                "rustred replay: {} stored batches ({} points) re-imported, {} replayed",
+                imported.len(),
+                imported
+                    .iter()
+                    .map(|(_, points, _)| points.len())
+                    .sum::<usize>(),
+                replayed.len()
+            );
+        }
+        imported.append(&mut replayed);
+        for (owner, points, batch) in imported {
             match batch {
                 Some(batch) if usable[owner] => {
                     samples[owner].absorb(&points, &batch, self.columns(), statistics)
@@ -546,6 +720,9 @@ impl<'a> SampledSource<'a> {
         } else {
             self.options.batch_points / 2
         };
+        // RUSTRED_SAMPLED_FIRST=<points>: an explicitly wide first round for a
+        // key known to be hard (T241: ~120 points on the first prime).
+        let start = start.max(first_round());
         let mut count = start.min(self.options.max_points_per_prime);
         loop {
             let open = self.sample_round(

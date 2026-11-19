@@ -55,6 +55,8 @@ fn caller_commit() -> bool {
 fn remove_request(dir: &Path) {
     let _ = std::fs::remove_file(dir.join("state.bin"));
     let _ = std::fs::remove_file(dir.join("ops.bin"));
+    // the resumable sampled replay's point store of this request
+    let _ = std::fs::remove_file(dir.join("samples.jsonl"));
     let _ = std::fs::remove_dir(dir);
 }
 

@@ -1361,6 +1361,11 @@ impl ModularRecorder {
         tadic_targets: Option<&[i32]>,
     ) -> Result<(Finished, ModularStatistics), ReductionError> {
         crate::prof!(FinPrepare);
+        // Resumable sampled replay: the request's resume directory (taken
+        // before the trace store is), when its final state is there.
+        let point_store_dir = self
+            .resume_dir()
+            .filter(|dir| dir.join("state.bin").exists());
         let record_seconds = self.started.elapsed().as_secs_f64();
         let prepare = Instant::now();
         let constant_total = self.constant_count as usize;
@@ -1580,8 +1585,29 @@ impl ModularRecorder {
                 .lifter
             {
                 Lifter::Sampled(options) => {
-                    let mut source =
-                        SampledSource::new(&trace, &slots, options, self.common.seed, program);
+                    // Resumable replay: a point store bound to the final saved
+                    // state of this request (its own digest) and the seed.
+                    let store = match &point_store_dir {
+                        Some(dir) => Some(sampled::PointStore::open(dir, {
+                            let state = std::fs::read(dir.join("state.bin"))
+                                .map_err(|e| error(format!("sample store binding: {e}")))?;
+                            let own = &state[state.len().saturating_sub(32)..];
+                            let mut hasher = blake3::Hasher::new();
+                            hasher.update(b"rustred.sampled-points.v1");
+                            hasher.update(own);
+                            hasher.update(&self.common.seed.to_le_bytes());
+                            *hasher.finalize().as_bytes()
+                        })?),
+                        None => None,
+                    };
+                    let mut source = SampledSource::new(
+                        &trace,
+                        &slots,
+                        options,
+                        self.common.seed,
+                        program,
+                        store,
+                    );
                     let lifted = lift::lift(
                         &mut source,
                         &self.context,
