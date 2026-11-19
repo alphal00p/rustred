@@ -198,6 +198,7 @@ impl<'p> PrimeSamples<'p> {
         statistics: &mut ModularStatistics,
     ) {
         let width = points.len();
+        export_batch(&self.field, points, batch, slots);
         for (j, x) in points.iter().enumerate() {
             if !batch.good[j] {
                 statistics.bad_points += 1;
@@ -208,6 +209,35 @@ impl<'p> PrimeSamples<'p> {
                 ys.push(batch.values[slot * width + j]);
             }
         }
+    }
+}
+
+/// Astra A/B (A): `RUSTRED_SAMPLED_EXPORT=<file>` appends one JSON line per
+/// replay batch: prime, points, finite mask, the cancellation checks of the
+/// batch and, per output terminal, its values at the points (u64 residues).
+fn export_batch(field: &Zp64, points: &[Fe], batch: &ReplayBatch, slots: &[usize]) {
+    let Some(path) = std::env::var_os("RUSTRED_SAMPLED_EXPORT") else {
+        return;
+    };
+    let width = points.len();
+    let to = |x: &Fe| super::field::to_u64(field, x);
+    let line = serde_json::json!({
+        "prime": field.get_prime(),
+        "points": points.iter().map(to).collect::<Vec<_>>(),
+        "finite": batch.good,
+        "cancel_checks": batch.cancel_checks,
+        "values": slots
+            .iter()
+            .map(|&slot| (0..width).map(|j| to(&batch.values[slot * width + j])).collect::<Vec<_>>())
+            .collect::<Vec<_>>(),
+    });
+    use std::io::Write;
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(file, "{line}");
     }
 }
 
@@ -235,7 +265,29 @@ struct Job<'p> {
 /// Narrowest batch worth replaying: per-operation overheads (one frontier
 /// row per trace operation) dominate below an eighth of `batch_points`.
 fn min_width(options: &SampledOptions) -> usize {
-    (options.batch_points / 8).max(1)
+    // Astra A/B (E): never below the 8-point SIMD packet (a width-8 pass
+    // costs about the wall of a width-2 pass), unless the batch itself is
+    // narrower.
+    (options.batch_points / 8)
+        .max(SIMD_POINTS.min(options.batch_points))
+        .max(1)
+}
+
+/// The points one vector instruction of the replay kernel carries.
+const SIMD_POINTS: usize = 8;
+
+/// Astra A/B (E): `RUSTRED_SAMPLED_WIDE=<points>`: when the first round of the
+/// first prime does not converge, the next round draws at least this many
+/// points (wide speculation; cheap low-degree keys converge in the first round
+/// and never pay it). 0 / unset: the quarter growth only.
+fn wide_floor() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_SAMPLED_WIDE")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0)
+    })
 }
 
 /// Batches for `points` points of one prime when `primes` primes share a
@@ -518,6 +570,7 @@ impl<'a> SampledSource<'a> {
             // in the same order, so the converged interpolants are the same.
             count = (samples[0].drawn / 4)
                 .max(self.options.batch_points / 8)
+                .max(wide_floor())
                 .min(self.options.max_points_per_prime - samples[0].drawn)
                 .max(1);
         }
