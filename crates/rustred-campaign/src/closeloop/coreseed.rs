@@ -249,7 +249,14 @@ impl<'a> ChildSolver<'a> {
             std::fs::create_dir_all(d).map_err(|e| e.to_string())?;
         }
         let mut journal = BTreeMap::new();
-        if let Ok(f) = std::fs::File::open(&cfg.journal) {
+        // procfix7 round 19 (landing, int8b-gate review (ii) coreseed.rs:252): a journal that is not there is empty; one
+        // that cannot be OPENED is an error (it was "empty": every request solved again)
+        let journal_in = match crate::fsx::open("closeloop.input", &cfg.journal) {
+            crate::fsx::Read::Content(f) => Some(f),
+            crate::fsx::Read::Absent => None,
+            crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", cfg.journal.display())),
+        };
+        if let Some(f) = journal_in {
             for l in std::io::BufReader::new(f).lines().map_while(Result::ok) {
                 // a torn last line (a crash while writing) is ignored: its request is solved again
                 if let Ok(v) = serde_json::from_str::<Value>(&l)
@@ -885,7 +892,11 @@ impl CoreSolver for ChildSolver<'_> {
                                 if !is_trial(&r.label) {
                                     let mut t = d.lines.join("\n");
                                     t.push('\n');
-                                    let _ = std::fs::write(j.work.join("solved.jsonl"), t);
+                                    // procfix7 round 19 (landing, int8b-gate review (ii) coreseed.rs:880): a failed
+                                    // write fails the batch (it was dropped: the results accepted without it)
+                                    let sp = j.work.join("solved.jsonl");
+                                    std::fs::write(&sp, t)
+                                        .map_err(|e| format!("{}: {e}", sp.display()))?;
                                 }
                                 // relations the in-process test leaves undecided: to the pole job of the batch
                                 for (k, rec) in &d.records {
