@@ -108,6 +108,39 @@ fn main() {
         Some("reduce") => reduce_cli(&args[2..]),
         Some("reduce-file") => reduce_file_cli(&args[2..]),
         Some("reduce-files") => reduce_files_cli(&args[2..]),
+        // gate R-B1: p5l_library orbit-digest <package dir> <node>: the value of
+        // library.json orbit_required_digests[<node>] for the package's
+        // orbits.rrbin (and whether each presentation of the node has a
+        // nontrivial group there)
+        Some("orbit-digest") => {
+            let dir = std::path::Path::new(&args[2]);
+            let node = &args[3];
+            let manifest: rustred_app::propagator::format::LibraryManifest =
+                serde_json::from_slice(&std::fs::read(dir.join("library.json")).unwrap()).unwrap();
+            let presentations: Vec<PresentationId> = manifest
+                .presentations
+                .iter()
+                .filter(|p| {
+                    std::path::Path::new(&p.family)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        == Some(node.as_str())
+                })
+                .map(|p| PresentationId(p.index))
+                .collect();
+            let saved = rustred::propagator::saved_orbits::PSavedOrbits::decode(
+                &std::fs::read(dir.join("orbits.rrbin")).unwrap(),
+            )
+            .unwrap();
+            for p in &presentations {
+                eprintln!(
+                    "presentation {} of {node}: nontrivial group {}",
+                    p.0,
+                    saved.has_nontrivial_group(*p)
+                );
+            }
+            println!("{}", saved.node_group_digest(&presentations));
+        }
         Some("encoding") => encoding(&args[2..]),
         // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
         Some("seed-fingerprints") => {

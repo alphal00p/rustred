@@ -693,6 +693,13 @@ pub struct LibraryManifest {
     /// (unknown field): fail closed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub orbit_required_nodes: Vec<String>,
+    /// For every node of `orbit_required_nodes`: the digest of the saved
+    /// groups its table was pruned with (`PSavedOrbits::node_group_digest`,
+    /// `blake3:<hex>`). Required for each such node: a package whose
+    /// orbits.rrbin carries other groups for the node (another scope, another
+    /// search) is refused at load, in both load modes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub orbit_required_digests: BTreeMap<String, String>,
 }
 
 /// vk5l WP6: the version of [`OpenNodeRecord`]; a record of another version

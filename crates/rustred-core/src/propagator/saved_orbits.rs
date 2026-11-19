@@ -67,12 +67,74 @@ pub struct PSavedOrbits {
 }
 
 impl PSavedOrbits {
-    /// Whether a group is saved for some sector of `presentation`.
-    pub fn covers_presentation(&self, presentation: PresentationId) -> bool {
+    /// Whether some sector of `presentation` has a saved group acting
+    /// nontrivially (more than the identity and its negative, which fix every
+    /// key; the exporter's 'nontrivial' count). A record with an EMPTY group,
+    /// e.g. in a file scoped to another node, does not count.
+    pub fn has_nontrivial_group(&self, presentation: PresentationId) -> bool {
         self.orbits
             .range((presentation, 0)..=(presentation, u64::MAX))
-            .next()
-            .is_some()
+            .any(|(_, saved)| saved.group.len() > 2)
+    }
+
+    /// This file re-encoded with EMPTY groups for every presentation `keep`
+    /// rejects (a node-scoped orbit file: the other presentations keep a
+    /// record, so they are not searched at run time).
+    pub fn encode_scoped(&self, keep: impl Fn(PresentationId) -> bool) -> Result<Vec<u8>, PError> {
+        let entries = self
+            .orbits
+            .iter()
+            .map(|((presentation, support), saved)| {
+                Ok(OrbitEntry {
+                    presentation: presentation.0,
+                    support: *support,
+                    fingerprint: saved.fingerprint,
+                    candidates: u32::try_from(saved.candidates).map_err(malformed)?,
+                    verified: u32::try_from(saved.verified).map_err(malformed)?,
+                    n: u8::try_from(saved.n).map_err(malformed)?,
+                    group: if keep(*presentation) {
+                        saved.group.clone()
+                    } else {
+                        vec![]
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, PError>>()?;
+        let file = OrbitsFile {
+            schema: P_SAVED_ORBITS_SCHEMA.to_owned(),
+            canon_version: super::P_ORBIT_CANON_VERSION,
+            entries,
+        };
+        bincode::encode_to_vec(&file, bincode::config::standard()).map_err(malformed)
+    }
+
+    /// The digest binding a package's orbit-required node to the groups its
+    /// table was pruned with (library.json `orbit_required_digests`):
+    /// `blake3:<hex>` over every saved record of `presentations` in
+    /// (presentation, support) order: presentation, support, fingerprint, n
+    /// and the group's matrices in sorted order (little-endian integers).
+    pub fn node_group_digest(&self, presentations: &[PresentationId]) -> String {
+        let mut hasher = blake3::Hasher::new();
+        let mut ids: Vec<PresentationId> = presentations.to_vec();
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            for ((presentation, support), saved) in self.orbits.range((id, 0)..=(id, u64::MAX)) {
+                hasher.update(&presentation.0.to_le_bytes());
+                hasher.update(&support.to_le_bytes());
+                hasher.update(&saved.fingerprint.to_le_bytes());
+                hasher.update(&(saved.n as u64).to_le_bytes());
+                let mut group = saved.group.clone();
+                group.sort();
+                hasher.update(&(group.len() as u64).to_le_bytes());
+                for element in &group {
+                    for entry in element {
+                        hasher.update(&entry.to_le_bytes());
+                    }
+                }
+            }
+        }
+        format!("blake3:{}", hasher.finalize().to_hex())
     }
 }
 
