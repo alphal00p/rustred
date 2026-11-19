@@ -355,7 +355,19 @@ impl PointStore {
         let path = dir.join("samples.jsonl");
         let binding = blake3::Hash::from_bytes(binding).to_hex().to_string();
         let mut points = std::collections::HashMap::new();
-        if let Ok(bytes) = std::fs::read(&path) {
+        // A missing store is empty; any other read error is refused (a store
+        // that exists but cannot be read is never taken as empty).
+        let read = match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => {
+                return Err(super::error(format!(
+                    "sample store {}: cannot be read: {e}",
+                    path.display()
+                )));
+            }
+        };
+        if let Some(bytes) = read {
             // A torn tail (a short write: the final line lacks its newline)
             // is dropped and cut from the file before new lines are appended.
             let complete = bytes.iter().rposition(|&b| b == b'\n').map_or(0, |i| i + 1);
@@ -488,13 +500,19 @@ impl PointStore {
         }
         let line = format!("{body}\t{}\n", blake3::hash(body.as_bytes()).to_hex());
         use std::io::Write;
+        let created = !self.path.exists();
         std::fs::OpenOptions::new()
             .create(true)
             .append(true)
             .open(&self.path)
             .and_then(|mut file| {
                 file.write_all(line.as_bytes())?;
-                file.sync_data()
+                file.sync_data()?;
+                // a new store's directory entry is made durable too
+                if created && let Some(dir) = self.path.parent() {
+                    std::fs::File::open(dir)?.sync_all()?;
+                }
+                Ok(())
             })
             .map_err(|e| {
                 super::error(format!(
@@ -1087,6 +1105,20 @@ mod tests {
             error.contains("samples.jsonl") && error.contains("write failed"),
             "{error}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Gate note: a store that exists but cannot be read is refused at open,
+    /// never taken as empty (here `samples.jsonl` is a directory).
+    #[test]
+    fn an_unreadable_store_is_refused_not_empty() {
+        let dir = store_dir("unreadable");
+        std::fs::create_dir(dir.join("samples.jsonl")).unwrap();
+        let error = PointStore::open(&dir, [7; 32])
+            .err()
+            .expect("an unreadable store must be refused")
+            .to_string();
+        assert!(error.contains("cannot be read"), "{error}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
