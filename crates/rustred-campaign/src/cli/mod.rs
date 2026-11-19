@@ -219,6 +219,36 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        "regularity-pairs" => match crate::emission::pairs::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("regularity-pairs: {e}");
+                exit::USAGE
+            }
+        },
+        "cone-price" => match crate::emission::coneprice::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("cone-price: {e}");
+                exit::USAGE
+            }
+        },
+        "cone-stamp" => match crate::emission::coneprice::stamp_cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("cone-stamp: {e}");
+                exit::USAGE
+            }
+        },
         "legacy-import" => match crate::emission::legacy_import::cmd(rest) {
             Ok((t, ok)) => {
                 outln!("{t}");

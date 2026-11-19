@@ -11,8 +11,8 @@ use super::class::{
 };
 use super::legacy::verify_row;
 use super::{
-    AREA_CERT, AREA_CHECK, AREA_DESCENT, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV, AREA_REGULARITY,
-    AREA_SYMROWS, SCHEMA,
+    AREA_CERT, AREA_CHECK, AREA_CONE, AREA_DESCENT, AREA_EVID, AREA_KEYS, AREA_POLICY, AREA_PROV,
+    AREA_REGULARITY, AREA_SYMROWS, SCHEMA,
 };
 use serde_json::Value;
 
@@ -135,8 +135,11 @@ pub fn check_record(
     {
         fetch(AREA_PROV, sha, "provenance", &mut v.problems);
     }
-    if let Some(sha) = d["policy"]["sha256"].as_str() {
-        fetch(AREA_POLICY, sha, "policy", &mut v.problems);
+    let mut policy: Option<super::class::Policy> = None;
+    if let Some(sha) = d["policy"]["sha256"].as_str()
+        && let Some(b) = fetch(AREA_POLICY, sha, "policy", &mut v.problems)
+    {
+        policy = serde_json::from_slice(&b).ok();
     }
     let cert_sha = d["certificate"]["sha256"].as_str().map(str::to_string);
     if let Some(sha) = &cert_sha {
@@ -288,6 +291,34 @@ pub fn check_record(
                             }
                         }
                         Err(e) => v.problems.push(format!("descent output: {e}")),
+                    }
+                }
+            }
+        }
+    }
+    // CONE PRICING (contract section 17, opt-in by policy): a replacement names an ACCEPTED cone verdict of its own old record
+    // and body
+    if is_replacement && origin == Origin::Lift && policy.as_ref().is_some_and(|p| p.cone_pricing) {
+        match d["replaces"]["cone_sha256"].as_str() {
+            None => v.problems.push("a replacement without its cone-pricing verdict (contract section 17; the policy asks for it)".into()),
+            Some(sha) => {
+                if let Some(b) = fetch(AREA_CONE, sha, "cone verdict", &mut v.problems) {
+                    match serde_json::from_slice::<super::cone::Verdict>(&b) {
+                        Ok(c) => {
+                            if c.schema != super::cone::SCHEMA {
+                                v.problems.push(format!("cone verdict schema {}", c.schema));
+                            }
+                            if !c.accepted {
+                                v.problems.push(format!("the cone verdict refuses the candidate: {}", c.reason.unwrap_or_default()));
+                            }
+                            if c.old_body_sha256.as_deref().is_some_and(|o| Some(o) != d["replaces"]["old_body_sha256"].as_str()) {
+                                v.problems.push("the cone verdict prices another old record".into());
+                            }
+                            if !c.new_body_sha256.is_empty() && !c.new_body_sha256.iter().any(|x| x == &ids.body_sha256) {
+                                v.problems.push("the cone verdict does not name this body".into());
+                            }
+                        }
+                        Err(e) => v.problems.push(format!("cone verdict: {e}")),
                     }
                 }
             }

@@ -8,10 +8,12 @@
 //! CLI: `rr_campaign emit-replace ...` ([`emit_replace_cmd`]) and `rr_campaign table-check ...` ([`tablecheck::cmd`]).
 pub mod bindcheck;
 pub mod child;
+pub mod coneprice;
 pub mod emitter;
 pub mod entries;
 pub mod gate;
 pub mod legacy_import;
+pub mod pairs;
 pub mod regcheck;
 pub mod replace;
 pub mod stamp;

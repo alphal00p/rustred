@@ -430,6 +430,10 @@ pub struct Policy {
     pub min_sample: u64,
     /// the cone of the liveness decision (spec text, e.g. "simplex:39"); None = every record counts as live
     pub liveness_cone: Option<String>,
+    /// CONE PRICING (contract section 17, opt-in: it needs engine runs): a replacement must name an ACCEPTED cone verdict
+    /// (`replaces.cone_sha256`). Off by default; a policy without it serialises as before (same sha256).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cone_pricing: bool,
 }
 
 impl Default for Policy {
@@ -446,6 +450,7 @@ impl Default for Policy {
             dead_allow_none: true,
             min_sample: 200,
             liveness_cone: None,
+            cone_pricing: false,
         }
     }
 }

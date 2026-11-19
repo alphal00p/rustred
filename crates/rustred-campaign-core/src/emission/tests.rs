@@ -527,3 +527,83 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
     // no derivation at all
     assert!(!check_record(TOY, 0, &side, &none_alias).ok());
 }
+
+/// CONE PRICING (contract section 17), opt-in by policy: a replacement under a policy with `cone_pricing` needs an ACCEPTED cone
+/// verdict of its own old record and body; without the flag nothing changes (and the policy serialises as before).
+#[test]
+fn cone_pricing_is_required_of_replacements_only_when_the_policy_asks() {
+    use super::cone::{Rules, parse_arm, price};
+    assert_eq!(serde_json::to_string(&Policy::default()).unwrap().contains("cone_pricing"), false, "same sha256 as before");
+    let ids = body_ids(TOY).unwrap();
+    let check_line = format!(
+        r#"{{"schema":"rustred.proof-kernel.weight-cert.v1","mode":"weight-cert","cert":{{"sha256":"{c}"}},"rule":{{"target_rhs_sha256":"{r}","domain_sha256":"{d}"}},"rows":{{"verdict":"ROWS_VERIFIED_BY_RECOVERY"}},"identity":{{"verdict":"IDENTITY_EXACT"}},"binding":{{"verdict":"BINDING_EQUAL"}},"factors":{{"producer":"PRODUCER_LIST_ABSENT"}},"loci":[],"loci_counts":{{"EMPTY_CONSTANT":1,"IN_EXCEPTION":2}},"class":"WHOLE_DOMAIN"}}"#,
+        c = sha256_hex(b"cert"),
+        r = ids.relation_sha256,
+        d = ids.domain_sha256
+    );
+    let s = CheckSummary::parse(&check_line).unwrap();
+    let descent_out = br#"{"failing_rules":[],"first":null,"not_lower":0,"order":{"name":"t"},"rules":1,"terms":3}"#.to_vec();
+    let old_body = sha256_hex(b"the old record");
+    let reg = json!({"schema": super::regularity::SCHEMA, "not_worse": true, "old_body_sha256": old_body,
+                     "new_body_sha256": [ids.body_sha256]})
+    .to_string()
+    .into_bytes();
+    let mk = |pol: &Policy, cone: Option<&[u8]>| {
+        let pt = serde_json::to_vec(pol).unwrap();
+        let parts = Parts {
+            kind: Kind::Lifted,
+            origin: Origin::Lift,
+            body_sha256: ids.body_sha256.clone(),
+            producer: None,
+            certificate: Some((sha256_hex(b"cert"), 4, "v0+rows".into())),
+            check: Ok((sha256_hex(b"checker"), sha256_hex(check_line.as_bytes()), s.clone())),
+            span: None,
+            descent: Some((sha256_hex(b"node"), sha256_hex(&descent_out), "LOWER".into(), None)),
+            symrows: None,
+            classed: class_of(Kind::Lifted, Origin::Lift, Some(&s), &Evidence::default()),
+            cone: None,
+            sample: None,
+            ladder: None,
+            legacy: None,
+            policy: (pol.name.clone(), sha256_hex(&pt)),
+        };
+        let mut d = derivation(&parts);
+        d["replaces"] = json!({"old_body_sha256": old_body, "regularity_sha256": sha256_hex(&reg)});
+        if let Some(c) = cone {
+            d["replaces"]["cone_sha256"] = json!(sha256_hex(c));
+        }
+        let mut files = vec![
+            (AREA_CERT, b"cert".to_vec()),
+            (AREA_CHECK, check_line.clone().into_bytes()),
+            (AREA_POLICY, pt),
+            (AREA_DESCENT, descent_out.clone()),
+            (AREA_REGULARITY, reg.clone()),
+        ];
+        if let Some(c) = cone {
+            files.push((AREA_CONE, c.to_vec()));
+        }
+        let line = attach_derivation(TOY, &d).unwrap();
+        check_record(&line, 0, &side_map(&files), &|_| None).problems
+    };
+    let plain = Policy::default();
+    let priced = Policy { cone_pricing: true, ..Policy::default() };
+    assert!(mk(&plain, None).is_empty(), "{:?}", mk(&plain, None));
+    let p = mk(&priced, None);
+    assert!(p.iter().any(|x| x.contains("cone-pricing verdict")), "{p:?}");
+    // an accepted verdict of this old record and body; a refused one
+    let arm = |rows: &[(i64, u64, u64)]| {
+        let g: Vec<serde_json::Value> = rows
+            .iter()
+            .map(|(p, st, ch)| json!({"phase": p, "steps": st, "shapes": [[12, 1, 0, st]], "dests": [["o", ch]]}))
+            .collect();
+        parse_arm(&json!({"groups": g}).to_string(), Some(1)).unwrap()
+    };
+    let old = arm(&[(4, 327, 1000), (5, 579, 23780), (6, 14300, 57429), (7, 27819, 905807)]);
+    let good = arm(&[(4, 12, 12), (5, 231, 20000), (6, 9000, 40000), (7, 20000, 690000)]);
+    let glued = arm(&[(4, 12, 12), (5, 231, 23886), (6, 14222, 63271), (7, 28859, 922379)]);
+    let v = |n: &super::cone::Arm| serde_json::to_vec(&price(&old, n, 4, &Rules::default(), json!({}), Some(old_body.clone()), vec![ids.body_sha256.clone()]).unwrap()).unwrap();
+    let p = mk(&priced, Some(&v(&good)));
+    assert!(p.is_empty(), "{p:?}");
+    let p = mk(&priced, Some(&v(&glued)));
+    assert!(p.iter().any(|x| x.contains("refuses the candidate")), "{p:?}");
+}

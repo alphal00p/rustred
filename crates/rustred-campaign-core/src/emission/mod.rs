@@ -15,6 +15,7 @@
 //! `rustred_campaign::emission`.
 pub mod body;
 pub mod class;
+pub mod cone;
 pub mod descent;
 pub mod symrows;
 pub mod ladder;
@@ -41,6 +42,8 @@ pub const AREA_REGULARITY: &str = "regularity";
 pub const AREA_DESCENT: &str = "descent";
 /// the symrows request and the symmetry group of a symmetry-relation check (contract section 15)
 pub const AREA_SYMROWS: &str = "symrows";
+/// the cone-pricing verdict of a replacement (contract section 17), named by `replaces.cone_sha256`
+pub const AREA_CONE: &str = "cone";
 
 /// The side directory of a table path (`x/T.table.jsonl` -> `x/T.emission`).
 pub fn side_dir(table: &std::path::Path) -> std::path::PathBuf {
