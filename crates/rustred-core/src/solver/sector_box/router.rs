@@ -29,6 +29,11 @@ pub trait SectorRouter<const N: usize>: Send + Sync {
     fn automorphism_rows(&self, n: &[i16; N]) -> Result<Vec<Route<N>>, SolverError>;
     /// Binds the family and the routing policy, for session keys.
     fn fingerprint(&self) -> [u8; 32];
+    /// Fingerprints of earlier formats of the same router, which files
+    /// written before a format change carry. Readers accept them as well.
+    fn legacy_fingerprints(&self) -> Vec<[u8; 32]> {
+        Vec::new()
+    }
     /// Upper bound on the number of [`Self::automorphism_rows`] of any
     /// integral of `sector` (0 for routers without symmetries). Used by the
     /// pre-flight cost model.

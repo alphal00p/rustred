@@ -116,8 +116,10 @@ eta-DE at one value `d0` of the dimension). Exact-lane solutions
 - `family`: the family fingerprint (`IntegralFamily::fingerprint`), its
   arity and the hex blake3 fingerprint of the sector router
   (`BoxLaportaSession::harness_family`). A reader accepts a file only for
-  the same fingerprint and arity, and the same router fingerprint when both
-  give one.
+  the same fingerprint and arity, and, when both give one, the same router
+  fingerprint or one of the router's legacy fingerprints. The census router
+  writes format v2 (explicit bytes); files written before v2 carry v1
+  (`Debug` renderings) and are still read.
 - `parameters`: the family parameters in coefficient-variable order.
   `fixed` maps every parameter except `provenance.free` to its exact value
   (canonical `p/q` or integer string).
