@@ -150,6 +150,22 @@ pub struct SectorBoxReduceSpec {
     /// (cluster probes; no reconstruction needed).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub report_supports: bool,
+    /// Two-pass derivative closure. Pass 1 is one `extend` with the targets
+    /// (growth and closure round 0) and gives the masters. Pass 2 starts a
+    /// fresh session (with `rebuild_rounds`) whose targets are the targets,
+    /// and the derivative seeds `m + e_s` of every pass-1 master (and, with
+    /// `two_pass_variants`, rank-1 numerator variants), with the pass-1
+    /// masters preferred, so the closure is seeded up front in one
+    /// bottom-up batch instead of incremental closure rounds. Needs
+    /// derivative slots.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_pass: bool,
+    /// With `two_pass`: also add the rank-1 numerator variants (one more
+    /// numerator on any slot with power <= 0) of every dotted pass-1 master
+    /// and derivative seed to the pass-2 targets (rule ii'; minimal bases,
+    /// but every subsector inherits a rank-1 box).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_pass_variants: bool,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -559,6 +575,50 @@ fn modular_phase<const N: usize>(
     }
 }
 
+/// Pass-2 targets of [`SectorBoxReduceSpec::two_pass`]: the targets and the
+/// derivative seeds of the pass-1 masters; with `variants` also the rank-1
+/// numerator variants (one more numerator on any slot with power <= 0) of
+/// every dotted integral among the masters and derivative seeds.
+fn two_pass_targets<const N: usize>(
+    targets: &[[i16; N]],
+    masters: &[[i16; N]],
+    derivative_slots: &[usize],
+    arity: usize,
+    variants: bool,
+) -> Vec<[i16; N]> {
+    let mut known: BTreeSet<[i16; N]> = targets.iter().copied().collect();
+    let mut out: Vec<[i16; N]> = targets.to_vec();
+    let mut dotted = Vec::new();
+    for master in masters {
+        dotted.push(*master);
+        for &slot in derivative_slots {
+            if master[slot] > 0 {
+                let mut seed = *master;
+                seed[slot] += 1;
+                dotted.push(seed);
+                if known.insert(seed) {
+                    out.push(seed);
+                }
+            }
+        }
+    }
+    for integral in dotted.into_iter().filter(|_| variants) {
+        if !integral[..arity].iter().any(|&power| power > 1) {
+            continue;
+        }
+        for slot in 0..arity {
+            if integral[slot] <= 0 {
+                let mut variant = integral;
+                variant[slot] -= 1;
+                if known.insert(variant) {
+                    out.push(variant);
+                }
+            }
+        }
+    }
+    out
+}
+
 fn modular_json<const N: usize>(report: &ModularReport<N>, seconds: f64) -> Value {
     let check = &report.master_check;
     json!({
@@ -913,10 +973,57 @@ fn run_phases<const N: usize>(
             )
             .map_err(|e| AppError::input(format!("options: {e}")))?;
             let clock = Instant::now();
+            let mut pass_one = None;
+            let (phase_targets, phase_preferred) = if spec.two_pass {
+                if derivative_slots.is_empty() {
+                    return Err(AppError::input("two_pass needs derivative_slot(s)"));
+                }
+                let first = match session.extend(&targets, &kept) {
+                    Ok(report) => report,
+                    Err(SolverError::MasterCheck(message)) => {
+                        out.set("status", json!("master-check-failed"));
+                        out.set("error", json!(message));
+                        out.write()?;
+                        return Ok(SectorBoxReduceOutcome {
+                            report: Value::Object(out.fields.clone()),
+                            status: "master-check-failed",
+                        });
+                    }
+                    Err(other) => return Err(engine("two-pass pass 1")(other)),
+                };
+                let second_targets = two_pass_targets(
+                    &targets,
+                    &first.masters,
+                    &derivative_slots,
+                    arity,
+                    spec.two_pass_variants,
+                );
+                let mut second_preferred = kept.clone();
+                for master in &first.masters {
+                    if !second_preferred.contains(master) {
+                        second_preferred.push(*master);
+                    }
+                }
+                pass_one = Some(json!({"masters": first.masters.len(), "seeds": first.seeds,
+                    "seconds": clock.elapsed().as_secs_f64(), "pass2_targets": second_targets.len()}));
+                session = BoxLaportaSession::<N>::new(
+                    family.clone(),
+                    &CutConstraint::none(arity).map_err(|e| AppError::input(e.to_string()))?,
+                    router.clone(),
+                    BoxOptions {
+                        rebuild_rounds: true,
+                        ..options.clone()
+                    },
+                )
+                .map_err(|e| AppError::input(format!("options: {e}")))?;
+                (second_targets, second_preferred)
+            } else {
+                (targets.clone(), kept.clone())
+            };
             let (report, final_targets, closure) = match modular_phase(
                 &mut session,
-                &targets,
-                &kept,
+                &phase_targets,
+                &phase_preferred,
                 &derivative_slots,
                 spec.closure_rounds.unwrap_or(8),
             ) {
@@ -934,6 +1041,9 @@ fn run_phases<const N: usize>(
             };
             let mut modular = modular_json(&report, clock.elapsed().as_secs_f64());
             modular["closure"] = json!(closure);
+            if let Some(first) = pass_one {
+                modular["two_pass"] = first;
+            }
             if spec.report_supports {
                 let mut text = String::new();
                 for (target, support) in &report.supports {
