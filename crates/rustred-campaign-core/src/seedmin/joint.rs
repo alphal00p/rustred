@@ -954,9 +954,9 @@ pub(crate) fn rows_at_d0_pass(
 /// audit r2-planners S1: what a piece's list does BEYOND the keys it was minimised on, compared key by key with a FULL
 /// (start) list. The joint minimiser applies the pole objective (per-key Pareto, `judge_change`) only at the piece's
 /// own keys; at further keys the list was never judged, so the record states exactly that and lists the keys where the
-/// minimised list is WORSE than the full list (singular where the full list is regular, or a higher pole order): under
-/// the default objective ("regular at d = 4 wins", POLES_OBJECTIVE.md, pole-diagnostics.md Addendum 8) a consumer must
-/// not take the list there.
+/// minimised list is WORSE than the full list (singular where the full list is regular, or a higher pole order). Since rule 21
+/// (2026-11-19) this is a REPORT: the default objective puts terms first and the pole order last (a tie-break); only under
+/// the explicit pole-first objective (the withdrawn "regular at d = 4 wins") should a consumer not take the list there.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExtensionReport {
     pub piece: String,

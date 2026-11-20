@@ -260,8 +260,8 @@ pub struct PiecesStep {
 }
 
 /// wireflow (f), TRICKS 7 / 15 (iii): after the closing loop's final result (P5), lane seedmin's JOINT minimisation
-/// (`seedmin::minimise_joint`, pole objective per the minimiser policy: regular at d = 4 wins, a drop that worsens a
-/// key's pole order is refused) of the seed list of every EXPLICIT-OFFSET face recipe (the mixed-shell family) that
+/// (`seedmin::minimise_joint`, objective per the minimiser policy: since rule 21 terms first, the pole order a tie-break;
+/// only the explicit pole-first objective refuses a drop that worsens a key's pole order) of the seed list of every EXPLICIT-OFFSET face recipe (the mixed-shell family) that
 /// certified at least `min_keys` keys, over exactly those keys, solved by the supervisor-side child solver
 /// (`closeloop::seedmin::ChildTrialSolver`, the solve-recipe contract, journaled). When ONE piece holds every key the
 /// minimised list becomes the recipe that is SHIPPED in the export (its every-key final verification is the claim);
@@ -578,9 +578,9 @@ pub struct SymbolicPolicy {
     pub stop_grace_s: u32,
     /// Extra generate arguments (each must pass the contract's allow-list).
     pub extra_args: Vec<String>,
-    /// USER RULING 2026-11-15 (pole-diagnostics.md addendum 7): "regular at d = 4" always wins by default: a regular
-    /// candidate is preferred over a smaller singular one unless it is larger by more than this ratio; a rational >= 1
-    /// or the word "unbounded" (default). The per-rule / per-node caps and the budgets stay separate parameters.
+    /// The size guard of the EXPLICIT regular-first preference (the 2026-11-15 ruling "regular at d = 4 always wins" it
+    /// served is withdrawn by rule 21, 2026-11-19): a rational >= 1 or "unbounded" (default). Validated only; no default
+    /// path consumes it. The per-rule / per-node caps and the budgets stay separate parameters.
     pub max_size_ratio: SizeRatio,
 }
 

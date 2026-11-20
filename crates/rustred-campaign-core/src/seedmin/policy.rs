@@ -196,7 +196,8 @@ pub struct SeedMinPolicy {
     #[serde(default = "d_on")]
     pub pole_objective: String,
     /// `off` (default) | `on`: regularity check (ii), the SYSTEM's best pole order p* (lane tadic) not worse after a
-    /// change; informative only (the binding test is the delivered relation's order, check (i)); off by default for its
+    /// change. EXPLICIT OPT-IN, NOT rule-21 behaviour (N3 of the gate R-C read): with `on`, a drop that worsens the system's
+    /// p* is REFUSED even when it is smaller; off by default (rule 21: d = 4 regularity a tie-break only) and for its
     /// cost (one exact p* of the start system per key plus one per change: seconds for hundreds of rows, far more for
     /// the thousands of rows of a face's list; notes, record of the measurement).
     #[serde(default = "d_off")]

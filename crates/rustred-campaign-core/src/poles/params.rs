@@ -46,10 +46,10 @@
 //! | `inherent.max_cone_keys` | 200000 | composition budget (keys of the cone); over it: `undecided: budget` |
 //! | `inherent.budget_s` | 600 | composition wall budget per relation; over it: `undecided: budget` (time-decided) |
 //! | `max_cpu_h_per_node` | 8 | cap of all diagnostics of one node |
-//! | `prefer_regular_at` | ["4"] | dimensions of the preference; [] = OFF |
+//! | `prefer_regular_at` | ["4"] | dimensions of the preference; [] = OFF (parsed and recorded; no production consumer today) |
 //! | `criteria_order` | economy_first | USER RULING 2026-11-19 (rule 21): `economy_first` (size first; regularity breaks exact ties only) is the default; `regular_first` (addendum 4/7, withdrawn) only when named |
 //! | `max_size_ratio` | "unbounded" | bounds the regular class under the explicit `regular_first` only (the 2026-11-15 ruling it served is withdrawn) |
-//! | `max_further_steps` | 1 | escalation steps after the serving step tried for a regular relation |
+//! | `max_further_steps` | 1 | escalation steps after the serving step tried for a regular relation (parsed and recorded; no production consumer today) |
 //! | `probe.key_budget_s` / `probe.primes` | 60 / 2 | probe wall cap per key / primes |
 //! | `solve.key_budget_s` | 600 | wall cap of a d0-pivoted solve |
 //! | `max_keys_per_node`, `max_cpu_h_per_node` | 1000, 2 | caps of the relation preference per node |

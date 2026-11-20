@@ -11,7 +11,7 @@
 //!
 //! OBJECTIVE ([`choose_poles`]): `poles::select::pole_objective` (THE ranking function of every pole choice) over the
 //! ADMISSIBLE candidates only (an acceptable full table; a structurally valid replacement rule): a pole never changes a
-//! verdict. Measures from [`PolePolicy`] (default `regular`, `max_pole_order`, `size`), the size guard `max_size_ratio`
+//! verdict. Measures from [`PolePolicy`] (default since rule 21, 2026-11-19: `size`, `regular`, `max_pole_order`, ratio 1; the pole-first order only when named), the size guard `max_size_ratio`
 //! (the SIZE TOLERANCE: a better pole class wins only while one of its members is <= ratio x the smallest admissible
 //! size), then TIME (cpu ms), then the candidate index. `use: false` = poles IGNORED: the callers keep their size choice
 //! untouched and write nothing about poles (bit-identical records).

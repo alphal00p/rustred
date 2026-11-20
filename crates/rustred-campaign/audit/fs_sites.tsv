@@ -635,21 +635,21 @@ O	src/emission/emitter.rs	688	prod		auto: error propagated (? / map_err)	let mut
 O	src/emission/emitter.rs	689	prod		auto: error propagated (? / map_err)	.create(true)
 R	src/emission/entries.rs	109	prod		auto: error propagated (? / map_err)	let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
 R	src/emission/entries.rs	345	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(&a.emitted).map_err(|e| format!("{}: {e}", a.emitted.display()))?;
-D	src/emission/entries.rs	414	prod		auto: error propagated (? / map_err)	std::fs::write(&vp, &vb).map_err(|e| format!("{}: {e}", vp.display()))?;
-F	src/emission/entries.rs	485	prod	emission.entries.root	auto: explicit Unknown / Failed arm	let holds_entries = match crate::fsx::list("emission.entries.root", &dir) {
-D	src/emission/entries.rs	509	prod		auto: error propagated (? / map_err)	std::fs::write(&ef, &merged).map_err(|e| format!("{}: {e}", ef.display()))?;
-D	src/emission/entries.rs	510	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("index.jsonl"), &index).map_err(|e| e.to_string())?;
-D	src/emission/entries.rs	528	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
-D	src/emission/entries.rs	533	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
-R	src/emission/entries.rs	548	prod		auto: error propagated (? / map_err)	let b = std::fs::read(dir.join(f)).map_err(|e| e.to_string())?;
-D	src/emission/entries.rs	551	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("SHA256SUMS"), sums).map_err(|e| e.to_string())?;
-F	src/emission/entries.rs	563	prod	emission.entries.manifest	auto: explicit Unknown / Failed arm	let manifest: Value = match crate::fsx::read("emission.entries.manifest", &mp) {
-F	src/emission/entries.rs	571	prod	emission.entries.check	auto: Unknown / Absent / Failed -> Err (propagated)	let mut files: Vec<PathBuf> = crate::fsx::list_required("emission.entries.check", dir)
-R	src/emission/entries.rs	586	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
-X	src/emission/entries.rs	586	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
-R	src/emission/entries.rs	587	prod		auto: error propagated (? / map_err)	let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
-R	src/emission/entries.rs	784	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pieces)
-D	src/emission/entries.rs	828	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::create(out.join("regularity.json")).map_err(|e| e.to_string())?;
+D	src/emission/entries.rs	431	prod		auto: error propagated (? / map_err)	std::fs::write(&vp, &vb).map_err(|e| format!("{}: {e}", vp.display()))?;
+F	src/emission/entries.rs	501	prod	emission.entries.root	auto: explicit Unknown / Failed arm	let holds_entries = match crate::fsx::list("emission.entries.root", &dir) {
+D	src/emission/entries.rs	525	prod		auto: error propagated (? / map_err)	std::fs::write(&ef, &merged).map_err(|e| format!("{}: {e}", ef.display()))?;
+D	src/emission/entries.rs	526	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("index.jsonl"), &index).map_err(|e| e.to_string())?;
+D	src/emission/entries.rs	544	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
+D	src/emission/entries.rs	549	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
+R	src/emission/entries.rs	564	prod		auto: error propagated (? / map_err)	let b = std::fs::read(dir.join(f)).map_err(|e| e.to_string())?;
+D	src/emission/entries.rs	567	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("SHA256SUMS"), sums).map_err(|e| e.to_string())?;
+F	src/emission/entries.rs	579	prod	emission.entries.manifest	auto: explicit Unknown / Failed arm	let manifest: Value = match crate::fsx::read("emission.entries.manifest", &mp) {
+F	src/emission/entries.rs	587	prod	emission.entries.check	auto: Unknown / Absent / Failed -> Err (propagated)	let mut files: Vec<PathBuf> = crate::fsx::list_required("emission.entries.check", dir)
+R	src/emission/entries.rs	602	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
+X	src/emission/entries.rs	602	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
+R	src/emission/entries.rs	603	prod		auto: error propagated (? / map_err)	let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
+R	src/emission/entries.rs	800	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pieces)
+D	src/emission/entries.rs	844	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::create(out.join("regularity.json")).map_err(|e| e.to_string())?;
 R	src/emission/gate.rs	18	prod		lane gencheck (gate R-C, rc-land): cert_case: the case text from a certificate's head for indexing; an unreadable certificate is not indexed, so a record needing it has no certificate and is refused (fail closed)	let mut f = std::fs::File::open(p).ok()?;
 X	src/emission/gate.rs	18	prod		lane gencheck (gate R-C, rc-land): cert_case: the case text from a certificate's head for indexing; an unreadable certificate is not indexed, so a record needing it has no certificate and is refused (fail closed)	let mut f = std::fs::File::open(p).ok()?;
 X	src/emission/gate.rs	20	prod		lane gencheck (gate R-C, rc-land): cert_case: as the open above (an unreadable certificate is not indexed; the record is refused)	let n = f.read(&mut buf).ok()?;
@@ -692,11 +692,11 @@ X	src/emission/mod.rs	203	prod		lane gencheck (gate R-C, rc-land): carry_side: a
 D	src/emission/mod.rs	204	prod		auto: error propagated (? / map_err)	std::fs::copy(&f, &d)
 R	src/emission/mod.rs	318	prod		auto: error propagated (? / map_err)	let t = std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}"))?;
 R	src/emission/mod.rs	385	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
-R	src/emission/mod.rs	455	prod		auto: error propagated (? / map_err)	let vb = std::fs::read(vp).map_err(|e| format!("{}: {e}", vp.display()))?;
-D	src/emission/mod.rs	476	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("pieces.refused.jsonl"), &pj).map_err(|e| e.to_string())?;
-D	src/emission/mod.rs	492	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("pieces.jsonl"), &pj).map_err(|e| e.to_string())?;
-D	src/emission/mod.rs	499	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("pieces.mini.table.jsonl"), mini).map_err(|e| e.to_string())?;
-D	src/emission/mod.rs	508	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("report.json"), &text).map_err(|e| e.to_string())?;
+R	src/emission/mod.rs	463	prod		auto: error propagated (? / map_err)	let vb = std::fs::read(vp).map_err(|e| format!("{}: {e}", vp.display()))?;
+D	src/emission/mod.rs	484	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("pieces.refused.jsonl"), &pj).map_err(|e| e.to_string())?;
+D	src/emission/mod.rs	500	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("pieces.jsonl"), &pj).map_err(|e| e.to_string())?;
+D	src/emission/mod.rs	507	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("pieces.mini.table.jsonl"), mini).map_err(|e| e.to_string())?;
+D	src/emission/mod.rs	516	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("report.json"), &text).map_err(|e| e.to_string())?;
 R	src/emission/pairs.rs	50	prod		auto: error propagated (? / map_err)	for l in std::fs::read_to_string(table)
 R	src/emission/pairs.rs	209	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(table).map_err(|e| format!("{}: {e}", table.display()))?;
 D	src/emission/pairs.rs	220	prod		auto: error propagated (? / map_err)	std::fs::File::create(out).map_err(|e| format!("{}: {e}", out.display()))?,
@@ -1264,9 +1264,9 @@ R	src/supervisor/genchoice.rs	508	prod		auto: error propagated (? / map_err)	let
 R	src/supervisor/genchoice.rs	584	prod		auto: error propagated (? / map_err)	let t = std::fs::read_to_string(&f.path)
 R	src/supervisor/genchoice.rs	593	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(p).map_err(|er| format!("{}: {er}", e.family))?;
 R	src/supervisor/genchoice.rs	651	prod		auto: error propagated (? / map_err)	let b = std::fs::read(&r.path).map_err(|e| format!("{}: {e}", r.path))?;
-F	src/supervisor/genchoice.rs	1186	prod	supervisor.run_dir	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("supervisor.run_dir", &p) {
-R	src/supervisor/genchoice.rs	1192	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(tp)
-R	src/supervisor/genchoice.rs	1262	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(tp).map_err(|e| format!("{tp}: {e}"))?;
+F	src/supervisor/genchoice.rs	1188	prod	supervisor.run_dir	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("supervisor.run_dir", &p) {
+R	src/supervisor/genchoice.rs	1194	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(tp)
+R	src/supervisor/genchoice.rs	1264	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(tp).map_err(|e| format!("{tp}: {e}"))?;
 R	src/supervisor/identity.rs	22	prod		typed match: NotFound = create the nonce (O_EXCL), other errors refuse	match std::fs::read_to_string(&p) {
 R	src/supervisor/identity.rs	33	prod		auto: error propagated (? / map_err)	std::fs::File::open("/dev/urandom")
 D	src/supervisor/identity.rs	37	prod		D-F: no-clobber (O_EXCL create / RENAME_NOREPLACE): never destructive	match crate::atomic::create_new_atomic(&p, format!("{hex}\n").as_bytes()) {
@@ -1278,18 +1278,18 @@ R	src/supervisor/improve.rs	285	prod		auto: error propagated (? / map_err)	let t
 F	src/supervisor/improve.rs	436	prod	closeloop.input	auto: explicit Unknown / Failed arm	let b = match crate::fsx::read("closeloop.input", std::path::Path::new(&r.path))
 R	src/supervisor/improve.rs	786	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
 R	src/supervisor/improve.rs	875	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
-F	src/supervisor/improve.rs	915	prod	supervisor.improve.emission_certs	auto: explicit Unknown / Failed arm	|d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
-D	src/supervisor/improve.rs	1077	prod		auto: error propagated (? / map_err)	std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?,
-R	src/supervisor/improve.rs	1112	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
-R	src/supervisor/improve.rs	1178	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
-D	src/supervisor/improve.rs	1207	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp_t, &abs_t).map_err(|e| e.to_string())?;
-D	src/supervisor/improve.rs	1214	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&abs_o, &ob).map_err(|e| e.to_string())?;
-R	src/supervisor/improve.rs	1658	prod		int8b-gate review 2026-11-18 (i) row 159: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
-X	src/supervisor/improve.rs	1658	prod		int8b-gate review 2026-11-18 (i) row 160: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
-X	src/supervisor/improve.rs	1662	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.parent()
-X	src/supervisor/improve.rs	1663	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.is_none_or(|d| std::fs::create_dir_all(d).is_ok());
-D	src/supervisor/improve.rs	1664	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1412): write_atomic error -> the job is not started this round (retried next ready())	if !dir_made || crate::atomic::write_atomic(&abs, line.as_bytes()).is_err()
-F	src/supervisor/improve.rs	1875	prod	supervisor.run_dir	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("supervisor.run_dir", &p) {
+F	src/supervisor/improve.rs	917	prod	supervisor.improve.emission_certs	auto: explicit Unknown / Failed arm	|d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
+D	src/supervisor/improve.rs	1079	prod		auto: error propagated (? / map_err)	std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?,
+R	src/supervisor/improve.rs	1114	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
+R	src/supervisor/improve.rs	1180	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+D	src/supervisor/improve.rs	1209	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp_t, &abs_t).map_err(|e| e.to_string())?;
+D	src/supervisor/improve.rs	1216	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&abs_o, &ob).map_err(|e| e.to_string())?;
+R	src/supervisor/improve.rs	1660	prod		int8b-gate review 2026-11-18 (i) row 159: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
+X	src/supervisor/improve.rs	1660	prod		int8b-gate review 2026-11-18 (i) row 160: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
+X	src/supervisor/improve.rs	1664	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.parent()
+X	src/supervisor/improve.rs	1665	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.is_none_or(|d| std::fs::create_dir_all(d).is_ok());
+D	src/supervisor/improve.rs	1666	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1412): write_atomic error -> the job is not started this round (retried next ready())	if !dir_made || crate::atomic::write_atomic(&abs, line.as_bytes()).is_err()
+F	src/supervisor/improve.rs	1877	prod	supervisor.run_dir	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("supervisor.run_dir", &p) {
 F	src/supervisor/manager.rs	254	prod	leftover	auto: explicit Unknown / Failed arm	match crate::fsx::read("leftover", &p) {
 D	src/supervisor/manager.rs	267	prod		round 14 (M4): the campaign's own leftover list emptied (a file this code writes); NotFound = already absent; any other error is returned	return match std::fs::remove_file(&p) {
 D	src/supervisor/manager.rs	274	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, &b).map_err(|e| format!("{}: {e}", p.display()))
@@ -2109,6 +2109,10 @@ D	tests/emission_gate_fake.rs	537	test			std::fs::write(&pre2, &up).unwrap();
 E	tests/emission_gate_fake.rs	553	test			assert!(!out2.exists());
 D	tests/emission_gate_fake.rs	554	test			let _ = std::fs::remove_dir_all(&d);
 X	tests/emission_gate_fake.rs	554	test			let _ = std::fs::remove_dir_all(&d);
+R	tests/emission_gate_fake.rs	601	test			&std::fs::read(side.join(side_rel(AREA_REGULARITY, &st.sha256))).unwrap(),
+X	tests/emission_gate_fake.rs	636	test			}
+D	tests/emission_gate_fake.rs	637	test			let _ = std::fs::remove_dir_all(&dir);
+X	tests/emission_gate_fake.rs	637	test			let _ = std::fs::remove_dir_all(&dir);
 D	tests/emission_improve_fake.rs	62	test			std::fs::write(
 D	tests/emission_improve_fake.rs	68	test			std::fs::write(&ev, tsv).unwrap();
 D	tests/emission_improve_fake.rs	70	test			std::fs::write(
@@ -2144,25 +2148,29 @@ R	tests/entries_fake.rs	108	test			std::fs::read_to_string(dir.join("index.jsonl
 R	tests/entries_fake.rs	118	test			std::fs::read_to_string(dir.join("entries-emitted.jsonl"))
 D	tests/entries_fake.rs	134	test			let _ = std::fs::remove_dir_all(&d);
 X	tests/entries_fake.rs	134	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/entries_fake.rs	144	test			std::fs::write(
-D	tests/entries_fake.rs	179	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/entries_fake.rs	179	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/entries_fake.rs	180	test			let _ = std::fs::remove_dir_all(&d2);
-X	tests/entries_fake.rs	180	test			let _ = std::fs::remove_dir_all(&d2);
-D	tests/entries_fake.rs	190	test			std::fs::write(
-D	tests/entries_fake.rs	208	test			std::fs::write(
-D	tests/entries_fake.rs	223	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/entries_fake.rs	223	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/entries_fake.rs	224	test			let _ = std::fs::remove_dir_all(&d2);
-X	tests/entries_fake.rs	224	test			let _ = std::fs::remove_dir_all(&d2);
-D	tests/entries_fake.rs	232	test			std::fs::write(
-R	tests/entries_fake.rs	241	test			let good = std::fs::read_to_string(dir.join("entries-emitted.jsonl")).unwrap();
-D	tests/entries_fake.rs	250	test			std::fs::copy(dir.join("MANIFEST.json"), c.join("MANIFEST.json")).unwrap();
-D	tests/entries_fake.rs	252	test			std::fs::write(&f, format!("{e}\n")).unwrap();
-D	tests/entries_fake.rs	278	test			std::fs::copy(dir.join("MANIFEST.json"), c.join("MANIFEST.json")).unwrap();
-D	tests/entries_fake.rs	280	test			std::fs::write(&f, format!("{e}\n")).unwrap();
-D	tests/entries_fake.rs	301	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/entries_fake.rs	301	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/entries_fake.rs	147	test			std::fs::write(
+R	tests/entries_fake.rs	162	test			let v: Value = serde_json::from_slice(&std::fs::read(&vf).unwrap()).unwrap();
+D	tests/entries_fake.rs	171	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/entries_fake.rs	171	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/entries_fake.rs	179	test			std::fs::write(
+D	tests/entries_fake.rs	214	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/entries_fake.rs	214	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/entries_fake.rs	215	test			let _ = std::fs::remove_dir_all(&d2);
+X	tests/entries_fake.rs	215	test			let _ = std::fs::remove_dir_all(&d2);
+D	tests/entries_fake.rs	225	test			std::fs::write(
+D	tests/entries_fake.rs	243	test			std::fs::write(
+D	tests/entries_fake.rs	258	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/entries_fake.rs	258	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/entries_fake.rs	259	test			let _ = std::fs::remove_dir_all(&d2);
+X	tests/entries_fake.rs	259	test			let _ = std::fs::remove_dir_all(&d2);
+D	tests/entries_fake.rs	267	test			std::fs::write(
+R	tests/entries_fake.rs	276	test			let good = std::fs::read_to_string(dir.join("entries-emitted.jsonl")).unwrap();
+D	tests/entries_fake.rs	285	test			std::fs::copy(dir.join("MANIFEST.json"), c.join("MANIFEST.json")).unwrap();
+D	tests/entries_fake.rs	287	test			std::fs::write(&f, format!("{e}\n")).unwrap();
+D	tests/entries_fake.rs	313	test			std::fs::copy(dir.join("MANIFEST.json"), c.join("MANIFEST.json")).unwrap();
+D	tests/entries_fake.rs	315	test			std::fs::write(&f, format!("{e}\n")).unwrap();
+D	tests/entries_fake.rs	336	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/entries_fake.rs	336	test			let _ = std::fs::remove_dir_all(&d);
 V	tests/entries_t266.rs	10	test			let Ok(p) = std::env::var("RUSTRED_T266_ENTRY") else {
 X	tests/entries_t266.rs	10	test			let Ok(p) = std::env::var("RUSTRED_T266_ENTRY") else {
 R	tests/entries_t266.rs	14	test			let e: Value = serde_json::from_str(std::fs::read_to_string(p).unwrap().trim()).unwrap();
@@ -3379,29 +3387,29 @@ R	tests/procfix3_proc.rs	52	test			let b = fs::read(format!("/proc/{pid}/environ
 X	tests/procfix3_proc.rs	52	test			let b = fs::read(format!("/proc/{pid}/environ")).ok()?;
 X	tests/procfix3_proc.rs	62	test			read_stat(pid).ok().is_some_and(|s| !s.is_dead())
 K	tests/procfix3_proc.rs	68	test			unsafe { libc::kill(pid as i32, libc::SIGKILL) };
-W	tests/procfix3_proc.rs	156	test			(".wait()", &[]),
-K	tests/procfix3_proc.rs	172	test			("cgroup.kill", &["launch/cgroup.rs", "launch/host_check.rs"]),
-C	tests/procfix3_proc.rs	180	test			"Command::new(",
-L	tests/procfix3_proc.rs	190	test			for e in fs::read_dir(&d).unwrap().flatten() {
-E	tests/procfix3_proc.rs	192	test			if p.is_dir() {
-R	tests/procfix3_proc.rs	202	test			let text = fs::read_to_string(f).unwrap();
-X	tests/procfix3_proc.rs	236	test			let planted =
-C	tests/procfix3_proc.rs	237	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-X	tests/procfix3_proc.rs	237	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
-C	tests/procfix3_proc.rs	289	test			let mut c = std::process::Command::new("sh");
-X	tests/procfix3_proc.rs	292	test			.env_clear()
-V	tests/procfix3_proc.rs	293	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
-X	tests/procfix3_proc.rs	293	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
-D	tests/procfix3_proc.rs	336	test			fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
-C	tests/procfix3_proc.rs	352	test			let mut c = std::process::Command::new("sleep");
-L	tests/procfix3_proc.rs	391	test			let marked_now: Vec<u32> = fs::read_dir("/proc")
-L	tests/procfix3_proc.rs	393	test			.flatten()
-W	tests/procfix3_proc.rs	407	test			dcy.try_wait().unwrap().is_none(),
-W	tests/procfix3_proc.rs	413	test			old.try_wait().unwrap().is_none(),
-W	tests/procfix3_proc.rs	417	test			refused.try_wait().unwrap().is_none(),
-W	tests/procfix3_proc.rs	433	test			let _ = c.wait();
-W	tests/procfix3_proc.rs	436	test			let _ = old.wait();
-W	tests/procfix3_proc.rs	438	test			let _ = refused.wait();
+W	tests/procfix3_proc.rs	166	test			(".wait()", &[]),
+K	tests/procfix3_proc.rs	185	test			("cgroup.kill", &["launch/cgroup.rs", "launch/host_check.rs"]),
+C	tests/procfix3_proc.rs	193	test			"Command::new(",
+L	tests/procfix3_proc.rs	209	test			for e in fs::read_dir(&d).unwrap().flatten() {
+E	tests/procfix3_proc.rs	211	test			if p.is_dir() {
+R	tests/procfix3_proc.rs	221	test			let text = fs::read_to_string(f).unwrap();
+X	tests/procfix3_proc.rs	255	test			let planted =
+C	tests/procfix3_proc.rs	256	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+X	tests/procfix3_proc.rs	256	test			"fn f() { let _ = std::process::Command::new(p).status(); unsafe { libc::raise(9) }; }";
+C	tests/procfix3_proc.rs	308	test			let mut c = std::process::Command::new("sh");
+X	tests/procfix3_proc.rs	311	test			.env_clear()
+V	tests/procfix3_proc.rs	312	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+X	tests/procfix3_proc.rs	312	test			.env("PATH", std::env::var_os("PATH").unwrap_or_default());
+D	tests/procfix3_proc.rs	355	test			fs::write(&relay, "#!/bin/sh\nsleep 0.1\nsetsid \"$0\" &\nexit 0\n").unwrap();
+C	tests/procfix3_proc.rs	371	test			let mut c = std::process::Command::new("sleep");
+L	tests/procfix3_proc.rs	410	test			let marked_now: Vec<u32> = fs::read_dir("/proc")
+L	tests/procfix3_proc.rs	412	test			.flatten()
+W	tests/procfix3_proc.rs	426	test			dcy.try_wait().unwrap().is_none(),
+W	tests/procfix3_proc.rs	432	test			old.try_wait().unwrap().is_none(),
+W	tests/procfix3_proc.rs	436	test			refused.try_wait().unwrap().is_none(),
+W	tests/procfix3_proc.rs	452	test			let _ = c.wait();
+W	tests/procfix3_proc.rs	455	test			let _ = old.wait();
+W	tests/procfix3_proc.rs	457	test			let _ = refused.wait();
 E	tests/procfix3_site_ledger.rs	61	test			let md = fs::metadata(p).unwrap();
 R	tests/procfix3_site_ledger.rs	62	test			(md.dev(), md.ino(), fs::read(p).unwrap())
 D	tests/procfix3_site_ledger.rs	101	test			fs::write(&ledger, other.as_bytes()).unwrap();

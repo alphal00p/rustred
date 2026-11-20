@@ -230,6 +230,14 @@ exact-d result. Therefore:
   for it, section 17; measured ops / record seconds; else the modelled cost, section 19) -> size -> d = 4 regularity LAST,
   tie-break only.
 - NOTHING is refused, dropped or deprioritised because it is singular at d = 4.
+- FOLLOW-UP ac/rc-followup (2026-11-20; N1-N3 of the gate R-C read; not part of the gate object):
+  - N1: d = 4 regularity comes after EVERY other tie-break: cost -> size in monomials -> bytes -> regularity. This holds in
+    genchoice (`PoleCand.size_ties`; genchoice's own winner ties monomials then bytes), improve's rule verdict (bytes), the
+    piece planner (kind, edge terms, then regularity) and the seedmin default objective (terms, seeds, pole order).
+  - N2: a measurement that FAILS is reported "not measured": the verdict has `not_measured: true`, the `error` text and
+    `not_worse: null`. The record stands on its validity alone. table-check and entry-check note it, never as regular.
+  - N3: seedmin's explicit `system_regularity: "on"` refuses a smaller drop that worsens the system's p*. That is NOT
+    rule-21 behaviour; it is off by default and used only when a policy names it.
   - emit-replace, the ladder, the improve writer and emit-entries ACCEPT a valid replacement whatever its regularity.
   - table-check and entry-check never refuse for a missing, "worse" or v1 verdict.
 - The MEASURE STAYS, as a REPORTED NUMBER: the same exact measure, keys and verdict file (schema

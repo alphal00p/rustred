@@ -97,7 +97,8 @@ pub struct MinimiseSpec {
     /// A kept drop never increases the right-hand-side terms (coord-seed-minimise 1b iii).
     #[serde(default = "yes")]
     pub monotone_rhs: bool,
-    /// A relation regular at d0 stays regular after a drop (coord-seed-minimise 1b i; user ruling regular wins).
+    /// The pole objective of the minimiser on (coord-seed-minimise 1b i). Since rule 21 (2026-11-19) the seedmin default
+    /// objective puts the pole order LAST: a regular relation is kept regular only at equal terms and seeds (a tie-break).
     #[serde(default = "yes")]
     pub keep_regular_at_d0: bool,
     /// Speculative drops tested at once (deterministic: the first success in order wins).

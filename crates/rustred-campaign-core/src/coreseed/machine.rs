@@ -1215,7 +1215,7 @@ mod int7_choose_tests {
     #[test]
     fn the_choice_is_the_pole_objective() {
         let s = |p| D0Verdict::Singular { order: Some(p) };
-        // regular wins whatever its size (max_size_ratio unbounded)
+        // the EXPLICIT regular_preferred order (`true`): regular wins whatever its size (max_size_ratio unbounded)
         let a = [alt("a", 10, 5, s(1)), alt("b", 1000, 9, D0Verdict::Regular)];
         assert_eq!(choose(&a, true), Some(1));
         // no regular one: the lower pole order, then the size
