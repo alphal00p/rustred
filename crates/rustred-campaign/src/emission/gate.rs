@@ -291,6 +291,7 @@ pub fn gate_beside(
     cert_dirs: &[PathBuf],
     may_write: bool,
 ) -> Result<Value, String> {
+    // procfix9-ok: an emitted copy that cannot be read is not reused: the table is gated again, never accepted unchecked
     if let Ok(have) = std::fs::read_to_string(emitted)
         && bodies(&have)? == bodies(plain)?
     {

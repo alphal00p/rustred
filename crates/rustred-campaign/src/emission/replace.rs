@@ -141,6 +141,7 @@ impl Lifter for RrNodeWitness {
             let f = certs.remove(k);
             certs.insert(0, f);
         }
+        // procfix9-ok: the producer's WITNESS.jsonl is informational provenance only; the lift and its certificate are checked independently
         let witness = std::fs::read_to_string(out.join("WITNESS.jsonl")).unwrap_or_default();
         let provenance = json!({"tool": "rr_node witness", "binary": self.binary.display().to_string(),
             "binary_sha256": self.sha256, "argv": args, "env": env.iter().filter(|(k, _)| k.starts_with("RUSTRED_")).map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>(),

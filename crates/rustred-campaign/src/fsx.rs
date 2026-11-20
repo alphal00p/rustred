@@ -144,6 +144,23 @@ pub const SITES: &[&str] = &[
     "job.stderr",
     // procfix7 round 14 (host step 3, M4): the campaign directory's leftover-unit list
     "leftover",
+    // lane gencheck (gate R-C, ac/rc-land): the merged emission code and the improve hook (appended: the indices of the
+    // sites above stay what the fault-injection tests use)
+    "emission.bindcheck.cert",
+    "emission.carry_side",
+    "emission.child.sha256",
+    "emission.child.slot_mark",
+    "emission.cone.stats",
+    "emission.emitter.symrows_cert",
+    "emission.entries.check",
+    "emission.entries.manifest",
+    "emission.entries.root",
+    "emission.gate.cert_index",
+    "emission.legacy.dir",
+    "emission.replace.cert_dir",
+    "emission.side.put",
+    "emission.write_replaced_table",
+    "supervisor.improve.emission_certs",
 ];
 
 fn is_absent(e: &io::Error) -> bool {

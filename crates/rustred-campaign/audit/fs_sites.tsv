@@ -565,43 +565,42 @@ D	src/cpu_policy.rs	1678	test			fs::write(root.join("locks").join(format!("cpu.{
 D	src/cpu_policy.rs	1701	test			let _ = fs::remove_dir_all(&root);
 X	src/cpu_policy.rs	1701	test			let _ = fs::remove_dir_all(&root);
 R	src/emission/bindcheck.rs	71	prod		auto: error propagated (? / map_err)	let t = std::fs::read_to_string(&it.check)
-R	src/emission/bindcheck.rs	89	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command) (--classes must be read)	Some(p) => std::fs::read_to_string(p)
-R	src/emission/bindcheck.rs	98	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
-E	src/emission/bindcheck.rs	208	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	"certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"
-F	src/emission/bindcheck.rs	208	prod	emission.bindcheck.cert	auto: Unknown / Absent / Failed -> Err (propagated)	"certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"
-X	src/emission/bindcheck.rs	208	prod		lane gencheck (gate R-C, rc-land): report field only: the certificate size (null when its metadata cannot be read); the certificate itself is read and hashed with errors propagated	"certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"
-R	src/emission/bindcheck.rs	284	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(a.get("items").ok_or("--items")?).map_err(|e| e.to_string())?;
-D	src/emission/bindcheck.rs	305	prod		auto: error propagated (? / map_err)	std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| format!("{p}: {e}"))?);
-D	src/emission/bindcheck.rs	317	prod		auto: error propagated (? / map_err)	std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| format!("{p}: {e}"))?);
-R	src/emission/child.rs	38	prod		lane gencheck (gate R-C, rc-land): ChildRun::stdout_text: the child's stdout for its JSON verdict; unreadable reads as empty, which every caller treats as no verdict (refusal / Unverified), never as a pass	std::fs::read_to_string(&self.stdout).unwrap_or_default()
-X	src/emission/child.rs	38	prod		lane gencheck (gate R-C, rc-land): ChildRun::stdout_text: the child's stdout for its JSON verdict; unreadable reads as empty, which every caller treats as no verdict (refusal / Unverified), never as a pass	std::fs::read_to_string(&self.stdout).unwrap_or_default()
-R	src/emission/child.rs	41	prod		lane gencheck (gate R-C, rc-land): ChildRun::stderr_tail: diagnostic tail for messages only	let t = std::fs::read_to_string(&self.stderr).unwrap_or_default();
-X	src/emission/child.rs	41	prod		lane gencheck (gate R-C, rc-land): ChildRun::stderr_tail: diagnostic tail for messages only	let t = std::fs::read_to_string(&self.stderr).unwrap_or_default();
-D	src/emission/child.rs	68	prod		auto: error propagated (? / map_err)	let fo = std::fs::File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
-D	src/emission/child.rs	69	prod		auto: error propagated (? / map_err)	let fe = std::fs::File::create(&err).map_err(|e| format!("{}: {e}", err.display()))?;
-V	src/emission/child.rs	70	prod		lane gencheck (gate R-C, rc-land): RR_EMISSION_SLOT_WRAPPER: optional licence-slot wrapper; unset or non-UTF-8 = no wrapper (the documented default)	let wrapper = std::env::var(SLOT_WRAPPER_ENV)
-X	src/emission/child.rs	70	prod		lane gencheck (gate R-C, rc-land): RR_EMISSION_SLOT_WRAPPER: optional licence-slot wrapper; unset or non-UTF-8 = no wrapper (the documented default)	let wrapper = std::env::var(SLOT_WRAPPER_ENV)
-D	src/emission/child.rs	74	prod		lane gencheck (gate R-C, rc-land): removes this run's own slot-mark file before the spawn (a stale mark of an earlier run of the same name); absent is the normal case	let _ = std::fs::remove_file(&mark);
-X	src/emission/child.rs	74	prod		lane gencheck (gate R-C, rc-land): removes this run's own slot-mark file before the spawn (a stale mark of an earlier run of the same name); absent is the normal case	let _ = std::fs::remove_file(&mark);
-C	src/emission/child.rs	77	prod		lane gencheck (gate R-C, rc-land): synchronous tool run of the emitter through the licence-slot wrapper: own process group, spawn errors propagated; signals only through launch::guard (allowlist commit; DEFERRED gencheck-emission-children-through-launcher.md)	let mut c = Command::new(w);
-C	src/emission/child.rs	88	prod		lane gencheck (gate R-C, rc-land): synchronous tool run of the emitter (producer / checker / rr_node descent / cone arms): own process group, spawn errors propagated; signals only through launch::guard (allowlist commit; DEFERRED gencheck-emission-children-through-launcher.md)	let mut c = Command::new(program);
-F	src/emission/child.rs	134	prod	emission.child.slot_mark	lane gencheck (gate R-C, rc-land): the slot mark: Unknown counts as not yet held (the wall budget starts later; re-checked every 20 ms); the budget never starts early	if !started && crate::fsx::presence("emission.child.slot_mark", &mark).is_present() {
-V	src/emission/child.rs	159	prod		lane gencheck (gate R-C, rc-land): the caller's RR_CAMPAIGN_JOB marker when valid, else this emitter's own marker (documented); used only as the guard's proof	std::env::var(MARKER_VAR)
-X	src/emission/child.rs	159	prod		lane gencheck (gate R-C, rc-land): the caller's RR_CAMPAIGN_JOB marker when valid, else this emitter's own marker (documented); used only as the guard's proof	std::env::var(MARKER_VAR)
-F	src/emission/child.rs	180	prod	emission.child.proc	lane gencheck (gate R-C, rc-land): the overrun's group walk uses only a COMPLETE /proc listing; Failed / Absent = no signal this round (retried 10 s later); never an unverified signal	crate::fsx::list("emission.child.proc", Path::new("/proc"))
-X	src/emission/child.rs	190	prod		lane gencheck (gate R-C, rc-land): procfs rule: a member whose stat is Gone or Unreadable is not signalled this round (retried at the next SIGKILL round)	let Ok(st) = read_stat(pid) else {
-F	src/emission/child.rs	219	prod	emission.child.sha256	auto: Unknown / Absent / Failed -> Err (propagated)	let meta = crate::fsx::presence("emission.child.sha256", p)
-E	src/emission/child.rs	220	prod		auto: error propagated (? / map_err)	.metadata()
-F	src/emission/child.rs	224	prod	emission.child.sha256	lane gencheck (gate R-C, rc-land): memo key only: a path that cannot be canonicalised is keyed as given (at worst hashed once more); the hash itself reads the file with errors propagated	crate::fsx::canonicalize("emission.child.sha256", p).unwrap_or_else(|_| p.to_path_buf()),
-X	src/emission/child.rs	224	prod		lane gencheck (gate R-C, rc-land): memo key only: a path that cannot be canonicalised is keyed as given (at worst hashed once more); the hash itself reads the file with errors propagated	crate::fsx::canonicalize("emission.child.sha256", p).unwrap_or_else(|_| p.to_path_buf()),
-R	src/emission/child.rs	237	prod		auto: error propagated (? / map_err)	let b = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
-V	src/emission/child.rs	257	test			if std::env::var_os(SLOT_WRAPPER_ENV).is_some() {
-D	src/emission/child.rs	262	test			let _ = std::fs::remove_dir_all(&dir);
-X	src/emission/child.rs	262	test			let _ = std::fs::remove_dir_all(&dir);
-R	src/emission/child.rs	279	test			let g: u32 = std::fs::read_to_string(&gp)
-X	src/emission/child.rs	293	test			}
-D	src/emission/child.rs	294	test			let _ = std::fs::remove_dir_all(&dir);
-X	src/emission/child.rs	294	test			let _ = std::fs::remove_dir_all(&dir);
+R	src/emission/bindcheck.rs	90	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command) (--classes must be read)	Some(p) => std::fs::read_to_string(p)
+R	src/emission/bindcheck.rs	99	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
+E	src/emission/bindcheck.rs	209	prod		auto: Presence::metadata() (Unknown / Absent -> Err, propagated)	"certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"
+F	src/emission/bindcheck.rs	209	prod	emission.bindcheck.cert	auto: Unknown / Absent / Failed -> Err (propagated)	"certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"
+X	src/emission/bindcheck.rs	209	prod		lane gencheck (gate R-C, rc-land): report field only: the certificate size (null when its metadata cannot be read); the certificate itself is read and hashed with errors propagated	"certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"
+R	src/emission/bindcheck.rs	285	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(a.get("items").ok_or("--items")?).map_err(|e| e.to_string())?;
+D	src/emission/bindcheck.rs	306	prod		auto: error propagated (? / map_err)	std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| format!("{p}: {e}"))?);
+D	src/emission/bindcheck.rs	318	prod		auto: error propagated (? / map_err)	std::io::BufWriter::new(std::fs::File::create(p).map_err(|e| format!("{p}: {e}"))?);
+R	src/emission/child.rs	39	prod		lane gencheck (gate R-C, rc-land): ChildRun::stdout_text: the child's stdout for its JSON verdict; unreadable reads as empty, which every caller treats as no verdict (refusal / Unverified), never as a pass	std::fs::read_to_string(&self.stdout).unwrap_or_default()
+X	src/emission/child.rs	39	prod		lane gencheck (gate R-C, rc-land): ChildRun::stdout_text: the child's stdout for its JSON verdict; unreadable reads as empty, which every caller treats as no verdict (refusal / Unverified), never as a pass	std::fs::read_to_string(&self.stdout).unwrap_or_default()
+R	src/emission/child.rs	43	prod		lane gencheck (gate R-C, rc-land): ChildRun::stderr_tail: diagnostic tail for messages only	let t = std::fs::read_to_string(&self.stderr).unwrap_or_default();
+X	src/emission/child.rs	43	prod		lane gencheck (gate R-C, rc-land): ChildRun::stderr_tail: diagnostic tail for messages only	let t = std::fs::read_to_string(&self.stderr).unwrap_or_default();
+D	src/emission/child.rs	70	prod		auto: error propagated (? / map_err)	let fo = std::fs::File::create(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+D	src/emission/child.rs	71	prod		auto: error propagated (? / map_err)	let fe = std::fs::File::create(&err).map_err(|e| format!("{}: {e}", err.display()))?;
+V	src/emission/child.rs	72	prod		lane gencheck (gate R-C, rc-land): RR_EMISSION_SLOT_WRAPPER: optional licence-slot wrapper; unset or non-UTF-8 = no wrapper (the documented default)	let wrapper = std::env::var(SLOT_WRAPPER_ENV)
+X	src/emission/child.rs	72	prod		lane gencheck (gate R-C, rc-land): RR_EMISSION_SLOT_WRAPPER: optional licence-slot wrapper; unset or non-UTF-8 = no wrapper (the documented default)	let wrapper = std::env::var(SLOT_WRAPPER_ENV)
+D	src/emission/child.rs	76	prod		lane gencheck (gate R-C, rc-land): removes this run's own slot-mark file before the spawn (a stale mark of an earlier run of the same name); absent is the normal case	let _ = std::fs::remove_file(&mark);
+X	src/emission/child.rs	76	prod		lane gencheck (gate R-C, rc-land): removes this run's own slot-mark file before the spawn (a stale mark of an earlier run of the same name); absent is the normal case	let _ = std::fs::remove_file(&mark);
+C	src/emission/child.rs	79	prod		lane gencheck (gate R-C, rc-land): synchronous tool run of the emitter through the licence-slot wrapper: own process group, spawn errors propagated; signals only through launch::guard (allowlist commit; DEFERRED gencheck-emission-children-through-launcher.md)	let mut c = Command::new(w);
+C	src/emission/child.rs	90	prod		lane gencheck (gate R-C, rc-land): synchronous tool run of the emitter (producer / checker / rr_node descent / cone arms): own process group, spawn errors propagated; signals only through launch::guard (allowlist commit; DEFERRED gencheck-emission-children-through-launcher.md)	let mut c = Command::new(program);
+F	src/emission/child.rs	136	prod	emission.child.slot_mark	lane gencheck (gate R-C, rc-land): the slot mark: Unknown counts as not yet held (the wall budget starts later; re-checked every 20 ms); the budget never starts early	if !started && crate::fsx::presence("emission.child.slot_mark", &mark).is_present() {
+V	src/emission/child.rs	161	prod		lane gencheck (gate R-C, rc-land): the caller's RR_CAMPAIGN_JOB marker when valid, else this emitter's own marker (documented); used only as the guard's proof	std::env::var(MARKER_VAR)
+X	src/emission/child.rs	161	prod		lane gencheck (gate R-C, rc-land): the caller's RR_CAMPAIGN_JOB marker when valid, else this emitter's own marker (documented); used only as the guard's proof	std::env::var(MARKER_VAR)
+X	src/emission/child.rs	188	prod		lane gencheck (gate R-C, rc-land): procfs rule: a member whose stat is Gone or Unreadable is not signalled this round (retried at the next SIGKILL round)	let Ok(st) = read_stat(pid) else {
+F	src/emission/child.rs	217	prod	emission.child.sha256	auto: Unknown / Absent / Failed -> Err (propagated)	let meta = crate::fsx::presence("emission.child.sha256", p)
+E	src/emission/child.rs	218	prod		auto: error propagated (? / map_err)	.metadata()
+F	src/emission/child.rs	222	prod	emission.child.sha256	lane gencheck (gate R-C, rc-land): memo key only: a path that cannot be canonicalised is keyed as given (at worst hashed once more); the hash itself reads the file with errors propagated	crate::fsx::canonicalize("emission.child.sha256", p).unwrap_or_else(|_| p.to_path_buf()),
+X	src/emission/child.rs	222	prod		lane gencheck (gate R-C, rc-land): memo key only: a path that cannot be canonicalised is keyed as given (at worst hashed once more); the hash itself reads the file with errors propagated	crate::fsx::canonicalize("emission.child.sha256", p).unwrap_or_else(|_| p.to_path_buf()),
+R	src/emission/child.rs	235	prod		auto: error propagated (? / map_err)	let b = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
+V	src/emission/child.rs	255	test			if std::env::var_os(SLOT_WRAPPER_ENV).is_some() {
+D	src/emission/child.rs	260	test			let _ = std::fs::remove_dir_all(&dir);
+X	src/emission/child.rs	260	test			let _ = std::fs::remove_dir_all(&dir);
+R	src/emission/child.rs	277	test			let g: u32 = std::fs::read_to_string(&gp)
+X	src/emission/child.rs	291	test			}
+D	src/emission/child.rs	292	test			let _ = std::fs::remove_dir_all(&dir);
+X	src/emission/child.rs	292	test			let _ = std::fs::remove_dir_all(&dir);
 D	src/emission/coneprice.rs	40	prod		lane gencheck (gate R-C, rc-land): removes this arm's own stale owner-statistics file before the run; absent is the normal case	let _ = std::fs::remove_file(&stats);
 X	src/emission/coneprice.rs	40	prod		lane gencheck (gate R-C, rc-land): removes this arm's own stale owner-statistics file before the run; absent is the normal case	let _ = std::fs::remove_file(&stats);
 F	src/emission/coneprice.rs	64	prod	emission.cone.stats	lane gencheck (gate R-C, rc-land): Unknown or absent statistics = the error "no owner statistics written" (no price, the candidate is not stamped)	if !crate::fsx::presence("emission.cone.stats", &stats).is_present() {
@@ -646,11 +645,11 @@ R	src/emission/entries.rs	548	prod		auto: error propagated (? / map_err)	let b =
 D	src/emission/entries.rs	551	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("SHA256SUMS"), sums).map_err(|e| e.to_string())?;
 F	src/emission/entries.rs	563	prod	emission.entries.manifest	auto: explicit Unknown / Failed arm	let manifest: Value = match crate::fsx::read("emission.entries.manifest", &mp) {
 F	src/emission/entries.rs	571	prod	emission.entries.check	auto: Unknown / Absent / Failed -> Err (propagated)	let mut files: Vec<PathBuf> = crate::fsx::list_required("emission.entries.check", dir)
-R	src/emission/entries.rs	585	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
-X	src/emission/entries.rs	585	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
-R	src/emission/entries.rs	586	prod		auto: error propagated (? / map_err)	let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
-R	src/emission/entries.rs	783	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pieces)
-D	src/emission/entries.rs	827	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::create(out.join("regularity.json")).map_err(|e| e.to_string())?;
+R	src/emission/entries.rs	586	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
+X	src/emission/entries.rs	586	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
+R	src/emission/entries.rs	587	prod		auto: error propagated (? / map_err)	let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
+R	src/emission/entries.rs	784	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pieces)
+D	src/emission/entries.rs	828	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::create(out.join("regularity.json")).map_err(|e| e.to_string())?;
 R	src/emission/gate.rs	18	prod		lane gencheck (gate R-C, rc-land): cert_case: the case text from a certificate's head for indexing; an unreadable certificate is not indexed, so a record needing it has no certificate and is refused (fail closed)	let mut f = std::fs::File::open(p).ok()?;
 X	src/emission/gate.rs	18	prod		lane gencheck (gate R-C, rc-land): cert_case: the case text from a certificate's head for indexing; an unreadable certificate is not indexed, so a record needing it has no certificate and is refused (fail closed)	let mut f = std::fs::File::open(p).ok()?;
 X	src/emission/gate.rs	20	prod		lane gencheck (gate R-C, rc-land): cert_case: as the open above (an unreadable certificate is not indexed; the record is refused)	let n = f.read(&mut buf).ok()?;
@@ -658,12 +657,12 @@ F	src/emission/gate.rs	60	prod	emission.gate.cert_index	lane gencheck (gate R-C,
 R	src/emission/gate.rs	204	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(table_in).map_err(|e| format!("{}: {e}", table_in.display()))?;
 D	src/emission/gate.rs	231	prod		auto: error propagated (? / map_err)	std::fs::write(&tmp, out).map_err(|e| format!("{}: {e}", tmp.display()))?;
 D	src/emission/gate.rs	232	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp, table_out).map_err(|e| e.to_string())?;
-R	src/emission/gate.rs	294	prod		lane gencheck (gate R-C, rc-land): the in-flow gate's reuse check: an emitted copy that cannot be read is not reused; the table is gated again and written once more, never accepted unchecked	if let Ok(have) = std::fs::read_to_string(emitted)
-X	src/emission/gate.rs	294	prod		lane gencheck (gate R-C, rc-land): the in-flow gate's reuse check: an emitted copy that cannot be read is not reused; the table is gated again and written once more, never accepted unchecked	if let Ok(have) = std::fs::read_to_string(emitted)
-D	src/emission/gate.rs	319	prod		auto: error propagated (? / map_err)	std::fs::write(&plain_path, plain).map_err(|e| format!("{}: {e}", plain_path.display()))?;
-D	src/emission/gate.rs	329	prod		lane gencheck (gate R-C, rc-land): removes the gate's own temporary plain copy after the emission; absent is harmless	let _ = std::fs::remove_file(&plain_path);
-X	src/emission/gate.rs	329	prod		lane gencheck (gate R-C, rc-land): removes the gate's own temporary plain copy after the emission; absent is harmless	let _ = std::fs::remove_file(&plain_path);
-R	src/emission/gate.rs	389	prod		auto: error propagated (? / map_err)	serde_json::from_slice(&std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?)
+R	src/emission/gate.rs	295	prod		lane gencheck (gate R-C, rc-land): the in-flow gate's reuse check: an emitted copy that cannot be read is not reused; the table is gated again and written once more, never accepted unchecked	if let Ok(have) = std::fs::read_to_string(emitted)
+X	src/emission/gate.rs	295	prod		lane gencheck (gate R-C, rc-land): the in-flow gate's reuse check: an emitted copy that cannot be read is not reused; the table is gated again and written once more, never accepted unchecked	if let Ok(have) = std::fs::read_to_string(emitted)
+D	src/emission/gate.rs	320	prod		auto: error propagated (? / map_err)	std::fs::write(&plain_path, plain).map_err(|e| format!("{}: {e}", plain_path.display()))?;
+D	src/emission/gate.rs	330	prod		lane gencheck (gate R-C, rc-land): removes the gate's own temporary plain copy after the emission; absent is harmless	let _ = std::fs::remove_file(&plain_path);
+X	src/emission/gate.rs	330	prod		lane gencheck (gate R-C, rc-land): removes the gate's own temporary plain copy after the emission; absent is harmless	let _ = std::fs::remove_file(&plain_path);
+R	src/emission/gate.rs	390	prod		auto: error propagated (? / map_err)	serde_json::from_slice(&std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?)
 R	src/emission/legacy_import.rs	29	prod		auto: error propagated (? / map_err)	let b = std::fs::read(p).map_err(|e| format!("{p}: {e}"))?;
 F	src/emission/legacy_import.rs	99	prod	emission.legacy.dir	auto: Unknown / Absent / Failed -> Err (propagated)	crate::fsx::list_required("emission.legacy.dir", Path::new(d))
 R	src/emission/legacy_import.rs	143	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(rt).map_err(|e| format!("{rt}: {e}"))?;
@@ -723,44 +722,43 @@ R	src/emission/regcheck.rs	561	prod		auto: error propagated (? / map_err)	std::f
 D	src/emission/replace.rs	68	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{}\n{}\n", header.trim_end(), case))
 R	src/emission/replace.rs	121	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(&table).map_err(|e| format!("{}: {e}", table.display()))?;
 F	src/emission/replace.rs	129	prod	emission.replace.cert_dir	auto: Unknown / Absent / Failed -> Err (propagated)	crate::fsx::list_required("emission.replace.cert_dir", &cert_dir)
-X	src/emission/replace.rs	143	prod		lane gencheck (gate R-C, rc-land): end of the certificate listing above (fsx::list_required: complete or an error)	}
-R	src/emission/replace.rs	144	prod		lane gencheck (gate R-C, rc-land): the producer's WITNESS.jsonl: an informational provenance attachment (its first line); missing = none; the certificate and the lift are checked independently	let witness = std::fs::read_to_string(out.join("WITNESS.jsonl")).unwrap_or_default();
-X	src/emission/replace.rs	144	prod		lane gencheck (gate R-C, rc-land): the producer's WITNESS.jsonl: an informational provenance attachment (its first line); missing = none; the certificate and the lift are checked independently	let witness = std::fs::read_to_string(out.join("WITNESS.jsonl")).unwrap_or_default();
+R	src/emission/replace.rs	145	prod		lane gencheck (gate R-C, rc-land): the producer's WITNESS.jsonl: an informational provenance attachment (its first line); missing = none; the certificate and the lift are checked independently	let witness = std::fs::read_to_string(out.join("WITNESS.jsonl")).unwrap_or_default();
+X	src/emission/replace.rs	145	prod		lane gencheck (gate R-C, rc-land): the producer's WITNESS.jsonl: an informational provenance attachment (its first line); missing = none; the certificate and the lift are checked independently	let witness = std::fs::read_to_string(out.join("WITNESS.jsonl")).unwrap_or_default();
 R	src/emission/stamp.rs	21	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(table).map_err(|e| format!("{}: {e}", table.display()))?;
 D	src/emission/stamp.rs	76	prod		auto: error propagated (? / map_err)	std::fs::write(&tmp, lines.join("\n") + "\n").map_err(|e| format!("{}: {e}", tmp.display()))?;
 D	src/emission/stamp.rs	77	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp, out).map_err(|e| e.to_string())?;
-R	src/emission/tablecheck.rs	35	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
-X	src/emission/tablecheck.rs	35	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
-R	src/emission/tablecheck.rs	36	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&a.table).map_err(|e| format!("{}: {e}", a.table.display()))?;
-D	src/emission/tablecheck.rs	51	prod		auto: error propagated (? / map_err)	std::fs::File::create(p).map_err(|e| format!("{}: {e}", p.display()))?,
-D	src/emission/tablecheck.rs	117	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{}\n{body}\n", header.trim_end()))
+R	src/emission/tablecheck.rs	36	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
+X	src/emission/tablecheck.rs	36	prod		lane gencheck (gate R-C, rc-land): side-file lookup by content address for the record check: an unreadable file is missing evidence and the record is refused (fail closed)	let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
+R	src/emission/tablecheck.rs	37	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&a.table).map_err(|e| format!("{}: {e}", a.table.display()))?;
+D	src/emission/tablecheck.rs	52	prod		auto: error propagated (? / map_err)	std::fs::File::create(p).map_err(|e| format!("{}: {e}", p.display()))?,
+D	src/emission/tablecheck.rs	118	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{}\n{body}\n", header.trim_end()))
 E	src/fsx.rs	49	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	matches!(self, Presence::Present(m) if m.is_dir())
 E	src/fsx.rs	52	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	matches!(self, Presence::Present(m) if m.is_file())
 X	src/fsx.rs	52	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	matches!(self, Presence::Present(m) if m.is_file())
-E	src/fsx.rs	159	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::metadata(p) {
-E	src/fsx.rs	172	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::symlink_metadata(p) {
-L	src/fsx.rs	261	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = match std::fs::read_dir(dir) {
-R	src/fsx.rs	311	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::read(p) {
-R	src/fsx.rs	323	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::File::open(p) {
-V	src/fsx.rs	424	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
-X	src/fsx.rs	424	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
-D	src/fsx.rs	536	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	536	test			let _ = std::fs::remove_dir_all(&d);
-D	src/fsx.rs	539	test			std::fs::write(d.join(n), b"x").unwrap();
-X	src/fsx.rs	547	test			}
-D	src/fsx.rs	548	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	548	test			let _ = std::fs::remove_dir_all(&d);
-D	src/fsx.rs	554	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	554	test			let _ = std::fs::remove_dir_all(&d);
-D	src/fsx.rs	559	test			std::fs::write(d.join("f"), b"x").unwrap();
-E	src/fsx.rs	560	test			assert!(presence("cli", &d).is_dir());
-E	src/fsx.rs	561	test			assert!(presence("cli", &d.join("f")).is_file());
-D	src/fsx.rs	574	test			std::fs::write(d.join("g"), b"y").unwrap();
-D	src/fsx.rs	575	test			assert!(rename_noreplace(&d.join("f"), &d.join("g")).is_err());
-R	src/fsx.rs	576	test			assert_eq!(std::fs::read(d.join("g")).unwrap(), b"y");
-D	src/fsx.rs	577	test			rename_noreplace(&d.join("f"), &d.join("h")).unwrap();
-D	src/fsx.rs	578	test			let _ = std::fs::remove_dir_all(&d);
-X	src/fsx.rs	578	test			let _ = std::fs::remove_dir_all(&d);
+E	src/fsx.rs	176	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::metadata(p) {
+E	src/fsx.rs	189	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::symlink_metadata(p) {
+L	src/fsx.rs	278	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let rd = match std::fs::read_dir(dir) {
+R	src/fsx.rs	328	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::read(p) {
+R	src/fsx.rs	340	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	match std::fs::File::open(p) {
+V	src/fsx.rs	441	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+X	src/fsx.rs	441	wrapper		wrapper (owns the rule: Absent only on ENOENT / Gone only on ENOENT/ESRCH)	let v = std::env::var(crate::supervisor::failpoint::FAILPOINT_ENV).ok()?;
+D	src/fsx.rs	553	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	553	test			let _ = std::fs::remove_dir_all(&d);
+D	src/fsx.rs	556	test			std::fs::write(d.join(n), b"x").unwrap();
+X	src/fsx.rs	564	test			}
+D	src/fsx.rs	565	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	565	test			let _ = std::fs::remove_dir_all(&d);
+D	src/fsx.rs	571	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	571	test			let _ = std::fs::remove_dir_all(&d);
+D	src/fsx.rs	576	test			std::fs::write(d.join("f"), b"x").unwrap();
+E	src/fsx.rs	577	test			assert!(presence("cli", &d).is_dir());
+E	src/fsx.rs	578	test			assert!(presence("cli", &d.join("f")).is_file());
+D	src/fsx.rs	591	test			std::fs::write(d.join("g"), b"y").unwrap();
+D	src/fsx.rs	592	test			assert!(rename_noreplace(&d.join("f"), &d.join("g")).is_err());
+R	src/fsx.rs	593	test			assert_eq!(std::fs::read(d.join("g")).unwrap(), b"y");
+D	src/fsx.rs	594	test			rename_noreplace(&d.join("f"), &d.join("h")).unwrap();
+D	src/fsx.rs	595	test			let _ = std::fs::remove_dir_all(&d);
+X	src/fsx.rs	595	test			let _ = std::fs::remove_dir_all(&d);
 R	src/launch/cgroup.rs	27	prod		io::Result returned (every caller propagates or matches it)	fs::read_to_string(p)
 O	src/launch/cgroup.rs	31	prod		cgroup control files opened for writing (no O_CREAT); a failure = not usable / an error of the setup	OpenOptions::new()
 O	src/launch/cgroup.rs	43	prod		round 11 m14-scope-toctou: open_dir_nofollow opens the scope directory O_DIRECTORY|O_NOFOLLOW; an error is returned (no cgroup.kill is written)	libc::open(
@@ -1232,24 +1230,24 @@ R	src/rulecost.rs	33	prod		auto: error propagated (? / map_err)	let b = std::fs:
 D	src/rulecost.rs	127	prod		auto: error propagated (? / map_err)	let out = std::fs::File::create(dir.join(format!("{stem}.out"))).map_err(|e| e.to_string())?;
 D	src/rulecost.rs	129	prod		auto: error propagated (? / map_err)	let err = std::fs::File::create(&err_path).map_err(|e| e.to_string())?;
 C	src/rulecost.rs	130	prod		auto: error propagated (? / map_err)	let status = Command::new(&spec.probe.path)
-R	src/rulecost.rs	139	prod		lane gencheck (gate R-C, rc-land): rule-cost probe failure: the probe's stderr tail for the error text only (the probe has already failed)	let tail = std::fs::read_to_string(&err_path).unwrap_or_default();
-X	src/rulecost.rs	139	prod		lane gencheck (gate R-C, rc-land): rule-cost probe failure: the probe's stderr tail for the error text only (the probe has already failed)	let tail = std::fs::read_to_string(&err_path).unwrap_or_default();
-R	src/rulecost.rs	199	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-R	src/rulecost.rs	411	prod		auto: error propagated (? / map_err)	let sb = std::fs::read(&sp).map_err(|e| format!("{sp}: {e}"))?;
-R	src/rulecost.rs	444	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(&rules_path)
-R	src/rulecost.rs	453	prod		auto: error propagated (? / map_err)	Some(p) => std::fs::read_to_string(p)
-D	src/rulecost.rs	468	prod		auto: error propagated (? / map_err)	std::fs::write(&keys_path, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
-R	src/rulecost.rs	484	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(&kp).map_err(|e| format!("{}: {e}", kp.display()))?;
-R	src/rulecost.rs	494	prod		auto: error propagated (? / map_err)	let b = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
-D	src/rulecost.rs	534	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("report.json"), rb).map_err(|e| e.to_string())?;
-D	src/rulecost.rs	535	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("report.md"), markdown(&rows)).map_err(|e| e.to_string())?;
-D	src/rulecost.rs	544	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("rule_cost_model.json"), mb).map_err(|e| e.to_string())?;
-R	src/rulecost.rs	577	prod		auto: error propagated (? / map_err)	let b = std::fs::read(&p).map_err(|e| format!("{p}: {e}"))?;
-R	src/rulecost.rs	604	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}"))?;
-R	src/rulecost.rs	646	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
-R	src/rulecost.rs	712	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
-R	src/rulecost.rs	783	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
-D	src/rulecost.rs	847	prod		auto: error propagated (? / map_err)	Some(o) => std::fs::write(&o, &text).map_err(|e| format!("{o}: {e}"))?,
+R	src/rulecost.rs	140	prod		lane gencheck (gate R-C, rc-land): rule-cost probe failure: the probe's stderr tail for the error text only (the probe has already failed)	let tail = std::fs::read_to_string(&err_path).unwrap_or_default();
+X	src/rulecost.rs	140	prod		lane gencheck (gate R-C, rc-land): rule-cost probe failure: the probe's stderr tail for the error text only (the probe has already failed)	let tail = std::fs::read_to_string(&err_path).unwrap_or_default();
+R	src/rulecost.rs	200	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+R	src/rulecost.rs	412	prod		auto: error propagated (? / map_err)	let sb = std::fs::read(&sp).map_err(|e| format!("{sp}: {e}"))?;
+R	src/rulecost.rs	445	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(&rules_path)
+R	src/rulecost.rs	454	prod		auto: error propagated (? / map_err)	Some(p) => std::fs::read_to_string(p)
+D	src/rulecost.rs	469	prod		auto: error propagated (? / map_err)	std::fs::write(&keys_path, lines.join("\n") + "\n").map_err(|e| e.to_string())?;
+R	src/rulecost.rs	485	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(&kp).map_err(|e| format!("{}: {e}", kp.display()))?;
+R	src/rulecost.rs	495	prod		auto: error propagated (? / map_err)	let b = std::fs::read(p).map_err(|e| format!("{}: {e}", p.display()))?;
+D	src/rulecost.rs	535	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("report.json"), rb).map_err(|e| e.to_string())?;
+D	src/rulecost.rs	536	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("report.md"), markdown(&rows)).map_err(|e| e.to_string())?;
+D	src/rulecost.rs	545	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("rule_cost_model.json"), mb).map_err(|e| e.to_string())?;
+R	src/rulecost.rs	578	prod		auto: error propagated (? / map_err)	let b = std::fs::read(&p).map_err(|e| format!("{p}: {e}"))?;
+R	src/rulecost.rs	605	prod		auto: error propagated (? / map_err)	let text = std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}"))?;
+R	src/rulecost.rs	647	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
+R	src/rulecost.rs	713	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
+R	src/rulecost.rs	784	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&table).map_err(|e| format!("{table}: {e}"))?;
+D	src/rulecost.rs	848	prod		auto: error propagated (? / map_err)	Some(o) => std::fs::write(&o, &text).map_err(|e| format!("{o}: {e}"))?,
 V	src/supervisor/failpoint.rs	35	prod		test builds only (failpoints; release builds refuse the variable)	match std::env::var(FAILPOINT_ENV) {
 V	src/supervisor/failpoint.rs	67	prod		test builds only (failpoints; release builds refuse the variable)	match std::env::var(FAILPOINT_ENV) {
 R	src/supervisor/failpoint.rs	256	prod		auto: error propagated (? / map_err)	inner: RealFile::open(path)?,

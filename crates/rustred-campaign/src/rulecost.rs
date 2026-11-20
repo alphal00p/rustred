@@ -136,6 +136,7 @@ fn run_probe(spec: &RuleCostSpec, dir: &Path, stem: &str, args: &[String]) -> Re
         .status()
         .map_err(|e| format!("probe {}: {e}", spec.probe.path.display()))?;
     if !status.success() {
+        // procfix9-ok: the stderr tail of a probe that already failed, for the error text only
         let tail = std::fs::read_to_string(&err_path).unwrap_or_default();
         let last = tail.lines().last().unwrap_or("").to_string();
         return Err(format!("probe {stem}: {status}: {last}"));

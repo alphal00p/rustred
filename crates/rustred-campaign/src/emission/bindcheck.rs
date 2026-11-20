@@ -86,6 +86,7 @@ pub fn bind_check(
         .filter_map(|(k, (_, v, _))| v["rule"]["offset"].as_u64().map(|o| (o, k)))
         .collect();
     let before: BTreeMap<i64, Value> = match classes {
+        // procfix9-ok: the read propagates (map_err ?); the .ok() only skips unparsable lines of the class table, which then bind no class
         Some(p) => std::fs::read_to_string(p)
             .map_err(|e| format!("{}: {e}", p.display()))?
             .lines()

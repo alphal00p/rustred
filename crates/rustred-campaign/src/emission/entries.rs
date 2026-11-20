@@ -582,6 +582,7 @@ pub fn entry_check(dir: &Path) -> Result<(Value, bool), String> {
     files.sort();
     for f in &files {
         let side = side_dir(f);
+        // procfix9-ok: a content-addressed side file; unreadable = missing evidence, the record is refused (fail closed)
         let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
         let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
         for (ln, l) in std::io::BufReader::new(fh).lines().enumerate() {

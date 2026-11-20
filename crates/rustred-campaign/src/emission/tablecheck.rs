@@ -32,6 +32,7 @@ pub struct Args {
 /// Check a table; returns (summary, every record accepted).
 pub fn table_check(a: &Args) -> Result<(Value, bool), String> {
     let side = side_dir(&a.table);
+    // procfix9-ok: a content-addressed side file; unreadable = missing evidence, the record is refused (fail closed)
     let lookup = |area: &str, sha: &str| std::fs::read(side.join(side_rel(area, sha))).ok();
     let f = std::fs::File::open(&a.table).map_err(|e| format!("{}: {e}", a.table.display()))?;
     let mut header = String::new();

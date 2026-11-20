@@ -35,9 +35,11 @@ impl ChildRun {
         self.code == Some(0) && !self.over_budget
     }
     pub fn stdout_text(&self) -> String {
+        // procfix9-ok: a finished child's stdout for its JSON verdict; unreadable reads as empty = no verdict (refusal / Unverified), never a pass
         std::fs::read_to_string(&self.stdout).unwrap_or_default()
     }
     pub fn stderr_tail(&self, n: usize) -> String {
+        // procfix9-ok: diagnostic stderr tail for messages only
         let t = std::fs::read_to_string(&self.stderr).unwrap_or_default();
         let mut k = t.len().saturating_sub(n);
         while !t.is_char_boundary(k) {
@@ -169,23 +171,19 @@ fn child_marker() -> CampaignMarker {
         })
 }
 
-/// Signal each member of process group `pgid` (read from /proc now) through the guard's verified path with `marker` as
+/// Signal each member of process group `pgid` (read now through the procfs wrapper) through the guard's verified path with `marker` as
 /// the proof. Returns how many deliveries the guard confirmed.
 fn signal_group(pgid: u32, marker: &CampaignMarker, sig: i32, label: &str) -> usize {
     let Ok(boot) = boot_id() else {
         return 0;
     };
-    // a complete listing or none this round (the next SIGKILL round, 10 s later, lists again)
-    let crate::fsx::Listing::Complete(rd) =
-        crate::fsx::list("emission.child.proc", Path::new("/proc"))
-    else {
+    // the pids through the procfs wrapper (procfix8: every /proc read goes through it): a failed listing = no signal this
+    // round (the next SIGKILL round, 10 s later, lists again)
+    let Ok(pids) = crate::resources::ProcRoot::system().pids() else {
         return 0;
     };
     let mut delivered = 0;
-    for e in rd {
-        let Some(pid) = e.name.to_str().and_then(|s| s.parse::<u32>().ok()) else {
-            continue;
-        };
+    for pid in pids {
         // procfix7's procfs rule: Gone only on ENOENT / ESRCH; a gone or unreadable member is not signalled this round
         let Ok(st) = read_stat(pid) else {
             continue;
