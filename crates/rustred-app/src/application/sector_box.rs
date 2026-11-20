@@ -145,6 +145,11 @@ pub struct SectorBoxReduceSpec {
     /// fill-in for derivative closures.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub rebuild_rounds: bool,
+    /// Write `supports.jsonl` to `out_dir`: one line per demanded integral
+    /// with the masters of its reduced row at the first modular sample
+    /// (cluster probes; no reconstruction needed).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub report_supports: bool,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -376,6 +381,7 @@ fn box_options(
         }),
         settle_on_expected: spec.settle_on_expected,
         rebuild_rounds: spec.rebuild_rounds,
+        report_supports: spec.report_supports,
         ..Default::default()
     })
 }
@@ -928,6 +934,16 @@ fn run_phases<const N: usize>(
             };
             let mut modular = modular_json(&report, clock.elapsed().as_secs_f64());
             modular["closure"] = json!(closure);
+            if spec.report_supports {
+                let mut text = String::new();
+                for (target, support) in &report.supports {
+                    let line = json!({"target": target[..arity].to_vec(),
+                        "support": support.iter().map(|m| m[..arity].to_vec()).collect::<Vec<_>>()});
+                    text.push_str(&line.to_string());
+                    text.push('\n');
+                }
+                write_atomic(&spec.out_dir.join("supports.jsonl"), text.as_bytes())?;
+            }
             if let Some(dir) = &checkpoint {
                 let bytes = session.to_native_bytes().map_err(engine("checkpoint"))?;
                 write_atomic(&dir.join("session.bin"), &bytes)?;

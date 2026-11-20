@@ -224,6 +224,7 @@ struct Selection<const N: usize> {
     candidates: usize,
     selected: usize,
     selected_hash: String,
+    supports: Vec<([i16; N], Vec<[i16; N]>)>,
 }
 
 impl<const N: usize> BoxLaportaSession<N> {
@@ -643,6 +644,7 @@ impl<const N: usize> BoxLaportaSession<N> {
                 .collect(),
             master_check,
             truncate: self.truncate,
+            supports: selection.supports,
             seeds,
             hull_seeds,
             seconds: started.elapsed().as_secs_f64(),
@@ -1164,6 +1166,23 @@ impl<const N: usize> BoxLaportaSession<N> {
         let reached = closure(discovery, &demand);
         let closure_seconds = started.elapsed().as_secs_f64();
         let first = nonzero_masters(discovery, &reached, &demand);
+        let supports = if self.options.report_supports {
+            let rows = super::select::reduced_rows(discovery, &reached, &demand);
+            demand
+                .iter()
+                .zip(&rows)
+                .map(|(&column, row)| {
+                    (
+                        powers(&discovery.columns()[column]),
+                        row.iter()
+                            .map(|&(candidate, _)| powers(&discovery.columns()[candidate]))
+                            .collect(),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let backsub_seconds = started.elapsed().as_secs_f64() - closure_seconds;
         let roots: Vec<usize> = reached.pivots.iter().map(|&(_, row)| row).collect();
         let selected = discovery.trace_union(&roots);
@@ -1286,6 +1305,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             candidates: reached.candidates.len(),
             selected: selected.len(),
             selected_hash,
+            supports,
         })
     }
 

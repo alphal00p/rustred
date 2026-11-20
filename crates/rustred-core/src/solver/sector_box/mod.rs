@@ -196,6 +196,11 @@ pub struct BoxOptions {
     /// (the `TopDownLevels` effect); one rebuilt batch avoids it.
     /// Bottom-up insertion only (stability rounds stay incremental).
     pub rebuild_rounds: bool,
+    /// Report, for every demanded integral, the support of its reduced row
+    /// at the first modular sample (the masters it reduces to), in
+    /// [`ModularReport::supports`]. Same-level links between non-nested
+    /// sectors in these supports reveal relation clusters (cluster probes).
+    pub report_supports: bool,
 }
 
 /// Row insertion schedule. Pivots and masters do not depend on it (one row
@@ -233,6 +238,7 @@ impl Default for BoxOptions {
             tubes: None,
             settle_on_expected: false,
             rebuild_rounds: false,
+            report_supports: false,
         }
     }
 }
@@ -561,6 +567,11 @@ pub struct ModularReport<const N: usize> {
     /// The truncation parameter `l` in force at the end (growth may lower
     /// it); `None` without truncation.
     pub truncate: Option<i16>,
+    /// With [`BoxOptions::report_supports`]: each demanded integral (after
+    /// routing) with the masters of its reduced row at the first modular
+    /// sample (a zero coefficient at that sample is possible but unlikely);
+    /// empty otherwise.
+    pub supports: Vec<([i16; N], Vec<[i16; N]>)>,
     /// Seeds of the whole session, and the seeds the hull of every seeded
     /// region would need (rows versus the hull).
     pub seeds: usize,
