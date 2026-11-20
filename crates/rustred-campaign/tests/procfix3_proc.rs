@@ -150,15 +150,28 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         // procfix7 round 11 (gate14 item 5): launch/host_check.rs, the coordinator's SAFE HOST CHECK (bin
         // rr_scope_check, never run by the supervisor): its own child systemd-run -> unshare (try_wait), `systemctl
         // --user show / stop / reset-failed` of its OWN unit by the exact name, texts naming its one cgroup.kill.
+        // gate R-C (coordinator's decision, option A; ONE droppable commit, DEFERRED
+        // plan/auto-campaign/reports/DEFERRED/gencheck-emission-children-through-launcher.md):
+        // - emission/child.rs: the emitter's synchronous tool runs (producer lift, rr_proof, rr_node descent, cone arms).
+        //   Each child starts in its OWN process group (process_group(0)); it is waited for with wait4 by pid; no signal
+        //   is ever sent except through guard::signal_verified_process with the RR_CAMPAIGN_JOB marker proof, member by
+        //   member (ac/gencheck b83faed73; test emission::child::tests::an_overrun_stops_the_whole_group_through_the_guard).
+        //   Reached from the rr_campaign emission verbs and, ONLY when a config sets `emission` (default off), from the
+        //   supervisor's closeloop gate / repair / improve flows, where its children run outside the launcher (DEFERRED).
+        // - rulecost.rs: the rule-cost probe of the CLI verbs rule-cost / rule-score (never a supervisor path): one blocking
+        //   `.status()`, no signal.
         ("waitid", &["launch/guard.rs", "launch/real.rs"]),
-        ("wait4", &["bin/rr_fake_child.rs"]),
+        ("wait4", &["bin/rr_fake_child.rs", "emission/child.rs"]),
         ("waitpid", &[]),
         (".wait()", &[]),
         (
             "try_wait",
             &["launch/real.rs", "cli/mod.rs", "launch/host_check.rs"],
         ),
-        (".status()", &["launch/real.rs", "launch/host_check.rs"]),
+        (
+            ".status()",
+            &["launch/real.rs", "launch/host_check.rs", "rulecost.rs"],
+        ),
         (".output()", &["launch/host_check.rs"]),
         // stop / continue: only through the guard, from the hunt, the sweep and the launcher's terminate.
         // procfix6 (gate5 m1): the guard itself names SIGSTOP (it makes the stop hold of a delivered stop) and SIGCONT
@@ -178,7 +191,13 @@ fn m5_extended_tripwire_reap_stop_spawn_forms_only_where_allowed() {
         ),
         (
             "Command::new(",
-            &["launch/real.rs", "cli/mod.rs", "launch/host_check.rs"],
+            &[
+                "launch/real.rs",
+                "cli/mod.rs",
+                "launch/host_check.rs",
+                "emission/child.rs",
+                "rulecost.rs",
+            ],
         ),
         ("rustix::", &[]),
         ("SIG_IGN", &["launch/guard.rs", "bin/rr_fake_child.rs"]),
