@@ -72,6 +72,31 @@ fn sync_ops(file: &mut File) -> std::io::Result<()> {
     file.sync_data()
 }
 
+/// R-B2: `YYYYMMDDTHHMMSS.nnnnnnnnnZ` (UTC, now): the suffix of a set-aside trace.
+fn utc_stamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let (secs, nanos) = (now.as_secs() as i64, now.subsec_nanos());
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // days since 1970-01-01 -> civil date (H. Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}{month:02}{day:02}T{:02}{:02}{:02}.{nanos:09}Z",
+        rem / 3600,
+        rem / 60 % 60,
+        rem % 60
+    )
+}
+
 /// Bytes of `ops` ops in the spill file.
 fn op_bytes(ops: u64) -> u64 {
     ops * std::mem::size_of::<Op>() as u64
@@ -108,17 +133,35 @@ impl Spill {
         let Some((ops, digest)) = resume else {
             // 12d2: a trace without a saved state is never truncated silently
             // (it may be a finished record whose state was lost, or another
-            // run's): refused unless RUSTRED_RESUME_DISCARD_TRACE=1.
+            // run's). R-B2: no state was ever committed for this request (e.g.
+            // its first state write was short), so nothing can continue from
+            // the trace: it is set aside as `ops.bin.orphan-<utc>` (kept for
+            // inspection) and the request starts afresh.
+            // RUSTRED_RESUME_DISCARD_TRACE=1 truncates it instead.
             if let Ok(meta) = std::fs::metadata(&path)
                 && meta.len() > 0
                 && std::env::var("RUSTRED_RESUME_DISCARD_TRACE").as_deref() != Ok("1")
             {
-                return Err(error(format!(
-                    "resume refused: {} holds a trace of {} bytes but there is no saved state; it is kept \
-                     (remove it, or set RUSTRED_RESUME_DISCARD_TRACE=1, to start this request from zero)",
+                let orphan = dir.join(format!("ops.bin.orphan-{}", utc_stamp()));
+                if let Err(e) = std::fs::rename(&path, &orphan) {
+                    let message = format!(
+                        "resume refused: {} holds a trace of {} bytes but there is no saved state, and it cannot \
+                         be set aside as {} ({e}); it is kept (remove it, or set RUSTRED_RESUME_DISCARD_TRACE=1, \
+                         to start this request from zero)",
+                        path.display(),
+                        meta.len(),
+                        orphan.display()
+                    );
+                    super::super::resume::storage_stop(&message);
+                    return Err(error(message));
+                }
+                eprintln!(
+                    "rustred resume: {} held a trace of {} bytes but no state was ever saved for this request: set \
+                     aside as {}; the request starts afresh",
                     path.display(),
-                    meta.len()
-                )));
+                    meta.len(),
+                    orphan.display()
+                );
             }
             let file = std::fs::OpenOptions::new()
                 .create(true)
@@ -561,19 +604,30 @@ mod tests {
         );
         std::fs::write(&path, &original[..8]).unwrap();
         refused(Spill::at(&root, Some((saved, None))), "v1 short");
-        // 12d2: a trace without a saved state (a finished record whose state is gone) is never truncated by a
-        // fresh launch; an empty one is reused
+        // 12d2 / R-B2: a trace without a saved state (a first state write that never committed) is never truncated
+        // by a fresh launch: it is set aside, byte for byte, as ops.bin.orphan-<utc> and the request starts afresh
         std::fs::write(&path, &original).unwrap();
-        let e = refused(Spill::at(&root, None), "trace without a state");
-        assert!(
-            e.contains("no saved state") && e.contains("RUSTRED_RESUME_DISCARD_TRACE"),
-            "{e}"
-        );
+        let spill = Spill::at(&root, None).expect("an orphan trace is set aside");
+        assert_eq!(spill.flushed, 0);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0, "a fresh trace");
+        drop(spill);
+        let orphans: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("ops.bin.orphan-")
+            })
+            .collect();
+        assert_eq!(orphans.len(), 1, "{orphans:?}");
         assert_eq!(
-            std::fs::read(&path).unwrap(),
+            std::fs::read(&orphans[0]).unwrap(),
             original,
-            "the trace is untouched"
+            "the orphan is kept unchanged"
         );
+        std::fs::remove_file(&orphans[0]).unwrap();
         std::fs::write(&path, b"").unwrap();
         assert!(
             Spill::at(&root, None).is_ok(),
@@ -599,8 +653,8 @@ mod tests {
     /// the file is cut back to the saved prefix, the spill refuses every later flush, sync and finish (no retried
     /// append can duplicate the partial bytes), the error is a storage stop, and a fresh process resumes from the
     /// saved (count, digest).
-    /// The two R-B2 tests read the process-wide storage stop: one at a time.
-    static STOP_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    /// The R-B2 tests read the process-wide storage stop: one at a time.
+    use super::super::super::resume::STORAGE_STOP_TEST_LOCK as STOP_LOCK;
 
     #[test]
     fn a_short_trace_write_fails_the_spill_and_keeps_the_saved_prefix() {
@@ -657,6 +711,34 @@ mod tests {
         assert_eq!(whole.len(), 30 * 8);
         assert_eq!(spill.digest().unwrap(), *blake3::hash(&whole).as_bytes());
         drop(spill);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// R-B2 residual: an orphan trace (no state ever saved) that cannot be set aside (read-only request directory)
+    /// is refused, kept unchanged, and the refusal is a storage stop (reduce-files keeps the chunk retryable).
+    #[test]
+    fn an_orphan_trace_that_cannot_be_set_aside_is_a_storage_stop() {
+        use std::os::unix::fs::PermissionsExt;
+        let _serial = STOP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root =
+            std::env::temp_dir().join(format!("rustred-orphan-ro-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ops.bin"), [1u8; 24]).unwrap();
+        let _ = super::super::super::resume::take_storage_stop();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let result = Spill::at(&root, None);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let stop = super::super::super::resume::take_storage_stop();
+        let e = result.err().expect("refused").to_string();
+        assert!(
+            e.contains("cannot be set aside") && e.contains("no saved state"),
+            "{e}"
+        );
+        assert!(stop.is_some_and(|s| s.contains("ops.bin")));
+        assert_eq!(std::fs::read(root.join("ops.bin")).unwrap(), [1u8; 24]);
         std::fs::remove_dir_all(&root).unwrap();
     }
 

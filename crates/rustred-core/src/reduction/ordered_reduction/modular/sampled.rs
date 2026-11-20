@@ -361,10 +361,9 @@ impl PointStore {
             Ok(bytes) => Some(bytes),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => {
-                return Err(super::error(format!(
-                    "sample store {}: cannot be read: {e}",
-                    path.display()
-                )));
+                let message = format!("sample store {}: cannot be read: {e}", path.display());
+                super::super::resume::storage_stop(&message);
+                return Err(super::error(message));
             }
         };
         if let Some(bytes) = read {
@@ -385,10 +384,12 @@ impl PointStore {
                         file.sync_data()
                     })
                     .map_err(|e| {
-                        super::error(format!(
+                        let message = format!(
                             "sample store {}: cannot cut its torn final line: {e}",
                             path.display()
-                        ))
+                        );
+                        super::super::resume::storage_stop(&message);
+                        super::error(message)
                     })?;
             }
             let text = String::from_utf8_lossy(&bytes[..complete]);
@@ -470,11 +471,13 @@ impl PointStore {
         if let Some(dir) = self.path.parent()
             && store_disk_low(dir, self.disk_min_gb, self.disk_flag.as_deref())
         {
-            return Err(super::error(format!(
+            let message = format!(
                 "sample store {}: stopped on low disk before appending (RUSTRED_RESUME_DISK_MIN_GB / \
                  RUSTRED_DISK_LOW_FLAG); the store and the saved state are kept, restart to resume",
                 self.path.display()
-            )));
+            );
+            super::super::resume::storage_stop(&message);
+            return Err(super::error(message));
         }
         let width = points.len();
         let prime = field.get_prime();
@@ -515,11 +518,13 @@ impl PointStore {
                 Ok(())
             })
             .map_err(|e| {
-                super::error(format!(
+                let message = format!(
                     "sample store {}: write failed: {e}; the store and the saved state are kept \
                      (a torn final line is dropped at restart), restart to resume",
                     self.path.display()
-                ))
+                );
+                super::super::resume::storage_stop(&message);
+                super::error(message)
             })
     }
 }
@@ -1088,6 +1093,10 @@ mod tests {
     /// file (the store is `/dev/full`).
     #[test]
     fn a_full_disk_stops_the_store_loudly() {
+        let _serial = super::super::super::resume::STORAGE_STOP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = super::super::super::resume::take_storage_stop();
         let dir = store_dir("enospc");
         let mut store = PointStore::open(&dir, [7; 32]).unwrap();
         // Writes to /dev/full fail with ENOSPC (opened only for the append:
@@ -1105,6 +1114,11 @@ mod tests {
             error.contains("samples.jsonl") && error.contains("write failed"),
             "{error}"
         );
+        // R-B2: a storage stop (reduce-files keeps the chunk retryable)
+        assert!(
+            super::super::super::resume::take_storage_stop()
+                .is_some_and(|s| s.contains("samples.jsonl"))
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1112,6 +1126,10 @@ mod tests {
     /// never taken as empty (here `samples.jsonl` is a directory).
     #[test]
     fn an_unreadable_store_is_refused_not_empty() {
+        let _serial = super::super::super::resume::STORAGE_STOP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = super::super::super::resume::take_storage_stop();
         let dir = store_dir("unreadable");
         std::fs::create_dir(dir.join("samples.jsonl")).unwrap();
         let error = PointStore::open(&dir, [7; 32])
@@ -1119,6 +1137,11 @@ mod tests {
             .expect("an unreadable store must be refused")
             .to_string();
         assert!(error.contains("cannot be read"), "{error}");
+        // R-B2: a storage stop (reduce-files keeps the chunk retryable)
+        assert!(
+            super::super::super::resume::take_storage_stop()
+                .is_some_and(|s| s.contains("samples.jsonl"))
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1156,6 +1179,10 @@ mod tests {
     /// The low-disk flag stops the store before it appends.
     #[test]
     fn a_low_disk_flag_stops_the_store_before_appending() {
+        let _serial = super::super::super::resume::STORAGE_STOP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _ = super::super::super::resume::take_storage_stop();
         let dir = store_dir("lowdisk");
         let flag = dir.join("DISK_LOW");
         std::fs::write(&flag, "").unwrap();
@@ -1168,6 +1195,11 @@ mod tests {
             .expect_err("low disk must stop")
             .to_string();
         assert!(error.contains("low disk"), "{error}");
+        // R-B2: a storage stop (reduce-files keeps the chunk retryable)
+        assert!(
+            super::super::super::resume::take_storage_stop()
+                .is_some_and(|s| s.contains("samples.jsonl"))
+        );
         assert!(!dir.join("samples.jsonl").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

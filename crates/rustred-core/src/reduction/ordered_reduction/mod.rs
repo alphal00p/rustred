@@ -2070,7 +2070,15 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 }
             }
         }
-        Some(dir) => weights.resume_bind(&dir, None)?.then_some(dir),
+        // R-B2: binding the request directory without a state (a trace that
+        // cannot be set aside, an unwritable directory) is a storage stop too.
+        Some(dir) => weights
+            .resume_bind(&dir, None)
+            .map_err(|error| {
+                resume::storage_stop(&format!("resume refused for {}: {error}", dir.display()));
+                error
+            })?
+            .then_some(dir),
         None => None,
     };
     let mut last_save = std::time::Instant::now();

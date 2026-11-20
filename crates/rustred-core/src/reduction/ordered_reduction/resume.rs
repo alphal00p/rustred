@@ -241,6 +241,10 @@ pub(crate) fn storage_stop(message: &str) {
     }
 }
 
+/// Tests that raise or read the process-wide storage stop: one at a time.
+#[cfg(test)]
+pub(crate) static STORAGE_STOP_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// R-B2: the storage stop recorded since the last call, cleared.
 pub(crate) fn take_storage_stop() -> Option<String> {
     STORAGE_STOP
