@@ -12,7 +12,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::super::super::SolverError;
 use super::super::router::integral_bits;
 use super::super::seeds::box_coordinates;
-use super::super::{ColumnOrder, MasterCheckMode, MasterCheckReport, SectorReport, Seeding};
+use super::super::{
+    ColumnOrder, LimitKind, MasterCheckMode, MasterCheckReport, SectorReport, Seeding,
+};
 use super::BoxLaportaSession;
 
 impl<const N: usize> BoxLaportaSession<N> {
@@ -228,6 +230,49 @@ impl<const N: usize> BoxLaportaSession<N> {
         // sector in its own box only.
         if !self.options.grow_all_levels && !self.options.growth_no_inherit {
             wanted.retain(|bits, _| bits.count_ones() == level);
+        } else if let Some(budget) = self.options.growth_budget_seeds {
+            // Top-down growth with a batch budget: the highest flagged levels
+            // only, as many as keep all seeds of the rebuilt batch within it.
+            let mut levels: Vec<u32> = wanted
+                .iter()
+                .filter(|(_, (dots, s))| *dots || *s)
+                .map(|(bits, _)| bits.count_ones())
+                .collect();
+            levels.sort_unstable_by(|a, b| b.cmp(a));
+            levels.dedup();
+            let base = self.growth.clone();
+            let mut lowest_kept = None;
+            let mut top_total = None;
+            for &lowest in &levels {
+                let mut trial = base.clone();
+                for (&bits, &(dots, s)) in &wanted {
+                    if bits.count_ones() >= lowest {
+                        let entry = trial.entry(bits).or_insert((0, 0));
+                        entry.0 += u8::from(dots);
+                        entry.1 += u8::from(s);
+                    }
+                }
+                self.growth = trial;
+                let planned = self.planned_new_seeds();
+                self.growth = base.clone();
+                let total = self.seeds.len() + planned?;
+                top_total.get_or_insert(total);
+                self.note(|| {
+                    format!("growth budget: levels >= {lowest}: {total} seeds (budget {budget})")
+                });
+                if total > budget {
+                    break;
+                }
+                lowest_kept = Some(lowest);
+            }
+            let Some(lowest) = lowest_kept else {
+                return Err(SolverError::Limit {
+                    kind: LimitKind::Rows,
+                    estimate: top_total.unwrap_or(0) as u64,
+                    cap: budget as u64,
+                });
+            };
+            wanted.retain(|bits, _| bits.count_ones() >= lowest);
         }
         let raise_s = wanted
             .iter()

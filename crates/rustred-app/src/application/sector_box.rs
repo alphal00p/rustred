@@ -174,6 +174,26 @@ pub struct SectorBoxReduceSpec {
     /// set (non-minimal, equivalent system).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub closure_no_own_box: bool,
+    /// Seed budget of the rebuilt batch for top-down staircase growth
+    /// (`BoxOptions::growth_budget_seeds`; needs `growth_no_inherit` and
+    /// `rebuild_rounds`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub growth_budget_seeds: Option<usize>,
+    /// Start the growth at this map: a JSON list `[[sector_id, [dots, s]], ..]`
+    /// (Kira ids), e.g. the `growth` of a round state or a predicted box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_growth: Option<PathBuf>,
+    /// Resume the growth series of the first modular `extend` from a round
+    /// state written under `round_state_dir`: that round is planned, not
+    /// eliminated again, and growth continues from its masters. Needs
+    /// `rebuild_rounds`; the targets must be those of the interrupted run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_state: Option<PathBuf>,
+    /// Write every seeding round's state (masters, growth map) as
+    /// `round-<n>.json` to this directory (n counts rounds over the whole
+    /// request). Output only: not part of the checkpoint key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_state_dir: Option<PathBuf>,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -408,6 +428,7 @@ fn box_options(
         report_supports: spec.report_supports,
         growth_no_inherit: spec.growth_no_inherit,
         closure_no_own_box: spec.closure_no_own_box,
+        growth_budget_seeds: spec.growth_budget_seeds,
         ..Default::default()
     })
 }
@@ -514,6 +535,19 @@ impl Report {
             .map_err(|e| AppError::execution(e.to_string()))?;
         write_atomic(&self.path, format!("{text}\n").as_bytes())
     }
+}
+
+fn read_json(path: &Path) -> Result<Value, AppError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| AppError::input(format!("cannot read {}: {e}", path.display())))?;
+    serde_json::from_str(&text).map_err(|e| AppError::input(format!("{}: {e}", path.display())))
+}
+
+/// A growth map `[[sector_id, [dots, s]], ..]`.
+fn read_growth(value: &Value) -> Result<BTreeMap<u64, (u8, u8)>, AppError> {
+    let entries: Vec<(u64, (u8, u8))> = serde_json::from_value(value.clone())
+        .map_err(|e| AppError::input(format!("growth map: {e}")))?;
+    Ok(entries.into_iter().collect())
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
@@ -931,6 +965,7 @@ fn run_phases<const N: usize>(
             "certificate_prime",
             "exact_certificate",
             "checkpoint_dir",
+            "round_state_dir",
             "limits",
             "modular_only",
             "family",
@@ -1030,6 +1065,57 @@ fn run_phases<const N: usize>(
             } else {
                 (targets.clone(), kept.clone())
             };
+            if spec.initial_growth.is_some() && spec.resume_state.is_some() {
+                return Err(AppError::input(
+                    "initial_growth and resume_state are exclusive (a round state has its growth)",
+                ));
+            }
+            if spec.two_pass && (spec.initial_growth.is_some() || spec.resume_state.is_some()) {
+                return Err(AppError::input(
+                    "initial_growth and resume_state are not supported with two_pass",
+                ));
+            }
+            if let Some(path) = &spec.initial_growth {
+                session.set_growth(read_growth(&read_json(path)?)?);
+            }
+            if let Some(path) = &spec.resume_state {
+                let state = read_json(path)?;
+                let masters = state["masters"]
+                    .as_array()
+                    .ok_or_else(|| AppError::input("resume_state: no masters list"))?
+                    .iter()
+                    .map(|master| {
+                        let values: Vec<i64> = serde_json::from_value(master.clone())
+                            .map_err(|e| AppError::input(format!("resume_state: {e}")))?;
+                        powers::<N>(&values, arity)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                session.set_growth(read_growth(&state["growth"])?);
+                session
+                    .resume_from(masters)
+                    .map_err(|e| AppError::input(format!("resume_state: {e}")))?;
+            }
+            if let Some(dir) = &spec.round_state_dir {
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    AppError::execution(format!("cannot create {}: {e}", dir.display()))
+                })?;
+                let dir = dir.clone();
+                let mut sequence = 0usize;
+                session.set_round_hook(move |round, masters, growth| {
+                    sequence += 1;
+                    let state = json!({
+                        "schema": "rustred.sector-box-round-state.v1",
+                        "sequence": sequence,
+                        "round": round,
+                        "masters": masters.iter().map(|master| master.to_vec()).collect::<Vec<_>>(),
+                        "growth": growth.iter().map(|(bits, (dots, s))| json!([bits, [dots, s]])).collect::<Vec<_>>(),
+                    });
+                    let path = dir.join(format!("round-{sequence}.json"));
+                    if let Err(error) = write_atomic(&path, state.to_string().as_bytes()) {
+                        eprintln!("[sector-box] round state: {error}");
+                    }
+                });
+            }
             let (report, final_targets, closure) = match modular_phase(
                 &mut session,
                 &phase_targets,

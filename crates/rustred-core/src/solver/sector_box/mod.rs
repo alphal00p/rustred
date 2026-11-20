@@ -105,7 +105,8 @@ use std::time::Duration;
 
 pub use driver::{
     BoxLaportaSession, CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample,
-    ExplicitTable, Lane, ParameterAssignment, census_targets, down_closure_representatives,
+    ExplicitTable, Lane, ParameterAssignment, RoundHook, census_targets,
+    down_closure_representatives,
 };
 pub use exact::{BoxCertificate, CertificateMode};
 pub use facade::{RouterChoice, solve_box_laporta};
@@ -232,6 +233,17 @@ pub struct BoxOptions {
     /// closure of the interior masters then adds no seeds instead of
     /// multiplying them by 2.8.
     pub closure_no_own_box: bool,
+    /// With `growth_no_inherit` and `rebuild_rounds`: a hard budget on the
+    /// seeds of the rebuilt batch. Each growth round grows the highest
+    /// flagged levels only, as many levels as keep all seeds within the
+    /// budget (counted by a dry run of the next round's plan); the lower
+    /// flags are recomputed after that round. A round whose top flagged level
+    /// alone exceeds the budget stops the session with a
+    /// [`LimitKind::Rows`] error. Off by default (`None`). Measured at four
+    /// loops: a grown level clears its own boundary masters and pushes the
+    /// boundary one level down, so the budget sequences the growth but does
+    /// not make the final batch smaller than growing all levels at once.
+    pub growth_budget_seeds: Option<usize>,
 }
 
 /// Row insertion schedule. Pivots and masters do not depend on it (one row
@@ -273,6 +285,7 @@ impl Default for BoxOptions {
             grow_all_levels: false,
             growth_no_inherit: false,
             closure_no_own_box: false,
+            growth_budget_seeds: None,
         }
     }
 }

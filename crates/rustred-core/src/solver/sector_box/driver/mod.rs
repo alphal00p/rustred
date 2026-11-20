@@ -40,6 +40,14 @@ type SubtubeCache<const N: usize> = HashMap<(u64, i16, i16, [u8; 32]), Arc<BTree
 /// A sink for one human-readable progress line per phase.
 type Progress = Box<dyn FnMut(&str) + Send>;
 
+/// Hook called after every seeding round's master selection, before growth:
+/// the round number of the current `extend` (from 1), its masters and the
+/// growth map that seeded it. A round state is what
+/// [`BoxLaportaSession::set_growth`] and [`BoxLaportaSession::resume_from`]
+/// take to resume a growth series without eliminating that round again.
+pub type RoundHook<const N: usize> =
+    Box<dyn FnMut(usize, &[[i16; N]], &BTreeMap<u64, (u8, u8)>) + Send>;
+
 pub use lanes::{
     CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane,
     ParameterAssignment,
@@ -74,6 +82,14 @@ pub struct BoxLaportaSession<const N: usize> {
     /// Demanded integrals that lay inside their sector's seeded region when
     /// first demanded ([`BoxOptions::closure_no_own_box`]): no own box.
     covered: BTreeSet<[i16; N]>,
+    /// Masters of a finished round to resume from ([`Self::resume_from`]),
+    /// taken by the first round of the next `extend`.
+    resume: Option<Vec<[i16; N]>>,
+    /// The current seeding round only plans seeds and boxes (resume).
+    plan_only: bool,
+    /// The next bottom-up round rebuilds even though no row is inserted yet.
+    force_rebuild: bool,
+    round_hook: Option<RoundHook<N>>,
     /// Preferred integrals in representative sectors (routed when given in
     /// another sector of their class), and preferred integrals of zero
     /// sectors.
@@ -270,6 +286,14 @@ impl<const N: usize> BoxLaportaSession<N> {
                 "staircase seeding uses bottom-up insertion".into(),
             ));
         }
+        if options.growth_budget_seeds.is_some()
+            && (!options.growth_no_inherit || !options.rebuild_rounds || options.tubes.is_some())
+        {
+            return Err(SolverError::InvalidInput(
+                "growth_budget_seeds needs growth_no_inherit and rebuild_rounds, without tubes"
+                    .into(),
+            ));
+        }
         if options.settle_on_expected
             && (options.expected_counts.is_none()
                 || !matches!(options.seeding, Seeding::Staircase { .. }))
@@ -337,6 +361,10 @@ impl<const N: usize> BoxLaportaSession<N> {
             demand: BTreeSet::new(),
             zero_demand: BTreeSet::new(),
             covered: BTreeSet::new(),
+            resume: None,
+            plan_only: false,
+            force_rebuild: false,
+            round_hook: None,
             preferred_zero: BTreeSet::new(),
             visited: BTreeSet::new(),
             truncate,
@@ -355,6 +383,47 @@ impl<const N: usize> BoxLaportaSession<N> {
             stability_verdict: None,
             refused: None,
         })
+    }
+
+    /// Start the growth of every listed sector (Kira id -> `(dots, s)` steps)
+    /// at the given map instead of at zero, e.g. a growth map read from a
+    /// round state, or a predicted end-state box. Call before `extend`.
+    pub fn set_growth(&mut self, growth: BTreeMap<u64, (u8, u8)>) {
+        self.growth = growth;
+    }
+
+    /// Growth steps per sector so far (Kira id -> `(dots, s)`).
+    pub fn growth(&self) -> &BTreeMap<u64, (u8, u8)> {
+        &self.growth
+    }
+
+    /// Resume a growth series from a finished round: the first round of the
+    /// next `extend` plans its seeds and boxes (with the growth map given to
+    /// [`Self::set_growth`]) without eliminating them, grows from `masters`
+    /// (that round's masters, from a [`RoundHook`] state), and the next
+    /// round rebuilds the system from all seeds. Needs `rebuild_rounds`; the
+    /// resumed round's LP and expected-count checks are not repeated, so
+    /// `lp_gate` and `expected_counts` are refused.
+    pub fn resume_from(&mut self, masters: Vec<[i16; N]>) -> Result<(), SolverError> {
+        if !self.options.rebuild_rounds
+            || self.options.insertion != super::Insertion::BottomUp
+            || self.options.lp_gate
+            || self.options.expected_counts.is_some()
+        {
+            return Err(SolverError::InvalidInput(
+                "resume_from needs rebuild_rounds with bottom-up insertion, without lp_gate and expected_counts".into(),
+            ));
+        }
+        self.resume = Some(masters);
+        Ok(())
+    }
+
+    /// Receive every round's state (see [`RoundHook`]).
+    pub fn set_round_hook(
+        &mut self,
+        hook: impl FnMut(usize, &[[i16; N]], &BTreeMap<u64, (u8, u8)>) + Send + 'static,
+    ) {
+        self.round_hook = Some(Box::new(hook));
     }
 
     /// Receive one human-readable line per phase (seeding, elimination,
@@ -519,6 +588,29 @@ impl<const N: usize> BoxLaportaSession<N> {
         let mut selection;
         loop {
             rounds += 1;
+            if rounds == 1
+                && let Some(masters) = self.resume.take()
+            {
+                self.plan_only = true;
+                let planned = self.seed_round(&format!("round{rounds}"), (0, 0, 0));
+                self.plan_only = false;
+                planned?;
+                if let Some(hook) = self.round_hook.as_mut() {
+                    hook(rounds, &masters, &self.growth);
+                }
+                let grown = self.grow_round(&masters, &[])?;
+                if grown.is_empty() {
+                    return Err(SolverError::InvalidInput(
+                        "resume_from: the resumed round has nothing to grow".into(),
+                    ));
+                }
+                let (seeds, grown_count) = (self.seeds.len(), grown.len());
+                self.note(|| {
+                    format!("round {rounds}: resumed ({seeds} seeds planned), grow {grown_count} sectors")
+                });
+                growth_log.push(grown.iter().map(|&bits| bits as u32).collect());
+                continue;
+            }
             self.seed_round(&format!("round{rounds}"), (0, 0, 0))?;
             let progress = std::env::var_os("RUSTRED_SB_PROGRESS").is_some();
             if progress {
@@ -545,6 +637,9 @@ impl<const N: usize> BoxLaportaSession<N> {
                         .entry(report.id)
                         .or_insert((report.in_box_residuals, lp));
                 }
+            }
+            if let Some(hook) = self.round_hook.as_mut() {
+                hook(rounds, &selection.masters, &self.growth);
             }
             let grown = self.grow_round(&selection.masters, &reports)?;
             let masters = selection.masters.len();
@@ -846,6 +941,48 @@ impl<const N: usize> BoxLaportaSession<N> {
     /// bottom-up insertion all new rows go in as one batch at the end.
     /// `delta` enlarges the explicit (demand) boxes, as in a rerun with
     /// larger `(r, s, d)` settings.
+    /// New seeds the next `seed_round` would plan with the current growth
+    /// map: a dry run of its region planning; the boxes are restored.
+    pub(super) fn planned_new_seeds(&mut self) -> Result<usize, SolverError> {
+        let saved = self.boxes.clone();
+        let counted = self.count_planned();
+        self.boxes = saved;
+        counted
+    }
+
+    fn count_planned(&mut self) -> Result<usize, SolverError> {
+        let sectors = self.closure_of(&self.demand);
+        let Some(max_lines) = sectors.iter().map(|bits| bits.count_ones()).max() else {
+            return Ok(0);
+        };
+        let top_down = self.options.insertion == super::Insertion::TopDownLevels;
+        let demand = self.demand.clone();
+        let mut count = 0;
+        for lines in (1..=max_lines).rev() {
+            let level: Vec<u64> = sectors
+                .iter()
+                .copied()
+                .filter(|bits| bits.count_ones() == lines)
+                .collect();
+            if level.is_empty() {
+                continue;
+            }
+            let boxes = self.boxes.clone();
+            let desired =
+                self.desired_regions(&level, top_down, &boxes, &demand, self.truncate, (0, 0, 0))?;
+            for (bits, wanted) in desired {
+                let old = self.boxes.get(&bits).cloned();
+                let new = self.merge_region(old.as_ref(), wanted);
+                if old.as_ref() == Some(&new) {
+                    continue;
+                }
+                count += region_shell_count(bits as u32, self.arity, &new, old.as_ref());
+                self.boxes.insert(bits, new);
+            }
+        }
+        Ok(count)
+    }
+
     fn seed_round(&mut self, label: &str, delta: (u8, u8, u8)) -> Result<(), SolverError> {
         self.visited = self.closure_of(&self.demand);
         let sectors = self.visited.clone();
@@ -919,8 +1056,11 @@ impl<const N: usize> BoxLaportaSession<N> {
                 pending.extend(seeds);
             }
         }
-        if !pending.is_empty() {
-            if self.options.rebuild_rounds && self.stats.rows > 0 {
+        if self.plan_only {
+            // Resume: seeds and boxes are planned; the next round rebuilds.
+            self.force_rebuild = true;
+        } else if !pending.is_empty() {
+            if self.options.rebuild_rounds && (self.stats.rows > 0 || self.force_rebuild) {
                 self.rebuild_all(label)?;
             } else {
                 self.insert_level(&format!("{label}/bottom-up"), &pending)?;
@@ -932,6 +1072,7 @@ impl<const N: usize> BoxLaportaSession<N> {
     /// [`BoxOptions::rebuild_rounds`]: a fresh modular system with every
     /// seed so far in one bottom-up batch (the schedule `reorder` uses).
     fn rebuild_all(&mut self, label: &str) -> Result<(), SolverError> {
+        self.force_rebuild = false;
         self.modular = GlobalDiscovery::rebuilt(
             self.order.clone(),
             self.factory.field().clone(),
