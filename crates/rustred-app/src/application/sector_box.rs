@@ -169,6 +169,11 @@ pub struct SectorBoxReduceSpec {
     /// Staircase growth without inheritance (`BoxOptions::growth_no_inherit`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub growth_no_inherit: bool,
+    /// Closure seeding without own boxes for demand already inside its
+    /// sector's region (`BoxOptions::closure_no_own_box`). Changes the master
+    /// set (non-minimal, equivalent system).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closure_no_own_box: bool,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -402,6 +407,7 @@ fn box_options(
         rebuild_rounds: spec.rebuild_rounds,
         report_supports: spec.report_supports,
         growth_no_inherit: spec.growth_no_inherit,
+        closure_no_own_box: spec.closure_no_own_box,
         ..Default::default()
     })
 }

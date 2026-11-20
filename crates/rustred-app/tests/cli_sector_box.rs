@@ -890,6 +890,7 @@ const UNSET_FIELDS: &[&str] = &[
     "two_pass",
     "two_pass_variants",
     "growth_no_inherit",
+    "closure_no_own_box",
 ];
 
 #[test]
@@ -906,4 +907,69 @@ fn unset_fields_add_nothing_to_the_key_input() {
         );
     }
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// `closure_no_own_box`: the derivative closure of a 3L one-mass propagator
+/// family with staircase growth closes with fewer (or as many) seeds. On this
+/// family the masters and the rules are the same as without the option; in
+/// general the option can change the master set (non-minimal, equivalent
+/// system), which this test does not cover.
+#[test]
+fn closure_without_own_boxes_closes_with_fewer_seeds() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [2, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": false,
+            "rebuild_rounds": true,
+            "growth_no_inherit": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("closure-own-box-ref");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let ddir = scratch("closure-no-own-box");
+    let mut spec = base(&ddir);
+    spec["closure_no_own_box"] = json!(true);
+    let (code, dreport) = run(&ddir, &spec);
+    assert_eq!(code, 0, "{dreport}");
+    assert_eq!(
+        dreport["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
+    let seeds = |r: &Value| r["modular"]["seeds"].as_u64().unwrap();
+    assert!(
+        seeds(&dreport) <= seeds(&report),
+        "{} > {} seeds",
+        seeds(&dreport),
+        seeds(&report)
+    );
+    let (masters, rules) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    let (dmasters, drules) = rules_of(&ddir.join("out").join("solution-37_11.json"));
+    let sorted = |mut m: Vec<Vec<i64>>| {
+        m.sort();
+        m
+    };
+    assert_eq!(sorted(masters), sorted(dmasters));
+    for (target, terms) in &rules {
+        if let Some(other) = drules.get(target) {
+            assert_eq!(terms, other, "rule for {target:?} differs");
+        }
+    }
+    for path in [dir, ddir] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
 }

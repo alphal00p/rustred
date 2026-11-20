@@ -214,6 +214,24 @@ pub struct BoxOptions {
     /// [`ModularReport::supports`]. Same-level links between non-nested
     /// sectors in these supports reveal relation clusters (cluster probes).
     pub report_supports: bool,
+    /// Closure seeding without own boxes for covered demand: a demanded
+    /// integral that already lies inside its sector's seeded region when it
+    /// is first demanded (typically a derivative-closure target `m + e_s` of
+    /// a master `m` that is not at its sector's limit) gets no own box, so
+    /// nothing new is seeded in its sector and nothing new is passed down to
+    /// its subsectors. Off by default.
+    ///
+    /// It CHANGES THE MASTER SET: the row space is smaller, so some reducible
+    /// integrals can stay as (fake) masters and a same-level relation cluster
+    /// can get another representative. The differential system is the same,
+    /// written on a non-minimal basis. Measured at four loops (one-mass
+    /// propagator family, derivative closure with staircase growth): 350
+    /// instead of 347 masters with 73 % fewer seeds; the DE is exactly
+    /// equivalent to the 225-master reference DE (every extra master is an
+    /// exact combination with the right derivatives). At five loops the
+    /// closure of the interior masters then adds no seeds instead of
+    /// multiplying them by 2.8.
+    pub closure_no_own_box: bool,
 }
 
 /// Row insertion schedule. Pivots and masters do not depend on it (one row
@@ -254,6 +272,7 @@ impl Default for BoxOptions {
             report_supports: false,
             grow_all_levels: false,
             growth_no_inherit: false,
+            closure_no_own_box: false,
         }
     }
 }

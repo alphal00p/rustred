@@ -143,7 +143,7 @@ impl<const N: usize> BoxLaportaSession<N> {
         let mut own: BTreeMap<u64, SeedRegion> = BTreeMap::new();
         for values in demand {
             let bits = integral_bits(values);
-            if !wanted.contains(&bits) {
+            if !wanted.contains(&bits) || self.covered.contains(values) {
                 continue;
             }
             let (lines, dots, numerators) = box_coordinates(values);
