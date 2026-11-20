@@ -363,7 +363,7 @@ same as in `litered-reduce`.
 | `plan_only` | false | plan only: register the targets, plan the first round's seeds and boxes (with `initial_growth`), then `plan_closure_targets`, without generating or eliminating rows; the report's `plan` gives the planned seeds (total, first round, per number of lines) and how many closure targets already lay inside their sector's region; status `plan-only`, exit 0. Sizes a batch in seconds. Not with `two_pass`, `resume_state` or `checkpoint_dir` |
 | `plan_closure_targets` | `[]` | with `plan_only`: closure targets added after the first round's boxes exist (as a derivative-closure round adds them) |
 
-Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr.
+Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr. It also prints the session's stage lines (per seeding round: down-closure, regions and shells per level, seeding check; per batch: generation, checks, elimination, U and L sizes; per round: sector reports, growth, the growth monitor of masters at their own dot limit and flagged sectors by lines) and one line per derivative-closure round. `RUSTRED_CENSUS_PROFILE` prints the stage times of the sector-symmetry census (zero analysis, per-sector support / match / compile, per-class automorphisms). Diagnostics only: results do not depend on them.
 
 Memory: the engine has no memory cap by default. `limits.max_bytes` caps the
 engine's structural estimate of the modular system (stored rows and the U and

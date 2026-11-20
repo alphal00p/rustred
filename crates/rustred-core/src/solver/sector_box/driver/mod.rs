@@ -708,7 +708,9 @@ impl<const N: usize> BoxLaportaSession<N> {
                     started.elapsed().as_secs_f64()
                 );
             }
+            let reports_started = Instant::now();
             let reports = self.sector_reports(&selection.masters)?;
+            let reports_seconds = reports_started.elapsed().as_secs_f64();
             for report in reports.iter().filter(|_| monitored) {
                 if let Some(lp) = report.lp
                     && report.in_box_residuals < lp
@@ -721,12 +723,14 @@ impl<const N: usize> BoxLaportaSession<N> {
             if let Some(hook) = self.round_hook.as_mut() {
                 hook(rounds, &selection.masters, &self.growth);
             }
+            let grow_started = Instant::now();
             let grown = self.grow_round(&selection.masters, &reports)?;
+            let grow_seconds = grow_started.elapsed().as_secs_f64();
             let masters = selection.masters.len();
             let grown_count = grown.len();
             let truncate = self.truncate;
             self.note(|| {
-                format!("round {rounds}: {masters} masters, grow {grown_count} sectors (l = {truncate:?})")
+                format!("round {rounds}: {masters} masters, grow {grown_count} sectors (l = {truncate:?}); sector reports {reports_seconds:.2}s, grow {grow_seconds:.2}s")
             });
             if grown.is_empty() {
                 break;
@@ -1064,7 +1068,13 @@ impl<const N: usize> BoxLaportaSession<N> {
     }
 
     fn seed_round(&mut self, label: &str, delta: (u8, u8, u8)) -> Result<(), SolverError> {
+        let closure_started = Instant::now();
         self.visited = self.closure_of(&self.demand);
+        let closure_seconds = closure_started.elapsed().as_secs_f64();
+        let (visited_len, demand_len) = (self.visited.len(), self.demand.len());
+        self.note(|| {
+            format!("{label}: down-closure {visited_len} sectors from {demand_len} demanded integrals ({closure_seconds:.2}s)")
+        });
         let sectors = self.visited.clone();
         let Some(max_lines) = sectors.iter().map(|bits| bits.count_ones()).max() else {
             return Ok(());
@@ -1086,6 +1096,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             let desired =
                 self.desired_regions(&level, top_down, &boxes, &demand, self.truncate, delta)?;
             let desired_seconds = desired_started.elapsed().as_secs_f64();
+            let shells_started = Instant::now();
             let mut seeds = Vec::new();
             for (bits, wanted) in desired {
                 let old = self.boxes.get(&bits).cloned();
@@ -1125,8 +1136,10 @@ impl<const N: usize> BoxLaportaSession<N> {
                 }
             }
             let planned = seeds.len();
+            let shells_seconds = shells_started.elapsed().as_secs_f64();
+            let level_len = level.len();
             self.note(|| {
-                format!("{label}/level{lines}: {planned} new seeds planned ({desired_seconds:.2}s)")
+                format!("{label}/level{lines}: {level_len} sectors, {planned} new seeds planned (regions {desired_seconds:.2}s, shells {shells_seconds:.2}s)")
             });
             if top_down {
                 if !seeds.is_empty() {
@@ -1146,7 +1159,11 @@ impl<const N: usize> BoxLaportaSession<N> {
                 self.insert_level(&format!("{label}/bottom-up"), &pending)?;
             }
         }
-        self.check_seeded()
+        let check_started = Instant::now();
+        let checked = self.check_seeded();
+        let check_seconds = check_started.elapsed().as_secs_f64();
+        self.note(|| format!("{label}: check_seeded ({check_seconds:.2}s)"));
+        checked
     }
 
     /// [`BoxOptions::rebuild_rounds`]: a fresh modular system with every

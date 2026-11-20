@@ -223,6 +223,26 @@ impl<const N: usize> BoxLaportaSession<N> {
         let Some(level) = wanted.keys().map(|bits| bits.count_ones()).max() else {
             return Ok(Vec::new());
         };
+        // Growth monitor (progress only): masters at their own dot limit and
+        // flagged sectors by number of lines.
+        if self.progress.is_some() {
+            let mut by_lines: BTreeMap<u32, usize> = BTreeMap::new();
+            for bits in wanted.keys() {
+                *by_lines.entry(bits.count_ones()).or_default() += 1;
+            }
+            let at_limit = masters
+                .iter()
+                .filter(|master| {
+                    let (lines, dots, numerators) = box_coordinates(*master);
+                    self.boxes
+                        .get(&integral_bits(master))
+                        .is_none_or(|region| !region.contains(lines, dots + 1, numerators))
+                })
+                .count();
+            self.note(|| {
+                format!("growth monitor: {at_limit} masters at their own dot limit; flagged sectors by lines {by_lines:?}")
+            });
+        }
         // Grow the top flagged level only by default; lower levels follow in
         // later rounds. grow_all_levels (opt-in) raises every flagged level
         // at once; with inheritance each grown level passes its box down to
