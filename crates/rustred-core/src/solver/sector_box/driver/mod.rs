@@ -901,9 +901,40 @@ impl<const N: usize> BoxLaportaSession<N> {
             }
         }
         if !pending.is_empty() {
-            self.insert_level(&format!("{label}/bottom-up"), &pending)?;
+            if self.options.rebuild_rounds && self.stats.rows > 0 {
+                self.rebuild_all(label)?;
+            } else {
+                self.insert_level(&format!("{label}/bottom-up"), &pending)?;
+            }
         }
         self.check_seeded()
+    }
+
+    /// [`BoxOptions::rebuild_rounds`]: a fresh modular system with every
+    /// seed so far in one bottom-up batch (the schedule `reorder` uses).
+    fn rebuild_all(&mut self, label: &str) -> Result<(), SolverError> {
+        self.modular = GlobalDiscovery::rebuilt(
+            self.order.clone(),
+            self.factory.field().clone(),
+            &mut self.modular,
+        )?;
+        // Size totals describe the current system; work timings stay
+        // cumulative (as after a reorder).
+        self.stats.seeds = 0;
+        self.stats.rows = 0;
+        self.stats.automorphism_rows = 0;
+        self.stats.empty_rows = 0;
+        self.generated_terms = 0;
+        self.stats.terms = 0;
+        let mut by_level: BTreeMap<std::cmp::Reverse<u32>, Vec<(u32, [i16; N])>> = BTreeMap::new();
+        for (id, seed) in self.seeds.iter().enumerate() {
+            by_level
+                .entry(std::cmp::Reverse(integral_bits(seed).count_ones()))
+                .or_default()
+                .push((id as u32, *seed));
+        }
+        let seeds: Vec<(u32, [i16; N])> = by_level.into_values().flatten().collect();
+        self.insert_level(&format!("{label}/rebuild"), &seeds)
     }
 
     /// Wanted regions of one level, before merging with seeded regions.

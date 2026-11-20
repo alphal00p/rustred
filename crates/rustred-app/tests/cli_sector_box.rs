@@ -756,7 +756,7 @@ fn generator_quotients_equal_the_uncut_reduction_on_their_sectors() {
 
 /// Spec fields added after the first spec schema, at their default value, are
 /// not serialised: specs without them keep their checkpoint key.
-const UNSET_FIELDS: &[&str] = &["cut_lines", "cut_generators"];
+const UNSET_FIELDS: &[&str] = &["cut_lines", "cut_generators", "rebuild_rounds"];
 
 #[test]
 fn unset_fields_add_nothing_to_the_key_input() {
