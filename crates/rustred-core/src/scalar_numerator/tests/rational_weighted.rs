@@ -178,6 +178,37 @@ fn rational_weighted_zero_cancellation_and_original_poles_are_identical() {
 }
 
 #[test]
+fn generic_lane_drops_literal_zeros_and_keeps_results_of_vanishing_coefficients() {
+    let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
+    let k = symbol("generic_zero_k").to_atom();
+    let head = dot_head();
+    let square = dot(head, k.clone(), k.clone());
+    let service =
+        FamilyScalarNumeratorService::try_new(artifact.family(), head, vec![k], Default::default())
+            .unwrap();
+    let base = IntegralKey::try_new([4]).unwrap();
+    let x = symbol("generic_zero_x").to_atom();
+    let f = symbol("generic_zero_f").call(x.clone());
+    let reference = (&f * (&square - Atom::one()).pow(2)).expand();
+    let expected = compare(&service, &reference, &base, &Atom::one(), Lane::Generic);
+    assert!(!expected.is_zero());
+    // A coefficient that cancels literally and one that vanishes only after
+    // expansion; the opaque function keeps the generic lane. Neither may
+    // change the lowering.
+    let vanishing = (&x + Atom::one()).pow(2) - x.clone().pow(2) - Atom::num(2) * &x - Atom::one();
+    for zero in [&f * &square - &f * &square, &f * vanishing] {
+        let numerator = &reference + zero * square.clone().pow(2);
+        let result = compare(&service, &numerator, &base, &Atom::one(), Lane::Generic);
+        assert_eq!(result.terms(), expected.terms(), "{numerator}");
+        assert_eq!(
+            result.nonzero_conditions(),
+            expected.nonzero_conditions(),
+            "{numerator}"
+        );
+    }
+}
+
+#[test]
 fn rational_weighted_resource_and_input_errors_match_generic() {
     let artifact = derive_one_loop_unit_mass_tadpole().unwrap();
     let k = symbol("rational_errors_k").to_atom();
