@@ -92,7 +92,14 @@ fn dependent_and_empty_inputs_do_not_shift_accepted_dependency_ids() {
         discovery.add_row(&numerical(&field, &[(3, 1), (1, 2)])),
         Some(integral(1))
     );
-    assert_eq!(discovery.accepted_l_rows, [0, 2, 4]);
+    // With RUSTRED_SB_DROP_DEPENDENT_L the dependent rows keep no L row, so
+    // the accepted rows' L rows are consecutive.
+    let expected: [usize; 3] = if drops_dependent_l() {
+        [0, 1, 2]
+    } else {
+        [0, 2, 4]
+    };
+    assert_eq!(discovery.accepted_l_rows, expected);
     assert_eq!(discovery.trace(2), [0, 1, 2]);
     assert_eq!(discovery.basis_len(), 3);
     assert_eq!(discovery.stats().rows_seen, 6);
@@ -109,7 +116,10 @@ fn full_physical_rank_and_structural_zero_columns_remain_extendable() {
     assert_eq!(discovery.add_row(&first), None);
     // Even at full physical rank the native reducer emitted the dependent
     // L slice, because the sentinel prevents its full-rank early return.
-    assert_eq!(discovery.reducer.l().nrows(), 2);
+    assert_eq!(
+        discovery.reducer.l().nrows(),
+        if drops_dependent_l() { 1 } else { 2 }
+    );
     assert_eq!(
         discovery.add_row(&numerical(&field, &[(4, 0), (3, 1), (2, 1)])),
         Some(integral(3))
@@ -142,8 +152,9 @@ fn stats_expose_dependent_l_storage_growth_at_fixed_basis_size() {
         assert_eq!(stats.independent_rows, 2);
         assert_eq!(stats.reducer_nonzeros, 4);
         assert_eq!(stats.dependency_edges, 0);
-        assert_eq!(stats.retained_l_rows, 2 + repetitions);
-        assert_eq!(stats.retained_l_entries, 2 + 2 * repetitions);
+        let kept = if drops_dependent_l() { 0 } else { repetitions };
+        assert_eq!(stats.retained_l_rows, 2 + kept);
+        assert_eq!(stats.retained_l_entries, 2 + 2 * kept);
     }
     // The retained patterns consume indices even though Pattern mode has
     // no values; nvalues() alone would incorrectly report zero storage.
@@ -606,4 +617,38 @@ fn registered_columns_have_no_pivot_until_a_row_reaches_them() {
     assert_eq!(discovery.pivot_row(0), Some(0));
     assert_eq!(discovery.pivot_row(2), None);
     assert_eq!(discovery.u_row_columns(0), [0, 1]);
+}
+
+/// `RUSTRED_SB_DROP_DEPENDENT_L` is set for this test process: the L rows of
+/// dependent rows are not retained, which changes the L layout asserted above.
+fn drops_dependent_l() -> bool {
+    std::env::var_os("RUSTRED_SB_DROP_DEPENDENT_L").is_some()
+}
+
+/// Dropping the L rows of dependent rows keeps every result: the same pivots,
+/// the same basis and the same trace of every accepted row.
+#[test]
+fn dropping_dependent_l_rows_keeps_pivots_and_traces() {
+    let field = Zp64::new(101);
+    let rows = [
+        numerical(&field, &[(5, 1), (3, 1)]),
+        numerical(&field, &[(5, 2), (3, 2)]),
+        numerical(&field, &[(5, 1), (3, 2), (1, 1)]),
+        numerical(&field, &[(5, 1), (3, 2), (1, 1)]),
+        numerical(&field, &[(3, 1), (1, 2)]),
+        numerical(&field, &[(4, 1), (2, 3)]),
+        numerical(&field, &[(5, 3), (4, 1), (3, 5), (2, 3), (1, 7)]),
+    ];
+    let mut kept = Discovery::new(order(), field.clone());
+    kept.reducer.set_retain_dependent_l(true);
+    let mut dropped = Discovery::new(order(), field.clone());
+    dropped.reducer.set_retain_dependent_l(false);
+    for row in &rows {
+        assert_eq!(kept.add_row(row), dropped.add_row(row));
+    }
+    assert_eq!(kept.basis_len(), dropped.basis_len());
+    for i in 0..kept.basis_len() {
+        assert_eq!(kept.trace(i), dropped.trace(i), "trace of accepted row {i}");
+    }
+    assert!(dropped.stats().retained_l_rows <= kept.stats().retained_l_rows);
 }

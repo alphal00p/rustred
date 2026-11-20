@@ -364,12 +364,19 @@ pub struct Discovery<const N: usize, O = IntegralOrder<N>> {
 
 impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
     pub fn new(order: O, field: Zp64) -> Self {
+        // A permanent zero column follows every physical integral. It
+        // prevents the native full-rank shortcut from suppressing L rows.
+        let mut reducer = SparseRowReducer::new(1, field, LuLMode::Pattern);
+        // Only the L rows of accepted (independent) rows are ever read
+        // (`accepted_l_rows`); the L rows of dependent rows can be dropped
+        // without changing any result. Opt-in while it is measured.
+        if std::env::var_os("RUSTRED_SB_DROP_DEPENDENT_L").is_some() {
+            reducer.set_retain_dependent_l(false);
+        }
         Self {
             order,
             columns: Vec::new(),
-            // A permanent zero column follows every physical integral. It
-            // prevents the native full-rank shortcut from suppressing L rows.
-            reducer: SparseRowReducer::new(1, field, LuLMode::Pattern),
+            reducer,
             accepted_l_rows: Vec::new(),
             rows_seen: 0,
             dependency_edges: 0,
