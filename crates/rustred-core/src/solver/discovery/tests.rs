@@ -652,3 +652,77 @@ fn dropping_dependent_l_rows_keeps_pivots_and_traces() {
     }
     assert!(dropped.stats().retained_l_rows <= kept.stats().retained_l_rows);
 }
+
+/// The parallel batch insertion (numerica `add_csr_rows_parallel`) gives the
+/// same pivots, U, L patterns, accepted ordinals, counters and traces as the
+/// serial batch insertion, for several windows and thread counts, across two
+/// batches (incremental insertion with new columns in between).
+#[test]
+fn parallel_batches_reproduce_serial_batches() {
+    let pools: Vec<rayon::ThreadPool> = [1, 2, 4, 16]
+        .iter()
+        .map(|&n| {
+            rayon::ThreadPoolBuilder::new()
+                .num_threads(n)
+                .build()
+                .unwrap()
+        })
+        .collect();
+    for (prime, seed) in (0..6)
+        .map(|seed| (101, 2_000 + seed))
+        .chain((0..3).map(|seed| (4_611_686_018_427_387_847, 3_000 + seed)))
+    {
+        let field = Zp64::new(prime);
+        let rows = random_rows(&field, 120, seed);
+        let (first, second) = rows.split_at(70);
+        for drop_dependent_l in [false, true] {
+            let mut serial = Discovery::new(order(), field.clone());
+            serial.reducer.set_retain_dependent_l(!drop_dependent_l);
+            let mut pivots = serial.add_rows(first);
+            pivots.extend(serial.add_rows(second));
+            for (window, block) in [(1, 1), (3, 2), (16, 1), (16, 4), (1_000, 1), (1_000, 64)] {
+                for pool in &pools {
+                    let mut parallel = Discovery::new(order(), field.clone());
+                    parallel.reducer.set_retain_dependent_l(!drop_dependent_l);
+                    let options = symbolica::tensors::sparse::ParallelOptions {
+                        window,
+                        block,
+                        provisional: if block % 2 == 0 {
+                            symbolica::tensors::sparse::Provisional::All
+                        } else {
+                            symbolica::tensors::sparse::Provisional::Copies
+                        },
+                    };
+                    let (mut parallel_pivots, _, _) =
+                        pool.install(|| parallel.add_rows_parallel(first, options));
+                    parallel_pivots.extend(
+                        pool.install(|| parallel.add_rows_parallel(second, options))
+                            .0,
+                    );
+                    assert_eq!(pivots, parallel_pivots);
+                    assert_eq!(serial.columns(), parallel.columns());
+                    assert_eq!(serial.stats(), parallel.stats());
+                    assert_eq!(serial.accepted_l_rows, parallel.accepted_l_rows);
+                    assert_eq!(
+                        serial.pivot_columns().collect::<Vec<_>>(),
+                        parallel.pivot_columns().collect::<Vec<_>>()
+                    );
+                    for row in 0..parallel.basis_len() {
+                        assert_eq!(serial.u_row_columns(row), parallel.u_row_columns(row));
+                        assert_eq!(serial.u_row_values(row), parallel.u_row_values(row));
+                    }
+                    assert_eq!(
+                        serial.reducer.l().col_idcs(),
+                        parallel.reducer.l().col_idcs()
+                    );
+                    assert_eq!(
+                        serial.reducer.l().row_ptrs(),
+                        parallel.reducer.l().row_ptrs()
+                    );
+                    let all: Vec<usize> = (0..parallel.basis_len()).collect();
+                    assert_eq!(serial.trace_union(&all), parallel.trace_union(&all));
+                }
+            }
+        }
+    }
+}

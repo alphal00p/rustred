@@ -15,6 +15,7 @@ use std::cmp::Ordering;
 use std::sync::Arc;
 
 use symbolica::domains::finite_field::Zp64;
+use symbolica::tensors::sparse::{ParallelOptions, ParallelStats, Provisional};
 
 use super::super::discovery::{ColumnComparator, Discovery};
 use super::super::{Integral, SolverError};
@@ -31,6 +32,47 @@ pub(crate) struct GlobalDiscovery<const N: usize> {
     pub(crate) discovery: Discovery<N, Arc<BoxOrder<N>>>,
     /// Provenance of each accepted row, by basis ordinal.
     pub(crate) provenance: Vec<Provenance>,
+    /// Options and work counters of the last batch when it was eliminated in
+    /// parallel.
+    pub(crate) last_parallel: Option<(ParallelOptions, ParallelStats)>,
+    /// Wall seconds of the last parallel batch: sort, column registration,
+    /// native rows, forward solve (numerica), bookkeeping, dropping the rows.
+    pub(crate) last_parallel_stages: [f64; 6],
+}
+
+/// The parallel elimination options, when it is on.
+///
+/// Opt-in while it is measured: `RUSTRED_SB_PARALLEL_ELIM=1` eliminates every
+/// batch with numerica's `add_csr_rows_parallel` on the session's worker pool
+/// (U, the pivots, the L patterns and the accepted ordinals are identical to
+/// the serial elimination for all options and thread counts).
+/// `RUSTRED_SB_PARELIM_WINDOW`, `RUSTRED_SB_PARELIM_BLOCK` and
+/// `RUSTRED_SB_PARELIM_PROVISIONAL` (`copies`, `all`, `none`) override the
+/// numerica defaults (speed only).
+pub(crate) fn parallel_options() -> Option<ParallelOptions> {
+    let on = std::env::var("RUSTRED_SB_PARALLEL_ELIM")
+        .is_ok_and(|value| !value.is_empty() && value != "0");
+    if !on {
+        return None;
+    }
+    let read = |name: &str, default: usize| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<usize>().ok())
+            .filter(|&value| value > 0)
+            .unwrap_or(default)
+    };
+    let defaults = ParallelOptions::default();
+    let provisional = match std::env::var("RUSTRED_SB_PARELIM_PROVISIONAL").as_deref() {
+        Ok("all") => Provisional::All,
+        Ok("none") => Provisional::None,
+        _ => defaults.provisional,
+    };
+    Some(ParallelOptions {
+        window: read("RUSTRED_SB_PARELIM_WINDOW", defaults.window),
+        block: read("RUSTRED_SB_PARELIM_BLOCK", defaults.block),
+        provisional,
+    })
 }
 
 /// Outcome of one batch insertion.
@@ -45,6 +87,8 @@ impl<const N: usize> GlobalDiscovery<N> {
         Self {
             discovery: Discovery::new(order, field),
             provenance: Vec::new(),
+            last_parallel: None,
+            last_parallel_stages: [0.0; 6],
         }
     }
 
@@ -70,13 +114,41 @@ impl<const N: usize> GlobalDiscovery<N> {
         mut rows: Vec<ZpRow<N>>,
     ) -> Result<BatchOutcome, SolverError> {
         let order = self.discovery.order().clone();
-        rows.sort_unstable_by(|left, right| {
+        let compare = |left: &ZpRow<N>, right: &ZpRow<N>| {
             order
                 .compare(&right.terms[0].integral, &left.terms[0].integral)
                 .then(left.terms.len().cmp(&right.terms.len()))
                 .then(left.provenance.cmp(&right.provenance))
-        });
-        let pivots = self.discovery.add_rows(&rows);
+        };
+        let parallel = parallel_options();
+        let sort_started = std::time::Instant::now();
+        if parallel.is_some() {
+            // provenance is unique within a batch, so the order is total and any sort agrees
+            use rayon::slice::ParallelSliceMut;
+            rows.par_sort_unstable_by(compare);
+        } else {
+            rows.sort_unstable_by(compare);
+        }
+        let sort_seconds = sort_started.elapsed().as_secs_f64();
+        let pivots = match parallel {
+            Some(options) => {
+                let (pivots, stats, stages) = self.discovery.add_rows_parallel(&rows, options);
+                self.last_parallel = Some((options, stats));
+                self.last_parallel_stages = [
+                    sort_seconds,
+                    stages[0],
+                    stages[1],
+                    stages[2],
+                    stages[3],
+                    0.0,
+                ];
+                pivots
+            }
+            None => {
+                self.last_parallel = None;
+                self.discovery.add_rows(&rows)
+            }
+        };
         let mut outcome = BatchOutcome {
             rows: rows.len(),
             accepted: 0,
@@ -88,6 +160,11 @@ impl<const N: usize> GlobalDiscovery<N> {
             }
         }
         debug_assert_eq!(self.provenance.len(), self.discovery.basis_len());
+        if self.last_parallel.is_some() {
+            let started = std::time::Instant::now();
+            drop(rows);
+            self.last_parallel_stages[5] = started.elapsed().as_secs_f64();
+        }
         Ok(outcome)
     }
 

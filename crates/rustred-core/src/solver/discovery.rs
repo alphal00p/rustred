@@ -7,7 +7,7 @@ use symbolica::domains::finite_field::Zp64;
 use symbolica::domains::rational_polynomial::RationalPolynomialField;
 use symbolica::domains::{Ring, Set};
 use symbolica::prelude::{IntegerRing, Z};
-use symbolica::tensors::sparse::{LuLMode, SparseRowReducer};
+use symbolica::tensors::sparse::{LuLMode, ParallelOptions, ParallelStats, SparseRowReducer};
 
 use super::{ExactRow, Integral, IntegralOrder, Term};
 
@@ -409,6 +409,14 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
         &mut self,
         rows: &[R],
     ) -> Vec<Option<Integral<N>>> {
+        self.register_rows(rows);
+        rows.iter()
+            .map(|row| self.add_registered_row(row.as_ref()))
+            .collect()
+    }
+
+    /// Register every new column of `rows` with one native `add_cols` call.
+    fn register_rows<R: AsRef<[Term<N, NumericalCoefficient>]>>(&mut self, rows: &[R]) {
         let mut additions = Vec::new();
         for row in rows {
             let terms = row.as_ref();
@@ -424,9 +432,6 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
         additions.sort_unstable_by(|left, right| self.order.compare(left, right));
         additions.dedup();
         self.insert_sorted_columns(additions);
-        rows.iter()
-            .map(|row| self.add_registered_row(row.as_ref()))
-            .collect()
     }
 
     fn add_registered_row(
@@ -720,6 +725,162 @@ impl<const N: usize, O: ColumnComparator<N>> Discovery<N, O> {
         }
         merged.extend_from_slice(&self.columns[old_position..]);
         self.columns = merged;
+    }
+}
+
+impl<const N: usize, O: ColumnComparator<N> + Sync> Discovery<N, O> {
+    /// [`Self::add_rows`] with the native forward solve run in parallel on the
+    /// current rayon pool (numerica `add_csr_rows_parallel`).
+    ///
+    /// The result is identical to [`Self::add_rows`]: the same pivots, U, L
+    /// patterns, accepted ordinals and counters, for every `window` and every
+    /// number of threads. The `options` change only the speed.
+    pub(crate) fn add_rows_parallel<R: AsRef<[Term<N, NumericalCoefficient>]> + Sync>(
+        &mut self,
+        rows: &[R],
+        options: ParallelOptions,
+    ) -> (Vec<Option<Integral<N>>>, ParallelStats, [f64; 4]) {
+        use rayon::prelude::*;
+        let started = std::time::Instant::now();
+        let mut stages = [0.0; 4];
+        // The same registration as `register_rows` and the same native rows as
+        // `add_registered_row`, with the column lookups (binary searches with the
+        // column comparator) in parallel and done once per distinct integral of
+        // each chunk of rows instead of once per term.
+        const CHUNK: usize = 2048;
+        let distinct_of = |rows: &[R]| {
+            let mut distinct: Vec<Integral<N>> = rows
+                .iter()
+                .flat_map(|row| row.as_ref().iter().map(|term| term.integral))
+                .collect();
+            distinct.sort_unstable();
+            distinct.dedup();
+            distinct
+        };
+        let mut additions: Vec<Integral<N>> = {
+            let this = &*self;
+            rows.par_chunks(CHUNK)
+                .flat_map_iter(|rows| {
+                    let mut distinct = distinct_of(rows);
+                    distinct.retain(|integral| this.column_index(integral).is_none());
+                    distinct
+                })
+                .collect()
+        };
+        {
+            let order = &self.order;
+            additions.par_sort_unstable_by(|left, right| order.compare(left, right));
+        }
+        additions.dedup();
+        self.insert_sorted_columns(additions);
+        stages[0] = started.elapsed().as_secs_f64();
+        let started = std::time::Instant::now();
+        // Native rows in compressed sparse row form, filled in parallel by chunks of rows
+        // (no per-row intermediate vectors: the pages of the arrays are first touched by the
+        // threads that fill them).
+        let field = self.reducer.u().field().clone();
+        let lengths: Vec<usize> = rows
+            .par_iter()
+            .map(|row| {
+                row.as_ref()
+                    .iter()
+                    .filter(|term| !field.is_zero(&term.coefficient))
+                    .count()
+            })
+            .collect();
+        let mut row_ptrs = Vec::with_capacity(rows.len() + 1);
+        row_ptrs.push(0);
+        for length in &lengths {
+            row_ptrs.push(row_ptrs.last().unwrap() + length);
+        }
+        drop(lengths);
+        let total = *row_ptrs.last().unwrap();
+        let mut values: Vec<NumericalCoefficient> = Vec::with_capacity(total);
+        let mut column_ids: Vec<u32> = Vec::with_capacity(total);
+        {
+            let this = &*self;
+            let mut value_parts = Vec::new();
+            let mut column_parts = Vec::new();
+            let mut value_rest = &mut values.spare_capacity_mut()[..total];
+            let mut column_rest = &mut column_ids.spare_capacity_mut()[..total];
+            for start in (0..rows.len()).step_by(CHUNK) {
+                let end = (start + CHUNK).min(rows.len());
+                let len = row_ptrs[end] - row_ptrs[start];
+                let (part, rest) = value_rest.split_at_mut(len);
+                value_parts.push(part);
+                value_rest = rest;
+                let (part, rest) = column_rest.split_at_mut(len);
+                column_parts.push(part);
+                column_rest = rest;
+            }
+            rows.par_chunks(CHUNK)
+                .zip(value_parts.into_par_iter())
+                .zip(column_parts.into_par_iter())
+                .for_each(|((rows, value_part), column_part)| {
+                    let distinct = distinct_of(rows);
+                    let columns: Vec<u32> = distinct
+                        .iter()
+                        .map(|integral| {
+                            this.column_index(integral)
+                                .expect("every row integral was registered")
+                                as u32
+                        })
+                        .collect();
+                    let mut k = 0;
+                    for row in rows {
+                        for term in row.as_ref() {
+                            if !field.is_zero(&term.coefficient) {
+                                let index = distinct
+                                    .binary_search(&term.integral)
+                                    .expect("every term integral is in its chunk");
+                                value_part[k].write(term.coefficient);
+                                column_part[k].write(columns[index]);
+                                k += 1;
+                            }
+                        }
+                    }
+                    assert_eq!(k, value_part.len(), "every native slot is written");
+                });
+        }
+        // SAFETY: the chunks partition `0..total` and every slot of every chunk was written
+        // exactly once above (checked by the assertion in each chunk).
+        unsafe {
+            values.set_len(total);
+            column_ids.set_len(total);
+        }
+        stages[1] = started.elapsed().as_secs_f64();
+        let started = std::time::Instant::now();
+        let (outcomes, stats) =
+            self.reducer
+                .add_csr_rows_parallel(&values, &column_ids, &row_ptrs, options);
+        drop((values, column_ids, row_ptrs));
+        stages[2] = started.elapsed().as_secs_f64();
+        let started = std::time::Instant::now();
+        self.rows_seen += rows.len();
+        let mut pivots = Vec::with_capacity(outcomes.len());
+        for outcome in outcomes {
+            let Some(pivot) = outcome.pivot else {
+                pivots.push(None);
+                continue;
+            };
+            let basis_row = self.accepted_l_rows.len();
+            let l_row = outcome
+                .l_row
+                .expect("pattern mode records an L row for every accepted row")
+                as usize;
+            let l = self.reducer.l();
+            let dependencies = &l.col_idcs()[l.row_ptrs()[l_row]..l.row_ptrs()[l_row + 1]];
+            debug_assert!(dependencies.contains(&(basis_row as u32)));
+            debug_assert!(dependencies.iter().all(|&row| row as usize <= basis_row));
+            self.dependency_edges += dependencies
+                .iter()
+                .filter(|&&row| row as usize != basis_row)
+                .count();
+            self.accepted_l_rows.push(l_row);
+            pivots.push(Some(self.columns[pivot as usize]));
+        }
+        stages[3] = started.elapsed().as_secs_f64();
+        (pivots, stats, stages)
     }
 }
 
