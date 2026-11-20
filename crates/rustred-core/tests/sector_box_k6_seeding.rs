@@ -150,6 +150,30 @@ fn per_class(report: &ModularReport<N>) -> BTreeMap<u64, usize> {
         .collect()
 }
 
+/// `grow_all_levels` (opt-in, with rebuild_rounds): all flagged levels grow in
+/// one round; the closed master set is the default one, in no more rounds.
+#[test]
+fn rebuild_rounds_grow_all_levels_with_the_same_masters() {
+    let mut incremental = session(options(staircase(2))).unwrap();
+    let (a, _) = closed(&mut incremental).unwrap();
+    let mut rebuilt = session(BoxOptions {
+        rebuild_rounds: true,
+        grow_all_levels: true,
+        ..options(staircase(2))
+    })
+    .unwrap();
+    let (b, _) = closed(&mut rebuilt).unwrap();
+    assert_eq!(a.last().unwrap().masters, b.last().unwrap().masters);
+    let rounds =
+        |reports: &[ModularReport<N>]| reports.iter().map(|report| report.rounds).sum::<usize>();
+    assert!(
+        rounds(&b) <= rounds(&a),
+        "rebuild {} rounds vs incremental {}",
+        rounds(&b),
+        rounds(&a)
+    );
+}
+
 #[test]
 fn staircase_closure_gives_the_campaign_masters() {
     let mut session = session(options(staircase(0))).unwrap();

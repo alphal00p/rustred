@@ -221,8 +221,17 @@ impl<const N: usize> BoxLaportaSession<N> {
         let Some(level) = wanted.keys().map(|bits| bits.count_ones()).max() else {
             return Ok(Vec::new());
         };
-        wanted.retain(|bits, _| bits.count_ones() == level);
-        let raise_s = wanted.values().filter(|(_, s)| *s).count();
+        // Grow the top flagged level only by default; lower levels follow in
+        // later rounds. grow_all_levels (opt-in) raises every flagged level
+        // at once; with inheritance each grown level passes its box down to
+        // its whole subsector cone.
+        if !self.options.grow_all_levels {
+            wanted.retain(|bits, _| bits.count_ones() == level);
+        }
+        let raise_s = wanted
+            .iter()
+            .filter(|(bits, (_, s))| bits.count_ones() == level && *s)
+            .count();
         let classes_at_level = self
             .visited
             .iter()
