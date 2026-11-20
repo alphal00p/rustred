@@ -115,7 +115,7 @@ fn spec(t: &Tmp, cfg: &Path) -> PathBuf {
         &json!({
             "schema": "rustred.campaign.spec.v1", "campaign": format!("{}-emit", t.campaign),
             "programs": {"rr_fake_child": {"path": FAKE}, "rr_node": {"path": FAKE}},
-            "resources": {"policy": "plain", "cpus": cpus(), "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
+            "resources": {"policy": "plain", "cpus": cpus(), "containment": "marker_only", "max_jobs": 4, "mem_total": "2G", "disk_floor": "1G",
                           "grace_seconds": 5, "sampler_ms": 300, "host_floor": "100M", "heartbeat_timeout_s": 60,
                           "start_timeout_s": 120},
             "progress": {"cadence_seconds": 1},
