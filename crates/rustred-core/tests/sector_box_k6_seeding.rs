@@ -174,6 +174,23 @@ fn rebuild_rounds_grow_all_levels_with_the_same_masters() {
     );
 }
 
+/// `growth_no_inherit` (with rebuild_rounds): growth stays in the flagged
+/// sectors' own boxes and cascades down only where masters sit at a sector's
+/// own dot limit; the closed master set is the default one.
+#[test]
+fn growth_without_inheritance_closes_on_the_same_masters() {
+    let mut default = session(options(staircase(2))).unwrap();
+    let (a, _) = closed(&mut default).unwrap();
+    let mut own = session(BoxOptions {
+        rebuild_rounds: true,
+        growth_no_inherit: true,
+        ..options(staircase(2))
+    })
+    .unwrap();
+    let (b, _) = closed(&mut own).unwrap();
+    assert_eq!(a.last().unwrap().masters, b.last().unwrap().masters);
+}
+
 #[test]
 fn staircase_closure_gives_the_campaign_masters() {
     let mut session = session(options(staircase(0))).unwrap();

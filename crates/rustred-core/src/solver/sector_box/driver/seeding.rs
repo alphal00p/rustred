@@ -174,14 +174,21 @@ impl<const N: usize> BoxLaportaSession<N> {
                     .get(parent)
                     .map_or_else(Vec::new, |region| region.boxes().to_vec());
                 parent_boxes.extend(self.tube_pass_down(*parent, demand, delta));
+                // growth_no_inherit: the parent's growth stays in its own box.
+                let (parent_grow_d, parent_grow_s) = if self.options.growth_no_inherit {
+                    self.growth.get(parent).copied().unwrap_or((0, 0))
+                } else {
+                    (0, 0)
+                };
                 for parent_box in &parent_boxes {
-                    let dots = parent_box.max_dots(parent_lines);
+                    let dots = parent_box.max_dots(parent_lines) - i16::from(parent_grow_d);
                     if dots < 0 {
                         continue;
                     }
+                    let parent_s = parent_box.s - i16::from(parent_grow_s);
                     region.insert(SeedBox {
                         r: lines + dots,
-                        s: cap.map_or(parent_box.s, |cap| parent_box.s.min(cap)),
+                        s: cap.map_or(parent_s, |cap| parent_s.min(cap)),
                         d: dots,
                     });
                 }

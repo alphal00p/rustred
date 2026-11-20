@@ -202,6 +202,13 @@ pub struct BoxOptions {
     /// of 63 k seeds for the next round, because with inheritance every grown
     /// level passes its box down to its whole subsector cone.
     pub grow_all_levels: bool,
+    /// Staircase growth stays in the flagged sector's own box: subsectors
+    /// inherit the un-grown box, and every flagged sector (all levels) grows
+    /// each round. A lower sector grows only when it shows masters at its own
+    /// dot limit in a later round (demand-driven cascade). Off by default: the
+    /// default passes the grown box down to the whole subsector cone, which at
+    /// five loops turned one level of growth into a near-global extra dot.
+    pub growth_no_inherit: bool,
     /// Report, for every demanded integral, the support of its reduced row
     /// at the first modular sample (the masters it reduces to), in
     /// [`ModularReport::supports`]. Same-level links between non-nested
@@ -246,6 +253,7 @@ impl Default for BoxOptions {
             rebuild_rounds: false,
             report_supports: false,
             grow_all_levels: false,
+            growth_no_inherit: false,
         }
     }
 }

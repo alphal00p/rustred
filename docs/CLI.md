@@ -354,6 +354,7 @@ same as in `litered-reduce`.
 | `report_supports` | false | write `supports.jsonl` to `out_dir`: one line per demanded integral with the masters of its reduced row at the first modular sample. Same-level links between non-nested sectors in these supports reveal relation clusters (cluster probes); no reconstruction needed |
 | `two_pass` | false | two-pass derivative closure: pass 1 (the targets) gives the masters; pass 2 is a fresh session with `rebuild_rounds` whose targets are the targets plus the derivative seeds `m + e_s` of every pass-1 master, with the pass-1 masters preferred, so the closure is seeded up front in one batch. Needs derivative slots. 4L uncut one-mass propagator family: identical 225 masters and 1,872 rules, 9 h 41 min -> 8 min |
 | `two_pass_variants` | false | with `two_pass`: also add the rank-1 numerator variants of the pass-1 masters to pass 2 (the basis can only shrink) |
+| `growth_no_inherit` | false | staircase growth stays in the flagged sector's own box: subsectors inherit the un-grown box, and every flagged sector of every level grows in the same round (a lower sector grows when it shows masters at its own dot limit itself). The default passes a grown box down to the whole subsector cone |
 
 Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr.
 
