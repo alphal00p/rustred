@@ -1,6 +1,8 @@
 //! p5l-library: the first scope 1-5 p library from imported 5L tables, and its
 //! acceptance checks.
 //!
+//! Exit 6 (every subcommand that loads a package): the package was refused at load; the reason is on stderr.
+//!
 //! ```text
 //! p5l_library coverage <families.json> <max_loops>
 //!     TSV per top of <max_loops> loops: the DAG nodes with a Custom action in its descent.
@@ -905,13 +907,21 @@ fn reduce_file_cli(args: &[String]) {
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
     let started = Instant::now();
-    let library = load_p_library(
+    let library = match load_p_library(
         PLibrarySource::Directory(PathBuf::from(dir)),
         &PLibraryOptions {
             verify_descent: verify,
         },
-    )
-    .unwrap();
+    ) {
+        Ok(library) => library,
+        // A refused package (malformed, version mismatch, a required orbit
+        // file absent or of another scope, ...) is an ordinary error, not a
+        // crash: message on stderr, exit 6 (gate R-B FINAL 2, lane t266).
+        Err(error) => {
+            eprintln!("error: the package {dir} was refused at load: {error}");
+            std::process::exit(6);
+        }
+    };
     let seconds = started.elapsed().as_secs_f64();
     eprintln!(
         "load {dir} verify {verify}: {seconds:.2} s {} ({} presentations, {} owners, {} terminals)",
