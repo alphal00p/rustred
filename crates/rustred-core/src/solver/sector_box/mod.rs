@@ -105,7 +105,8 @@ use std::time::Duration;
 
 pub use driver::{
     BoxLaportaSession, CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample,
-    ExplicitTable, Lane, ParameterAssignment, census_targets, down_closure_representatives,
+    ExplicitTable, Lane, ParameterAssignment, PlanReport, RoundHook, census_targets,
+    down_closure_representatives,
 };
 pub use exact::{BoxCertificate, CertificateMode};
 pub use facade::{RouterChoice, solve_box_laporta};
@@ -186,6 +187,63 @@ pub struct BoxOptions {
     /// class at its exact expected count is complete when the count is.
     /// Refused without staircase seeding or without `expected_counts`.
     pub settle_on_expected: bool,
+    /// Rebuild the modular system at every seeding round after the first:
+    /// all seeds so far are inserted again as ONE bottom-up batch into a
+    /// fresh system, instead of inserting only the new seeds on top of the
+    /// old U. Pivots and masters do not depend on it (same row space, same
+    /// column order); the elimination cost does. An incremental batch on
+    /// top of an old U is inserted after the old supersector rows, so new
+    /// subsector rows forward-solve through their long spill pivot rows
+    /// (the `TopDownLevels` effect); one rebuilt batch avoids it.
+    /// Bottom-up insertion only (stability rounds stay incremental).
+    pub rebuild_rounds: bool,
+    /// Staircase growth raises every flagged level in the same round instead
+    /// of the top flagged level only. Off by default: on a 4L one-mass
+    /// quotient it flagged 26 sectors instead of 1 and planned 704 k instead
+    /// of 63 k seeds for the next round, because with inheritance every grown
+    /// level passes its box down to its whole subsector cone.
+    pub grow_all_levels: bool,
+    /// Staircase growth stays in the flagged sector's own box: subsectors
+    /// inherit the un-grown box, and every flagged sector (all levels) grows
+    /// each round. A lower sector grows only when it shows masters at its own
+    /// dot limit in a later round (demand-driven cascade). Off by default: the
+    /// default passes the grown box down to the whole subsector cone, which at
+    /// five loops turned one level of growth into a near-global extra dot.
+    pub growth_no_inherit: bool,
+    /// Report, for every demanded integral, the support of its reduced row
+    /// at the first modular sample (the masters it reduces to), in
+    /// [`ModularReport::supports`]. Same-level links between non-nested
+    /// sectors in these supports reveal relation clusters (cluster probes).
+    pub report_supports: bool,
+    /// Closure seeding without own boxes for covered demand: a demanded
+    /// integral that already lies inside its sector's seeded region when it
+    /// is first demanded (typically a derivative-closure target `m + e_s` of
+    /// a master `m` that is not at its sector's limit) gets no own box, so
+    /// nothing new is seeded in its sector and nothing new is passed down to
+    /// its subsectors. Off by default.
+    ///
+    /// It CHANGES THE MASTER SET: the row space is smaller, so some reducible
+    /// integrals can stay as (fake) masters and a same-level relation cluster
+    /// can get another representative. The differential system is the same,
+    /// written on a non-minimal basis. Measured at four loops (one-mass
+    /// propagator family, derivative closure with staircase growth): 350
+    /// instead of 347 masters with 73 % fewer seeds; the DE is exactly
+    /// equivalent to the 225-master reference DE (every extra master is an
+    /// exact combination with the right derivatives). At five loops the
+    /// closure of the interior masters then adds no seeds instead of
+    /// multiplying them by 2.8.
+    pub closure_no_own_box: bool,
+    /// With `growth_no_inherit` and `rebuild_rounds`: a hard budget on the
+    /// seeds of the rebuilt batch. Each growth round grows the highest
+    /// flagged levels only, as many levels as keep all seeds within the
+    /// budget (counted by a dry run of the next round's plan); the lower
+    /// flags are recomputed after that round. A round whose top flagged level
+    /// alone exceeds the budget stops the session with a
+    /// [`LimitKind::Rows`] error. Off by default (`None`). Measured at four
+    /// loops: a grown level clears its own boundary masters and pushes the
+    /// boundary one level down, so the budget sequences the growth but does
+    /// not make the final batch smaller than growing all levels at once.
+    pub growth_budget_seeds: Option<usize>,
 }
 
 /// Row insertion schedule. Pivots and masters do not depend on it (one row
@@ -222,6 +280,12 @@ impl Default for BoxOptions {
             expected_counts: None,
             tubes: None,
             settle_on_expected: false,
+            rebuild_rounds: false,
+            report_supports: false,
+            grow_all_levels: false,
+            growth_no_inherit: false,
+            closure_no_own_box: false,
+            growth_budget_seeds: None,
         }
     }
 }
@@ -550,6 +614,11 @@ pub struct ModularReport<const N: usize> {
     /// The truncation parameter `l` in force at the end (growth may lower
     /// it); `None` without truncation.
     pub truncate: Option<i16>,
+    /// With [`BoxOptions::report_supports`]: each demanded integral (after
+    /// routing) with the masters of its reduced row at the first modular
+    /// sample (a zero coefficient at that sample is possible but unlikely);
+    /// empty otherwise.
+    pub supports: Vec<([i16; N], Vec<[i16; N]>)>,
     /// Seeds of the whole session, and the seeds the hull of every seeded
     /// region would need (rows versus the hull).
     pub seeds: usize,

@@ -304,7 +304,7 @@ span) or `no-verdict` (only special points, or a refused prime). Its final
 stopped on an error after its first report write.
 
 Exit codes:
-- 0: `status` is `ok`, or `modular-only`;
+- 0: `status` is `ok`, `modular-only` or `plan-only`;
 - 1: the engine's verdict is negative (`master-check-failed` under the strict
   master check, or `certificate-failed`). The report and any solutions are
   still written;
@@ -324,6 +324,9 @@ same as in `litered-reduce`.
 | `preferred` | `[]` | preferred masters, at the easy end of the column order. One whose route onto its representative sector has several terms is dropped from this set and reported |
 | `expected` | `{}` | expected masters per class: Kira id of the representative sector (decimal string) -> count |
 | `derivative_slot` | none | close the demand under the derivative in the mass of that line |
+| `derivative_slots` | `[]` | further slots (one mass on several lines): closed under `I[a] -> I[a + e_s]` for every listed `s`, so `d/dm I[a] = sum_s a_s I[a + e_s]` is reduced; merged with `derivative_slot` |
+| `cut_lines` | `[]` | cut lines (reverse unitarity): every sector lacking one of them is zero, so only sectors containing all cut lines are seeded and reduced. Requires `router = "identity"` (a symmetry map need not preserve the cut). Reductions on a set of cuts that covers every master sector, with a common `preferred` basis, merge into the uncut reduction |
+| `cut_generators` | `[]` | cluster quotients: list of generator line sets; a sector is non-zero iff it contains ALL lines of AT LEAST ONE generator (the union of the up-closures of the generators, an upward-closed set, so the quotient is consistent). `cut_lines` is the case of one generator; the two fields are exclusive. Requires `router = "identity"`. A quotient gives exact DE entries for the masters inside it only if it contains whole same-level relation clusters |
 | `closure_rounds` | 8 | maximal closure rounds after the first modular phase; still unclosed after them is an error |
 | `d_list` | required unless `modular_only` | values `"p/q"` of the family dimension; each value once (`"1/2"` and `"2/4"` are the same value) |
 | `fixed` | `{}` | further fixed parameters, name -> `"p/q"` |
@@ -347,6 +350,20 @@ same as in `litered-reduce`.
 | `checkpoint_dir` | none | save the modular phase (session codec, closed target list) and log finite-field probes; a rerun of the same request resumes. The checkpoint is bound to the family, the router and every field that determines the modular phase |
 | `limits` | no caps | opt-in `max_rows`, `max_columns`, `max_u_nnz`, `max_l_entries`, `max_selected`, `max_bytes` |
 | `modular_only` | false | stop after the modular phase |
+| `rebuild_rounds` | false | rebuild the modular system from all seeds in ONE bottom-up batch at every seeding round after the first (growth and closure rounds) instead of inserting the new seeds on top of the old U. Same masters, pivots and rules; much less fill-in for derivative closures (4L one-mass propagator quotient: elimination 3,866 s -> 1,892 s, identical masters, rules and pivot hash) |
+| `report_supports` | false | write `supports.jsonl` to `out_dir`: one line per demanded integral with the masters of its reduced row at the first modular sample. Same-level links between non-nested sectors in these supports reveal relation clusters (cluster probes); no reconstruction needed |
+| `two_pass` | false | two-pass derivative closure: pass 1 (the targets) gives the masters; pass 2 is a fresh session with `rebuild_rounds` whose targets are the targets plus the derivative seeds `m + e_s` of every pass-1 master, with the pass-1 masters preferred, so the closure is seeded up front in one batch. Needs derivative slots. 4L uncut one-mass propagator family: identical 225 masters and 1,872 rules, 9 h 41 min -> 8 min |
+| `two_pass_variants` | false | with `two_pass`: also add the rank-1 numerator variants of the pass-1 masters to pass 2 (the basis can only shrink) |
+| `growth_no_inherit` | false | staircase growth stays in the flagged sector's own box: subsectors inherit the un-grown box, and every flagged sector of every level grows in the same round (a lower sector grows when it shows masters at its own dot limit itself). The default passes a grown box down to the whole subsector cone |
+| `closure_no_own_box` | false | closure seeding: a demanded integral already inside its sector's seeded region when first demanded (a derivative-closure target of a master not at its sector's limit) gets no own box, so nothing new is seeded or passed down for it. CHANGES THE MASTER SET: a smaller row space can leave reducible integrals as (fake) masters and move a relation cluster's representative; the differential system is the same on a non-minimal basis (4L one-mass propagator family: 350 instead of 347 masters, 73 % fewer seeds, DE exactly equivalent to the 225-master reference). Do not enable it expecting an identical basis |
+| `growth_budget_seeds` | none | with `growth_no_inherit` and `rebuild_rounds`: seed budget of the rebuilt batch. Each growth round grows the highest flagged levels only, as many as keep all seeds within the budget (dry run of the next plan); if the top flagged level alone exceeds it the run stops with a rows limit. A grown level pushes its boundary one level down, so the budget sequences growth but does not shrink the final batch |
+| `initial_growth` | none | JSON file `[[sector_id, [dots, s]], ..]`: start the staircase growth at this map (Kira ids), e.g. the `growth` of a round state or a predicted end-state box, and eliminate it directly |
+| `resume_state` | none | a `round-<n>.json` written under `round_state_dir`: the first modular round is planned with its growth map, not eliminated again, and growth continues from its masters; the next round rebuilds. Needs `rebuild_rounds`, no `lp_gate`, no `expected`; same targets as the interrupted run; exclusive with `initial_growth` and `two_pass` |
+| `round_state_dir` | none | write every seeding round's state (`round`, `masters`, `growth`) as `round-<n>.json` here; output only, not part of the checkpoint key |
+| `plan_only` | false | plan only: register the targets, plan the first round's seeds and boxes (with `initial_growth`), then `plan_closure_targets`, without generating or eliminating rows; the report's `plan` gives the planned seeds (total, first round, per number of lines) and how many closure targets already lay inside their sector's region; status `plan-only`, exit 0. Sizes a batch in seconds. Not with `two_pass`, `resume_state` or `checkpoint_dir` |
+| `plan_closure_targets` | `[]` | with `plan_only`: closure targets added after the first round's boxes exist (as a derivative-closure round adds them) |
+
+Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr. It also prints the session's stage lines (per seeding round: down-closure, regions and shells per level, seeding check; per batch: generation, checks, elimination, U and L sizes; per round: sector reports, growth, the growth monitor of masters at their own dot limit and flagged sectors by lines) and one line per derivative-closure round. `RUSTRED_CENSUS_PROFILE` prints the stage times of the sector-symmetry census (zero analysis, per-sector support / match / compile, per-class automorphisms). Diagnostics only: results do not depend on them.
 
 Memory: the engine has no memory cap by default. `limits.max_bytes` caps the
 engine's structural estimate of the modular system (stored rows and the U and
@@ -357,7 +374,9 @@ limit (for example `systemd-run --user --scope -p MemoryMax=40G rustred
 sector-box-reduce ...`) or a watchdog that stops the process tree. A stopped run
 resumes from `checkpoint_dir`.
 
-The command dispatches the family arities 3, 6, 10 and 15. Another arity is
+The command dispatches the family arities 3, 6, 10 and 15 (vacuum families,
+2-5 loops) and 5, 9, 14 and 20 (propagator families with one external
+momentum, 2-5 loops: L(L+3)/2 coordinates). Another arity is
 an input error: the engine is compiled once per storage width, so each width
 costs build time.
 

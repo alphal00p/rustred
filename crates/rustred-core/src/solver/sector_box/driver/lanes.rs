@@ -406,13 +406,8 @@ impl<const N: usize> BoxLaportaSession<N> {
             name: self.family.name().to_string(),
             arity: self.arity,
             fingerprint: self.family.fingerprint().to_string(),
-            router_fingerprint: Some(
-                self.router
-                    .fingerprint()
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect(),
-            ),
+            router_fingerprint: Some(hex(&self.router.fingerprint())),
+            legacy_router_fingerprints: self.router.legacy_fingerprints().iter().map(hex).collect(),
         }
     }
 
@@ -613,6 +608,10 @@ fn split_rows<T: Clone>(values: Vec<T>, targets: usize, masters: usize) -> Vec<V
     }
     debug_assert_eq!(values.len(), targets * masters);
     values.chunks(masters).map(<[T]>::to_vec).collect()
+}
+
+fn hex(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 #[cfg(test)]

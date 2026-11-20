@@ -22,8 +22,8 @@ use super::output::{BoxProvenance, BoxSolution, coefficient_of};
 pub const HARNESS_SOLUTION_SCHEMA: &str = "rustred-harness-solution.v1";
 
 /// The `family` block of the exchange format. A reader accepts a file only
-/// for the same family fingerprint and arity, and the same router
-/// fingerprint when both sides give one.
+/// for the same family fingerprint and arity, and, when both sides give one,
+/// the same router fingerprint or one of its legacy fingerprints.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HarnessFamily {
     pub name: String,
@@ -31,6 +31,9 @@ pub struct HarnessFamily {
     pub fingerprint: String,
     /// Hex blake3 fingerprint of the sector router.
     pub router_fingerprint: Option<String>,
+    /// Hex fingerprints of earlier formats of the same router, accepted by
+    /// the reader (never written).
+    pub legacy_router_fingerprints: Vec<String>,
 }
 
 /// What a harness file records besides the solution.
@@ -429,6 +432,7 @@ fn read_harness<const N: usize>(
             .get("router_fingerprint")
             .and_then(Value::as_str)
             .map(str::to_string),
+        legacy_router_fingerprints: Vec::new(),
     };
     if family.fingerprint != expected.fingerprint || family.arity != expected.arity {
         return Err(bad(format!(
@@ -438,6 +442,7 @@ fn read_harness<const N: usize>(
     }
     if let (Some(found), Some(wanted)) = (&family.router_fingerprint, &expected.router_fingerprint)
         && found != wanted
+        && !expected.legacy_router_fingerprints.contains(found)
     {
         return Err(bad("written with another sector router"));
     }

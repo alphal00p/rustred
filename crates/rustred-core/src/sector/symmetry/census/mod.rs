@@ -505,9 +505,21 @@ impl SectorSymmetryCensus {
                 reason,
             });
         };
+        let profile = std::env::var_os("RUSTRED_CENSUS_PROFILE").is_some();
+        let (mut t_support, mut t_match, mut t_compile) = (0.0f64, 0.0f64, 0.0f64);
+        let loop_started = std::time::Instant::now();
         for (analyzed, sector) in ordered.iter().enumerate() {
             discovery::checkpoint(&cancelled)?;
+            if profile && analyzed % 128 == 0 {
+                eprintln!(
+                    "[census-profile] sectors {analyzed}/{} classes {} | support {t_support:.1} s match {t_match:.1} s compile {t_compile:.1} s | total {:.1} s",
+                    ordered.len(),
+                    builders.len(),
+                    loop_started.elapsed().as_secs_f64()
+                );
+            }
             let mut support_failed = false;
+            let stage = std::time::Instant::now();
             let support =
                 match tolerate(cache.prepare_support(sector, options.verification, &cancelled))? {
                     Ok(support) => support,
@@ -522,6 +534,8 @@ impl SectorSymmetryCensus {
                     }
                 };
             let canonical_key = support.as_ref().map(|support| support.canonical_key());
+            t_support += stage.elapsed().as_secs_f64();
+            let stage = std::time::Instant::now();
             let mut routed = None;
             if let (Some(support), Some(key)) = (&support, &canonical_key) {
                 for &class in by_key.get(key).map(Vec::as_slice).unwrap_or_default() {
@@ -564,6 +578,8 @@ impl SectorSymmetryCensus {
                     }
                 }
             }
+            t_match += stage.elapsed().as_secs_f64();
+            let stage = std::time::Instant::now();
             let (class, route) = match routed {
                 Some((class, route)) => {
                     builders[class].members.push(sector.clone());
@@ -588,6 +604,7 @@ impl SectorSymmetryCensus {
                     (class, compile(identity.clone(), sector, sector)?)
                 }
             };
+            t_compile += stage.elapsed().as_secs_f64();
             members.insert(
                 sector.clone(),
                 SectorSymmetryMember {
@@ -612,8 +629,24 @@ impl SectorSymmetryCensus {
             nontrivial_line_automorphisms: Some(0),
             ..Default::default()
         };
-        for builder in builders {
+        if profile {
+            eprintln!(
+                "[census-profile] sectors done: {} sectors, {} classes | support {t_support:.1} s match {t_match:.1} s compile {t_compile:.1} s | total {:.1} s",
+                ordered.len(),
+                builders.len(),
+                loop_started.elapsed().as_secs_f64()
+            );
+        }
+        let classes_started = std::time::Instant::now();
+        let class_count = builders.len();
+        for (class_index, builder) in builders.into_iter().enumerate() {
             discovery::checkpoint(&cancelled)?;
+            if profile && class_index % 64 == 0 {
+                eprintln!(
+                    "[census-profile] automorphisms {class_index}/{class_count} classes, {:.1} s",
+                    classes_started.elapsed().as_secs_f64()
+                );
+            }
             let mut automorphisms = Vec::new();
             let mut line_permutations = Vec::new();
             let mut complete = !builder.support_failed;
@@ -740,9 +773,18 @@ impl SectorSymmetryCensus {
         let mut zero_sectors = BTreeMap::new();
         let mut bits = vec![false; arity];
         let count = 1_usize << slots.len();
+        let profile = std::env::var_os("RUSTRED_CENSUS_PROFILE").is_some();
+        let zero_started = std::time::Instant::now();
         for subset in 0..count {
             if control.is_cancelled() {
                 return Err(Error::Discovery(DiscoveryError::Cancelled));
+            }
+            if profile && subset % 1024 == 0 {
+                eprintln!(
+                    "[census-profile] zero analysis {subset}/{count} subsectors, {} nonzero, {:.1} s",
+                    nonzero.len(),
+                    zero_started.elapsed().as_secs_f64()
+                );
             }
             for (position, &slot) in slots.iter().enumerate() {
                 bits[slot] = subset & (1 << position) != 0;
@@ -764,6 +806,13 @@ impl SectorSymmetryCensus {
         let empty_zero = usize::from(
             zero_sectors.contains_key(&Mask::try_new(std::iter::repeat_n(false, arity))?),
         );
+        if profile {
+            eprintln!(
+                "[census-profile] zero analysis done: {count} subsectors, {} nonzero, {:.1} s",
+                nonzero.len(),
+                zero_started.elapsed().as_secs_f64()
+            );
+        }
         let mut census = Self::discover(family, nonzero, options, control)?;
         census.statistics.enumerated_sectors = count - 1;
         census.statistics.zero_sectors = zero_sectors.len() - empty_zero;

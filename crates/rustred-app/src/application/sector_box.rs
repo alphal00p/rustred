@@ -32,7 +32,7 @@ use rustred::sector::CutConstraint;
 use rustred::solver::SolverError;
 use rustred::solver::sector_box::{
     BoxLaportaSession, BoxLimits, BoxOptions, CensusRouter, ColumnOrder, FfOptions, IdentityRouter,
-    MasterCheckMode, ModularReport, SectorRouter, Seeding, SlotPriority, TubeOptions,
+    MasterCheckMode, ModularReport, Route, SectorRouter, Seeding, SlotPriority, TubeOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -48,8 +48,10 @@ pub const SECTOR_BOX_REDUCE_SPEC_SCHEMA: &str = "rustred.sector-box-reduce-spec.
 pub const SECTOR_BOX_REDUCE_REPORT_SCHEMA: &str = "rustred.sector-box-reduce-report.v1";
 /// Family arities the command dispatches to (the engine is generic in the
 /// storage width; each width is compiled once). 3 and 6 are covered by the
-/// default tests, 10 and 15 by the ignored four- and five-loop goldens.
-pub const SECTOR_BOX_ARITIES: &[usize] = &[3, 6, 10, 15];
+/// default tests, 10 and 15 by the ignored four- and five-loop goldens; 5, 9,
+/// 14 and 20 are the propagator-family widths (one external momentum, 2-5
+/// loops: L(L+3)/2 coordinates), 5 covered by the default tests.
+pub const SECTOR_BOX_ARITIES: &[usize] = &[3, 5, 6, 9, 10, 14, 15, 20];
 /// Default certificate prime: the engine's
 /// [`rustred::solver::sector_box::DEFAULT_CERTIFICATE_PRIME`], `2^63 - 25`,
 /// above every reconstruction and verification prime (they descend from
@@ -85,6 +87,26 @@ pub struct SectorBoxReduceSpec {
     /// `a_slot > 0` (derivative in the mass of that line).
     #[serde(default)]
     pub derivative_slot: Option<usize>,
+    /// Further derivative slots (one mass on several lines): the demand is
+    /// closed under `I[a] -> I[a + e_s]` for every listed `s` with `a_s > 0`,
+    /// so `d/dm I[a] = sum_s a_s I[a + e_s]` is reduced. Merged with
+    /// `derivative_slot`. Serialised (and so part of the checkpoint key)
+    /// only when non-empty, so specs without it keep their checkpoint key.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub derivative_slots: Vec<usize>,
+    /// Cut lines (reverse unitarity): every sector that lacks one of them is
+    /// zero, so only the 2^(n-k) sectors containing all k cut lines are
+    /// seeded and reduced. Requires `router = "identity"` (a symmetry map need
+    /// not preserve the cut set).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut_lines: Vec<usize>,
+    /// Generator line sets (cluster quotients): a sector is non-zero iff it
+    /// contains ALL lines of AT LEAST ONE generator. The non-zero sectors are
+    /// the union of the up-closures of the generators, an upward-closed set,
+    /// so the quotient is consistent. `cut_lines` is the case of one
+    /// generator; the two fields are exclusive. Requires `router = "identity"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut_generators: Vec<Vec<usize>>,
     /// Maximal closure rounds after the first modular phase (default 8); an
     /// unclosed demand after them is an error.
     #[serde(default)]
@@ -117,6 +139,71 @@ pub struct SectorBoxReduceSpec {
     pub master_check: Option<String>,
     #[serde(default)]
     pub settle_on_expected: bool,
+    /// Rebuild the modular system from all seeds in one bottom-up batch at
+    /// every seeding round after the first (growth and closure rounds),
+    /// instead of incremental batches; same masters and rules, much less
+    /// fill-in for derivative closures.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rebuild_rounds: bool,
+    /// Write `supports.jsonl` to `out_dir`: one line per demanded integral
+    /// with the masters of its reduced row at the first modular sample
+    /// (cluster probes; no reconstruction needed).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub report_supports: bool,
+    /// Two-pass derivative closure. Pass 1 is one `extend` with the targets
+    /// (growth and closure round 0) and gives the masters. Pass 2 starts a
+    /// fresh session (with `rebuild_rounds`) whose targets are the targets,
+    /// and the derivative seeds `m + e_s` of every pass-1 master (and, with
+    /// `two_pass_variants`, rank-1 numerator variants), with the pass-1
+    /// masters preferred, so the closure is seeded up front in one
+    /// bottom-up batch instead of incremental closure rounds. Needs
+    /// derivative slots.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_pass: bool,
+    /// With `two_pass`: also add the rank-1 numerator variants (one more
+    /// numerator on any slot with power <= 0) of every dotted pass-1 master
+    /// and derivative seed to the pass-2 targets (rule ii'; minimal bases,
+    /// but every subsector inherits a rank-1 box).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub two_pass_variants: bool,
+    /// Staircase growth without inheritance (`BoxOptions::growth_no_inherit`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub growth_no_inherit: bool,
+    /// Closure seeding without own boxes for demand already inside its
+    /// sector's region (`BoxOptions::closure_no_own_box`). Changes the master
+    /// set (non-minimal, equivalent system).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closure_no_own_box: bool,
+    /// Seed budget of the rebuilt batch for top-down staircase growth
+    /// (`BoxOptions::growth_budget_seeds`; needs `growth_no_inherit` and
+    /// `rebuild_rounds`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub growth_budget_seeds: Option<usize>,
+    /// Start the growth at this map: a JSON list `[[sector_id, [dots, s]], ..]`
+    /// (Kira ids), e.g. the `growth` of a round state or a predicted box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub initial_growth: Option<PathBuf>,
+    /// Resume the growth series of the first modular `extend` from a round
+    /// state written under `round_state_dir`: that round is planned, not
+    /// eliminated again, and growth continues from its masters. Needs
+    /// `rebuild_rounds`; the targets must be those of the interrupted run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_state: Option<PathBuf>,
+    /// Write every seeding round's state (masters, growth map) as
+    /// `round-<n>.json` to this directory (n counts rounds over the whole
+    /// request). Output only: not part of the checkpoint key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub round_state_dir: Option<PathBuf>,
+    /// Plan only: register the targets, plan the first round's seeds and boxes
+    /// (with `initial_growth`) and then `plan_closure_targets`, without
+    /// generating or eliminating rows; the report's `plan` gives the seed
+    /// totals per number of lines and the status is `plan-only`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plan_only: bool,
+    /// With `plan_only`: closure targets added after the first round's boxes
+    /// exist (as a derivative-closure round would add them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_closure_targets: Vec<Vec<i64>>,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -197,7 +284,7 @@ pub struct LimitsSpec {
     pub max_bytes: Option<usize>,
 }
 
-/// Outcome: the report, with `status` `"ok"`, `"modular-only"`,
+/// Outcome: the report, with `status` `"ok"`, `"modular-only"`, `"plan-only"`,
 /// `"master-check-failed"` or `"certificate-failed"` (the last two are the
 /// engine's verdicts; errors are returned as [`AppError`]).
 #[derive(Clone, Debug)]
@@ -347,6 +434,11 @@ fn box_options(
             subsector_halo: tubes.subsector_halo,
         }),
         settle_on_expected: spec.settle_on_expected,
+        rebuild_rounds: spec.rebuild_rounds,
+        report_supports: spec.report_supports,
+        growth_no_inherit: spec.growth_no_inherit,
+        closure_no_own_box: spec.closure_no_own_box,
+        growth_budget_seeds: spec.growth_budget_seeds,
         ..Default::default()
     })
 }
@@ -363,7 +455,10 @@ pub fn sector_box_reduce(spec: &SectorBoxReduceSpec) -> Result<SectorBoxReduceOu
             "sector-box-reduce needs at least one target",
         ));
     }
-    if spec.d_list.is_empty() && !spec.modular_only {
+    if spec.plan_only && spec.checkpoint_dir.is_some() {
+        return Err(AppError::input("plan_only does not use checkpoint_dir"));
+    }
+    if spec.d_list.is_empty() && !spec.modular_only && !spec.plan_only {
         return Err(AppError::input(
             "d_list is empty: give at least one dimension value or set modular_only",
         ));
@@ -380,7 +475,58 @@ pub fn sector_box_reduce(spec: &SectorBoxReduceSpec) -> Result<SectorBoxReduceOu
             }
         };
     }
-    dispatch!(3, 6, 10, 15)
+    dispatch!(3, 5, 6, 9, 10, 14, 15, 20)
+}
+
+/// Identity routing restricted to a cut quotient: a sector is non-zero iff it
+/// contains every line of at least one generator (one generator = the
+/// `cut_lines` cut); every non-zero sector is its own representative.
+struct CutRouter {
+    inner: Arc<IdentityRouter>,
+    generators: Vec<u64>,
+    fingerprint: [u8; 32],
+}
+
+impl CutRouter {
+    fn keeps(&self, bits: u64) -> bool {
+        self.generators.iter().any(|&g| g & !bits == 0)
+    }
+}
+
+impl<const N: usize> SectorRouter<N> for CutRouter {
+    fn representative(&self, sector: &[bool; N]) -> Option<[bool; N]> {
+        let bits: u64 = (0..N)
+            .filter(|&slot| sector[slot])
+            .map(|slot| 1u64 << slot)
+            .sum();
+        if !self.keeps(bits) {
+            return None;
+        }
+        <IdentityRouter as SectorRouter<N>>::representative(&self.inner, sector)
+    }
+
+    fn route(&self, n: &[i16; N]) -> Result<Route<N>, SolverError> {
+        let bits: u64 = (0..N)
+            .filter(|&slot| n[slot] > 0)
+            .map(|slot| 1u64 << slot)
+            .sum();
+        if !self.keeps(bits) {
+            return Ok(Vec::new());
+        }
+        <IdentityRouter as SectorRouter<N>>::route(&self.inner, n)
+    }
+
+    fn automorphism_rows(&self, _n: &[i16; N]) -> Result<Vec<Route<N>>, SolverError> {
+        Ok(Vec::new())
+    }
+
+    fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    fn is_identity(&self) -> bool {
+        true
+    }
 }
 
 struct Report {
@@ -402,6 +548,19 @@ impl Report {
             .map_err(|e| AppError::execution(e.to_string()))?;
         write_atomic(&self.path, format!("{text}\n").as_bytes())
     }
+}
+
+fn read_json(path: &Path) -> Result<Value, AppError> {
+    let text = std::fs::read_to_string(path)
+        .map_err(|e| AppError::input(format!("cannot read {}: {e}", path.display())))?;
+    serde_json::from_str(&text).map_err(|e| AppError::input(format!("{}: {e}", path.display())))
+}
+
+/// A growth map `[[sector_id, [dots, s]], ..]`.
+fn read_growth(value: &Value) -> Result<BTreeMap<u64, (u8, u8)>, AppError> {
+    let entries: Vec<(u64, (u8, u8))> = serde_json::from_value(value.clone())
+        .map_err(|e| AppError::input(format!("growth map: {e}")))?;
+    Ok(entries.into_iter().collect())
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), AppError> {
@@ -426,7 +585,7 @@ fn modular_phase<const N: usize>(
     session: &mut BoxLaportaSession<N>,
     targets: &[[i16; N]],
     preferred: &[[i16; N]],
-    derivative_slot: Option<usize>,
+    derivative_slots: &[usize],
     closure_rounds: usize,
 ) -> Result<ModularPhase<N>, PhaseError> {
     let clock = Instant::now();
@@ -440,18 +599,20 @@ fn modular_phase<const N: usize>(
                 SolverError::MasterCheck(message) => PhaseError::MasterCheck(message),
                 other => PhaseError::Other(engine("modular phase")(other)),
             })?;
-        let Some(slot) = derivative_slot else {
+        if derivative_slots.is_empty() {
             return Ok((report, final_targets, log));
-        };
-        let known: BTreeSet<[i16; N]> = final_targets.iter().copied().collect();
+        }
+        let mut known: BTreeSet<[i16; N]> = final_targets.iter().copied().collect();
         let mut added = 0usize;
         for master in &report.masters {
-            if master[slot] > 0 {
-                let mut seed = *master;
-                seed[slot] += 1;
-                if !known.contains(&seed) {
-                    final_targets.push(seed);
-                    added += 1;
+            for &slot in derivative_slots {
+                if master[slot] > 0 {
+                    let mut seed = *master;
+                    seed[slot] += 1;
+                    if known.insert(seed) {
+                        final_targets.push(seed);
+                        added += 1;
+                    }
                 }
             }
         }
@@ -459,6 +620,14 @@ fn modular_phase<const N: usize>(
             json!({"round": round, "masters": report.masters.len(), "added": added,
                         "targets": final_targets.len(), "seconds": clock.elapsed().as_secs_f64()}),
         );
+        if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+            eprintln!(
+                "[sector-box] closure round {round}: {} masters, {added} new derivative seeds, {} targets, {:.1} s",
+                report.masters.len(),
+                final_targets.len(),
+                clock.elapsed().as_secs_f64()
+            );
+        }
         if added == 0 {
             return Ok((report, final_targets, log));
         }
@@ -469,6 +638,50 @@ fn modular_phase<const N: usize>(
         }
         round += 1;
     }
+}
+
+/// Pass-2 targets of [`SectorBoxReduceSpec::two_pass`]: the targets and the
+/// derivative seeds of the pass-1 masters; with `variants` also the rank-1
+/// numerator variants (one more numerator on any slot with power <= 0) of
+/// every dotted integral among the masters and derivative seeds.
+fn two_pass_targets<const N: usize>(
+    targets: &[[i16; N]],
+    masters: &[[i16; N]],
+    derivative_slots: &[usize],
+    arity: usize,
+    variants: bool,
+) -> Vec<[i16; N]> {
+    let mut known: BTreeSet<[i16; N]> = targets.iter().copied().collect();
+    let mut out: Vec<[i16; N]> = targets.to_vec();
+    let mut dotted = Vec::new();
+    for master in masters {
+        dotted.push(*master);
+        for &slot in derivative_slots {
+            if master[slot] > 0 {
+                let mut seed = *master;
+                seed[slot] += 1;
+                dotted.push(seed);
+                if known.insert(seed) {
+                    out.push(seed);
+                }
+            }
+        }
+    }
+    for integral in dotted.into_iter().filter(|_| variants) {
+        if !integral[..arity].iter().any(|&power| power > 1) {
+            continue;
+        }
+        for slot in 0..arity {
+            if integral[slot] <= 0 {
+                let mut variant = integral;
+                variant[slot] -= 1;
+                if known.insert(variant) {
+                    out.push(variant);
+                }
+            }
+        }
+    }
+    out
 }
 
 fn modular_json<const N: usize>(report: &ModularReport<N>, seconds: f64) -> Value {
@@ -573,12 +786,18 @@ fn run_phases<const N: usize>(
             .map_err(|_| AppError::input(format!("expected class {class:?} is not a sector id")))?;
         expected.insert(id, *count);
     }
-    if let Some(slot) = spec.derivative_slot
-        && slot >= arity
-    {
-        return Err(AppError::input(format!(
-            "derivative_slot {slot} is not a slot of the {arity}-denominator family"
-        )));
+    let mut derivative_slots: Vec<usize> = spec.derivative_slot.into_iter().collect();
+    for &slot in &spec.derivative_slots {
+        if !derivative_slots.contains(&slot) {
+            derivative_slots.push(slot);
+        }
+    }
+    for &slot in &derivative_slots {
+        if slot >= arity {
+            return Err(AppError::input(format!(
+                "derivative_slot {slot} is not a slot of the {arity}-denominator family"
+            )));
+        }
     }
     // Parameters: the dimension takes the values of `d_list`, `fixed` the
     // others, and exactly one stays free.
@@ -603,7 +822,7 @@ fn run_phases<const N: usize>(
         .filter(|name| **name != dimension && !spec.fixed.contains_key(*name))
         .collect();
     match (&spec.free, free.as_slice()) {
-        _ if spec.modular_only => {}
+        _ if spec.modular_only || spec.plan_only => {}
         (Some(wanted), [only]) if wanted == *only => {}
         (None, [_]) => {}
         _ => {
@@ -636,6 +855,12 @@ fn run_phases<const N: usize>(
 
     // Router.
     let clock = Instant::now();
+    if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+        eprintln!(
+            "[sector-box] router {:?}: start",
+            spec.router.as_deref().unwrap_or("census-top")
+        );
+    }
     let census_mask: [bool; N] = std::array::from_fn(|slot| top >> slot & 1 == 1);
     let router: Arc<dyn SectorRouter<N>> = match spec.router.as_deref() {
         None | Some("census-top") => Arc::new(
@@ -647,6 +872,77 @@ fn run_phases<const N: usize>(
         Some("identity") => IdentityRouter::shared(&family).map_err(engine("router"))?,
         Some(other) => return Err(AppError::input(format!("unknown router {other:?}"))),
     };
+    if !spec.cut_lines.is_empty() && !spec.cut_generators.is_empty() {
+        return Err(AppError::input(
+            "cut_lines and cut_generators are exclusive",
+        ));
+    }
+    let generator_lists: Vec<Vec<usize>> = if spec.cut_lines.is_empty() {
+        spec.cut_generators.clone()
+    } else {
+        vec![spec.cut_lines.clone()]
+    };
+    let router: Arc<dyn SectorRouter<N>> = if generator_lists.is_empty() {
+        router
+    } else {
+        if spec.router.as_deref() != Some("identity") {
+            return Err(AppError::input(
+                "cut_lines / cut_generators require router \"identity\" (symmetry maps need not preserve the cut)",
+            ));
+        }
+        let mut generators = Vec::with_capacity(generator_lists.len());
+        for lines in &generator_lists {
+            if lines.is_empty() {
+                return Err(AppError::input(
+                    "a cut generator must contain at least one line",
+                ));
+            }
+            let mut cut = 0u64;
+            for &slot in lines {
+                if slot >= arity {
+                    return Err(AppError::input(format!(
+                        "cut line {slot} is not a slot of the {arity}-denominator family"
+                    )));
+                }
+                cut |= 1u64 << slot;
+            }
+            generators.push(cut);
+        }
+        if !generators.iter().any(|&g| g & !top == 0) {
+            return Err(AppError::input(
+                "the top sector must contain every line of at least one cut generator",
+            ));
+        }
+        let inner = IdentityRouter::shared(&family).map_err(engine("router"))?;
+        let mut hasher = blake3::Hasher::new();
+        if generators.len() == 1 {
+            // unchanged v1 fingerprint for a single cut (checkpoints of cut_lines runs stay valid)
+            hasher.update(b"rustred-sector-box-cut-router-v1\0");
+            hasher.update(&<IdentityRouter as SectorRouter<N>>::fingerprint(&inner));
+            hasher.update(&generators[0].to_le_bytes());
+        } else {
+            let mut sorted = generators.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            hasher.update(b"rustred-sector-box-cut-router-v2\0");
+            hasher.update(&<IdentityRouter as SectorRouter<N>>::fingerprint(&inner));
+            hasher.update(&(sorted.len() as u64).to_le_bytes());
+            for g in &sorted {
+                hasher.update(&g.to_le_bytes());
+            }
+        }
+        Arc::new(CutRouter {
+            inner,
+            generators,
+            fingerprint: *hasher.finalize().as_bytes(),
+        })
+    };
+    if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+        eprintln!(
+            "[sector-box] router ready after {:.1} s",
+            clock.elapsed().as_secs_f64()
+        );
+    }
     let router_fingerprint: String = router
         .fingerprint()
         .iter()
@@ -690,6 +986,7 @@ fn run_phases<const N: usize>(
             "certificate_prime",
             "exact_certificate",
             "checkpoint_dir",
+            "round_state_dir",
             "limits",
             "modular_only",
             "family",
@@ -742,11 +1039,151 @@ fn run_phases<const N: usize>(
             )
             .map_err(|e| AppError::input(format!("options: {e}")))?;
             let clock = Instant::now();
+            let mut pass_one = None;
+            let (phase_targets, phase_preferred) = if spec.two_pass {
+                if derivative_slots.is_empty() {
+                    return Err(AppError::input("two_pass needs derivative_slot(s)"));
+                }
+                let first = match session.extend(&targets, &kept) {
+                    Ok(report) => report,
+                    Err(SolverError::MasterCheck(message)) => {
+                        out.set("status", json!("master-check-failed"));
+                        out.set("error", json!(message));
+                        out.write()?;
+                        return Ok(SectorBoxReduceOutcome {
+                            report: Value::Object(out.fields.clone()),
+                            status: "master-check-failed",
+                        });
+                    }
+                    Err(other) => return Err(engine("two-pass pass 1")(other)),
+                };
+                let second_targets = two_pass_targets(
+                    &targets,
+                    &first.masters,
+                    &derivative_slots,
+                    arity,
+                    spec.two_pass_variants,
+                );
+                let mut second_preferred = kept.clone();
+                for master in &first.masters {
+                    if !second_preferred.contains(master) {
+                        second_preferred.push(*master);
+                    }
+                }
+                pass_one = Some(json!({"masters": first.masters.len(), "seeds": first.seeds,
+                    "seconds": clock.elapsed().as_secs_f64(), "pass2_targets": second_targets.len()}));
+                session = BoxLaportaSession::<N>::new(
+                    family.clone(),
+                    &CutConstraint::none(arity).map_err(|e| AppError::input(e.to_string()))?,
+                    router.clone(),
+                    BoxOptions {
+                        rebuild_rounds: true,
+                        ..options.clone()
+                    },
+                )
+                .map_err(|e| AppError::input(format!("options: {e}")))?;
+                (second_targets, second_preferred)
+            } else {
+                (targets.clone(), kept.clone())
+            };
+            if spec.initial_growth.is_some() && spec.resume_state.is_some() {
+                return Err(AppError::input(
+                    "initial_growth and resume_state are exclusive (a round state has its growth)",
+                ));
+            }
+            if spec.two_pass && (spec.initial_growth.is_some() || spec.resume_state.is_some()) {
+                return Err(AppError::input(
+                    "initial_growth and resume_state are not supported with two_pass",
+                ));
+            }
+            if let Some(path) = &spec.initial_growth {
+                session.set_growth(read_growth(&read_json(path)?)?);
+            }
+            if let Some(path) = &spec.resume_state {
+                let state = read_json(path)?;
+                let masters = state["masters"]
+                    .as_array()
+                    .ok_or_else(|| AppError::input("resume_state: no masters list"))?
+                    .iter()
+                    .map(|master| {
+                        let values: Vec<i64> = serde_json::from_value(master.clone())
+                            .map_err(|e| AppError::input(format!("resume_state: {e}")))?;
+                        powers::<N>(&values, arity)
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                session.set_growth(read_growth(&state["growth"])?);
+                session
+                    .resume_from(masters)
+                    .map_err(|e| AppError::input(format!("resume_state: {e}")))?;
+            }
+            if spec.plan_only {
+                if spec.two_pass || spec.resume_state.is_some() {
+                    return Err(AppError::input(
+                        "plan_only is not supported with two_pass or resume_state",
+                    ));
+                }
+                let closure_targets = spec
+                    .plan_closure_targets
+                    .iter()
+                    .map(|values| powers::<N>(values, arity))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let plan = session
+                    .plan(&targets, &kept, &closure_targets)
+                    .map_err(engine("plan"))?;
+                out.set(
+                    "plan",
+                    json!({
+                        "seeds": plan.seeds,
+                        "first_round_seeds": plan.first_round_seeds,
+                        "closure_demand": plan.closure_demand,
+                        "closure_inside": plan.closure_inside,
+                        "sectors": plan.sectors,
+                        "by_lines": plan.by_lines,
+                        "seconds": clock.elapsed().as_secs_f64(),
+                    }),
+                );
+                out.set("status", json!("plan-only"));
+                out.write()?;
+                return Ok(SectorBoxReduceOutcome {
+                    report: Value::Object(out.fields.clone()),
+                    status: "plan-only",
+                });
+            }
+            if let Some(dir) = &spec.round_state_dir {
+                std::fs::create_dir_all(dir).map_err(|e| {
+                    AppError::execution(format!("cannot create {}: {e}", dir.display()))
+                })?;
+                let dir = dir.clone();
+                let mut sequence = 0usize;
+                session.set_round_hook(move |round, masters, growth| {
+                    sequence += 1;
+                    let state = json!({
+                        "schema": "rustred.sector-box-round-state.v1",
+                        "sequence": sequence,
+                        "round": round,
+                        "masters": masters.iter().map(|master| master.to_vec()).collect::<Vec<_>>(),
+                        "growth": growth.iter().map(|(bits, (dots, s))| json!([bits, [dots, s]])).collect::<Vec<_>>(),
+                    });
+                    let path = dir.join(format!("round-{sequence}.json"));
+                    if let Err(error) = write_atomic(&path, state.to_string().as_bytes()) {
+                        eprintln!("[sector-box] round state: {error}");
+                    }
+                });
+            }
+            if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+                let started = Instant::now();
+                session.set_progress(move |line| {
+                    eprintln!(
+                        "[sector-box {:9.1}s] {line}",
+                        started.elapsed().as_secs_f64()
+                    );
+                });
+            }
             let (report, final_targets, closure) = match modular_phase(
                 &mut session,
-                &targets,
-                &kept,
-                spec.derivative_slot,
+                &phase_targets,
+                &phase_preferred,
+                &derivative_slots,
                 spec.closure_rounds.unwrap_or(8),
             ) {
                 Ok(phase) => phase,
@@ -763,6 +1200,19 @@ fn run_phases<const N: usize>(
             };
             let mut modular = modular_json(&report, clock.elapsed().as_secs_f64());
             modular["closure"] = json!(closure);
+            if let Some(first) = pass_one {
+                modular["two_pass"] = first;
+            }
+            if spec.report_supports {
+                let mut text = String::new();
+                for (target, support) in &report.supports {
+                    let line = json!({"target": target[..arity].to_vec(),
+                        "support": support.iter().map(|m| m[..arity].to_vec()).collect::<Vec<_>>()});
+                    text.push_str(&line.to_string());
+                    text.push('\n');
+                }
+                write_atomic(&spec.out_dir.join("supports.jsonl"), text.as_bytes())?;
+            }
             if let Some(dir) = &checkpoint {
                 let bytes = session.to_native_bytes().map_err(engine("checkpoint"))?;
                 write_atomic(&dir.join("session.bin"), &bytes)?;

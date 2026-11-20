@@ -40,6 +40,31 @@ type SubtubeCache<const N: usize> = HashMap<(u64, i16, i16, [u8; 32]), Arc<BTree
 /// A sink for one human-readable progress line per phase.
 type Progress = Box<dyn FnMut(&str) + Send>;
 
+/// Hook called after every seeding round's master selection, before growth:
+/// the round number of the current `extend` (from 1), its masters and the
+/// growth map that seeded it. A round state is what
+/// [`BoxLaportaSession::set_growth`] and [`BoxLaportaSession::resume_from`]
+/// take to resume a growth series without eliminating that round again.
+/// Result of [`BoxLaportaSession::plan`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanReport {
+    /// Planned seeds in total (first round and closure).
+    pub seeds: usize,
+    /// Planned seeds of the first round alone.
+    pub first_round_seeds: usize,
+    /// New demanded integrals of the closure targets, and how many of them
+    /// already lay inside their sector's region.
+    pub closure_demand: usize,
+    pub closure_inside: usize,
+    /// Seeded sectors (representatives).
+    pub sectors: usize,
+    /// Planned seeds per number of lines.
+    pub by_lines: BTreeMap<u32, usize>,
+}
+
+pub type RoundHook<const N: usize> =
+    Box<dyn FnMut(usize, &[[i16; N]], &BTreeMap<u64, (u8, u8)>) + Send>;
+
 pub use lanes::{
     CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample, ExplicitTable, Lane,
     ParameterAssignment,
@@ -71,6 +96,17 @@ pub struct BoxLaportaSession<const N: usize> {
     growth: BTreeMap<u64, (u8, u8)>,
     demand: BTreeSet<[i16; N]>,
     zero_demand: BTreeSet<[i16; N]>,
+    /// Demanded integrals that lay inside their sector's seeded region when
+    /// first demanded ([`BoxOptions::closure_no_own_box`]): no own box.
+    covered: BTreeSet<[i16; N]>,
+    /// Masters of a finished round to resume from ([`Self::resume_from`]),
+    /// taken by the first round of the next `extend`.
+    resume: Option<Vec<[i16; N]>>,
+    /// The current seeding round only plans seeds and boxes (resume).
+    plan_only: bool,
+    /// The next bottom-up round rebuilds even though no row is inserted yet.
+    force_rebuild: bool,
+    round_hook: Option<RoundHook<N>>,
     /// Preferred integrals in representative sectors (routed when given in
     /// another sector of their class), and preferred integrals of zero
     /// sectors.
@@ -224,6 +260,7 @@ struct Selection<const N: usize> {
     candidates: usize,
     selected: usize,
     selected_hash: String,
+    supports: Vec<([i16; N], Vec<[i16; N]>)>,
 }
 
 impl<const N: usize> BoxLaportaSession<N> {
@@ -264,6 +301,14 @@ impl<const N: usize> BoxLaportaSession<N> {
         {
             return Err(SolverError::InvalidInput(
                 "staircase seeding uses bottom-up insertion".into(),
+            ));
+        }
+        if options.growth_budget_seeds.is_some()
+            && (!options.growth_no_inherit || !options.rebuild_rounds || options.tubes.is_some())
+        {
+            return Err(SolverError::InvalidInput(
+                "growth_budget_seeds needs growth_no_inherit and rebuild_rounds, without tubes"
+                    .into(),
             ));
         }
         if options.settle_on_expected
@@ -332,6 +377,11 @@ impl<const N: usize> BoxLaportaSession<N> {
             growth: BTreeMap::new(),
             demand: BTreeSet::new(),
             zero_demand: BTreeSet::new(),
+            covered: BTreeSet::new(),
+            resume: None,
+            plan_only: false,
+            force_rebuild: false,
+            round_hook: None,
             preferred_zero: BTreeSet::new(),
             visited: BTreeSet::new(),
             truncate,
@@ -350,6 +400,151 @@ impl<const N: usize> BoxLaportaSession<N> {
             stability_verdict: None,
             refused: None,
         })
+    }
+
+    /// Register `targets` and `preferred` as demand (routes onto
+    /// representative sectors, preferred representatives, a reorder when the
+    /// preferred set changes), as the start of [`Self::extend`] does.
+    fn register_demand(
+        &mut self,
+        targets: &[[i16; N]],
+        preferred: &[[i16; N]],
+    ) -> Result<(), SolverError> {
+        for values in targets.iter().chain(preferred) {
+            self.check_powers(values)?;
+        }
+        let mut preferred_reps = Vec::with_capacity(preferred.len());
+        for values in preferred {
+            match self.preferred_representative(values)? {
+                Some(representative) => preferred_reps.push(representative),
+                None => {
+                    self.preferred_zero.insert(*values);
+                    self.zero_demand.insert(*values);
+                }
+            }
+        }
+        let mut new_preferred: Vec<[i16; N]> = self.preferred.clone();
+        new_preferred.extend_from_slice(&preferred_reps);
+        new_preferred.sort_unstable();
+        new_preferred.dedup();
+        if new_preferred != self.preferred {
+            self.reorder(new_preferred)?;
+        }
+        for values in targets.iter().chain(&preferred_reps) {
+            // Integrals of non-representative sectors are demanded through
+            // their exact routes onto representative sectors.
+            let keys = self.factory.route_keys(values)?;
+            if keys.is_empty() {
+                self.zero_demand.insert(*values);
+            }
+            if self.options.closure_no_own_box {
+                for key in &keys {
+                    let (lines, dots, numerators) = box_coordinates(key);
+                    if !self.demand.contains(key)
+                        && self
+                            .boxes
+                            .get(&integral_bits(key))
+                            .is_some_and(|region| region.contains(lines, dots, numerators))
+                    {
+                        self.covered.insert(*key);
+                    }
+                }
+            }
+            self.demand.extend(keys);
+        }
+        Ok(())
+    }
+
+    /// Plan only (no row generation, no elimination): register `targets` and
+    /// `preferred` as [`Self::extend`] would, plan the first round's seeds and
+    /// boxes (with the growth map of [`Self::set_growth`]), then add
+    /// `closure_targets` as a derivative-closure round would (after the boxes
+    /// exist, so [`BoxOptions::closure_no_own_box`] applies) and plan again.
+    /// Returns the planned seeds per number of lines. Sizes a batch (for
+    /// instance a predicted end-state box) in seconds; the session is not
+    /// meant to be extended afterwards.
+    pub fn plan(
+        &mut self,
+        targets: &[[i16; N]],
+        preferred: &[[i16; N]],
+        closure_targets: &[[i16; N]],
+    ) -> Result<PlanReport, SolverError> {
+        if self.restored {
+            return Err(SolverError::InvalidInput(
+                "a session decoded from a checkpoint cannot plan".into(),
+            ));
+        }
+        self.register_demand(targets, preferred)?;
+        self.plan_only = true;
+        let planned = self.seed_round("plan", (0, 0, 0));
+        let first = self.seeds.len();
+        let closure = planned.and_then(|()| {
+            let before = self.demand.len();
+            let covered = self.covered.len();
+            self.register_demand(closure_targets, &[])?;
+            let added = self.demand.len() - before;
+            let inside = self.covered.len() - covered;
+            self.seed_round("plan/closure", (0, 0, 0))?;
+            Ok((added, inside))
+        });
+        self.plan_only = false;
+        self.force_rebuild = false;
+        let (closure_demand, closure_inside) = closure?;
+        let mut by_lines = BTreeMap::new();
+        for seed in &self.seeds {
+            *by_lines
+                .entry(integral_bits(seed).count_ones())
+                .or_insert(0) += 1;
+        }
+        Ok(PlanReport {
+            seeds: self.seeds.len(),
+            first_round_seeds: first,
+            closure_demand,
+            closure_inside,
+            sectors: self.boxes.len(),
+            by_lines,
+        })
+    }
+
+    /// Start the growth of every listed sector (Kira id -> `(dots, s)` steps)
+    /// at the given map instead of at zero, e.g. a growth map read from a
+    /// round state, or a predicted end-state box. Call before `extend`.
+    pub fn set_growth(&mut self, growth: BTreeMap<u64, (u8, u8)>) {
+        self.growth = growth;
+    }
+
+    /// Growth steps per sector so far (Kira id -> `(dots, s)`).
+    pub fn growth(&self) -> &BTreeMap<u64, (u8, u8)> {
+        &self.growth
+    }
+
+    /// Resume a growth series from a finished round: the first round of the
+    /// next `extend` plans its seeds and boxes (with the growth map given to
+    /// [`Self::set_growth`]) without eliminating them, grows from `masters`
+    /// (that round's masters, from a [`RoundHook`] state), and the next
+    /// round rebuilds the system from all seeds. Needs `rebuild_rounds`; the
+    /// resumed round's LP and expected-count checks are not repeated, so
+    /// `lp_gate` and `expected_counts` are refused.
+    pub fn resume_from(&mut self, masters: Vec<[i16; N]>) -> Result<(), SolverError> {
+        if !self.options.rebuild_rounds
+            || self.options.insertion != super::Insertion::BottomUp
+            || self.options.lp_gate
+            || self.options.expected_counts.is_some()
+        {
+            return Err(SolverError::InvalidInput(
+                "resume_from needs rebuild_rounds with bottom-up insertion, without lp_gate and expected_counts".into(),
+            ));
+        }
+        self.resume = Some(masters);
+        Ok(())
+    }
+
+    /// Receive every round's state (see [`RoundHook`]).
+    pub fn set_round_hook(
+        &mut self,
+        hook: impl FnMut(usize, &[[i16; N]], &BTreeMap<u64, (u8, u8)>) + Send + 'static,
+    ) {
+        self.round_hook = Some(Box::new(hook));
     }
 
     /// Receive one human-readable line per phase (seeding, elimination,
@@ -462,35 +657,7 @@ impl<const N: usize> BoxLaportaSession<N> {
                 "a session decoded from a checkpoint is materialise-only; extend needs the modular row space".into(),
             ));
         }
-        for values in targets.iter().chain(preferred) {
-            self.check_powers(values)?;
-        }
-        let mut preferred_reps = Vec::with_capacity(preferred.len());
-        for values in preferred {
-            match self.preferred_representative(values)? {
-                Some(representative) => preferred_reps.push(representative),
-                None => {
-                    self.preferred_zero.insert(*values);
-                    self.zero_demand.insert(*values);
-                }
-            }
-        }
-        let mut new_preferred: Vec<[i16; N]> = self.preferred.clone();
-        new_preferred.extend_from_slice(&preferred_reps);
-        new_preferred.sort_unstable();
-        new_preferred.dedup();
-        if new_preferred != self.preferred {
-            self.reorder(new_preferred)?;
-        }
-        for values in targets.iter().chain(&preferred_reps) {
-            // Integrals of non-representative sectors are demanded through
-            // their exact routes onto representative sectors.
-            let keys = self.factory.route_keys(values)?;
-            if keys.is_empty() {
-                self.zero_demand.insert(*values);
-            }
-            self.demand.extend(keys);
-        }
+        self.register_demand(targets, preferred)?;
         let mut rounds = 0;
         let mut growth_log = Vec::new();
         let mut monitor = BTreeMap::new();
@@ -501,9 +668,49 @@ impl<const N: usize> BoxLaportaSession<N> {
         let mut selection;
         loop {
             rounds += 1;
+            if rounds == 1
+                && let Some(masters) = self.resume.take()
+            {
+                self.plan_only = true;
+                let planned = self.seed_round(&format!("round{rounds}"), (0, 0, 0));
+                self.plan_only = false;
+                planned?;
+                if let Some(hook) = self.round_hook.as_mut() {
+                    hook(rounds, &masters, &self.growth);
+                }
+                let grown = self.grow_round(&masters, &[])?;
+                if grown.is_empty() {
+                    return Err(SolverError::InvalidInput(
+                        "resume_from: the resumed round has nothing to grow".into(),
+                    ));
+                }
+                let (seeds, grown_count) = (self.seeds.len(), grown.len());
+                self.note(|| {
+                    format!("round {rounds}: resumed ({seeds} seeds planned), grow {grown_count} sectors")
+                });
+                growth_log.push(grown.iter().map(|&bits| bits as u32).collect());
+                continue;
+            }
             self.seed_round(&format!("round{rounds}"), (0, 0, 0))?;
+            let progress = std::env::var_os("RUSTRED_SB_PROGRESS").is_some();
+            if progress {
+                eprintln!(
+                    "[sector-box] extend round {rounds}: seeded, rows {} after {:.1} s",
+                    self.stats.rows,
+                    started.elapsed().as_secs_f64()
+                );
+            }
             selection = self.select()?;
+            if progress {
+                eprintln!(
+                    "[sector-box] extend round {rounds}: selected, {} masters after {:.1} s",
+                    selection.masters.len(),
+                    started.elapsed().as_secs_f64()
+                );
+            }
+            let reports_started = Instant::now();
             let reports = self.sector_reports(&selection.masters)?;
+            let reports_seconds = reports_started.elapsed().as_secs_f64();
             for report in reports.iter().filter(|_| monitored) {
                 if let Some(lp) = report.lp
                     && report.in_box_residuals < lp
@@ -513,12 +720,17 @@ impl<const N: usize> BoxLaportaSession<N> {
                         .or_insert((report.in_box_residuals, lp));
                 }
             }
+            if let Some(hook) = self.round_hook.as_mut() {
+                hook(rounds, &selection.masters, &self.growth);
+            }
+            let grow_started = Instant::now();
             let grown = self.grow_round(&selection.masters, &reports)?;
+            let grow_seconds = grow_started.elapsed().as_secs_f64();
             let masters = selection.masters.len();
             let grown_count = grown.len();
             let truncate = self.truncate;
             self.note(|| {
-                format!("round {rounds}: {masters} masters, grow {grown_count} sectors (l = {truncate:?})")
+                format!("round {rounds}: {masters} masters, grow {grown_count} sectors (l = {truncate:?}); sector reports {reports_seconds:.2}s, grow {grow_seconds:.2}s")
             });
             if grown.is_empty() {
                 break;
@@ -628,6 +840,7 @@ impl<const N: usize> BoxLaportaSession<N> {
                 .collect(),
             master_check,
             truncate: self.truncate,
+            supports: selection.supports,
             seeds,
             hull_seeds,
             seconds: started.elapsed().as_secs_f64(),
@@ -812,8 +1025,56 @@ impl<const N: usize> BoxLaportaSession<N> {
     /// bottom-up insertion all new rows go in as one batch at the end.
     /// `delta` enlarges the explicit (demand) boxes, as in a rerun with
     /// larger `(r, s, d)` settings.
+    /// New seeds the next `seed_round` would plan with the current growth
+    /// map: a dry run of its region planning; the boxes are restored.
+    pub(super) fn planned_new_seeds(&mut self) -> Result<usize, SolverError> {
+        let saved = self.boxes.clone();
+        let counted = self.count_planned();
+        self.boxes = saved;
+        counted
+    }
+
+    fn count_planned(&mut self) -> Result<usize, SolverError> {
+        let sectors = self.closure_of(&self.demand);
+        let Some(max_lines) = sectors.iter().map(|bits| bits.count_ones()).max() else {
+            return Ok(0);
+        };
+        let top_down = self.options.insertion == super::Insertion::TopDownLevels;
+        let demand = self.demand.clone();
+        let mut count = 0;
+        for lines in (1..=max_lines).rev() {
+            let level: Vec<u64> = sectors
+                .iter()
+                .copied()
+                .filter(|bits| bits.count_ones() == lines)
+                .collect();
+            if level.is_empty() {
+                continue;
+            }
+            let boxes = self.boxes.clone();
+            let desired =
+                self.desired_regions(&level, top_down, &boxes, &demand, self.truncate, (0, 0, 0))?;
+            for (bits, wanted) in desired {
+                let old = self.boxes.get(&bits).cloned();
+                let new = self.merge_region(old.as_ref(), wanted);
+                if old.as_ref() == Some(&new) {
+                    continue;
+                }
+                count += region_shell_count(bits as u32, self.arity, &new, old.as_ref());
+                self.boxes.insert(bits, new);
+            }
+        }
+        Ok(count)
+    }
+
     fn seed_round(&mut self, label: &str, delta: (u8, u8, u8)) -> Result<(), SolverError> {
+        let closure_started = Instant::now();
         self.visited = self.closure_of(&self.demand);
+        let closure_seconds = closure_started.elapsed().as_secs_f64();
+        let (visited_len, demand_len) = (self.visited.len(), self.demand.len());
+        self.note(|| {
+            format!("{label}: down-closure {visited_len} sectors from {demand_len} demanded integrals ({closure_seconds:.2}s)")
+        });
         let sectors = self.visited.clone();
         let Some(max_lines) = sectors.iter().map(|bits| bits.count_ones()).max() else {
             return Ok(());
@@ -835,6 +1096,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             let desired =
                 self.desired_regions(&level, top_down, &boxes, &demand, self.truncate, delta)?;
             let desired_seconds = desired_started.elapsed().as_secs_f64();
+            let shells_started = Instant::now();
             let mut seeds = Vec::new();
             for (bits, wanted) in desired {
                 let old = self.boxes.get(&bits).cloned();
@@ -874,8 +1136,10 @@ impl<const N: usize> BoxLaportaSession<N> {
                 }
             }
             let planned = seeds.len();
+            let shells_seconds = shells_started.elapsed().as_secs_f64();
+            let level_len = level.len();
             self.note(|| {
-                format!("{label}/level{lines}: {planned} new seeds planned ({desired_seconds:.2}s)")
+                format!("{label}/level{lines}: {level_len} sectors, {planned} new seeds planned (regions {desired_seconds:.2}s, shells {shells_seconds:.2}s)")
             });
             if top_down {
                 if !seeds.is_empty() {
@@ -885,10 +1149,49 @@ impl<const N: usize> BoxLaportaSession<N> {
                 pending.extend(seeds);
             }
         }
-        if !pending.is_empty() {
-            self.insert_level(&format!("{label}/bottom-up"), &pending)?;
+        if self.plan_only {
+            // Resume: seeds and boxes are planned; the next round rebuilds.
+            self.force_rebuild = true;
+        } else if !pending.is_empty() {
+            if self.options.rebuild_rounds && (self.stats.rows > 0 || self.force_rebuild) {
+                self.rebuild_all(label)?;
+            } else {
+                self.insert_level(&format!("{label}/bottom-up"), &pending)?;
+            }
         }
-        self.check_seeded()
+        let check_started = Instant::now();
+        let checked = self.check_seeded();
+        let check_seconds = check_started.elapsed().as_secs_f64();
+        self.note(|| format!("{label}: check_seeded ({check_seconds:.2}s)"));
+        checked
+    }
+
+    /// [`BoxOptions::rebuild_rounds`]: a fresh modular system with every
+    /// seed so far in one bottom-up batch (the schedule `reorder` uses).
+    fn rebuild_all(&mut self, label: &str) -> Result<(), SolverError> {
+        self.force_rebuild = false;
+        self.modular = GlobalDiscovery::rebuilt(
+            self.order.clone(),
+            self.factory.field().clone(),
+            &mut self.modular,
+        )?;
+        // Size totals describe the current system; work timings stay
+        // cumulative (as after a reorder).
+        self.stats.seeds = 0;
+        self.stats.rows = 0;
+        self.stats.automorphism_rows = 0;
+        self.stats.empty_rows = 0;
+        self.generated_terms = 0;
+        self.stats.terms = 0;
+        let mut by_level: BTreeMap<std::cmp::Reverse<u32>, Vec<(u32, [i16; N])>> = BTreeMap::new();
+        for (id, seed) in self.seeds.iter().enumerate() {
+            by_level
+                .entry(std::cmp::Reverse(integral_bits(seed).count_ones()))
+                .or_default()
+                .push((id as u32, *seed));
+        }
+        let seeds: Vec<(u32, [i16; N])> = by_level.into_values().flatten().collect();
+        self.insert_level(&format!("{label}/rebuild"), &seeds)
     }
 
     /// Wanted regions of one level, before merging with seeded regions.
@@ -1171,6 +1474,23 @@ impl<const N: usize> BoxLaportaSession<N> {
         let reached = closure(discovery, &demand);
         let closure_seconds = started.elapsed().as_secs_f64();
         let first = nonzero_masters(discovery, &reached, &demand);
+        let supports = if self.options.report_supports {
+            let rows = super::select::reduced_rows(discovery, &reached, &demand);
+            demand
+                .iter()
+                .zip(&rows)
+                .map(|(&column, row)| {
+                    (
+                        powers(&discovery.columns()[column]),
+                        row.iter()
+                            .map(|&(candidate, _)| powers(&discovery.columns()[candidate]))
+                            .collect(),
+                    )
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         let backsub_seconds = started.elapsed().as_secs_f64() - closure_seconds;
         let roots: Vec<usize> = reached.pivots.iter().map(|&(_, row)| row).collect();
         let selected = discovery.trace_union(&roots);
@@ -1293,6 +1613,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             candidates: reached.candidates.len(),
             selected: selected.len(),
             selected_hash,
+            supports,
         })
     }
 

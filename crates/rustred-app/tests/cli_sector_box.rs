@@ -6,7 +6,7 @@
 //! resume, the certificate-prime rule, a two-loop family at arity 3 and the
 //! input-error contract. Ignored: the four-loop prism family at 68 dimension
 //! values; see `prism_4l_eta_derivative_equations_match_the_campaign`.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -441,4 +441,593 @@ fn solution_names_are_file_safe() {
         rustred_app::solution_file_name("-7/2"),
         "solution-m7_2.json"
     );
+}
+
+/// `report_supports` (cluster probes): `supports.jsonl` lists every demanded
+/// integral once with the masters of its reduced row; every support entry is
+/// a master, and a demanded master is its own support.
+#[test]
+fn supports_list_the_masters_of_each_demanded_integral() {
+    let dir = scratch("supports");
+    let spec = json!({
+        "schema": "rustred.sector-box-reduce-spec.v1",
+        "family": format!("{FIXTURES}/p3l_no/family.toml"),
+        "out_dir": dir.join("out"),
+        "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 2, 0]],
+        "derivative_slots": [0],
+        "d_list": ["37/11"],
+        "free": "z",
+        "router": "identity",
+        "lp_gate": false,
+        "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+        "workers": 2,
+        "modular_only": true,
+        "report_supports": true,
+    });
+    let (code, report) = run(&dir, &spec);
+    assert_eq!(code, 0, "{report}");
+    let masters: BTreeSet<Vec<i64>> =
+        serde_json::from_value(report["modular"]["masters"].clone()).unwrap();
+    let text = std::fs::read_to_string(dir.join("out").join("supports.jsonl")).unwrap();
+    let mut targets = BTreeSet::new();
+    for line in text.lines() {
+        let entry: Value = serde_json::from_str(line).unwrap();
+        let target: Vec<i64> = serde_json::from_value(entry["target"].clone()).unwrap();
+        let support: Vec<Vec<i64>> = serde_json::from_value(entry["support"].clone()).unwrap();
+        assert!(targets.insert(target.clone()), "{target:?} listed twice");
+        assert!(
+            support.iter().all(|m| masters.contains(m)),
+            "{target:?}: {support:?}"
+        );
+        if masters.contains(&target) {
+            assert_eq!(support, vec![target.clone()]);
+        }
+    }
+    assert!(targets.len() >= 2, "{text}");
+    assert_eq!(
+        targets.len() as u64,
+        report["modular"]["demand"].as_u64().unwrap()
+    );
+}
+
+/// `two_pass` (three-loop NO, mass z on line 0, a dotted target): pass 2
+/// seeds the derivative closure up front in one rebuilt batch; the masters
+/// equal the incremental closure's, and every rule both runs produce is
+/// identical (same basis, unique reduced rows). With `two_pass_variants`
+/// (rule ii') the basis can only shrink and the closure still closes.
+#[test]
+fn two_pass_equals_the_incremental_derivative_closure() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 2, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": false,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("two-pass-ref");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let (masters, rules) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    let tdir = scratch("two-pass");
+    let mut spec = base(&tdir);
+    spec["two_pass"] = json!(true);
+    let (code, treport) = run(&tdir, &spec);
+    assert_eq!(code, 0, "{treport}");
+    assert!(
+        treport["modular"]["two_pass"]["masters"].as_u64().unwrap() > 0,
+        "{treport}"
+    );
+    let (tmasters, trules) = rules_of(&tdir.join("out").join("solution-37_11.json"));
+    let sorted = |mut m: Vec<Vec<i64>>| {
+        m.sort();
+        m
+    };
+    assert_eq!(sorted(masters), sorted(tmasters));
+    let mut common = 0;
+    for (target, terms) in &rules {
+        if let Some(other) = trules.get(target) {
+            assert_eq!(terms, other, "rule for {target:?} differs");
+            common += 1;
+        }
+    }
+    assert!(common >= 2, "only {common} common rules");
+    // With the (ii') variants the basis can only shrink, and the closure closes.
+    let vdir = scratch("two-pass-variants");
+    let mut spec = base(&vdir);
+    spec["two_pass"] = json!(true);
+    spec["two_pass_variants"] = json!(true);
+    let (code, vreport) = run(&vdir, &spec);
+    assert_eq!(code, 0, "{vreport}");
+    let (vmasters, _) = rules_of(&vdir.join("out").join("solution-37_11.json"));
+    assert!(
+        vmasters.len() <= trules_masters_len(&tdir),
+        "{} masters with variants",
+        vmasters.len()
+    );
+    assert_eq!(
+        vreport["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
+}
+
+fn trules_masters_len(dir: &Path) -> usize {
+    rules_of(&dir.join("out").join("solution-37_11.json"))
+        .0
+        .len()
+}
+
+/// Two-loop massless propagator family (kite, one external momentum q with
+/// q.q = -1, arity 5) with mass z on the rung: the derivative closure in z
+/// closes with the six masters of the one-mass kite family and both
+/// certificates hold.
+#[test]
+fn two_loop_one_mass_kite_propagator_family_closes() {
+    let dir = scratch("p2l-kite");
+    let spec = json!({
+        "schema": "rustred.sector-box-reduce-spec.v1",
+        "family": format!("{FIXTURES}/p2l_kite/family.toml"),
+        "out_dir": dir.join("out"),
+        "targets": [[1, 1, 1, 1, 1]],
+        "derivative_slot": 1,
+        "d_list": ["37/11"],
+        "free": "z",
+        "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+        "lp_gate": false,
+        "exact_certificate": true,
+        "workers": 1,
+    });
+    let (code, report) = run(&dir, &spec);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(
+        report["modular"]["masters"].as_array().unwrap().len(),
+        6,
+        "{report}"
+    );
+    let closure = report["modular"]["closure"].as_array().unwrap();
+    assert_eq!(closure.last().unwrap()["added"], 0);
+}
+
+/// One mass on several lines (`derivative_slots`): the all-mass kite
+/// (mass z on all five lines) closes under d/dz = sum_s a_s e_s with eight
+/// masters; listing the slots in another order gives the same report masters.
+#[test]
+fn derivative_slots_close_the_all_mass_kite() {
+    let spec = |dir: &Path, slots: Value| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p2l_kite/family-allmass.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1]],
+            "derivative_slots": slots,
+            "d_list": ["37/11"],
+            "free": "z",
+            "lp_gate": false,
+            "workers": 1,
+        })
+    };
+    let dir = scratch("p2l-allmass");
+    let (code, report) = run(&dir, &spec(&dir, json!([0, 1, 2, 3, 4])));
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(
+        report["modular"]["masters"].as_array().unwrap().len(),
+        8,
+        "{report}"
+    );
+    assert_eq!(
+        report["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
+    let dir2 = scratch("p2l-allmass-perm");
+    let (code2, report2) = run(&dir2, &spec(&dir2, json!([4, 2, 0, 3, 1])));
+    assert_eq!(code2, 0);
+    assert_eq!(report["modular"]["masters"], report2["modular"]["masters"]);
+}
+
+/// `derivative_slots` adds nothing to the checkpoint key when it is empty, so
+/// specs without it keep the key they had before the field existed and
+/// existing checkpoints are still found; a non-empty field changes the key.
+///
+/// The key is a hash of the serialised spec (without paths and the
+/// finite-field fields) and of the family block, which includes the router
+/// fingerprint. The test therefore checks the serialisation itself, and
+/// compares keys only with each other, so it holds for any router
+/// fingerprint format. (For the record: with the v1 census-router
+/// fingerprint, i.e. before the v2 router fingerprint, the K6 spec below,
+/// modular phase only, has the key
+/// d6a5ee80df8daa08481000be9c3a4b4a191c6c39ef8514c0bea8face09fc131e, the same
+/// with and without this change, measured with the pre-field binary.)
+#[test]
+fn derivative_slots_adds_nothing_to_the_checkpoint_key_when_empty() {
+    let serialised = |spec: &Value| -> String {
+        let spec: rustred_app::SectorBoxReduceSpec = serde_json::from_value(spec.clone()).unwrap();
+        serde_json::to_string(&serde_json::to_value(&spec).unwrap()).unwrap()
+    };
+    let dir = scratch("key-input");
+    let mut without = k6_spec(&dir);
+    without["modular_only"] = json!(true);
+    let mut empty = without.clone();
+    empty["derivative_slots"] = json!([]);
+    let mut with_slots = without.clone();
+    with_slots["derivative_slots"] = json!([0]);
+    // The key input: no entry when empty, byte-identical to no field at all.
+    assert!(!serialised(&without).contains("derivative_slots"));
+    assert_eq!(serialised(&empty), serialised(&without));
+    assert!(serialised(&with_slots).contains("\"derivative_slots\":[0]"));
+    // A non-empty field changes the key (keys compared with each other only).
+    let binding = |dir: &Path, spec: &Value| -> String {
+        let mut spec = spec.clone();
+        spec["out_dir"] = json!(dir.join("out"));
+        spec["checkpoint_dir"] = json!(dir.join("ckpt"));
+        let (code, report) = run(dir, &spec);
+        assert_eq!(code, 0, "{report}");
+        let saved: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.join("ckpt").join("modular.json")).unwrap(),
+        )
+        .unwrap();
+        saved["binding"].as_str().unwrap().to_string()
+    };
+    let plain = binding(&dir, &without);
+    let other = scratch("key-input-slots");
+    assert_ne!(binding(&other, &with_slots), plain);
+    let again = scratch("key-input-empty");
+    assert_eq!(binding(&again, &empty), plain);
+    for path in [dir, other, again] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+/// Masters and rules (target -> {integral -> coefficient string}) of a solution file.
+/// Rules of a solution file: target -> {integral -> coefficient string}.
+type Rules = BTreeMap<Vec<i64>, BTreeMap<Vec<i64>, String>>;
+
+fn rules_of(path: &Path) -> (Vec<Vec<i64>>, Rules) {
+    let solution: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let masters: Vec<Vec<i64>> = serde_json::from_value(solution["masters"].clone()).unwrap();
+    let mut rules = BTreeMap::new();
+    for rule in solution["rules"].as_array().unwrap() {
+        let target: Vec<i64> = serde_json::from_value(rule["target"].clone()).unwrap();
+        let mut terms = BTreeMap::new();
+        for term in rule["terms"].as_array().unwrap() {
+            let integral: Vec<i64> = serde_json::from_value(term["integral"].clone()).unwrap();
+            terms.insert(integral, term["coefficient"].as_str().unwrap().to_string());
+        }
+        rules.insert(target, terms);
+    }
+    (masters, rules)
+}
+
+fn contains_cut(integral: &[i64], cut: &[usize]) -> bool {
+    cut.iter().all(|&slot| integral[slot] > 0)
+}
+
+/// Three-loop non-planar propagator family (NO) with mass z on line 0 (arity
+/// 9, one external momentum): a reduction on each spanning cut through the
+/// massive line (`cut_lines`, sectors without the cut lines are zero) equals
+/// the uncut reduction restricted to the cut sectors, rule by rule, with the
+/// uncut masters as the common preferred basis.
+#[test]
+fn cut_reductions_equal_the_uncut_reduction_on_the_cut_sectors() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("cut-uncut");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let (masters, uncut) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    for cut in [vec![0usize, 4], vec![0, 1, 6], vec![0, 1, 3, 7]] {
+        let cdir = scratch(&format!(
+            "cut-{}",
+            cut.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join("_")
+        ));
+        let mut spec = base(&cdir);
+        spec["cut_lines"] = json!(cut);
+        spec["preferred"] = json!(
+            masters
+                .iter()
+                .filter(|m| contains_cut(m, &cut))
+                .collect::<Vec<_>>()
+        );
+        let (code, report) = run(&cdir, &spec);
+        assert_eq!(code, 0, "cut {cut:?}: {report}");
+        let (cut_masters, cut_rules) = rules_of(&cdir.join("out").join("solution-37_11.json"));
+        let expected: Vec<Vec<i64>> = masters
+            .iter()
+            .filter(|m| contains_cut(m, &cut))
+            .cloned()
+            .collect();
+        let mut got = cut_masters.clone();
+        got.sort();
+        let mut want = expected.clone();
+        want.sort();
+        assert_eq!(
+            got, want,
+            "cut {cut:?}: masters differ from the uncut masters of the cut sectors"
+        );
+        assert!(!cut_rules.is_empty(), "cut {cut:?}: no rules");
+        for (target, terms) in &cut_rules {
+            assert!(contains_cut(target, &cut));
+            let full = uncut.get(target).unwrap_or_else(|| {
+                panic!("cut {cut:?}: target {target:?} not in the uncut solution")
+            });
+            let restricted: BTreeMap<Vec<i64>, String> = full
+                .iter()
+                .filter(|(integral, _)| contains_cut(integral, &cut))
+                .map(|(integral, coefficient)| (integral.clone(), coefficient.clone()))
+                .collect();
+            assert_eq!(
+                terms, &restricted,
+                "cut {cut:?}: rule for {target:?} differs"
+            );
+        }
+    }
+}
+
+/// Cluster quotients (generator-list router, three-loop NO, mass z on line 0):
+/// a union of two up-closures, `cut_generators = [[0, 4], [0, 1, 6]]`, equals
+/// the uncut reduction restricted to the sectors that contain at least one
+/// generator, rule by rule; and a single generator reproduces the
+/// `cut_lines` masters and rules exactly.
+#[test]
+fn generator_quotients_equal_the_uncut_reduction_on_their_sectors() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("gen-uncut");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let (masters, uncut) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    let generators = vec![vec![0usize, 4], vec![0, 1, 6]];
+    let keeps = |integral: &[i64]| generators.iter().any(|g| contains_cut(integral, g));
+    let gdir = scratch("gen-union");
+    let mut spec = base(&gdir);
+    spec["cut_generators"] = json!(generators);
+    spec["preferred"] = json!(masters.iter().filter(|m| keeps(m)).collect::<Vec<_>>());
+    let (code, report) = run(&gdir, &spec);
+    assert_eq!(code, 0, "{report}");
+    let (gen_masters, gen_rules) = rules_of(&gdir.join("out").join("solution-37_11.json"));
+    let mut got = gen_masters.clone();
+    got.sort();
+    let mut want: Vec<Vec<i64>> = masters.iter().filter(|m| keeps(m)).cloned().collect();
+    want.sort();
+    assert_eq!(
+        got, want,
+        "masters differ from the uncut masters of the quotient sectors"
+    );
+    assert!(!gen_rules.is_empty());
+    for (target, terms) in &gen_rules {
+        assert!(keeps(target));
+        let full = uncut
+            .get(target)
+            .unwrap_or_else(|| panic!("target {target:?} not in the uncut solution"));
+        let restricted: BTreeMap<Vec<i64>, String> = full
+            .iter()
+            .filter(|(integral, _)| keeps(integral))
+            .map(|(integral, coefficient)| (integral.clone(), coefficient.clone()))
+            .collect();
+        assert_eq!(terms, &restricted, "rule for {target:?} differs");
+    }
+    // one generator == cut_lines, byte for byte
+    let one = vec![0usize, 1, 6];
+    let adir = scratch("gen-one-a");
+    let mut a = base(&adir);
+    a["cut_lines"] = json!(one);
+    let bdir = scratch("gen-one-b");
+    let mut b = base(&bdir);
+    b["cut_generators"] = json!([one]);
+    assert_eq!(run(&adir, &a).0, 0);
+    assert_eq!(run(&bdir, &b).0, 0);
+    let sa = rules_of(&adir.join("out").join("solution-37_11.json"));
+    let sb = rules_of(&bdir.join("out").join("solution-37_11.json"));
+    assert_eq!(
+        sa, sb,
+        "a single generator must reproduce the cut_lines masters and rules"
+    );
+    // exclusive fields
+    let cdir = scratch("gen-both");
+    let mut c = base(&cdir);
+    c["cut_lines"] = json!([0, 4]);
+    c["cut_generators"] = json!([[0, 4]]);
+    assert_ne!(
+        run(&cdir, &c).0,
+        0,
+        "cut_lines and cut_generators together must be rejected"
+    );
+}
+
+/// Spec fields added after the first spec schema, at their default value, are
+/// not serialised: specs without them keep their checkpoint key.
+const UNSET_FIELDS: &[&str] = &[
+    "cut_lines",
+    "cut_generators",
+    "rebuild_rounds",
+    "report_supports",
+    "two_pass",
+    "two_pass_variants",
+    "growth_no_inherit",
+    "closure_no_own_box",
+    "growth_budget_seeds",
+    "initial_growth",
+    "resume_state",
+    "round_state_dir",
+    "plan_only",
+    "plan_closure_targets",
+];
+
+#[test]
+fn unset_fields_add_nothing_to_the_key_input() {
+    let dir = scratch("key-input-unset");
+    let mut spec = k6_spec(&dir);
+    spec["modular_only"] = json!(true);
+    let parsed: rustred_app::SectorBoxReduceSpec = serde_json::from_value(spec).unwrap();
+    let serialised = serde_json::to_string(&serde_json::to_value(&parsed).unwrap()).unwrap();
+    for field in UNSET_FIELDS {
+        assert!(
+            !serialised.contains(&format!("\"{field}\"")),
+            "{field} is in the key input"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// `closure_no_own_box`: the derivative closure of a 3L one-mass propagator
+/// family with staircase growth closes with fewer (or as many) seeds. On this
+/// family the masters and the rules are the same as without the option; in
+/// general the option can change the master set (non-minimal, equivalent
+/// system), which this test does not cover.
+#[test]
+fn closure_without_own_boxes_closes_with_fewer_seeds() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [2, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": false,
+            "rebuild_rounds": true,
+            "growth_no_inherit": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("closure-own-box-ref");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let ddir = scratch("closure-no-own-box");
+    let mut spec = base(&ddir);
+    spec["closure_no_own_box"] = json!(true);
+    let (code, dreport) = run(&ddir, &spec);
+    assert_eq!(code, 0, "{dreport}");
+    assert_eq!(
+        dreport["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
+    let seeds = |r: &Value| r["modular"]["seeds"].as_u64().unwrap();
+    assert!(
+        seeds(&dreport) <= seeds(&report),
+        "{} > {} seeds",
+        seeds(&dreport),
+        seeds(&report)
+    );
+    let (masters, rules) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    let (dmasters, drules) = rules_of(&ddir.join("out").join("solution-37_11.json"));
+    let sorted = |mut m: Vec<Vec<i64>>| {
+        m.sort();
+        m
+    };
+    assert_eq!(sorted(masters), sorted(dmasters));
+    for (target, terms) in &rules {
+        if let Some(other) = drules.get(target) {
+            assert_eq!(terms, other, "rule for {target:?} differs");
+        }
+    }
+    for path in [dir, ddir] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+/// `plan_only`: the planned first round equals the seeds of the first round of
+/// a real run, without eliminating anything; closure targets are reported.
+#[test]
+fn plan_only_counts_the_seeds_of_the_first_round() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [2, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "router": "identity",
+            "lp_gate": false,
+            "rebuild_rounds": true,
+            "growth_no_inherit": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "modular_only": true,
+            "workers": 2,
+        })
+    };
+    // Reference: the same first round, with neither growth nor closure, run for real.
+    let dir = scratch("plan-only-ref");
+    let mut reference = base(&dir);
+    reference["seeding"]["max_growth"] = json!(0);
+    reference
+        .as_object_mut()
+        .unwrap()
+        .remove("derivative_slots");
+    let (code, report) = run(&dir, &reference);
+    assert_eq!(code, 0, "{report}");
+    let first_round = report["modular"]["seeds"].as_u64().unwrap();
+    let pdir = scratch("plan-only");
+    let mut spec = base(&pdir);
+    spec["plan_only"] = json!(true);
+    spec.as_object_mut().unwrap().remove("modular_only");
+    spec["plan_closure_targets"] = json!([[3, 1, 1, 1, 1, 1, 1, 1, 0]]);
+    let (code, plan) = run(&pdir, &spec);
+    assert_eq!(code, 0, "{plan}");
+    assert_eq!(plan["status"], "plan-only");
+    assert_eq!(
+        plan["plan"]["first_round_seeds"].as_u64().unwrap(),
+        first_round,
+        "{plan}"
+    );
+    assert_eq!(plan["plan"]["closure_demand"], 1, "{plan}");
+    assert!(plan["plan"]["seeds"].as_u64().unwrap() >= first_round);
+    for path in [dir, pdir] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
 }

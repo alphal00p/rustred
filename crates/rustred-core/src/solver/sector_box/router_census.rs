@@ -14,7 +14,7 @@ use crate::family::{IntegralFamily, IntegralKey};
 use crate::sector::Mask;
 use crate::sector::symmetry::{
     RelationEndpoints, SectorSymmetryCensus, SectorSymmetryCensusControl,
-    SectorSymmetryCensusError, SectorSymmetryCensusOptions,
+    SectorSymmetryCensusError, SectorSymmetryCensusOptions, ZeroSectorKind,
 };
 use crate::sector::zero::Analyzer;
 
@@ -26,6 +26,7 @@ pub struct CensusRouter {
     census: Arc<SectorSymmetryCensus>,
     arity: usize,
     fingerprint: [u8; 32],
+    legacy_fingerprint: [u8; 32],
     one: Coefficient,
 }
 
@@ -33,42 +34,92 @@ fn census_error(error: SectorSymmetryCensusError) -> SolverError {
     SolverError::InvalidInput(format!("sector-symmetry census: {error}"))
 }
 
+/// Router fingerprint format v2: explicit bytes, independent of `Debug`.
+fn fingerprint_v2(census: &SectorSymmetryCensus) -> [u8; 32] {
+    fn length(hasher: &mut blake3::Hasher, value: usize) {
+        hasher.update(&(value as u64).to_le_bytes());
+    }
+    fn mask(hasher: &mut blake3::Hasher, mask: &Mask) {
+        length(hasher, mask.arity());
+        for &active in mask.active_bits() {
+            hasher.update(&[u8::from(active)]);
+        }
+    }
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"rustred-sector-box-census-router-v2\0");
+    let family = census.family().fingerprint();
+    length(&mut hasher, family.len());
+    hasher.update(family.as_bytes());
+    length(&mut hasher, census.members().len());
+    for member in census.members() {
+        mask(&mut hasher, member.sector());
+        mask(&mut hasher, member.representative());
+    }
+    length(&mut hasher, census.classes().len());
+    for class in census.classes() {
+        length(&mut hasher, class.automorphisms().len());
+        length(&mut hasher, class.line_permutations().len());
+        for permutation in class.line_permutations() {
+            length(&mut hasher, permutation.len());
+            for &line in permutation.iter() {
+                length(&mut hasher, line);
+            }
+        }
+    }
+    length(&mut hasher, census.zero_sectors().len());
+    for (sector, kind) in census.zero_sectors() {
+        mask(&mut hasher, sector);
+        hasher.update(&[match kind {
+            ZeroSectorKind::ProvedZero => 0,
+            ZeroSectorKind::Excluded => 1,
+        }]);
+    }
+    *hasher.finalize().as_bytes()
+}
+
+/// Router fingerprint format v1 (`Debug` renderings), as carried by every
+/// solution file and checkpoint written before v2. Kept for reading them.
+fn fingerprint_v1(census: &SectorSymmetryCensus) -> [u8; 32] {
+    let family = census.family();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"rustred-sector-box-census-router-v1\0");
+    hasher.update(family.fingerprint().as_bytes());
+    hasher.update(format!("{:?}", census.options()).as_bytes());
+    for member in census.members() {
+        hasher.update(format!("{:?}->{:?};", member.sector(), member.representative()).as_bytes());
+    }
+    for class in census.classes() {
+        hasher.update(&(class.automorphisms().len() as u64).to_le_bytes());
+        for permutation in class.line_permutations() {
+            hasher.update(format!("{permutation:?}").as_bytes());
+        }
+    }
+    for (sector, kind) in census.zero_sectors() {
+        hasher.update(format!("0:{sector:?}:{kind:?};").as_bytes());
+    }
+    *hasher.finalize().as_bytes()
+}
+
 impl CensusRouter {
     /// Wrap an existing census. Sectors the census does not declare are
     /// treated as their own representatives (no route, no automorphisms),
     /// unless they are in its zero set.
     ///
-    /// The fingerprint (format v1) hashes the `Debug` renderings of the
-    /// census options, members, line permutations and zero sectors. It is
-    /// kept because every solution file of the campaign engine carries it
-    /// (`router_fingerprint`), and the strict reader compares it. A change
-    /// of any of those renderings changes the fingerprint: the reader then
-    /// refuses such files and checkpoints loudly, never silently, and the
-    /// test `router_fingerprint_matches_the_campaign_files` fails.
+    /// The fingerprint (format v2) hashes explicit, length-prefixed bytes:
+    /// the family fingerprint, every member sector with its representative,
+    /// the automorphism count and line permutations of every class, and the
+    /// zero sectors with their kind. The census options are not hashed: they
+    /// steer how the census is computed, and its result is what routes.
+    /// Files and checkpoints written before v2 carry the v1 fingerprint
+    /// (`Debug` renderings); [`SectorRouter::legacy_fingerprints`] returns
+    /// it so that readers keep accepting them.
     pub fn new(census: Arc<SectorSymmetryCensus>) -> Self {
         let family = census.family().clone();
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"rustred-sector-box-census-router-v1\0");
-        hasher.update(family.fingerprint().as_bytes());
-        hasher.update(format!("{:?}", census.options()).as_bytes());
-        for member in census.members() {
-            hasher.update(
-                format!("{:?}->{:?};", member.sector(), member.representative()).as_bytes(),
-            );
-        }
-        for class in census.classes() {
-            hasher.update(&(class.automorphisms().len() as u64).to_le_bytes());
-            for permutation in class.line_permutations() {
-                hasher.update(format!("{permutation:?}").as_bytes());
-            }
-        }
-        for (sector, kind) in census.zero_sectors() {
-            hasher.update(format!("0:{sector:?}:{kind:?};").as_bytes());
-        }
         Self {
             arity: family.denominator_count(),
             one: family.coefficient_context().one(),
-            fingerprint: *hasher.finalize().as_bytes(),
+            fingerprint: fingerprint_v2(&census),
+            legacy_fingerprint: fingerprint_v1(&census),
             census,
         }
     }
@@ -185,6 +236,10 @@ impl<const N: usize> SectorRouter<N> for CensusRouter {
 
     fn fingerprint(&self) -> [u8; 32] {
         self.fingerprint
+    }
+
+    fn legacy_fingerprints(&self) -> Vec<[u8; 32]> {
+        vec![self.legacy_fingerprint]
     }
 
     /// One relation per retained automorphism generator of the class (the
