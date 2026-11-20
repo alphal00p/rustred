@@ -620,6 +620,14 @@ fn modular_phase<const N: usize>(
             json!({"round": round, "masters": report.masters.len(), "added": added,
                         "targets": final_targets.len(), "seconds": clock.elapsed().as_secs_f64()}),
         );
+        if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+            eprintln!(
+                "[sector-box] closure round {round}: {} masters, {added} new derivative seeds, {} targets, {:.1} s",
+                report.masters.len(),
+                final_targets.len(),
+                clock.elapsed().as_secs_f64()
+            );
+        }
         if added == 0 {
             return Ok((report, final_targets, log));
         }
@@ -1160,6 +1168,15 @@ fn run_phases<const N: usize>(
                     if let Err(error) = write_atomic(&path, state.to_string().as_bytes()) {
                         eprintln!("[sector-box] round state: {error}");
                     }
+                });
+            }
+            if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+                let started = Instant::now();
+                session.set_progress(move |line| {
+                    eprintln!(
+                        "[sector-box {:9.1}s] {line}",
+                        started.elapsed().as_secs_f64()
+                    );
                 });
             }
             let (report, final_targets, closure) = match modular_phase(
