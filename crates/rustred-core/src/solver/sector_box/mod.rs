@@ -196,6 +196,12 @@ pub struct BoxOptions {
     /// (the `TopDownLevels` effect); one rebuilt batch avoids it.
     /// Bottom-up insertion only (stability rounds stay incremental).
     pub rebuild_rounds: bool,
+    /// Staircase growth raises every flagged level in the same round instead
+    /// of the top flagged level only. Off by default: on a 4L one-mass
+    /// quotient it flagged 26 sectors instead of 1 and planned 704 k instead
+    /// of 63 k seeds for the next round, because with inheritance every grown
+    /// level passes its box down to its whole subsector cone.
+    pub grow_all_levels: bool,
     /// Report, for every demanded integral, the support of its reduced row
     /// at the first modular sample (the masters it reduces to), in
     /// [`ModularReport::supports`]. Same-level links between non-nested
@@ -239,6 +245,7 @@ impl Default for BoxOptions {
             settle_on_expected: false,
             rebuild_rounds: false,
             report_supports: false,
+            grow_all_levels: false,
         }
     }
 }
