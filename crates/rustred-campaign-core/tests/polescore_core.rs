@@ -36,10 +36,21 @@ fn cand(i: usize, size: u64, time: u64, s: Option<PoleScore>) -> PoleCand {
     }
 }
 
-fn pol(ratio: &str) -> PolePolicy {
+/// The POLE-FIRST policy: [regular, max_pole_order, size], max_size_ratio 4. It was the default until 2026-11-19 and is
+/// EXPLICIT since the user ruling (rule 21: the default is [size, regular, max_pole_order], ratio 1). The tests of the pole
+/// objective's machinery name it.
+fn pole_first() -> PolePolicy {
+    PolePolicy {
+        measures: vec!["regular".into(), "max_pole_order".into(), "size".into()],
+        max_size_ratio: Value::String("4".into()),
+        ..PolePolicy::default()
+    }
+}
+
+fn pol_pf(ratio: &str) -> PolePolicy {
     PolePolicy {
         max_size_ratio: Value::String(ratio.into()),
-        ..PolePolicy::default()
+        ..pole_first()
     }
 }
 
@@ -80,7 +91,7 @@ fn census_scores_and_undecided_is_never_zero() {
 
 #[test]
 fn objective_regular_then_order_then_size_then_time() {
-    let p = pol("unbounded");
+    let p = pol_pf("unbounded");
     // regular wins over a smaller singular one (unbounded tolerance)
     let c = [
         cand(0, 100, 5, Some(score(Some(1), 3))),
@@ -92,7 +103,7 @@ fn objective_regular_then_order_then_size_then_time() {
         (1, true, "regular")
     );
     // tolerance 2: the regular class (9x the smallest) is rejected for size, recorded
-    let d = choose_poles(&c, Some(0), &pol("2")).unwrap().unwrap();
+    let d = choose_poles(&c, Some(0), &pol_pf("2")).unwrap().unwrap();
     assert_eq!((d.winner, d.reason.as_str()), (0, "size_guard"));
     assert_eq!(d.rejected_for_size, vec![1]);
     // lower max order wins among singular ones
@@ -204,7 +215,7 @@ fn rule_verdict_under_the_pole_objective() {
         PolePolicy::default().max_size_ratio,
         json!(DEFAULT_MAX_SIZE_RATIO)
     );
-    let p = pol("2");
+    let p = pol_pf("2");
     let old = rule(&line(3, r#"[["-1+n0"]]"#, 1000));
     let reg = rule(&line(9, "[]", 1500));
     // structurally invalid: refused whatever the poles
@@ -293,7 +304,7 @@ fn rule_verdict_under_the_pole_objective() {
         .starts_with("poles_not_better")
     );
     // a worse pole order never replaces under an unbounded tolerance, even much smaller ...
-    let unb = pol("unbounded");
+    let unb = pol_pf("unbounded");
     assert!(
         rule_pole_verdict(
             &old,
@@ -334,7 +345,7 @@ fn pole_targets_decide_from_scores_and_never_regenerate() {
     assign_occurrences(&mut rules);
     let mut rec = ImproveRecord::empty("T1", &"0".repeat(64), &rules);
     let p = ImprovePolicy {
-        poles: Some(PolePolicy::default()),
+        poles: Some(pole_first()), // the pole-first mode (explicit since rule 21)
         ..ImprovePolicy::default()
     };
     assert!(p.poles_on() && p.single());
@@ -442,10 +453,10 @@ fn rechoice_of_a_finished_choice() {
     };
     // a has max order 1, b max order 2; a is 3x b: tolerance 2 keeps b, tolerance 4 takes a
     let s = [tl("a", 1), tl("b", 2)];
-    let v = rechoice(&ch, &s, &pol("2")).unwrap().unwrap();
+    let v = rechoice(&ch, &s, &pol_pf("2")).unwrap().unwrap();
     assert_eq!(v["decision"]["winner"], 1);
     assert_eq!(v["decision"]["reason"], "size_guard");
-    let v = rechoice(&ch, &s, &pol("4")).unwrap().unwrap();
+    let v = rechoice(&ch, &s, &pol_pf("4")).unwrap().unwrap();
     assert_eq!(
         (
             v["decision"]["winner"].clone(),
@@ -459,11 +470,11 @@ fn rechoice_of_a_finished_choice() {
         "only acceptable full tables"
     );
     // b unscored: undecided, never zero: a ranks first; within tolerance 4 a wins, with 2 a is rejected for size
-    let v = rechoice(&ch, &s[..1], &pol("4")).unwrap().unwrap();
+    let v = rechoice(&ch, &s[..1], &pol_pf("4")).unwrap().unwrap();
     assert_eq!(v["decision"]["winner"], 0);
     assert_eq!(v["decision"]["undecided"], json!([1]));
     assert_eq!(v["candidates"][1]["score"], "undecided");
-    let v = rechoice(&ch, &s[..1], &pol("2")).unwrap().unwrap();
+    let v = rechoice(&ch, &s[..1], &pol_pf("2")).unwrap().unwrap();
     assert_eq!(
         (
             v["decision"]["winner"].clone(),

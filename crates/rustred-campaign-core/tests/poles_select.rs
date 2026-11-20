@@ -33,7 +33,11 @@ fn default_prefers_a_regular_candidate_100_times_larger() {
         cand("small-singular", 10, Some(1)),
         cand("big-regular", 1000, Some(0)),
     ];
+    // USER RULING 2026-11-19 (rule 21): the DEFAULT criteria are economy_first: the smaller singular candidate wins
     let c = select(&cs, p.prefer.max_size_ratio, p.prefer.criteria_order).unwrap();
+    assert_eq!(c.id, "small-singular");
+    // the EXPLICIT regular_first (the default until 2026-11-19): the regular one, 100x larger, wins; the rest of this test
+    let c = select(&cs, p.prefer.max_size_ratio, RF).unwrap();
     assert_eq!(c.id, "big-regular");
     assert_eq!(c.reason, ChoiceReason::Regular);
     assert_eq!(c.chosen_size, 1000);

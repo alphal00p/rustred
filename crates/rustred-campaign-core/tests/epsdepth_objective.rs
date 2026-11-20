@@ -35,9 +35,27 @@ fn composed(orders: &[(i32, u32)]) -> PoleProfile {
     }
 }
 
+/// USER RULING 2026-11-19 (rule 21): the DEFAULT objective puts size first; the pole measures only break exact size ties.
+#[test]
+fn by_default_size_comes_first_and_the_pole_measures_break_ties() {
+    let obj = PoleObjective::default();
+    let cs = [cand("small-p2", 10, Some(2)), cand("big-p1", 1000, Some(1))];
+    let ps = [local(&[2, 0, 1]), local(&[1, 1, 1])];
+    let c = pole_objective(&cs, &ps, &obj, None).unwrap().unwrap();
+    assert_eq!(c.id, "small-p2");
+    let tie = [cand("a-p2", 10, Some(2)), cand("b-p1", 10, Some(1))];
+    let c = pole_objective(&tie, &ps, &obj, None).unwrap().unwrap();
+    assert_eq!(
+        c.id, "b-p1",
+        "equal size: the lower max pole order breaks the tie"
+    );
+}
+
+/// The next three tests: the machinery of the generalised POLE-FIRST objective (lane epsdepth), the default until
+/// 2026-11-19 and an EXPLICIT option since rule 21 (`PoleObjective::withdrawn_pole_first`).
 #[test]
 fn lower_max_order_beats_smaller_size_by_default_and_ratio_8_reverses_it_at_100x() {
-    let obj = PoleObjective::default();
+    let obj = PoleObjective::withdrawn_pole_first();
     assert_eq!(obj.max_size_ratio, MaxSizeRatio::Unbounded);
     // singular order 2 small vs singular order 1 a hundred times larger (no regular one: the generalisation)
     let cs = [cand("small-p2", 10, Some(2)), cand("big-p1", 1000, Some(1))];
@@ -58,7 +76,7 @@ fn lower_max_order_beats_smaller_size_by_default_and_ratio_8_reverses_it_at_100x
     );
     let obj8 = PoleObjective {
         max_size_ratio: MaxSizeRatio::parse(&json!("8")).unwrap(),
-        ..PoleObjective::default()
+        ..PoleObjective::withdrawn_pole_first()
     };
     let c = pole_objective(&cs, &ps, &obj8, None).unwrap().unwrap();
     assert_eq!(c.id, "small-p2");
@@ -76,7 +94,7 @@ fn lower_max_order_beats_smaller_size_by_default_and_ratio_8_reverses_it_at_100x
 
 #[test]
 fn measures_apply_in_order_composed_decides_when_every_candidate_has_it() {
-    let obj = PoleObjective::default();
+    let obj = PoleObjective::withdrawn_pole_first();
     // equal max order 1: sum over terminals decides (b), then singular count (c), then size (d)
     let cs = [
         cand("a", 50, Some(3)),
@@ -134,7 +152,7 @@ fn eps_box_excess_is_the_first_measure_with_a_box() {
     // a: max order 2 but on terminal [2] (available 3): within; b: max order 1... no: b has order 2 on [1] (exceeds)
     let cs = [cand("a", 10, Some(2)), cand("b", 10, Some(2))];
     let ps = [composed(&[(1, 1), (2, 3)]), composed(&[(1, 2), (2, 0)])];
-    let c = pole_objective(&cs, &ps, &PoleObjective::default(), Some(&bx))
+    let c = pole_objective(&cs, &ps, &PoleObjective::withdrawn_pole_first(), Some(&bx))
         .unwrap()
         .unwrap();
     assert_eq!(
@@ -144,14 +162,14 @@ fn eps_box_excess_is_the_first_measure_with_a_box() {
     assert_eq!(c.chosen_measures[0], 0);
     assert_eq!(c.measures[0], "eps_box_excess");
     // without the box: max order decides
-    let c = pole_objective(&cs, &ps, &PoleObjective::default(), None)
+    let c = pole_objective(&cs, &ps, &PoleObjective::withdrawn_pole_first(), None)
         .unwrap()
         .unwrap();
     assert_eq!(c.id, "b");
     // a box missing a terminal: typed error
     let bx2 =
         EpsBox::from_value(&json!({"available": {"keys": [{"key": [2], "order": 3}]}})).unwrap();
-    assert!(pole_objective(&cs, &ps, &PoleObjective::default(), Some(&bx2)).is_err());
+    assert!(pole_objective(&cs, &ps, &PoleObjective::withdrawn_pole_first(), Some(&bx2)).is_err());
 }
 
 #[test]

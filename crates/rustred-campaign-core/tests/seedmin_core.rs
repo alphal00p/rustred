@@ -191,7 +191,13 @@ fn a_drop_that_worsens_the_pole_order_is_refused_and_pole_objective_off_is_plain
         k.clone(),
         vec![alt(&[[0, 0, 0], [1, 0, 0], [0, 1, 0]], 10), sing],
     );
-    let p = SeedMinPolicy::default();
+    // the POLE-FIRST objective with keep_seed: the default until 2026-11-19, EXPLICIT since rule 21 (the default puts
+    // terms first and lets an undecided regularity drop)
+    let p = SeedMinPolicy {
+        objective: vec!["pole_order".into(), "seeds".into(), "terms".into()],
+        on_undecided_regularity: "keep_seed".into(),
+        ..SeedMinPolicy::default()
+    };
     let km = minimise_key(&k, &C0, &shell(), &p, &mut o, &mut StubSystemPoles).unwrap();
     assert_eq!(km.relation.as_ref().unwrap().pole, PoleOrder::regular());
     assert_eq!(
@@ -593,9 +599,12 @@ fn rows_at_d0_is_refused_typed_without_probe_mode_and_is_never_a_verdict() {
         vec![alt(&[[0, 0, 0], [1, 0, 0], [0, 1, 0]], 9), sing.clone()],
     );
     // the normal pass with pole_objective off lands on the singular relation
+    // the POLE-FIRST objective (explicit since rule 21) decides the d0 candidate below
     let p = SeedMinPolicy {
         rows_at_d0: true,
         pole_objective: "off".into(),
+        objective: vec!["pole_order".into(), "seeds".into(), "terms".into()],
+        on_undecided_regularity: "keep_seed".into(),
         ..SeedMinPolicy::default()
     };
     let e = minimise_key(&k, &C0, &shell(), &p, &mut o.clone(), &mut StubSystemPoles).unwrap_err();

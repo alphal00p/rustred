@@ -27,9 +27,11 @@ fn prof(local: &[u32], composed: &[(i32, u32)]) -> PoleProfile {
     }
 }
 
+// The three tests below: the composed-profile machinery of the POLE-FIRST objective, the default until 2026-11-19 and an
+// EXPLICIT option since the user ruling (rule 21: the default puts size first).
 #[test]
 fn a_composed_tie_is_decided_by_the_local_measures_before_the_size() {
-    let obj = PoleObjective::default();
+    let obj = PoleObjective::withdrawn_pole_first();
     // the same composed vector (regular on the terminals) for both: the regular relation wins whatever its size
     let t = [(1, 0), (2, 0)];
     let cs = [
@@ -88,7 +90,7 @@ fn a_composed_tie_is_decided_by_the_local_measures_before_the_size() {
 
 #[test]
 fn the_composed_profile_still_decides_first_and_the_reason_says_which() {
-    let obj = PoleObjective::default();
+    let obj = PoleObjective::withdrawn_pole_first();
     // locally regular, but its composition has a pole; the other has a local pole that cancels: composed decides
     let cs = [
         cand("spurious-local", 100, Some(3)),
@@ -108,7 +110,7 @@ fn a_finite_size_ratio_bounds_the_local_regular_class_of_a_composed_tie() {
     // addendum 7: with a finite ratio the regular class is rejected when every member is beyond ratio x smallest
     let obj8 = PoleObjective {
         max_size_ratio: MaxSizeRatio::parse(&json!("8")).unwrap(),
-        ..PoleObjective::default()
+        ..PoleObjective::withdrawn_pole_first()
     };
     let t = [(1, 0)];
     let cs = [

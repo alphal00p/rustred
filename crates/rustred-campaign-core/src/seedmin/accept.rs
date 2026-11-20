@@ -186,22 +186,31 @@ mod tests {
         let und = facts(5, PoleOrder::Undecided);
         let (b, a) = (vec![vec![0, 0], vec![1, 0]], vec![vec![0, 0]]);
         let st = |f| [State { key: &k, facts: f }];
-        // regular -> singular (smaller): refused (pole order first)
+        // USER RULING 2026-11-19 (rule 21): by DEFAULT the terms come first, the pole order only breaks ties, and an
+        // undecided regularity does not stop a drop: regular -> singular with fewer terms is KEPT
         let v = judge_change(&st(&reg), &st(&sing), &b, &a, &[0, 0], &p, &mut s);
+        assert!(v.keep, "{}", v.reason);
+        assert!(judge_change(&st(&reg), &st(&und), &b, &a, &[0, 0], &p, &mut s).keep);
+        // the EXPLICIT withdrawn order (pole order first, keep_seed): the rest of this test
+        let mut o = p.clone();
+        o.objective = vec!["pole_order".into(), "seeds".into(), "terms".into()];
+        o.on_undecided_regularity = "keep_seed".into();
+        // regular -> singular (smaller): refused (pole order first)
+        let v = judge_change(&st(&reg), &st(&sing), &b, &a, &[0, 0], &o, &mut s);
         assert!(!v.keep, "{}", v.reason);
         // singular -> regular (larger): kept by pole order, but the monotone_rhs guard refuses more terms
-        let v = judge_change(&st(&sing), &st(&reg), &b, &a, &[0, 0], &p, &mut s);
+        let v = judge_change(&st(&sing), &st(&reg), &b, &a, &[0, 0], &o, &mut s);
         assert!(!v.keep && v.reason.contains("monotone_rhs"), "{}", v.reason);
-        let mut q = p.clone();
+        let mut q = o.clone();
         q.monotone_rhs = false;
         assert!(judge_change(&st(&sing), &st(&reg), &b, &a, &[0, 0], &q, &mut s).keep);
         // undecided: keep_seed refuses, drop keeps
-        assert!(!judge_change(&st(&reg), &st(&und), &b, &a, &[0, 0], &p, &mut s).keep);
+        assert!(!judge_change(&st(&reg), &st(&und), &b, &a, &[0, 0], &o, &mut s).keep);
         q.on_undecided_regularity = "drop".into();
         assert!(judge_change(&st(&reg), &st(&und), &b, &a, &[0, 0], &q, &mut s).keep);
         // equal pole order: fewer seeds wins
         let reg2 = facts(9, PoleOrder::regular());
-        assert!(judge_change(&st(&reg), &st(&reg2), &b, &a, &[0, 0], &p, &mut s).keep);
+        assert!(judge_change(&st(&reg), &st(&reg2), &b, &a, &[0, 0], &o, &mut s).keep);
         // objective terms first: more terms refused even with fewer seeds
         let mut t = p.clone();
         t.objective = vec!["terms".into(), "seeds".into()];
