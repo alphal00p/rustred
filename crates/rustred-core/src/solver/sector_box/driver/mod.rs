@@ -71,6 +71,9 @@ pub struct BoxLaportaSession<const N: usize> {
     growth: BTreeMap<u64, (u8, u8)>,
     demand: BTreeSet<[i16; N]>,
     zero_demand: BTreeSet<[i16; N]>,
+    /// Demanded integrals that lay inside their sector's seeded region when
+    /// first demanded ([`BoxOptions::closure_no_own_box`]): no own box.
+    covered: BTreeSet<[i16; N]>,
     /// Preferred integrals in representative sectors (routed when given in
     /// another sector of their class), and preferred integrals of zero
     /// sectors.
@@ -333,6 +336,7 @@ impl<const N: usize> BoxLaportaSession<N> {
             growth: BTreeMap::new(),
             demand: BTreeSet::new(),
             zero_demand: BTreeSet::new(),
+            covered: BTreeSet::new(),
             preferred_zero: BTreeSet::new(),
             visited: BTreeSet::new(),
             truncate,
@@ -489,6 +493,19 @@ impl<const N: usize> BoxLaportaSession<N> {
             let keys = self.factory.route_keys(values)?;
             if keys.is_empty() {
                 self.zero_demand.insert(*values);
+            }
+            if self.options.closure_no_own_box {
+                for key in &keys {
+                    let (lines, dots, numerators) = box_coordinates(key);
+                    if !self.demand.contains(key)
+                        && self
+                            .boxes
+                            .get(&integral_bits(key))
+                            .is_some_and(|region| region.contains(lines, dots, numerators))
+                    {
+                        self.covered.insert(*key);
+                    }
+                }
             }
             self.demand.extend(keys);
         }
