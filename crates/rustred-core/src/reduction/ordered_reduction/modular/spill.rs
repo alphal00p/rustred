@@ -39,6 +39,62 @@ pub(super) struct Spill {
     /// Resume mode: BLAKE3 of every byte written to `ops.bin` so far (the
     /// prefix a saved state covers), updated at every flush.
     hasher: Option<blake3::Hasher>,
+    /// R-B2: the first write or sync error (with the file): every later
+    /// flush, sync or finish refuses with it, so a short write can never be
+    /// followed by a retried append (a duplicated prefix) that a later state
+    /// would publish.
+    failed: Option<String>,
+}
+
+// R-B2 test hooks: the next flush writes only this many bytes and fails
+// (a short write); the next sync fails.
+#[cfg(test)]
+thread_local! {
+    static SHORT_WRITE: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+    static FAIL_SYNC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn write_ops(file: &mut File, bytes: &[u8]) -> std::io::Result<()> {
+    #[cfg(test)]
+    if let Some(n) = SHORT_WRITE.with(std::cell::Cell::take) {
+        file.write_all(&bytes[..n.min(bytes.len())])?;
+        return Err(std::io::Error::from_raw_os_error(libc::EFBIG));
+    }
+    file.write_all(bytes)
+}
+
+fn sync_ops(file: &mut File) -> std::io::Result<()> {
+    file.flush()?;
+    #[cfg(test)]
+    if FAIL_SYNC.with(|f| f.replace(false)) {
+        return Err(std::io::Error::from_raw_os_error(libc::ENOSPC));
+    }
+    file.sync_data()
+}
+
+/// R-B2: `YYYYMMDDTHHMMSS.nnnnnnnnnZ` (UTC, now): the suffix of a set-aside trace.
+fn utc_stamp() -> String {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let (secs, nanos) = (now.as_secs() as i64, now.subsec_nanos());
+    let (days, rem) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
+    // days since 1970-01-01 -> civil date (H. Hinnant's algorithm)
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}{month:02}{day:02}T{:02}{:02}{:02}.{nanos:09}Z",
+        rem / 3600,
+        rem / 60 % 60,
+        rem % 60
+    )
 }
 
 /// Bytes of `ops` ops in the spill file.
@@ -54,6 +110,7 @@ impl Spill {
             flushed: 0,
             keep: false,
             hasher: None,
+            failed: None,
         })
     }
 
@@ -76,17 +133,35 @@ impl Spill {
         let Some((ops, digest)) = resume else {
             // 12d2: a trace without a saved state is never truncated silently
             // (it may be a finished record whose state was lost, or another
-            // run's): refused unless RUSTRED_RESUME_DISCARD_TRACE=1.
+            // run's). R-B2: no state was ever committed for this request (e.g.
+            // its first state write was short), so nothing can continue from
+            // the trace: it is set aside as `ops.bin.orphan-<utc>` (kept for
+            // inspection) and the request starts afresh.
+            // RUSTRED_RESUME_DISCARD_TRACE=1 truncates it instead.
             if let Ok(meta) = std::fs::metadata(&path)
                 && meta.len() > 0
                 && std::env::var("RUSTRED_RESUME_DISCARD_TRACE").as_deref() != Ok("1")
             {
-                return Err(error(format!(
-                    "resume refused: {} holds a trace of {} bytes but there is no saved state; it is kept \
-                     (remove it, or set RUSTRED_RESUME_DISCARD_TRACE=1, to start this request from zero)",
+                let orphan = dir.join(format!("ops.bin.orphan-{}", utc_stamp()));
+                if let Err(e) = std::fs::rename(&path, &orphan) {
+                    let message = format!(
+                        "resume refused: {} holds a trace of {} bytes but there is no saved state, and it cannot \
+                         be set aside as {} ({e}); it is kept (remove it, or set RUSTRED_RESUME_DISCARD_TRACE=1, \
+                         to start this request from zero)",
+                        path.display(),
+                        meta.len(),
+                        orphan.display()
+                    );
+                    super::super::resume::storage_stop(&message);
+                    return Err(error(message));
+                }
+                eprintln!(
+                    "rustred resume: {} held a trace of {} bytes but no state was ever saved for this request: set \
+                     aside as {}; the request starts afresh",
                     path.display(),
-                    meta.len()
-                )));
+                    meta.len(),
+                    orphan.display()
+                );
             }
             let file = std::fs::OpenOptions::new()
                 .create(true)
@@ -100,6 +175,7 @@ impl Spill {
                 flushed: 0,
                 keep: true,
                 hasher: Some(blake3::Hasher::new()),
+                failed: None,
             });
         };
         let needed = op_bytes(ops);
@@ -166,6 +242,7 @@ impl Spill {
             flushed: ops as usize,
             keep: true,
             hasher: Some(hasher),
+            failed: None,
         })
     }
 
@@ -174,8 +251,43 @@ impl Spill {
         self.hasher.as_ref().map(|h| *h.finalize().as_bytes())
     }
 
-    /// Append `ops` and clear them.
+    /// R-B2: refuse with the first earlier write or sync error.
+    fn check_failed(&self) -> Result<(), ReductionError> {
+        match &self.failed {
+            Some(message) => Err(error(format!(
+                "{message} (earlier error; the trace is not appended to again)"
+            ))),
+            None => Ok(()),
+        }
+    }
+
+    /// R-B2: record a write or sync error on the spill file and return it
+    /// (marked as a storage stop for batch callers).
+    fn fail(&mut self, what: &str, e: &std::io::Error) -> ReductionError {
+        let path = self
+            .file
+            .as_ref()
+            .map_or_else(|| self.dir.clone(), |(_, path)| path.clone());
+        let message = format!("trace spill {what} of {} failed: {e}", path.display());
+        // a kept trace that no saved state covers yet is emptied (best
+        // effort), so that a restart starts the request afresh instead of
+        // refusing a trace without a state
+        if self.keep
+            && !self.dir.join("state.bin").exists()
+            && let Some((file, _)) = &self.file
+        {
+            let _ = file.set_len(0);
+        }
+        super::super::resume::storage_stop(&message);
+        self.failed = Some(message.clone());
+        error(message)
+    }
+
+    /// Append `ops` and clear them. A failed (or short) write cuts the file
+    /// back to the ops flushed before it (best effort) and fails this spill
+    /// for good: nothing is appended after a partial write.
     pub(super) fn flush(&mut self, ops: &mut Vec<Op>) -> Result<(), ReductionError> {
+        self.check_failed()?;
         if ops.is_empty() {
             return Ok(());
         }
@@ -196,8 +308,14 @@ impl Spill {
                 ops.len() * std::mem::size_of::<Op>(),
             )
         };
-        file.write_all(bytes)
-            .map_err(|e| error(format!("trace spill write: {e}")))?;
+        if let Err(e) = write_ops(file, bytes) {
+            use std::io::Seek;
+            let before = op_bytes(self.flushed as u64);
+            let _ = file
+                .set_len(before)
+                .and_then(|()| file.seek(std::io::SeekFrom::Start(before)));
+            return Err(self.fail("write", &e));
+        }
         if let Some(hasher) = &mut self.hasher {
             hasher.update(bytes);
         }
@@ -212,12 +330,14 @@ impl Spill {
     }
 
     /// Make the written ops durable (resume checkpoints).
+    /// A failed sync fails this spill for good (the page cache state after a
+    /// failed fdatasync is unknown: never retried).
     pub(super) fn sync(&mut self) -> Result<(), ReductionError> {
-        if let Some((file, _)) = &mut self.file {
-            file.flush()
-                .map_err(|e| error(format!("trace spill flush: {e}")))?;
-            file.sync_data()
-                .map_err(|e| error(format!("trace spill sync: {e}")))?;
+        self.check_failed()?;
+        if let Some((file, _)) = &mut self.file
+            && let Err(e) = sync_ops(file)
+        {
+            return Err(self.fail("sync", &e));
         }
         Ok(())
     }
@@ -225,6 +345,7 @@ impl Spill {
     /// The whole trace: the rest appended and the file mapped (or the rest
     /// itself when nothing was ever flushed).
     pub(super) fn finish(mut self, rest: &mut Vec<Op>) -> Result<OpStore, ReductionError> {
+        self.check_failed()?;
         if self.file.is_none() || (self.keep && self.flushed == 0 && rest.len() < block_ops()) {
             // a kept (resume) file stays: its request removes it with the state
             if let Some((_, path)) = self.file.take()
@@ -483,19 +604,30 @@ mod tests {
         );
         std::fs::write(&path, &original[..8]).unwrap();
         refused(Spill::at(&root, Some((saved, None))), "v1 short");
-        // 12d2: a trace without a saved state (a finished record whose state is gone) is never truncated by a
-        // fresh launch; an empty one is reused
+        // 12d2 / R-B2: a trace without a saved state (a first state write that never committed) is never truncated
+        // by a fresh launch: it is set aside, byte for byte, as ops.bin.orphan-<utc> and the request starts afresh
         std::fs::write(&path, &original).unwrap();
-        let e = refused(Spill::at(&root, None), "trace without a state");
-        assert!(
-            e.contains("no saved state") && e.contains("RUSTRED_RESUME_DISCARD_TRACE"),
-            "{e}"
-        );
+        let spill = Spill::at(&root, None).expect("an orphan trace is set aside");
+        assert_eq!(spill.flushed, 0);
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), 0, "a fresh trace");
+        drop(spill);
+        let orphans: Vec<_> = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with("ops.bin.orphan-")
+            })
+            .collect();
+        assert_eq!(orphans.len(), 1, "{orphans:?}");
         assert_eq!(
-            std::fs::read(&path).unwrap(),
+            std::fs::read(&orphans[0]).unwrap(),
             original,
-            "the trace is untouched"
+            "the orphan is kept unchanged"
         );
+        std::fs::remove_file(&orphans[0]).unwrap();
         std::fs::write(&path, b"").unwrap();
         assert!(
             Spill::at(&root, None).is_ok(),
@@ -515,6 +647,131 @@ mod tests {
             12 * 8,
             "kept after the replay's mapping"
         );
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+    /// R-B2 (Astra's partial-write witness): a short trace write after a saved prefix is an error naming the file;
+    /// the file is cut back to the saved prefix, the spill refuses every later flush, sync and finish (no retried
+    /// append can duplicate the partial bytes), the error is a storage stop, and a fresh process resumes from the
+    /// saved (count, digest).
+    /// The R-B2 tests read the process-wide storage stop: one at a time.
+    use super::super::super::resume::STORAGE_STOP_TEST_LOCK as STOP_LOCK;
+
+    #[test]
+    fn a_short_trace_write_fails_the_spill_and_keeps_the_saved_prefix() {
+        let _serial = STOP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root =
+            std::env::temp_dir().join(format!("rustred-short-write-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let ops = |from: u32, n: u32| -> Vec<Op> {
+            (from..from + n)
+                .map(|i| Op::new(OpTag::Add, i % 5, CoefRef(i)))
+                .collect()
+        };
+        let path = root.join("ops.bin");
+        let mut spill = Spill::at(&root, None).unwrap();
+        let mut buffer = ops(0, 20);
+        spill.flush(&mut buffer).unwrap();
+        spill.sync().unwrap();
+        let (saved, digest) = (spill.flushed as u64, spill.digest().unwrap());
+        // the state that covers the prefix (its content is not read here)
+        std::fs::write(root.join("state.bin"), b"state").unwrap();
+        let _ = super::super::super::resume::take_storage_stop();
+        // a short write: 3 ops and 4 bytes of the next 10 reach the file, then EFBIG
+        SHORT_WRITE.with(|c| c.set(Some(28)));
+        let mut buffer = ops(20, 10);
+        let e = spill.flush(&mut buffer).unwrap_err().to_string();
+        assert!(
+            e.contains("trace spill write") && e.contains("ops.bin"),
+            "{e}"
+        );
+        assert_eq!(buffer.len(), 10, "the unwritten ops are not dropped");
+        assert_eq!(spill.flushed as u64, saved);
+        assert_eq!(spill.digest().unwrap(), digest);
+        assert_eq!(
+            std::fs::metadata(&path).unwrap().len(),
+            saved * 8,
+            "cut back"
+        );
+        let stop = super::super::super::resume::take_storage_stop().expect("a storage stop");
+        assert!(stop.contains("ops.bin"), "{stop}");
+        // a retry in this process is refused (the writer never appends again) ...
+        let e = spill.flush(&mut buffer).unwrap_err().to_string();
+        assert!(e.contains("earlier error"), "{e}");
+        assert!(spill.sync().is_err());
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), saved * 8);
+        let mut rest = Vec::new();
+        assert!(spill.finish(&mut rest).is_err());
+        // ... and a fresh process continues from the saved prefix
+        let mut spill = Spill::at(&root, Some((saved, Some(digest)))).unwrap();
+        let mut buffer = ops(20, 10);
+        spill.flush(&mut buffer).unwrap();
+        let whole = std::fs::read(&path).unwrap();
+        assert_eq!(whole.len(), 30 * 8);
+        assert_eq!(spill.digest().unwrap(), *blake3::hash(&whole).as_bytes());
+        drop(spill);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// R-B2 residual: an orphan trace (no state ever saved) that cannot be set aside (read-only request directory)
+    /// is refused, kept unchanged, and the refusal is a storage stop (reduce-files keeps the chunk retryable).
+    #[test]
+    fn an_orphan_trace_that_cannot_be_set_aside_is_a_storage_stop() {
+        use std::os::unix::fs::PermissionsExt;
+        let _serial = STOP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root =
+            std::env::temp_dir().join(format!("rustred-orphan-ro-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ops.bin"), [1u8; 24]).unwrap();
+        let _ = super::super::super::resume::take_storage_stop();
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o500)).unwrap();
+        let result = Spill::at(&root, None);
+        std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let stop = super::super::super::resume::take_storage_stop();
+        let e = result.err().expect("refused").to_string();
+        assert!(
+            e.contains("cannot be set aside") && e.contains("no saved state"),
+            "{e}"
+        );
+        assert!(stop.is_some_and(|s| s.contains("ops.bin")));
+        assert_eq!(std::fs::read(root.join("ops.bin")).unwrap(), [1u8; 24]);
+        std::fs::remove_dir_all(&root).unwrap();
+    }
+
+    /// R-B2 (Astra's persistent-sync witness): a failed trace sync is an error naming the file and a storage stop;
+    /// it is never retried, no later flush appends, and a trace no saved state covers is emptied.
+    #[test]
+    fn a_failed_trace_sync_fails_the_spill() {
+        let _serial = STOP_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root =
+            std::env::temp_dir().join(format!("rustred-sync-fail-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let mut spill = Spill::at(&root, None).unwrap();
+        let mut buffer: Vec<Op> = (0..8u32)
+            .map(|i| Op::new(OpTag::Add, i, CoefRef(i)))
+            .collect();
+        spill.flush(&mut buffer).unwrap();
+        let _ = super::super::super::resume::take_storage_stop();
+        FAIL_SYNC.with(|f| f.set(true));
+        let e = spill.sync().unwrap_err().to_string();
+        assert!(
+            e.contains("trace spill sync") && e.contains("ops.bin"),
+            "{e}"
+        );
+        assert!(super::super::super::resume::take_storage_stop().is_some());
+        assert!(spill.sync().is_err(), "a failed sync is not retried");
+        let mut buffer = vec![Op::new(OpTag::Add, 0, CoefRef(0))];
+        assert!(spill.flush(&mut buffer).is_err());
+        // no saved state covers the trace: emptied, so a restart starts afresh
+        assert_eq!(std::fs::metadata(root.join("ops.bin")).unwrap().len(), 0);
+        drop(spill);
+        assert!(Spill::at(&root, None).is_ok(), "an empty trace is reused");
         std::fs::remove_dir_all(&root).unwrap();
     }
 }

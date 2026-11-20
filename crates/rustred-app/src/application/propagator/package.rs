@@ -313,6 +313,21 @@ fn p_library_parts(
                 })
             })
             .collect::<Result<Vec<_>, PError>>()?,
+        orbit_required_nodes: library.orbit_required_nodes(),
+        orbit_required_digests: library
+            .orbit_required_nodes()
+            .into_iter()
+            .filter_map(|node| {
+                let presentations: Vec<_> = library
+                    .presentations()
+                    .iter()
+                    .filter(|p| p.family.name() == node.as_str())
+                    .map(|p| p.id)
+                    .collect();
+                let digest = library.saved_orbits()?.node_group_digest(&presentations);
+                Some((node, digest))
+            })
+            .collect(),
     };
     files.insert(
         LIBRARY_FILE.to_owned(),

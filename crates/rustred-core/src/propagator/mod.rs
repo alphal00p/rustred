@@ -155,6 +155,12 @@ pub const P_BASIS_LAYER_SCHEMA: &str = "rustred.p-basis-layer.v1";
 /// [`library::PLibrary::step_identity`] only while canonicalisation is on, so a
 /// library with it off keeps the step caches it had before; the library
 /// identity ([`library::PLibrary::identity`]) never carries it.
+/// It is also recorded in every saved-orbit file (`orbits.rrbin`): the groups
+/// are unchanged by orbitsw, so it stays 3. The orbitsw image choice (Route
+/// images stay in their sector unless `RUSTRED_P_ORBIT_ACROSS`; a boxed
+/// owner's key moves only onto an image in its domain) is marked in the step
+/// identity's scope instead (`-sector-domain`, or `-domain` with Route keys
+/// off or across sectors).
 pub const P_ORBIT_CANON_VERSION: u32 = 3;
 /// Whether a new [`library::PLibrary`] canonicalises keys under orbits
 /// ([`library::PLibrary::set_orbit_canonicalization`]). Off: the reduction

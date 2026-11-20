@@ -585,6 +585,9 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
         let (stage, integral) = decode_node(encoded).ok()?;
         self.inner.step_cache_key(stage, integral).ok()
     }
+    fn release_step_caches(&mut self) -> usize {
+        self.inner.release_step_caches()
+    }
     fn resume_identity(&self, out: &mut Vec<u8>) {
         self.inner.resume_identity(out);
     }

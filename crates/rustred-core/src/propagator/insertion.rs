@@ -323,17 +323,25 @@ impl InsertionStep {
                     Ok(())
                 };
                 let mode = step_memo::mode();
-                if mode == MemoMode::Off {
+                // The weights are a function of the two line powers (the
+                // sign of `negate` included) and the numerators.
+                let mut key = MemoKey::new();
+                key.push(self.uid as i64);
+                key.push(alpha.integer);
+                key.push(beta.integer);
+                key.extend(box_powers.iter().map(|&p| i64::from(p)));
+                key.extend(free_powers.iter().map(|&p| i64::from(p)));
+                // stale memory (T277 phase 15: never-hit entries of ~1,400
+                // child coefficients took the memo to 141 GiB): a step whose
+                // numerator table exceeds RUSTRED_P_STEP_MEMO_MAX_CHILDREN
+                // monomials enters the memo only on its second occurrence.
+                let oversized = mode == MemoMode::On
+                    && rule.rewrite.table(&box_powers, &free_powers)?.len()
+                        > step_memo::max_children()
+                    && !step_memo::admit_large(&key);
+                if mode == MemoMode::Off || oversized {
                     direct_fast(&mut output)?;
                 } else {
-                    // The weights are a function of the two line powers (the
-                    // sign of `negate` included) and the numerators.
-                    let mut key = MemoKey::new();
-                    key.push(self.uid as i64);
-                    key.push(alpha.integer);
-                    key.push(beta.integer);
-                    key.extend(box_powers.iter().map(|&p| i64::from(p)));
-                    key.extend(free_powers.iter().map(|&p| i64::from(p)));
                     let memo = crate::prof_wrap!(
                         MemoInsertion,
                         step_memo::insertion(&key, limits, || {

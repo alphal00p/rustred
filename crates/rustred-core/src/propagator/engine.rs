@@ -902,6 +902,9 @@ impl PEngine {
         // be attached or reopened across modes.
         let zero_pruning =
             super::library::prune_zero_children_enabled().then(ZeroPruningCounters::default);
+        if let Some(refusal) = library.orbit_requirement_refusal() {
+            return Err(refusal);
+        }
         let canonical = library.orbit_canonicalization();
         let canonical_routes = canonical && library.route_canonicalization();
         // fwd-opt: setup tasks for the workers of a multi-thread request.
@@ -1087,6 +1090,98 @@ pub(crate) mod light {
 /// contribution. `RUSTRED_P_CANON_CACHE=off` disables it,
 /// `RUSTRED_P_CANON_CACHE=<b>` sets 2^b entries per thread (default 2^13).
 /// Errors are not cached (computed again). Value-neutral.
+/// `RUSTRED_P_ORBIT_ACROSS=on`: the presentation-wide step of Route
+/// canonicalisation may move a key onto another subsector (orbit
+/// canonicalisation before orbitsw). Default off: images stay in the key's sector.
+pub(crate) fn orbit_across_sectors() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_P_ORBIT_ACROSS")
+                .as_deref()
+                .map(str::trim),
+            Ok("1" | "on" | "yes" | "true")
+        )
+    })
+}
+
+/// Orbit canonicalisation counters and the moved-key dump.
+///
+/// Counters (process-wide): keys whose image was computed (cache misses) and
+/// keys moved, for Apply and Route keys; [`canon_counts::report`] prints them.
+/// `RUSTRED_P_CANON_DUMP=<file>`: one line per computed move,
+/// `apply|route <TAB> owner class|presentation <TAB> key <TAB> image <TAB> sign`
+/// (a key evicted from the canonicalisation cache and met again is written
+/// again).
+pub(crate) mod canon_counts {
+    use std::io::Write;
+    use std::sync::Mutex;
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COMPUTED: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+    static MOVED: [AtomicU64; 2] = [AtomicU64::new(0), AtomicU64::new(0)];
+
+    fn dump() -> Option<&'static Mutex<std::io::BufWriter<std::fs::File>>> {
+        static DUMP: OnceLock<Option<Mutex<std::io::BufWriter<std::fs::File>>>> = OnceLock::new();
+        DUMP.get_or_init(|| {
+            let path = std::env::var_os("RUSTRED_P_CANON_DUMP")?;
+            match std::fs::File::create(&path) {
+                Ok(file) => Some(Mutex::new(std::io::BufWriter::new(file))),
+                Err(error) => {
+                    eprintln!(
+                        "rustred: RUSTRED_P_CANON_DUMP {}: {error}",
+                        path.to_string_lossy()
+                    );
+                    None
+                }
+            }
+        })
+        .as_ref()
+    }
+
+    /// One computed canonicalisation (`route`: a Route key, else Apply).
+    pub(crate) fn computed<I: AsRef<[i64]>>(
+        route: bool,
+        moved: Option<&(I, bool)>,
+        line: impl FnOnce() -> String,
+    ) {
+        let at = usize::from(route);
+        COMPUTED[at].fetch_add(1, Ordering::Relaxed);
+        let Some((image, negative)) = moved else {
+            return;
+        };
+        MOVED[at].fetch_add(1, Ordering::Relaxed);
+        if let Some(dump) = dump()
+            && let Ok(mut out) = dump.lock()
+        {
+            let _ = writeln!(
+                out,
+                "{}\t{:?}\t{}",
+                line(),
+                image.as_ref(),
+                if *negative { "-" } else { "+" }
+            );
+        }
+    }
+
+    /// `(apply computed, apply moved, route computed, route moved)`; flushes
+    /// the dump.
+    pub(crate) fn report() -> (u64, u64, u64, u64) {
+        if let Some(dump) = dump()
+            && let Ok(mut out) = dump.lock()
+        {
+            let _ = out.flush();
+        }
+        (
+            COMPUTED[0].load(Ordering::Relaxed),
+            MOVED[0].load(Ordering::Relaxed),
+            COMPUTED[1].load(Ordering::Relaxed),
+            MOVED[1].load(Ordering::Relaxed),
+        )
+    }
+}
+
 pub(crate) mod canon_cache {
     use std::cell::RefCell;
     use std::sync::OnceLock;
@@ -2309,12 +2404,19 @@ impl<'l> PStepper<'l> {
     ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonApply);
         if self.canonical
+            && !self.orbit(class)?.actions.is_empty()
             && let Some((image, negative)) = canon_cache::lookup(
                 self.engine.uid,
                 (1 << 63) | (class.0 & !(1 << 63)),
                 u8::from(self.prefer_high),
                 powers,
-                || self.canonical_powers(class, powers),
+                || {
+                    let moved = self.canonical_powers(class, powers)?;
+                    canon_counts::computed(false, moved.as_ref(), || {
+                        format!("apply\t{:016x}\t{powers:?}", class.0)
+                    });
+                    Ok(moved)
+                },
             )?
         {
             // A sign flip of a coefficient the library already sealed: same
@@ -2367,7 +2469,7 @@ impl<'l> PStepper<'l> {
         negate: fn(C) -> C,
     ) -> Result<(PKey, C), PError> {
         crate::prof_fine!(CanonRoute);
-        if self.canonical_routes {
+        if self.canonical_routes && self.route_has_group(presentation, powers)? {
             // First across the subsectors of the presentation, then inside the
             // sector reached (its own automorphisms can be more than the
             // presentation's); each step is exact, the signs compose.
@@ -2382,12 +2484,16 @@ impl<'l> PStepper<'l> {
                         .as_ref()
                         .map_or(powers, |(image, _)| image.as_slice());
                     let inside = self.canonical_route(presentation, base)?;
-                    Ok(match (across, inside) {
+                    let moved = match (across, inside) {
                         (None, None) => None,
                         (Some(across), None) => Some(across),
                         (None, Some(inside)) => Some(inside),
                         (Some((_, first)), Some((image, second))) => Some((image, first != second)),
-                    })
+                    };
+                    canon_counts::computed(true, moved.as_ref(), || {
+                        format!("route\tp{}\t{powers:?}", presentation.0)
+                    });
+                    Ok(moved)
                 },
             )?;
             if let Some((image, negative)) = image {
@@ -2413,6 +2519,24 @@ impl<'l> PStepper<'l> {
         ))
     }
 
+    /// Whether a Route key of `presentation` can move at all: the
+    /// presentation's group or its sector's routed group is nontrivial. Both
+    /// orbits are built once (per presentation, per sector), so a key whose
+    /// groups are empty costs two lookups and no cache traffic.
+    fn route_has_group(
+        &self,
+        presentation: PresentationId,
+        powers: &[i64],
+    ) -> Result<bool, PError> {
+        if !self.presentation_orbit(presentation)?.actions.is_empty() {
+            return Ok(true);
+        }
+        let support = self.engine.shape(presentation)?.support(powers);
+        Ok(self
+            .route_orbit(presentation, support)?
+            .is_some_and(|orbit| !orbit.actions.is_empty()))
+    }
+
     /// The least exact image of a Route key of `presentation` under the
     /// automorphisms of the presentation's whole line set, on any sector the
     /// census knows (the image of a sector is a sector with the same number
@@ -2429,8 +2553,20 @@ impl<'l> PStepper<'l> {
             return Ok(None);
         }
         let fates = &self.engine.fates;
+        // Images stay in the key's own sector (orbitsw, scope -sector-domain): an
+        // image on another subsector lands on another route / owner and stops
+        // merging with the unmoved keys there (R1, T278: 13.0 instead of 5.5
+        // children per Route key). RUSTRED_P_ORBIT_ACROSS=on restores the
+        // pre-orbitsw choice (any sector the census knows).
+        let support = shape.support(powers);
+        let across = orbit_across_sectors();
         Ok(orbit.least_image(powers, self.prefer_high, |image| {
-            fates.contains_key(&(presentation, shape.support(image)))
+            let image_support = shape.support(image);
+            if across {
+                fates.contains_key(&(presentation, image_support))
+            } else {
+                image_support == support
+            }
         }))
     }
 
@@ -2449,6 +2585,9 @@ impl<'l> PStepper<'l> {
             .get_or_init(|| {
                 crate::prof!(OrbitInit);
                 let source = self.library.presentation(presentation);
+                if super::library::orbit_off_nodes().contains(source.family.name()) {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
                 if let Some(orbit) = self
                     .library
                     .saved_orbits()
@@ -2467,15 +2606,39 @@ impl<'l> PStepper<'l> {
         presentation: PresentationId,
         powers: &[i64],
     ) -> Result<Option<(Vec<i64>, bool)>, PError> {
-        let engine = self.engine;
-        let shape = engine.shape(presentation)?;
+        let shape = self.engine.shape(presentation)?;
         let support = shape.support(powers);
+        let Some(orbit) = self.route_orbit(presentation, support)? else {
+            return Ok(None);
+        };
+        if orbit.actions.is_empty() {
+            return Ok(None);
+        }
+        Ok(orbit.least_image(powers, self.prefer_high, |image| {
+            shape.support(image) == support
+        }))
+    }
+
+    /// The automorphisms of the routed sector `support` of `presentation`
+    /// (the owner's carried over by the route), built once per sector;
+    /// `None` for a sector the census does not route.
+    fn route_orbit(
+        &self,
+        presentation: PresentationId,
+        support: u64,
+    ) -> Result<Option<&Arc<OwnerOrbit>>, PError> {
+        let engine = self.engine;
         let Some(cell) = engine.route_orbits.get(&(presentation, support)) else {
             return Ok(None);
         };
         let orbit = cell
             .get_or_init(|| {
                 crate::prof!(OrbitInit);
+                if super::library::orbit_off_nodes()
+                    .contains(self.library.presentation(presentation).family.name())
+                {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
                 let Ok(Sector::Routed { class, map }) =
                     engine.sector(self.library, presentation, support)
                 else {
@@ -2514,9 +2677,7 @@ impl<'l> PStepper<'l> {
             })
             .as_ref()
             .map_err(Clone::clone)?;
-        Ok(orbit.least_image(powers, self.prefer_high, |image| {
-            shape.support(image) == support
-        }))
+        Ok(Some(orbit))
     }
 
     /// The verified automorphisms of the sector of `class`.
@@ -2537,6 +2698,9 @@ impl<'l> PStepper<'l> {
                     return self.presentation_orbit(slot.presentation).map(Arc::clone);
                 }
                 let source = self.library.presentation(slot.presentation);
+                if super::library::orbit_off_nodes().contains(source.family.name()) {
+                    return Ok(Arc::new(OwnerOrbit::default()));
+                }
                 if let Some(orbit) = self
                     .library
                     .saved_orbits()
@@ -2636,9 +2800,16 @@ impl<'l> PStepper<'l> {
         let Some(mut best_order) = order(powers) else {
             return Ok(None);
         };
+        // A boxed owner's key moves only onto an image in its certified key
+        // set (T266-STUDY 7.1: the least image of 334,249 moved keys lies
+        // outside it, where the table does not serve).
+        let certified = |image: &[i64]| match owner.program(self.library) {
+            Ok(OwnerProgram::Lane(lane)) => lane.certified_contains(image),
+            _ => None,
+        };
         let mut best: Option<(Vec<i64>, bool)> = None;
         for (image, negative) in images {
-            if shape.support(&image) != slot.support {
+            if shape.support(&image) != slot.support || certified(&image) == Some(false) {
                 continue;
             }
             let Some(image_order) = order(&image) else {
@@ -3407,6 +3578,26 @@ impl OrderedKernel for PKernel<'_, '_> {
         if let Some(budget) = self.stepper.library.program_budget() {
             budget.release_unheld();
         }
+        if self.stepper.canonical {
+            let (apply, apply_moved, route, route_moved) = canon_counts::report();
+            eprintln!(
+                "rustred orbit canonicalisation (process totals): apply {apply} computed / {apply_moved} moved, \
+                 route {route} computed / {route_moved} moved"
+            );
+        }
+        // stale memory: no step follows the forward pass of this request; its
+        // step caches go before the replay (T241: ~5 GiB at record end).
+        self.release_step_caches();
+    }
+
+    fn release_step_caches(&mut self) -> usize {
+        let memo = super::step_memo::counters()[6] as usize;
+        super::step_memo::release_thread_pools();
+        super::insertion::release_prepared();
+        super::custom::release_zero_certificate_cache();
+        canon_cache::release();
+        order_cache::release();
+        memo
     }
 
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), PError> {
@@ -4223,10 +4414,10 @@ mod tests {
         // does NOT prune carries the marker.
         let marker = ",P_PRUNE_ZERO_CHILDREN=off";
         for (route, high, suffix) in [
-            (true, true, ""),
-            (false, true, "-apply"),
-            (true, false, "-least"),
-            (false, false, "-apply-least"),
+            (true, true, "-sector-domain"),
+            (false, true, "-apply-domain"),
+            (true, false, "-least-sector-domain"),
+            (false, false, "-apply-least-domain"),
         ] {
             library.set_orbit_canonicalization(true);
             library.set_route_canonicalization(route);

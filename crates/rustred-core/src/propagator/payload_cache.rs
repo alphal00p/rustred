@@ -590,6 +590,10 @@ impl PLaneStep for PEvictableStep {
         self.program().ok()?.certified_keys()
     }
 
+    fn certified_contains(&self, powers: &[i64]) -> Option<bool> {
+        self.program().ok()?.certified_contains(powers)
+    }
+
     fn recipe_chain(
         &self,
         from: &[i64],

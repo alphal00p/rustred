@@ -1756,6 +1756,96 @@ fn scope_one_to_three_payloads_and_layer_fail_closed() {
 /// result (terms, conditions and path statistics) as without them, and to the
 /// same terms as with canonicalisation off. They are not in the identity; a
 /// verified load ignores them.
+/// Gate R-B1 (Astra): a package whose table is complete only with orbit
+/// canonicalisation names the node in `orbit_required_nodes` and binds the
+/// groups its table was pruned with in `orbit_required_digests`. In BOTH load
+/// modes: the right file loads; a missing digest, another digest, a
+/// wrong-scope file (the node's groups emptied, as in a file scoped to another
+/// node) and a physically missing file are refused; switching the node off
+/// is refused at request time.
+#[test]
+fn orbit_required_nodes_bind_the_pruning_groups_in_both_load_modes() {
+    use rustred::propagator::saved_orbits::PSavedOrbits;
+    use rustred_app::propagator::ordering::{write_orbits, write_routes};
+    let fast = PLibraryOptions {
+        verify_descent: false,
+    };
+    let verified_options = PLibraryOptions {
+        verify_descent: true,
+    };
+    let (_scratch, directory) = written(scope_two(), "orbit-required");
+    write_routes(&directory).unwrap();
+    write_orbits(&directory).unwrap();
+    let loaded = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+    let saved = loaded.saved_orbits().unwrap();
+    // a node with a nontrivial group on every one of its presentations
+    let mut families: BTreeMap<String, Vec<PresentationId>> = BTreeMap::new();
+    for p in loaded.presentations() {
+        families
+            .entry(p.family.name().to_owned())
+            .or_default()
+            .push(p.id);
+    }
+    let (node, presentations) = families
+        .into_iter()
+        .find(|(_, ps)| ps.iter().all(|p| saved.has_nontrivial_group(*p)))
+        .expect("a node with nontrivial groups");
+    let digest = saved.node_group_digest(&presentations);
+    let orbits = std::fs::read(directory.join("orbits.rrbin")).unwrap();
+    let wrong_scope = PSavedOrbits::decode(&orbits)
+        .unwrap()
+        .encode_scoped(|p| !presentations.contains(&p))
+        .unwrap();
+    let manifest_path = directory.join("library.json");
+    let original = std::fs::read(&manifest_path).unwrap();
+    let with = |digests: serde_json::Value| {
+        let mut manifest: serde_json::Value = serde_json::from_slice(&original).unwrap();
+        manifest["orbit_required_nodes"] = serde_json::json!([node]);
+        if !digests.is_null() {
+            manifest["orbit_required_digests"] = digests;
+        }
+        std::fs::write(
+            &manifest_path,
+            serde_json::to_vec_pretty(&manifest).unwrap(),
+        )
+        .unwrap();
+    };
+    let both = |expect_ok: bool, label: &str| {
+        for options in [&fast, &verified_options] {
+            let result = load_p_library(PLibrarySource::Directory(directory.clone()), options);
+            assert_eq!(
+                result.is_ok(),
+                expect_ok,
+                "{label} (verify_descent {}): {:?}",
+                options.verify_descent,
+                result.err()
+            );
+        }
+    };
+    // the right file and digest: loads in both modes
+    with(serde_json::json!({ node.clone(): digest.clone() }));
+    both(true, "right file and digest");
+    // the node switched off: refused at request time
+    let library = load_p_library(PLibrarySource::Directory(directory.clone()), &fast).unwrap();
+    library.set_orbit_canonicalization(false);
+    assert!(library.orbit_requirement_refusal().is_some());
+    // no digest, another digest: refused
+    with(serde_json::Value::Null);
+    both(false, "no digest");
+    with(serde_json::json!({ node.clone(): "blake3:00" }));
+    both(false, "another digest");
+    // a wrong-scope file (the node's groups emptied): refused
+    with(serde_json::json!({ node.clone(): digest.clone() }));
+    std::fs::write(directory.join("orbits.rrbin"), &wrong_scope).unwrap();
+    both(false, "wrong-scope file");
+    // a physically missing file (the manifest still names it): refused
+    std::fs::remove_file(directory.join("orbits.rrbin")).unwrap();
+    both(false, "missing file");
+    // restored: loads again
+    std::fs::write(directory.join("orbits.rrbin"), &orbits).unwrap();
+    both(true, "restored");
+}
+
 #[test]
 fn saved_orbits_restore_the_searched_groups_and_change_no_value() {
     use rustred_app::propagator::ordering::{write_orbits, write_routes};

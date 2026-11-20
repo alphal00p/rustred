@@ -150,6 +150,14 @@ pub(crate) trait OrderedKernel {
     /// by design (a target selection). A non-empty selection also enters the
     /// request directory, so a projected and a full run never share one.
     fn resume_selection(&self, _out: &mut Vec<u8>) {}
+    /// stale memory: drop the step caches of this thread (the step memo with
+    /// its coefficient table, prepared weights, zero certificates, canon /
+    /// order caches): value-neutral, rebuilt on use. The caller drops the
+    /// arithmetic's light-handle cache at the same time (the memo issued the
+    /// handles). Returns the memo coefficients dropped.
+    fn release_step_caches(&mut self) -> usize {
+        0
+    }
     /// Append the compact identity of `key` in a tail table (`false`, `out`
     /// unchanged: no compact form, nothing of the run is tabulated). The
     /// default is the step-cache encoding of the key's public view; adapters
@@ -659,6 +667,11 @@ pub(crate) trait OrderedWeights {
     /// fwd-opt: whether this arithmetic takes light children (one thread).
     fn takes_light(&self) -> bool {
         false
+    }
+    /// stale memory: forget the light-handle -> coefficient cache (with
+    /// [`OrderedKernel::release_step_caches`]); returns the entries dropped.
+    fn release_handles(&mut self) -> usize {
+        0
     }
     /// Store a new frontier entry from a nonzero contribution.
     fn insert(&mut self, contribution: Self::Contribution) -> Result<Self::Weight, ReductionError>;
@@ -1623,6 +1636,14 @@ pub fn commit_resume() -> usize {
     resume::commit()
 }
 
+/// R-B2: the storage stop (low-disk pause, failed checkpoint, trace or
+/// dictionary spill write / sync, refused resume) behind the last failed
+/// request of this process, cleared. A batch caller that gets `Some` must not
+/// record the request's error as its output: the request stays retryable.
+pub fn take_resume_storage_stop() -> Option<String> {
+    resume::take_storage_stop()
+}
+
 /// `RUSTRED_TEST_ORDERED_MODULAR=1` (or `sampled`) runs every exact Ordered
 /// unit test with cross-checked `ModularSampled` weights, and `polynomial`
 /// with cross-checked `ModularPolynomial` weights (univariate contexts only).
@@ -2044,11 +2065,20 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                         dir.display()
                     );
                     eprintln!("rustred resume: {message}");
+                    resume::storage_stop(&message);
                     return Err(modular::error(message).into());
                 }
             }
         }
-        Some(dir) => weights.resume_bind(&dir, None)?.then_some(dir),
+        // R-B2: binding the request directory without a state (a trace that
+        // cannot be set aside, an unwritable directory) is a storage stop too.
+        Some(dir) => weights
+            .resume_bind(&dir, None)
+            .map_err(|error| {
+                resume::storage_stop(&format!("resume refused for {}: {error}", dir.display()));
+                error
+            })?
+            .then_some(dir),
         None => None,
     };
     let mut last_save = std::time::Instant::now();
@@ -2441,6 +2471,60 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 }
             }
             progress.processed_keys = progress.processed_keys.saturating_add(1);
+            // A resumable save INSIDE a long phase (one thread, at a key
+            // boundary): written as the state after phase - 1, so a restore
+            // continues this phase from the remaining frontier (the pop order
+            // depends only on the frontier: the same sequence as without a stop).
+            // Low disk: save at this key boundary and PAUSE (stop), so a
+            // restart continues here instead of the spill failing mid-write.
+            let low_disk = resume_dir
+                .as_ref()
+                .is_some_and(|dir| progress.processed_keys % 4096 == 0 && resume::disk_low(dir));
+            if phase > 0
+                && let Some(dir) = &resume_dir
+                && steps.threads() <= 1
+                && (low_disk || resume::inphase_due(progress.processed_keys, &last_save))
+            {
+                match resume_save_parts(
+                    kernel,
+                    weights,
+                    nonzero_conditions,
+                    frontier,
+                    output,
+                    phase - 1,
+                )
+                .map_err(|e| checkpoint_failed(dir, phase, &e.to_string()))?
+                {
+                    Ok(bytes) => {
+                        resume::write_atomic(&dir.join("state.bin"), &bytes).map_err(|e| {
+                            checkpoint_failed(dir, phase, &format!("state write: {e}"))
+                        })?;
+                        eprintln!(
+                            "rustred resume: state saved INSIDE phase {phase} ({} bytes, {} keys processed): continues this phase",
+                            bytes.len(),
+                            progress.processed_keys
+                        );
+                        last_save = std::time::Instant::now();
+                        if low_disk {
+                            let message = format!(
+                                "paused: low disk under {} (state saved inside phase {phase}; restart to continue)",
+                                dir.display()
+                            );
+                            resume::storage_stop(&message);
+                            return Err(modular::error(message).into());
+                        }
+                        if resume::stop_inphase() {
+                            let message =
+                                "stopped after a save inside a phase (RUSTRED_RESUME_STOP_INPHASE)";
+                            resume::storage_stop(message);
+                            return Err(invariant(message).into());
+                        }
+                    }
+                    Err(reason) => {
+                        eprintln!("rustred resume: no state inside phase {phase} ({reason})")
+                    }
+                }
+            }
             progress.frontier_keys = frontier.len();
             progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
             progress.terminal_keys = output.len();
@@ -2463,13 +2547,24 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             tail.phase_finished(phase);
         }
         state.finish_phase(kernel, phase)?;
+        // stale memory (RUSTRED_PHASE_REFRESH=1, one thread): at a phase end
+        // drop the step caches and the light-handle cache together: exactly
+        // the state a process restarted from this phase's saved state starts
+        // with (T241: -5.7 GiB at phase 19, saved state byte-identical).
+        if phase_refresh() && steps.threads() <= 1 {
+            kernel.release_step_caches();
+            weights.release_handles();
+        }
         if let Some(dir) = &resume_dir {
             let stop = resume::stop_after_phase() == Some(phase);
             if stop || last_save.elapsed().as_secs_f64() >= resume::interval() {
-                match resume_save(kernel, weights, &state, phase) {
+                match resume_save(kernel, weights, &state, phase)
+                    .map_err(|e| checkpoint_failed(dir, phase, &e.to_string()))?
+                {
                     Ok(bytes) => {
-                        resume::write_atomic(&dir.join("state.bin"), &bytes)
-                            .map_err(|e| modular::error(format!("resume state write: {e}")))?;
+                        resume::write_atomic(&dir.join("state.bin"), &bytes).map_err(|e| {
+                            checkpoint_failed(dir, phase, &format!("state write: {e}"))
+                        })?;
                         eprintln!(
                             "rustred resume: state saved after phase {phase} ({} bytes)",
                             bytes.len()
@@ -2483,10 +2578,9 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     }
                 }
                 if stop {
-                    return Err(invariant(
-                        "stopped after a saved phase (RUSTRED_RESUME_STOP_AFTER_PHASE)",
-                    )
-                    .into());
+                    let message = "stopped after a saved phase (RUSTRED_RESUME_STOP_AFTER_PHASE)";
+                    resume::storage_stop(message);
+                    return Err(invariant(message).into());
                 }
             }
         }
@@ -2499,10 +2593,12 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         && let Some(last) = state.progress.total_phases.checked_sub(1)
         && saved_phase != Some(last)
     {
-        match resume_save(kernel, weights, &state, last) {
+        match resume_save(kernel, weights, &state, last)
+            .map_err(|e| checkpoint_failed(dir, last, &e.to_string()))?
+        {
             Ok(bytes) => {
                 resume::write_atomic(&dir.join("state.bin"), &bytes)
-                    .map_err(|e| modular::error(format!("resume state write: {e}")))?;
+                    .map_err(|e| checkpoint_failed(dir, last, &format!("state write: {e}")))?;
                 eprintln!(
                     "rustred resume: final state saved after phase {last} ({} bytes): kept until the replay ends",
                     bytes.len()
@@ -2594,30 +2690,75 @@ pub(crate) fn modular_channels_take_out() -> Option<Vec<BTreeMap<IntegralKey, Co
     modular::channels::take_out()
 }
 
+/// stale memory: `RUSTRED_PHASE_REFRESH=1` (see the phase loop).
+fn phase_refresh() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RUSTRED_PHASE_REFRESH").as_deref() == Ok("1"))
+}
+
+/// R-B2: a checkpoint (trace prefix or state) could not be written or
+/// synced: a hard error naming the request directory, raised before another
+/// key is dispatched or a pause is claimed. The previous `state.bin` and the
+/// trace prefix it covers are untouched (a longer `ops.bin` is cut back to
+/// the saved count on resume).
+fn checkpoint_failed(dir: &std::path::Path, phase: usize, detail: &str) -> ReductionError {
+    let message = format!(
+        "resume checkpoint in phase {phase} failed under {}: {detail} (the previous state and its trace prefix are \
+         kept; restart to continue from them)",
+        dir.display()
+    );
+    eprintln!("rustred resume: {message}");
+    resume::storage_stop(&message);
+    modular::error(message)
+}
+
 /// vk5l-physrun: the saved scheduler state after `phase` (see `resume`).
 fn resume_save<K: OrderedKernel, A: OrderedWeights>(
     kernel: &K,
     weights: &mut A,
     state: &Admitted<K, A>,
     phase: usize,
-) -> Result<Vec<u8>, String> {
+) -> Result<Result<Vec<u8>, String>, ReductionError> {
+    resume_save_parts(
+        kernel,
+        weights,
+        &state.nonzero_conditions,
+        &state.frontier,
+        &state.output,
+        phase,
+    )
+}
+
+/// The saved state from its parts (`phase`: the last COMPLETED phase; a
+/// save inside phase `p` is written as after `p - 1`, see the phase loop).
+/// R-B2: `Ok(Err(reason))`: this state cannot be saved (no state, the run
+/// continues); `Err`: writing or syncing the trace prefix it covers failed
+/// (a hard error: the previous state and its prefix stay usable).
+fn resume_save_parts<K: OrderedKernel, A: OrderedWeights>(
+    kernel: &K,
+    weights: &mut A,
+    nonzero_conditions: &[Coefficient],
+    frontier: &FrontierOf<K, A>,
+    output: &BTreeMap<IntegralKey, A::Weight>,
+    phase: usize,
+) -> Result<Result<Vec<u8>, String>, ReductionError> {
     let mut w = step_cache::codec::Writer { bytes: Vec::new() };
     w.raw(resume::STATE_FORMAT.as_bytes());
     w.varint(phase as u64);
-    weights.resume_save(&mut w).map_err(|e| e.to_string())?;
-    w.len(state.nonzero_conditions.len());
-    for condition in &state.nonzero_conditions {
+    weights.resume_save(&mut w)?;
+    w.len(nonzero_conditions.len());
+    for condition in nonzero_conditions {
         resume::put_coefficient(&mut w, condition);
     }
     // 4A: pending keys in the order of their compact form, so that the state
     // file is a function of the request and the phase only, not of the
     // frontier layout or hasher (which differ between one thread and the
     // pipelined scheduler). The restore re-admits them in any order.
-    let mut entries = Vec::with_capacity(state.frontier.iter().count());
-    for (scheduled, weight) in state.frontier.iter() {
+    let mut entries = Vec::with_capacity(frontier.iter().count());
+    for (scheduled, weight) in frontier.iter() {
         let mut bytes = Vec::new();
         if !K::tail_encode(&scheduled.key, &mut bytes) || kernel.tail_key(&bytes).is_none() {
-            return Err("a pending key has no decodable compact form".to_owned());
+            return Ok(Err("a pending key has no decodable compact form".to_owned()));
         }
         entries.push((bytes, weight));
     }
@@ -2628,8 +2769,8 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
         w.raw(&bytes);
         weights.resume_put_weight(weight, &mut w);
     }
-    w.len(state.output.len());
-    for (key, weight) in &state.output {
+    w.len(output.len());
+    for (key, weight) in output {
         w.len(key.powers().len());
         for &power in key.powers() {
             w.zigzag(power);
@@ -2643,7 +2784,7 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
     // and the identity), verified before anything of the file is used.
     let own = blake3::hash(&w.bytes);
     w.raw(own.as_bytes());
-    Ok(w.bytes)
+    Ok(Ok(w.bytes))
 }
 
 /// 12d2: BLAKE3 of the kernel's resume identity (the state trailer).

@@ -66,6 +66,84 @@ pub struct PSavedOrbits {
     orbits: BTreeMap<(PresentationId, u64), SavedOrbit>,
 }
 
+impl PSavedOrbits {
+    /// Whether some sector of `presentation` has a saved group acting
+    /// nontrivially: at least one element that is neither the identity nor
+    /// its negative (both fix every key). A two-element group {1, swap} (P1L:
+    /// `[[1,-1],[0,-1]]`) counts; a record with an EMPTY group, e.g. in a file
+    /// scoped to another node, or {1, -1} does not (gate R-B FINAL, Astra).
+    pub fn has_nontrivial_group(&self, presentation: PresentationId) -> bool {
+        self.orbits
+            .range((presentation, 0)..=(presentation, u64::MAX))
+            .any(|(_, saved)| {
+                saved
+                    .group
+                    .iter()
+                    .any(|t| !is_plus_minus_identity(t, saved.n))
+            })
+    }
+
+    /// This file re-encoded with EMPTY groups for every presentation `keep`
+    /// rejects (a node-scoped orbit file: the other presentations keep a
+    /// record, so they are not searched at run time).
+    pub fn encode_scoped(&self, keep: impl Fn(PresentationId) -> bool) -> Result<Vec<u8>, PError> {
+        let entries = self
+            .orbits
+            .iter()
+            .map(|((presentation, support), saved)| {
+                Ok(OrbitEntry {
+                    presentation: presentation.0,
+                    support: *support,
+                    fingerprint: saved.fingerprint,
+                    candidates: u32::try_from(saved.candidates).map_err(malformed)?,
+                    verified: u32::try_from(saved.verified).map_err(malformed)?,
+                    n: u8::try_from(saved.n).map_err(malformed)?,
+                    group: if keep(*presentation) {
+                        saved.group.clone()
+                    } else {
+                        vec![]
+                    },
+                })
+            })
+            .collect::<Result<Vec<_>, PError>>()?;
+        let file = OrbitsFile {
+            schema: P_SAVED_ORBITS_SCHEMA.to_owned(),
+            canon_version: super::P_ORBIT_CANON_VERSION,
+            entries,
+        };
+        bincode::encode_to_vec(&file, bincode::config::standard()).map_err(malformed)
+    }
+
+    /// The digest binding a package's orbit-required node to the groups its
+    /// table was pruned with (library.json `orbit_required_digests`):
+    /// `blake3:<hex>` over every saved record of `presentations` in
+    /// (presentation, support) order: presentation, support, fingerprint, n
+    /// and the group's matrices in sorted order (little-endian integers).
+    pub fn node_group_digest(&self, presentations: &[PresentationId]) -> String {
+        let mut hasher = blake3::Hasher::new();
+        let mut ids: Vec<PresentationId> = presentations.to_vec();
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            for ((presentation, support), saved) in self.orbits.range((id, 0)..=(id, u64::MAX)) {
+                hasher.update(&presentation.0.to_le_bytes());
+                hasher.update(&support.to_le_bytes());
+                hasher.update(&saved.fingerprint.to_le_bytes());
+                hasher.update(&(saved.n as u64).to_le_bytes());
+                let mut group = saved.group.clone();
+                group.sort();
+                hasher.update(&(group.len() as u64).to_le_bytes());
+                for element in &group {
+                    for entry in element {
+                        hasher.update(&entry.to_le_bytes());
+                    }
+                }
+            }
+        }
+        format!("blake3:{}", hasher.finalize().to_hex())
+    }
+}
+
 impl std::fmt::Debug for PSavedOrbits {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "PSavedOrbits({} sectors)", self.orbits.len())
@@ -293,4 +371,50 @@ pub fn export_saved_orbits(library: &PLibrary) -> Result<(Vec<u8>, usize, usize)
     };
     let bytes = bincode::encode_to_vec(&file, bincode::config::standard()).map_err(malformed)?;
     Ok((bytes, saved, nontrivial))
+}
+
+/// Whether `t` (`n x n` row-major) is the identity or its negative.
+fn is_plus_minus_identity(t: &[i64], n: usize) -> bool {
+    if t.len() != n * n {
+        return false;
+    }
+    let diagonal =
+        |sign: i64| (0..n * n).all(|entry| t[entry] == if entry % (n + 1) == 0 { sign } else { 0 });
+    diagonal(1) || diagonal(-1)
+}
+
+#[cfg(test)]
+mod nontrivial_tests {
+    use super::*;
+
+    fn saved(group: Vec<Vec<i64>>) -> PSavedOrbits {
+        let mut orbits = BTreeMap::new();
+        orbits.insert(
+            (PresentationId(0), 3),
+            SavedOrbit {
+                fingerprint: 0,
+                candidates: 1,
+                verified: 1,
+                n: 2,
+                group,
+            },
+        );
+        PSavedOrbits { orbits }
+    }
+
+    /// Gate R-B FINAL (Astra, P1L): {1, swap} is nontrivial; {}, {1}, {1, -1}
+    /// are not; T266-like larger groups are.
+    #[test]
+    fn a_two_element_swap_group_is_nontrivial() {
+        let one = vec![1, 0, 0, 1];
+        let minus = vec![-1, 0, 0, -1];
+        let swap = vec![1, -1, 0, -1];
+        let p = PresentationId(0);
+        assert!(saved(vec![one.clone(), swap.clone()]).has_nontrivial_group(p));
+        assert!(!saved(vec![]).has_nontrivial_group(p));
+        assert!(!saved(vec![one.clone()]).has_nontrivial_group(p));
+        assert!(!saved(vec![one.clone(), minus.clone()]).has_nontrivial_group(p));
+        assert!(saved(vec![one, minus, swap.clone(), vec![-1, 1, 0, 1]]).has_nontrivial_group(p));
+        assert!(!saved(vec![swap]).has_nontrivial_group(PresentationId(1)));
+    }
 }

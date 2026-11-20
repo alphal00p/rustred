@@ -57,6 +57,14 @@ pub trait PLaneStep: Send + Sync {
         None
     }
 
+    /// Orbit canonicalisation of a boxed owner (T162 / T178 / T266): whether
+    /// `powers` is in its domain (its certified key set, else its box);
+    /// `None` for an owner that is not boxed. A boxed owner's key is only
+    /// moved onto an image in its domain.
+    fn certified_contains(&self, _powers: &[i64]) -> Option<bool> {
+        None
+    }
+
     /// vk5l WP2: one rule chain of a boxed Custom owner from `from` to `to`
     /// (owner keys) through its rules and the recipe relations solved so far,
     /// at most `budget` keys expanded (`None`: not found, or no such owner).

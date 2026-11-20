@@ -1,6 +1,8 @@
 //! p5l-library: the first scope 1-5 p library from imported 5L tables, and its
 //! acceptance checks.
 //!
+//! Exit 6 (every subcommand that loads a package): the package was refused at load; the reason is on stderr.
+//!
 //! ```text
 //! p5l_library coverage <families.json> <max_loops>
 //!     TSV per top of <max_loops> loops: the DAG nodes with a Custom action in its descent.
@@ -28,6 +30,8 @@
 //!     (each one request, as reduce-file), one shared step cache (P_STEP_CACHE=<dir>: opened, populated and saved after each
 //!     chunk; unset = in memory). A chunk's output is written when it finishes (`.tmp` then renamed); a refusal is written as
 //!     `error: ...` into its output and the loop continues. Chunks whose output exists are skipped (restartable).
+//!     A storage stop (low-disk pause, failed checkpoint / trace / dictionary spill write or sync, refused resume) is
+//!     not a refusal: the chunk's output is NOT written (it stays retryable) and the process exits 3.
 //! p5l_library check <package dir> <top name> <dots> <rank> <ibp seeds> <laporta dots> <laporta rank>
 //!     the cell numerator of the benchmark grid (rank r = dot(k1,p) dot(k2,p) dot(k1,k3) ...) times the top at
 //!     powers 1 (first line 1 + dots): (A) the library reduction; (B) its top-sector part against a RustRed
@@ -108,6 +112,39 @@ fn main() {
         Some("reduce") => reduce_cli(&args[2..]),
         Some("reduce-file") => reduce_file_cli(&args[2..]),
         Some("reduce-files") => reduce_files_cli(&args[2..]),
+        // gate R-B1: p5l_library orbit-digest <package dir> <node>: the value of
+        // library.json orbit_required_digests[<node>] for the package's
+        // orbits.rrbin (and whether each presentation of the node has a
+        // nontrivial group there)
+        Some("orbit-digest") => {
+            let dir = std::path::Path::new(&args[2]);
+            let node = &args[3];
+            let manifest: rustred_app::propagator::format::LibraryManifest =
+                serde_json::from_slice(&std::fs::read(dir.join("library.json")).unwrap()).unwrap();
+            let presentations: Vec<PresentationId> = manifest
+                .presentations
+                .iter()
+                .filter(|p| {
+                    std::path::Path::new(&p.family)
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        == Some(node.as_str())
+                })
+                .map(|p| PresentationId(p.index))
+                .collect();
+            let saved = rustred::propagator::saved_orbits::PSavedOrbits::decode(
+                &std::fs::read(dir.join("orbits.rrbin")).unwrap(),
+            )
+            .unwrap();
+            for p in &presentations {
+                eprintln!(
+                    "presentation {} of {node}: nontrivial group {}",
+                    p.0,
+                    saved.has_nontrivial_group(*p)
+                );
+            }
+            println!("{}", saved.node_group_digest(&presentations));
+        }
         Some("encoding") => encoding(&args[2..]),
         // vk5l WP6: p5l_library seed-fingerprints <package dir> <out.json>
         Some("seed-fingerprints") => {
@@ -608,6 +645,7 @@ fn reduce_files_cli(args: &[String]) {
         let started = Instant::now();
         let inputs = read_inputs(context, input);
         let n = inputs.len();
+        let _ = rustred::reduction::take_resume_storage_stop();
         let arithmetic = match mode.as_str() {
             "modular" | "polynomial" => modular_polynomial(threads),
             "sampled" => modular_sampled(threads),
@@ -629,7 +667,18 @@ fn reduce_files_cli(args: &[String]) {
         });
         let text = match &result {
             Ok(reduction) => format_reduction(&library, reduction),
-            Err(error) => format!("error: {error}\n"),
+            Err(error) => {
+                // R-B2: a storage stop is not this chunk's result: no output
+                // (the chunk is re-run by the next launch), status 3
+                if let Some(stop) = rustred::reduction::take_resume_storage_stop() {
+                    eprintln!(
+                        "reduce-files: chunk {input} stopped ({stop}): error: {error}; output {output} NOT written \
+                         (retryable)"
+                    );
+                    std::process::exit(3);
+                }
+                format!("error: {error}\n")
+            }
         };
         // 12d2: write, fsync, rename, fsync of the directory; on ANY failure the
         // resume files stay (no commit) and the process exits non-zero.
@@ -858,13 +907,21 @@ fn reduce_file_cli(args: &[String]) {
 
 fn load(dir: &str, verify: bool) -> (Arc<PLibrary>, f64) {
     let started = Instant::now();
-    let library = load_p_library(
+    let library = match load_p_library(
         PLibrarySource::Directory(PathBuf::from(dir)),
         &PLibraryOptions {
             verify_descent: verify,
         },
-    )
-    .unwrap();
+    ) {
+        Ok(library) => library,
+        // A refused package (malformed, version mismatch, a required orbit
+        // file absent or of another scope, ...) is an ordinary error, not a
+        // crash: message on stderr, exit 6 (gate R-B FINAL 2, lane t266).
+        Err(error) => {
+            eprintln!("error: the package {dir} was refused at load: {error}");
+            std::process::exit(6);
+        }
+    };
     let seconds = started.elapsed().as_secs_f64();
     eprintln!(
         "load {dir} verify {verify}: {seconds:.2} s {} ({} presentations, {} owners, {} terminals)",

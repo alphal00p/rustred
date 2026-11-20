@@ -80,8 +80,10 @@ pub const OUTSIDE_POLICY_ENV: &str = "RUSTRED_P_OUTSIDE_CERTIFIED";
 pub const OUTSIDE_MAX_TRACE_ROWS_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_TRACE_ROWS";
 /// At most this many recipe families are tried at one outside key.
 pub const OUTSIDE_MAX_RECIPES_ENV: &str = "RUSTRED_P_OUTSIDE_MAX_RECIPES";
-/// `off` / `0`: take the first relation an outside solve finds, even with a
-/// (d-4) pole; default on (user ruling 2026-11-14: prefer regular at d = 4).
+/// `on` / `1`: keep searching past a solved relation with a (d-4) pole for a
+/// regular one. Default OFF (LANE_RULES rule 21, user 2026-11-19: d = 4
+/// regularity is the last tie-break only; results stay exact in d): the first
+/// solved relation is taken.
 pub const PREFER_REGULAR_ENV: &str = "RUSTRED_P_PREFER_REGULAR_D4";
 /// Defaults of the two caps.
 pub const OUTSIDE_MAX_TRACE_ROWS: usize = 200_000;
@@ -164,8 +166,9 @@ pub struct POutsideSettings {
     pub max_recipes: usize,
     /// Trace-row cap of one solve.
     pub max_trace_rows: usize,
-    /// Prefer a relation regular at d = 4 (default on): a relation with a
-    /// (d-4) pole is kept as fallback while the next families are tried.
+    /// Prefer a relation regular at d = 4 (default OFF, rule 21): when on, a
+    /// relation with a (d-4) pole is kept as fallback while the next families
+    /// are tried.
     pub prefer_regular_at_4: bool,
     /// `None` (default, "unbounded"): a regular relation ALWAYS wins, whatever
     /// its size. `Some((p, q))`: a regular relation wins over a pole relation
@@ -196,7 +199,7 @@ impl Default for POutsideSettings {
         Self {
             max_recipes: OUTSIDE_MAX_RECIPES,
             max_trace_rows: OUTSIDE_MAX_TRACE_ROWS,
-            prefer_regular_at_4: true,
+            prefer_regular_at_4: false,
             max_size_ratio: None,
             rules_outside: true,
             max_seconds_per_solve: Some(OUTSIDE_MAX_SECONDS_PER_SOLVE),
@@ -268,9 +271,9 @@ pub fn outside_settings_of(node: &str) -> POutsideSettings {
             .and_then(|value| value.trim().parse().ok())
             .unwrap_or(OUTSIDE_MAX_RECIPES),
         max_trace_rows: env_cap(OUTSIDE_MAX_TRACE_ROWS_ENV, OUTSIDE_MAX_TRACE_ROWS),
-        prefer_regular_at_4: !matches!(
+        prefer_regular_at_4: matches!(
             std::env::var(PREFER_REGULAR_ENV).as_deref().map(str::trim),
-            Ok("0" | "off" | "no" | "false")
+            Ok("1" | "on" | "yes" | "true")
         ),
         max_size_ratio: std::env::var(OUTSIDE_MAX_SIZE_RATIO_ENV)
             .ok()
@@ -3400,10 +3403,11 @@ mod kite_tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The d = 4 preference (user ruling, on by default): when the first
-    /// family's relation has a (d-4) pole and a later family's is regular,
-    /// the regular one is taken; the numerator-centred depth-2 family is
-    /// built (and tried first) for a key with a negative numerator slot.
+    /// The d = 4 preference (opt-in since rule 21): when asked for and the
+    /// first family's relation has a (d-4) pole while a later family's is
+    /// regular, the regular one is taken; without it the first solved
+    /// relation is taken. The numerator-centred depth-2 family is built (and
+    /// tried first) for a key with a negative numerator slot.
     #[test]
     fn outside_solves_prefer_a_relation_regular_at_d_4_and_try_the_numerator_family() {
         let node = "KITE-out-d4";
@@ -3428,15 +3432,29 @@ mod kite_tests {
             record("kite/d1", &[dot(1)], &["S0", "S1"]),
         ];
         let imported = import(node, &[dot(0), dot(1)], Some(records)).unwrap();
-        let (solved, id) = crate::propagator::custom::custom_payload_solve_outside(
-            &imported.presentation,
-            &imported.payload,
-            &imported.meta,
-            &presented(three),
-        )
-        .unwrap()
-        .expect("a relation");
-        assert_eq!(id, "kite/d1", "the regular relation wins");
+        let solve = || {
+            crate::propagator::custom::custom_payload_solve_outside(
+                &imported.presentation,
+                &imported.payload,
+                &imported.meta,
+                &presented(three),
+            )
+            .unwrap()
+            .expect("a relation")
+        };
+        // default (rule 21): the first solved relation, with its (d-4) pole
+        let (first, id) = solve();
+        assert_eq!(id, "kite/d0", "no d = 4 preference by default");
+        assert_eq!(first.pole_order_at_4, Some(2));
+        set_outside_settings_for(
+            node,
+            POutsideSettings {
+                prefer_regular_at_4: true,
+                ..POutsideSettings::default()
+            },
+        );
+        let (solved, id) = solve();
+        assert_eq!(id, "kite/d1", "asked for: the regular relation wins");
         assert_eq!(solved.pole_order_at_4, Some(0));
         // the numerator family: a key with a negative slot (another chart: no record family)
         let numerator = [2, 1, 1, 1, -1];
@@ -3487,6 +3505,9 @@ mod kite_tests {
                 node,
                 POutsideSettings {
                     max_size_ratio: ratio,
+                    // the size ratio applies to the opt-in d = 4 preference
+                    // (rule 21: not the default)
+                    prefer_regular_at_4: true,
                     ..POutsideSettings::default()
                 },
             );

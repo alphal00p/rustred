@@ -63,6 +63,62 @@ pub(crate) fn memo_entries() -> usize {
     })
 }
 
+/// Insertion steps with more child weights (numerator-table monomials) than
+/// `RUSTRED_P_STEP_MEMO_MAX_CHILDREN` (default 512) are admitted to the memo
+/// only on their SECOND occurrence ([`admit_large`]): in T277's phase-15
+/// stretch every such step was new and never hit again (+5.7 M kept
+/// coefficients per ~200 s, 141 GiB), while in ordinary phases large steps
+/// are reused (refusing them outright doubled the record time on the T277
+/// phase-14 copy, 1,174 s vs 582 s for the same op window).
+pub(crate) fn max_children() -> usize {
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("RUSTRED_P_STEP_MEMO_MAX_CHILDREN")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(512)
+    })
+}
+
+/// Doorkeeper of the large Insertion steps: true when the step `key` was
+/// seen before (admit it to the memo now), false on its first occurrence
+/// (compute it directly and remember its 64-bit hash). The set of hashes is
+/// cleared when it reaches 2^22 entries (~64 MB), so a step must recur within
+/// that window to be admitted. Values never depend on it (memo on and off
+/// give identical results); it only changes which steps the memo holds.
+pub(crate) fn admit_large(key: &[i64]) -> bool {
+    use std::hash::{Hash, Hasher};
+    // RUSTRED_P_STEP_MEMO_LARGE=never: large steps are never memoised (the
+    // plain bound: T277's phase-15 stretch stayed <= 34 GiB through 4.92 G
+    // ops, at 2x the record time in ordinary phases); default 'second'.
+    static NEVER: OnceLock<bool> = OnceLock::new();
+    if *NEVER.get_or_init(|| {
+        std::env::var("RUSTRED_P_STEP_MEMO_LARGE")
+            .as_deref()
+            .map(str::trim)
+            == Ok("never")
+    }) {
+        return false;
+    }
+    static SEEN: std::sync::Mutex<Option<std::collections::HashSet<u64>>> =
+        std::sync::Mutex::new(None);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    let hash = hasher.finish();
+    let Ok(mut seen) = SEEN.lock() else {
+        return false;
+    };
+    let seen = seen.get_or_insert_with(Default::default);
+    if seen.contains(&hash) {
+        return true;
+    }
+    if seen.len() >= 1 << 22 {
+        seen.clear();
+    }
+    seen.insert(hash);
+    false
+}
+
 /// What `RUSTRED_P_STEP_MEMO` asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoMode {

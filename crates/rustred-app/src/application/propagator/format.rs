@@ -684,6 +684,22 @@ pub struct LibraryManifest {
     /// refuses a package that has one (unknown field): fail closed.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub open_nodes: Vec<OpenNodeRecord>,
+    /// Nodes (owner presentations' family names) whose tables are complete
+    /// only with orbit canonicalisation on (T266-STUDY 7.1: records serving
+    /// only keys with a lower certified image were dropped). The load refuses
+    /// the package without `orbits.rrbin` or without a saved group for one of
+    /// their presentations; a request with canonicalisation off for them is
+    /// refused. Absent = none; an older binary refuses a package that has it
+    /// (unknown field): fail closed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub orbit_required_nodes: Vec<String>,
+    /// For every node of `orbit_required_nodes`: the digest of the saved
+    /// groups its table was pruned with (`PSavedOrbits::node_group_digest`,
+    /// `blake3:<hex>`). Required for each such node: a package whose
+    /// orbits.rrbin carries other groups for the node (another scope, another
+    /// search) is refused at load, in both load modes.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub orbit_required_digests: BTreeMap<String, String>,
 }
 
 /// vk5l WP6: the version of [`OpenNodeRecord`]; a record of another version

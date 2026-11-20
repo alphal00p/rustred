@@ -889,6 +889,7 @@ pub fn load_p_library(
     let families = load_families(&files, &manifest)?;
     let presentations = load_presentations(&manifest, &families)?;
     check_tops(&presentations, &families_file, &context)?;
+    check_orbit_requirement(&files, &manifest, &presentations)?;
 
     // DAG and census.
     if manifest.files.topology != TOPOLOGY_FILE {
@@ -1105,6 +1106,14 @@ pub fn load_p_library(
     if manifest.files.orbits.is_some() && options.verify_descent {
         library.set_orbit_canonicalization(rustred::propagator::P_ORBIT_CANON_WITH_SAVED_ORBITS);
     }
+    // T266-STUDY 7.1: the requirement itself (file, groups, digest) is checked
+    // before the build (check_orbit_requirement); here the request-time refusal.
+    if !manifest.orbit_required_nodes.is_empty() {
+        library.set_orbit_required_nodes(manifest.orbit_required_nodes.clone());
+        if let Some(refusal) = library.orbit_requirement_refusal() {
+            return Err(malformed(refusal.to_string()));
+        }
+    }
 
     if library.identity() != manifest.identity {
         return Err(malformed(format!(
@@ -1143,4 +1152,77 @@ pub fn load_p_library(
         library.set_source(directory.display().to_string());
     }
     Ok(Arc::new(library))
+}
+
+/// Gate R-B1: a package whose tables are complete only with orbit
+/// canonicalisation (`orbit_required_nodes`) must carry, in BOTH load modes,
+/// a readable orbits.rrbin with a nontrivial group on every presentation of
+/// each such node, bound by `orbit_required_digests` to the groups the table
+/// was pruned with. Checked before the build, so a refusal costs no
+/// descent verification.
+fn check_orbit_requirement(
+    files: &Files<'_>,
+    manifest: &LibraryManifest,
+    presentations: &[Presentation],
+) -> Result<(), PError> {
+    if manifest.orbit_required_nodes.is_empty() {
+        return Ok(());
+    }
+    let nodes = manifest.orbit_required_nodes.join(", ");
+    if manifest.files.orbits.is_none() {
+        return Err(malformed(format!(
+            "{LIBRARY_FILE}: the tables of {nodes} are complete only with orbit canonicalisation, \
+                 and the package has no {ORBITS_FILE}"
+        )));
+    }
+    // In BOTH load modes (gate R-B1, Astra): the file must exist and be
+    // read here even when the verified load searches its own groups, and
+    // it must carry, for every required node, a NONTRIVIAL group on each
+    // of its presentations whose digest is the one the package records
+    // (the groups the table was pruned with).
+    let saved = PSavedOrbits::decode(&files.read(ORBITS_FILE).map_err(|e| {
+        malformed(format!(
+            "{LIBRARY_FILE}: the tables of {nodes} are complete only with orbit canonicalisation, \
+                 and {ORBITS_FILE} cannot be read: {e}"
+        ))
+    })?)?;
+    for node in &manifest.orbit_required_nodes {
+        let presentations: Vec<_> = presentations
+            .iter()
+            .filter(|p| p.family.name() == node.as_str())
+            .map(|p| p.id)
+            .collect();
+        if presentations.is_empty() {
+            return Err(malformed(format!(
+                "{LIBRARY_FILE}: orbit_required_nodes names {node}, which has no presentation"
+            )));
+        }
+        if let Some(p) = presentations
+            .iter()
+            .find(|p| !saved.has_nontrivial_group(**p))
+        {
+            return Err(malformed(format!(
+                "{ORBITS_FILE} has no nontrivial group for presentation {} of {node}, whose table \
+                     is complete only with orbit canonicalisation",
+                p.0
+            )));
+        }
+        let found = saved.node_group_digest(&presentations);
+        match manifest.orbit_required_digests.get(node) {
+            None => {
+                return Err(malformed(format!(
+                    "{LIBRARY_FILE}: orbit_required_digests has no digest for {node} \
+                         (the groups of {ORBITS_FILE} for it are {found})"
+                )));
+            }
+            Some(expected) if *expected != found => {
+                return Err(malformed(format!(
+                    "{ORBITS_FILE} carries other groups for {node} than its table was pruned with: \
+                         {found}, the package records {expected}"
+                )));
+            }
+            Some(_) => {}
+        }
+    }
+    Ok(())
 }
