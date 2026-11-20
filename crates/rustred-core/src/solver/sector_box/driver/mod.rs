@@ -502,7 +502,22 @@ impl<const N: usize> BoxLaportaSession<N> {
         loop {
             rounds += 1;
             self.seed_round(&format!("round{rounds}"), (0, 0, 0))?;
+            let progress = std::env::var_os("RUSTRED_SB_PROGRESS").is_some();
+            if progress {
+                eprintln!(
+                    "[sector-box] extend round {rounds}: seeded, rows {} after {:.1} s",
+                    self.stats.rows,
+                    started.elapsed().as_secs_f64()
+                );
+            }
             selection = self.select()?;
+            if progress {
+                eprintln!(
+                    "[sector-box] extend round {rounds}: selected, {} masters after {:.1} s",
+                    selection.masters.len(),
+                    started.elapsed().as_secs_f64()
+                );
+            }
             let reports = self.sector_reports(&selection.masters)?;
             for report in reports.iter().filter(|_| monitored) {
                 if let Some(lp) = report.lp

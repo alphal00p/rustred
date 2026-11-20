@@ -32,7 +32,7 @@ use rustred::sector::CutConstraint;
 use rustred::solver::SolverError;
 use rustred::solver::sector_box::{
     BoxLaportaSession, BoxLimits, BoxOptions, CensusRouter, ColumnOrder, FfOptions, IdentityRouter,
-    MasterCheckMode, ModularReport, SectorRouter, Seeding, SlotPriority, TubeOptions,
+    MasterCheckMode, ModularReport, Route, SectorRouter, Seeding, SlotPriority, TubeOptions,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -94,6 +94,19 @@ pub struct SectorBoxReduceSpec {
     /// only when non-empty, so specs without it keep their checkpoint key.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub derivative_slots: Vec<usize>,
+    /// Cut lines (reverse unitarity): every sector that lacks one of them is
+    /// zero, so only the 2^(n-k) sectors containing all k cut lines are
+    /// seeded and reduced. Requires `router = "identity"` (a symmetry map need
+    /// not preserve the cut set).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut_lines: Vec<usize>,
+    /// Generator line sets (cluster quotients): a sector is non-zero iff it
+    /// contains ALL lines of AT LEAST ONE generator. The non-zero sectors are
+    /// the union of the up-closures of the generators, an upward-closed set,
+    /// so the quotient is consistent. `cut_lines` is the case of one
+    /// generator; the two fields are exclusive. Requires `router = "identity"`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cut_generators: Vec<Vec<usize>>,
     /// Maximal closure rounds after the first modular phase (default 8); an
     /// unclosed demand after them is an error.
     #[serde(default)]
@@ -392,6 +405,57 @@ pub fn sector_box_reduce(spec: &SectorBoxReduceSpec) -> Result<SectorBoxReduceOu
     dispatch!(3, 5, 6, 9, 10, 14, 15, 20)
 }
 
+/// Identity routing restricted to a cut quotient: a sector is non-zero iff it
+/// contains every line of at least one generator (one generator = the
+/// `cut_lines` cut); every non-zero sector is its own representative.
+struct CutRouter {
+    inner: Arc<IdentityRouter>,
+    generators: Vec<u64>,
+    fingerprint: [u8; 32],
+}
+
+impl CutRouter {
+    fn keeps(&self, bits: u64) -> bool {
+        self.generators.iter().any(|&g| g & !bits == 0)
+    }
+}
+
+impl<const N: usize> SectorRouter<N> for CutRouter {
+    fn representative(&self, sector: &[bool; N]) -> Option<[bool; N]> {
+        let bits: u64 = (0..N)
+            .filter(|&slot| sector[slot])
+            .map(|slot| 1u64 << slot)
+            .sum();
+        if !self.keeps(bits) {
+            return None;
+        }
+        <IdentityRouter as SectorRouter<N>>::representative(&self.inner, sector)
+    }
+
+    fn route(&self, n: &[i16; N]) -> Result<Route<N>, SolverError> {
+        let bits: u64 = (0..N)
+            .filter(|&slot| n[slot] > 0)
+            .map(|slot| 1u64 << slot)
+            .sum();
+        if !self.keeps(bits) {
+            return Ok(Vec::new());
+        }
+        <IdentityRouter as SectorRouter<N>>::route(&self.inner, n)
+    }
+
+    fn automorphism_rows(&self, _n: &[i16; N]) -> Result<Vec<Route<N>>, SolverError> {
+        Ok(Vec::new())
+    }
+
+    fn fingerprint(&self) -> [u8; 32] {
+        self.fingerprint
+    }
+
+    fn is_identity(&self) -> bool {
+        true
+    }
+}
+
 struct Report {
     fields: serde_json::Map<String, Value>,
     path: PathBuf,
@@ -653,6 +717,12 @@ fn run_phases<const N: usize>(
 
     // Router.
     let clock = Instant::now();
+    if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+        eprintln!(
+            "[sector-box] router {:?}: start",
+            spec.router.as_deref().unwrap_or("census-top")
+        );
+    }
     let census_mask: [bool; N] = std::array::from_fn(|slot| top >> slot & 1 == 1);
     let router: Arc<dyn SectorRouter<N>> = match spec.router.as_deref() {
         None | Some("census-top") => Arc::new(
@@ -664,6 +734,77 @@ fn run_phases<const N: usize>(
         Some("identity") => IdentityRouter::shared(&family).map_err(engine("router"))?,
         Some(other) => return Err(AppError::input(format!("unknown router {other:?}"))),
     };
+    if !spec.cut_lines.is_empty() && !spec.cut_generators.is_empty() {
+        return Err(AppError::input(
+            "cut_lines and cut_generators are exclusive",
+        ));
+    }
+    let generator_lists: Vec<Vec<usize>> = if spec.cut_lines.is_empty() {
+        spec.cut_generators.clone()
+    } else {
+        vec![spec.cut_lines.clone()]
+    };
+    let router: Arc<dyn SectorRouter<N>> = if generator_lists.is_empty() {
+        router
+    } else {
+        if spec.router.as_deref() != Some("identity") {
+            return Err(AppError::input(
+                "cut_lines / cut_generators require router \"identity\" (symmetry maps need not preserve the cut)",
+            ));
+        }
+        let mut generators = Vec::with_capacity(generator_lists.len());
+        for lines in &generator_lists {
+            if lines.is_empty() {
+                return Err(AppError::input(
+                    "a cut generator must contain at least one line",
+                ));
+            }
+            let mut cut = 0u64;
+            for &slot in lines {
+                if slot >= arity {
+                    return Err(AppError::input(format!(
+                        "cut line {slot} is not a slot of the {arity}-denominator family"
+                    )));
+                }
+                cut |= 1u64 << slot;
+            }
+            generators.push(cut);
+        }
+        if !generators.iter().any(|&g| g & !top == 0) {
+            return Err(AppError::input(
+                "the top sector must contain every line of at least one cut generator",
+            ));
+        }
+        let inner = IdentityRouter::shared(&family).map_err(engine("router"))?;
+        let mut hasher = blake3::Hasher::new();
+        if generators.len() == 1 {
+            // unchanged v1 fingerprint for a single cut (checkpoints of cut_lines runs stay valid)
+            hasher.update(b"rustred-sector-box-cut-router-v1\0");
+            hasher.update(&<IdentityRouter as SectorRouter<N>>::fingerprint(&inner));
+            hasher.update(&generators[0].to_le_bytes());
+        } else {
+            let mut sorted = generators.clone();
+            sorted.sort_unstable();
+            sorted.dedup();
+            hasher.update(b"rustred-sector-box-cut-router-v2\0");
+            hasher.update(&<IdentityRouter as SectorRouter<N>>::fingerprint(&inner));
+            hasher.update(&(sorted.len() as u64).to_le_bytes());
+            for g in &sorted {
+                hasher.update(&g.to_le_bytes());
+            }
+        }
+        Arc::new(CutRouter {
+            inner,
+            generators,
+            fingerprint: *hasher.finalize().as_bytes(),
+        })
+    };
+    if std::env::var_os("RUSTRED_SB_PROGRESS").is_some() {
+        eprintln!(
+            "[sector-box] router ready after {:.1} s",
+            clock.elapsed().as_secs_f64()
+        );
+    }
     let router_fingerprint: String = router
         .fingerprint()
         .iter()
