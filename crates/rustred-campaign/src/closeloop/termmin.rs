@@ -432,6 +432,7 @@ pub fn extended_spec(
     group_spec: Option<&Value>,
     order: &Value,
     inner_solved: &[PathBuf],
+    emission: Option<&rustred_campaign_core::emission::Settings>,
 ) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir.join("recipes")).map_err(|e| e.to_string())?;
     let mut v: Value =
@@ -592,6 +593,17 @@ pub fn extended_spec(
             txt.push('\n');
         }
         std::fs::write(&p, &txt).map_err(|e| e.to_string())?;
+        // EMISSION (lane gencheck): the symmetry relations through the in-flow gate (emitted copy beside, fail closed)
+        if let Some(es) = emission {
+            crate::emission::gate::gate_beside(
+                es,
+                &txt,
+                &dir.join("symmetry-relations.emitted.table.jsonl"),
+                crate::emission::gate::GateKind::Symmetry,
+                &[],
+                true,
+            )?;
+        }
         let mut s = json!({"id": "termmin-symmetry", "kind": "supplied_relations", "class": "termmin_symmetry",
             "path": p.display().to_string(), "sha256": sha256_hex(txt.as_bytes())});
         if let Some(g) = group_spec {
@@ -1327,6 +1339,7 @@ impl TermminSource {
                     self.nodes[i].group_spec.as_ref(),
                     &order,
                     &inner,
+                    self.nodes[i].cfg.emission.as_ref(),
                 )?;
                 let threads = self.nodes[i].cfg.check_threads;
                 // lane closeloop3: recipe-served keys of the second statement are per-key only with their bound proof

@@ -181,6 +181,7 @@ fn read_rules(path: &Path) -> Result<(Option<Value>, Vec<im::TableRule>), String
             rules.push(r);
         }
     }
+    im::assign_occurrences(&mut rules);
     Ok((header, rules))
 }
 
@@ -739,6 +740,11 @@ impl ImproveSource {
                             + c.apply_ns_base * a.sub_rules.unwrap_or(1) as f64
                             + c.apply_ns_per_monomial * m as f64)
                             .round() as u64,
+                        // lane rulecost: candidates of one rule share its calls; rank by the case rule's cost per
+                        // application at the candidate's (sub-table) monomials (the verdict used every piece)
+                        im::RankBy::RuleCost => im::rule_cost_model(c)
+                            .per_application_ns(m, r.cost.as_ref())
+                            .round() as u64,
                     };
                     (primary, m, b, a.cand.clone())
                 });
@@ -837,6 +843,159 @@ impl ImproveSource {
                 pole_new.insert(idx, (sc, cand));
             }
         }
+        // EMISSION (lane gencheck, interfaces/emission-check.md): when configured, every replacement line is checked on
+        // its own bytes with the certificate its job wrote, classed and admitted by the policy BEFORE it is written; a
+        // refused replacement keeps the old rule (its reason is recorded with the untried notes)
+        if let Some(es) = self.cfg.emission.clone() {
+            let side = rustred_campaign_core::emission::side_dir(
+                &self
+                    .cdir
+                    .join(format!("{base}/improved.r{run}{sfx}.table.jsonl")),
+            );
+            let work = self.cdir.join(format!("{base}/emission-work.r{run}{sfx}"));
+            let mut ck = crate::emission::emitter::Checker::new(Path::new(&es.checker))?;
+            ck.recover_rows = es.recover_rows;
+            ck.family = es.family.as_ref().map(PathBuf::from);
+            if let Some(f) = es.floor_s {
+                ck.floor_s = f;
+            }
+            if let Some(n) = &es.descent_node {
+                ck.descent_node = Some((PathBuf::from(n), crate::emission::child::file_sha256(Path::new(n))?));
+            }
+            let em = crate::emission::emitter::Emitter::new(
+                ck,
+                es.policy.clone().unwrap_or_default(),
+                &side,
+                &work,
+            )?;
+            let header = std::io::BufReader::new(
+                std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+            )
+            .lines()
+            .next()
+            .transpose()
+            .map_err(|e| e.to_string())?
+            .unwrap_or_default();
+            // THE d = 4 REGULARITY ACCEPTANCE (contract section 13): the old table loaded once, the old rule lines read
+            // once; every replacement compared with its old rule at the old rule's first-match keys before it is written
+            // (an old table the dispatcher cannot read refuses every replacement, fail closed; the flow goes on)
+            let old_table = crate::emission::regcheck::OldTable::load(Path::new(&self.nodes[i].e.table.path));
+            let want: std::collections::BTreeSet<i64> = repl.keys().copied().collect();
+            let old_lines = match &old_table {
+                Ok(ot) => ot.lines_of(&want)?,
+                Err(_) => BTreeMap::new(),
+            };
+            let reg_opts = es
+                .regularity
+                .as_ref()
+                .map(|r| crate::emission::regcheck::Options {
+                    cone: r.cone,
+                    max_keys: r.max_keys,
+                    threads: r.threads.unwrap_or(1),
+                })
+                .unwrap_or_default();
+            for (idx, lines) in repl.clone() {
+                let run_dir = chosen
+                    .get(&idx)
+                    .and_then(|c| {
+                        per_rule
+                            .get(&idx)
+                            .and_then(|v| v.iter().find(|a| &a.cand == c))
+                    })
+                    .and_then(|a| st.jobs.get(&a.job).and_then(|j| j.run_dir.clone()));
+                let certs: Vec<PathBuf> = run_dir
+                    .map(|d| Path::new(&d).join(&es.cert_dir))
+                    .and_then(|d| std::fs::read_dir(d).ok())
+                    .map(|rd| {
+                        let mut v: Vec<PathBuf> = rd
+                            .filter_map(|e| e.ok().map(|e| e.path()))
+                            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+                            .collect();
+                        v.sort();
+                        v
+                    })
+                    .unwrap_or_default();
+                let mut out_lines = vec![];
+                let mut refused: Option<String> = None;
+                for (k, l) in lines.iter().enumerate() {
+                    let tries: Vec<Option<PathBuf>> = if certs.is_empty() {
+                        vec![None]
+                    } else {
+                        certs.iter().cloned().map(Some).collect()
+                    };
+                    let mut got = None;
+                    let mut last = String::new();
+                    for (t, cert) in tries.into_iter().enumerate() {
+                        let c = crate::emission::emitter::Candidate {
+                            header: header.clone(),
+                            line: l.clone(),
+                            kind: rustred_campaign_core::emission::class::Kind::Lifted,
+                            origin: rustred_campaign_core::emission::class::Origin::Lift,
+                            cert,
+                            provenance: None,
+                            lift_seconds: 0.0,
+                            ladder: None,
+                            cone: None,
+                            sample: None,
+                            tag: format!("r{idx}-l{k}-c{t}"),
+                        };
+                        let e = em.emit(
+                            &c,
+                            rustred_campaign_core::emission::class::Liveness::Unknown,
+                            false,
+                        )?;
+                        match e.line {
+                            Some(x) => {
+                                got = Some(x);
+                                break;
+                            }
+                            None => last = e.refused.unwrap_or_default(),
+                        }
+                    }
+                    match got {
+                        Some(x) => out_lines.push(x),
+                        None => {
+                            refused = Some(last);
+                            break;
+                        }
+                    }
+                }
+                // the d = 4 REPORT (rule 21: a tie-break only, never a refusal): the verdict is stamped when it can be measured;
+                // when it cannot, the replacement goes in without one
+                if refused.is_none() {
+                    match (&old_table, old_lines.get(&idx)) {
+                        (Err(_), _) | (Ok(_), None) => {}
+                        (Ok(ot), Some(old_line)) => {
+                            let st = crate::emission::regcheck::accept_and_stamp(
+                                &em,
+                                ot,
+                                idx,
+                                old_line,
+                                &out_lines,
+                                &reg_opts,
+                                &work.join(format!("regularity-r{idx}")),
+                            )?;
+                            if let Some(stamped) = st.lines {
+                                out_lines = stamped;
+                            }
+                        }
+                    }
+                }
+                match refused {
+                    None => {
+                        repl.insert(idx, out_lines);
+                    }
+                    Some(why) => {
+                        repl.remove(&idx);
+                        let c = chosen.remove(&idx).unwrap_or_default();
+                        untried
+                            .entry(idx)
+                            .or_default()
+                            .push(format!("{c}: emission refused ({why})"));
+                    }
+                }
+            }
+        }
         // the derivations of this run's candidates (every rule each job sealed), one file per run
         let der_rel = format!("{base}/derivations.r{run}{sfx}.jsonl");
         let mut der_bytes = Vec::new();
@@ -893,6 +1052,12 @@ impl ImproveSource {
             let abs_t = self.cdir.join(&rel_t);
             let abs_o = self.cdir.join(&rel_o);
             std::fs::create_dir_all(abs_t.parent().expect("dir")).map_err(|e| e.to_string())?;
+            // EMISSION: the kept records' derivation members reference side files of the INPUT table's side
+            // directory: carry them (content-addressed: hard links, else copies) so the new table checks on its own
+            crate::emission::carry_side(
+                &rustred_campaign_core::emission::side_dir(Path::new(&self.nodes[i].e.table.path)),
+                &rustred_campaign_core::emission::side_dir(&abs_t),
+            )?;
             let tmp_t = abs_t.with_extension("jsonl.tmp");
             let mut sink = TableSink {
                 file: match table_not_written {
@@ -1040,9 +1205,12 @@ impl ImproveSource {
             } else {
                 String::new()
             };
-            (sink.sha.finish_hex(), path, sink.bytes, sink.rules)
+            let mut written_rules = sink.rules;
+            im::assign_occurrences(&mut written_rules);
+            (sink.sha.finish_hex(), path, sink.bytes, written_rules)
         };
         // the positions map (consumers that address rules by position, e.g. positioned recipe entries, re-point by it)
+        let positions_map_entries: Vec<Value> = positions_map.clone().unwrap_or_default();
         let positions_rel = positions_map.map(|m| {
             let rel = format!("{base}/positions.r{run}{sfx}.json");
             rt.accepts.push(AcceptedRecord {
@@ -1060,17 +1228,61 @@ impl ImproveSource {
             .iter()
             .map(|r| (r.index, r.clone()))
             .collect();
-        // the run's decisions are keyed by the rule's index in the INPUT table; the improved table renumbers (positions):
-        // an entry finds its input rule by key (target | case; a sub-table's case rule has the replaced rule's key)
+        // the run's decisions are keyed by the rule's index in the INPUT table; the improved table renumbers (positions).
+        // Audit 2026-11-19 (a3): an output rule finds its input rule by its IDENTITY (an unchanged rule keeps its record
+        // body) or, for the lines of a replacement, through the positions map (replaced input index -> the positions of
+        // its replacement lines); never by `target | case`, which distinct records share.
         let old_by_key: BTreeMap<String, i64> = self.nodes[i]
             .rules
             .iter()
-            .rev()
             .map(|r| (r.key(), r.index))
             .collect();
+        let mut pred_at: BTreeMap<(String, i64), i64> = BTreeMap::new();
+        for m in positions_map_entries.iter() {
+            if m["replaced"].as_bool() != Some(true) {
+                continue;
+            }
+            let (Some(chart), Some(old)) = (m["chart"].as_str(), m["old"].as_i64()) else {
+                continue;
+            };
+            for n in m["new"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_i64)
+            {
+                pred_at.insert((chart.to_string(), n), old);
+            }
+        }
+        let new_ids: BTreeMap<String, (String, i64)> = new_rules
+            .iter()
+            .map(|r| (r.key(), (r.chart.clone(), r.index)))
+            .collect();
+        // a replacement line inherits the history of the rule it replaced (carried over before `align`)
+        let mut carried: Vec<im::RuleEntry> = Vec::new();
+        for (k, (chart, at)) in &new_ids {
+            if let Some(old) = pred_at.get(&(chart.clone(), *at)) {
+                let old_key = self.nodes[i]
+                    .rules
+                    .iter()
+                    .find(|r| r.index == *old && &r.chart == chart)
+                    .map(|r| r.key());
+                if let Some(e) = old_key.and_then(|ok| rec.rules.iter().find(|e| e.key == ok)) {
+                    carried.push(im::RuleEntry {
+                        key: k.clone(),
+                        ..e.clone()
+                    });
+                }
+            }
+        }
+        rec.rules.extend(carried);
         rec.align(&new_rules);
         for e in rec.rules.iter_mut() {
-            let ix = old_by_key.get(&e.key).copied().unwrap_or(i64::MIN);
+            let ix = new_ids
+                .get(&e.key)
+                .and_then(|(chart, at)| pred_at.get(&(chart.clone(), *at)).copied())
+                .or_else(|| old_by_key.get(&e.key).copied())
+                .unwrap_or(i64::MIN);
             if let Some(v) = per_rule.get(&ix) {
                 for a in v {
                     let j = st.jobs.get(&a.job);

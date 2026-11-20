@@ -11,7 +11,10 @@ use crate::poles::params::CriteriaOrder;
 use crate::poles::{Candidate, MaxSizeRatio, select};
 
 /// Schema of the policy file (campaign input role `repairflow`).
-pub const POLICY_SCHEMA: &str = "rustred.campaign.repairflow.v1";
+/// v2 = the defaults of the user ruling of 2026-11-19 (rule 21: `keep.choice_order` puts `regular_at` after size, as a
+/// tie-break); v1 files (the withdrawn rule's order) still parse and keep what they name.
+pub const POLICY_SCHEMA: &str = "rustred.campaign.repairflow.v2";
+pub const POLICY_SCHEMA_V1: &str = "rustred.campaign.repairflow.v1";
 
 /// The policy of one node.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +56,11 @@ pub struct RepairPolicy {
     pub recipes: RecipePolicy,
     pub proposals: ProposalPolicy,
     pub runtime: RuntimePolicy,
+    /// lane gencheck (emission contract): the symbolic table's kept records go through the emission gate (checker on
+    /// their own bytes with the certificate of their face lift, class, policy) before it is written; a refused record
+    /// stops the node (fail closed). Default off; omitted from the digest while off.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub emission: Option<crate::emission::Settings>,
 }
 
 impl Default for RepairPolicy {
@@ -78,6 +86,7 @@ impl Default for RepairPolicy {
             recipes: RecipePolicy::default(),
             proposals: ProposalPolicy::default(),
             runtime: RuntimePolicy::default(),
+            emission: None,
         }
     }
 }
@@ -753,10 +762,12 @@ impl Default for KeepPolicy {
             max_trace_rows: 5000,
             min_keys_served: 2,
             min_served_fraction: 0.0,
+            // USER RULING 2026-11-19 (rule 21): size before regularity; `regular_at` breaks ties only (it came before
+            // `bytes_asc` under the withdrawn rule)
             choice_order: vec![
                 "served_desc".into(),
-                "regular_at".into(),
                 "bytes_asc".into(),
+                "regular_at".into(),
                 "record_digest".into(),
             ],
         }
@@ -960,9 +971,9 @@ impl PolicyFile {
     pub fn parse(text: &str) -> Result<PolicyFile, String> {
         let f: PolicyFile =
             serde_json::from_str(text).map_err(|e| format!("repair policy: {e}"))?;
-        if f.schema != POLICY_SCHEMA {
+        if f.schema != POLICY_SCHEMA && f.schema != POLICY_SCHEMA_V1 {
             return Err(format!(
-                "repair policy: schema {:?}, expected {POLICY_SCHEMA}",
+                "repair policy: schema {:?}, expected {POLICY_SCHEMA} (or {POLICY_SCHEMA_V1})",
                 f.schema
             ));
         }

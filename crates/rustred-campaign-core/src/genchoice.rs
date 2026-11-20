@@ -352,6 +352,11 @@ pub struct CostModel {
     pub load_ns_per_byte: f64,
     pub apply_ns_base: f64,
     pub apply_ns_per_monomial: f64,
+    /// lane rulecost (interfaces/rule-cost.md 4): the model of improve's `rule_cost` measure (measured cost per
+    /// application, children per receiving class, calls per rule); absent = its documented defaults. Read only when
+    /// `filter.by` is `rule_cost`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rule_cost: Option<crate::rulecost::RuleCostModel>,
 }
 
 impl Default for CostModel {
@@ -360,6 +365,7 @@ impl Default for CostModel {
             load_ns_per_byte: 30.0,
             apply_ns_base: 20_000.0,
             apply_ns_per_monomial: 100.0,
+            rule_cost: None,
         }
     }
 }

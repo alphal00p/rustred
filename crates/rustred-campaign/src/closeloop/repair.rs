@@ -713,6 +713,54 @@ impl<S: WorkSource> RepairFlowSource<S> {
             }
         }
         let mut table_rel = None;
+        // EMISSION (lane gencheck): when the policy has `emission`, the kept records go through the gate (checker on
+        // their own bytes with the certificate of THEIR face lift, found in its job's run directory); one refusal
+        // stops the node, nothing is written
+        if let Some(es) = self.nodes[i].policy.emission.clone()
+            && !kept_lines.is_empty()
+        {
+            let mut dirs = vec![];
+            for f in &d.faces {
+                if f.kept.is_some()
+                    && let Some(FaceAnswer::Candidates { job, .. }) = answers.get(&f.face)
+                    && let Some(rd) = st.jobs.get(job).and_then(|j| j.run_dir.clone())
+                {
+                    dirs.push(Path::new(&rd).join(&es.cert_dir));
+                }
+            }
+            let side = rustred_campaign_core::emission::side_dir(&self.abs(&format!("{dir}/symbolic.table.jsonl")));
+            let mut ck = crate::emission::emitter::Checker::new(Path::new(&es.checker))?;
+            ck.recover_rows = es.recover_rows;
+            ck.family = es.family.as_ref().map(PathBuf::from);
+            if let Some(f) = es.floor_s {
+                ck.floor_s = f;
+            }
+            if let Some(n) = &es.descent_node {
+                ck.descent_node = Some((PathBuf::from(n), crate::emission::child::file_sha256(Path::new(n))?));
+            }
+            let em = crate::emission::emitter::Emitter::new(
+                ck,
+                es.policy.clone().unwrap_or_default(),
+                &side,
+                &self.abs(&format!("{dir}/emission-work")),
+            )?;
+            let g = crate::emission::gate::gate_lines(
+                &em,
+                &p1.frame_header_line,
+                &kept_lines,
+                &crate::emission::gate::CertIndex::from_dirs(&dirs),
+                crate::emission::gate::GateKind::Lifted,
+                "sym",
+            )?;
+            if !g.ok() {
+                return Err(format!(
+                    "repairflow: {node}: emission refused {} kept record(s) of the symbolic table (nothing written): {}",
+                    g.refused.len(),
+                    serde_json::Value::from(g.refused.clone())
+                ));
+            }
+            kept_lines = g.lines;
+        }
         if !kept_lines.is_empty() {
             let mut t = p1.frame_header_line.clone();
             t.push('\n');
@@ -771,6 +819,18 @@ impl<S: WorkSource> RepairFlowSource<S> {
             let rel = format!("{dir}/symrel.table.jsonl");
             // (re)written: the P1 commit wrote the same bytes; a resume recomputes them identically
             rt.accepts.push(record(rel.clone(), t.clone().into_bytes()));
+            // EMISSION (lane gencheck): the symmetry relations through the in-flow gate (emitted copy beside, written
+            // once: the flow's own table keeps its re-derivable bytes; fail closed)
+            if let Some(es) = &self.nodes[i].policy.emission {
+                crate::emission::gate::gate_beside(
+                    es,
+                    t,
+                    &self.abs(&format!("{dir}/symrel.emitted.table.jsonl")),
+                    crate::emission::gate::GateKind::Symmetry,
+                    &[],
+                    true,
+                )?;
+            }
             let mut src = json!({"id": "rf:symmetry-relations", "kind": "supplied_relations",
                 "class": "symmetry-relation", "path": self.abs(&rel).display().to_string(),
                 "sha256": sha256_hex(t.as_bytes())});

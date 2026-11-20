@@ -435,7 +435,14 @@ fn regular_preferred_tries_the_up_centre_and_keeps_both_alternatives() {
         }],
     );
     let ks = vec![g.to_vec(), h.to_vec()];
-    let r = solve_core(&ks, &LINES, &policy("{}"), &mut solver(&o)).unwrap();
+    // rule 21 (2026-11-19): regular_preferred is the EXPLICIT, non-default mode (the default is any_relation)
+    let r = solve_core(
+        &ks,
+        &LINES,
+        &policy(r#"{"mode": "regular_preferred"}"#),
+        &mut solver(&o),
+    )
+    .unwrap();
     let kg = key_report(&r, &g);
     assert!(kg.alternatives.len() >= 2);
     let ch = &kg.alternatives[kg.chosen.unwrap()];

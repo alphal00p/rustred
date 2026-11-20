@@ -273,6 +273,12 @@ pub struct NodeCfg {
     /// Never decides acceptance. Omitted from the serialized config when absent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pole_objective: Option<serde_json::Value>,
+    /// lane gencheck (emission contract, round 3): the node's relation tables (closeloop source), its derived
+    /// symmetry-at-key table and its termmin symmetry-relation table go through the IN-FLOW GATE
+    /// (`emission::gate::gate_beside`: an emitted copy beside each table, written once, every record checked on its own
+    /// bytes; a refusal stops the node). None (default) = not gated; omitted from any serialisation when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub emission: Option<rustred_campaign_core::emission::Settings>,
 }
 
 /// The layers of the box (DATA; lane layers, closeloop.md 23).

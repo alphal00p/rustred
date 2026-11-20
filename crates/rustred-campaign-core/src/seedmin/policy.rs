@@ -4,7 +4,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-pub const POLICY_SCHEMA: &str = "rustred.campaign.seedmin.v1";
+/// v2 = the defaults of the user ruling of 2026-11-19 (rule 21: terms first, the pole order last, `drop` on an undecided
+/// regularity); v1 = the withdrawn rule's (still parsed: results recorded under v1 stay recognisable).
+pub const POLICY_SCHEMA: &str = "rustred.campaign.seedmin.v2";
+pub const POLICY_SCHEMA_V1: &str = "rustred.campaign.seedmin.v1";
 
 /// Measures of the lexicographic objective (pole-diagnostics.md addendum 8; TRICKS 15).
 pub const OBJECTIVE_MEASURES: [&str; 3] = ["pole_order", "seeds", "terms"];
@@ -255,8 +258,10 @@ fn d_halving_factor() -> usize {
 fn is_d_halving_factor(f: &usize) -> bool {
     *f == d_halving_factor()
 }
+/// USER RULING 2026-11-19 (rule 21): terms first, then seeds, the pole order LAST (a tie-break). It was
+/// [pole_order, seeds, terms] under the withdrawn rule; a policy naming that order is the explicit, non-default option.
 fn d_objective() -> Vec<String> {
-    ["pole_order", "seeds", "terms"]
+    ["terms", "seeds", "pole_order"]
         .iter()
         .map(|s| s.to_string())
         .collect()
@@ -264,8 +269,9 @@ fn d_objective() -> Vec<String> {
 fn d_terms_aggregate() -> String {
     "max".into()
 }
+/// USER RULING 2026-11-19 (rule 21): an undecided regularity does not stop a drop (`drop`); `keep_seed` only when named.
 fn d_on_undecided() -> String {
-    "keep_seed".into()
+    "drop".into()
 }
 fn d_on() -> String {
     "on".into()
@@ -305,8 +311,8 @@ impl SeedMinPolicy {
                 Err(format!("{what} {v:?} not in {list:?}"))
             }
         };
-        if self.schema != POLICY_SCHEMA {
-            return Err(format!("schema {} (want {POLICY_SCHEMA})", self.schema));
+        if self.schema != POLICY_SCHEMA && self.schema != POLICY_SCHEMA_V1 {
+            return Err(format!("schema {} (want {POLICY_SCHEMA} or {POLICY_SCHEMA_V1})", self.schema));
         }
         pick(&self.backend, &["emulated", "engine"], "backend")?;
         pick(&self.mode, &["greedy", "support", "off"], "mode")?;
@@ -400,8 +406,13 @@ mod tests {
         let p = SeedMinPolicy::default();
         p.validate().unwrap();
         assert_eq!(p.order, "distance");
-        assert_eq!(p.objective, vec!["pole_order", "seeds", "terms"]);
-        assert_eq!(p.on_undecided_regularity, "keep_seed");
+        // rule 21 (2026-11-19): size first, the pole order a tie-break; an undecided regularity never keeps a seed
+        assert_eq!(p.objective, vec!["terms", "seeds", "pole_order"]);
+        assert_eq!(p.on_undecided_regularity, "drop");
+        assert_eq!(p.schema, POLICY_SCHEMA);
+        // a v1 policy (the old rule's defaults written out) still parses and keeps its explicit order
+        let old = SeedMinPolicy::parse(r#"{"schema":"rustred.campaign.seedmin.v1","objective":["pole_order","seeds","terms"],"on_undecided_regularity":"keep_seed"}"#).unwrap();
+        assert_eq!(old.objective[0], "pole_order");
         let t = serde_json::to_string(&p).unwrap();
         assert_eq!(SeedMinPolicy::parse(&t).unwrap(), p);
         assert_eq!(SeedMinPolicy::parse("{}").unwrap().digest(), p.digest());

@@ -30,7 +30,11 @@ fn rule_records_and_keys() {
         vec!["-1+n0".to_string(), "-1+n1&n0".to_string()],
         "canonical, sorted"
     );
-    assert_eq!(r.key(), "I(n0,1,0)|_,1,0|");
+    assert_eq!(r.legacy_key(), "I(n0,1,0)|_,1,0|");
+    assert!(
+        r.key().ends_with("#0") && r.key().len() == 66,
+        "the record identity (audit 2026-11-19 a3)"
+    );
     assert!(
         TableRule::from_line(r#"{"type":"header"}"#)
             .unwrap()
@@ -152,7 +156,7 @@ fn targets_skip_recorded_candidates_and_apply_keeps_the_dispatch_position() {
     // record round trip and version refusal
     let txt = serde_json::to_string(&rec).unwrap();
     assert_eq!(ImproveRecord::parse(&txt).unwrap(), rec);
-    assert!(ImproveRecord::parse(&txt.replace("\"version\":1", "\"version\":99")).is_err());
+    assert!(ImproveRecord::parse(&txt.replace("\"version\":2", "\"version\":99")).is_err());
 }
 
 #[test]
@@ -678,5 +682,164 @@ fn replacement_facts_list_every_rule_and_check_declared_terminals() {
             .as_str()
             .unwrap()
             .starts_with("not requested")
+    );
+}
+
+// --------------------------------------------------------------------------------------------------------------
+// audit 2026-11-19 (Astra SOLVE-AUDIT candidate/REPORT.md, lane rulecost): domain bounds (a2) and record identity (a3)
+// --------------------------------------------------------------------------------------------------------------
+
+/// Six one-term T162-final records (helper-proved symmetry services / a symmetry alias), verbatim from
+/// T162.cand.table.jsonl minus their provenance members: 1911, 1925, 1926, 1927, 1928, 1929.
+const T162_ONE_TERM: [&str; 6] = [
+    r#"{"type":"rule","chart":"11111111100000000000","index":1911,"fixed":[null,1,1,null,null,1,1,1,1,0,0,null,0,0,0,0,0,0,0,0],"equations":[],"exceptions":[],"target":"I(n0,1,1,n3,n4,1,1,1,1,0,0,n11,0,0,0,0,0,0,0,0)","rhs":[["I(n0,n3,1,1,n4,1,1,1,1,0,0,n11,0,0,0,0,0,0,0,0)","1"]],"domain_bounds":{"max":[null,null,null,null,null,null,null,null,null,null,null,-1,null,null,null,null,null,null,null,null],"min":[2,null,null,2,2,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}}"#,
+    r#"{"type":"rule","chart":"11111111100000000000","index":1925,"fixed":[1,null,1,1,1,1,null,null,1,0,0,0,0,0,0,0,0,0,0,0],"equations":[],"exceptions":[],"target":"I(1,n1,1,1,1,1,n6,n7,1,0,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(n6,1,1,1,n1,1,1,n7,1,0,0,0,0,0,0,0,0,0,0,0)","1"]],"domain_bounds":{"min":[null,2,null,null,null,null,2,2,null,null,null,null,null,null,null,null,null,null,null,null],"max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}}"#,
+    r#"{"type":"rule","chart":"11111111100000000000","index":1926,"fixed":[1,1,null,null,null,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0],"equations":[],"exceptions":[],"target":"I(1,1,n2,n3,n4,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(1,n4,1,n3,1,n2,1,1,1,0,0,0,0,0,0,0,0,0,0,0)","1"]],"domain_bounds":{"min":[null,null,2,2,2,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}}"#,
+    r#"{"type":"rule","chart":"11111111100000000000","index":1927,"fixed":[1,1,null,1,1,null,1,1,1,null,0,0,0,0,0,0,0,0,0,0],"equations":[],"exceptions":[],"target":"I(1,1,n2,1,1,n5,1,1,1,n9,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(n5,1,1,1,1,1,1,1,n2,0,n9,0,0,0,0,0,0,0,0,0)","1"]],"domain_bounds":{"min":[null,null,2,null,null,2,null,null,null,null,null,null,null,null,null,null,null,null,null,null],"max":[null,null,null,null,null,null,null,null,null,-1,null,null,null,null,null,null,null,null,null,null]}}"#,
+    r#"{"type":"rule","chart":"11111111100000000000","index":1928,"fixed":[1,1,1,1,1,1,null,1,null,0,0,0,0,0,0,0,0,0,0,0],"equations":[],"exceptions":[],"target":"I(1,1,1,1,1,1,n6,1,n8,0,0,0,0,0,0,0,0,0,0,0)","rhs":[["I(n6,1,1,1,1,1,1,1,n8,0,0,0,0,0,0,0,0,0,0,0)","1"]],"domain_bounds":{"min":[null,null,null,null,null,null,2,null,2,null,null,null,null,null,null,null,null,null,null,null],"max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]}}"#,
+    r#"{"type":"rule","chart":"11111111100000000000","index":1929,"fixed":[1,1,1,1,1,1,1,null,null,0,0,0,0,0,null,0,0,0,0,0],"equations":[],"exceptions":[],"target":"I(1,1,1,1,1,1,1,n7,n8,0,0,0,0,0,n14,0,0,0,0,0)","rhs":[["I(1,1,1,1,1,n7,n8,1,1,0,0,0,0,0,0,0,0,0,n14,0)","1"]],"domain_bounds":{"min":[null,null,null,null,null,null,null,2,2,null,null,null,null,null,null,null,null,null,null,null],"max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,-1,null,null,null,null,null]}}"#,
+];
+
+fn t162_key(lines: [i32; 9]) -> Vec<i32> {
+    let mut k = lines.to_vec();
+    k.extend([0; 11]);
+    k
+}
+
+#[test]
+fn audit_a2_domain_bounds_exclude_the_declared_terminals() {
+    // T162's two declared terminals: the all-ones corner and the dot on slot 0
+    let corner = t162_key([1; 9]);
+    let dot = t162_key([2, 1, 1, 1, 1, 1, 1, 1, 1]);
+    for l in T162_ONE_TERM {
+        let v: Value = serde_json::from_str(l).unwrap();
+        assert!(
+            !serves_key(&v, &corner).unwrap(),
+            "{l}: the corner is outside its bounds"
+        );
+        assert!(
+            !serves_key(&v, &dot).unwrap(),
+            "{l}: the dot is outside its bounds"
+        );
+    }
+    // without the bounds the old predicate accepted the corner for all six (and the dot for 1911): the audit's finding
+    for l in T162_ONE_TERM {
+        let mut v: Value = serde_json::from_str(l).unwrap();
+        v.as_object_mut().unwrap().remove("domain_bounds");
+        assert!(serves_key(&v, &corner).unwrap());
+    }
+    // the positive case: 1925 with its three line powers (slots 1, 6, 7) at 2; one of them at 1 is outside
+    let v: Value = serde_json::from_str(T162_ONE_TERM[1]).unwrap();
+    assert!(serves_key(&v, &t162_key([1, 2, 1, 1, 1, 1, 2, 2, 1])).unwrap());
+    assert!(!serves_key(&v, &t162_key([1, 2, 1, 1, 1, 1, 2, 1, 1])).unwrap());
+    // the bounds as the native importer reads them; a side of the wrong arity is an error, not "unbounded"
+    let r = rule(T162_ONE_TERM[1]);
+    let b = r.bounds.clone().unwrap();
+    assert_eq!(
+        (b.0[1], b.0[6], b.0[7], b.0[0]),
+        (Some(2), Some(2), Some(2), None)
+    );
+    let bad = T162_ONE_TERM[1].replace(
+        r#""max":[null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null,null]"#,
+        r#""max":[null]"#,
+    );
+    assert!(serves_key(&serde_json::from_str(&bad).unwrap(), &corner).is_err());
+    // a replacement may not narrow the domain by a bound (target, case and exceptions alone would let it pass)
+    let with = |l: String, b: &str| format!("{},\"domain_bounds\":{b}}}", &l[..l.len() - 1]);
+    let old = rule(&line(4, "[null,1,0]", "I(n0,1,0)", "[]", 100));
+    let narrower = rule(&with(
+        line(4, "[null,1,0]", "I(n0,1,0)", "[]", 10),
+        r#"{"min":[2,null,null],"max":null}"#,
+    ));
+    let e = structural_verdict(&old, &narrower).unwrap_err();
+    assert!(e.starts_with("bounds_narrower"), "{e}");
+    let old_b = rule(&with(
+        line(4, "[null,1,0]", "I(n0,1,0)", "[]", 100),
+        r#"{"min":[2,null,null],"max":null}"#,
+    ));
+    let wider = rule(&line(4, "[null,1,0]", "I(n0,1,0)", "[]", 10));
+    assert!(
+        structural_verdict(&old_b, &wider).is_ok(),
+        "dropping a bound widens the domain"
+    );
+    assert!(
+        structural_verdict(&old_b, &narrower).is_ok(),
+        "an equal bound"
+    );
+}
+
+#[test]
+fn audit_a3_the_history_identity_tells_records_apart() {
+    // the shape of T162 #1621 (a 302-term IBP rule, four exception branches) and #1927 (a one-term symmetry, none):
+    // same target and fixed slots, i.e. the same version-1 key
+    let a = r#"{"type":"rule","chart":"110","index":0,"fixed":[1,null,null],"equations":[],"target":"I(1,n1,n2)","rhs":[["I(1,n1-1,n2)","n1/(d-4)"],["I(1,n1,n2-1)","1"]],"exceptions":[["-1+n1"],["n2"]]}"#;
+    let b = r#"{"type":"rule","chart":"110","index":1,"fixed":[1,null,null],"equations":[],"target":"I(1,n1,n2)","rhs":[["I(1,n2,n1)","1"]],"exceptions":[]}"#;
+    let c = r#"{"type":"rule","chart":"110","index":2,"fixed":[2,null,null],"equations":[],"target":"I(2,n1,n2)","rhs":[["I(1,n1,n2)","1"]],"exceptions":[]}"#;
+    let (_, rules) = table_rules([a, b, c]).unwrap();
+    assert_eq!(rules[0].legacy_key(), rules[1].legacy_key());
+    assert_ne!(rules[0].key(), rules[1].key());
+    // an attempt on the first does not mark the second as tried
+    let tried = |cand: &str| Tried {
+        cand: cand.into(),
+        scope: "rule".into(),
+        run: 1,
+        args: vec![],
+        status: "complete".into(),
+        monomials: Some(1),
+        bytes: Some(1),
+        cpu_ms: Some(1),
+        verdict: "not_smaller".into(),
+        table: None,
+        pole: None,
+        derivation: None,
+    };
+    let mut rec = ImproveRecord::empty("n", "sha", &rules);
+    rec.rules[0].tried.push(tried("relift"));
+    assert!(rec.tried(&rules[0].key(), "relift"));
+    assert!(
+        !rec.tried(&rules[1].key(), "relift"),
+        "1927 stays eligible after an attempt on 1621"
+    );
+    // save / reload keeps both apart, in either order
+    let back = ImproveRecord::parse(&serde_json::to_string(&rec).unwrap()).unwrap();
+    assert!(back.tried(&rules[0].key(), "relift") && !back.tried(&rules[1].key(), "relift"));
+    let (_, swapped) = table_rules([b, a]).unwrap();
+    let mut rec2 = back.clone();
+    rec2.align(&swapped);
+    assert!(rec2.tried(&swapped[1].key(), "relift") && !rec2.tried(&swapped[0].key(), "relift"));
+    // renumbering keeps the identity; byte-identical bodies are told apart by their occurrence
+    let b7 = b.replace(r#""index":1"#, r#""index":7"#);
+    let (_, re) = table_rules([a, b7.as_str()]).unwrap();
+    assert_eq!(re[1].key(), rules[1].key());
+    let (_, dup) = table_rules([a, a]).unwrap();
+    assert_ne!(dup[0].key(), dup[1].key());
+    // a VERSION-1 record: its entry under the shared legacy key is credited to NEITHER rule; a unique one is carried
+    let mut v1 = ImproveRecord::empty("n", "sha", &rules);
+    v1.version = 1;
+    for e in v1.rules.iter_mut() {
+        e.key = format!("{}|{}", e.target, e.case);
+    }
+    v1.rules.truncate(1);
+    v1.rules[0].tried.push(tried("relift"));
+    let mut uniq = ImproveRecord::empty("n", "sha", &rules[2..])
+        .rules
+        .remove(0);
+    uniq.key = rules[2].legacy_key();
+    uniq.tried.push(tried("rung"));
+    v1.rules.push(uniq);
+    let v1 = ImproveRecord::parse(&serde_json::to_string(&v1).unwrap()).expect("version 1 is read");
+    let mut m = v1.clone();
+    m.align(&rules);
+    assert_eq!(m.version, RECORD_VERSION);
+    assert!(!m.tried(&rules[0].key(), "relift") && !m.tried(&rules[1].key(), "relift"));
+    assert!(
+        m.entry(&rules[0].key())
+            .unwrap()
+            .why
+            .contains("not credited")
+    );
+    assert!(
+        m.tried(&rules[2].key(), "rung"),
+        "an unambiguous version-1 entry is carried"
     );
 }

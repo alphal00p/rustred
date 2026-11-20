@@ -279,14 +279,16 @@ pub struct PolePolicy {
     /// SIZE TOLERANCE: `"unbounded"` or a rational >= 1 (`"2"`, `"5/2"`): a better pole class is rejected when every
     /// member is larger than ratio x the smallest admissible size.
     pub max_size_ratio: Value,
+    /// POLICY VERSION: 2 = USER RULING 2026-11-19 (rule 21: size first, regularity a tie-break only). Written into every
+    /// record since; records written before carry no `version` (the withdrawn regular-first defaults): recognisable. A
+    /// config without it is parsed as the current version.
+    pub version: u32,
 }
 
-/// Default size tolerance, from the experiment of 2026-11-16 (SIZE-BLIND-RESULTS.md "POLE OBJECTIVE"; interfaces/genchoice.md
-/// 6): the only regular-vs-singular choice met (T228 rule 1248: the regular rule is 2.8x the smaller singular
-/// candidate) needs >= 2.8 to keep the regular rule; whole-table alternatives spread 2.2-5.6x (T228 32.3 / 14.9 MB,
-/// T186 100.5 / 18.1 MB). 4 keeps the regular rule and rejects the 5.6x table. `"unbounded"` = the user's
-/// "regular always wins" (POLES_OBJECTIVE 2(A)).
-pub const DEFAULT_MAX_SIZE_RATIO: &str = "4";
+/// Default size tolerance: "1" since the user ruling of 2026-11-19 (LANE_RULES rule 21: d = 4 regularity is a tie-break
+/// only; no larger rule is chosen for it). It was "4" (a regular rule kept up to 4x the smallest size, experiment of
+/// 2026-11-16, SIZE-BLIND-RESULTS.md "POLE OBJECTIVE"); `"unbounded"` was the withdrawn "regular always wins".
+pub const DEFAULT_MAX_SIZE_RATIO: &str = "1";
 
 impl Default for PolePolicy {
     fn default() -> Self {
@@ -294,8 +296,11 @@ impl Default for PolePolicy {
             use_poles: true,
             score: ScoreForm::Count,
             level: ScoreLevel::Rule,
-            measures: vec!["regular".into(), "max_pole_order".into(), "size".into()],
+            // USER RULING 2026-11-19 (LANE_RULES rule 21): size before any pole measure; regularity breaks ties only (it was
+            // ["regular", "max_pole_order", "size"] with a 4x size tolerance under the withdrawn rule)
+            measures: vec!["size".into(), "regular".into(), "max_pole_order".into()],
             max_size_ratio: Value::String(DEFAULT_MAX_SIZE_RATIO.into()),
+            version: 2,
         }
     }
 }

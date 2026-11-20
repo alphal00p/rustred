@@ -50,14 +50,16 @@ fn without_any_pole_profile_the_size_decides_and_the_choice_says_no_profile() {
         .unwrap();
     assert_eq!((c.reason, c.profile_used), (ChoiceReason::Only, "none"));
     // as soon as one candidate carries a pole order the profile is local (behaviour of lane epsdepth unchanged)
-    let c = pole_objective(
-        &[cand("big-regular", 300, Some(0)), cand("small", 10, None)],
-        &[],
-        &PoleObjective::default(),
-        None,
-    )
-    .unwrap()
-    .unwrap();
+    let both = [cand("big-regular", 300, Some(0)), cand("small", 10, None)];
+    // rule 21 (2026-11-19): by default size comes first: the small one wins
+    let c = pole_objective(&both, &[], &PoleObjective::default(), None)
+        .unwrap()
+        .unwrap();
+    assert_eq!((c.id.as_str(), c.profile_used), ("small", "local"));
+    // the explicit withdrawn order: the regular one wins
+    let c = pole_objective(&both, &[], &PoleObjective::withdrawn_pole_first(), None)
+        .unwrap()
+        .unwrap();
     assert_eq!((c.id.as_str(), c.profile_used), ("big-regular", "local"));
 }
 

@@ -29,6 +29,10 @@ pub const USAGE: &str = "usage:
       (lane sizegen: the effective derivation of every rule a finished generate job sealed; TRICKS 31 / 35)
   rr_campaign poles-choose --choice CHOICE.json --scores SCORES.jsonl [--policy POLES.json] --out OUT.json
       (lane sizegen: the pole objective on a finished generation choice; pure, no campaign; interfaces/genchoice.md 6)
+  rr_campaign rule-cost --spec SPEC.json --dir DIR [--aggregate-only]
+      (lane rulecost: application cost per rule through the engine probe p_rule_cost; interfaces/rule-cost.md 3)
+  rr_campaign rule-score --table T.jsonl [--model M.json] [--include I,J,..] [--out O.jsonl] [--keys K.jsonl [--table-to-presentation P,..]]
+      (lane rulecost: rule_cost features and scores of table records, today and with a coefficient cache; interfaces/rule-cost.md 4)
   rr_campaign scope-check [--unit NAME]     (host only: ONE transient systemd scope around `true`, as a job's; checks the evidence
                                              a job that ends before its first check is recorded from; exit 0 = PASS; signals nothing)
   rr_campaign units clear CDIR              (the campaign's leftover systemd units, CDIR/units.leftover.json: each by its exact
@@ -133,6 +137,27 @@ pub fn main_with(args: &[String]) -> i32 {
                 exit::USAGE
             }
         },
+        // lane rulecost: measured application cost of stored rules (interfaces/rule-cost.md 3)
+        "rule-cost" => match crate::rulecost::rule_cost_cmd(rest) {
+            Ok(t) => {
+                outln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("rule-cost: {e}");
+                exit::USAGE
+            }
+        },
+        "rule-score" => match crate::rulecost::rule_score_cmd(rest) {
+            Ok(t) => {
+                errln!("{t}");
+                exit::OK
+            }
+            Err(e) => {
+                errln!("rule-score: {e}");
+                exit::USAGE
+            }
+        },
         "pole-report" => match crate::polereport::report_cmd(rest) {
             Ok(t) => {
                 outln!("{t}");
@@ -140,6 +165,137 @@ pub fn main_with(args: &[String]) -> i32 {
             }
             Err(e) => {
                 errln!("pole-report: {e}");
+                exit::USAGE
+            }
+        },
+        // lane gencheck (interfaces/emission-check.md): the emission validator and certify-by-replacement
+        "table-check" => match crate::emission::tablecheck::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 2 }
+            }
+            Err(e) => {
+                errln!("table-check: {e}");
+                exit::USAGE
+            }
+        },
+        "bind-check" => match crate::emission::bindcheck::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 2 }
+            }
+            Err(e) => {
+                errln!("bind-check: {e}");
+                exit::USAGE
+            }
+        },
+        "emit-table" => match crate::emission::gate::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("emit-table: {e}");
+                exit::USAGE
+            }
+        },
+        "regularity-compare" => match crate::emission::regcheck::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("regularity-compare: {e}");
+                exit::USAGE
+            }
+        },
+        "emit-entries" => match crate::emission::entries::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("emit-entries: {e}");
+                exit::USAGE
+            }
+        },
+        "entry-check" => match crate::emission::entries::check_cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 2 }
+            }
+            Err(e) => {
+                errln!("entry-check: {e}");
+                exit::USAGE
+            }
+        },
+        "regularity-at-key" => match crate::emission::entries::at_key_cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("regularity-at-key: {e}");
+                exit::USAGE
+            }
+        },
+        "descent-stamp" => match crate::emission::stamp::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("descent-stamp: {e}");
+                exit::USAGE
+            }
+        },
+        "regularity-pairs" => match crate::emission::pairs::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("regularity-pairs: {e}");
+                exit::USAGE
+            }
+        },
+        "cone-price" => match crate::emission::coneprice::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("cone-price: {e}");
+                exit::USAGE
+            }
+        },
+        "cone-stamp" => match crate::emission::coneprice::stamp_cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("cone-stamp: {e}");
+                exit::USAGE
+            }
+        },
+        "legacy-import" => match crate::emission::legacy_import::cmd(rest) {
+            Ok((t, ok)) => {
+                outln!("{t}");
+                if ok { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("legacy-import: {e}");
+                exit::USAGE
+            }
+        },
+        "emit-replace" => match crate::emission::emit_replace_cmd(rest) {
+            Ok((t, closed)) => {
+                outln!("{t}");
+                if closed { exit::OK } else { 3 }
+            }
+            Err(e) => {
+                errln!("emit-replace: {e}");
                 exit::USAGE
             }
         },

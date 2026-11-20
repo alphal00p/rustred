@@ -261,12 +261,20 @@ fn a_job_cap_above_the_campaign_memory_total_is_refused_at_start_not_waited_for(
 /// unbounded tolerance; with `poles.use = false` the choice and its record are those of the size choice, with nothing
 /// about poles written.
 #[test]
+/// USER RULING 2026-11-19 (LANE_RULES rule 21): under the DEFAULT pole policy (size first, regularity a tie-break) the
+/// SMALLER singular table wins over the larger regular one; the old order (a pole measure first) is an EXPLICIT option that
+/// still chooses the regular table and says so in the record (`d4_rule`, `policy_version`); `use: false` = the size choice.
 fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_choice() {
     let _g = serial();
     for (tag, poles, want) in [
         (
             "gcpoles",
             json!({"max_size_ratio": "unbounded"}),
+            "isp_rev-default-std",
+        ),
+        (
+            "gcpolesexplicit",
+            json!({"measures": ["regular", "max_pole_order", "size"], "max_size_ratio": "unbounded"}),
             "bfi-rung-std",
         ),
         ("gcpolesoff", json!({"use": false}), "isp_rev-default-std"),
@@ -314,6 +322,11 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
         assert_eq!(c["winner"], want, "{tag}: {:#}", c["poles"]);
         assert_eq!(cand(&c, want)["verdict"], "winner");
         if tag == "gcpoles" {
+            assert!(c["poles"]["d4_rule"].as_str().unwrap().contains("rule 21"), "{:#}", c["poles"]);
+            assert_eq!(c["poles"]["policy_version"], 2);
+        }
+        if tag == "gcpolesexplicit" {
+            assert!(c["poles"]["d4_rule"].as_str().unwrap().contains("EXPLICIT"), "{:#}", c["poles"]);
             let d = &c["poles"]["decision"];
             assert_eq!(
                 (d["reason"].clone(), d["changed"].clone()),
@@ -340,7 +353,7 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
                     .any(|s| s["score"] == "undecided"),
                 "unscored acceptable tables are recorded as undecided"
             );
-        } else {
+        } else if tag == "gcpolesoff" {
             assert!(
                 c.get("poles").is_none(),
                 "ignored: nothing about poles in the choice"

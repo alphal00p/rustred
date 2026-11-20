@@ -1,0 +1,502 @@
+//! The EMISSION path (lane gencheck; plan/auto-campaign/interfaces/emission-check.md): the process part of the
+//! contract whose pure part is `rustred_campaign_core::emission`.
+//! - [`child`]: one child process with a wall budget and its own peak RSS;
+//! - [`emitter`]: the emitter (check on the bytes being written, class, policy, derivation member, side files);
+//! - [`replace`]: certify by replacement (lift, emit, ladder over open loci and new branches, partition proof);
+//! - [`tablecheck`]: `rr_campaign table-check`.
+//!
+//! CLI: `rr_campaign emit-replace ...` ([`emit_replace_cmd`]) and `rr_campaign table-check ...` ([`tablecheck::cmd`]).
+pub mod bindcheck;
+pub mod child;
+pub mod coneprice;
+pub mod emitter;
+pub mod entries;
+pub mod gate;
+pub mod legacy_import;
+pub mod pairs;
+pub mod regcheck;
+pub mod replace;
+pub mod stamp;
+pub mod tablecheck;
+
+use emitter::{Checker, Emitter};
+use replace::{LadderConfig, Outcome, RrNodeWitness, certify_by_replacement, certify_given_pieces};
+use rustred_campaign_core::economy::improve::{restate_marker, set_index};
+use rustred_campaign_core::emission::body::string_member;
+use rustred_campaign_core::emission::class::Policy;
+use rustred_campaign_core::emission::side_dir;
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use std::io::{BufRead, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+
+/// The header line, the chart lines and the rule record with `index` (at `offset` when given) of a table.
+pub fn read_record(
+    table: &Path,
+    index: i64,
+    offset: Option<u64>,
+) -> Result<(String, Vec<String>, String), String> {
+    let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
+    let mut r = std::io::BufReader::new(f);
+    let mut header = String::new();
+    r.read_line(&mut header).map_err(|e| e.to_string())?;
+    let header = header.trim_end().to_string();
+    let mut charts = vec![];
+    let is_rule = |l: &str| string_member(l.trim_end(), "type").as_deref() == Some("rule");
+    let has_index = |l: &str| {
+        serde_json::from_str::<Value>(l)
+            .ok()
+            .is_some_and(|v| v["index"].as_i64() == Some(index))
+    };
+    if let Some(o) = offset {
+        // charts before the first rule, then the line at the offset
+        let mut line = String::new();
+        loop {
+            line.clear();
+            if r.read_line(&mut line).map_err(|e| e.to_string())? == 0 || is_rule(&line) {
+                break;
+            }
+            if string_member(line.trim_end(), "type").as_deref() == Some("chart") {
+                charts.push(line.trim_end().to_string());
+            }
+        }
+        let mut f = std::fs::File::open(table).map_err(|e| e.to_string())?;
+        f.seek(SeekFrom::Start(o)).map_err(|e| e.to_string())?;
+        let mut rr = std::io::BufReader::new(f);
+        let mut l = String::new();
+        rr.read_line(&mut l).map_err(|e| e.to_string())?;
+        let l = l.trim_end().to_string();
+        if !is_rule(&l) || !has_index(&l) {
+            return Err(format!(
+                "offset {o} is not the rule record with index {index}"
+            ));
+        }
+        return Ok((header, charts, l));
+    }
+    let mut line = String::new();
+    loop {
+        line.clear();
+        if r.read_line(&mut line).map_err(|e| e.to_string())? == 0 {
+            return Err(format!(
+                "{}: no rule record with index {index}",
+                table.display()
+            ));
+        }
+        if is_rule(&line) {
+            let l = line.trim_end().to_string();
+            if has_index(&l) {
+                return Ok((header, charts, l));
+            }
+        } else if string_member(line.trim_end(), "type").as_deref() == Some("chart") {
+            charts.push(line.trim_end().to_string());
+        }
+    }
+}
+
+/// Stream `table` into `out`, the rule with `index` replaced by `pieces` (positioned), every later rule of its chart
+/// renumbered (only its index changes), completion markers restated.
+pub fn write_replaced_table(
+    table: &Path,
+    out: &Path,
+    index: i64,
+    chart: &str,
+    pieces: &[String],
+) -> Result<(String, u64), String> {
+    // rule counts per chart (for the markers)
+    let mut per_chart: BTreeMap<String, u64> = BTreeMap::new();
+    let rule_chart = |l: &str| -> Option<String> {
+        if string_member(l, "type").as_deref() != Some("rule") {
+            return None;
+        }
+        Some(string_member(l, "chart").unwrap_or_default())
+    };
+    for l in std::io::BufReader::new(std::fs::File::open(table).map_err(|e| e.to_string())?).lines()
+    {
+        let l = l.map_err(|e| e.to_string())?;
+        if let Some(c) = rule_chart(&l) {
+            *per_chart.entry(c).or_default() += 1;
+        }
+    }
+    *per_chart.entry(chart.to_string()).or_default() += pieces.len() as u64 - 1;
+    let total: u64 = per_chart.values().sum();
+    let tmp = out.with_extension("jsonl.tmp");
+    let mut w = std::io::BufWriter::new(std::fs::File::create(&tmp).map_err(|e| e.to_string())?);
+    let mut sha = rustred_campaign_core::closure::sha256::Sha256::new();
+    let mut put = |w: &mut std::io::BufWriter<std::fs::File>, s: &str| -> Result<(), String> {
+        sha.update(s.as_bytes());
+        sha.update(b"\n");
+        w.write_all(s.as_bytes()).map_err(|e| e.to_string())?;
+        w.write_all(b"\n").map_err(|e| e.to_string())
+    };
+    let mut pos: BTreeMap<String, i64> = BTreeMap::new();
+    let mut replaced = false;
+    for l in std::io::BufReader::new(std::fs::File::open(table).map_err(|e| e.to_string())?).lines()
+    {
+        let l = l.map_err(|e| e.to_string())?;
+        match rule_chart(&l) {
+            Some(c) => {
+                let p = pos.entry(c.clone()).or_insert(0);
+                let is_target = c == chart
+                    && !replaced
+                    && serde_json::from_str::<Value>(&l[..])
+                        .ok()
+                        .is_some_and(|v| v["index"].as_i64() == Some(index));
+                if is_target {
+                    for s in pieces {
+                        put(&mut w, &set_index(s, *p)?)?;
+                        *p += 1;
+                    }
+                    replaced = true;
+                } else {
+                    put(&mut w, &set_index(&l, *p)?)?;
+                    *p += 1;
+                }
+            }
+            None => put(&mut w, &restate_marker(&l, total, &per_chart))?,
+        }
+    }
+    w.flush().map_err(|e| e.to_string())?;
+    drop(w);
+    if !replaced {
+        return Err(format!("no rule with index {index} in chart {chart}"));
+    }
+    std::fs::rename(&tmp, out).map_err(|e| e.to_string())?;
+    Ok((
+        sha.finish_hex(),
+        std::fs::metadata(out).map(|m| m.len()).unwrap_or(0),
+    ))
+}
+
+/// Carry a table's side directory into another's (content-addressed files: a hard link, else a copy; existing files
+/// are kept). Returns the number of files carried. A missing source is no error (a table without emitted records).
+pub fn carry_side(from: &Path, to: &Path) -> Result<u64, String> {
+    if !from.is_dir() || from == to {
+        return Ok(0);
+    }
+    let mut n = 0;
+    for area in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
+        let area = area.map_err(|e| e.to_string())?.path();
+        if !area.is_dir() {
+            continue;
+        }
+        let dst = to.join(area.file_name().expect("area name"));
+        std::fs::create_dir_all(&dst).map_err(|e| format!("{}: {e}", dst.display()))?;
+        for f in std::fs::read_dir(&area).map_err(|e| format!("{}: {e}", area.display()))? {
+            let f = f.map_err(|e| e.to_string())?.path();
+            let d = dst.join(f.file_name().expect("file name"));
+            if d.exists() {
+                continue;
+            }
+            if std::fs::hard_link(&f, &d).is_err() {
+                std::fs::copy(&f, &d)
+                    .map_err(|e| format!("{} -> {}: {e}", f.display(), d.display()))?;
+            }
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
+fn flag_value(rest: &[String], i: usize) -> Result<String, String> {
+    rest.get(i + 1)
+        .cloned()
+        .ok_or_else(|| format!("{} needs a value", rest[i]))
+}
+
+/// `rr_campaign emit-replace --table T --rule N [--offset B] --rr-node BIN --checker BIN --out DIR [--max-depth 6]
+/// [--max-pieces 16] [--case-budget S] [--cone S] [--policy FILE] [--family F] [--no-recover-rows] [--write-table]
+/// [--witness-off] [--check-floor S] [--check-ratio R] [--cone-verdict V.json]` (check budget = max(floor, ratio x lift seconds), default 120 s / 1): certify rule N of T by replacement; writes DIR/report.json, DIR/cand.emission/ (side files) and,
+/// when the ladder closed, DIR/pieces.jsonl, DIR/pieces.mini.table.jsonl and (with --write-table) DIR/cand.table.jsonl.
+/// `--cone-verdict` (contract section 17, opt-in): every piece names that ACCEPTED cone verdict (`replaces.cone_sha256`, side
+/// file cone/<sha>.json), or the replacement is refused: outcome `cone_refused`, the pieces kept aside in pieces.refused.jsonl.
+pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
+    let (mut table, mut out, mut rr_node, mut checker) = (None, None, None, None);
+    let mut index: Option<i64> = None;
+    let mut offset = None;
+    let mut cfg = LadderConfig::default();
+    let mut case_budget = 7200u64;
+    let mut policy = Policy::default();
+    let mut family = None;
+    let mut recover = true;
+    let mut write_table = false;
+    let (mut check_floor, mut check_ratio) = (None, None);
+    let mut given: Option<PathBuf> = None;
+    let (mut zero_sectors, mut symmetry_group): (Option<PathBuf>, Option<PathBuf>) = (None, None);
+    let mut reg_table: Option<PathBuf> = None;
+    let mut descent_node: Option<PathBuf> = None;
+    let mut cone_verdict: Option<PathBuf> = None;
+    let mut reg = regcheck::Options::default();
+    let mut i = 0;
+    while i < rest.len() {
+        let mut one = false;
+        match rest[i].as_str() {
+            "--table" => table = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--regularity-table" => reg_table = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--descent-node" => descent_node = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--cone-verdict" => cone_verdict = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--regularity-cone" => {
+                reg.cone = flag_value(rest, i)?
+                    .parse()
+                    .map_err(|_| "--regularity-cone: the D + r bound")?
+            }
+            "--regularity-threads" => {
+                reg.threads = flag_value(rest, i)?
+                    .parse()
+                    .map_err(|_| "--regularity-threads: a count")?
+            }
+            "--regularity-max-keys" => {
+                reg.max_keys = flag_value(rest, i)?
+                    .parse()
+                    .map_err(|_| "--regularity-max-keys: a count")?
+            }
+            "--rule" => {
+                index = Some(
+                    flag_value(rest, i)?
+                        .parse()
+                        .map_err(|_| "--rule: an index")?,
+                )
+            }
+            "--offset" => {
+                offset = Some(
+                    flag_value(rest, i)?
+                        .parse()
+                        .map_err(|_| "--offset: bytes")?,
+                )
+            }
+            "--rr-node" => rr_node = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--checker" => checker = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--out" => out = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--max-depth" => {
+                cfg.max_depth = flag_value(rest, i)?.parse().map_err(|_| "--max-depth")?
+            }
+            "--max-pieces" => {
+                cfg.max_pieces = flag_value(rest, i)?.parse().map_err(|_| "--max-pieces")?
+            }
+            "--case-budget" => {
+                case_budget = flag_value(rest, i)?.parse().map_err(|_| "--case-budget")?
+            }
+            "--cone" => {
+                cfg.cone_s = Some(
+                    flag_value(rest, i)?
+                        .parse()
+                        .map_err(|_| "--cone: the simplex bound")?,
+                )
+            }
+            "--family" => family = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--pieces" => given = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--zero-sectors" => zero_sectors = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--symmetry-group" => symmetry_group = Some(PathBuf::from(flag_value(rest, i)?)),
+            "--check-floor" => {
+                check_floor = Some(
+                    flag_value(rest, i)?
+                        .parse::<f64>()
+                        .map_err(|_| "--check-floor: seconds")?,
+                )
+            }
+            "--check-ratio" => {
+                check_ratio = Some(
+                    flag_value(rest, i)?
+                        .parse::<f64>()
+                        .map_err(|_| "--check-ratio: a number")?,
+                )
+            }
+            "--policy" => {
+                let p = flag_value(rest, i)?;
+                let t = std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}"))?;
+                policy = serde_json::from_str(&t).map_err(|e| format!("{p}: {e}"))?;
+            }
+            "--no-recover-rows" => {
+                recover = false;
+                one = true;
+            }
+            "--write-table" => {
+                write_table = true;
+                one = true;
+            }
+            "--witness-off" => {
+                cfg.witness_modes = vec![false];
+                one = true;
+            }
+            o => return Err(format!("unknown argument {o}")),
+        }
+        i += if one { 1 } else { 2 };
+    }
+    let table = table.ok_or("--table is required")?;
+    let index = index.ok_or("--rule is required")?;
+    let out = out.ok_or("--out is required")?;
+    let rr_node = rr_node.ok_or("--rr-node is required")?;
+    let checker = checker.ok_or("--checker is required")?;
+    std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+    let t0 = std::time::Instant::now();
+    let (header, charts, line) = read_record(&table, index, offset)?;
+    let original: Value = serde_json::from_str(&line).map_err(|e| e.to_string())?;
+    let hv: Value = serde_json::from_str(&header).map_err(|e| format!("header: {e}"))?;
+    cfg.is_line = hv["mask"]
+        .as_str()
+        .unwrap_or_default()
+        .chars()
+        .map(|c| c == '1')
+        .collect();
+    let mut ck = Checker::new(&checker)?;
+    ck.recover_rows = recover;
+    ck.family = family.clone();
+    ck.zero_sectors = zero_sectors;
+    ck.symmetry_group = symmetry_group;
+    if let Some(f) = check_floor {
+        ck.floor_s = f;
+    }
+    if let Some(r) = check_ratio {
+        ck.ratio = r;
+    }
+    // the DESCENT test (contract section 14): --descent-node, else the producer rr_node (it has the engine's `descent` verb)
+    let dn = descent_node.clone().unwrap_or_else(|| rr_node.clone());
+    ck.descent_node = Some((dn.clone(), child::file_sha256(&dn)?));
+    let cand = out.join("cand.table.jsonl");
+    let side = side_dir(&cand);
+    let emitter = Emitter::new(ck, policy, &side, &out.join("work"))?;
+    let mut lifter = RrNodeWitness::new(&rr_node)?;
+    lifter.case_budget_s = case_budget;
+    lifter.family = family;
+    let rep = match &given {
+        None => certify_by_replacement(
+            &header,
+            &charts,
+            &original,
+            index,
+            &lifter,
+            &emitter,
+            &cfg,
+            &out.join("work"),
+        )?,
+        Some(p) => {
+            let text = std::fs::read_to_string(p).map_err(|e| format!("{}: {e}", p.display()))?;
+            let pieces: Vec<Value> = text
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str(l).map_err(|e| format!("{}: {e}", p.display())))
+                .collect::<Result<_, _>>()?;
+            certify_given_pieces(
+                &header,
+                &charts,
+                &original,
+                index,
+                &pieces,
+                &lifter,
+                &emitter,
+                &cfg,
+                &out.join("work"),
+            )?
+        }
+    };
+    let mut closed = rep.outcome == Outcome::Closed;
+    let orig_rhs = original["rhs"].as_array().map_or(0, Vec::len);
+    let mut summary = json!({"schema": "rustred.campaign.emit-replace.v1", "table": table.display().to_string(), "rule": index,
+        "outcome": rep.outcome.json(), "original": {"bytes": line.len(), "rhs_terms": orig_rhs,
+            "lift_seconds": original["lift_seconds"], "trace_rows": original["trace_rows"], "monomials": original["monomials"]},
+        "pieces": rep.pieces.iter().map(|p| json!({"tag": p.tag, "depth": p.depth, "class": p.emission.classed.class.word(),
+            "rhs_terms": p.rhs_terms, "bytes": p.bytes, "lift_seconds": p.lift_seconds, "lift_peak_mb": p.lift_peak_mb,
+            "check_seconds": p.check_seconds, "check_peak_mb": p.check_peak_mb, "certs_tried": p.certs_tried,
+            "stages": p.emission.summary.as_ref().map(|s| s.record_json()), "body_sha256": p.emission.ids.body_sha256,
+            "fixed": p.record["fixed"], "exceptions": p.record["exceptions"]})).collect::<Vec<_>>(),
+        "pieces_total": {"bytes": rep.pieces.iter().map(|p| p.bytes).sum::<usize>(), "rhs_terms": rep.pieces.iter().map(|p| p.rhs_terms).sum::<usize>()},
+        "same_relation_as_original": rep.pieces.len() == 1 && rustred_campaign_core::emission::body::body_ids(&line).ok().map(|i| i.relation_sha256)
+            == rep.pieces[0].emission.line.as_deref().and_then(|l| rustred_campaign_core::emission::body::body_ids(l).ok()).map(|i| i.relation_sha256),
+        "partition": rep.partition.as_ref().map(|(ok, checks)| json!({"partition": ok, "checks": checks.iter().map(|c| json!({"check": c.check, "witness": c.witness, "verdict": c.verdict, "why": c.why})).collect::<Vec<_>>()})),
+        "log": rep.log, "seconds": t0.elapsed().as_secs_f64(),
+        "checker": {"binary": checker.display().to_string(), "sha256": emitter.checker.sha256, "recover_rows": recover},
+        "producer": {"binary": rr_node.display().to_string(), "sha256": lifter.sha256}});
+    // THE d = 4 REGULARITY MEASURE (contract section 13): REPORTED, tie-break only since the user ruling of 2026-11-19
+    // (LANE_RULES rule 21); a closed replacement is accepted whatever it says; the verdict is a side file named by every piece
+    let mut lines_ok: Option<Vec<String>> = None;
+    if closed {
+        let lines = rep.lines(index)?;
+        let rt = reg_table.clone().unwrap_or_else(|| table.clone());
+        let ot = regcheck::OldTable::load(&rt)?;
+        let st = regcheck::accept_and_stamp(
+            &emitter,
+            &ot,
+            index,
+            &line,
+            &lines,
+            &reg,
+            &out.join("regularity-work"),
+        )?;
+        let (verdict, ok, reason, reg_sha, same) = (
+            st.verdict,
+            st.accepted,
+            st.reason,
+            st.sha256,
+            st.same_relation,
+        );
+        summary["regularity"] = json!({"role": rustred_campaign_core::emission::regularity::ROLE, "accepted": ok, "report": reason,
+            "sha256": reg_sha, "same_relation": same,
+            "keys": verdict["keys"], "counts": verdict["counts"], "by_branch": verdict["by_branch"],
+            "first_regressions": verdict["first_regressions"], "structural": verdict["structural"]});
+        // never refused for regularity (rule 21): the stamped lines are the pieces
+        lines_ok = st.lines.or(Some(lines));
+        let _ = ok;
+    }
+    // THE CONE PRICE (contract section 17, opt-in): the first cost criterion of rule 21; a refusing verdict, or one that does
+    // not price these pieces against this old record, refuses the replacement
+    if let (Some(vp), Some(lines)) = (&cone_verdict, lines_ok.take()) {
+        let vb = std::fs::read(vp).map_err(|e| format!("{}: {e}", vp.display()))?;
+        match coneprice::apply_to_pieces(&lines, &vb, &side)? {
+            coneprice::Applied::Stamped { lines, sha256 } => {
+                summary["cone"] = json!({"verdict": vp.display().to_string(), "sha256": sha256, "accepted": true,
+                                         "stamped_pieces": lines.len()});
+                lines_ok = Some(lines);
+            }
+            coneprice::Applied::Refused {
+                reason,
+                piece,
+                sha256,
+            } => {
+                closed = false;
+                summary["cone"] = json!({"verdict": vp.display().to_string(), "sha256": sha256, "accepted": false,
+                                         "reason": reason, "piece": piece});
+                summary["outcome"] = json!({"outcome": "cone_refused", "reason": reason});
+                let mut pj = String::new();
+                for l in &lines {
+                    pj.push_str(l);
+                    pj.push('\n');
+                }
+                std::fs::write(out.join("pieces.refused.jsonl"), &pj).map_err(|e| e.to_string())?;
+            }
+        }
+    } else if cone_verdict.is_some() {
+        summary["cone"] = json!({"verdict": cone_verdict.as_ref().map(|p| p.display().to_string()), "applied": false,
+                                 "reason": "the replacement did not close: nothing to price"});
+    } else if emitter.policy.cone_pricing && lines_ok.is_some() {
+        summary["cone"] = json!({"applied": false, "reason": "the policy asks for cone pricing and no --cone-verdict was given: \
+            table-check will refuse these pieces until `cone-stamp` names an accepted verdict"});
+    }
+    if let Some(lines) = lines_ok {
+        let mut pj = String::new();
+        for l in &lines {
+            pj.push_str(l);
+            pj.push('\n');
+        }
+        std::fs::write(out.join("pieces.jsonl"), &pj).map_err(|e| e.to_string())?;
+        let mut mini = format!("{header}\n");
+        for c in &charts {
+            mini.push_str(c);
+            mini.push('\n');
+        }
+        mini.push_str(&pj);
+        std::fs::write(out.join("pieces.mini.table.jsonl"), mini).map_err(|e| e.to_string())?;
+        if write_table {
+            let chart = original["chart"].as_str().unwrap_or_default().to_string();
+            let (sha, bytes) = write_replaced_table(&table, &cand, index, &chart, &lines)?;
+            summary["candidate_table"] =
+                json!({"path": cand.display().to_string(), "sha256": sha, "bytes": bytes});
+        }
+    }
+    let text = serde_json::to_string_pretty(&summary).map_err(|e| e.to_string())?;
+    std::fs::write(out.join("report.json"), &text).map_err(|e| e.to_string())?;
+    let mut brief = summary.clone();
+    if let Some(o) = brief.as_object_mut() {
+        o.remove("log");
+        o.remove("partition");
+    }
+    Ok((brief.to_string(), closed))
+}

@@ -8,7 +8,9 @@
 //! 1. a candidate is viable iff every edge term (non-zero or unknown) strictly descends under the node's full order,
 //!    and a hand-down has exactly one edge term;
 //! 2. the chosen service is the best viable candidate under the caller's ranking (kind order, then fewer edge terms,
-//!    then provenance and terms: total and deterministic);
+//!    then regular at d = 4 before singular (a TIE-BREAK, user ruling 2026-11-19, LANE_RULES rule 21), then provenance and
+//!    terms: total and deterministic); `singular_last` (the withdrawn order: singular candidates after every other viable
+//!    one) is an EXPLICIT, non-default option and the plan records which rule chose (`d4_rule`);
 //! 3. keys without a viable candidate are LEFT TO THE IBP CORE;
 //! 4. pieces per face: (i) `rules` (composite, two_row, table_rule), (ii) `hand_downs`, (iii) `core` (core_recipe
 //!    chosen + left open); piece order = Tarjan's completion order on the piece graph (dependencies first: a
@@ -73,8 +75,9 @@ pub struct Candidate {
     /// The right-hand side with exact non-zero-ness (zero terms are kept for the record but are not edges).
     pub terms: Vec<Term>,
     pub provenance: String,
-    /// Regular at d = 4 at the key (`None`: not tested). With [`Ranking::singular_last`] a candidate known to be
-    /// singular is chosen only when no other viable candidate exists (TRICKS 9: regular wins by default).
+    /// Regular at d = 4 at the key (`None`: not tested). By default (rule 21, 2026-11-19) only a TIE-BREAK after kind and
+    /// size; with the explicit [`Ranking::singular_last`] a candidate known to be singular is chosen only when no other
+    /// viable candidate exists (the withdrawn TRICKS 9 order).
     #[serde(default)]
     pub regular_at_4: Option<bool>,
 }
@@ -97,17 +100,16 @@ pub struct UnservedKey {
     pub candidates: Vec<Candidate>,
 }
 
-/// Preference among the viable candidates of a key: candidates known singular at d = 4 last (if `singular_last`),
-/// then the kinds in order (a kind not listed is never chosen), then fewer edge terms, then provenance and terms.
+/// Preference among the viable candidates of a key: the kinds in order (a kind not listed is never chosen), then fewer
+/// edge terms, then regular at d = 4 before singular (the tie-break of rule 21), then provenance and terms. With the
+/// EXPLICIT, non-default `singular_last` (the order until 2026-11-19), candidates known singular at d = 4 come last,
+/// before every other criterion.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Ranking {
     pub kinds: Vec<ServiceKind>,
-    #[serde(default = "yes")]
+    /// USER RULING 2026-11-19 (rule 21): default `false`; `true` only when a caller names it.
+    #[serde(default)]
     pub singular_last: bool,
-}
-
-fn yes() -> bool {
-    true
 }
 
 impl Default for Ranking {
@@ -120,7 +122,7 @@ impl Default for Ranking {
                 ServiceKind::CoreRecipe,
                 ServiceKind::TableRule,
             ],
-            singular_last: true,
+            singular_last: false,
         }
     }
 }
@@ -299,6 +301,10 @@ pub struct Plan {
     /// audit r2-planners G2: the input's table-set digest, echoed.
     #[serde(default)]
     pub table_set_digest: Option<String>,
+    /// Which d = 4 rule ranked the candidates (rule 21 tie-break, or the explicit `singular_last`); `None` in plans made
+    /// before 2026-11-19 (those used `singular_last`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub d4_rule: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -393,6 +399,8 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
             input.ranking.rank(c.kind).unwrap_or(usize::MAX),
             c.kind,
             c.edge_count(),
+            // rule 21: regularity breaks ties only (known singular after regular or untested)
+            c.regular_at_4 == Some(false),
             c.provenance.clone(),
             c.terms
                 .iter()
@@ -742,5 +750,10 @@ pub fn plan<O: KeyOrder + ?Sized>(order: &O, input: &PlanInput) -> Result<Plan, 
         counts_by_kind: by_kind,
         hand_down_targets: hd_targets,
         table_set_digest: input.table_set_digest.clone(),
+        d4_rule: Some(if input.ranking.singular_last {
+            "EXPLICIT singular_last: candidates singular at d = 4 after every other viable one (the withdrawn order)".into()
+        } else {
+            "rule 21 (2026-11-19): kind, then size; d = 4 regularity a tie-break only".into()
+        }),
     })
 }

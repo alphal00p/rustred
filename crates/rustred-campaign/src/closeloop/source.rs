@@ -783,6 +783,7 @@ impl CloseFromMaterialSource {
                 &self.abs(&format!("{}/derived", node_dir(&r.n))),
                 &chart,
                 super::derived::DerivedFiles::Verify,
+                r.cfg.emission.as_ref(),
             )?
         };
         let check: Value = serde_json::from_slice(&self.input_file(st, &input_check(&n, l))?)
@@ -1083,6 +1084,7 @@ impl CloseFromMaterialSource {
                 &self.abs(&format!("{}/derived", node_dir(&r.n))),
                 &chart,
                 super::derived::DerivedFiles::Write,
+                r.cfg.emission.as_ref(),
             )?
         };
         let eff_digest = blake3_hex(eff.as_bytes());
@@ -2502,6 +2504,17 @@ impl CloseFromMaterialSource {
             let chart = proofs::chart_of(&recipe, key);
             text.push_str(&proofs::relation_record(idx, key, rec, &chart, sym)?);
             text.push('\n');
+        }
+        // EMISSION (lane gencheck): the point records through the in-flow gate (emitted copy beside, fail closed)
+        if let Some(es) = &r.cfg.emission {
+            crate::emission::gate::gate_beside(
+                es,
+                &text,
+                &self.abs(&format!("{}/relations/{item}.{job}.emitted.table.jsonl", node_dir(&r.n))),
+                crate::emission::gate::GateKind::Point,
+                &[],
+                true,
+            )?;
         }
         Ok(record(
             format!("{}/relations/{item}.{job}.table.jsonl", node_dir(&r.n)),

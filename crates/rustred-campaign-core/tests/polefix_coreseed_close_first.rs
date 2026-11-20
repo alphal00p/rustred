@@ -93,6 +93,10 @@ fn oracle() -> (Oracle, Key, Key) {
     (o, g, h)
 }
 
+/// USER RULING 2026-11-19 (rule 21): `regular_preferred` (the variant phase, the regular escalation, the pole guard of a
+/// minimised list) is the EXPLICIT, non-default mode; the tests of that machinery name it.
+const REGULAR_PREFERRED: &str = r#"{"mode": "regular_preferred"}"#;
+
 fn policy(over: &str) -> CoreSeedPolicy {
     serde_json::from_str(over).unwrap()
 }
@@ -195,7 +199,7 @@ fn a_variant_phase_that_never_returns_does_not_delay_the_report() {
             entered: ent_tx,
             release: rel_rx,
         };
-        solve_core(&keys, &LINES, &policy("{}"), &mut s)
+        solve_core(&keys, &LINES, &policy(REGULAR_PREFERRED), &mut s)
     });
     // the report arrives although the variant phase is hung
     let cf = rep_rx
@@ -239,7 +243,13 @@ fn a_variant_phase_that_never_returns_does_not_delay_the_report() {
 fn the_variant_phase_only_adds_and_the_publication_precedes_it() {
     let (o, g, h) = oracle();
     let mut s = Plain::new(&o);
-    let fin = solve_core(&[g.clone(), h.clone()], &LINES, &policy("{}"), &mut s).unwrap();
+    let fin = solve_core(
+        &[g.clone(), h.clone()],
+        &LINES,
+        &policy(REGULAR_PREFERRED),
+        &mut s,
+    )
+    .unwrap();
     assert_eq!(s.published.len(), 1);
     let cf = &s.published[0];
     assert_eq!(
@@ -288,7 +298,7 @@ fn the_variant_budget_is_its_own_and_never_unserves_a_key() {
     let fin = solve_core(
         &[g.clone(), h.clone()],
         &LINES,
-        &policy(r#"{"variants": {"max_requests": 0}}"#),
+        &policy(r#"{"mode": "regular_preferred", "variants": {"max_requests": 0}}"#),
         &mut s,
     )
     .unwrap();
@@ -320,17 +330,17 @@ fn an_interrupted_variant_phase_resumes_with_the_same_publication_and_result() {
     let (o, g, h) = oracle();
     let keys = vec![g.clone(), h.clone()];
     let mut full = Plain::new(&o);
-    let r_full = solve_core(&keys, &LINES, &policy("{}"), &mut full).unwrap();
+    let r_full = solve_core(&keys, &LINES, &policy(REGULAR_PREFERRED), &mut full).unwrap();
     let close_first_requests = full.events.iter().position(|e| e == "publish").unwrap();
     // interrupt at the first variant request
     let mut s1 = Plain::new(&o);
     s1.fail_after = Some(close_first_requests);
-    assert!(solve_core(&keys, &LINES, &policy("{}"), &mut s1).is_err());
+    assert!(solve_core(&keys, &LINES, &policy(REGULAR_PREFERRED), &mut s1).is_err());
     assert_eq!(s1.published.len(), 1, "published before the interruption");
     // resume with the journal: the same publication, then the same final report
     let mut s2 = Plain::new(&o);
     s2.journal = s1.journal.clone();
-    let r2 = solve_core(&keys, &LINES, &policy("{}"), &mut s2).unwrap();
+    let r2 = solve_core(&keys, &LINES, &policy(REGULAR_PREFERRED), &mut s2).unwrap();
     // the decision record (cost members removed, as coreseed_core's resume test)
     let j = |r: &CoreReport| {
         let mut v = serde_json::to_value(r).unwrap();
@@ -380,7 +390,9 @@ fn a_minimised_list_that_raises_a_pole_order_is_not_accepted_at_that_key() {
             },
         ],
     );
-    let pol = policy(r#"{"centre_scan": {"enabled": false}, "regular_escalation": []}"#);
+    let pol = policy(
+        r#"{"mode": "regular_preferred", "centre_scan": {"enabled": false}, "regular_escalation": []}"#,
+    );
     let mut sv = Plain::new(&o);
     let r = solve_core(&[p.clone(), q.clone()], &LINES, &pol, &mut sv).unwrap();
     let pieces = &r.groups[0].pieces;

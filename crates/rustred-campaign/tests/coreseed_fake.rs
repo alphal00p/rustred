@@ -245,17 +245,26 @@ fn a_budget_stop_is_not_no_relation() {
 fn regular_preferred_keeps_both_alternatives_through_children() {
     // A: in the rule's list only a singular relation; the up-centre (line 0 at its lowest power one step up) gives a
     // regular one
-    let f = fake(
-        &[
-            (
-                A,
-                vec![opt(&[[2, 0, 0]], &[R1, R2]), opt(&[[0, 0, 1]], &[SING])],
-            ),
-            (B, vec![opt(&[[0, 0, 1]], &[R2])]),
-        ],
-        &[],
-    );
-    let (r, _) = run("cs-regular", f, &[A, B], "{}");
+    let mk = || {
+        fake(
+            &[
+                (
+                    A,
+                    vec![opt(&[[2, 0, 0]], &[R1, R2]), opt(&[[0, 0, 1]], &[SING])],
+                ),
+                (B, vec![opt(&[[0, 0, 1]], &[R2])]),
+            ],
+            &[],
+        )
+    };
+    // USER RULING 2026-11-19 (rule 21): the DEFAULT mode is any_relation: the singular relation the rule's list gives is
+    // kept, no regular escalation runs for it
+    let (r0, _) = run("cs-regular-default", mk(), &[A, B], "{}");
+    let k0 = key(&r0, &A);
+    assert!(matches!(k0.alternatives[k0.chosen.unwrap()].d0, D0Verdict::Singular { .. }), "{:?}", k0.alternatives);
+    // the EXPLICIT, non-default mode regular_preferred: the regular alternative from the up-centre wins
+    let f = mk();
+    let (r, _) = run("cs-regular", f, &[A, B], r#"{"mode":"regular_preferred"}"#);
     let ka = key(&r, &A);
     let ch = &ka.alternatives[ka.chosen.unwrap()];
     assert_eq!(ch.d0, D0Verdict::Regular);
@@ -403,7 +412,8 @@ fn pole_orders_come_from_the_diagnostic_child_job_and_its_failure_never_blocks()
         let journal = tmp.path.join("out/journal.jsonl");
         let mut cfg = config(&tmp.path, &files, f(), &journal);
         cfg.poles = Some(poles);
-        let p: CoreSeedPolicy = serde_json::from_str("{}").unwrap();
+        // the explicit, non-default mode of the withdrawn rule (rule 21): it is the one that asks for pole orders
+        let p: CoreSeedPolicy = serde_json::from_str(r#"{"mode":"regular_preferred"}"#).unwrap();
         let mut s = ChildSolver::new(cfg, &mut set, Box::new(DriverJudge), sampler()).unwrap();
         let ks: Vec<Key> = [A, B].iter().map(|k| k.to_vec()).collect();
         solve_core(&ks, &LINES, &p, &mut s).unwrap()

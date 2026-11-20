@@ -285,9 +285,12 @@ fn audit_seedmin_pole_objective_off_is_independent_of_the_poles() {
 #[test]
 fn audit_seedmin_pole_objective_on_never_unserves_and_never_worsens() {
     for undecided in ["keep_seed", "drop"] {
+        // the guarantee of the POLE-FIRST objective (explicit since rule 21, 2026-11-19: the default puts terms first and
+        // may trade a pole order for fewer terms, by design)
         let policy = SeedMinPolicy {
             pole_objective: "on".into(),
             on_undecided_regularity: undecided.into(),
+            objective: vec!["pole_order".into(), "seeds".into(), "terms".into()],
             ..SeedMinPolicy::default()
         };
         for seed in 0..60u64 {
@@ -370,8 +373,23 @@ fn audit_pole_objective_composed_tie_keeps_regular_first() {
             composed: Some(t),
         },
     ];
+    // USER RULING 2026-11-19 (rule 21): by DEFAULT size comes first, so the smaller singular relation wins
     let ch = pole_objective(&cands, &profiles, &PoleObjective::default(), None)
         .unwrap()
         .unwrap();
+    assert_eq!(
+        ch.id, "singular-small",
+        "chosen {} ({:?})",
+        ch.id, ch.reason
+    );
+    // the EXPLICIT withdrawn order (pole measures before size): the composed tie must not let size decide
+    let ch = pole_objective(
+        &cands,
+        &profiles,
+        &PoleObjective::withdrawn_pole_first(),
+        None,
+    )
+    .unwrap()
+    .unwrap();
     assert_eq!(ch.id, "regular-big", "chosen {} ({:?})", ch.id, ch.reason);
 }
