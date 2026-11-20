@@ -6,7 +6,7 @@
 //! resume, the certificate-prime rule, a two-loop family at arity 3 and the
 //! input-error contract. Ignored: the four-loop prism family at 68 dimension
 //! values; see `prism_4l_eta_derivative_equations_match_the_campaign`.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -443,6 +443,53 @@ fn solution_names_are_file_safe() {
     );
 }
 
+/// `report_supports` (cluster probes): `supports.jsonl` lists every demanded
+/// integral once with the masters of its reduced row; every support entry is
+/// a master, and a demanded master is its own support.
+#[test]
+fn supports_list_the_masters_of_each_demanded_integral() {
+    let dir = scratch("supports");
+    let spec = json!({
+        "schema": "rustred.sector-box-reduce-spec.v1",
+        "family": format!("{FIXTURES}/p3l_no/family.toml"),
+        "out_dir": dir.join("out"),
+        "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 2, 0]],
+        "derivative_slots": [0],
+        "d_list": ["37/11"],
+        "free": "z",
+        "router": "identity",
+        "lp_gate": false,
+        "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+        "workers": 2,
+        "modular_only": true,
+        "report_supports": true,
+    });
+    let (code, report) = run(&dir, &spec);
+    assert_eq!(code, 0, "{report}");
+    let masters: BTreeSet<Vec<i64>> =
+        serde_json::from_value(report["modular"]["masters"].clone()).unwrap();
+    let text = std::fs::read_to_string(dir.join("out").join("supports.jsonl")).unwrap();
+    let mut targets = BTreeSet::new();
+    for line in text.lines() {
+        let entry: Value = serde_json::from_str(line).unwrap();
+        let target: Vec<i64> = serde_json::from_value(entry["target"].clone()).unwrap();
+        let support: Vec<Vec<i64>> = serde_json::from_value(entry["support"].clone()).unwrap();
+        assert!(targets.insert(target.clone()), "{target:?} listed twice");
+        assert!(
+            support.iter().all(|m| masters.contains(m)),
+            "{target:?}: {support:?}"
+        );
+        if masters.contains(&target) {
+            assert_eq!(support, vec![target.clone()]);
+        }
+    }
+    assert!(targets.len() >= 2, "{text}");
+    assert_eq!(
+        targets.len() as u64,
+        report["modular"]["demand"].as_u64().unwrap()
+    );
+}
+
 /// Two-loop massless propagator family (kite, one external momentum q with
 /// q.q = -1, arity 5) with mass z on the rung: the derivative closure in z
 /// closes with the six masters of the one-mass kite family and both
@@ -756,7 +803,12 @@ fn generator_quotients_equal_the_uncut_reduction_on_their_sectors() {
 
 /// Spec fields added after the first spec schema, at their default value, are
 /// not serialised: specs without them keep their checkpoint key.
-const UNSET_FIELDS: &[&str] = &["cut_lines", "cut_generators", "rebuild_rounds"];
+const UNSET_FIELDS: &[&str] = &[
+    "cut_lines",
+    "cut_generators",
+    "rebuild_rounds",
+    "report_supports",
+];
 
 #[test]
 fn unset_fields_add_nothing_to_the_key_input() {
