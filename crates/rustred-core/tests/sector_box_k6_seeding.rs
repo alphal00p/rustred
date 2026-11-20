@@ -461,3 +461,71 @@ fn a_strict_refusal_fails_the_session() {
     assert_eq!(report.extend(&targets, &[]).unwrap().stable, Some(false));
     assert_eq!(report.extend(&targets, &[]).unwrap().stable, Some(false));
 }
+
+fn own_box_options() -> BoxOptions {
+    BoxOptions {
+        rebuild_rounds: true,
+        growth_no_inherit: true,
+        ..options(staircase(2))
+    }
+}
+
+/// A growth series resumed from its first round's state (masters + growth
+/// map, from the round hook) without eliminating that round again ends on
+/// the same masters and pivots as the uninterrupted series.
+#[test]
+fn a_resumed_growth_series_equals_the_uninterrupted_one() {
+    type State = (usize, Vec<[i16; N]>, BTreeMap<u64, (u8, u8)>);
+    let states: Arc<std::sync::Mutex<Vec<State>>> = Arc::default();
+    let mut whole = session(own_box_options()).unwrap();
+    let sink = states.clone();
+    whole.set_round_hook(move |round, masters, growth| {
+        sink.lock()
+            .unwrap()
+            .push((round, masters.to_vec(), growth.clone()));
+    });
+    let a = whole.extend(&[TOP], &[TOP]).unwrap();
+    assert!(
+        a.rounds >= 2,
+        "no growth round to resume from ({} rounds)",
+        a.rounds
+    );
+    let (round, masters, growth) = states.lock().unwrap()[0].clone();
+    assert_eq!(round, 1);
+    let mut resumed = session(own_box_options()).unwrap();
+    resumed.set_growth(growth);
+    resumed.resume_from(masters).unwrap();
+    let b = resumed.extend(&[TOP], &[TOP]).unwrap();
+    assert_eq!(a.masters, b.masters);
+    assert_eq!(a.pivot_hash, b.pivot_hash);
+    assert_eq!(whole.stats().rows, resumed.stats().rows);
+}
+
+/// `growth_budget_seeds`: a budget the next batch cannot meet stops the
+/// session with a rows limit; a budget it always meets changes nothing; and
+/// the budget needs growth_no_inherit with rebuild_rounds.
+#[test]
+fn the_growth_budget_stops_or_changes_nothing() {
+    let mut free = session(own_box_options()).unwrap();
+    let (a, _) = closed(&mut free).unwrap();
+    let mut roomy = session(BoxOptions {
+        growth_budget_seeds: Some(usize::MAX),
+        ..own_box_options()
+    })
+    .unwrap();
+    let (b, _) = closed(&mut roomy).unwrap();
+    assert_eq!(a.last().unwrap().masters, b.last().unwrap().masters);
+    let mut tight = session(BoxOptions {
+        growth_budget_seeds: Some(1),
+        ..own_box_options()
+    })
+    .unwrap();
+    assert!(matches!(closed(&mut tight), Err(SolverError::Limit { .. })));
+    assert!(matches!(
+        session(BoxOptions {
+            growth_budget_seeds: Some(1),
+            ..options(staircase(2))
+        }),
+        Err(SolverError::InvalidInput(_))
+    ));
+}

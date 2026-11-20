@@ -891,6 +891,10 @@ const UNSET_FIELDS: &[&str] = &[
     "two_pass_variants",
     "growth_no_inherit",
     "closure_no_own_box",
+    "growth_budget_seeds",
+    "initial_growth",
+    "resume_state",
+    "round_state_dir",
 ];
 
 #[test]
