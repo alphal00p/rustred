@@ -61,7 +61,7 @@ pub fn run_arm(
     let r = child::run(binary, &args, &env, dir, "arm", budget_s)?;
     let info = json!({"rc": r.code, "seconds": r.seconds, "over_budget": r.over_budget, "stderr_tail": r.stderr_tail(400),
                       "stopped_after_saved_phase": r.stderr_tail(4000).contains("stopped after a saved phase")});
-    if !stats.exists() {
+    if !crate::fsx::presence("emission.cone.stats", &stats).is_present() {
         return Err(format!("no owner statistics written ({info})"));
     }
     Ok((stats, info))
@@ -330,6 +330,7 @@ pub fn stamp_cmd(rest: &[String]) -> Result<(String, bool), String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule binds production code
 mod tests {
     use super::*;
 

@@ -94,11 +94,14 @@ pub fn load(cfg: Config) -> Result<Loaded, String> {
             files.push(PathBuf::from(f));
         }
         if let Some(d) = &k.dir {
-            let mut fs: Vec<PathBuf> = std::fs::read_dir(d)
-                .map_err(|e| format!("{d}: {e}"))?
-                .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
-                .collect();
+            // a COMPLETE listing or an error (fsx rule)
+            let mut fs: Vec<PathBuf> =
+                crate::fsx::list_required("emission.legacy.dir", Path::new(d))
+                    .map_err(|e| format!("{d}: {e}"))?
+                    .into_iter()
+                    .map(|e| e.path)
+                    .filter(|p| p.extension().is_some_and(|x| x == "jsonl"))
+                    .collect();
             fs.sort();
             files.extend(fs);
         }
@@ -193,7 +196,13 @@ pub struct Args {
 fn put_side(side: &Path, area: &str, bytes: &[u8]) -> Result<String, String> {
     let sha = sha256_hex(bytes);
     let p = side.join(side_rel(area, &sha));
-    if !p.exists() {
+    // fsx rule: written only when proven absent; an unknown answer is an error, never "absent"
+    let absent = match crate::fsx::presence("emission.side.put", &p) {
+        crate::fsx::Presence::Present(_) => false,
+        crate::fsx::Presence::Absent => true,
+        crate::fsx::Presence::Unknown(e) => return Err(format!("{}: {e}", p.display())),
+    };
+    if absent {
         std::fs::create_dir_all(p.parent().expect("side area"))
             .map_err(|e| format!("{}: {e}", p.display()))?;
         let tmp = p.with_extension("tmp");

@@ -215,8 +215,13 @@ pub fn run_span_checker_with(
         if checker.symmetry_group.is_none() {
             return Err("a symmetry relation needs the symmetry group (--symmetry-group / emission.symmetry_group): contract section 15".into());
         }
-        if cert.exists() {
-            std::fs::remove_dir_all(cert).map_err(|e| format!("{}: {e}", cert.display()))?;
+        // a stale certificate directory is removed; an unknown answer is an error (never "absent")
+        match crate::fsx::presence("emission.emitter.symrows_cert", cert) {
+            crate::fsx::Presence::Present(_) => {
+                std::fs::remove_dir_all(cert).map_err(|e| format!("{}: {e}", cert.display()))?
+            }
+            crate::fsx::Presence::Absent => {}
+            crate::fsx::Presence::Unknown(e) => return Err(format!("{}: {e}", cert.display())),
         }
         for a in [
             "--symrows",
@@ -336,7 +341,13 @@ impl Emitter {
     pub fn put_side(&self, area: &str, bytes: &[u8]) -> Result<String, String> {
         let sha = sha256_hex(bytes);
         let p = self.side.join(side_rel(area, &sha));
-        if !p.exists() {
+        // fsx rule: written only when proven absent; an unknown answer is an error, never "absent"
+        let absent = match crate::fsx::presence("emission.side.put", &p) {
+            crate::fsx::Presence::Present(_) => false,
+            crate::fsx::Presence::Absent => true,
+            crate::fsx::Presence::Unknown(e) => return Err(format!("{}: {e}", p.display())),
+        };
+        if absent {
             std::fs::create_dir_all(p.parent().expect("side area"))
                 .map_err(|e| format!("{}: {e}", p.display()))?;
             let tmp = p.with_extension("tmp");
@@ -435,9 +446,11 @@ impl Emitter {
         use rustred_campaign_core::emission::{AREA_SYMROWS, symrows};
         let rq = std::fs::read(req).map_err(|x| format!("{}: {x}", req.display()))?;
         // the kernel's certificate of the record's one key: exactly one cert_*.json in the directory
-        let certs: Vec<PathBuf> = std::fs::read_dir(cert)
+        // a COMPLETE listing or an error (fsx rule): an unreadable entry never vanishes from the count
+        let certs: Vec<PathBuf> = crate::fsx::list_required("emission.emitter.symrows_cert", cert)
             .map_err(|x| format!("no certificate emitted ({}: {x})", cert.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
+            .into_iter()
+            .map(|e| e.path)
             .filter(|p| {
                 p.file_name()
                     .and_then(|n| n.to_str())

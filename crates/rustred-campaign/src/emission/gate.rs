@@ -55,11 +55,15 @@ impl CertIndex {
     pub fn from_dirs(dirs: &[PathBuf]) -> CertIndex {
         let mut ix = CertIndex::default();
         for d in dirs {
-            let Ok(rd) = std::fs::read_dir(d) else {
+            // a missing directory has no certificates; a FAILED listing contributes none either: the records that needed
+            // them are then refused (fail closed), never accepted from a partial index
+            let crate::fsx::Listing::Complete(rd) = crate::fsx::list("emission.gate.cert_index", d)
+            else {
                 continue;
             };
             let mut fs: Vec<PathBuf> = rd
-                .filter_map(|e| e.ok().map(|e| e.path()))
+                .into_iter()
+                .map(|e| e.path)
                 .filter(|p| p.extension().is_some_and(|x| x == "json"))
                 .collect();
             fs.sort();

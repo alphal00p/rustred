@@ -205,7 +205,7 @@ pub fn bind_check(
             "class_table_hashes_equal": b.map(|b| b["target_rhs_sha256"] == v["rule"]["target_rhs_sha256"] && b["domain_sha256"] == v["rule"]["domain_sha256"]),
             "class_now": class, "class_after": if class == "whole domain" { json!(class) } else { b.map(|b| b["exactness_class"].clone()).unwrap_or(json!(class)) },
             "reason": reason, "note": it.note, "binding_problems": problems,
-            "certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": std::fs::metadata(&it.cert).map(|m| m.len()).ok(), "form": v["cert"]["form"]},
+            "certificate": {"file": it.cert.display().to_string(), "sha256": cert_sha, "bytes": crate::fsx::presence("emission.bindcheck.cert", &it.cert).metadata().map(|m| m.len()).ok(), "form": v["cert"]["form"]},
             "check_output": {"file": it.check.display().to_string(), "sha256": sha256_hex(raw.as_bytes())},
             "stages": {"rows": v["rows"]["verdict"], "identity": v["identity"]["verdict"], "binding": v["binding"]["verdict"],
                        "factors": v["factors"]["producer"], "loci": v["loci_counts"]},

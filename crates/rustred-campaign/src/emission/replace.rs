@@ -124,11 +124,14 @@ impl Lifter for RrNodeWitness {
             .filter_map(|l| serde_json::from_str::<Value>(l).ok())
             .find(|v| v["type"] == "rule")
             .ok_or_else(|| format!("{}: no rule record", table.display()))?;
-        let mut certs: Vec<PathBuf> = std::fs::read_dir(&cert_dir)
-            .map_err(|e| format!("{}: {e}", cert_dir.display()))?
-            .filter_map(|e| e.ok().map(|e| e.path()))
-            .filter(|p| p.extension().is_some_and(|x| x == "json"))
-            .collect();
+        // a COMPLETE listing or an error (fsx rule)
+        let mut certs: Vec<PathBuf> =
+            crate::fsx::list_required("emission.replace.cert_dir", &cert_dir)
+                .map_err(|e| format!("{}: {e}", cert_dir.display()))?
+                .into_iter()
+                .map(|e| e.path)
+                .filter(|p| p.extension().is_some_and(|x| x == "json"))
+                .collect();
         certs.sort();
         // the certificate of the FINAL rule first when the producer marks it (engine fix E1), else every file
         if let Some(k) = certs

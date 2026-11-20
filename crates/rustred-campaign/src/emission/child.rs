@@ -131,7 +131,7 @@ pub fn run(
         if r < 0 {
             return Err(format!("wait4 {pid}: {}", std::io::Error::last_os_error()));
         }
-        if !started && mark.exists() {
+        if !started && crate::fsx::presence("emission.child.slot_mark", &mark).is_present() {
             // the slot is held: the budget starts now
             t0 = Instant::now();
             started = true;
@@ -175,12 +175,15 @@ fn signal_group(pgid: u32, marker: &CampaignMarker, sig: i32, label: &str) -> us
     let Ok(boot) = boot_id() else {
         return 0;
     };
-    let Ok(rd) = std::fs::read_dir("/proc") else {
+    // a complete listing or none this round (the next SIGKILL round, 10 s later, lists again)
+    let crate::fsx::Listing::Complete(rd) =
+        crate::fsx::list("emission.child.proc", Path::new("/proc"))
+    else {
         return 0;
     };
     let mut delivered = 0;
-    for e in rd.flatten() {
-        let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
+    for e in rd {
+        let Some(pid) = e.name.to_str().and_then(|s| s.parse::<u32>().ok()) else {
             continue;
         };
         // procfix7's procfs rule: Gone only on ENOENT / ESRCH; a gone or unreadable member is not signalled this round
@@ -213,9 +216,12 @@ pub fn file_sha256(p: &Path) -> Result<String, String> {
     use std::sync::{Mutex, OnceLock};
     type Key = (std::path::PathBuf, u64, Option<std::time::SystemTime>);
     static MEMO: OnceLock<Mutex<HashMap<Key, String>>> = OnceLock::new();
-    let meta = std::fs::metadata(p).map_err(|e| format!("{}: {e}", p.display()))?;
+    let meta = crate::fsx::presence("emission.child.sha256", p)
+        .metadata()
+        .map_err(|e| format!("{}: {e}", p.display()))?;
     let key: Key = (
-        std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf()),
+        // the memo key only: a path that cannot be canonicalised is keyed as given (at worst hashed once more)
+        crate::fsx::canonicalize("emission.child.sha256", p).unwrap_or_else(|_| p.to_path_buf()),
         meta.len(),
         meta.modified().ok(),
     );
@@ -240,6 +246,7 @@ pub fn file_sha256(p: &Path) -> Result<String, String> {
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)] // test code: the fsx rule binds production code
 mod tests {
     use super::*;
 

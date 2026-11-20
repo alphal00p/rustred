@@ -481,12 +481,15 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
     }
     // 4. the relation root (fail closed: never over a directory that holds entries)
     let dir = node_dir(&a.out, &a.node, &a.node_identity);
-    if dir.is_dir()
-        && std::fs::read_dir(&dir)
-            .map_err(|e| e.to_string())?
-            .filter_map(Result::ok)
-            .any(|e| e.path().extension().is_some_and(|x| x == "jsonl"))
-    {
+    // an existing root is never overwritten; a listing that fails is an error (fsx rule), not "empty"
+    let holds_entries = match crate::fsx::list("emission.entries.root", &dir) {
+        crate::fsx::Listing::Complete(v) => v
+            .iter()
+            .any(|e| e.path.extension().is_some_and(|x| x == "jsonl")),
+        crate::fsx::Listing::Absent => false,
+        crate::fsx::Listing::Failed(e) => return Err(format!("{}: {e}", dir.display())),
+    };
+    if holds_entries {
         return Err(format!("{} already holds entries", dir.display()));
     }
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -554,13 +557,21 @@ pub fn entry_check(dir: &Path) -> Result<(Value, bool), String> {
     let mut n = 0u64;
     let mut refused: Vec<Value> = vec![];
     let mut n_refused = 0u64;
-    let manifest: Value = std::fs::read(dir.join("MANIFEST.json"))
-        .ok()
-        .and_then(|b| serde_json::from_slice(&b).ok())
-        .unwrap_or(Value::Null);
-    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+    // fsx rule: no MANIFEST.json = no node identity to bind (as before); an UNREADABLE or unparsable one is an error, never
+    // "absent" (it would switch off the node-identity check below)
+    let mp = dir.join("MANIFEST.json");
+    let manifest: Value = match crate::fsx::read("emission.entries.manifest", &mp) {
+        crate::fsx::Read::Content(b) => {
+            serde_json::from_slice(&b).map_err(|e| format!("{}: {e}", mp.display()))?
+        }
+        crate::fsx::Read::Absent => Value::Null,
+        crate::fsx::Read::Failed(e) => return Err(format!("{}: {e}", mp.display())),
+    };
+    // a COMPLETE listing or an error (fsx rule): entry-check never passes a root with an entry it could not list
+    let mut files: Vec<PathBuf> = crate::fsx::list_required("emission.entries.check", dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
-        .filter_map(|e| e.ok().map(|e| e.path()))
+        .into_iter()
+        .map(|e| e.path)
         .filter(|p| {
             p.extension().is_some_and(|x| x == "jsonl")
                 && !p

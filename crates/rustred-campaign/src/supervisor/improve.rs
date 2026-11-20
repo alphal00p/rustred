@@ -905,10 +905,16 @@ impl ImproveSource {
                     .and_then(|a| st.jobs.get(&a.job).and_then(|j| j.run_dir.clone()));
                 let certs: Vec<PathBuf> = run_dir
                     .map(|d| Path::new(&d).join(&es.cert_dir))
-                    .and_then(|d| std::fs::read_dir(d).ok())
+                    // fsx rule: a missing or failed listing gives no certificates; the records that need one are then
+                    // refused by the emitter (fail closed), never accepted from a partial list
+                    .and_then(|d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
+                        crate::fsx::Listing::Complete(v) => Some(v),
+                        crate::fsx::Listing::Absent | crate::fsx::Listing::Failed(_) => None,
+                    })
                     .map(|rd| {
                         let mut v: Vec<PathBuf> = rd
-                            .filter_map(|e| e.ok().map(|e| e.path()))
+                            .into_iter()
+                            .map(|e| e.path)
                             .filter(|p| p.extension().is_some_and(|x| x == "json"))
                             .collect();
                         v.sort();

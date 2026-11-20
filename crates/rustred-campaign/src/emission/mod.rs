@@ -163,29 +163,42 @@ pub fn write_replaced_table(
     std::fs::rename(&tmp, out).map_err(|e| e.to_string())?;
     Ok((
         sha.finish_hex(),
-        std::fs::metadata(out).map(|m| m.len()).unwrap_or(0),
+        crate::fsx::presence("emission.write_replaced_table", out)
+            .metadata()
+            .map_err(|e| format!("{}: {e}", out.display()))?
+            .len(),
     ))
 }
 
 /// Carry a table's side directory into another's (content-addressed files: a hard link, else a copy; existing files
 /// are kept). Returns the number of files carried. A missing source is no error (a table without emitted records).
 pub fn carry_side(from: &Path, to: &Path) -> Result<u64, String> {
-    if !from.is_dir() || from == to {
+    if from == to {
         return Ok(0);
     }
+    // fsx rule: a missing source is no error; any other failure is (never "nothing to carry")
+    let areas = match crate::fsx::list("emission.carry_side", from) {
+        crate::fsx::Listing::Complete(v) => v,
+        crate::fsx::Listing::Absent => return Ok(0),
+        crate::fsx::Listing::Failed(e) => return Err(format!("{}: {e}", from.display())),
+    };
     let mut n = 0;
-    for area in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
-        let area = area.map_err(|e| e.to_string())?.path();
-        if !area.is_dir() {
+    for area in areas {
+        if !area.file_type.is_dir() {
             continue;
         }
+        let area = area.path;
         let dst = to.join(area.file_name().expect("area name"));
         std::fs::create_dir_all(&dst).map_err(|e| format!("{}: {e}", dst.display()))?;
-        for f in std::fs::read_dir(&area).map_err(|e| format!("{}: {e}", area.display()))? {
-            let f = f.map_err(|e| e.to_string())?.path();
+        for f in crate::fsx::list_required("emission.carry_side", &area)
+            .map_err(|e| format!("{}: {e}", area.display()))?
+        {
+            let f = f.path;
             let d = dst.join(f.file_name().expect("file name"));
-            if d.exists() {
-                continue;
+            match crate::fsx::presence("emission.carry_side", &d) {
+                crate::fsx::Presence::Present(_) => continue,
+                crate::fsx::Presence::Absent => {}
+                crate::fsx::Presence::Unknown(e) => return Err(format!("{}: {e}", d.display())),
             }
             if std::fs::hard_link(&f, &d).is_err() {
                 std::fs::copy(&f, &d)
