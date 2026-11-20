@@ -566,3 +566,210 @@ fn derivative_slots_adds_nothing_to_the_checkpoint_key_when_empty() {
         std::fs::remove_dir_all(path).unwrap();
     }
 }
+
+/// Masters and rules (target -> {integral -> coefficient string}) of a solution file.
+/// Rules of a solution file: target -> {integral -> coefficient string}.
+type Rules = BTreeMap<Vec<i64>, BTreeMap<Vec<i64>, String>>;
+
+fn rules_of(path: &Path) -> (Vec<Vec<i64>>, Rules) {
+    let solution: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let masters: Vec<Vec<i64>> = serde_json::from_value(solution["masters"].clone()).unwrap();
+    let mut rules = BTreeMap::new();
+    for rule in solution["rules"].as_array().unwrap() {
+        let target: Vec<i64> = serde_json::from_value(rule["target"].clone()).unwrap();
+        let mut terms = BTreeMap::new();
+        for term in rule["terms"].as_array().unwrap() {
+            let integral: Vec<i64> = serde_json::from_value(term["integral"].clone()).unwrap();
+            terms.insert(integral, term["coefficient"].as_str().unwrap().to_string());
+        }
+        rules.insert(target, terms);
+    }
+    (masters, rules)
+}
+
+fn contains_cut(integral: &[i64], cut: &[usize]) -> bool {
+    cut.iter().all(|&slot| integral[slot] > 0)
+}
+
+/// Three-loop non-planar propagator family (NO) with mass z on line 0 (arity
+/// 9, one external momentum): a reduction on each spanning cut through the
+/// massive line (`cut_lines`, sectors without the cut lines are zero) equals
+/// the uncut reduction restricted to the cut sectors, rule by rule, with the
+/// uncut masters as the common preferred basis.
+#[test]
+fn cut_reductions_equal_the_uncut_reduction_on_the_cut_sectors() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("cut-uncut");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let (masters, uncut) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    for cut in [vec![0usize, 4], vec![0, 1, 6], vec![0, 1, 3, 7]] {
+        let cdir = scratch(&format!(
+            "cut-{}",
+            cut.iter()
+                .map(|s| s.to_string())
+                .collect::<Vec<_>>()
+                .join("_")
+        ));
+        let mut spec = base(&cdir);
+        spec["cut_lines"] = json!(cut);
+        spec["preferred"] = json!(
+            masters
+                .iter()
+                .filter(|m| contains_cut(m, &cut))
+                .collect::<Vec<_>>()
+        );
+        let (code, report) = run(&cdir, &spec);
+        assert_eq!(code, 0, "cut {cut:?}: {report}");
+        let (cut_masters, cut_rules) = rules_of(&cdir.join("out").join("solution-37_11.json"));
+        let expected: Vec<Vec<i64>> = masters
+            .iter()
+            .filter(|m| contains_cut(m, &cut))
+            .cloned()
+            .collect();
+        let mut got = cut_masters.clone();
+        got.sort();
+        let mut want = expected.clone();
+        want.sort();
+        assert_eq!(
+            got, want,
+            "cut {cut:?}: masters differ from the uncut masters of the cut sectors"
+        );
+        assert!(!cut_rules.is_empty(), "cut {cut:?}: no rules");
+        for (target, terms) in &cut_rules {
+            assert!(contains_cut(target, &cut));
+            let full = uncut.get(target).unwrap_or_else(|| {
+                panic!("cut {cut:?}: target {target:?} not in the uncut solution")
+            });
+            let restricted: BTreeMap<Vec<i64>, String> = full
+                .iter()
+                .filter(|(integral, _)| contains_cut(integral, &cut))
+                .map(|(integral, coefficient)| (integral.clone(), coefficient.clone()))
+                .collect();
+            assert_eq!(
+                terms, &restricted,
+                "cut {cut:?}: rule for {target:?} differs"
+            );
+        }
+    }
+}
+
+/// Cluster quotients (generator-list router, three-loop NO, mass z on line 0):
+/// a union of two up-closures, `cut_generators = [[0, 4], [0, 1, 6]]`, equals
+/// the uncut reduction restricted to the sectors that contain at least one
+/// generator, rule by rule; and a single generator reproduces the
+/// `cut_lines` masters and rules exactly.
+#[test]
+fn generator_quotients_equal_the_uncut_reduction_on_their_sectors() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("gen-uncut");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let (masters, uncut) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    let generators = vec![vec![0usize, 4], vec![0, 1, 6]];
+    let keeps = |integral: &[i64]| generators.iter().any(|g| contains_cut(integral, g));
+    let gdir = scratch("gen-union");
+    let mut spec = base(&gdir);
+    spec["cut_generators"] = json!(generators);
+    spec["preferred"] = json!(masters.iter().filter(|m| keeps(m)).collect::<Vec<_>>());
+    let (code, report) = run(&gdir, &spec);
+    assert_eq!(code, 0, "{report}");
+    let (gen_masters, gen_rules) = rules_of(&gdir.join("out").join("solution-37_11.json"));
+    let mut got = gen_masters.clone();
+    got.sort();
+    let mut want: Vec<Vec<i64>> = masters.iter().filter(|m| keeps(m)).cloned().collect();
+    want.sort();
+    assert_eq!(
+        got, want,
+        "masters differ from the uncut masters of the quotient sectors"
+    );
+    assert!(!gen_rules.is_empty());
+    for (target, terms) in &gen_rules {
+        assert!(keeps(target));
+        let full = uncut
+            .get(target)
+            .unwrap_or_else(|| panic!("target {target:?} not in the uncut solution"));
+        let restricted: BTreeMap<Vec<i64>, String> = full
+            .iter()
+            .filter(|(integral, _)| keeps(integral))
+            .map(|(integral, coefficient)| (integral.clone(), coefficient.clone()))
+            .collect();
+        assert_eq!(terms, &restricted, "rule for {target:?} differs");
+    }
+    // one generator == cut_lines, byte for byte
+    let one = vec![0usize, 1, 6];
+    let adir = scratch("gen-one-a");
+    let mut a = base(&adir);
+    a["cut_lines"] = json!(one);
+    let bdir = scratch("gen-one-b");
+    let mut b = base(&bdir);
+    b["cut_generators"] = json!([one]);
+    assert_eq!(run(&adir, &a).0, 0);
+    assert_eq!(run(&bdir, &b).0, 0);
+    let sa = rules_of(&adir.join("out").join("solution-37_11.json"));
+    let sb = rules_of(&bdir.join("out").join("solution-37_11.json"));
+    assert_eq!(
+        sa, sb,
+        "a single generator must reproduce the cut_lines masters and rules"
+    );
+    // exclusive fields
+    let cdir = scratch("gen-both");
+    let mut c = base(&cdir);
+    c["cut_lines"] = json!([0, 4]);
+    c["cut_generators"] = json!([[0, 4]]);
+    assert_ne!(
+        run(&cdir, &c).0,
+        0,
+        "cut_lines and cut_generators together must be rejected"
+    );
+}
+
+/// Spec fields added after the first spec schema, at their default value, are
+/// not serialised: specs without them keep their checkpoint key.
+const UNSET_FIELDS: &[&str] = &["cut_lines", "cut_generators"];
+
+#[test]
+fn unset_fields_add_nothing_to_the_key_input() {
+    let dir = scratch("key-input-unset");
+    let mut spec = k6_spec(&dir);
+    spec["modular_only"] = json!(true);
+    let parsed: rustred_app::SectorBoxReduceSpec = serde_json::from_value(spec).unwrap();
+    let serialised = serde_json::to_string(&serde_json::to_value(&parsed).unwrap()).unwrap();
+    for field in UNSET_FIELDS {
+        assert!(
+            !serialised.contains(&format!("\"{field}\"")),
+            "{field} is in the key input"
+        );
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}

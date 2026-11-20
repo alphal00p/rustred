@@ -325,6 +325,8 @@ same as in `litered-reduce`.
 | `expected` | `{}` | expected masters per class: Kira id of the representative sector (decimal string) -> count |
 | `derivative_slot` | none | close the demand under the derivative in the mass of that line |
 | `derivative_slots` | `[]` | further slots (one mass on several lines): closed under `I[a] -> I[a + e_s]` for every listed `s`, so `d/dm I[a] = sum_s a_s I[a + e_s]` is reduced; merged with `derivative_slot` |
+| `cut_lines` | `[]` | cut lines (reverse unitarity): every sector lacking one of them is zero, so only sectors containing all cut lines are seeded and reduced. Requires `router = "identity"` (a symmetry map need not preserve the cut). Reductions on a set of cuts that covers every master sector, with a common `preferred` basis, merge into the uncut reduction |
+| `cut_generators` | `[]` | cluster quotients: list of generator line sets; a sector is non-zero iff it contains ALL lines of AT LEAST ONE generator (the union of the up-closures of the generators, an upward-closed set, so the quotient is consistent). `cut_lines` is the case of one generator; the two fields are exclusive. Requires `router = "identity"`. A quotient gives exact DE entries for the masters inside it only if it contains whole same-level relation clusters |
 | `closure_rounds` | 8 | maximal closure rounds after the first modular phase; still unclosed after them is an error |
 | `d_list` | required unless `modular_only` | values `"p/q"` of the family dimension; each value once (`"1/2"` and `"2/4"` are the same value) |
 | `fixed` | `{}` | further fixed parameters, name -> `"p/q"` |
@@ -348,6 +350,8 @@ same as in `litered-reduce`.
 | `checkpoint_dir` | none | save the modular phase (session codec, closed target list) and log finite-field probes; a rerun of the same request resumes. The checkpoint is bound to the family, the router and every field that determines the modular phase |
 | `limits` | no caps | opt-in `max_rows`, `max_columns`, `max_u_nnz`, `max_l_entries`, `max_selected`, `max_bytes` |
 | `modular_only` | false | stop after the modular phase |
+
+Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr.
 
 Memory: the engine has no memory cap by default. `limits.max_bytes` caps the
 engine's structural estimate of the modular system (stored rows and the U and
