@@ -136,6 +136,41 @@ fn gap2a_more_regular_than_the_stored_entry_is_written_over_table_and_entry_chec
 
 /// RULE 21 (user ruling 2026-11-19): an entry WORSE at d = 4 than the old object at its key is WRITTEN, the regression
 /// REPORTED (old pole 0 -> new pole 1); a key without an old object is written too ("not compared").
+/// N2 of the gate R-C read (rule 21): a d = 4 measurement that FAILS (here the stored entry's coefficient cannot be parsed)
+/// is reported "not measured" with its error in the verdict side file, never an abort; the record is written and
+/// entry-check accepts it.
+#[test]
+fn a_failed_measurement_is_reported_not_measured_and_never_aborts() {
+    let d = tmp("notmeasured");
+    let em = emitted(&d, &[point(0, [1, 2, 0], "1")]);
+    let olds = d.join("old.jsonl");
+    std::fs::write(
+        &olds,
+        format!("{}\n", old_entry([1, 2, 0], "1/(", "per-key", 0)),
+    )
+    .unwrap();
+    let mut a = args(&d, &em);
+    a.old_entries = vec![olds];
+    let (s, ok) = write_entries(&a).unwrap();
+    assert!(ok, "{s:#}");
+    assert!(s["regularity"][0]["not_worse"].is_null(), "{s:#}");
+    let sha = s["regularity"][0]["regularity_sha256"].as_str().unwrap();
+    let vf = side_dir(&em).join(rustred_campaign_core::emission::side_rel(
+        rustred_campaign_core::emission::AREA_REGULARITY,
+        sha,
+    ));
+    let v: Value = serde_json::from_slice(&std::fs::read(&vf).unwrap()).unwrap();
+    assert_eq!(v["not_measured"], true, "{v:#}");
+    assert!(v["error"].as_str().is_some_and(|e| !e.is_empty()), "{v:#}");
+    assert!(v["not_worse"].is_null(), "{v:#}");
+    assert!(
+        entry_check(&node_dir(&d.join("root"), "TOY", IDENT))
+            .unwrap()
+            .1
+    );
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 #[test]
 fn gap2_worse_than_the_old_object_is_written_and_reported_and_a_new_key_is_written() {
     let d = tmp("worse");

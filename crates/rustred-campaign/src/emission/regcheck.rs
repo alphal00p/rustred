@@ -592,7 +592,8 @@ pub struct Acceptance {
 
 /// Decide whether the replacement `pieces` of the old record `index` of `table` may be accepted: the d = 4 regularity
 /// of the old record and of the serving piece, compared at every key the old record serves as first match in the cone
-/// (or the stated sample); accepted iff NOT WORSE on every compared key. Not switchable for a live replacement.
+/// (or the stated sample). Since rule 21 (2026-11-19) the comparison is REPORTED: `accepted` is always true and the reason
+/// says what the measure found.
 pub fn acceptance(
     table: &OldTable,
     index: i64,
@@ -671,7 +672,6 @@ pub fn accept_and_stamp(
     o: &Options,
     work: &Path,
 ) -> Result<Stamped, String> {
-    use rustred_campaign_core::emission::body::attach_derivation;
     let (old_body, _) = strip_derivation(old_line)?;
     let old_ids = body_ids(&old_body)?;
     let new_ids: Vec<_> = lines
@@ -688,11 +688,82 @@ pub fn accept_and_stamp(
             None,
         )
     } else {
-        let a = acceptance(table, index, old_line, lines, o, work)?;
-        let mut v = serde_json::to_value(&a.verdict).map_err(|e| e.to_string())?;
-        v["old_table"] = json!(table.path.display().to_string());
-        (v, a.accepted, a.reason)
+        match acceptance(table, index, old_line, lines, o, work) {
+            Ok(a) => {
+                let mut v = serde_json::to_value(&a.verdict).map_err(|e| e.to_string())?;
+                v["old_table"] = json!(table.path.display().to_string());
+                (v, a.accepted, a.reason)
+            }
+            // N2 of the gate R-C read (rule 21): a failed MEASUREMENT is reported, never an abort; the replacement stands on
+            // its validity (derivation, descent, domain) alone
+            Err(e) => {
+                let mut v = not_measured_verdict(&old_ids.body_sha256, &new_ids, &e);
+                v["old_table"] = json!(table.path.display().to_string());
+                (v, true, Some(format!("regularity_d4_not_measured: {e}")))
+            }
+        }
     };
+    stamp(
+        emitter,
+        &old_ids.body_sha256,
+        lines,
+        verdict,
+        ok,
+        reason,
+        same,
+    )
+}
+
+/// A d = 4 verdict that could NOT be measured (rule 21, N2): REPORTED with the error text; never read as regular or as
+/// "not worse" (`not_worse` null).
+fn not_measured_verdict(
+    old_body_sha256: &str,
+    new_ids: &[rustred_campaign_core::emission::body::BodyIds],
+    error: &str,
+) -> Value {
+    json!({"schema": regularity::SCHEMA, "tool": regularity::TOOL, "role": regularity::ROLE, "not_measured": true,
+           "error": error, "not_worse": null, "old_body_sha256": old_body_sha256,
+           "new_body_sha256": new_ids.iter().map(|i| i.body_sha256.clone()).collect::<Vec<_>>()})
+}
+
+/// The reporting step when the old table itself cannot be read (emit-replace / the improve writer): the pieces are
+/// stamped with a "not measured" verdict naming `error` (rule 21, N2), never refused for it.
+pub fn stamp_not_measured(
+    emitter: &super::emitter::Emitter,
+    old_line: &str,
+    lines: &[String],
+    error: &str,
+) -> Result<Stamped, String> {
+    let (old_body, _) = strip_derivation(old_line)?;
+    let old_ids = body_ids(&old_body)?;
+    let new_ids: Vec<_> = lines
+        .iter()
+        .map(|l| body_ids(l))
+        .collect::<Result<Vec<_>, _>>()?;
+    let verdict = not_measured_verdict(&old_ids.body_sha256, &new_ids, error);
+    let reason = Some(format!("regularity_d4_not_measured: {error}"));
+    stamp(
+        emitter,
+        &old_ids.body_sha256,
+        lines,
+        verdict,
+        true,
+        reason,
+        false,
+    )
+}
+
+/// Write the verdict side file and stamp `replaces {old_body_sha256, regularity_sha256}` into every accepted piece.
+fn stamp(
+    emitter: &super::emitter::Emitter,
+    old_body_sha256: &str,
+    lines: &[String],
+    verdict: Value,
+    ok: bool,
+    reason: Option<String>,
+    same: bool,
+) -> Result<Stamped, String> {
+    use rustred_campaign_core::emission::body::attach_derivation;
     let sha = emitter.put_side(
         rustred_campaign_core::emission::AREA_REGULARITY,
         &serde_json::to_vec(&verdict).map_err(|e| e.to_string())?,
@@ -703,8 +774,7 @@ pub fn accept_and_stamp(
             let (b, d) = strip_derivation(l)?;
             let mut dv: Value = serde_json::from_str(&d.ok_or("a piece without derivation")?)
                 .map_err(|e| e.to_string())?;
-            dv["replaces"] =
-                json!({"old_body_sha256": old_ids.body_sha256, "regularity_sha256": sha});
+            dv["replaces"] = json!({"old_body_sha256": old_body_sha256, "regularity_sha256": sha});
             out.push(attach_derivation(&b, &dv)?);
         }
         Some(out)

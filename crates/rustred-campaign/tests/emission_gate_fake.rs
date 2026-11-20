@@ -553,3 +553,95 @@ fn descent_stamp_adds_the_member_to_records_emitted_before_section_14() {
     assert!(!out2.exists());
     let _ = std::fs::remove_dir_all(&d);
 }
+
+/// N2 of the gate R-C read (rule 21): the reporting step of a replacement never aborts on a failed d = 4 MEASUREMENT. The
+/// pieces are stamped with a "not measured" verdict (a side file with the error; never read as regular), and an old table
+/// that cannot be read is reported the same way (emit-replace / the improve writer).
+#[test]
+fn a_failed_d4_measurement_is_stamped_not_measured() {
+    use rustred_campaign::emission::regcheck::{
+        OldTable, Options, accept_and_stamp, stamp_not_measured,
+    };
+    use rustred_campaign_core::emission::body::attach_derivation;
+    use rustred_campaign_core::emission::{AREA_REGULARITY, side_rel};
+    let dir = tmp("n2");
+    let side = dir.join("side");
+    let em = Emitter::new(
+        Checker::new(Path::new(FAKE)).unwrap(),
+        Policy::default(),
+        &side,
+        &dir.join("work"),
+    )
+    .unwrap();
+    let old = rule(0, json!([null, 1, 0]), "c0", "I(n0,1,0)", None);
+    // a piece whose coefficient cannot be parsed: the measurement fails
+    let mut piece = old.clone();
+    piece["rhs"] = json!([["I(n0-1,n1,n2)", "1/("]]);
+    let line = attach_derivation(
+        &piece.to_string(),
+        &json!({"class": {"word": "whole domain"}}),
+    )
+    .unwrap();
+    let check = |st: &rustred_campaign::emission::regcheck::Stamped| {
+        assert!(st.accepted, "{}", st.verdict);
+        assert_eq!(st.verdict["not_measured"], true, "{}", st.verdict);
+        assert!(st.verdict["not_worse"].is_null(), "{}", st.verdict);
+        assert!(
+            st.reason
+                .as_deref()
+                .is_some_and(|r| r.starts_with("regularity_d4_not_measured")),
+            "{:?}",
+            st.reason
+        );
+        let stamped = st.lines.as_ref().expect("stamped pieces");
+        let d: Value =
+            serde_json::from_str(&strip_derivation(&stamped[0]).unwrap().1.unwrap()).unwrap();
+        assert_eq!(d["replaces"]["regularity_sha256"], json!(st.sha256));
+        let v: Value = serde_json::from_slice(
+            &std::fs::read(side.join(side_rel(AREA_REGULARITY, &st.sha256))).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(v["not_measured"], true, "{v}");
+        assert!(v["error"].as_str().is_some_and(|e| !e.is_empty()), "{v}");
+    };
+    // the old table cannot be read
+    check(
+        &stamp_not_measured(
+            &em,
+            &old.to_string(),
+            std::slice::from_ref(&line),
+            "old table: forced",
+        )
+        .unwrap(),
+    );
+    // the measurement itself fails on the piece: an old table the dispatcher reads (header with the frame), an old record
+    // that serves keys, and a piece whose coefficient cannot be parsed
+    let h = json!({"type":"header","schema":"table_dump.v1","family":"TOY","mask":"110","denominators":3,
+                   "node_order":{"name":"id","slot_permutation":null,"coordinate_priority":null,"source_order":"Input"}});
+    let old2 = json!({"type":"rule","chart":"110","index":0,"case":"Coordinate(B)","fixed":[null,null,null],"equations":[],
+                      "target":"I(n0,n1,n2)","rhs":[["I(n0-1,n1,n2)","1"]],"exceptions":[["n0"]],"dispatch":"Partition",
+                      "witness_loci":[]});
+    let t = dir.join("old.table.jsonl");
+    std::fs::write(&t, format!("{h}\n{old2}\n")).unwrap();
+    let mut piece2 = old2.clone();
+    piece2["rhs"] = json!([["I(n0-1,n1,n2)", "1/("]]);
+    let line2 = attach_derivation(
+        &piece2.to_string(),
+        &json!({"class": {"word": "whole domain"}}),
+    )
+    .unwrap();
+    let ot = OldTable::load(&t).unwrap();
+    check(
+        &accept_and_stamp(
+            &em,
+            &ot,
+            0,
+            &old2.to_string(),
+            std::slice::from_ref(&line2),
+            &Options::default(),
+            &dir.join("reg"),
+        )
+        .unwrap(),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

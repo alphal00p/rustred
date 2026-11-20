@@ -563,7 +563,7 @@ fn cone_pricing_is_required_of_replacements_only_when_the_policy_asks() {
                      "new_body_sha256": [ids.body_sha256]})
         .to_string()
         .into_bytes();
-    let mk = |pol: &Policy, cone: Option<&[u8]>| {
+    let mk_v = |pol: &Policy, cone: Option<&[u8]>, reg: &[u8]| {
         let pt = serde_json::to_vec(pol).unwrap();
         let parts = Parts {
             kind: Kind::Lifted,
@@ -592,7 +592,7 @@ fn cone_pricing_is_required_of_replacements_only_when_the_policy_asks() {
             policy: (pol.name.clone(), sha256_hex(&pt)),
         };
         let mut d = derivation(&parts);
-        d["replaces"] = json!({"old_body_sha256": old_body, "regularity_sha256": sha256_hex(&reg)});
+        d["replaces"] = json!({"old_body_sha256": old_body, "regularity_sha256": sha256_hex(reg)});
         if let Some(c) = cone {
             d["replaces"]["cone_sha256"] = json!(sha256_hex(c));
         }
@@ -601,14 +601,15 @@ fn cone_pricing_is_required_of_replacements_only_when_the_policy_asks() {
             (AREA_CHECK, check_line.clone().into_bytes()),
             (AREA_POLICY, pt),
             (AREA_DESCENT, descent_out.clone()),
-            (AREA_REGULARITY, reg.clone()),
+            (AREA_REGULARITY, reg.to_vec()),
         ];
         if let Some(c) = cone {
             files.push((AREA_CONE, c.to_vec()));
         }
         let line = attach_derivation(TOY, &d).unwrap();
-        check_record(&line, 0, &side_map(&files), &|_| None).problems
+        check_record(&line, 0, &side_map(&files), &|_| None)
     };
+    let mk = |pol: &Policy, cone: Option<&[u8]>| mk_v(pol, cone, &reg).problems;
     let plain = Policy::default();
     let priced = Policy {
         cone_pricing: true,
@@ -667,5 +668,27 @@ fn cone_pricing_is_required_of_replacements_only_when_the_policy_asks() {
     assert!(
         p.iter().any(|x| x.contains("refuses the candidate")),
         "{p:?}"
+    );
+    // N2 of the gate R-C read (rule 21): a regularity verdict that could NOT be measured is reported in the notes with its
+    // error, refuses nothing, and is never read as regular
+    let nm = json!({"schema": super::regularity::SCHEMA, "not_measured": true, "error": "forced: no key could be measured",
+                    "not_worse": null, "old_body_sha256": old_body, "new_body_sha256": [ids.body_sha256]})
+    .to_string()
+    .into_bytes();
+    let v = mk_v(&plain, None, &nm);
+    assert!(v.problems.is_empty(), "{:?}", v.problems);
+    assert!(
+        v.notes
+            .iter()
+            .any(|n| n.contains("NOT MEASURED") && n.contains("forced")),
+        "{:?}",
+        v.notes
+    );
+    assert!(
+        !v.notes
+            .iter()
+            .any(|n| n.contains("same relation") || n.contains("keys compared")),
+        "{:?}",
+        v.notes
     );
 }

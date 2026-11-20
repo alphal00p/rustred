@@ -251,7 +251,14 @@ pub fn check_record(
                             ""
                         };
                         let c = &r["counts"];
-                        v.notes.push(if r["same_relation"] == true {
+                        v.notes.push(if r["not_measured"] == true {
+                            // N2 of the gate R-C read (rule 21): a measurement that failed is REPORTED as such; it is never
+                            // read as regular or as not worse, and it refuses nothing
+                            format!(
+                                "regularity d4: NOT MEASURED ({}); reported only, never read as regular",
+                                r["error"].as_str().unwrap_or("no error text")
+                            )
+                        } else if r["same_relation"] == true {
                             format!("regularity d4: same relation{rule}")
                         } else {
                             format!(

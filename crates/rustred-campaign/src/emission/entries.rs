@@ -395,27 +395,43 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
         // old object (a new key) is written all the same, its regularity "not compared"
         let (vsha, pole_old, old_desc) = match &old {
             Some(old) => {
-                let ver = verdict_at_key(
-                    &old.kind(),
-                    &old.id(),
-                    &old.relation(key)?,
-                    key,
-                    std::slice::from_ref(body),
-                    &header,
-                    &chart,
-                    &a.work.join(format!("reg-{i}")),
-                )?;
-                let mut vj = serde_json::to_value(&ver).map_err(|e| e.to_string())?;
-                vj["old"] = old.describe();
+                // N2 of the gate R-C read (rule 21): the comparison is REPORTED; when it cannot be MEASURED the verdict says
+                // "not measured" with the error (never read as regular), and the record stands on its validity alone
+                let measured = (|| -> Result<(Value, u32, Value), String> {
+                    let ver = verdict_at_key(
+                        &old.kind(),
+                        &old.id(),
+                        &old.relation(key)?,
+                        key,
+                        std::slice::from_ref(body),
+                        &header,
+                        &chart,
+                        &a.work.join(format!("reg-{i}")),
+                    )?;
+                    let mut vj = serde_json::to_value(&ver).map_err(|e| e.to_string())?;
+                    vj["old"] = old.describe();
+                    let po = regularity_at(&Relation::parse(&old.relation(key)?)?, key)?.max_pole;
+                    Ok((vj, po, json!(ver.not_worse)))
+                })();
+                let (vj, po, not_worse) = match measured {
+                    Ok((vj, po, nw)) => (vj, Some(po), nw),
+                    Err(e) => (
+                        json!({"schema": rustred_campaign_core::emission::regularity::SCHEMA,
+                               "role": rustred_campaign_core::emission::regularity::ROLE, "not_measured": true, "error": e,
+                               "not_worse": null, "old": old.describe(), "old_body_sha256": old.id(),
+                               "new_body_sha256": [body_ids(body)?.body_sha256]}),
+                        None,
+                        Value::Null,
+                    ),
+                };
                 let vb = serde_json::to_vec(&vj).map_err(|e| e.to_string())?;
                 let vsha = sha256_hex(&vb);
                 let vp = side.join(side_rel(AREA_REGULARITY, &vsha));
                 std::fs::create_dir_all(vp.parent().expect("area")).map_err(|e| e.to_string())?;
                 std::fs::write(&vp, &vb).map_err(|e| format!("{}: {e}", vp.display()))?;
-                let po = regularity_at(&Relation::parse(&old.relation(key)?)?, key)?.max_pole;
-                verdicts.push(json!({"key": key, "old": old.describe(), "old_pole": po, "new_pole": pole_new, "not_worse": ver.not_worse,
+                verdicts.push(json!({"key": key, "old": old.describe(), "old_pole": po, "new_pole": pole_new, "not_worse": not_worse,
                                      "regularity_sha256": vsha, "role": "reported, tie-break only"}));
-                (Some(vsha), Some(po), old.describe())
+                (Some(vsha), po, old.describe())
             }
             None => {
                 verdicts.push(json!({"key": key, "old": null, "new_pole": pole_new, "regularity": "not compared (no old object at the key)"}));

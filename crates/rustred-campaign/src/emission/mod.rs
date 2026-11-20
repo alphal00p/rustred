@@ -424,16 +424,24 @@ pub fn emit_replace_cmd(rest: &[String]) -> Result<(String, bool), String> {
     if closed {
         let lines = rep.lines(index)?;
         let rt = reg_table.clone().unwrap_or_else(|| table.clone());
-        let ot = regcheck::OldTable::load(&rt)?;
-        let st = regcheck::accept_and_stamp(
-            &emitter,
-            &ot,
-            index,
-            &line,
-            &lines,
-            &reg,
-            &out.join("regularity-work"),
-        )?;
+        // N2 (rule 21): an old table that cannot be read is a measurement that failed: reported "not measured", never an abort
+        let st = match regcheck::OldTable::load(&rt) {
+            Ok(ot) => regcheck::accept_and_stamp(
+                &emitter,
+                &ot,
+                index,
+                &line,
+                &lines,
+                &reg,
+                &out.join("regularity-work"),
+            )?,
+            Err(e) => regcheck::stamp_not_measured(
+                &emitter,
+                &line,
+                &lines,
+                &format!("old table {}: {e}", rt.display()),
+            )?,
+        };
         let (verdict, ok, reason, reg_sha, same) = (
             st.verdict,
             st.accepted,

@@ -881,12 +881,14 @@ impl ImproveSource {
             .unwrap_or_default();
             // THE d = 4 REGULARITY ACCEPTANCE (contract section 13): the old table loaded once, the old rule lines read
             // once; every replacement compared with its old rule at the old rule's first-match keys before it is written
-            // (an old table the dispatcher cannot read refuses every replacement, fail closed; the flow goes on)
+            // (REPORTED since rule 21: an old table or old lines that cannot be read leave the replacements without a verdict,
+            // noted as "not reported" by table-check; a comparison that fails is stamped "not measured"; never a refusal)
             let old_table =
                 crate::emission::regcheck::OldTable::load(Path::new(&self.nodes[i].e.table.path));
             let want: std::collections::BTreeSet<i64> = repl.keys().copied().collect();
             let old_lines = match &old_table {
-                Ok(ot) => ot.lines_of(&want)?,
+                // N2 (rule 21): the old lines feed only the REPORTED measure; unreadable = not reported, never an abort
+                Ok(ot) => ot.lines_of(&want).unwrap_or_default(),
                 Err(_) => BTreeMap::new(),
             };
             let reg_opts = es
