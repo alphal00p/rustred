@@ -68,13 +68,19 @@ pub struct PSavedOrbits {
 
 impl PSavedOrbits {
     /// Whether some sector of `presentation` has a saved group acting
-    /// nontrivially (more than the identity and its negative, which fix every
-    /// key; the exporter's 'nontrivial' count). A record with an EMPTY group,
-    /// e.g. in a file scoped to another node, does not count.
+    /// nontrivially: at least one element that is neither the identity nor
+    /// its negative (both fix every key). A two-element group {1, swap} (P1L:
+    /// `[[1,-1],[0,-1]]`) counts; a record with an EMPTY group, e.g. in a file
+    /// scoped to another node, or {1, -1} does not (gate R-B FINAL, Astra).
     pub fn has_nontrivial_group(&self, presentation: PresentationId) -> bool {
         self.orbits
             .range((presentation, 0)..=(presentation, u64::MAX))
-            .any(|(_, saved)| saved.group.len() > 2)
+            .any(|(_, saved)| {
+                saved
+                    .group
+                    .iter()
+                    .any(|t| !is_plus_minus_identity(t, saved.n))
+            })
     }
 
     /// This file re-encoded with EMPTY groups for every presentation `keep`
@@ -365,4 +371,50 @@ pub fn export_saved_orbits(library: &PLibrary) -> Result<(Vec<u8>, usize, usize)
     };
     let bytes = bincode::encode_to_vec(&file, bincode::config::standard()).map_err(malformed)?;
     Ok((bytes, saved, nontrivial))
+}
+
+/// Whether `t` (`n x n` row-major) is the identity or its negative.
+fn is_plus_minus_identity(t: &[i64], n: usize) -> bool {
+    if t.len() != n * n {
+        return false;
+    }
+    let diagonal =
+        |sign: i64| (0..n * n).all(|entry| t[entry] == if entry % (n + 1) == 0 { sign } else { 0 });
+    diagonal(1) || diagonal(-1)
+}
+
+#[cfg(test)]
+mod nontrivial_tests {
+    use super::*;
+
+    fn saved(group: Vec<Vec<i64>>) -> PSavedOrbits {
+        let mut orbits = BTreeMap::new();
+        orbits.insert(
+            (PresentationId(0), 3),
+            SavedOrbit {
+                fingerprint: 0,
+                candidates: 1,
+                verified: 1,
+                n: 2,
+                group,
+            },
+        );
+        PSavedOrbits { orbits }
+    }
+
+    /// Gate R-B FINAL (Astra, P1L): {1, swap} is nontrivial; {}, {1}, {1, -1}
+    /// are not; T266-like larger groups are.
+    #[test]
+    fn a_two_element_swap_group_is_nontrivial() {
+        let one = vec![1, 0, 0, 1];
+        let minus = vec![-1, 0, 0, -1];
+        let swap = vec![1, -1, 0, -1];
+        let p = PresentationId(0);
+        assert!(saved(vec![one.clone(), swap.clone()]).has_nontrivial_group(p));
+        assert!(!saved(vec![]).has_nontrivial_group(p));
+        assert!(!saved(vec![one.clone()]).has_nontrivial_group(p));
+        assert!(!saved(vec![one.clone(), minus.clone()]).has_nontrivial_group(p));
+        assert!(saved(vec![one, minus, swap.clone(), vec![-1, 1, 0, 1]]).has_nontrivial_group(p));
+        assert!(!saved(vec![swap]).has_nontrivial_group(PresentationId(1)));
+    }
 }
