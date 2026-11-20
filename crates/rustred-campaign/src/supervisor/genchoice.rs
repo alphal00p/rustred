@@ -1066,6 +1066,8 @@ impl GenChoiceSource {
                         cand: r.cand,
                         admissible: true,
                         size: gc::select_size(m, p.select),
+                        // rule 21: the size tie-breaks (monomials, then bytes) come before d = 4 regularity
+                        size_ties: vec![m.max_monomials, m.table_bytes],
                         time_ms: r.cpu_ms,
                         score: scores
                             .iter()

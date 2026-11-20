@@ -261,6 +261,50 @@ fn a_hand_down_into_the_same_faces_own_core() {
     assert_eq!((core.keys, core.core_solved, core.core_open), (1, 1, 0));
 }
 
+/// RULE 21 (N1 of the gate R-C read): in the piece planner d = 4 regularity comes after the kind and the size (edge terms):
+/// a smaller singular candidate beats a larger regular one; at equal kind and size the regular one wins the tie-break.
+#[test]
+fn regularity_is_the_tie_break_after_kind_and_size() {
+    let c = cmp4();
+    let k: &[i32] = &[3, 1, 0, 0];
+    let with = |mut x: Candidate, reg: bool| {
+        x.regular_at_4 = Some(reg);
+        x
+    };
+    let small_singular = with(
+        cand(ServiceKind::Composite, &[LEAF], "a-small-singular"),
+        false,
+    );
+    let big_regular = with(
+        cand(
+            ServiceKind::Composite,
+            &[&[2, 1, 0, 0], LEAF],
+            "b-big-regular",
+        ),
+        true,
+    );
+    let p = plan(
+        &c,
+        &PlanInput::new(
+            4,
+            vec![ukey(k, "A", vec![small_singular.clone(), big_regular])],
+        ),
+    )
+    .unwrap();
+    assert_eq!(p.chosen[0].provenance.as_deref(), Some("a-small-singular"));
+    // equal kind and size: the regular one wins (the provenance alone would choose the singular one)
+    let same_regular = with(
+        cand(ServiceKind::Composite, &[LEAF], "b-same-regular"),
+        true,
+    );
+    let p = plan(
+        &c,
+        &PlanInput::new(4, vec![ukey(k, "A", vec![small_singular, same_regular])]),
+    )
+    .unwrap();
+    assert_eq!(p.chosen[0].provenance.as_deref(), Some("b-same-regular"));
+}
+
 #[test]
 fn ranking_terms_and_zero_terms() {
     let c = cmp4();

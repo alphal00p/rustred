@@ -1247,7 +1247,8 @@ pub fn select_size(m: &TableMeasure, select: Select) -> u64 {
     }
 }
 
-/// The winner among acceptable runs under `select` (ties: bytes, largest rule, candidate index).
+/// The winner among acceptable runs under `select` (ties: largest rule in monomials, then bytes, then the candidate index:
+/// the order the pole choice uses too, rule 21: cost -> size in monomials -> bytes -> d = 4 regularity).
 pub fn choose(done: &[FullRun], select: Select) -> Option<usize> {
     let mut acc: Vec<&FullRun> = done
         .iter()
@@ -1260,7 +1261,7 @@ pub fn choose(done: &[FullRun], select: Select) -> Option<usize> {
             Select::Bytes => m.table_bytes as u128,
             Select::MaxMonomials => m.max_monomials as u128,
         };
-        (primary, m.table_bytes, m.max_monomials, r.cand)
+        (primary, m.max_monomials, m.table_bytes, r.cand)
     };
     acc.sort_by_key(|r| key(r));
     acc.first().map(|r| r.cand)

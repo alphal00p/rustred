@@ -31,9 +31,62 @@ fn cand(i: usize, size: u64, time: u64, s: Option<PoleScore>) -> PoleCand {
         cand: i,
         admissible: true,
         size,
+        size_ties: vec![],
         time_ms: time,
         score: s,
     }
+}
+
+/// RULE 21 (user, 2026-11-19: d = 4 regularity "the last one and only for tie-breaks"; N1 of the gate R-C read): at an exact
+/// tie of the main measure the caller's size keys (genchoice: monomials, then bytes; improve: bytes) decide BEFORE any pole
+/// measure; regularity breaks only the ties left.
+#[test]
+fn size_ties_decide_before_regularity_under_the_default_policy() {
+    let p = PolePolicy::default();
+    // genchoice: equal cost; the smaller in monomials is singular, the larger regular: the SMALLER wins
+    let mut a = cand(0, 100, 5, Some(score(Some(1), 3)));
+    a.size_ties = vec![10, 1000];
+    let mut b = cand(1, 100, 5, Some(score(Some(0), 0)));
+    b.size_ties = vec![20, 1000];
+    let d = choose_poles(&[a.clone(), b.clone()], Some(0), &p)
+        .unwrap()
+        .unwrap();
+    assert_eq!(d.winner, 0, "{d:?}");
+    // equal monomials, the smaller in bytes is singular: the SMALLER wins
+    a.size_ties = vec![20, 900];
+    let d = choose_poles(&[a.clone(), b.clone()], Some(0), &p)
+        .unwrap()
+        .unwrap();
+    assert_eq!(d.winner, 0, "{d:?}");
+    // equal in every size key: the regular one wins the tie-break
+    a.size_ties = vec![20, 1000];
+    let d = choose_poles(&[a, b], Some(0), &p).unwrap().unwrap();
+    assert_eq!(d.winner, 1, "{d:?}");
+    // improve's rule verdict (size = monomials, size_ties = bytes): a regular candidate larger in bytes does not replace
+    let old = rule(&line(3, "[]", 1000));
+    let big_regular = rule(&line(1009, "[]", 1000));
+    assert!(big_regular.bytes > old.bytes);
+    let r = rule_pole_verdict(
+        &old,
+        Some(&score(Some(1), 4)),
+        &big_regular,
+        Some(&score(Some(0), 0)),
+        1.0,
+        &p,
+    );
+    assert!(r.is_err(), "{r:?}");
+    // equal monomials and bytes: regularity breaks the tie
+    let same_regular = rule(&line(9, "[]", 1000));
+    assert_eq!(same_regular.bytes, old.bytes);
+    let r = rule_pole_verdict(
+        &old,
+        Some(&score(Some(1), 4)),
+        &same_regular,
+        Some(&score(Some(0), 0)),
+        1.0,
+        &p,
+    );
+    assert_eq!(r.as_deref(), Ok("replaced_poles"));
 }
 
 /// The POLE-FIRST policy: [regular, max_pole_order, size], max_size_ratio 4. It was the default until 2026-11-19 and is

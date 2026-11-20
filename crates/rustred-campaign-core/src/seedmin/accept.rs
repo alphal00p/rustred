@@ -191,6 +191,10 @@ mod tests {
         let v = judge_change(&st(&reg), &st(&sing), &b, &a, &[0, 0], &p, &mut s);
         assert!(v.keep, "{}", v.reason);
         assert!(judge_change(&st(&reg), &st(&und), &b, &a, &[0, 0], &p, &mut s).keep);
+        // N1 of the gate R-C read: equal terms and seeds: the pole order breaks the tie (regular -> singular refused)
+        let sing_same = facts(10, PoleOrder::Order { order: 1 });
+        let v = judge_change(&st(&reg), &st(&sing_same), &b, &b, &[0, 0], &p, &mut s);
+        assert!(!v.keep, "{}", v.reason);
         // the EXPLICIT withdrawn order (pole order first, keep_seed): the rest of this test
         let mut o = p.clone();
         o.objective = vec!["pole_order".into(), "seeds".into(), "terms".into()];

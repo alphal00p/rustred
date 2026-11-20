@@ -343,6 +343,10 @@ pub struct PoleCand {
     pub admissible: bool,
     /// The caller's size measure (use cost / bytes / monomials).
     pub size: u64,
+    /// The caller's FURTHER size keys, compared after `size` and BEFORE any pole measure when the objective puts size first
+    /// (rule 21, the default: d = 4 regularity "the last one and only for tie-breaks"): genchoice and rechoice
+    /// (max_monomials, table_bytes), improve's rule verdict (bytes).
+    pub size_ties: Vec<u64>,
     pub time_ms: u64,
     pub score: Option<PoleScore>,
 }
@@ -437,6 +441,20 @@ pub fn choose_poles(
     if adm.is_empty() {
         return Ok(None);
     }
+    // RULE 21: with size first (the default objective) EVERY size key of the caller decides before any pole measure: the
+    // pool is the class minimal in (size, size_ties); regularity breaks the ties left in it
+    let adm: Vec<&PoleCand> = if obj.measures.first() == Some(&crate::poles::Measure::Size) {
+        let best = adm
+            .iter()
+            .map(|c| (c.size, c.size_ties.clone()))
+            .min()
+            .expect("non-empty");
+        adm.into_iter()
+            .filter(|c| (c.size, c.size_ties.clone()) == best)
+            .collect()
+    } else {
+        adm
+    };
     let undecided: Vec<usize> = adm
         .iter()
         .filter(|c| !c.score.as_ref().is_some_and(PoleScore::decided))
@@ -590,6 +608,7 @@ pub fn rule_pole_verdict(
             cand: 0,
             admissible: true,
             size: old.monomials,
+            size_ties: vec![old.bytes],
             time_ms: 0,
             score: Some(os.clone()),
         },
@@ -597,6 +616,7 @@ pub fn rule_pole_verdict(
             cand: 1,
             admissible: true,
             size: new.monomials,
+            size_ties: vec![new.bytes],
             time_ms: 0,
             score: Some(ns.clone()),
         },
@@ -705,10 +725,12 @@ pub fn rechoice(
                 "rules": m.get("rules"), "max_monomials": m.get("max_monomials"), "cpu_ms": time,
                 "score": score.as_ref().map_or(Value::String("undecided".into()), |s| json!(s))}),
             );
+            let tie = |k: &str| m.get(k).and_then(Value::as_u64).unwrap_or(u64::MAX);
             pc.push(PoleCand {
                 cand: idx,
                 admissible: true,
                 size,
+                size_ties: vec![tie("max_monomials"), tie("table_bytes")],
                 time_ms: time,
                 score,
             });
