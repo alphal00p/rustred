@@ -895,6 +895,8 @@ const UNSET_FIELDS: &[&str] = &[
     "initial_growth",
     "resume_state",
     "round_state_dir",
+    "plan_only",
+    "plan_closure_targets",
 ];
 
 #[test]
@@ -974,6 +976,58 @@ fn closure_without_own_boxes_closes_with_fewer_seeds() {
         }
     }
     for path in [dir, ddir] {
+        std::fs::remove_dir_all(path).unwrap();
+    }
+}
+
+/// `plan_only`: the planned first round equals the seeds of the first round of
+/// a real run, without eliminating anything; closure targets are reported.
+#[test]
+fn plan_only_counts_the_seeds_of_the_first_round() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [2, 1, 1, 1, 1, 1, 1, 1, 0]],
+            "derivative_slots": [0],
+            "router": "identity",
+            "lp_gate": false,
+            "rebuild_rounds": true,
+            "growth_no_inherit": true,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "modular_only": true,
+            "workers": 2,
+        })
+    };
+    // Reference: the same first round, with neither growth nor closure, run for real.
+    let dir = scratch("plan-only-ref");
+    let mut reference = base(&dir);
+    reference["seeding"]["max_growth"] = json!(0);
+    reference
+        .as_object_mut()
+        .unwrap()
+        .remove("derivative_slots");
+    let (code, report) = run(&dir, &reference);
+    assert_eq!(code, 0, "{report}");
+    let first_round = report["modular"]["seeds"].as_u64().unwrap();
+    let pdir = scratch("plan-only");
+    let mut spec = base(&pdir);
+    spec["plan_only"] = json!(true);
+    spec.as_object_mut().unwrap().remove("modular_only");
+    spec["plan_closure_targets"] = json!([[3, 1, 1, 1, 1, 1, 1, 1, 0]]);
+    let (code, plan) = run(&pdir, &spec);
+    assert_eq!(code, 0, "{plan}");
+    assert_eq!(plan["status"], "plan-only");
+    assert_eq!(
+        plan["plan"]["first_round_seeds"].as_u64().unwrap(),
+        first_round,
+        "{plan}"
+    );
+    assert_eq!(plan["plan"]["closure_demand"], 1, "{plan}");
+    assert!(plan["plan"]["seeds"].as_u64().unwrap() >= first_round);
+    for path in [dir, pdir] {
         std::fs::remove_dir_all(path).unwrap();
     }
 }

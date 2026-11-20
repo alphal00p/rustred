@@ -44,7 +44,7 @@ pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
     text.push('\n');
     write_output(&output, text.as_bytes(), force)?;
     match outcome.status {
-        "ok" | "modular-only" => Ok(()),
+        "ok" | "modular-only" | "plan-only" => Ok(()),
         verdict => Err(CliError::Verdict {
             incomplete: false,
             message: format!("sector-box-reduce: {verdict}"),

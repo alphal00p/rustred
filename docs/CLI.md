@@ -304,7 +304,7 @@ span) or `no-verdict` (only special points, or a refused prime). Its final
 stopped on an error after its first report write.
 
 Exit codes:
-- 0: `status` is `ok`, or `modular-only`;
+- 0: `status` is `ok`, `modular-only` or `plan-only`;
 - 1: the engine's verdict is negative (`master-check-failed` under the strict
   master check, or `certificate-failed`). The report and any solutions are
   still written;
@@ -360,6 +360,8 @@ same as in `litered-reduce`.
 | `initial_growth` | none | JSON file `[[sector_id, [dots, s]], ..]`: start the staircase growth at this map (Kira ids), e.g. the `growth` of a round state or a predicted end-state box, and eliminate it directly |
 | `resume_state` | none | a `round-<n>.json` written under `round_state_dir`: the first modular round is planned with its growth map, not eliminated again, and growth continues from its masters; the next round rebuilds. Needs `rebuild_rounds`, no `lp_gate`, no `expected`; same targets as the interrupted run; exclusive with `initial_growth` and `two_pass` |
 | `round_state_dir` | none | write every seeding round's state (`round`, `masters`, `growth`) as `round-<n>.json` here; output only, not part of the checkpoint key |
+| `plan_only` | false | plan only: register the targets, plan the first round's seeds and boxes (with `initial_growth`), then `plan_closure_targets`, without generating or eliminating rows; the report's `plan` gives the planned seeds (total, first round, per number of lines) and how many closure targets already lay inside their sector's region; status `plan-only`, exit 0. Sizes a batch in seconds. Not with `two_pass`, `resume_state` or `checkpoint_dir` |
+| `plan_closure_targets` | `[]` | with `plan_only`: closure targets added after the first round's boxes exist (as a derivative-closure round adds them) |
 
 Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr.
 

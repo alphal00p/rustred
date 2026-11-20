@@ -105,7 +105,7 @@ use std::time::Duration;
 
 pub use driver::{
     BoxLaportaSession, CERTIFICATE_POINTS, DEFAULT_CERTIFICATE_PRIME, ExplicitSample,
-    ExplicitTable, Lane, ParameterAssignment, RoundHook, census_targets,
+    ExplicitTable, Lane, ParameterAssignment, PlanReport, RoundHook, census_targets,
     down_closure_representatives,
 };
 pub use exact::{BoxCertificate, CertificateMode};

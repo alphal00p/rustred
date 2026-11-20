@@ -194,6 +194,16 @@ pub struct SectorBoxReduceSpec {
     /// request). Output only: not part of the checkpoint key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub round_state_dir: Option<PathBuf>,
+    /// Plan only: register the targets, plan the first round's seeds and boxes
+    /// (with `initial_growth`) and then `plan_closure_targets`, without
+    /// generating or eliminating rows; the report's `plan` gives the seed
+    /// totals per number of lines and the status is `plan-only`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plan_only: bool,
+    /// With `plan_only`: closure targets added after the first round's boxes
+    /// exist (as a derivative-closure round would add them).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub plan_closure_targets: Vec<Vec<i64>>,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -274,7 +284,7 @@ pub struct LimitsSpec {
     pub max_bytes: Option<usize>,
 }
 
-/// Outcome: the report, with `status` `"ok"`, `"modular-only"`,
+/// Outcome: the report, with `status` `"ok"`, `"modular-only"`, `"plan-only"`,
 /// `"master-check-failed"` or `"certificate-failed"` (the last two are the
 /// engine's verdicts; errors are returned as [`AppError`]).
 #[derive(Clone, Debug)]
@@ -445,7 +455,10 @@ pub fn sector_box_reduce(spec: &SectorBoxReduceSpec) -> Result<SectorBoxReduceOu
             "sector-box-reduce needs at least one target",
         ));
     }
-    if spec.d_list.is_empty() && !spec.modular_only {
+    if spec.plan_only && spec.checkpoint_dir.is_some() {
+        return Err(AppError::input("plan_only does not use checkpoint_dir"));
+    }
+    if spec.d_list.is_empty() && !spec.modular_only && !spec.plan_only {
         return Err(AppError::input(
             "d_list is empty: give at least one dimension value or set modular_only",
         ));
@@ -801,7 +814,7 @@ fn run_phases<const N: usize>(
         .filter(|name| **name != dimension && !spec.fixed.contains_key(*name))
         .collect();
     match (&spec.free, free.as_slice()) {
-        _ if spec.modular_only => {}
+        _ if spec.modular_only || spec.plan_only => {}
         (Some(wanted), [only]) if wanted == *only => {}
         (None, [_]) => {}
         _ => {
@@ -1094,6 +1107,39 @@ fn run_phases<const N: usize>(
                 session
                     .resume_from(masters)
                     .map_err(|e| AppError::input(format!("resume_state: {e}")))?;
+            }
+            if spec.plan_only {
+                if spec.two_pass || spec.resume_state.is_some() {
+                    return Err(AppError::input(
+                        "plan_only is not supported with two_pass or resume_state",
+                    ));
+                }
+                let closure_targets = spec
+                    .plan_closure_targets
+                    .iter()
+                    .map(|values| powers::<N>(values, arity))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let plan = session
+                    .plan(&targets, &kept, &closure_targets)
+                    .map_err(engine("plan"))?;
+                out.set(
+                    "plan",
+                    json!({
+                        "seeds": plan.seeds,
+                        "first_round_seeds": plan.first_round_seeds,
+                        "closure_demand": plan.closure_demand,
+                        "closure_inside": plan.closure_inside,
+                        "sectors": plan.sectors,
+                        "by_lines": plan.by_lines,
+                        "seconds": clock.elapsed().as_secs_f64(),
+                    }),
+                );
+                out.set("status", json!("plan-only"));
+                out.write()?;
+                return Ok(SectorBoxReduceOutcome {
+                    report: Value::Object(out.fields.clone()),
+                    status: "plan-only",
+                });
             }
             if let Some(dir) = &spec.round_state_dir {
                 std::fs::create_dir_all(dir).map_err(|e| {
