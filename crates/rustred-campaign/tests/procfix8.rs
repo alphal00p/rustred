@@ -141,7 +141,11 @@ fn crashed_session_with_daemon(t: &Tmp) -> (PathBuf, PathBuf, u32) {
         t,
         serde_json::json!({"items": 4, "nodes": 1, "rungs": 1, "seed": 5, "case_ms": [1500, 2500],
             "p_crash": 0.0, "p_mem": 0.0, "p_norule": 0.0, "deps": 0.0}),
-        serde_json::json!({"max_jobs": 2}),
+        // procfix7 round 20 (gate R-C, the full procfix set): session 2's jobs can never prove their end while every 2nd
+        // stat read of the hidden daemon fails (the hunt completes no round): the end is UNPROVEN after the verify
+        // timeout (120 s) plus resources.unproven_end_limit_s (default 600 s) before exit 8, which this test's 600-s
+        // bound could never see. The scenario is unchanged; only the limit is short.
+        serde_json::json!({"max_jobs": 2, "unproven_end_limit_s": 20}),
     );
     v["programs"]["rr_fake_child"]["path"] = serde_json::json!(wrap);
     let sp = write_spec(t, "spec.json", &v);
@@ -169,7 +173,7 @@ fn crashed_session_with_daemon(t: &Tmp) -> (PathBuf, PathBuf, u32) {
 /// Session 2 under the given environment: never exit 0 while the daemon lives; exit 8 naming it.
 fn session_two_names_the_daemon(sp: &Path, d: &Path, dp: u32, env: &[(&str, &str)], what: &str) {
     let mut c = start_capless_env(sp, d, env);
-    let code = wait(&mut c, Duration::from_secs(600));
+    let code = wait(&mut c, Duration::from_secs(900));
     assert!(
         alive(dp),
         "{what}: nothing may signal the unreadable daemon"
