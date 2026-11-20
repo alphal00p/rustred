@@ -350,6 +350,7 @@ same as in `litered-reduce`.
 | `checkpoint_dir` | none | save the modular phase (session codec, closed target list) and log finite-field probes; a rerun of the same request resumes. The checkpoint is bound to the family, the router and every field that determines the modular phase |
 | `limits` | no caps | opt-in `max_rows`, `max_columns`, `max_u_nnz`, `max_l_entries`, `max_selected`, `max_bytes` |
 | `modular_only` | false | stop after the modular phase |
+| `rebuild_rounds` | false | rebuild the modular system from all seeds in ONE bottom-up batch at every seeding round after the first (growth and closure rounds) instead of inserting the new seeds on top of the old U. Same masters, pivots and rules; much less fill-in for derivative closures (4L one-mass propagator quotient: elimination 3,866 s -> 1,892 s, identical masters, rules and pivot hash) |
 
 Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr.
 

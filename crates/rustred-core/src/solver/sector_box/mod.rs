@@ -186,6 +186,16 @@ pub struct BoxOptions {
     /// class at its exact expected count is complete when the count is.
     /// Refused without staircase seeding or without `expected_counts`.
     pub settle_on_expected: bool,
+    /// Rebuild the modular system at every seeding round after the first:
+    /// all seeds so far are inserted again as ONE bottom-up batch into a
+    /// fresh system, instead of inserting only the new seeds on top of the
+    /// old U. Pivots and masters do not depend on it (same row space, same
+    /// column order); the elimination cost does. An incremental batch on
+    /// top of an old U is inserted after the old supersector rows, so new
+    /// subsector rows forward-solve through their long spill pivot rows
+    /// (the `TopDownLevels` effect); one rebuilt batch avoids it.
+    /// Bottom-up insertion only (stability rounds stay incremental).
+    pub rebuild_rounds: bool,
 }
 
 /// Row insertion schedule. Pivots and masters do not depend on it (one row
@@ -222,6 +232,7 @@ impl Default for BoxOptions {
             expected_counts: None,
             tubes: None,
             settle_on_expected: false,
+            rebuild_rounds: false,
         }
     }
 }

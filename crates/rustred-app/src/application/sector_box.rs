@@ -139,6 +139,12 @@ pub struct SectorBoxReduceSpec {
     pub master_check: Option<String>,
     #[serde(default)]
     pub settle_on_expected: bool,
+    /// Rebuild the modular system from all seeds in one bottom-up batch at
+    /// every seeding round after the first (growth and closure rounds),
+    /// instead of incremental batches; same masters and rules, much less
+    /// fill-in for derivative closures.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub rebuild_rounds: bool,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -369,6 +375,7 @@ fn box_options(
             subsector_halo: tubes.subsector_halo,
         }),
         settle_on_expected: spec.settle_on_expected,
+        rebuild_rounds: spec.rebuild_rounds,
         ..Default::default()
     })
 }

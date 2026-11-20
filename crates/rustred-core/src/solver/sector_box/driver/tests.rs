@@ -152,6 +152,42 @@ fn masters_do_not_depend_on_workers_or_insertion_schedule() {
     assert_eq!(one.masters.len(), top_down.masters.len());
 }
 
+/// `rebuild_rounds`: the same extend sequence with every later round
+/// rebuilt from all seeds in one batch gives the same masters and pivots as
+/// the incremental schedule, with the same row count, and the later round
+/// really rebuilds.
+#[test]
+fn rebuild_rounds_keep_masters_and_pivots() {
+    // A low-sector target first, so the second extend seeds the supersectors.
+    let low: [[i16; N]; 1] = [[1, 1, 1, 0, 0, 0]];
+    let mut incremental = session(2, Insertion::BottomUp);
+    incremental.extend(&low, &[]).unwrap();
+    let a = incremental.extend(&TARGETS, &[]).unwrap();
+    let mut rebuilt = session_with(BoxOptions {
+        rebuild_rounds: true,
+        ..options(2, Insertion::BottomUp)
+    });
+    rebuilt.extend(&low, &[]).unwrap();
+    let b = rebuilt.extend(&TARGETS, &[]).unwrap();
+    assert_eq!(a.masters, b.masters);
+    assert_eq!(a.pivot_hash, b.pivot_hash);
+    assert_eq!(incremental.stats().rows, rebuilt.stats().rows);
+    assert!(
+        rebuilt
+            .stats()
+            .phases
+            .iter()
+            .any(|phase| phase.phase.ends_with("/rebuild")),
+        "{:?}",
+        rebuilt
+            .stats()
+            .phases
+            .iter()
+            .map(|phase| &phase.phase)
+            .collect::<Vec<_>>()
+    );
+}
+
 #[test]
 fn extend_is_incremental() {
     let mut session = session(2, Insertion::BottomUp);
