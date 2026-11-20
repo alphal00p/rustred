@@ -5,6 +5,7 @@
 //!
 //! Env: RUSTRED_EMISSION_CHECKER = an engine-linked rr_proof (with `--mode source-rows`); the tests SKIP with a message
 //! when it is absent. They spawn children: run with LIGHT_PIDNS=1 (L10). One checker at a time (Symbolica licence).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 use rustred_campaign::emission::emitter::{Candidate, Checker, Emitter};
 use rustred_campaign::emission::replace::{
     LadderConfig, Lift, Lifter, Outcome, certify_by_replacement,

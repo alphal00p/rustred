@@ -15,6 +15,7 @@
 //! - an ENTRANCE-ONLY WIN is REFUSED ('absorbed'): the candidate wins at the entrance (by more than the tolerance) but not at
 //!   the second Apply (gain there below the tolerance, default 4 %);
 //! - a third level is reported when the arms carry it and the second-level difference is still moving (above the tolerance).
+//!
 //! RANKING among accepted candidates: children at the second Apply, then the high-shell population (keys stepped at the second
 //! Apply whose D + r exceeds the request's), then the arms' seconds through the second Apply. PURE: parses and decides; the
 //! process part (rr_campaign cone-price --run) runs the engine.
@@ -354,6 +355,7 @@ pub fn price(
 mod tests {
     use super::*;
 
+    #[allow(clippy::type_complexity)]
     fn arm(rows: &[(i64, u64, &[(&str, u64)])]) -> Arm {
         let groups: Vec<Value> = rows
             .iter()

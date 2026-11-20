@@ -236,6 +236,7 @@ pub fn served_keys_with(
 }
 
 /// Compare the old record with the replacement pieces (in their order) at the given keys.
+#[allow(clippy::too_many_arguments)]
 pub fn compare(
     old_line: &str,
     pieces: &[String],

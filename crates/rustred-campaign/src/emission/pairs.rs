@@ -67,7 +67,7 @@ pub fn measure(
         disp.first_match(&k32)
             .ok()
             .and_then(|d| d.winner())
-            .map(|w| w.label as i64)
+            .map(|w| w.label)
     };
     let jobs: Vec<(usize, Option<i64>, Option<i64>)> = pairs
         .iter()

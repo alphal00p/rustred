@@ -262,7 +262,7 @@ pub fn rule_at_key(
     let Some(w) = disp.first_match(&k32).ok().and_then(|d| d.winner()) else {
         return Ok(None);
     };
-    let index = w.label as i64;
+    let index = w.label;
     let line = read_line_at(table, index, None)?;
     let (b, _) = strip_derivation(&line)?;
     Ok(Some(OldAt::Rule {
@@ -400,7 +400,7 @@ pub fn write_entries(a: &WriteArgs) -> Result<(Value, bool), String> {
                     &old.id(),
                     &old.relation(key)?,
                     key,
-                    &[body.clone()],
+                    std::slice::from_ref(body),
                     &header,
                     &chart,
                     &a.work.join(format!("reg-{i}")),

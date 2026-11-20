@@ -10,6 +10,7 @@
 //! checked WHOLE_DOMAIN) is REPLACED through the emitter; rule 1's `rung` (smaller, but its check has an open locus)
 //! is REFUSED by the emission policy and the old rule stays. The improved table passes `table-check` on its own (the
 //! kept records' side files carried beside it); without the replacement's derivation member it is refused.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

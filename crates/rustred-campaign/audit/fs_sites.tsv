@@ -617,22 +617,22 @@ E	src/emission/coneprice.rs	435	test			assert!(!side2.exists());
 D	src/emission/coneprice.rs	436	test			let _ = std::fs::remove_dir_all(&side);
 X	src/emission/coneprice.rs	436	test			let _ = std::fs::remove_dir_all(&side);
 D	src/emission/emitter.rs	69	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{header}\n{body}\n"))
-D	src/emission/emitter.rs	181	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{header}\n{body}\n"))
-D	src/emission/emitter.rs	187	prod		auto: error propagated (? / map_err)	std::fs::write(&keys, format!("{k}\n")).map_err(|e| format!("{}: {e}", keys.display()))?;
-F	src/emission/emitter.rs	219	prod	emission.emitter.symrows_cert	auto: explicit Unknown / Failed arm	match crate::fsx::presence("emission.emitter.symrows_cert", cert) {
-D	src/emission/emitter.rs	221	prod		auto: error propagated (? / map_err)	std::fs::remove_dir_all(cert).map_err(|e| format!("{}: {e}", cert.display()))?
-F	src/emission/emitter.rs	345	prod	emission.side.put	auto: explicit Unknown / Failed arm	let absent = match crate::fsx::presence("emission.side.put", &p) {
-D	src/emission/emitter.rs	354	prod		auto: error propagated (? / map_err)	std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
-D	src/emission/emitter.rs	355	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp, &p).map_err(|e| format!("{}: {e}", p.display()))?;
-D	src/emission/emitter.rs	388	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{}\n{body}\n", header.trim_end()))
-R	src/emission/emitter.rs	447	prod		auto: error propagated (? / map_err)	let rq = std::fs::read(req).map_err(|x| format!("{}: {x}", req.display()))?;
-F	src/emission/emitter.rs	450	prod	emission.emitter.symrows_cert	auto: Unknown / Absent / Failed -> Err (propagated)	let certs: Vec<PathBuf> = crate::fsx::list_required("emission.emitter.symrows_cert", cert)
-R	src/emission/emitter.rs	467	prod		auto: error propagated (? / map_err)	let ct = std::fs::read(one).map_err(|x| format!("{}: {x}", one.display()))?;
-R	src/emission/emitter.rs	474	prod		auto: error propagated (? / map_err)	let gb = std::fs::read(group).map_err(|x| format!("{}: {x}", group.display()))?;
-D	src/emission/emitter.rs	536	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
-R	src/emission/emitter.rs	598	prod		auto: error propagated (? / map_err)	let bytes = std::fs::read(cert).map_err(|e| format!("{}: {e}", cert.display()))?;
-O	src/emission/emitter.rs	685	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
-O	src/emission/emitter.rs	686	prod		auto: error propagated (? / map_err)	.create(true)
+D	src/emission/emitter.rs	184	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{header}\n{body}\n"))
+D	src/emission/emitter.rs	190	prod		auto: error propagated (? / map_err)	std::fs::write(&keys, format!("{k}\n")).map_err(|e| format!("{}: {e}", keys.display()))?;
+F	src/emission/emitter.rs	222	prod	emission.emitter.symrows_cert	auto: explicit Unknown / Failed arm	match crate::fsx::presence("emission.emitter.symrows_cert", cert) {
+D	src/emission/emitter.rs	224	prod		auto: error propagated (? / map_err)	std::fs::remove_dir_all(cert).map_err(|e| format!("{}: {e}", cert.display()))?
+F	src/emission/emitter.rs	348	prod	emission.side.put	auto: explicit Unknown / Failed arm	let absent = match crate::fsx::presence("emission.side.put", &p) {
+D	src/emission/emitter.rs	357	prod		auto: error propagated (? / map_err)	std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
+D	src/emission/emitter.rs	358	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp, &p).map_err(|e| format!("{}: {e}", p.display()))?;
+D	src/emission/emitter.rs	391	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{}\n{body}\n", header.trim_end()))
+R	src/emission/emitter.rs	450	prod		auto: error propagated (? / map_err)	let rq = std::fs::read(req).map_err(|x| format!("{}: {x}", req.display()))?;
+F	src/emission/emitter.rs	453	prod	emission.emitter.symrows_cert	auto: Unknown / Absent / Failed -> Err (propagated)	let certs: Vec<PathBuf> = crate::fsx::list_required("emission.emitter.symrows_cert", cert)
+R	src/emission/emitter.rs	470	prod		auto: error propagated (? / map_err)	let ct = std::fs::read(one).map_err(|x| format!("{}: {x}", one.display()))?;
+R	src/emission/emitter.rs	477	prod		auto: error propagated (? / map_err)	let gb = std::fs::read(group).map_err(|x| format!("{}: {x}", group.display()))?;
+D	src/emission/emitter.rs	539	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
+R	src/emission/emitter.rs	601	prod		auto: error propagated (? / map_err)	let bytes = std::fs::read(cert).map_err(|e| format!("{}: {e}", cert.display()))?;
+O	src/emission/emitter.rs	688	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
+O	src/emission/emitter.rs	689	prod		auto: error propagated (? / map_err)	.create(true)
 R	src/emission/entries.rs	109	prod		auto: error propagated (? / map_err)	let fh = std::fs::File::open(f).map_err(|e| format!("{}: {e}", f.display()))?;
 R	src/emission/entries.rs	345	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(&a.emitted).map_err(|e| format!("{}: {e}", a.emitted.display()))?;
 D	src/emission/entries.rs	414	prod		auto: error propagated (? / map_err)	std::fs::write(&vp, &vb).map_err(|e| format!("{}: {e}", vp.display()))?;
@@ -708,17 +708,17 @@ R	src/emission/regcheck.rs	134	prod		auto: error propagated (? / map_err)	let f 
 R	src/emission/regcheck.rs	148	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
 V	src/emission/regcheck.rs	202	prod		lane gencheck (gate R-C, rc-land): RR_REGCHECK_DEBUG: optional debug output switch	let debug = std::env::var("RR_REGCHECK_DEBUG").is_ok();
 X	src/emission/regcheck.rs	202	prod		lane gencheck (gate R-C, rc-land): RR_REGCHECK_DEBUG: optional debug output switch	let debug = std::env::var("RR_REGCHECK_DEBUG").is_ok();
-D	src/emission/regcheck.rs	261	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::create(&mini).map_err(|e| e.to_string())?;
-R	src/emission/regcheck.rs	360	prod		auto: error propagated (? / map_err)	let items: Vec<Value> = std::fs::read_to_string(spec)
-R	src/emission/regcheck.rs	369	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
-D	src/emission/regcheck.rs	390	prod		auto: error propagated (? / map_err)	std::fs::File::create(out.join("summary.jsonl")).map_err(|e| e.to_string())?;
-R	src/emission/regcheck.rs	403	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pf)
-D	src/emission/regcheck.rs	430	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("keys.jsonl"), kf).map_err(|e| e.to_string())?;
-D	src/emission/regcheck.rs	436	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
-R	src/emission/regcheck.rs	490	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pieces)
-D	src/emission/regcheck.rs	517	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("keys.jsonl"), kf).map_err(|e| e.to_string())?;
-D	src/emission/regcheck.rs	522	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
-R	src/emission/regcheck.rs	561	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
+D	src/emission/regcheck.rs	262	prod		auto: error propagated (? / map_err)	let mut f = std::fs::File::create(&mini).map_err(|e| e.to_string())?;
+R	src/emission/regcheck.rs	361	prod		auto: error propagated (? / map_err)	let items: Vec<Value> = std::fs::read_to_string(spec)
+R	src/emission/regcheck.rs	370	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(table).map_err(|e| format!("{}: {e}", table.display()))?;
+D	src/emission/regcheck.rs	391	prod		auto: error propagated (? / map_err)	std::fs::File::create(out.join("summary.jsonl")).map_err(|e| e.to_string())?;
+R	src/emission/regcheck.rs	404	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pf)
+D	src/emission/regcheck.rs	431	prod		auto: error propagated (? / map_err)	std::fs::write(dir.join("keys.jsonl"), kf).map_err(|e| e.to_string())?;
+D	src/emission/regcheck.rs	437	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
+R	src/emission/regcheck.rs	491	prod		auto: error propagated (? / map_err)	let lines: Vec<String> = std::fs::read_to_string(&pieces)
+D	src/emission/regcheck.rs	518	prod		auto: error propagated (? / map_err)	std::fs::write(out.join("keys.jsonl"), kf).map_err(|e| e.to_string())?;
+D	src/emission/regcheck.rs	523	prod		lane gencheck (gate R-C, rc-land): propagated: the statement ends in .map_err(..)? (a failed write / read is an error of the command)	std::fs::write(
+R	src/emission/regcheck.rs	562	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.path).map_err(|e| format!("{}: {e}", self.path.display()))?;
 D	src/emission/replace.rs	68	prod		auto: error propagated (? / map_err)	std::fs::write(&input, format!("{}\n{}\n", header.trim_end(), case))
 R	src/emission/replace.rs	121	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(&table).map_err(|e| format!("{}: {e}", table.display()))?;
 F	src/emission/replace.rs	129	prod	emission.replace.cert_dir	auto: Unknown / Absent / Failed -> Err (propagated)	crate::fsx::list_required("emission.replace.cert_dir", &cert_dir)
@@ -2047,78 +2047,78 @@ D	tests/descent_t266.rs	108	test			let _ = std::fs::remove_dir_all(&dir);
 X	tests/descent_t266.rs	108	test			let _ = std::fs::remove_dir_all(&dir);
 D	tests/descent_t266.rs	150	test			let _ = std::fs::remove_dir_all(&dir);
 X	tests/descent_t266.rs	150	test			let _ = std::fs::remove_dir_all(&dir);
-V	tests/emission.rs	30	test			match std::env::var("RUSTRED_EMISSION_CHECKER") {
-E	tests/emission.rs	31	test			Ok(p) if Path::new(&p).exists() => Some(PathBuf::from(p)),
-D	tests/emission.rs	54	test			std::fs::write(&fam, FAMILY).unwrap();
-C	tests/emission.rs	55	test			let out = std::process::Command::new(bin)
-D	tests/emission.rs	189	test			std::fs::write(&cp, cert.to_string()).unwrap();
-D	tests/emission.rs	216	test			std::fs::write(&t, s).unwrap();
-R	tests/emission.rs	262	test			let manifest = std::fs::read_to_string(t.with_extension("manifest.jsonl")).unwrap();
-D	tests/emission.rs	289	test			std::fs::write(
-R	tests/emission.rs	295	test			std::fs::read_to_string(&input)
-R	tests/emission.rs	343	test			let refused = std::fs::read_to_string(em.side.join("refused.jsonl")).unwrap();
-D	tests/emission.rs	404	test			std::fs::write(&cp, cert.to_string()).unwrap();
-D	tests/emission.rs	462	test			std::fs::write(&old_table, format!("{}\n{orig_line}\n", header())).unwrap();
-L	tests/emission_closeloop_fake.rs	17	test			for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
-E	tests/emission_closeloop_fake.rs	19	test			if p.is_dir() {
-D	tests/emission_closeloop_fake.rs	36	test			std::fs::write(&files.hand, "").unwrap();
-R	tests/emission_closeloop_fake.rs	38	test			let mut cfg: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
-D	tests/emission_closeloop_fake.rs	41	test			std::fs::write(&files.config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
-R	tests/emission_closeloop_fake.rs	48	test			&std::fs::read(cdir.join("closeloop/toy/result.json"))
-R	tests/emission_closeloop_fake.rs	49	test			.or_else(|_| std::fs::read(cdir.join("result.json")))
-X	tests/emission_closeloop_fake.rs	49	test			.or_else(|_| std::fs::read(cdir.join("result.json")))
-R	tests/emission_closeloop_fake.rs	76	test			let a = std::fs::read_to_string(&plain).unwrap();
-R	tests/emission_closeloop_fake.rs	77	test			let b = std::fs::read_to_string(p).unwrap();
-V	tests/emission_gate_fake.rs	16	test			let base = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
-X	tests/emission_gate_fake.rs	16	test			let base = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
-D	tests/emission_gate_fake.rs	18	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/emission_gate_fake.rs	18	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/emission_gate_fake.rs	42	test			std::fs::write(&t, s).unwrap();
-D	tests/emission_gate_fake.rs	51	test			std::fs::write(
-R	tests/emission_gate_fake.rs	115	test			let lines: Vec<String> = std::fs::read_to_string(&out)
-D	tests/emission_gate_fake.rs	142	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/emission_gate_fake.rs	142	test			let _ = std::fs::remove_dir_all(&d);
-E	tests/emission_gate_fake.rs	179	test			assert!(!out.exists(), "nothing written");
-E	tests/emission_gate_fake.rs	195	test			assert!(!out.exists());
-D	tests/emission_gate_fake.rs	196	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/emission_gate_fake.rs	196	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/emission_gate_fake.rs	197	test			let _ = std::fs::remove_dir_all(&d2);
-X	tests/emission_gate_fake.rs	197	test			let _ = std::fs::remove_dir_all(&d2);
-R	tests/emission_gate_fake.rs	223	test			let first = std::fs::read(&em).unwrap();
-R	tests/emission_gate_fake.rs	227	test			assert_eq!(std::fs::read(&em).unwrap(), first);
-R	tests/emission_gate_fake.rs	233	test			assert_eq!(std::fs::read(&em).unwrap(), first);
-E	tests/emission_gate_fake.rs	247	test			assert!(!em2.exists());
-D	tests/emission_gate_fake.rs	248	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/emission_gate_fake.rs	248	test			let _ = std::fs::remove_dir_all(&d);
-E	tests/emission_gate_fake.rs	278	test			assert!(!out.exists(), "nothing written");
-R	tests/emission_gate_fake.rs	329	test			let text = std::fs::read_to_string(&out2).unwrap();
-D	tests/emission_gate_fake.rs	334	test			std::fs::write(&out2, text).unwrap();
-D	tests/emission_gate_fake.rs	360	test			let _ = std::fs::remove_dir_all(&x);
-X	tests/emission_gate_fake.rs	360	test			let _ = std::fs::remove_dir_all(&x);
-D	tests/emission_gate_fake.rs	373	test			std::fs::write(
-R	tests/emission_gate_fake.rs	405	test			let text = std::fs::read_to_string(&em).unwrap();
-D	tests/emission_gate_fake.rs	413	test			std::fs::write(&em, t).unwrap();
-E	tests/emission_gate_fake.rs	441	test			assert!(!em2.exists());
-E	tests/emission_gate_fake.rs	454	test			assert!(!em3.exists());
-D	tests/emission_gate_fake.rs	455	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/emission_gate_fake.rs	455	test			let _ = std::fs::remove_dir_all(&d);
-R	tests/emission_gate_fake.rs	477	test			let text = std::fs::read_to_string(&out).unwrap();
-D	tests/emission_gate_fake.rs	487	test			std::fs::write(&pre, &old).unwrap();
-R	tests/emission_gate_fake.rs	516	test			std::fs::read_to_string(&stamped)
-D	tests/emission_gate_fake.rs	536	test			std::fs::write(&pre2, &up).unwrap();
-E	tests/emission_gate_fake.rs	552	test			assert!(!out2.exists());
-D	tests/emission_gate_fake.rs	553	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/emission_gate_fake.rs	553	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/emission_improve_fake.rs	61	test			std::fs::write(
-D	tests/emission_improve_fake.rs	67	test			std::fs::write(&ev, tsv).unwrap();
-D	tests/emission_improve_fake.rs	69	test			std::fs::write(
-D	tests/emission_improve_fake.rs	83	test			std::fs::write(&fam, FAMILY).unwrap();
-D	tests/emission_improve_fake.rs	106	test			std::fs::write(&p, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
-R	tests/emission_improve_fake.rs	169	test			&std::fs::read(d.join("genchoice/toy/improve/result.r1.json")).unwrap(),
-R	tests/emission_improve_fake.rs	174	test			let lines: Vec<String> = std::fs::read_to_string(&out)
-E	tests/emission_improve_fake.rs	201	test			assert!(side.join(format!("cert/{cert}.json")).is_file());
-R	tests/emission_improve_fake.rs	207	test			serde_json::from_slice(&std::fs::read(res["record"]["path"].as_str().unwrap()).unwrap())
-D	tests/emission_improve_fake.rs	232	test			std::fs::write(
+V	tests/emission.rs	31	test			match std::env::var("RUSTRED_EMISSION_CHECKER") {
+E	tests/emission.rs	32	test			Ok(p) if Path::new(&p).exists() => Some(PathBuf::from(p)),
+D	tests/emission.rs	55	test			std::fs::write(&fam, FAMILY).unwrap();
+C	tests/emission.rs	56	test			let out = std::process::Command::new(bin)
+D	tests/emission.rs	190	test			std::fs::write(&cp, cert.to_string()).unwrap();
+D	tests/emission.rs	217	test			std::fs::write(&t, s).unwrap();
+R	tests/emission.rs	263	test			let manifest = std::fs::read_to_string(t.with_extension("manifest.jsonl")).unwrap();
+D	tests/emission.rs	290	test			std::fs::write(
+R	tests/emission.rs	296	test			std::fs::read_to_string(&input)
+R	tests/emission.rs	344	test			let refused = std::fs::read_to_string(em.side.join("refused.jsonl")).unwrap();
+D	tests/emission.rs	405	test			std::fs::write(&cp, cert.to_string()).unwrap();
+D	tests/emission.rs	463	test			std::fs::write(&old_table, format!("{}\n{orig_line}\n", header())).unwrap();
+L	tests/emission_closeloop_fake.rs	18	test			for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+E	tests/emission_closeloop_fake.rs	20	test			if p.is_dir() {
+D	tests/emission_closeloop_fake.rs	37	test			std::fs::write(&files.hand, "").unwrap();
+R	tests/emission_closeloop_fake.rs	39	test			let mut cfg: Value = serde_json::from_slice(&std::fs::read(&files.config).unwrap()).unwrap();
+D	tests/emission_closeloop_fake.rs	42	test			std::fs::write(&files.config, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+R	tests/emission_closeloop_fake.rs	49	test			&std::fs::read(cdir.join("closeloop/toy/result.json"))
+R	tests/emission_closeloop_fake.rs	50	test			.or_else(|_| std::fs::read(cdir.join("result.json")))
+X	tests/emission_closeloop_fake.rs	50	test			.or_else(|_| std::fs::read(cdir.join("result.json")))
+R	tests/emission_closeloop_fake.rs	77	test			let a = std::fs::read_to_string(&plain).unwrap();
+R	tests/emission_closeloop_fake.rs	78	test			let b = std::fs::read_to_string(p).unwrap();
+V	tests/emission_gate_fake.rs	17	test			let base = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
+X	tests/emission_gate_fake.rs	17	test			let base = std::env::var("TMPDIR").unwrap_or_else(|_| "/tmp".into());
+D	tests/emission_gate_fake.rs	19	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/emission_gate_fake.rs	19	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/emission_gate_fake.rs	43	test			std::fs::write(&t, s).unwrap();
+D	tests/emission_gate_fake.rs	52	test			std::fs::write(
+R	tests/emission_gate_fake.rs	116	test			let lines: Vec<String> = std::fs::read_to_string(&out)
+D	tests/emission_gate_fake.rs	143	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/emission_gate_fake.rs	143	test			let _ = std::fs::remove_dir_all(&d);
+E	tests/emission_gate_fake.rs	180	test			assert!(!out.exists(), "nothing written");
+E	tests/emission_gate_fake.rs	196	test			assert!(!out.exists());
+D	tests/emission_gate_fake.rs	197	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/emission_gate_fake.rs	197	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/emission_gate_fake.rs	198	test			let _ = std::fs::remove_dir_all(&d2);
+X	tests/emission_gate_fake.rs	198	test			let _ = std::fs::remove_dir_all(&d2);
+R	tests/emission_gate_fake.rs	224	test			let first = std::fs::read(&em).unwrap();
+R	tests/emission_gate_fake.rs	228	test			assert_eq!(std::fs::read(&em).unwrap(), first);
+R	tests/emission_gate_fake.rs	234	test			assert_eq!(std::fs::read(&em).unwrap(), first);
+E	tests/emission_gate_fake.rs	248	test			assert!(!em2.exists());
+D	tests/emission_gate_fake.rs	249	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/emission_gate_fake.rs	249	test			let _ = std::fs::remove_dir_all(&d);
+E	tests/emission_gate_fake.rs	279	test			assert!(!out.exists(), "nothing written");
+R	tests/emission_gate_fake.rs	330	test			let text = std::fs::read_to_string(&out2).unwrap();
+D	tests/emission_gate_fake.rs	335	test			std::fs::write(&out2, text).unwrap();
+D	tests/emission_gate_fake.rs	361	test			let _ = std::fs::remove_dir_all(&x);
+X	tests/emission_gate_fake.rs	361	test			let _ = std::fs::remove_dir_all(&x);
+D	tests/emission_gate_fake.rs	374	test			std::fs::write(
+R	tests/emission_gate_fake.rs	406	test			let text = std::fs::read_to_string(&em).unwrap();
+D	tests/emission_gate_fake.rs	414	test			std::fs::write(&em, t).unwrap();
+E	tests/emission_gate_fake.rs	442	test			assert!(!em2.exists());
+E	tests/emission_gate_fake.rs	455	test			assert!(!em3.exists());
+D	tests/emission_gate_fake.rs	456	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/emission_gate_fake.rs	456	test			let _ = std::fs::remove_dir_all(&d);
+R	tests/emission_gate_fake.rs	478	test			let text = std::fs::read_to_string(&out).unwrap();
+D	tests/emission_gate_fake.rs	488	test			std::fs::write(&pre, &old).unwrap();
+R	tests/emission_gate_fake.rs	517	test			std::fs::read_to_string(&stamped)
+D	tests/emission_gate_fake.rs	537	test			std::fs::write(&pre2, &up).unwrap();
+E	tests/emission_gate_fake.rs	553	test			assert!(!out2.exists());
+D	tests/emission_gate_fake.rs	554	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/emission_gate_fake.rs	554	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/emission_improve_fake.rs	62	test			std::fs::write(
+D	tests/emission_improve_fake.rs	68	test			std::fs::write(&ev, tsv).unwrap();
+D	tests/emission_improve_fake.rs	70	test			std::fs::write(
+D	tests/emission_improve_fake.rs	84	test			std::fs::write(&fam, FAMILY).unwrap();
+D	tests/emission_improve_fake.rs	107	test			std::fs::write(&p, serde_json::to_vec_pretty(&cfg).unwrap()).unwrap();
+R	tests/emission_improve_fake.rs	170	test			&std::fs::read(d.join("genchoice/toy/improve/result.r1.json")).unwrap(),
+R	tests/emission_improve_fake.rs	175	test			let lines: Vec<String> = std::fs::read_to_string(&out)
+E	tests/emission_improve_fake.rs	202	test			assert!(side.join(format!("cert/{cert}.json")).is_file());
+R	tests/emission_improve_fake.rs	208	test			serde_json::from_slice(&std::fs::read(res["record"]["path"].as_str().unwrap()).unwrap())
+D	tests/emission_improve_fake.rs	233	test			std::fs::write(
 W	tests/engfix4_resume_check.rs	32	test			if c.try_wait().unwrap().is_some() {
 R	tests/engfix4_resume_check.rs	70	test			let original = std::fs::read(&res_path).unwrap();
 D	tests/engfix4_resume_check.rs	71	test			std::fs::write(&res_path, serde_json::to_vec(lie).unwrap()).unwrap();
@@ -3841,34 +3841,34 @@ R	tests/repairflow_fake.rs	333	test			std::fs::read_to_string(cdir.join("closelo
 R	tests/repairflow_fake.rs	341	test			std::fs::read_to_string(cdir.join("closeloop/toy/repairflow/export/symbolic.table.jsonl"))
 R	tests/repairflow_fake.rs	416	test			let d = std::fs::read(cdir.join("closeloop/toy/repairflow/decisions.json")).unwrap();
 R	tests/repairflow_fake.rs	418	test			let stmt = std::fs::read(cdir.join("closeloop/toy/final/statement/statement.jsonl")).unwrap();
-D	tests/rulecost_cli.rs	15	test			let _ = std::fs::remove_dir_all(&d);
-X	tests/rulecost_cli.rs	15	test			let _ = std::fs::remove_dir_all(&d);
-D	tests/rulecost_cli.rs	29	test			std::fs::write(
-D	tests/rulecost_cli.rs	41	test			std::fs::write(
-D	tests/rulecost_cli.rs	52	test			std::fs::write(
-R	tests/rulecost_cli.rs	67	test			"probe": {"path": probe, "sha256": sha256_hex(&std::fs::read(probe).unwrap())},
-D	tests/rulecost_cli.rs	75	test			std::fs::write(&p, serde_json::to_vec_pretty(&s).unwrap()).unwrap();
-D	tests/rulecost_cli.rs	95	test			std::fs::write(dir.join("owner_stats.json"), profile.to_string()).unwrap();
-D	tests/rulecost_cli.rs	110	test			std::fs::write(dir.join("t.jsonl"), table).unwrap();
-R	tests/rulecost_cli.rs	120	test			let keys = std::fs::read_to_string(out.join("keys.jsonl")).unwrap();
-R	tests/rulecost_cli.rs	133	test			serde_json::from_slice(&std::fs::read(out.join("report.json")).unwrap()).unwrap();
-R	tests/rulecost_cli.rs	144	test			serde_json::from_slice(&std::fs::read(out.join("rule_cost_model.json")).unwrap()).unwrap();
-R	tests/rulecost_cli.rs	152	test			let md = std::fs::read_to_string(out.join("report.md")).unwrap();
-E	tests/rulecost_cli.rs	168	test			assert!(!out2.join("rule_cost_model.json").exists());
-R	tests/rulecost_cli.rs	170	test			serde_json::from_slice(&std::fs::read(out2.join("report.json")).unwrap()).unwrap();
-D	tests/rulecost_cli.rs	172	test			let _ = std::fs::remove_dir_all(&dir);
-X	tests/rulecost_cli.rs	172	test			let _ = std::fs::remove_dir_all(&dir);
-D	tests/rulecost_cli.rs	188	test			std::fs::write(&bad, "#!/bin/sh\necho 'no such owner' >&2\nexit 2\n").unwrap();
-D	tests/rulecost_cli.rs	203	test			let _ = std::fs::remove_dir_all(&dir);
-X	tests/rulecost_cli.rs	203	test			let _ = std::fs::remove_dir_all(&dir);
-D	tests/rulecost_cli.rs	230	test			std::fs::write(dir.join("t.jsonl"), table).unwrap();
-R	tests/rulecost_cli.rs	243	test			let line: Value = serde_json::from_str(std::fs::read_to_string(&out).unwrap().trim()).unwrap();
-D	tests/rulecost_cli.rs	253	test			std::fs::write(
-R	tests/rulecost_cli.rs	269	test			let lines: Vec<Value> = std::fs::read_to_string(&out)
-D	tests/rulecost_cli.rs	282	test			std::fs::write(dir.join("k1.jsonl"), "{\"key\": [1, 2, 2, 1, 0]}\n").unwrap();
-R	tests/rulecost_cli.rs	290	test			let first = std::fs::read_to_string(&out).unwrap();
-D	tests/rulecost_cli.rs	313	test			let _ = std::fs::remove_dir_all(&dir);
-X	tests/rulecost_cli.rs	313	test			let _ = std::fs::remove_dir_all(&dir);
+D	tests/rulecost_cli.rs	16	test			let _ = std::fs::remove_dir_all(&d);
+X	tests/rulecost_cli.rs	16	test			let _ = std::fs::remove_dir_all(&d);
+D	tests/rulecost_cli.rs	30	test			std::fs::write(
+D	tests/rulecost_cli.rs	42	test			std::fs::write(
+D	tests/rulecost_cli.rs	53	test			std::fs::write(
+R	tests/rulecost_cli.rs	68	test			"probe": {"path": probe, "sha256": sha256_hex(&std::fs::read(probe).unwrap())},
+D	tests/rulecost_cli.rs	76	test			std::fs::write(&p, serde_json::to_vec_pretty(&s).unwrap()).unwrap();
+D	tests/rulecost_cli.rs	96	test			std::fs::write(dir.join("owner_stats.json"), profile.to_string()).unwrap();
+D	tests/rulecost_cli.rs	111	test			std::fs::write(dir.join("t.jsonl"), table).unwrap();
+R	tests/rulecost_cli.rs	121	test			let keys = std::fs::read_to_string(out.join("keys.jsonl")).unwrap();
+R	tests/rulecost_cli.rs	134	test			serde_json::from_slice(&std::fs::read(out.join("report.json")).unwrap()).unwrap();
+R	tests/rulecost_cli.rs	145	test			serde_json::from_slice(&std::fs::read(out.join("rule_cost_model.json")).unwrap()).unwrap();
+R	tests/rulecost_cli.rs	153	test			let md = std::fs::read_to_string(out.join("report.md")).unwrap();
+E	tests/rulecost_cli.rs	169	test			assert!(!out2.join("rule_cost_model.json").exists());
+R	tests/rulecost_cli.rs	171	test			serde_json::from_slice(&std::fs::read(out2.join("report.json")).unwrap()).unwrap();
+D	tests/rulecost_cli.rs	173	test			let _ = std::fs::remove_dir_all(&dir);
+X	tests/rulecost_cli.rs	173	test			let _ = std::fs::remove_dir_all(&dir);
+D	tests/rulecost_cli.rs	189	test			std::fs::write(&bad, "#!/bin/sh\necho 'no such owner' >&2\nexit 2\n").unwrap();
+D	tests/rulecost_cli.rs	204	test			let _ = std::fs::remove_dir_all(&dir);
+X	tests/rulecost_cli.rs	204	test			let _ = std::fs::remove_dir_all(&dir);
+D	tests/rulecost_cli.rs	231	test			std::fs::write(dir.join("t.jsonl"), table).unwrap();
+R	tests/rulecost_cli.rs	244	test			let line: Value = serde_json::from_str(std::fs::read_to_string(&out).unwrap().trim()).unwrap();
+D	tests/rulecost_cli.rs	254	test			std::fs::write(
+R	tests/rulecost_cli.rs	270	test			let lines: Vec<Value> = std::fs::read_to_string(&out)
+D	tests/rulecost_cli.rs	283	test			std::fs::write(dir.join("k1.jsonl"), "{\"key\": [1, 2, 2, 1, 0]}\n").unwrap();
+R	tests/rulecost_cli.rs	291	test			let first = std::fs::read_to_string(&out).unwrap();
+D	tests/rulecost_cli.rs	314	test			let _ = std::fs::remove_dir_all(&dir);
+X	tests/rulecost_cli.rs	314	test			let _ = std::fs::remove_dir_all(&dir);
 D	tests/schema_roundtrip.rs	69	test			fs::write(&p, &bytes).unwrap();
 R	tests/schema_roundtrip.rs	88	test			serde_json::from_slice(&fs::read(schemas().join("examples/campaign-spec.json")).unwrap())
 R	tests/schema_roundtrip.rs	302	test			serde_json::from_slice(&fs::read(schemas().join("examples/accept.json")).unwrap()).unwrap();

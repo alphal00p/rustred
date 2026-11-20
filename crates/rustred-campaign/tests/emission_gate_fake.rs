@@ -3,6 +3,7 @@
 //! for the independent checker in both modes (weight-cert for lifted records, instance-span for point records). The
 //! fake binds its answers to the record bytes and certificate like `rr_proof`. FAIL CLOSED: one refused record and
 //! nothing is written. Spawns processes (the checker children): run inside a private pid namespace (`LIGHT_PIDNS=1`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 use rustred_campaign::emission::emitter::{Checker, Emitter};
 use rustred_campaign::emission::gate::{CertIndex, GateKind, cert_case, emit_table};
 use rustred_campaign_core::emission::body::strip_derivation;

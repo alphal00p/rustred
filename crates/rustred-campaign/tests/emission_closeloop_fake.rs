@@ -4,6 +4,7 @@
 //! with `emission` in its node config: every relation table the flow writes gets its EMITTED COPY beside it (every
 //! point record with its derivation member), table-check accepts each copy, and the node closes as without emission.
 //! Spawns processes: run ONLY inside a private pid namespace (`LIGHT_PIDNS=1`).
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 
 mod closeloop_support;
 mod sup_common;

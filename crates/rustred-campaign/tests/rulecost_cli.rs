@@ -1,5 +1,6 @@
 //! lane rulecost: `rr_campaign rule-cost` end to end with a FAKE probe child (a shell script that writes recorded
 //! probe outputs). Spawns a child: run with `LIGHT_PIDNS=1` (L10). Test data only: a five-slot toy owner.
+#![allow(clippy::disallowed_methods)] // test code: the fsx rule (src/fsx.rs) binds production code
 use rustred_campaign::rulecost::rule_cost_cmd;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};

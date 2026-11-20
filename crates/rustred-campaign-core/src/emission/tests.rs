@@ -542,11 +542,10 @@ fn validator_refuses_a_hand_edited_class_and_a_changed_body() {
 #[test]
 fn cone_pricing_is_required_of_replacements_only_when_the_policy_asks() {
     use super::cone::{Rules, parse_arm, price};
-    assert_eq!(
-        serde_json::to_string(&Policy::default())
+    assert!(
+        !serde_json::to_string(&Policy::default())
             .unwrap()
             .contains("cone_pricing"),
-        false,
         "same sha256 as before"
     );
     let ids = body_ids(TOY).unwrap();

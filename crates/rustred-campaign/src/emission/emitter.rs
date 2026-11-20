@@ -154,13 +154,16 @@ pub fn point_key(body: &str) -> Option<Value> {
 
 /// Run the checker in INSTANCE-SPAN mode on `[header, body]` at the record's own key (point / symmetry records):
 /// returns (output line, its exactness bound to the body, the child run).
+/// (verdict text, instance-span verdict, the run) of one instance-span check.
+pub type SpanRun = (Option<String>, Result<bool, String>, ChildRun);
+
 pub fn run_span_checker(
     checker: &Checker,
     header: &str,
     body: &str,
     dir: &Path,
     budget_s: f64,
-) -> Result<(Option<String>, Result<bool, String>, ChildRun), String> {
+) -> Result<SpanRun, String> {
     run_span_checker_with(checker, header, body, dir, budget_s, None)
 }
 
@@ -174,7 +177,7 @@ pub fn run_span_checker_with(
     dir: &Path,
     budget_s: f64,
     symrows: Option<(&Path, &Path)>,
-) -> Result<(Option<String>, Result<bool, String>, ChildRun), String> {
+) -> Result<SpanRun, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let input = dir.join("check-input.table.jsonl");
     let header = header.trim_end();

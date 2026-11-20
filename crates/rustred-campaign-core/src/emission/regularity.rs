@@ -235,6 +235,7 @@ pub fn regularity_at(rel: &Relation, key: &[i64]) -> Result<KeyRegularity, Strin
     Ok(regularity_inner(rel, key, false)?.0)
 }
 
+#[allow(clippy::type_complexity)] // exact series per merged daughter: local working maps
 fn regularity_inner(
     rel: &Relation,
     key: &[i64],

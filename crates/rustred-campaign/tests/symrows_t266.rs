@@ -4,8 +4,8 @@
 //! - RED CONTROL (the old path): K2 without its element is checked on IBP rows and seeds -> the kernel refuses the seedless
 //!   record (MISSING_SEEDS), as in lane t266's emitter attempt;
 //! - K2 WITH its element: EXACT on its symmetry row alone, certificate bound; still REFUSED, for descent only (section 14);
-//! - POSITIVE: a rank-1 symmetry relation of the form of lane t266's (b) X15 (element 1: I(1^14; -1,0^5) = I(1^13,0; 0^6)
-//!   + I(1^14; 0^6)) is proven on its symmetry row, descends, is EMITTED, and table-check accepts it; edited after
+//! - POSITIVE: a rank-1 symmetry relation of the form of lane t266's (b) X15 (element 1: I(1^14; -1,0^5) = I(1^13,0; 0^6) +
+//!   I(1^14; 0^6)) is proven on its symmetry row, descends, is EMITTED, and table-check accepts it; edited after
 //!   emission it is refused by table-check; with coefficient 2 it is refused by the emitter.
 //!
 //! Env (SKIPS without them): RUSTRED_T266_CAND_I (the frozen candidate directory; its proofs/symmetry_group.json is the
