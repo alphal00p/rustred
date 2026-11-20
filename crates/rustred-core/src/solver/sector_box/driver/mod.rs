@@ -45,6 +45,23 @@ type Progress = Box<dyn FnMut(&str) + Send>;
 /// growth map that seeded it. A round state is what
 /// [`BoxLaportaSession::set_growth`] and [`BoxLaportaSession::resume_from`]
 /// take to resume a growth series without eliminating that round again.
+/// Result of [`BoxLaportaSession::plan`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlanReport {
+    /// Planned seeds in total (first round and closure).
+    pub seeds: usize,
+    /// Planned seeds of the first round alone.
+    pub first_round_seeds: usize,
+    /// New demanded integrals of the closure targets, and how many of them
+    /// already lay inside their sector's region.
+    pub closure_demand: usize,
+    pub closure_inside: usize,
+    /// Seeded sectors (representatives).
+    pub sectors: usize,
+    /// Planned seeds per number of lines.
+    pub by_lines: BTreeMap<u32, usize>,
+}
+
 pub type RoundHook<const N: usize> =
     Box<dyn FnMut(usize, &[[i16; N]], &BTreeMap<u64, (u8, u8)>) + Send>;
 
@@ -385,6 +402,110 @@ impl<const N: usize> BoxLaportaSession<N> {
         })
     }
 
+    /// Register `targets` and `preferred` as demand (routes onto
+    /// representative sectors, preferred representatives, a reorder when the
+    /// preferred set changes), as the start of [`Self::extend`] does.
+    fn register_demand(
+        &mut self,
+        targets: &[[i16; N]],
+        preferred: &[[i16; N]],
+    ) -> Result<(), SolverError> {
+        for values in targets.iter().chain(preferred) {
+            self.check_powers(values)?;
+        }
+        let mut preferred_reps = Vec::with_capacity(preferred.len());
+        for values in preferred {
+            match self.preferred_representative(values)? {
+                Some(representative) => preferred_reps.push(representative),
+                None => {
+                    self.preferred_zero.insert(*values);
+                    self.zero_demand.insert(*values);
+                }
+            }
+        }
+        let mut new_preferred: Vec<[i16; N]> = self.preferred.clone();
+        new_preferred.extend_from_slice(&preferred_reps);
+        new_preferred.sort_unstable();
+        new_preferred.dedup();
+        if new_preferred != self.preferred {
+            self.reorder(new_preferred)?;
+        }
+        for values in targets.iter().chain(&preferred_reps) {
+            // Integrals of non-representative sectors are demanded through
+            // their exact routes onto representative sectors.
+            let keys = self.factory.route_keys(values)?;
+            if keys.is_empty() {
+                self.zero_demand.insert(*values);
+            }
+            if self.options.closure_no_own_box {
+                for key in &keys {
+                    let (lines, dots, numerators) = box_coordinates(key);
+                    if !self.demand.contains(key)
+                        && self
+                            .boxes
+                            .get(&integral_bits(key))
+                            .is_some_and(|region| region.contains(lines, dots, numerators))
+                    {
+                        self.covered.insert(*key);
+                    }
+                }
+            }
+            self.demand.extend(keys);
+        }
+        Ok(())
+    }
+
+    /// Plan only (no row generation, no elimination): register `targets` and
+    /// `preferred` as [`Self::extend`] would, plan the first round's seeds and
+    /// boxes (with the growth map of [`Self::set_growth`]), then add
+    /// `closure_targets` as a derivative-closure round would (after the boxes
+    /// exist, so [`BoxOptions::closure_no_own_box`] applies) and plan again.
+    /// Returns the planned seeds per number of lines. Sizes a batch (for
+    /// instance a predicted end-state box) in seconds; the session is not
+    /// meant to be extended afterwards.
+    pub fn plan(
+        &mut self,
+        targets: &[[i16; N]],
+        preferred: &[[i16; N]],
+        closure_targets: &[[i16; N]],
+    ) -> Result<PlanReport, SolverError> {
+        if self.restored {
+            return Err(SolverError::InvalidInput(
+                "a session decoded from a checkpoint cannot plan".into(),
+            ));
+        }
+        self.register_demand(targets, preferred)?;
+        self.plan_only = true;
+        let planned = self.seed_round("plan", (0, 0, 0));
+        let first = self.seeds.len();
+        let closure = planned.and_then(|()| {
+            let before = self.demand.len();
+            let covered = self.covered.len();
+            self.register_demand(closure_targets, &[])?;
+            let added = self.demand.len() - before;
+            let inside = self.covered.len() - covered;
+            self.seed_round("plan/closure", (0, 0, 0))?;
+            Ok((added, inside))
+        });
+        self.plan_only = false;
+        self.force_rebuild = false;
+        let (closure_demand, closure_inside) = closure?;
+        let mut by_lines = BTreeMap::new();
+        for seed in &self.seeds {
+            *by_lines
+                .entry(integral_bits(seed).count_ones())
+                .or_insert(0) += 1;
+        }
+        Ok(PlanReport {
+            seeds: self.seeds.len(),
+            first_round_seeds: first,
+            closure_demand,
+            closure_inside,
+            sectors: self.boxes.len(),
+            by_lines,
+        })
+    }
+
     /// Start the growth of every listed sector (Kira id -> `(dots, s)` steps)
     /// at the given map instead of at zero, e.g. a growth map read from a
     /// round state, or a predicted end-state box. Call before `extend`.
@@ -536,48 +657,7 @@ impl<const N: usize> BoxLaportaSession<N> {
                 "a session decoded from a checkpoint is materialise-only; extend needs the modular row space".into(),
             ));
         }
-        for values in targets.iter().chain(preferred) {
-            self.check_powers(values)?;
-        }
-        let mut preferred_reps = Vec::with_capacity(preferred.len());
-        for values in preferred {
-            match self.preferred_representative(values)? {
-                Some(representative) => preferred_reps.push(representative),
-                None => {
-                    self.preferred_zero.insert(*values);
-                    self.zero_demand.insert(*values);
-                }
-            }
-        }
-        let mut new_preferred: Vec<[i16; N]> = self.preferred.clone();
-        new_preferred.extend_from_slice(&preferred_reps);
-        new_preferred.sort_unstable();
-        new_preferred.dedup();
-        if new_preferred != self.preferred {
-            self.reorder(new_preferred)?;
-        }
-        for values in targets.iter().chain(&preferred_reps) {
-            // Integrals of non-representative sectors are demanded through
-            // their exact routes onto representative sectors.
-            let keys = self.factory.route_keys(values)?;
-            if keys.is_empty() {
-                self.zero_demand.insert(*values);
-            }
-            if self.options.closure_no_own_box {
-                for key in &keys {
-                    let (lines, dots, numerators) = box_coordinates(key);
-                    if !self.demand.contains(key)
-                        && self
-                            .boxes
-                            .get(&integral_bits(key))
-                            .is_some_and(|region| region.contains(lines, dots, numerators))
-                    {
-                        self.covered.insert(*key);
-                    }
-                }
-            }
-            self.demand.extend(keys);
-        }
+        self.register_demand(targets, preferred)?;
         let mut rounds = 0;
         let mut growth_log = Vec::new();
         let mut monitor = BTreeMap::new();
