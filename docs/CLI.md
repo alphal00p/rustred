@@ -352,6 +352,8 @@ same as in `litered-reduce`.
 | `modular_only` | false | stop after the modular phase |
 | `rebuild_rounds` | false | rebuild the modular system from all seeds in ONE bottom-up batch at every seeding round after the first (growth and closure rounds) instead of inserting the new seeds on top of the old U. Same masters, pivots and rules; much less fill-in for derivative closures (4L one-mass propagator quotient: elimination 3,866 s -> 1,892 s, identical masters, rules and pivot hash) |
 | `report_supports` | false | write `supports.jsonl` to `out_dir`: one line per demanded integral with the masters of its reduced row at the first modular sample. Same-level links between non-nested sectors in these supports reveal relation clusters (cluster probes); no reconstruction needed |
+| `two_pass` | false | two-pass derivative closure: pass 1 (the targets) gives the masters; pass 2 is a fresh session with `rebuild_rounds` whose targets are the targets plus the derivative seeds `m + e_s` of every pass-1 master, with the pass-1 masters preferred, so the closure is seeded up front in one batch. Needs derivative slots. 4L uncut one-mass propagator family: identical 225 masters and 1,872 rules, 9 h 41 min -> 8 min |
+| `two_pass_variants` | false | with `two_pass`: also add the rank-1 numerator variants of the pass-1 masters to pass 2 (the basis can only shrink) |
 
 Progress: with `RUSTRED_SB_PROGRESS` set, the command prints the router start/ready times and, per modular round, the row count after seeding and the master count after selection, to stderr.
 

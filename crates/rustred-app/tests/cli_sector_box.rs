@@ -490,6 +490,85 @@ fn supports_list_the_masters_of_each_demanded_integral() {
     );
 }
 
+/// `two_pass` (three-loop NO, mass z on line 0, a dotted target): pass 2
+/// seeds the derivative closure up front in one rebuilt batch; the masters
+/// equal the incremental closure's, and every rule both runs produce is
+/// identical (same basis, unique reduced rows). With `two_pass_variants`
+/// (rule ii') the basis can only shrink and the closure still closes.
+#[test]
+fn two_pass_equals_the_incremental_derivative_closure() {
+    let base = |dir: &Path| {
+        json!({
+            "schema": "rustred.sector-box-reduce-spec.v1",
+            "family": format!("{FIXTURES}/p3l_no/family.toml"),
+            "out_dir": dir.join("out"),
+            "targets": [[1, 1, 1, 1, 1, 1, 1, 1, 0], [1, 1, 1, 1, 1, 1, 1, 2, 0]],
+            "derivative_slots": [0],
+            "d_list": ["37/11"],
+            "free": "z",
+            "router": "identity",
+            "lp_gate": false,
+            "seeding": {"kind": "staircase", "s_pad": 0, "d_pad": 0, "max_growth": 3},
+            "master_check": "report",
+            "workers": 2,
+        })
+    };
+    let dir = scratch("two-pass-ref");
+    let (code, report) = run(&dir, &base(&dir));
+    assert_eq!(code, 0, "{report}");
+    let (masters, rules) = rules_of(&dir.join("out").join("solution-37_11.json"));
+    let tdir = scratch("two-pass");
+    let mut spec = base(&tdir);
+    spec["two_pass"] = json!(true);
+    let (code, treport) = run(&tdir, &spec);
+    assert_eq!(code, 0, "{treport}");
+    assert!(
+        treport["modular"]["two_pass"]["masters"].as_u64().unwrap() > 0,
+        "{treport}"
+    );
+    let (tmasters, trules) = rules_of(&tdir.join("out").join("solution-37_11.json"));
+    let sorted = |mut m: Vec<Vec<i64>>| {
+        m.sort();
+        m
+    };
+    assert_eq!(sorted(masters), sorted(tmasters));
+    let mut common = 0;
+    for (target, terms) in &rules {
+        if let Some(other) = trules.get(target) {
+            assert_eq!(terms, other, "rule for {target:?} differs");
+            common += 1;
+        }
+    }
+    assert!(common >= 2, "only {common} common rules");
+    // With the (ii') variants the basis can only shrink, and the closure closes.
+    let vdir = scratch("two-pass-variants");
+    let mut spec = base(&vdir);
+    spec["two_pass"] = json!(true);
+    spec["two_pass_variants"] = json!(true);
+    let (code, vreport) = run(&vdir, &spec);
+    assert_eq!(code, 0, "{vreport}");
+    let (vmasters, _) = rules_of(&vdir.join("out").join("solution-37_11.json"));
+    assert!(
+        vmasters.len() <= trules_masters_len(&tdir),
+        "{} masters with variants",
+        vmasters.len()
+    );
+    assert_eq!(
+        vreport["modular"]["closure"]
+            .as_array()
+            .unwrap()
+            .last()
+            .unwrap()["added"],
+        0
+    );
+}
+
+fn trules_masters_len(dir: &Path) -> usize {
+    rules_of(&dir.join("out").join("solution-37_11.json"))
+        .0
+        .len()
+}
+
 /// Two-loop massless propagator family (kite, one external momentum q with
 /// q.q = -1, arity 5) with mass z on the rung: the derivative closure in z
 /// closes with the six masters of the one-mass kite family and both
@@ -808,6 +887,8 @@ const UNSET_FIELDS: &[&str] = &[
     "cut_generators",
     "rebuild_rounds",
     "report_supports",
+    "two_pass",
+    "two_pass_variants",
 ];
 
 #[test]
