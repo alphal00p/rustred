@@ -999,8 +999,61 @@ impl<const N: usize> BoxLaportaSession<N> {
             .filter(|row| self.factory.is_automorphism_source(row.provenance.source))
             .count();
         let elimination = Instant::now();
-        let outcome = self.modular.insert_batch(rows)?;
+        // The session pool also runs the parallel elimination (when it is on).
+        let cpu_started = process_cpu_seconds();
+        let outcome = {
+            let modular = &mut self.modular;
+            self.pool.install(|| modular.insert_batch(rows))?
+        };
         let seconds = elimination.elapsed().as_secs_f64();
+        let cpu = process_cpu_seconds()
+            .zip(cpu_started)
+            .map(|(end, start)| (end.0 - start.0, end.1 - start.1));
+        let cpu_text = cpu.map_or("?".to_string(), |(user, sys)| {
+            format!("user {user:.2}s sys {sys:.2}s")
+        });
+        if let Some((options, parallel)) = self.modular.last_parallel.clone() {
+            let stages = self.modular.last_parallel_stages;
+            let threads = self.pool.current_num_threads();
+            let overhead = parallel.state_entries as f64 / parallel.subtracted.max(1) as f64;
+            let model: Vec<String> = [4, 8, 16]
+                .iter()
+                .map(|&t| format!("{t}:{:.1}", parallel.modelled_speedup(t)))
+                .collect();
+            self.note(|| {
+                format!(
+                    "{phase}: parallel elimination threads {threads} window {} block {} provisional {:?} | rounds {} reductions {} resumed {} undone {} copies {} | subtracted {} state {} ({:.1}%) walk {} | par {:.2}s serial {:.2}s cpu {} | model speedup {} | stages sort {:.2}s register {:.2}s native {:.2}s solve {:.2}s book {:.2}s drop {:.2}s | serial admit {:.2}s cut {:.2}s walk {:.2}s flush {:.2}s",
+                    options.window,
+                    options.block,
+                    options.provisional,
+                    parallel.rounds,
+                    parallel.reductions,
+                    parallel.resumed,
+                    parallel.invalidated,
+                    parallel.copies,
+                    parallel.subtracted,
+                    parallel.state_entries,
+                    100.0 * overhead,
+                    parallel.walk_visits,
+                    parallel.parallel_seconds,
+                    parallel.serial_seconds,
+                    cpu_text,
+                    model.join(" "),
+                    stages[0],
+                    stages[1],
+                    stages[2],
+                    stages[3],
+                    stages[4],
+                    stages[5],
+                    parallel.serial_split[0],
+                    parallel.serial_split[1],
+                    parallel.serial_split[2],
+                    parallel.serial_split[3]
+                )
+            });
+        } else {
+            self.note(|| format!("{phase}: serial elimination cpu {cpu_text}"));
+        }
         let discovery = &self.modular.discovery;
         self.stats.seeds += seeds.len();
         self.stats.rows += outcome.rows;
@@ -1361,4 +1414,22 @@ impl<const N: usize> BoxLaportaSession<N> {
         self.stats.l_entries = discovery.l_entries();
         self.stats.column_batches = discovery.column_batches();
     }
+}
+
+/// User and system CPU seconds of the whole process (all threads), when available.
+#[cfg(not(unix))]
+fn process_cpu_seconds() -> Option<(f64, f64)> {
+    None
+}
+
+/// User and system CPU seconds of the whole process (all threads), when available.
+#[cfg(unix)]
+fn process_cpu_seconds() -> Option<(f64, f64)> {
+    // SAFETY: getrusage only writes the provided struct.
+    let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
+    let rc = unsafe { libc::getrusage(libc::RUSAGE_SELF, &mut usage) };
+    (rc == 0).then(|| {
+        let seconds = |t: libc::timeval| t.tv_sec as f64 + t.tv_usec as f64 * 1e-6;
+        (seconds(usage.ru_utime), seconds(usage.ru_stime))
+    })
 }
