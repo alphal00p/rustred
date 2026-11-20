@@ -183,7 +183,8 @@ fn signal_group(pgid: u32, marker: &CampaignMarker, sig: i32, label: &str) -> us
         let Some(pid) = e.file_name().to_str().and_then(|s| s.parse::<u32>().ok()) else {
             continue;
         };
-        let Ok(Some(st)) = read_stat(pid) else {
+        // procfix7's procfs rule: Gone only on ENOENT / ESRCH; a gone or unreadable member is not signalled this round
+        let Ok(st) = read_stat(pid) else {
             continue;
         };
         if st.pgrp != pgid {
@@ -277,8 +278,8 @@ mod tests {
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
             match read_stat(g) {
-                Ok(None) => break,
-                Ok(Some(st)) if st.state == 'Z' || st.state == 'X' => break,
+                Err(crate::resources::ProcError::Gone) => break,
+                Ok(st) if st.state == 'Z' || st.state == 'X' => break,
                 _ if Instant::now() > deadline => panic!("grandchild {g} still alive"),
                 _ => std::thread::sleep(Duration::from_millis(50)),
             }
