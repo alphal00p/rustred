@@ -860,7 +860,10 @@ impl ImproveSource {
                 ck.floor_s = f;
             }
             if let Some(n) = &es.descent_node {
-                ck.descent_node = Some((PathBuf::from(n), crate::emission::child::file_sha256(Path::new(n))?));
+                ck.descent_node = Some((
+                    PathBuf::from(n),
+                    crate::emission::child::file_sha256(Path::new(n))?,
+                ));
             }
             let em = crate::emission::emitter::Emitter::new(
                 ck,
@@ -879,7 +882,8 @@ impl ImproveSource {
             // THE d = 4 REGULARITY ACCEPTANCE (contract section 13): the old table loaded once, the old rule lines read
             // once; every replacement compared with its old rule at the old rule's first-match keys before it is written
             // (an old table the dispatcher cannot read refuses every replacement, fail closed; the flow goes on)
-            let old_table = crate::emission::regcheck::OldTable::load(Path::new(&self.nodes[i].e.table.path));
+            let old_table =
+                crate::emission::regcheck::OldTable::load(Path::new(&self.nodes[i].e.table.path));
             let want: std::collections::BTreeSet<i64> = repl.keys().copied().collect();
             let old_lines = match &old_table {
                 Ok(ot) => ot.lines_of(&want)?,
@@ -907,10 +911,12 @@ impl ImproveSource {
                     .map(|d| Path::new(&d).join(&es.cert_dir))
                     // fsx rule: a missing or failed listing gives no certificates; the records that need one are then
                     // refused by the emitter (fail closed), never accepted from a partial list
-                    .and_then(|d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
-                        crate::fsx::Listing::Complete(v) => Some(v),
-                        crate::fsx::Listing::Absent | crate::fsx::Listing::Failed(_) => None,
-                    })
+                    .and_then(
+                        |d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
+                            crate::fsx::Listing::Complete(v) => Some(v),
+                            crate::fsx::Listing::Absent | crate::fsx::Listing::Failed(_) => None,
+                        },
+                    )
                     .map(|rd| {
                         let mut v: Vec<PathBuf> = rd
                             .into_iter()

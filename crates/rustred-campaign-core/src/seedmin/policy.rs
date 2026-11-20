@@ -312,7 +312,10 @@ impl SeedMinPolicy {
             }
         };
         if self.schema != POLICY_SCHEMA && self.schema != POLICY_SCHEMA_V1 {
-            return Err(format!("schema {} (want {POLICY_SCHEMA} or {POLICY_SCHEMA_V1})", self.schema));
+            return Err(format!(
+                "schema {} (want {POLICY_SCHEMA} or {POLICY_SCHEMA_V1})",
+                self.schema
+            ));
         }
         pick(&self.backend, &["emulated", "engine"], "backend")?;
         pick(&self.mode, &["greedy", "support", "off"], "mode")?;

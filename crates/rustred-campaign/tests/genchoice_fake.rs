@@ -322,11 +322,19 @@ fn pole_scores_choose_the_regular_table_and_the_ignore_switch_restores_the_size_
         assert_eq!(c["winner"], want, "{tag}: {:#}", c["poles"]);
         assert_eq!(cand(&c, want)["verdict"], "winner");
         if tag == "gcpoles" {
-            assert!(c["poles"]["d4_rule"].as_str().unwrap().contains("rule 21"), "{:#}", c["poles"]);
+            assert!(
+                c["poles"]["d4_rule"].as_str().unwrap().contains("rule 21"),
+                "{:#}",
+                c["poles"]
+            );
             assert_eq!(c["poles"]["policy_version"], 2);
         }
         if tag == "gcpolesexplicit" {
-            assert!(c["poles"]["d4_rule"].as_str().unwrap().contains("EXPLICIT"), "{:#}", c["poles"]);
+            assert!(
+                c["poles"]["d4_rule"].as_str().unwrap().contains("EXPLICIT"),
+                "{:#}",
+                c["poles"]
+            );
             let d = &c["poles"]["decision"];
             assert_eq!(
                 (d["reason"].clone(), d["changed"].clone()),

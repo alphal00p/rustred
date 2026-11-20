@@ -2510,7 +2510,10 @@ impl CloseFromMaterialSource {
             crate::emission::gate::gate_beside(
                 es,
                 &text,
-                &self.abs(&format!("{}/relations/{item}.{job}.emitted.table.jsonl", node_dir(&r.n))),
+                &self.abs(&format!(
+                    "{}/relations/{item}.{job}.emitted.table.jsonl",
+                    node_dir(&r.n)
+                )),
                 crate::emission::gate::GateKind::Point,
                 &[],
                 true,

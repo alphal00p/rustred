@@ -728,7 +728,9 @@ impl<S: WorkSource> RepairFlowSource<S> {
                     dirs.push(Path::new(&rd).join(&es.cert_dir));
                 }
             }
-            let side = rustred_campaign_core::emission::side_dir(&self.abs(&format!("{dir}/symbolic.table.jsonl")));
+            let side = rustred_campaign_core::emission::side_dir(
+                &self.abs(&format!("{dir}/symbolic.table.jsonl")),
+            );
             let mut ck = crate::emission::emitter::Checker::new(Path::new(&es.checker))?;
             ck.recover_rows = es.recover_rows;
             ck.family = es.family.as_ref().map(PathBuf::from);
@@ -736,7 +738,10 @@ impl<S: WorkSource> RepairFlowSource<S> {
                 ck.floor_s = f;
             }
             if let Some(n) = &es.descent_node {
-                ck.descent_node = Some((PathBuf::from(n), crate::emission::child::file_sha256(Path::new(n))?));
+                ck.descent_node = Some((
+                    PathBuf::from(n),
+                    crate::emission::child::file_sha256(Path::new(n))?,
+                ));
             }
             let em = crate::emission::emitter::Emitter::new(
                 ck,

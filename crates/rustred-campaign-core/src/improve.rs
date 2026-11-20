@@ -784,7 +784,9 @@ impl ImprovePolicy {
     /// no `pole_score_pending` hold: a cheaper rule replaces on size); the pole-first mode is the explicit, non-default option
     /// of the withdrawn rule and reports itself (`objective: poles`, policy version in the record).
     pub fn poles_on(&self) -> bool {
-        self.poles.as_ref().is_some_and(|p| !p.is_ignored() && p.measures.first().map(String::as_str) != Some("size"))
+        self.poles.as_ref().is_some_and(|p| {
+            !p.is_ignored() && p.measures.first().map(String::as_str) != Some("size")
+        })
     }
     /// Candidate jobs solve the target case only (single mode): sub-tree off, or the pole objective.
     pub fn single(&self) -> bool {

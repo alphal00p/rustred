@@ -346,7 +346,10 @@ fn main() {
                 std::process::exit(0);
             }
             Err(e) => {
-                println!("{}", rustred_proof::error_record(&format!("source rows: {e}")));
+                println!(
+                    "{}",
+                    rustred_proof::error_record(&format!("source rows: {e}"))
+                );
                 std::process::exit(2);
             }
         }

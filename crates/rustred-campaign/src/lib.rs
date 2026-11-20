@@ -17,10 +17,10 @@ pub mod lock;
 // lane tadicjob's request (REQUEST TO I-INT): rr_campaign tadic-check / pole-report
 pub mod polereport;
 // lane rulecost (interfaces/rule-cost.md 3; REQUEST TO I-INT): rr_campaign rule-cost
-pub mod rulecost;
 pub mod progress;
 pub mod publish;
 pub mod resources;
+pub mod rulecost;
 pub mod signals;
 pub mod state;
 pub mod supervisor;

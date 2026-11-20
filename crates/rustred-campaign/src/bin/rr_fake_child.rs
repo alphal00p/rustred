@@ -1090,8 +1090,11 @@ impl Main {
             if let Some(c) = cert {
                 let d = RunLayout::new(&ctx.spec.run_dir).out_dir().join("wcert");
                 std::fs::create_dir_all(&d).map_err(Finish::Io)?;
-                std::fs::write(d.join(format!("r{index}.json")), serde_json::to_vec(&c).unwrap())
-                    .map_err(Finish::Io)?;
+                std::fs::write(
+                    d.join(format!("r{index}.json")),
+                    serde_json::to_vec(&c).unwrap(),
+                )
+                .map_err(Finish::Io)?;
             }
             let (line, elided) = fake_rule_record(r, index, &ctx.spec.output, ctx.jitter());
             let (off, len, canon) = self

@@ -151,33 +151,33 @@ D	src/bin/rr_fake_child.rs	417	testdouble			let _ = std::fs::remove_file(&tmp);
 X	src/bin/rr_fake_child.rs	417	testdouble			let _ = std::fs::remove_file(&tmp);
 K	src/bin/rr_fake_child.rs	627	testdouble			libc::kill(pid, libc::SIGKILL);
 D	src/bin/rr_fake_child.rs	774	testdouble			if rustred_campaign_contract::atomic::write_json_atomic(&self.layout.resume(), &r).is_ok() {
-D	src/bin/rr_fake_child.rs	1093	testdouble			std::fs::write(d.join(format!("r{index}.json")), serde_json::to_vec(&c).unwrap())
-E	src/bin/rr_fake_child.rs	1185	testdouble			let dev = std::fs::symlink_metadata(p)
-X	src/bin/rr_fake_child.rs	1185	testdouble			let dev = std::fs::symlink_metadata(p)
-X	src/bin/rr_fake_child.rs	1186	testdouble			.is_ok_and(|m| m.file_type().is_char_device());
-O	src/bin/rr_fake_child.rs	1188	testdouble			std::fs::OpenOptions::new()
-K	src/bin/rr_fake_child.rs	1448	testdouble			libc::kill(libc::getpid(), sig);
-E	src/bin/rr_fake_child.rs	1549	testdouble			if ctx.layout.stop_file().exists() {
-R	src/bin/rr_fake_child.rs	1640	testdouble			let on = std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1640	testdouble			let on = std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1647	testdouble			if std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1647	testdouble			if std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1655	testdouble			if std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1655	testdouble			if std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1663	testdouble			if std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1663	testdouble			if std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1671	testdouble			if std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1671	testdouble			if std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1679	testdouble			if std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1679	testdouble			if std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1687	testdouble			if std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1687	testdouble			if std::fs::read(spec_path)
-R	src/bin/rr_fake_child.rs	1694	testdouble			if let Some(k) = std::fs::read(spec_path)
-X	src/bin/rr_fake_child.rs	1694	testdouble			if let Some(k) = std::fs::read(spec_path)
-V	src/bin/rr_fake_child.rs	1711	testdouble			let prep = match preflight(spec_path, &me, &|k| std::env::var(k).ok()) {
-X	src/bin/rr_fake_child.rs	1711	testdouble			let prep = match preflight(spec_path, &me, &|k| std::env::var(k).ok()) {
-O	src/bin/rr_fake_child.rs	1924	testdouble			let mut w = match std::fs::OpenOptions::new().write(true).open(fifo) {
-O	src/bin/rr_fake_child.rs	1939	testdouble			let dn = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
+D	src/bin/rr_fake_child.rs	1093	testdouble			std::fs::write(
+E	src/bin/rr_fake_child.rs	1188	testdouble			let dev = std::fs::symlink_metadata(p)
+X	src/bin/rr_fake_child.rs	1188	testdouble			let dev = std::fs::symlink_metadata(p)
+X	src/bin/rr_fake_child.rs	1189	testdouble			.is_ok_and(|m| m.file_type().is_char_device());
+O	src/bin/rr_fake_child.rs	1191	testdouble			std::fs::OpenOptions::new()
+K	src/bin/rr_fake_child.rs	1451	testdouble			libc::kill(libc::getpid(), sig);
+E	src/bin/rr_fake_child.rs	1552	testdouble			if ctx.layout.stop_file().exists() {
+R	src/bin/rr_fake_child.rs	1643	testdouble			let on = std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1643	testdouble			let on = std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1650	testdouble			if std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1650	testdouble			if std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1658	testdouble			if std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1658	testdouble			if std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1666	testdouble			if std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1666	testdouble			if std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1674	testdouble			if std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1674	testdouble			if std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1682	testdouble			if std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1682	testdouble			if std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1690	testdouble			if std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1690	testdouble			if std::fs::read(spec_path)
+R	src/bin/rr_fake_child.rs	1697	testdouble			if let Some(k) = std::fs::read(spec_path)
+X	src/bin/rr_fake_child.rs	1697	testdouble			if let Some(k) = std::fs::read(spec_path)
+V	src/bin/rr_fake_child.rs	1714	testdouble			let prep = match preflight(spec_path, &me, &|k| std::env::var(k).ok()) {
+X	src/bin/rr_fake_child.rs	1714	testdouble			let prep = match preflight(spec_path, &me, &|k| std::env::var(k).ok()) {
+O	src/bin/rr_fake_child.rs	1927	testdouble			let mut w = match std::fs::OpenOptions::new().write(true).open(fifo) {
+O	src/bin/rr_fake_child.rs	1942	testdouble			let dn = libc::open(c"/dev/null".as_ptr(), libc::O_RDWR);
 R	src/bin/rr_fake_child/poleat.rs	20	testdouble			let spec: Value = std::fs::read(spec_path)
 X	src/bin/rr_fake_child/poleat.rs	20	testdouble			let spec: Value = std::fs::read(spec_path)
 R	src/bin/rr_fake_child/poleat.rs	47	testdouble			let text = std::fs::read_to_string(&rp).unwrap_or_else(|e| die(&format!("requests: {e}")));
@@ -383,16 +383,16 @@ D	src/closeloop/repair.rs	550	prod		auto: error propagated (? / map_err)	crate::
 R	src/closeloop/repair.rs	559	prod		int8b-gate review 2026-11-18 (i) row 64: as :545 (content-addressed family file) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&p).ok().as_deref() != Some(text.as_bytes()) {
 X	src/closeloop/repair.rs	559	prod		int8b-gate review 2026-11-18 (i) row 65: as :545 (content-addressed family file) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&p).ok().as_deref() != Some(text.as_bytes()) {
 D	src/closeloop/repair.rs	560	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, text.as_bytes())
-F	src/closeloop/repair.rs	1066	prod	closeloop.output	auto: explicit Unknown / Failed arm	let stmt_text = match crate::fsx::read_to_string("closeloop.output", &stmt) {
-F	src/closeloop/repair.rs	1214	prod	closeloop.output	auto: explicit Unknown / Failed arm	let table = match crate::fsx::read("closeloop.output", &table_p) {
-F	src/closeloop/repair.rs	1244	prod	closeloop.output	auto: explicit Unknown / Failed arm	let b = match crate::fsx::read("closeloop.output", &rp) {
-F	src/closeloop/repair.rs	1329	prod	closeloop.input	auto: explicit Unknown / Failed arm	Some(pth) => match crate::fsx::read("closeloop.input", pth) {
-R	src/closeloop/repair.rs	1443	prod		auto: error propagated (? / map_err)	let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
-R	src/closeloop/repair.rs	1475	prod		auto: error propagated (? / map_err)	let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
-R	src/closeloop/repair.rs	1887	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&fpath).map_err(|e| format!("{}: {e}", fpath.display()))?;
-D	src/closeloop/repair.rs	2112	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, &b)
-R	src/closeloop/repair.rs	2573	prod		auto: error propagated (? / map_err)	let b = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-R	src/closeloop/repair.rs	2718	prod		int8b-gate review 2026-11-18 (i) row 75: matched: an unreadable or digest-mismatched results file gives no records and every relation of it is counted in "unread" (visible count) (procfix7 round 19, landing: reviewed line kept)	let v: Vec<Value> = match std::fs::read(&p) {
+F	src/closeloop/repair.rs	1071	prod	closeloop.output	auto: explicit Unknown / Failed arm	let stmt_text = match crate::fsx::read_to_string("closeloop.output", &stmt) {
+F	src/closeloop/repair.rs	1219	prod	closeloop.output	auto: explicit Unknown / Failed arm	let table = match crate::fsx::read("closeloop.output", &table_p) {
+F	src/closeloop/repair.rs	1249	prod	closeloop.output	auto: explicit Unknown / Failed arm	let b = match crate::fsx::read("closeloop.output", &rp) {
+F	src/closeloop/repair.rs	1334	prod	closeloop.input	auto: explicit Unknown / Failed arm	Some(pth) => match crate::fsx::read("closeloop.input", pth) {
+R	src/closeloop/repair.rs	1448	prod		auto: error propagated (? / map_err)	let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
+R	src/closeloop/repair.rs	1480	prod		auto: error propagated (? / map_err)	let b = std::fs::read(self.abs(p)).map_err(|er| format!("{p}: {er}"))?;
+R	src/closeloop/repair.rs	1892	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&fpath).map_err(|e| format!("{}: {e}", fpath.display()))?;
+D	src/closeloop/repair.rs	2117	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, &b)
+R	src/closeloop/repair.rs	2578	prod		auto: error propagated (? / map_err)	let b = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+R	src/closeloop/repair.rs	2723	prod		int8b-gate review 2026-11-18 (i) row 75: matched: an unreadable or digest-mismatched results file gives no records and every relation of it is counted in "unread" (visible count) (procfix7 round 19, landing: reviewed line kept)	let v: Vec<Value> = match std::fs::read(&p) {
 R	src/closeloop/scale.rs	28	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(rows).map_err(|e| format!("{}: {e}", rows.display()))?;
 D	src/closeloop/seedmin.rs	210	prod		int8b-gate review 2026-11-18 (i) row 76: cleanup of its own 24-hex run directory; a failure leaves garbage only (procfix7 round 19, landing: reviewed line kept)	let _ = std::fs::remove_dir_all(dir);
 X	src/closeloop/seedmin.rs	210	prod		int8b-gate review 2026-11-18 (i) row 77: cleanup of its own 24-hex run directory; a failure leaves garbage only (procfix7 round 19, landing: reviewed line kept)	let _ = std::fs::remove_dir_all(dir);
@@ -460,11 +460,11 @@ X	src/closeloop/source.rs	2180	prod		the progress view directory; the write belo
 D	src/closeloop/source.rs	2182	prod		D-C: rename-over of the campaign's own derived file or this attempt's record (content derived / about to be recorded) (a display view, rewritten at the next update)	let _ = crate::atomic::write_atomic(&p, text.as_bytes());
 F	src/closeloop/source.rs	2494	prod	closeloop.input	auto: explicit Unknown / Failed arm	let recipe: Value = match crate::fsx::read("closeloop.input", Path::new(&b.recipe_path)) {
 X	src/closeloop/source.rs	2495	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(x) => serde_json::from_slice(&x).unwrap_or(Value::Null),
-F	src/closeloop/source.rs	2683	prod	closeloop.input	auto: explicit Unknown / Failed arm	let count = match crate::fsx::read("closeloop.input", &self.abs_or(&p.path)) {
-X	src/closeloop/source.rs	2684	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice::<Value>(&b)
-F	src/closeloop/source.rs	2837	prod	closeloop.output	auto: explicit Unknown / Failed arm	let same = match crate::fsx::read("closeloop.output", &p) {
-D	src/closeloop/source.rs	2846	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, r.spec_text.as_bytes())
-R	src/closeloop/source.rs	2874	prod		auto: error propagated (? / map_err)	std::fs::read(&sp).map_err(|e| format!("start set {}: {e}", sp.display()))?;
+F	src/closeloop/source.rs	2686	prod	closeloop.input	auto: explicit Unknown / Failed arm	let count = match crate::fsx::read("closeloop.input", &self.abs_or(&p.path)) {
+X	src/closeloop/source.rs	2687	prod		auto: a parse default inside a typed Content arm (the read itself is matched explicitly)	crate::fsx::Read::Content(b) => serde_json::from_slice::<Value>(&b)
+F	src/closeloop/source.rs	2840	prod	closeloop.output	auto: explicit Unknown / Failed arm	let same = match crate::fsx::read("closeloop.output", &p) {
+D	src/closeloop/source.rs	2849	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, r.spec_text.as_bytes())
+R	src/closeloop/source.rs	2877	prod		auto: error propagated (? / map_err)	std::fs::read(&sp).map_err(|e| format!("start set {}: {e}", sp.display()))?;
 F	src/closeloop/symcert.rs	150	prod	closeloop.input	auto: explicit Unknown / Failed arm	let f = match crate::fsx::open("closeloop.input", path) {
 O	src/closeloop/symcert.rs	167	prod		auto: error propagated (? / map_err)	let mut f = std::fs::OpenOptions::new()
 O	src/closeloop/symcert.rs	168	prod		auto: error propagated (? / map_err)	.create(true)
@@ -1277,19 +1277,19 @@ R	src/supervisor/improve.rs	253	prod		auto: error propagated (? / map_err)	&std:
 R	src/supervisor/improve.rs	285	prod		auto: error propagated (? / map_err)	let t = std::fs::read_to_string(&f.path)
 F	src/supervisor/improve.rs	436	prod	closeloop.input	auto: explicit Unknown / Failed arm	let b = match crate::fsx::read("closeloop.input", std::path::Path::new(&r.path))
 R	src/supervisor/improve.rs	786	prod		auto: error propagated (? / map_err)	std::fs::read_to_string(&t.path).map_err(|e| format!("{}: {e}", t.path))?;
-R	src/supervisor/improve.rs	872	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
-F	src/supervisor/improve.rs	910	prod	supervisor.improve.emission_certs	auto: explicit Unknown / Failed arm	.and_then(|d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
-D	src/supervisor/improve.rs	1071	prod		auto: error propagated (? / map_err)	std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?,
-R	src/supervisor/improve.rs	1106	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
-R	src/supervisor/improve.rs	1172	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
-D	src/supervisor/improve.rs	1201	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp_t, &abs_t).map_err(|e| e.to_string())?;
-D	src/supervisor/improve.rs	1208	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&abs_o, &ob).map_err(|e| e.to_string())?;
-R	src/supervisor/improve.rs	1652	prod		int8b-gate review 2026-11-18 (i) row 159: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
-X	src/supervisor/improve.rs	1652	prod		int8b-gate review 2026-11-18 (i) row 160: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
-X	src/supervisor/improve.rs	1656	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.parent()
-X	src/supervisor/improve.rs	1657	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.is_none_or(|d| std::fs::create_dir_all(d).is_ok());
-D	src/supervisor/improve.rs	1658	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1412): write_atomic error -> the job is not started this round (retried next ready())	if !dir_made || crate::atomic::write_atomic(&abs, line.as_bytes()).is_err()
-F	src/supervisor/improve.rs	1869	prod	supervisor.run_dir	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("supervisor.run_dir", &p) {
+R	src/supervisor/improve.rs	875	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+F	src/supervisor/improve.rs	915	prod	supervisor.improve.emission_certs	auto: explicit Unknown / Failed arm	|d| match crate::fsx::list("supervisor.improve.emission_certs", &d) {
+D	src/supervisor/improve.rs	1077	prod		auto: error propagated (? / map_err)	std::fs::File::create(&tmp_t).map_err(|e| e.to_string())?,
+R	src/supervisor/improve.rs	1112	prod		auto: error propagated (? / map_err)	let f = std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?;
+R	src/supervisor/improve.rs	1178	prod		auto: error propagated (? / map_err)	std::fs::File::open(&self.nodes[i].e.table.path).map_err(|e| e.to_string())?,
+D	src/supervisor/improve.rs	1207	prod		auto: error propagated (? / map_err)	std::fs::rename(&tmp_t, &abs_t).map_err(|e| e.to_string())?;
+D	src/supervisor/improve.rs	1214	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&abs_o, &ob).map_err(|e| e.to_string())?;
+R	src/supervisor/improve.rs	1658	prod		int8b-gate review 2026-11-18 (i) row 159: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
+X	src/supervisor/improve.rs	1658	prod		int8b-gate review 2026-11-18 (i) row 160: compare-then-write_atomic (idempotent); a failed write skips this job this round (:1412) (procfix7 round 19, landing: reviewed line kept)	if std::fs::read(&abs).ok().as_deref() != Some(line.as_bytes()) {
+X	src/supervisor/improve.rs	1662	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.parent()
+X	src/supervisor/improve.rs	1663	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1408-1412): a case-file directory that cannot be made skips the job this round (retried next ready()); the dropped create_dir_all result of before is folded into that condition	.is_none_or(|d| std::fs::create_dir_all(d).is_ok());
+D	src/supervisor/improve.rs	1664	prod		procfix7 round 19 (landing; int8b-gate review (i) improve.rs:1412): write_atomic error -> the job is not started this round (retried next ready())	if !dir_made || crate::atomic::write_atomic(&abs, line.as_bytes()).is_err()
+F	src/supervisor/improve.rs	1875	prod	supervisor.run_dir	auto: explicit Unknown / Failed arm	match crate::fsx::read_to_string("supervisor.run_dir", &p) {
 F	src/supervisor/manager.rs	254	prod	leftover	auto: explicit Unknown / Failed arm	match crate::fsx::read("leftover", &p) {
 D	src/supervisor/manager.rs	267	prod		round 14 (M4): the campaign's own leftover list emptied (a file this code writes); NotFound = already absent; any other error is returned	return match std::fs::remove_file(&p) {
 D	src/supervisor/manager.rs	274	prod		auto: error propagated (? / map_err)	crate::atomic::write_atomic(&p, &b).map_err(|e| format!("{}: {e}", p.display()))

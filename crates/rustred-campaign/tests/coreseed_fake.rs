@@ -261,7 +261,14 @@ fn regular_preferred_keeps_both_alternatives_through_children() {
     // kept, no regular escalation runs for it
     let (r0, _) = run("cs-regular-default", mk(), &[A, B], "{}");
     let k0 = key(&r0, &A);
-    assert!(matches!(k0.alternatives[k0.chosen.unwrap()].d0, D0Verdict::Singular { .. }), "{:?}", k0.alternatives);
+    assert!(
+        matches!(
+            k0.alternatives[k0.chosen.unwrap()].d0,
+            D0Verdict::Singular { .. }
+        ),
+        "{:?}",
+        k0.alternatives
+    );
     // the EXPLICIT, non-default mode regular_preferred: the regular alternative from the up-centre wins
     let f = mk();
     let (r, _) = run("cs-regular", f, &[A, B], r#"{"mode":"regular_preferred"}"#);
