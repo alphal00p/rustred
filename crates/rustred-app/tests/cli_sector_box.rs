@@ -889,6 +889,7 @@ const UNSET_FIELDS: &[&str] = &[
     "report_supports",
     "two_pass",
     "two_pass_variants",
+    "growth_no_inherit",
 ];
 
 #[test]

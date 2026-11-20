@@ -166,6 +166,9 @@ pub struct SectorBoxReduceSpec {
     /// but every subsector inherits a rank-1 box).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub two_pass_variants: bool,
+    /// Staircase growth without inheritance (`BoxOptions::growth_no_inherit`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub growth_no_inherit: bool,
     /// `"lines-rank-dots"` (default), `"lines-dots-rank"` or `"numeric"`.
     #[serde(default)]
     pub order: Option<String>,
@@ -398,6 +401,7 @@ fn box_options(
         settle_on_expected: spec.settle_on_expected,
         rebuild_rounds: spec.rebuild_rounds,
         report_supports: spec.report_supports,
+        growth_no_inherit: spec.growth_no_inherit,
         ..Default::default()
     })
 }
