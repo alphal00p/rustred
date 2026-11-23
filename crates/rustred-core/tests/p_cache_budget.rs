@@ -185,11 +185,17 @@ fn run(
         evicted_bytes: after.evicted_bytes - before.evicted_bytes,
         skipped_pinned: after.skipped_pinned - before.skipped_pinned,
         step_resets: after.step_resets - before.step_resets,
+        epoch_resets: after.epoch_resets - before.epoch_resets,
         phase_resets: after.phase_resets - before.phase_resets,
         bypasses: after.bypasses - before.bypasses,
         refused: after.refused - before.refused,
         reinsertions: after.reinsertions - before.reinsertions,
         bypassed_steps: after.bypassed_steps - before.bypassed_steps,
+        max_key_charge: if after.max_key_charge > before.max_key_charge {
+            after.max_key_charge
+        } else {
+            0
+        },
     };
     (
         Outcome {

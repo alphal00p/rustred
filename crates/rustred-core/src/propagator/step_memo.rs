@@ -333,6 +333,21 @@ struct State {
     full_reported: bool,
     /// Charged bytes of this state (lane bytebound), part of `STEP_BYTES`.
     bytes: u64,
+    /// Tests: where the drop of this state reports what it discharged.
+    #[cfg(test)]
+    dropped: Option<std::sync::Arc<AtomicU64>>,
+}
+
+/// A thread that exits with entries (a request that ended early, a worker's
+/// memo) gives its bytes back: `STEP_BYTES` counts live states only.
+impl Drop for State {
+    fn drop(&mut self) {
+        #[cfg(test)]
+        if let Some(dropped) = &self.dropped {
+            dropped.store(self.bytes, Ordering::Relaxed);
+        }
+        self.discharge();
+    }
 }
 
 impl State {
@@ -1445,6 +1460,88 @@ mod tests {
         })
         .join()
         .unwrap();
+    }
+
+    /// Route entries of `n` coefficients each under `limits` (a fresh owner).
+    fn fill(context: &CoefficientContext, limits: ExactAlgebraLimits, entries: i64) {
+        let owner = next_uid() as i64;
+        let d = context.parameter("d").unwrap();
+        for i in 0..entries {
+            let c = context
+                .try_add(&d, &context.integer(i + 2), limits)
+                .unwrap();
+            drop(route(&[owner, i], limits, || Ok((2, vec![1, 0], vec![c.clone()]))).unwrap());
+        }
+    }
+
+    /// lane bytebound (rv1 L1): the two resets the accounting test does not
+    /// reach discharge what they free: a limits change in `admit` (the old
+    /// entries go, the new entry stays charged) and `release_thread_pools`.
+    #[test]
+    fn a_limits_change_and_released_pools_discharge() {
+        std::thread::spawn(|| {
+            use crate::propagator::cache_budget::alloc_count::{charge, net};
+            let counted = begin(1);
+            let context = CoefficientContext::try_new(["d"]).unwrap();
+            let limits = ExactAlgebraLimits::default();
+            let other = ExactAlgebraLimits {
+                max_exponent: limits.max_exponent - 1,
+                ..limits
+            };
+            let _ = rehome(&context.integer(1));
+            fill(&context, limits, 1);
+            clear();
+            let start = net();
+            fill(&context, limits, 300);
+            let held = local_bytes();
+            assert!(held > 0);
+            assert_eq!(charge(start, net()), held as i64);
+            // A limits change: the 300 entries go, one entry of the new
+            // limits is charged; the allocator agrees.
+            fill(&context, other, 1);
+            assert!(local_bytes() < held / 100, "{} of {held}", local_bytes());
+            assert_eq!(charge(start, net()), local_bytes() as i64);
+            fill(&context, other, 200);
+            assert!(local_bytes() > 0);
+            let before = net();
+            let bytes = local_bytes() as i64;
+            release_thread_pools();
+            assert_eq!(local_bytes(), 0);
+            // The pools go too: at least the memo's bytes are freed.
+            assert!(
+                charge(before, net()) <= -bytes,
+                "{} vs {bytes}",
+                charge(before, net())
+            );
+            end(counted);
+        })
+        .join()
+        .unwrap();
+    }
+
+    /// lane bytebound (rv1 L2): a thread that exits holding memo entries
+    /// discharges them (the drop of its state), so `STEP_BYTES` counts live
+    /// states only.
+    #[test]
+    fn an_exiting_thread_discharges_its_step_memo() {
+        let dropped = std::sync::Arc::new(AtomicU64::new(u64::MAX));
+        let seen = std::sync::Arc::clone(&dropped);
+        let held = std::thread::spawn(move || {
+            let _counted = begin(1);
+            let context = CoefficientContext::try_new(["d"]).unwrap();
+            fill(&context, ExactAlgebraLimits::default(), 50);
+            STATE.with(|state| state.borrow_mut().dropped = Some(seen));
+            // No `end`: the thread exits with its entries.
+            local_bytes()
+        })
+        .join()
+        .unwrap();
+        assert!(held > 0);
+        assert_eq!(
+            dropped.load(Ordering::Relaxed),
+            held,
+            "the drop discharged the state"
+        );
     }
 
     #[test]

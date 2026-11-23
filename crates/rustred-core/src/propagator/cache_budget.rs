@@ -40,14 +40,29 @@
 //!   total is at most 0.8 B; slots whose table is held elsewhere (pinned) are
 //!   skipped; pressure re-arms at the total after the sweep plus
 //!   max(0.05 B, 64 MB);
-//! - a one-thread request's step memo is dropped whole when it exceeds its
-//!   share B/4, or when a sweep leaves the total over B with tables pinned, at
-//!   most once per 4096 keys; after more than 4 such resets in a phase, or
-//!   when B/4 is under 256 MB (B = 0 included), its steps take the exact path
-//!   of `RUSTRED_P_STEP_MEMO=off` for the rest of the phase; it is also
+//! - the step memos of one-thread requests (one per thread) share B/4
+//!   PROCESS-WIDE: at a key boundary where the step memos of all threads
+//!   together exceed B/4, the thread drops its own memo if it holds bytes (at
+//!   most once per 4096 keys of that thread);
+//! - a sweep that leaves the total over B while step memos hold bytes (their
+//!   own, or tables they pin) bumps a process-wide reset epoch: every
+//!   one-thread scheduler drops its step memo at its next key boundary (no
+//!   key window), so tables pinned by ANOTHER thread's step memo become
+//!   evictable; every step-memo reset and every phase end re-arms the
+//!   pressure at once (re-arm level 0, pressure = total over B);
+//! - after more than 4 resets of a thread's memo in a phase, or when B/4 is
+//!   under 256 MB (B = 0 included), its steps take the exact path of
+//!   `RUSTRED_P_STEP_MEMO=off` for the rest of the phase; the memo is also
 //!   dropped at every phase end. A reset starts a new memo generation: values
 //!   and light handles of the previous one are refused, never resolved;
 //! - a value of more than B/5 is not kept (nothing at B = 0).
+//!
+//! The bound: with N one-thread requests running at once in one process the
+//! covered bytes stay below B + max(0.05 B, 64 MB) + 2 N C, where C is the
+//! most one thread charges between two of its key boundaries (`max key
+//! inserts` in the report line; one request: N = 1); tables held by a
+//! running step or by the shared step memo of a multi-thread request are not
+//! evictable and lie outside it.
 //! Every evicted entry is a pure function of its key: a later miss computes the
 //! same value, so the result terms and the recorded program (operation count)
 //! are those of the unbounded run. What the budget does not cover (the shared
@@ -151,9 +166,14 @@ impl std::ops::Sub for Size {
     }
 }
 
-/// Heap of an integer: the limbs of a multi-precision value.
+/// Heap of an integer: the limb allocation of a multi-precision value (GMP:
+/// its capacity, which can exceed the significant limbs, e.g. for a result
+/// built in a reused or over-allocated integer).
 pub fn integer_heap(value: &Integer) -> Size {
     match value {
+        #[cfg(feature = "native")]
+        Integer::Large(large) => Size::block(large.as_raw().capacity().div_ceil(64) * 8),
+        #[cfg(not(feature = "native"))]
         Integer::Large(_) => Size::block(value.significant_bits().div_ceil(64) as usize * 8),
         _ => Size::ZERO,
     }
@@ -211,15 +231,22 @@ pub(crate) fn account(counter: &AtomicI64, delta: i64) {
     if delta > 0 {
         let total = covered();
         PEAK_COVERED.fetch_max(total, Relaxed);
-        // Check point at the insert: over the budget and past the re-arm
-        // level of the last sweep.
-        if let Some(budget) = budget()
-            && total > budget
-            && total > REARM_AT.load(Relaxed)
-        {
-            PRESSURE.store(true, Relaxed);
+        if let Some(budget) = budget() {
+            // This thread's charge since its last key boundary.
+            let _ =
+                KEY_CHARGE.try_with(|charge| charge.set(charge.get().saturating_add(delta as u64)));
+            // Check point at the insert: over the budget and past the
+            // re-arm level of the last sweep.
+            if total > budget && total > REARM_AT.load(Relaxed) {
+                PRESSURE.store(true, Relaxed);
+            }
         }
     }
+}
+
+thread_local! {
+    /// Under a budget: bytes this thread charged since its last key boundary.
+    static KEY_CHARGE: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 // ---------------------------------------------------------------------------
@@ -234,6 +261,10 @@ static BUDGET: AtomicU64 = AtomicU64::new(UNINIT);
 /// read once) or [`set_budget`]; `None` (unset): today's behaviour.
 #[inline]
 pub fn budget() -> Option<u64> {
+    #[cfg(test)]
+    if let Some(budget) = TEST_BUDGET.with(std::cell::Cell::get) {
+        return Some(budget);
+    }
     let mut budget = BUDGET.load(Relaxed);
     if budget == UNINIT {
         budget = budget_from_env();
@@ -283,6 +314,9 @@ thread_local! {
     /// Unit tests: this thread behaves as under a budget for the stamps and
     /// the memo generations (admission and eviction stay off).
     pub(crate) static TEST_ACTIVE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Unit tests: a budget seen by this thread only (the process budget
+    /// stays unset for the other tests of the binary).
+    pub(crate) static TEST_BUDGET: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
 /// Tests: advance the use tick; returns the new tick.
@@ -301,6 +335,21 @@ static WINDOW: AtomicU64 = AtomicU64::new(4096);
 pub fn set_tuning(share_floor: Option<u64>, key_window: Option<u64>) {
     SHARE_FLOOR.store(share_floor.unwrap_or(256 << 20), Relaxed);
     WINDOW.store(key_window.unwrap_or(4096).max(1), Relaxed);
+}
+
+/// Tests (small reductions): the floor of the re-arm margin (default 64 MB);
+/// `None` restores the default.
+#[doc(hidden)]
+pub fn set_rearm_floor(floor: Option<u64>) {
+    REARM_FLOOR.store(floor.unwrap_or(64 << 20), Relaxed);
+}
+
+/// Tests: restart the covered peak and the most one thread charged between
+/// two key boundaries from the current total.
+#[doc(hidden)]
+pub fn reset_peaks() {
+    PEAK_COVERED.store(covered(), Relaxed);
+    MAX_KEY_CHARGE.store(0, Relaxed);
 }
 
 /// Admission: under a budget, a value whose bytes exceed a fifth of it is
@@ -339,8 +388,8 @@ fn key_window() -> u64 {
 /// A sweep evicts down to this fraction of the budget (hysteresis).
 const SWEEP_TO: (u64, u64) = (4, 5);
 /// After a sweep, pressure re-arms only above the covered total plus
-/// `max(budget / 20, REARM_FLOOR)`.
-const REARM_FLOOR: u64 = 64 << 20;
+/// `max(budget / 20, REARM_FLOOR)` (64 MB, [`set_rearm_floor`]).
+static REARM_FLOOR: AtomicU64 = AtomicU64::new(64 << 20);
 
 /// The use tick: advanced at every phase end and every [`key_window`] keys of
 /// a scheduler; slots carry the tick of their last use.
@@ -349,6 +398,20 @@ static TICK: AtomicU64 = AtomicU64::new(1);
 static PRESSURE: AtomicBool = AtomicBool::new(false);
 static REARM_AT: AtomicU64 = AtomicU64::new(0);
 static EVICTOR: Mutex<()> = Mutex::new(());
+/// Bumped by a sweep that leaves the covered total over the budget while
+/// step memos hold bytes: every one-thread scheduler drops its step memo at
+/// its next key boundary.
+static RESET_EPOCH: AtomicU64 = AtomicU64::new(0);
+/// The most one thread charged between two of its key boundaries.
+static MAX_KEY_CHARGE: AtomicU64 = AtomicU64::new(0);
+
+/// Re-arm the pressure at once (after a step-memo reset, at a phase end and
+/// at a forward end): the next insert over the budget, or the next key
+/// boundary if the total is over it now, sweeps.
+fn rearm(budget: u64) {
+    REARM_AT.store(0, Relaxed);
+    PRESSURE.store(covered() > budget, Relaxed);
+}
 
 #[inline]
 pub(crate) fn tick() -> u64 {
@@ -360,6 +423,7 @@ static EVICTED_BYTES: AtomicU64 = AtomicU64::new(0);
 static SWEEPS: AtomicU64 = AtomicU64::new(0);
 static SKIPPED_PINNED: AtomicU64 = AtomicU64::new(0);
 static STEP_RESETS: AtomicU64 = AtomicU64::new(0);
+static EPOCH_RESETS: AtomicU64 = AtomicU64::new(0);
 static PHASE_RESETS: AtomicU64 = AtomicU64::new(0);
 static BYPASSES: AtomicU64 = AtomicU64::new(0);
 static REFUSED: AtomicU64 = AtomicU64::new(0);
@@ -434,7 +498,7 @@ fn sweep(budget: u64) -> u64 {
         SWEEPS.fetch_add(1, Relaxed);
     }
     REARM_AT.store(
-        covered().saturating_add((budget / 20).max(REARM_FLOOR)),
+        covered().saturating_add((budget / 20).max(REARM_FLOOR.load(Relaxed))),
         Relaxed,
     );
     PRESSURE.store(false, Relaxed);
@@ -448,6 +512,8 @@ struct ThreadBudget {
     last_reset: Option<u64>,
     resets_in_phase: u32,
     bypass: bool,
+    /// The reset epoch this thread has acted on ([`RESET_EPOCH`]).
+    epoch: u64,
 }
 
 thread_local! {
@@ -457,6 +523,7 @@ thread_local! {
             last_reset: None,
             resets_in_phase: 0,
             bypass: false,
+            epoch: 0,
         })
     };
 }
@@ -481,9 +548,10 @@ pub(crate) fn step_bypassed() -> bool {
     }
 }
 
-/// Reset this thread's step memo for the budget (rate limited by the
-/// caller); counts towards the per-phase bypass.
-fn reset_step_memo(thread: &mut ThreadBudget) {
+/// Reset this thread's step memo for the budget; counts towards the
+/// per-phase bypass; re-arms the pressure (the tables the memo pinned can go
+/// at the next sweep).
+fn reset_step_memo(budget: u64, thread: &mut ThreadBudget) {
     super::step_memo::reset_for_budget();
     STEP_RESETS.fetch_add(1, Relaxed);
     thread.last_reset = Some(thread.keys);
@@ -492,6 +560,7 @@ fn reset_step_memo(thread: &mut ThreadBudget) {
         thread.bypass = true;
         BYPASSES.fetch_add(1, Relaxed);
     }
+    rearm(budget);
 }
 
 /// A scheduler's key boundary (after a key's contributions are consumed,
@@ -507,6 +576,7 @@ pub fn key_boundary(one_thread: bool) -> bool {
 }
 
 fn key_boundary_budget(budget: u64, one_thread: bool) -> bool {
+    MAX_KEY_CHARGE.fetch_max(KEY_CHARGE.with(|charge| charge.replace(0)), Relaxed);
     THREAD.with(|thread| {
         let mut thread = thread.borrow_mut();
         thread.keys += 1;
@@ -514,37 +584,45 @@ fn key_boundary_budget(budget: u64, one_thread: bool) -> bool {
         if thread.keys.is_multiple_of(window) {
             TICK.fetch_add(1, Relaxed);
         }
+        if thread.keys == 1 {
+            // A new thread acts on the epochs bumped from now on.
+            thread.epoch = RESET_EPOCH.load(Relaxed);
+        }
         let keys = thread.keys;
-        let allowed = |thread: &ThreadBudget| {
-            one_thread
-                && !thread.bypass
-                && step_share(budget) >= share_floor()
-                && thread.last_reset.is_none_or(|last| keys - last >= window)
+        let usable = |thread: &ThreadBudget| {
+            one_thread && !thread.bypass && step_share(budget) >= share_floor()
         };
         let mut reset = false;
-        if allowed(&thread) && super::step_memo::local_bytes() > step_share(budget) {
-            reset_step_memo(&mut thread);
+        // The step memos' share is process-wide: over it, this thread drops
+        // its own memo if it holds bytes (once per key window).
+        if usable(&thread)
+            && thread.last_reset.is_none_or(|last| keys - last >= window)
+            && STEP_BYTES.load(Relaxed) > step_share(budget) as i64
+            && super::step_memo::local_bytes() > 0
+        {
+            reset_step_memo(budget, &mut thread);
             reset = true;
         }
         if PRESSURE.load(Relaxed)
             && let Ok(_evictor) = EVICTOR.try_lock()
             && PRESSURE.load(Relaxed)
         {
-            let pinned = sweep(budget);
-            // Still over the budget after a sweep that skipped slots pinned by
-            // step memo entries (or by a running step): the step memo goes too
-            // (same rate limit), its tables become evictable at the next sweep.
-            if !reset
-                && pinned > 0
-                && covered() > budget
-                && super::step_memo::local_bytes() > 0
-                && allowed(&thread)
-            {
-                reset_step_memo(&mut thread);
+            sweep(budget);
+            // Still over the budget while step memos hold bytes (their own,
+            // or tables they pin, which the sweep skipped): every one-thread
+            // scheduler drops its step memo at its next key boundary (this
+            // one below), then the next sweep can evict those tables.
+            if covered() > budget && STEP_BYTES.load(Relaxed) > 0 {
+                RESET_EPOCH.fetch_add(1, Relaxed);
+            }
+        }
+        let epoch = RESET_EPOCH.load(Relaxed);
+        if thread.epoch != epoch {
+            thread.epoch = epoch;
+            if !reset && usable(&thread) && super::step_memo::local_bytes() > 0 {
+                reset_step_memo(budget, &mut thread);
+                EPOCH_RESETS.fetch_add(1, Relaxed);
                 reset = true;
-                // The released tables can go at the next key boundary.
-                REARM_AT.store(0, Relaxed);
-                PRESSURE.store(covered() > budget, Relaxed);
             }
         }
         reset
@@ -555,21 +633,25 @@ fn key_boundary_budget(budget: u64, one_thread: bool) -> bool {
 /// thread's per-phase bypass and (one thread) reset its step memo. Returns
 /// whether the step memo was reset (the caller drops its light-handle cache).
 pub fn phase_end(one_thread: bool) -> bool {
-    if budget().is_none() {
+    let Some(budget) = budget() else {
         return false;
-    }
+    };
     TICK.fetch_add(1, Relaxed);
     THREAD.with(|thread| {
         let mut thread = thread.borrow_mut();
         thread.last_reset = None;
         thread.resets_in_phase = 0;
         thread.bypass = false;
+        // The memo goes now: the epochs bumped so far are served.
+        thread.epoch = RESET_EPOCH.load(Relaxed);
     });
     if !one_thread {
+        rearm(budget);
         return false;
     }
     super::step_memo::reset_for_budget();
     PHASE_RESETS.fetch_add(1, Relaxed);
+    rearm(budget);
     true
 }
 
@@ -582,12 +664,18 @@ pub struct BudgetStats {
     pub evicted_bytes: u64,
     pub skipped_pinned: u64,
     pub step_resets: u64,
+    /// Step-memo resets served from the process-wide reset epoch (part of
+    /// `step_resets`).
+    pub epoch_resets: u64,
     pub phase_resets: u64,
     pub bypasses: u64,
     pub refused: u64,
     pub reinsertions: u64,
     /// Steps that took the exact path of the memo off (bypassed step memo).
     pub bypassed_steps: u64,
+    /// The most one thread charged between two of its key boundaries (C of
+    /// the bound), bytes.
+    pub max_key_charge: u64,
 }
 
 pub fn budget_stats() -> BudgetStats {
@@ -598,11 +686,13 @@ pub fn budget_stats() -> BudgetStats {
         evicted_bytes: EVICTED_BYTES.load(Relaxed),
         skipped_pinned: SKIPPED_PINNED.load(Relaxed),
         step_resets: STEP_RESETS.load(Relaxed),
+        epoch_resets: EPOCH_RESETS.load(Relaxed),
         phase_resets: PHASE_RESETS.load(Relaxed),
         bypasses: BYPASSES.load(Relaxed),
         refused: REFUSED.load(Relaxed),
         reinsertions: REINSERTIONS.load(Relaxed),
         bypassed_steps: BYPASSED_STEPS.load(Relaxed),
+        max_key_charge: MAX_KEY_CHARGE.load(Relaxed),
     }
 }
 
@@ -668,7 +758,8 @@ pub fn report_line() -> String {
     format!(
         "rustred cache budget: budget {} | covered {} GB (peak {}) = kernel memos {} GB ({} entries) + tables {} GB \
          (in kernel memos {}, pinned elsewhere {}) + step memo {} GB | sweeps {} evicted {} entries / {} GB \
-         (pinned skipped {}), step memo resets {} (phase ends {}), bypasses {} ({} steps), refused {}, re-insertions {} | \
+         (pinned skipped {}), step memo resets {} (epoch {}, phase ends {}), bypasses {} ({} steps), refused {}, re-insertions {}, \
+         max key inserts {} GB | \
          not covered: shared step memo {} GB (counted), prepared weights {} entries; zero certificates, canon / \
          order caches, recipe and custom caches not counted{}",
         b.budget.map_or("unset".to_owned(), |budget| format!(
@@ -688,11 +779,13 @@ pub fn report_line() -> String {
         gb(b.evicted_bytes as i64),
         b.skipped_pinned,
         b.step_resets,
+        b.epoch_resets,
         b.phase_resets,
         b.bypasses,
         b.bypassed_steps,
         b.refused,
         b.reinsertions,
+        gb(b.max_key_charge as i64),
         gb(s.shared_step_bytes),
         super::insertion::prepared_entries(),
         over,
@@ -704,6 +797,10 @@ pub fn report_line() -> String {
 pub(crate) fn forward_finished() {
     if budget().is_some() || report_requested() {
         eprintln!("{}", report_line());
+    }
+    // The re-arm level of this request's last sweep is not the next one's.
+    if let Some(budget) = budget() {
+        rearm(budget);
     }
 }
 
@@ -1072,13 +1169,193 @@ mod tests {
         for _ in 0..5 {
             value = &value * &Integer::from(i64::MAX);
         }
-        assert!(matches!(value, Integer::Large(_)));
+        let Integer::Large(large) = &value else {
+            panic!("a multi-precision value");
+        };
         let bits = value.significant_bits();
-        assert_eq!(
-            integer_heap(&value),
-            Size::block(bits.div_ceil(64) as usize * 8)
-        );
+        let limbs = large.as_raw().capacity().div_ceil(64);
+        assert!(limbs as u64 >= bits.div_ceil(64));
+        assert_eq!(integer_heap(&value), Size::block(limbs * 8));
+        // An over-allocated value (a result built in a larger integer) is
+        // charged its allocation, not its significant limbs (rv1 L3).
+        let mut raw = large.as_raw().clone();
+        raw.reserve(64 * 64);
+        let spacious = Integer::Large(raw.into());
+        assert_eq!(spacious, value);
+        assert!(integer_heap(&spacious).bytes >= (limbs as u64 + 64) * 8);
         assert_eq!(integer_heap(&Integer::from(5)), Size::ZERO);
+    }
+
+    /// Restores the process tuning and this thread's test budget on drop.
+    struct TestBudget;
+    impl TestBudget {
+        fn set(budget: u64) -> Self {
+            TEST_BUDGET.with(|b| b.set(Some(budget)));
+            TEST_ACTIVE.with(|active| active.set(true));
+            Self
+        }
+    }
+    impl Drop for TestBudget {
+        fn drop(&mut self) {
+            TEST_BUDGET.with(|b| b.set(None));
+            TEST_ACTIVE.with(|active| active.set(false));
+        }
+    }
+
+    /// The policy itself (review rv1 L1): a thread under a (thread-local)
+    /// budget inserts into a kernel memo and passes key boundaries; the
+    /// boundaries sweep, the memo loses slots and its bytes stay within the
+    /// budget plus the re-arm margin plus one key's insert. Other tests of
+    /// the binary only add to the process total, which makes sweeps earlier,
+    /// so the bound on this memo's own bytes holds whatever runs beside it.
+    #[test]
+    fn key_boundaries_sweep_and_bound_a_kernel_memo() {
+        let _serial = tick_serial();
+        const B: u64 = 400_000;
+        set_rearm_floor(Some(0));
+        REARM_AT.store(0, Relaxed);
+        let _budget = TestBudget::set(B);
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let mut rng = Rng(0x51ed_270b_a5f0_1c2d);
+        let values: Vec<Coefficient> = (0..32)
+            .map(|i| coefficient(&context, &mut rng, 4 + i % 6, 3))
+            .collect();
+        let memo: Memo<(i64, i64, i64, i64, i64, i64), Coefficient> = Memo::default();
+        let (sweeps, evicted) = (SWEEPS.load(Relaxed), EVICTED_ENTRIES.load(Relaxed));
+        let mut most_per_key = 0;
+        let mut most = 0;
+        for key in 0..3000_i64 {
+            let before = memo.charged();
+            write_memo(
+                &memo,
+                (key, 0, 0, 0, 0, 0),
+                &values[(rng.next() % 32) as usize],
+                usize::MAX,
+            )
+            .unwrap();
+            most_per_key = most_per_key.max(memo.charged().saturating_sub(before));
+            most = most.max(memo.charged());
+            assert!(!key_boundary(true), "no step memo on this thread");
+        }
+        let margin = B / 20;
+        println!(
+            "memo peak {most} B, budget {B}, margin {margin}, one key {most_per_key}, entries {}",
+            memo.len()
+        );
+        assert!(
+            most <= B + margin + most_per_key,
+            "{most} > {B} + {margin} + {most_per_key}"
+        );
+        assert!(SWEEPS.load(Relaxed) > sweeps);
+        assert!(EVICTED_ENTRIES.load(Relaxed) > evicted);
+        assert!(memo.len() < 3000, "the memo lost slots");
+        set_rearm_floor(None);
+    }
+
+    /// rv1 F1: a table pinned by ANOTHER thread's step memo. The sweeping
+    /// thread cannot evict it and bumps the reset epoch; the pinning thread
+    /// drops its step memo at its next key boundary (its own share is far
+    /// below B/4: only the epoch resets it); the next sweep evicts the table.
+    #[test]
+    fn a_table_pinned_by_another_threads_step_memo_goes_after_the_epoch() {
+        use std::sync::mpsc::channel;
+
+        use crate::propagator::step_memo;
+        let _serial = tick_serial();
+        // Eight tables of about 1.3 MB pinned: over the 8 MB budget alone.
+        const B: u64 = 8_000_000;
+        set_rearm_floor(Some(0));
+        set_tuning(Some(0), Some(1));
+        let (to_pinner, pinner_rx) = channel::<Option<Vec<Arc<NumeratorTable>>>>();
+        let (to_sweeper, sweeper_rx) = channel::<u64>();
+        let pinner = std::thread::spawn(move || {
+            let _budget = TestBudget::set(B);
+            let counted = step_memo::begin(1);
+            // The first boundary of a thread syncs its epoch.
+            assert!(!key_boundary(true));
+            to_sweeper.send(0).unwrap();
+            let tables = pinner_rx.recv().unwrap().unwrap();
+            let limits = crate::algebra::ExactAlgebraLimits::default();
+            let owner = step_memo::next_uid() as i64;
+            for (t, table) in tables.into_iter().enumerate() {
+                let held =
+                    step_memo::insertion(&[owner, t as i64], limits, || Ok((table, vec![None; 4])))
+                        .unwrap()
+                        .unwrap();
+                drop(held);
+            }
+            to_sweeper.send(step_memo::local_bytes()).unwrap();
+            // Wait for the sweep, then pass a key boundary.
+            pinner_rx.recv().unwrap();
+            let resets = EPOCH_RESETS.load(Relaxed);
+            let reset = key_boundary(true);
+            // The epoch, unless step memos of other tests took the process
+            // over B/4 meanwhile (then the share reset came first).
+            println!(
+                "pinner reset: epoch {}, step bytes {}",
+                EPOCH_RESETS.load(Relaxed) - resets,
+                STEP_BYTES.load(Relaxed)
+            );
+            to_sweeper.send(step_memo::local_bytes()).unwrap();
+            assert!(reset, "the epoch reset this thread's step memo");
+            step_memo::end(counted);
+        });
+        assert_eq!(sweeper_rx.recv().unwrap(), 0);
+        let _budget = TestBudget::set(B);
+        REARM_AT.store(0, Relaxed);
+        let memo: Memo<Box<[u32]>, Arc<NumeratorTable>> = Memo::default();
+        let tables: Vec<Arc<NumeratorTable>> = (0..8_u32)
+            .map(|t| {
+                Arc::new(NumeratorTable::for_test(
+                    (0..7_500_u32)
+                        .map(|r| {
+                            (
+                                vec![r, t, 1, 2],
+                                vec![(0, Rational::from(i64::from(r) + 3))],
+                            )
+                        })
+                        .collect(),
+                ))
+            })
+            .collect();
+        assert!(tables[0].bytes() < B / 5, "admitted: {}", tables[0].bytes());
+        for (t, table) in tables.iter().enumerate() {
+            write_memo(&memo, vec![t as u32].into_boxed_slice(), table, usize::MAX).unwrap();
+        }
+        assert_eq!(memo.len(), 8);
+        to_pinner.send(Some(tables.clone())).unwrap();
+        drop(tables);
+        let pinned = sweeper_rx.recv().unwrap();
+        assert!(
+            pinned > 0 && pinned < B / 4,
+            "the pinner's own share: {pinned} B"
+        );
+        // The tables now live in the memo and in the pinner's step memo only.
+        let epoch = RESET_EPOCH.load(Relaxed);
+        assert!(
+            PRESSURE.load(Relaxed),
+            "the inserts over B set the pressure"
+        );
+        assert!(!key_boundary(true));
+        assert_eq!(memo.len(), 8, "pinned: skipped");
+        assert!(
+            RESET_EPOCH.load(Relaxed) > epoch,
+            "the sweep bumped the reset epoch"
+        );
+        to_pinner.send(None).unwrap();
+        assert_eq!(
+            sweeper_rx.recv().unwrap(),
+            0,
+            "the pinner dropped its step memo"
+        );
+        pinner.join().unwrap();
+        // The reset re-armed the pressure (rv1 F2): the next boundary evicts
+        // them although the last sweep's re-arm level was above the total.
+        assert!(PRESSURE.load(Relaxed), "re-armed by the reset");
+        assert!(!key_boundary(true));
+        assert_eq!(memo.len(), 0, "released: evicted");
+        set_rearm_floor(None);
+        set_tuning(None, None);
     }
 
     /// `Size::map` follows the table layout of `std::collections::HashMap`.
