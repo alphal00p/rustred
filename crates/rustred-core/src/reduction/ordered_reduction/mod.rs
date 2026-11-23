@@ -2453,6 +2453,13 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 )?;
             }
             weights.end_step(weight);
+            // lane bytebound (RUSTRED_P_CACHE_BUDGET_GB; unset: one load): the
+            // cache budget's check point at the key boundary. Its light
+            // children are consumed; a reset of the step memo drops the
+            // light-handle cache with it (as RUSTRED_PHASE_REFRESH).
+            if crate::propagator::cache_budget::key_boundary(steps.threads() <= 1) {
+                weights.release_handles();
+            }
             if spent.len() >= 4096 {
                 let capacity = if lean || prepared.is_some() { 4096 } else { 0 };
                 steps.dispose(std::mem::replace(&mut spent, Vec::with_capacity(capacity)));
@@ -2553,6 +2560,11 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         // with (T241: -5.7 GiB at phase 19, saved state byte-identical).
         if phase_refresh() && steps.threads() <= 1 {
             kernel.release_step_caches();
+            weights.release_handles();
+        }
+        // lane bytebound: under a cache budget the step memo (one thread) and
+        // the light-handle cache are dropped at every phase end.
+        if crate::propagator::cache_budget::phase_end(steps.threads() <= 1) {
             weights.release_handles();
         }
         if let Some(dir) = &resume_dir {

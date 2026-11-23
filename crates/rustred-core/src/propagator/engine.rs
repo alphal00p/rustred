@@ -1034,9 +1034,25 @@ pub(crate) mod light {
     }
 
     /// A handle: shared or this thread's (`local`) memo index, and sign.
-    /// A local handle is valid only on the thread that made it.
+    /// A local handle is valid only on the thread that made it, and only for
+    /// the generation of its memo state (bits 40-55; 0 without a cache
+    /// budget, lane bytebound).
     pub(crate) fn handle(index: u32, negative: bool, local: bool) -> u64 {
-        (1 << 63) | (u64::from(negative) << 62) | (u64::from(local) << 61) | u64::from(index)
+        let generation = if local {
+            u64::from(super::super::step_memo::generation()) << 40
+        } else {
+            0
+        };
+        (1 << 63)
+            | (u64::from(negative) << 62)
+            | (u64::from(local) << 61)
+            | generation
+            | u64::from(index)
+    }
+
+    /// The memo generation of a local handle.
+    pub(crate) fn generation(handle: u64) -> u16 {
+        (handle >> 40) as u16
     }
 
     pub(crate) fn split(handle: u64) -> (u32, bool) {
@@ -2088,7 +2104,7 @@ impl<'l> PStepper<'l> {
             }
             Ok(())
         };
-        let mode = super::step_memo::mode();
+        let mode = super::step_memo::effective_mode();
         if mode == super::step_memo::MemoMode::Off {
             direct(&mut step.terms)?;
             return Ok(step);
@@ -2202,7 +2218,7 @@ impl<'l> PStepper<'l> {
                     }
                     at = end;
                 }
-            });
+            })?;
             step.terms = merge_all(context, &self.limits, repeated)?;
             light::put(single);
             return Ok(step);
@@ -2234,7 +2250,7 @@ impl<'l> PStepper<'l> {
                 }
             }
             Ok(())
-        })?;
+        })??;
         step.terms = merge_all(context, &self.limits, pairs)?;
         if mode == super::step_memo::MemoMode::Check {
             let mut reference = BTreeMap::new();
@@ -3301,6 +3317,12 @@ impl OrderedStepper for PStepper<'_> {
     fn light_value(&self, handle: u64) -> Option<Coefficient> {
         let (index, negative) = light::split(handle);
         let value = if light::is_local(handle) {
+            // lane bytebound: a handle of an earlier memo generation names
+            // nothing (the invariant error of the caller), never a value of
+            // the new coefficient table.
+            if light::generation(handle) != super::step_memo::generation() {
+                return None;
+            }
             super::step_memo::local_value(index)
         } else {
             debug_assert!(

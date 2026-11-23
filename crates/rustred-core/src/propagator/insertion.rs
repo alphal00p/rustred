@@ -302,9 +302,24 @@ impl InsertionStep {
                     negate,
                     tag: &tag,
                 };
+                // lane bytebound: under a cache budget the table is fetched
+                // ONCE per applied key and reused by the oversized test, the
+                // memo's miss and the direct path (an evicted or refused table
+                // is built once, as with the memos off); without a budget the
+                // calls are today's (the kernel memo counters are pinned by
+                // tests).
+                let fetched = if super::cache_budget::active() {
+                    Some(rule.rewrite.table(&box_powers, &free_powers)?)
+                } else {
+                    None
+                };
+                let table_of = || match &fetched {
+                    Some(table) => Ok(std::sync::Arc::clone(table)),
+                    None => rule.rewrite.table(&box_powers, &free_powers),
+                };
                 let direct = |output: &mut PStepOut| -> Result<(), PError> {
                     crate::prof!(InsertionCompute);
-                    let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                    let table = table_of()?;
                     let weights = self.kernel_weights(alpha, beta, rank, limits)?;
                     keys.emit(&table, &weights, limits, output)
                 };
@@ -316,13 +331,13 @@ impl InsertionStep {
                         return direct(output);
                     }
                     crate::prof!(InsertionCompute);
-                    let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                    let table = table_of()?;
                     let prepared = self.prepared_weights(alpha, beta, rank, limits)?;
                     let weights = keys.weights_prepared(&table, &prepared, limits)?;
                     keys.emit_owned(&table, weights, output);
                     Ok(())
                 };
-                let mode = step_memo::mode();
+                let mode = step_memo::effective_mode();
                 // The weights are a function of the two line powers (the
                 // sign of `negate` included) and the numerators.
                 let mut key = MemoKey::new();
@@ -336,8 +351,7 @@ impl InsertionStep {
                 // numerator table exceeds RUSTRED_P_STEP_MEMO_MAX_CHILDREN
                 // monomials enters the memo only on its second occurrence.
                 let oversized = mode == MemoMode::On
-                    && rule.rewrite.table(&box_powers, &free_powers)?.len()
-                        > step_memo::max_children()
+                    && table_of()?.len() > step_memo::max_children()
                     && !step_memo::admit_large(&key);
                 if mode == MemoMode::Off || oversized {
                     direct_fast(&mut output)?;
@@ -346,7 +360,7 @@ impl InsertionStep {
                         MemoInsertion,
                         step_memo::insertion(&key, limits, || {
                             crate::prof!(InsertionCompute);
-                            let table = rule.rewrite.table(&box_powers, &free_powers)?;
+                            let table = table_of()?;
                             if super::kernel::fast_weights_enabled() {
                                 let prepared = self.prepared_weights(alpha, beta, rank, limits)?;
                                 let weights = keys.weights_prepared(&table, &prepared, limits)?;
@@ -370,7 +384,7 @@ impl InsertionStep {
                         }
                         Some(memo) => step_memo::coefficients_of(&memo, |values| {
                             keys.emit_weights(&memo.table, &memo.weights, values, &mut output);
-                        }),
+                        })?,
                         // The memo is full: compute directly.
                         None => direct_fast(&mut output)?,
                     }

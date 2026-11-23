@@ -59,8 +59,8 @@ pub mod gamma;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
-use std::sync::atomic::{AtomicU64, Ordering, Ordering::Relaxed};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering, Ordering::Relaxed};
+use std::sync::{Arc, RwLock, Weak};
 
 use smallvec::SmallVec;
 use symbolica::prelude::Rational;
@@ -131,6 +131,10 @@ pub(crate) trait MemoValue: Clone {
     fn table_bytes(&self) -> u64 {
         0
     }
+    /// Held elsewhere too: a sweep skips the slot.
+    fn pinned(&self) -> bool {
+        false
+    }
 }
 
 impl MemoValue for Coefficient {
@@ -146,12 +150,19 @@ impl MemoValue for Arc<NumeratorTable> {
     fn table_bytes(&self) -> u64 {
         self.bytes
     }
+    fn pinned(&self) -> bool {
+        // Held by a step memo entry or a running step besides this memo:
+        // evicting the slot would free nothing (and could build it twice).
+        Arc::strong_count(self) > 1
+    }
 }
 
-/// An entry of a kernel memo: the value and the bytes charged for it (key
-/// heap and value heap; the table bytes of a value are counted apart).
+/// An entry of a kernel memo: the value, the budget tick of its last use and
+/// the bytes charged for it (key heap and value heap; the table bytes of a
+/// value are counted apart).
 pub(crate) struct Slot<V> {
     value: V,
+    stamp: AtomicU64,
     bytes: u64,
 }
 
@@ -165,29 +176,58 @@ struct MemoMap<K, V> {
     tables: u64,
 }
 
-/// A kernel memo (lane programs' interior memos): a map under a read-write
-/// lock, read by clone, whose insertions are charged at the insert
-/// ([`super::cache_budget`]) and discharged when the memo drops. The shape
-/// (a memo type in place of the bare `RwLock<HashMap>`) follows helper VH 2's
-/// diagnostic branch diag/retained-budget.
-pub(crate) struct Memo<K, V: MemoValue> {
-    map: RwLock<MemoMap<K, V>>,
+impl<K, V: MemoValue> MemoMap<K, V> {
+    /// Recharge the map's own table after it grew or shrank.
+    fn retable(&mut self) -> i64 {
+        let table = Size::map::<K, Slot<V>>(self.map.capacity()).charge();
+        let delta = table as i64 - self.table as i64;
+        self.table = table;
+        delta
+    }
 }
 
-impl<K, V: MemoValue> Default for Memo<K, V> {
+struct MemoInner<K, V: MemoValue> {
+    map: RwLock<MemoMap<K, V>>,
+    /// Slots of this memo were evicted by the budget (a later miss is a
+    /// re-insertion).
+    evicted: AtomicBool,
+}
+
+/// A kernel memo (lane programs' interior memos): a map under a read-write
+/// lock, read by clone, whose insertions are charged at the insert
+/// ([`super::cache_budget`]) and discharged on eviction, replacement and
+/// drop. With `RUSTRED_P_CACHE_BUDGET_GB` set its least recently used slots
+/// are evicted at key boundaries ([`super::cache_budget::key_boundary`]): an
+/// entry is a pure function of its key, so a later miss recomputes the same
+/// value. The shape (a memo type in place of the bare `RwLock<HashMap>`, a
+/// process registry of `Weak` memos) follows helper VH 2's diagnostic branch
+/// diag/retained-budget.
+pub(crate) struct Memo<K, V: MemoValue> {
+    inner: Arc<MemoInner<K, V>>,
+}
+
+impl<K, V> Default for Memo<K, V>
+where
+    K: MemoKey + Send + Sync + 'static,
+    V: MemoValue + Send + Sync + 'static,
+{
     fn default() -> Self {
-        Self {
+        let inner = Arc::new(MemoInner {
             map: RwLock::new(MemoMap {
                 map: HashMap::new(),
                 table: 0,
                 entries: 0,
                 tables: 0,
             }),
-        }
+            evicted: AtomicBool::new(false),
+        });
+        let weak: Weak<dyn super::cache_budget::Sweep> = Arc::downgrade(&inner) as Weak<_>;
+        super::cache_budget::register(weak);
+        Self { inner }
     }
 }
 
-impl<K, V: MemoValue> Drop for Memo<K, V> {
+impl<K, V: MemoValue> Drop for MemoInner<K, V> {
     fn drop(&mut self) {
         let map = self.map.get_mut().unwrap_or_else(|e| e.into_inner());
         account(&KERNEL_BYTES, -((map.table + map.entries) as i64));
@@ -198,9 +238,105 @@ impl<K, V: MemoValue> Drop for Memo<K, V> {
 
 impl<K, V: MemoValue> Memo<K, V> {
     /// Charged bytes of this memo (entries and its table; tables apart).
+    #[allow(dead_code)] // tests
     pub(crate) fn charged(&self) -> u64 {
-        let map = self.map.read().unwrap_or_else(|e| e.into_inner());
+        let map = self.inner.map.read().unwrap_or_else(|e| e.into_inner());
         map.table + map.entries
+    }
+
+    /// Tests: evict the evictable slots of stamp `<= threshold` (a sweep's
+    /// second half); returns (entries, bytes freed).
+    #[cfg(test)]
+    pub(crate) fn evict_for_test(&self, threshold: u64) -> (u64, u64)
+    where
+        K: MemoKey + Send + Sync,
+        V: Send + Sync,
+    {
+        super::cache_budget::Sweep::evict(&*self.inner, threshold)
+    }
+
+    /// Tests: the charge recomputed from scratch (a deep-size walk of the
+    /// keys, the values and the table).
+    #[cfg(test)]
+    pub(crate) fn walk(&self) -> u64
+    where
+        K: MemoKey,
+    {
+        let map = self.inner.map.read().unwrap_or_else(|e| e.into_inner());
+        let entries: u64 = map
+            .map
+            .iter()
+            .map(|(key, slot)| (key.heap() + slot.value.heap()).charge())
+            .sum();
+        entries + Size::map::<K, Slot<V>>(map.map.capacity()).charge()
+    }
+
+    /// Entries of this memo.
+    #[allow(dead_code)] // tests
+    pub(crate) fn len(&self) -> usize {
+        self.inner
+            .map
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .map
+            .len()
+    }
+}
+
+impl<K, V> super::cache_budget::Sweep for MemoInner<K, V>
+where
+    K: MemoKey + Send + Sync,
+    V: MemoValue + Send + Sync,
+{
+    fn census(&self, out: &mut dyn FnMut(u64, u64)) -> u64 {
+        let map = self.map.read().unwrap_or_else(|e| e.into_inner());
+        let mut pinned = 0;
+        for slot in map.map.values() {
+            if slot.value.pinned() {
+                pinned += 1;
+                continue;
+            }
+            out(
+                slot.stamp.load(Relaxed),
+                slot.bytes + slot.value.table_bytes(),
+            );
+        }
+        pinned
+    }
+
+    fn evict(&self, threshold: u64) -> (u64, u64) {
+        let mut map = self.map.write().unwrap_or_else(|e| e.into_inner());
+        let evictable =
+            |slot: &Slot<V>| slot.stamp.load(Relaxed) <= threshold && !slot.value.pinned();
+        let kept = map.map.values().filter(|slot| !evictable(slot)).count();
+        if kept == map.map.len() {
+            return (0, 0);
+        }
+        // The kept slots move to a new table of their size: the memory of the
+        // evicted ones is given back, and the table has no tombstones, so its
+        // charge stays a function of its capacity (`Size::map`).
+        let (mut entries, mut bytes, mut tables) = (0u64, 0u64, 0u64);
+        let old = std::mem::take(&mut map.map);
+        let mut fresh = HashMap::with_capacity(kept);
+        for (key, slot) in old {
+            if evictable(&slot) {
+                entries += 1;
+                bytes += slot.bytes;
+                tables += slot.value.table_bytes();
+            } else {
+                fresh.insert(key, slot);
+            }
+        }
+        map.map = fresh;
+        map.entries -= bytes;
+        map.tables -= tables;
+        let table_delta = map.retable();
+        drop(map);
+        self.evicted.store(true, Relaxed);
+        account(&KERNEL_BYTES, table_delta - bytes as i64);
+        KERNEL_TABLE_BYTES.fetch_sub(tables as i64, Relaxed);
+        KERNEL_ENTRIES.fetch_sub(entries as i64, Relaxed);
+        (entries, (bytes as i64 - table_delta) as u64 + tables)
     }
 }
 
@@ -208,13 +344,18 @@ pub(crate) fn read_memo<K: MemoKey, V: MemoValue>(
     memo: &Memo<K, V>,
     key: &K,
 ) -> Result<Option<V>, PError> {
-    Ok(memo
-        .map
-        .read()
-        .map_err(|_| poisoned())?
-        .map
-        .get(key)
-        .map(|slot| slot.value.clone()))
+    let map = memo.inner.map.read().map_err(|_| poisoned())?;
+    Ok(map.map.get(key).map(|slot| {
+        // lane bytebound: the slot's last use, stored only when it changes
+        // and only under a budget.
+        if super::cache_budget::active() {
+            let tick = super::cache_budget::tick();
+            if slot.stamp.load(Relaxed) != tick {
+                slot.stamp.store(tick, Relaxed);
+            }
+        }
+        slot.value.clone()
+    }))
 }
 
 pub(crate) fn write_memo<K: MemoKey, V: MemoValue>(
@@ -223,21 +364,29 @@ pub(crate) fn write_memo<K: MemoKey, V: MemoValue>(
     value: &V,
     capacity: usize,
 ) -> Result<(), PError> {
-    let mut memo = memo.map.write().map_err(|_| poisoned())?;
+    if memo.inner.evicted.load(Relaxed) {
+        super::cache_budget::note_reinsertion();
+    }
+    let bytes = (key.heap() + value.heap()).charge();
+    let tables = value.table_bytes();
+    // lane bytebound admission: under a budget a value larger than a fifth
+    // of it is not kept (nothing at a budget of 0).
+    if !super::cache_budget::admits(bytes + tables) {
+        return Ok(());
+    }
+    let mut memo = memo.inner.map.write().map_err(|_| poisoned())?;
     if memo.map.len() < capacity {
-        let bytes = (key.heap() + value.heap()).charge();
-        let tables = value.table_bytes();
         // A racing build of the same key replaces the value: discharge the
         // replaced slot (its key stays, of the same size).
         let replaced = memo.map.insert(
             key,
             Slot {
                 value: value.clone(),
+                stamp: AtomicU64::new(super::cache_budget::tick()),
                 bytes,
             },
         );
-        let table = Size::map::<K, Slot<V>>(memo.map.capacity()).charge();
-        let mut delta = bytes as i64 + table as i64 - memo.table as i64;
+        let mut delta = bytes as i64 + memo.retable();
         let mut table_delta = tables as i64;
         let mut entries = 1;
         if let Some(old) = &replaced {
@@ -245,15 +394,14 @@ pub(crate) fn write_memo<K: MemoKey, V: MemoValue>(
             table_delta -= old.value.table_bytes() as i64;
             entries = 0;
         }
-        memo.table = table;
         memo.entries = (memo.entries as i64 + bytes as i64
             - replaced.as_ref().map_or(0, |old| old.bytes as i64)) as u64;
         memo.tables = (memo.tables as i64 + table_delta) as u64;
         drop(memo);
         drop(replaced);
-        account(&KERNEL_BYTES, delta);
         KERNEL_TABLE_BYTES.fetch_add(table_delta, Relaxed);
         KERNEL_ENTRIES.fetch_add(entries, Relaxed);
+        account(&KERNEL_BYTES, delta);
     }
     Ok(())
 }

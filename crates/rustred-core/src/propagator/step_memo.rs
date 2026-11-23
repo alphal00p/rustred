@@ -120,6 +120,54 @@ pub(crate) fn admit_large(key: &[i64]) -> bool {
     false
 }
 
+/// lane bytebound: the mode of a step on this thread: [`mode`], except that
+/// under `RUSTRED_P_CACHE_BUDGET_GB` a bypassed step memo
+/// ([`super::cache_budget::step_bypassed`]) takes the exact path of `Off`.
+pub(crate) fn effective_mode() -> MemoMode {
+    let mode = mode();
+    if mode == MemoMode::On && super::cache_budget::step_bypassed() {
+        MemoMode::Off
+    } else {
+        mode
+    }
+}
+
+thread_local! {
+    /// lane bytebound: the generation of this thread's memo state, bumped at
+    /// every reset of the state while a budget is set (outside `State`, which
+    /// a reset replaces). Local handles and `Held::Local` values carry it; a
+    /// value of an earlier generation is refused, never resolved through the
+    /// new coefficient table.
+    static GENERATION: std::cell::Cell<u16> = const { std::cell::Cell::new(0) };
+}
+
+/// The generation of this thread's memo state (0 without a budget).
+pub(crate) fn generation() -> u16 {
+    GENERATION.with(std::cell::Cell::get)
+}
+
+/// A reset of this thread's state: under a budget, a new generation.
+fn next_generation() {
+    if super::cache_budget::active() {
+        GENERATION.with(|generation| generation.set(generation.get().wrapping_add(1)));
+    }
+}
+
+/// The error of a memo value or handle of an earlier generation.
+pub(crate) fn stale() -> PError {
+    PError::Contract(
+        "a step memo value of an earlier memo generation (the memo was reset under \
+         RUSTRED_P_CACHE_BUDGET_GB while the value was held): refused"
+            .to_owned(),
+    )
+}
+
+/// lane bytebound: drop this thread's memo state for the budget (at a key
+/// boundary or a phase end; the caller drops the light-handle cache).
+pub(crate) fn reset_for_budget() {
+    clear();
+}
+
 /// What `RUSTRED_P_STEP_MEMO` asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoMode {
@@ -169,9 +217,10 @@ pub(crate) struct RouteExpansion {
     pub coefficients: Vec<u32>,
 }
 
-/// A memo value: this thread's (`Rc`) or the shared memo's (`Arc`).
+/// A memo value: this thread's (`Rc`, with the memo generation that issued
+/// its indices) or the shared memo's (`Arc`).
 pub(crate) enum Held<V> {
-    Local(Rc<V>),
+    Local(Rc<V>, u16),
     /// A shared memo value and the memo whose table its indices name. The
     /// memo travels with the value (as before fwd-opt 93126217): a thread
     /// that reaches the shared memo outside a counted request (its lookups
@@ -185,7 +234,7 @@ impl<V> std::ops::Deref for Held<V> {
     type Target = V;
     fn deref(&self) -> &V {
         match self {
-            Held::Local(value) => value,
+            Held::Local(value, _) => value,
             Held::Shared(value, _) => value,
         }
     }
@@ -309,6 +358,7 @@ impl State {
     fn admit(&mut self, limits: ExactAlgebraLimits) -> bool {
         if self.limits != Some(limits) {
             self.discharge();
+            next_generation();
             self.insertion.entries = HashMap::new();
             self.insertion.table = 0;
             self.route.entries = HashMap::new();
@@ -401,10 +451,11 @@ pub(crate) fn local_value(index: u32) -> Option<Coefficient> {
 pub(crate) fn coefficients_of<V, R>(
     held: &Held<V>,
     f: impl FnOnce(&dyn Fn(u32) -> Coefficient) -> R,
-) -> R {
+) -> Result<R, PError> {
     match held {
-        Held::Shared(_, memo) => f(&|index| rehome(memo.coefficient(index))),
-        Held::Local(_) => local_coefficients(f),
+        Held::Shared(_, memo) => Ok(f(&|index| rehome(memo.coefficient(index)))),
+        Held::Local(_, issued) if *issued != generation() => Err(stale()),
+        Held::Local(..) => Ok(local_coefficients(f)),
     }
 }
 
@@ -583,7 +634,7 @@ pub(crate) fn insertion(
             let room = state.admit(limits);
             if let Some(value) = state.insertion.entries.get(key).cloned() {
                 state.insertion.hits += 1;
-                return Ok(Some(Held::Local(value)));
+                return Ok(Some(Held::Local(value, generation())));
             }
             state.insertion.misses += 1;
             if !room {
@@ -593,6 +644,17 @@ pub(crate) fn insertion(
         }
         // Computed outside the borrow (a panic in it must not poison the cell).
         let (table, weights) = compute()?;
+        // lane bytebound admission (budget set): an entry of more than a fifth
+        // of the budget is not kept; the caller computes directly.
+        if super::cache_budget::active() {
+            let mut size = Size::vec::<Option<u32>>(weights.len());
+            for weight in weights.iter().flatten() {
+                size += coefficient_heap(weight) + coefficient_heap(weight);
+            }
+            if !super::cache_budget::admits(size.charge()) {
+                return Ok(None);
+            }
+        }
         let mut state = state.borrow_mut();
         let weights = weights
             .iter()
@@ -601,7 +663,7 @@ pub(crate) fn insertion(
         let value = Rc::new(InsertionWeights { table, weights });
         let delta = state.insertion.put(key, Rc::clone(&value), insertion_size);
         state.charge(delta);
-        Ok(Some(Held::Local(value)))
+        Ok(Some(Held::Local(value, generation())))
     })
 }
 
@@ -655,7 +717,7 @@ pub(crate) fn route(
             let room = state.admit(limits);
             if let Some(value) = state.route.entries.get(key).cloned() {
                 state.route.hits += 1;
-                return Ok(Some(Held::Local(value)));
+                return Ok(Some(Held::Local(value, generation())));
             }
             state.route.misses += 1;
             if !room {
@@ -671,6 +733,16 @@ pub(crate) fn route(
         else {
             return Ok(None);
         };
+        // lane bytebound admission (budget set), as for Insertion entries.
+        if super::cache_budget::active() {
+            let mut size = Size::vec::<i8>(offsets.len());
+            for coefficient in &coefficients {
+                size += coefficient_heap(coefficient) + coefficient_heap(coefficient);
+            }
+            if !super::cache_budget::admits(size.charge()) {
+                return Ok(None);
+            }
+        }
         let mut state = state.borrow_mut();
         let coefficients = coefficients
             .iter()
@@ -683,7 +755,7 @@ pub(crate) fn route(
         });
         let delta = state.route.put(key, Rc::clone(&value), route_size);
         state.charge(delta);
-        Ok(Some(Held::Local(value)))
+        Ok(Some(Held::Local(value, generation())))
     })
 }
 
@@ -707,6 +779,7 @@ pub(crate) fn release_thread_pools() {
         state.discharge();
         *state = State::default();
     });
+    next_generation();
 }
 
 /// Charged bytes of this thread's memo state (lane bytebound).
@@ -724,6 +797,7 @@ pub(crate) fn clear() {
             (state.route.hits, state.route.misses),
         );
         state.discharge();
+        next_generation();
         *state = State::default();
         (state.insertion.hits, state.insertion.misses) = insertion;
         (state.route.hits, state.route.misses) = route;
@@ -1208,6 +1282,66 @@ mod tests {
         end(counted);
     }
 
+    /// lane bytebound: every reset of the state under a budget (clear,
+    /// release_thread_pools, a limits change in admit, the budget's own reset)
+    /// starts a new generation: a value or a light handle of the earlier one is
+    /// refused, never resolved through the new coefficient table. Without a
+    /// budget the generation stays.
+    #[test]
+    fn a_reset_refuses_values_and_handles_of_the_earlier_generation() {
+        std::thread::spawn(|| {
+            use crate::propagator::cache_budget::TEST_ACTIVE;
+            use crate::propagator::engine::light;
+            let counted = begin(1);
+            let context = CoefficientContext::try_new(["d"]).unwrap();
+            let limits = ExactAlgebraLimits::default();
+            let c = context.integer(7);
+            let fresh = |limits: ExactAlgebraLimits| {
+                let key = [next_uid() as i64, 1];
+                route(&key, limits, || Ok((1, vec![0], vec![c.clone()])))
+                    .unwrap()
+                    .unwrap()
+            };
+            // No budget: a reset keeps the generation (today's handles).
+            let before = generation();
+            clear();
+            release_thread_pools();
+            assert_eq!(generation(), before);
+            TEST_ACTIVE.with(|active| active.set(true));
+            for reset in 0..4 {
+                let held = fresh(limits);
+                let index = held.coefficients[0];
+                assert_eq!(coefficients_of(&held, |values| values(index)).unwrap(), c);
+                let handle = light::handle(index, false, true);
+                assert_eq!(light::generation(handle), generation());
+                assert_eq!(light::split(handle), (index, false));
+                match reset {
+                    0 => clear(),
+                    1 => release_thread_pools(),
+                    2 => {
+                        let other = ExactAlgebraLimits {
+                            max_exponent: limits.max_exponent - 1,
+                            ..limits
+                        };
+                        let _ = fresh(other);
+                        // back to the request's limits (a second reset)
+                        let _ = fresh(limits);
+                    }
+                    _ => reset_for_budget(),
+                }
+                assert!(
+                    coefficients_of(&held, |values| values(index)).is_err(),
+                    "reset {reset}: a stale value is refused"
+                );
+                assert_ne!(light::generation(handle), generation(), "reset {reset}");
+            }
+            TEST_ACTIVE.with(|active| active.set(false));
+            end(counted);
+        })
+        .join()
+        .unwrap();
+    }
+
     /// lane bytebound: the charge of this thread's memo state equals what its
     /// entries and coefficients allocated (random Route and Insertion entries,
     /// repeated coefficients, table growth), and a reset frees all of it.
@@ -1408,7 +1542,7 @@ mod tests {
             .map(|k| context.integer(1000 + i64::from(k)))
             .collect();
         let (end2, r2) = memo_audit_request(others);
-        let got = coefficients_of(&held, |values| values(index));
+        let got = coefficients_of(&held, |values| values(index)).unwrap();
         end2.send(()).unwrap();
         r2.join().unwrap();
         assert_eq!(got, c1, "a shared memo value resolved through another memo");
@@ -1428,7 +1562,7 @@ mod tests {
         let (held, index) = memo_audit_uncounted_value(&c1);
         end1.send(()).unwrap();
         r1.join().unwrap();
-        let got = coefficients_of(&held, |values| values(index));
+        let got = coefficients_of(&held, |values| values(index)).unwrap();
         assert_eq!(got, c1);
     }
 
