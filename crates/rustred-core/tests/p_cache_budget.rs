@@ -253,3 +253,63 @@ fn step_memo_resets_and_bypasses_keep_the_program() {
     assert!(resets > 0, "the step memo was reset at key boundaries");
     assert!(bypassed > 0, "some phase ran bypassed after its resets");
 }
+
+/// The terms of one reduction of the large inputs on `threads` scheduler
+/// threads (and as many arithmetic threads), without modular statistics.
+fn terms(library: &Arc<PLibrary>, threads: usize) -> Vec<PTerm> {
+    let request = PReductionRequest {
+        inputs: inputs(library, true),
+        arithmetic: OrderedWeightArithmetic::ModularSampled(
+            ModularCommon {
+                threads,
+                ..Default::default()
+            },
+            SampledOptions::default(),
+        ),
+        scheduler: OrderedSchedulerOptions {
+            threads,
+            ..Default::default()
+        },
+        step_cache: None,
+        uncovered: PUncoveredPolicy::Reject,
+        onto_masters: false,
+        limits: ReductionLimits::default(),
+        inspector: None,
+    };
+    library.reduce(request).unwrap().terms
+}
+
+/// Concurrency under a tiny budget: two one-thread requests and one request
+/// on 8 threads on the same library at the same time, step-memo resets at
+/// every key (each thread its own memo generation): the terms of each are
+/// the unbounded ones.
+#[test]
+fn concurrent_requests_under_a_tiny_budget_keep_their_terms() {
+    let _serial = serial();
+    // SAFETY: as in `run`.
+    unsafe { std::env::remove_var("RUSTRED_ORDERED_MODULAR_STATS") };
+    let library = one_loop_reference_library().unwrap();
+    let one = terms(&library, 1);
+    let eight = terms(&library, 8);
+    assert_eq!(one, eight);
+    cache_budget::set_tuning(Some(0), Some(1));
+    cache_budget::set_budget(Some(3_000));
+    let before = cache_budget::budget_stats();
+    let results: Vec<Vec<PTerm>> = std::thread::scope(|scope| {
+        let handles: Vec<_> = [1, 1, 8]
+            .into_iter()
+            .map(|threads| {
+                let library = Arc::clone(&library);
+                scope.spawn(move || terms(&library, threads))
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let after = cache_budget::budget_stats();
+    cache_budget::set_budget(None);
+    cache_budget::set_tuning(None, None);
+    for result in &results {
+        assert_eq!(*result, one);
+    }
+    assert!(after.step_resets > before.step_resets, "{after:?}");
+}
