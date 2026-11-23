@@ -395,10 +395,12 @@ pub(crate) fn register(memo: Weak<dyn Sweep>) {
 
 /// Evict kernel memo slots, least recently used first (whole ticks), until
 /// the covered total is at most 4/5 of `budget` or nothing evictable is
-/// left; then re-arm the pressure above the result.
-fn sweep(budget: u64) {
+/// left; then re-arm the pressure above the result. Returns the slots skipped
+/// as pinned.
+fn sweep(budget: u64) -> u64 {
     let target = budget / SWEEP_TO.1 * SWEEP_TO.0;
     let total = covered();
+    let mut skipped = 0;
     if total > target {
         let need = total - target;
         let memos: Vec<Arc<dyn Sweep>> = {
@@ -412,6 +414,7 @@ fn sweep(budget: u64) {
             pinned += memo.census(&mut |stamp, bytes| *by_stamp.entry(stamp).or_default() += bytes);
         }
         SKIPPED_PINNED.fetch_add(pinned, Relaxed);
+        skipped = pinned;
         let mut freed = 0;
         let mut threshold = None;
         for (stamp, bytes) in by_stamp {
@@ -435,6 +438,7 @@ fn sweep(budget: u64) {
         Relaxed,
     );
     PRESSURE.store(false, Relaxed);
+    skipped
 }
 
 /// Per-thread state of the step-memo part of the budget.
@@ -526,19 +530,21 @@ fn key_boundary_budget(budget: u64, one_thread: bool) -> bool {
             && let Ok(_evictor) = EVICTOR.try_lock()
             && PRESSURE.load(Relaxed)
         {
-            sweep(budget);
-            // Over the budget with tables pinned by step memo entries: the
-            // step memo goes too (same rate limit), its tables become
-            // evictable at the next sweep.
-            let stats = stats();
+            let pinned = sweep(budget);
+            // Still over the budget after a sweep that skipped slots pinned by
+            // step memo entries (or by a running step): the step memo goes too
+            // (same rate limit), its tables become evictable at the next sweep.
             if !reset
-                && stats.covered > budget
-                && stats.tables_live > stats.kernel_table_bytes
+                && pinned > 0
+                && covered() > budget
                 && super::step_memo::local_bytes() > 0
                 && allowed(&thread)
             {
                 reset_step_memo(&mut thread);
                 reset = true;
+                // The released tables can go at the next key boundary.
+                REARM_AT.store(0, Relaxed);
+                PRESSURE.store(covered() > budget, Relaxed);
             }
         }
         reset
