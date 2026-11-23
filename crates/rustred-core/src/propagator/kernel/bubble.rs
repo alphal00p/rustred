@@ -18,8 +18,6 @@
 //! `(Box / 4)^sigma / sigma! f` is `2^-sigma` times the sum over all sets of
 //! `sigma` disjoint pairs of the factors of `f`, each pair contracted to
 //! `Y_s.Y_t`, every other factor evaluated to `P.Y_s`: [`box_pairings`].
-use std::collections::HashMap;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use symbolica::prelude::Rational;
@@ -29,7 +27,7 @@ use crate::propagator::error::PError;
 use crate::propagator::tag::GammaTag;
 
 use super::gamma::{GammaProduct, factorial};
-use super::{MEMO_CAPACITY, MemoCounters, read_memo, write_memo};
+use super::{MEMO_CAPACITY, Memo, MemoCounters, read_memo, write_memo};
 
 /// A power `integer + eps_units eps`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -163,7 +161,7 @@ type RatioKey = (i64, i64, i64, i64, i64, i64);
 /// `R_ins` in `Q(d)`, memoised per `(j1, j2, n1, n2, n, sigma)`.
 pub struct BubbleKernel {
     context: CoefficientContext,
-    ratios: RwLock<HashMap<RatioKey, Coefficient>>,
+    ratios: Memo<RatioKey, Coefficient>,
     hits: AtomicU64,
     misses: AtomicU64,
 }
@@ -172,7 +170,7 @@ impl BubbleKernel {
     pub fn new(context: &CoefficientContext) -> Self {
         Self {
             context: context.clone(),
-            ratios: RwLock::default(),
+            ratios: Memo::default(),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
         }

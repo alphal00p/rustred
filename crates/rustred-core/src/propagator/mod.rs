@@ -33,6 +33,8 @@ pub mod carpet;
 pub mod insertion;
 pub mod kernel;
 pub mod series_parallel;
+// lane bytebound: byte accounting of the kernel memos and the step memo.
+pub mod cache_budget;
 // rr-alloc: per-thread step coefficient memos (RUSTRED_P_STEP_MEMO).
 pub(crate) mod step_memo;
 

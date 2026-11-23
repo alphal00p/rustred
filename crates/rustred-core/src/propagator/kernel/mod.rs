@@ -59,7 +59,7 @@ pub mod gamma;
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 use std::hash::Hash;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering, Ordering::Relaxed};
 use std::sync::{Arc, RwLock};
 
 use smallvec::SmallVec;
@@ -68,6 +68,9 @@ use symbolica::prelude::Rational;
 use crate::algebra::{Coefficient, CoefficientContext, CoefficientPolynomial, ExactAlgebraLimits};
 
 use super::P_GAMMA_TAG_WIDTH;
+use super::cache_budget::{
+    KERNEL_BYTES, KERNEL_ENTRIES, KERNEL_TABLE_BYTES, Size, TABLES_LIVE, account,
+};
 use super::census::SignedAffineLoopMap;
 use super::error::PError;
 use super::library::{PLibrary, POwnerSpec};
@@ -106,22 +109,151 @@ fn poisoned() -> PError {
     PError::Unsupported("a kernel memo lock is poisoned".to_owned())
 }
 
-pub(crate) fn read_memo<K: Eq + Hash, V: Clone>(
-    memo: &RwLock<HashMap<K, V>>,
-    key: &K,
-) -> Result<Option<V>, PError> {
-    Ok(memo.read().map_err(|_| poisoned())?.get(key).cloned())
+/// A key of a kernel memo: its heap (lane bytebound accounting).
+pub(crate) trait MemoKey: Eq + Hash {
+    fn heap(&self) -> Size {
+        Size::ZERO
+    }
 }
 
-pub(crate) fn write_memo<K: Eq + Hash, V: Clone>(
-    memo: &RwLock<HashMap<K, V>>,
+impl MemoKey for Box<[u32]> {
+    fn heap(&self) -> Size {
+        Size::vec::<u32>(self.len())
+    }
+}
+
+impl MemoKey for (i64, i64, i64, i64, i64, i64) {}
+
+/// A value of a kernel memo: its heap, and the bytes of a numerator table it
+/// holds (counted once, while the table lives, in [`TABLES_LIVE`]).
+pub(crate) trait MemoValue: Clone {
+    fn heap(&self) -> Size;
+    fn table_bytes(&self) -> u64 {
+        0
+    }
+}
+
+impl MemoValue for Coefficient {
+    fn heap(&self) -> Size {
+        super::cache_budget::coefficient_heap(self)
+    }
+}
+
+impl MemoValue for Arc<NumeratorTable> {
+    fn heap(&self) -> Size {
+        Size::ZERO
+    }
+    fn table_bytes(&self) -> u64 {
+        self.bytes
+    }
+}
+
+/// An entry of a kernel memo: the value and the bytes charged for it (key
+/// heap and value heap; the table bytes of a value are counted apart).
+pub(crate) struct Slot<V> {
+    value: V,
+    bytes: u64,
+}
+
+struct MemoMap<K, V> {
+    map: HashMap<K, Slot<V>>,
+    /// Charged bytes of `map`'s own table.
+    table: u64,
+    /// Charged bytes of the entries (key and value heap).
+    entries: u64,
+    /// Table bytes of the values.
+    tables: u64,
+}
+
+/// A kernel memo (lane programs' interior memos): a map under a read-write
+/// lock, read by clone, whose insertions are charged at the insert
+/// ([`super::cache_budget`]) and discharged when the memo drops. The shape
+/// (a memo type in place of the bare `RwLock<HashMap>`) follows helper VH 2's
+/// diagnostic branch diag/retained-budget.
+pub(crate) struct Memo<K, V: MemoValue> {
+    map: RwLock<MemoMap<K, V>>,
+}
+
+impl<K, V: MemoValue> Default for Memo<K, V> {
+    fn default() -> Self {
+        Self {
+            map: RwLock::new(MemoMap {
+                map: HashMap::new(),
+                table: 0,
+                entries: 0,
+                tables: 0,
+            }),
+        }
+    }
+}
+
+impl<K, V: MemoValue> Drop for Memo<K, V> {
+    fn drop(&mut self) {
+        let map = self.map.get_mut().unwrap_or_else(|e| e.into_inner());
+        account(&KERNEL_BYTES, -((map.table + map.entries) as i64));
+        KERNEL_TABLE_BYTES.fetch_sub(map.tables as i64, Relaxed);
+        KERNEL_ENTRIES.fetch_sub(map.map.len() as i64, Relaxed);
+    }
+}
+
+impl<K, V: MemoValue> Memo<K, V> {
+    /// Charged bytes of this memo (entries and its table; tables apart).
+    pub(crate) fn charged(&self) -> u64 {
+        let map = self.map.read().unwrap_or_else(|e| e.into_inner());
+        map.table + map.entries
+    }
+}
+
+pub(crate) fn read_memo<K: MemoKey, V: MemoValue>(
+    memo: &Memo<K, V>,
+    key: &K,
+) -> Result<Option<V>, PError> {
+    Ok(memo
+        .map
+        .read()
+        .map_err(|_| poisoned())?
+        .map
+        .get(key)
+        .map(|slot| slot.value.clone()))
+}
+
+pub(crate) fn write_memo<K: MemoKey, V: MemoValue>(
+    memo: &Memo<K, V>,
     key: K,
     value: &V,
     capacity: usize,
 ) -> Result<(), PError> {
-    let mut memo = memo.write().map_err(|_| poisoned())?;
-    if memo.len() < capacity {
-        memo.insert(key, value.clone());
+    let mut memo = memo.map.write().map_err(|_| poisoned())?;
+    if memo.map.len() < capacity {
+        let bytes = (key.heap() + value.heap()).charge();
+        let tables = value.table_bytes();
+        // A racing build of the same key replaces the value: discharge the
+        // replaced slot (its key stays, of the same size).
+        let replaced = memo.map.insert(
+            key,
+            Slot {
+                value: value.clone(),
+                bytes,
+            },
+        );
+        let table = Size::map::<K, Slot<V>>(memo.map.capacity()).charge();
+        let mut delta = bytes as i64 + table as i64 - memo.table as i64;
+        let mut table_delta = tables as i64;
+        let mut entries = 1;
+        if let Some(old) = &replaced {
+            delta -= old.bytes as i64;
+            table_delta -= old.value.table_bytes() as i64;
+            entries = 0;
+        }
+        memo.table = table;
+        memo.entries = (memo.entries as i64 + bytes as i64
+            - replaced.as_ref().map_or(0, |old| old.bytes as i64)) as u64;
+        memo.tables = (memo.tables as i64 + table_delta) as u64;
+        drop(memo);
+        drop(replaced);
+        account(&KERNEL_BYTES, delta);
+        KERNEL_TABLE_BYTES.fetch_add(table_delta, Relaxed);
+        KERNEL_ENTRIES.fetch_add(entries, Relaxed);
     }
     Ok(())
 }
@@ -300,9 +432,61 @@ struct TableMonomial {
 
 /// `Sum_s W_s Q_s` for one numerator: `W_s` are the kernel weights, `Q_s` the
 /// child polynomials, by child monomial in sorted order.
-#[derive(Clone, Debug, PartialEq)]
+///
+/// Immutable after [`NumeratorRewrite::build`]; its heap (with the `Arc` it is
+/// built into) is counted once in [`TABLES_LIVE`] while it lives (lane
+/// bytebound). Not `Clone`: a table is shared by `Arc` only, so it is counted
+/// once.
+#[derive(Debug, PartialEq)]
 pub(crate) struct NumeratorTable {
     monomials: Vec<TableMonomial>,
+    /// Charged bytes (a function of the content).
+    bytes: u64,
+}
+
+impl NumeratorTable {
+    fn new(monomials: Vec<TableMonomial>) -> Self {
+        // The `Arc` block: two counts and the table.
+        let mut size = Size::block(2 * std::mem::size_of::<usize>() + std::mem::size_of::<Self>())
+            + Size::vec::<TableMonomial>(monomials.capacity());
+        for monomial in &monomials {
+            size += Size::vec::<u32>(monomial.exponents.len());
+            if monomial.orders.spilled() {
+                size += Size::vec::<(u32, Rational)>(monomial.orders.capacity());
+            }
+            for (_, value) in &monomial.orders {
+                size += super::cache_budget::rational_heap(value);
+            }
+        }
+        let bytes = size.charge();
+        account(&TABLES_LIVE, bytes as i64);
+        Self { monomials, bytes }
+    }
+
+    /// Charged bytes of the table.
+    #[allow(dead_code)] // read by the tests; the budget reads it (bytebound/budget)
+    pub(crate) fn bytes(&self) -> u64 {
+        self.bytes
+    }
+
+    /// Tests: a table of `rows` (exponents, orders).
+    #[cfg(test)]
+    pub(crate) fn for_test(rows: Vec<(Vec<u32>, Vec<(u32, Rational)>)>) -> Self {
+        Self::new(
+            rows.into_iter()
+                .map(|(exponents, orders)| TableMonomial {
+                    exponents: exponents.into_boxed_slice(),
+                    orders: orders.into_iter().collect(),
+                })
+                .collect(),
+        )
+    }
+}
+
+impl Drop for NumeratorTable {
+    fn drop(&mut self) {
+        account(&TABLES_LIVE, -(self.bytes as i64));
+    }
 }
 
 impl NumeratorTable {
@@ -324,7 +508,7 @@ pub(crate) struct NumeratorRewrite {
     residuals: Vec<SlotPolynomial>,
     free: Vec<SlotPolynomial>,
     order_factor: Option<SlotPolynomial>,
-    tables: RwLock<HashMap<Box<[u32]>, Arc<NumeratorTable>>>,
+    tables: Memo<Box<[u32]>, Arc<NumeratorTable>>,
     hits: AtomicU64,
     misses: AtomicU64,
 }
@@ -368,7 +552,7 @@ impl NumeratorRewrite {
                 .map(|(left, right)| form(left, right))
                 .collect::<Result<_, _>>()?,
             order_factor: order_factor.map(|(a, b)| form(a, b)).transpose()?,
-            tables: RwLock::default(),
+            tables: Memo::default(),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
         })
@@ -462,15 +646,15 @@ impl NumeratorRewrite {
                 monomials.entry(exponents).or_default().push((order, value));
             }
         }
-        NumeratorTable {
-            monomials: monomials
+        NumeratorTable::new(
+            monomials
                 .into_iter()
                 .map(|(exponents, orders)| TableMonomial {
                     exponents: exponents.into_vec().into_boxed_slice(),
                     orders,
                 })
                 .collect(),
-        }
+        )
     }
 }
 

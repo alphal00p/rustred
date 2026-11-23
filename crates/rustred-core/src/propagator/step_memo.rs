@@ -35,6 +35,7 @@ use smallvec::SmallVec;
 
 use crate::algebra::{Coefficient, CoefficientContext, ExactAlgebraLimits};
 
+use super::cache_budget::{SHARED_STEP_BYTES, STEP_BYTES, Size, account, coefficient_heap};
 use super::error::PError;
 
 /// Default capacity of a memo (entries; per thread, or of the shared memo).
@@ -192,6 +193,8 @@ impl<V> std::ops::Deref for Held<V> {
 
 struct Memo<V> {
     entries: HashMap<Box<[i64]>, Rc<V>>,
+    /// Charged bytes of `entries`' own table (lane bytebound).
+    table: u64,
     hits: u64,
     misses: u64,
 }
@@ -200,10 +203,44 @@ impl<V> Default for Memo<V> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
+            table: 0,
             hits: 0,
             misses: 0,
         }
     }
+}
+
+impl<V> Memo<V> {
+    /// Insert an entry charged `bytes` (with the entries' table growth, minus
+    /// a replaced entry); returns the charge.
+    fn put(&mut self, key: &[i64], value: Rc<V>, size: impl Fn(&V) -> Size) -> i64 {
+        let mut delta = (Size::vec::<i64>(key.len()) + size(&value)).charge() as i64;
+        if let Some(old) = self.entries.insert(key.into(), value) {
+            delta -= (Size::vec::<i64>(key.len()) + size(&old)).charge() as i64;
+        }
+        let table = Size::map::<Box<[i64]>, Rc<V>>(self.entries.capacity()).charge();
+        delta += table as i64 - self.table as i64;
+        self.table = table;
+        delta
+    }
+}
+
+/// The `Rc` block of a memo value.
+fn rc_block<V>() -> Size {
+    Size::block(2 * std::mem::size_of::<usize>() + std::mem::size_of::<V>())
+}
+
+/// Heap of an Insertion entry's value (its table is counted apart, while it
+/// lives: `cache_budget::TABLES_LIVE`).
+fn insertion_size(value: &InsertionWeights) -> Size {
+    rc_block::<InsertionWeights>() + Size::vec::<Option<u32>>(value.weights.capacity())
+}
+
+/// Heap of a Route entry's value.
+fn route_size(value: &RouteExpansion) -> Size {
+    rc_block::<RouteExpansion>()
+        + Size::vec::<i8>(value.offsets.capacity())
+        + Size::vec::<u32>(value.coefficients.capacity())
 }
 
 /// The distinct coefficients of this thread's memo values, each stored once
@@ -212,6 +249,8 @@ impl<V> Default for Memo<V> {
 struct Coefficients {
     index: HashMap<Coefficient, u32>,
     values: Vec<Coefficient>,
+    /// Bytes charged by [`Self::intern`] and not yet taken by the state.
+    pending: u64,
 }
 
 impl Coefficients {
@@ -221,8 +260,17 @@ impl Coefficients {
         }
         let index = u32::try_from(self.values.len()).expect("fewer than 2^32 memo coefficients");
         let value = rehome(coefficient);
+        let before = Size::vec::<Coefficient>(self.values.capacity())
+            + Size::map::<Coefficient, u32>(self.index.capacity());
+        // Stored twice: in `values` and as the key of `index`.
+        let mut size = coefficient_heap(&value);
         self.values.push(value.clone());
+        size += coefficient_heap(&self.values[self.values.len() - 1]);
         self.index.insert(value, index);
+        size += Size::vec::<Coefficient>(self.values.capacity())
+            + Size::map::<Coefficient, u32>(self.index.capacity())
+            - before;
+        self.pending += size.charge();
         index
     }
 }
@@ -234,9 +282,24 @@ struct State {
     route: Memo<RouteExpansion>,
     coefficients: Coefficients,
     full_reported: bool,
+    /// Charged bytes of this state (lane bytebound), part of `STEP_BYTES`.
+    bytes: u64,
 }
 
 impl State {
+    /// Charge `delta` bytes (plus what the coefficient table charged).
+    fn charge(&mut self, delta: i64) {
+        let delta = delta + std::mem::take(&mut self.coefficients.pending) as i64;
+        self.bytes = (self.bytes as i64 + delta) as u64;
+        account(&STEP_BYTES, delta);
+    }
+
+    /// Discharge everything this state holds (before a reset).
+    fn discharge(&mut self) {
+        account(&STEP_BYTES, -(self.bytes as i64));
+        self.bytes = 0;
+    }
+
     /// Forget everything when the limits change; whether a new entry may be
     /// added. A full memo keeps its entries and stops memoising (the caller
     /// computes directly, as with the full shared memo) instead of resetting
@@ -245,8 +308,11 @@ impl State {
     /// (ModularRecorder::scale_handle, the layered HANDLES; memo-audit class H).
     fn admit(&mut self, limits: ExactAlgebraLimits) -> bool {
         if self.limits != Some(limits) {
+            self.discharge();
             self.insertion.entries = HashMap::new();
+            self.insertion.table = 0;
             self.route.entries = HashMap::new();
+            self.route.table = 0;
             self.coefficients = Coefficients::default();
             self.limits = Some(limits);
         }
@@ -501,7 +567,13 @@ pub(crate) fn insertion(
                 return Ok(None);
             };
             let value = std::sync::Arc::new(InsertionWeights { table, weights });
-            memo.put(key, limits, |shard| &mut shard.insertion, &value);
+            memo.put(
+                key,
+                limits,
+                |shard| &mut shard.insertion,
+                &value,
+                insertion_size(&value),
+            );
             Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))))
         });
     }
@@ -527,10 +599,8 @@ pub(crate) fn insertion(
             .map(|weight| weight.as_ref().map(|w| state.coefficients.intern(w)))
             .collect();
         let value = Rc::new(InsertionWeights { table, weights });
-        state
-            .insertion
-            .entries
-            .insert(key.into(), Rc::clone(&value));
+        let delta = state.insertion.put(key, Rc::clone(&value), insertion_size);
+        state.charge(delta);
         Ok(Some(Held::Local(value)))
     })
 }
@@ -569,7 +639,13 @@ pub(crate) fn route(
                 offsets,
                 coefficients,
             });
-            memo.put(key, limits, |shard| &mut shard.route, &value);
+            memo.put(
+                key,
+                limits,
+                |shard| &mut shard.route,
+                &value,
+                route_size(&value),
+            );
             Ok(Some(Held::Shared(value, std::sync::Arc::clone(memo))))
         });
     }
@@ -605,7 +681,8 @@ pub(crate) fn route(
             offsets,
             coefficients,
         });
-        state.route.entries.insert(key.into(), Rc::clone(&value));
+        let delta = state.route.put(key, Rc::clone(&value), route_size);
+        state.charge(delta);
         Ok(Some(Held::Local(value)))
     })
 }
@@ -625,7 +702,16 @@ pub(crate) fn release_thread_pools() {
     POWERS.with(|pool| *pool.borrow_mut() = Vec::new());
     HOME.with(|home| *home.borrow_mut() = Vec::new());
     HOME_CONTEXT.with(|home| *home.borrow_mut() = Vec::new());
-    STATE.with(|state| *state.borrow_mut() = State::default());
+    STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        state.discharge();
+        *state = State::default();
+    });
+}
+
+/// Charged bytes of this thread's memo state (lane bytebound).
+pub(crate) fn local_bytes() -> u64 {
+    STATE.with(|state| state.try_borrow().map_or(0, |state| state.bytes))
 }
 
 /// Drop this thread's memo entries (end of a request); the shared memo is
@@ -637,6 +723,7 @@ pub(crate) fn clear() {
             (state.insertion.hits, state.insertion.misses),
             (state.route.hits, state.route.misses),
         );
+        state.discharge();
         *state = State::default();
         (state.insertion.hits, state.insertion.misses) = insertion;
         (state.route.hits, state.route.misses) = route;
@@ -736,6 +823,23 @@ pub(crate) struct SharedMemo {
     /// Hit/miss counters per shard (fwd-opt: one shared line was updated
     /// by every lookup of every worker).
     stats: Box<[PaddedStats]>,
+    /// Charged bytes (lane bytebound, counted only: entries and coefficients,
+    /// without the growth of the sharded tables), part of `SHARED_STEP_BYTES`.
+    bytes: AtomicU64,
+}
+
+impl Drop for SharedMemo {
+    fn drop(&mut self) {
+        account(&SHARED_STEP_BYTES, -(*self.bytes.get_mut() as i64));
+    }
+}
+
+impl SharedMemo {
+    fn charge(&self, size: Size) {
+        let bytes = size.charge();
+        self.bytes.fetch_add(bytes, Ordering::Relaxed);
+        account(&SHARED_STEP_BYTES, bytes as i64);
+    }
 }
 
 #[derive(Default)]
@@ -764,6 +868,7 @@ impl SharedMemo {
             index: (0..SHARDS).map(|_| Default::default()).collect(),
             next: std::sync::atomic::AtomicUsize::new(0),
             stats: (0..SHARDS).map(|_| PaddedStats::default()).collect(),
+            bytes: AtomicU64::new(0),
         }
     }
 
@@ -807,6 +912,7 @@ impl SharedMemo {
         limits: ExactAlgebraLimits,
         map: impl Fn(&mut Shard) -> &mut HashMap<Box<[i64]>, std::sync::Arc<V>>,
         value: &std::sync::Arc<V>,
+        size: Size,
     ) {
         if !self.admits(limits) {
             return;
@@ -828,6 +934,7 @@ impl SharedMemo {
             .is_none()
         {
             self.entries.fetch_add(1, Ordering::Relaxed);
+            self.charge(Size::vec::<i64>(key.len()) + size);
         }
     }
 
@@ -847,8 +954,11 @@ impl SharedMemo {
             return None;
         }
         let value = rehome(coefficient);
-        let chunk =
-            self.chunks[next / CHUNK].get_or_init(|| (0..CHUNK).map(|_| OnceLock::new()).collect());
+        let chunk = self.chunks[next / CHUNK].get_or_init(|| {
+            self.charge(Size::vec::<OnceLock<Coefficient>>(CHUNK));
+            (0..CHUNK).map(|_| OnceLock::new()).collect()
+        });
+        self.charge(coefficient_heap(&value) + coefficient_heap(&value));
         let _ = chunk[next % CHUNK].set(value.clone());
         index.insert(value, next as u32);
         Some(next as u32)
@@ -1096,6 +1206,111 @@ mod tests {
         .unwrap();
         assert_eq!(calls, 2);
         end(counted);
+    }
+
+    /// lane bytebound: the charge of this thread's memo state equals what its
+    /// entries and coefficients allocated (random Route and Insertion entries,
+    /// repeated coefficients, table growth), and a reset frees all of it.
+    #[test]
+    fn step_memo_charges_match_the_allocator() {
+        std::thread::spawn(|| {
+            use crate::propagator::cache_budget::alloc_count::{charge, net};
+            let counted = begin(1);
+            assert!(!counted);
+            let context = CoefficientContext::try_new(["d"]).unwrap();
+            let limits = ExactAlgebraLimits::default();
+            let d = context.parameter("d").unwrap();
+            let values: Vec<Coefficient> = (0..40_i64)
+                .map(|i| {
+                    let mut c = context.integer(i + 2);
+                    for _ in 0..i % 2 {
+                        c = context
+                            .try_mul(&c, &context.integer(i64::MAX - i), limits)
+                            .unwrap();
+                    }
+                    let n = context.try_add(&d, &c, limits).unwrap();
+                    context
+                        .try_div(
+                            &n,
+                            &context
+                                .try_add(&d, &context.integer(i % 5 + 1), limits)
+                                .unwrap(),
+                            limits,
+                        )
+                        .unwrap()
+                })
+                .collect();
+            let tables: Vec<std::sync::Arc<super::super::kernel::NumeratorTable>> = (1..6_u32)
+                .map(|rows| {
+                    std::sync::Arc::new(super::super::kernel::NumeratorTable::for_test(
+                        (0..rows)
+                            .map(|r| {
+                                (
+                                    vec![r; 3],
+                                    vec![(0, symbolica::prelude::Rational::from(i64::from(r) + 1))],
+                                )
+                            })
+                            .collect(),
+                    ))
+                })
+                .collect();
+            let _ = rehome(&values[0]);
+            let owner = next_uid() as i64;
+            let mut seed = 0x2545_f491_4f6c_dd1d_u64;
+            let mut next = move || {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                seed
+            };
+            let start = net();
+            for i in 0..600_i64 {
+                let n = (next() % 6) as usize;
+                let picked: Vec<usize> = (0..n).map(|_| (next() % 40) as usize).collect();
+                let key = [owner, 1, i % 211, (i % 7) - 3];
+                let held = route(&key, limits, || {
+                    Ok((
+                        2,
+                        vec![1; 2 * n],
+                        picked.iter().map(|&j| values[j].clone()).collect(),
+                    ))
+                })
+                .unwrap();
+                drop(held);
+                drop(picked);
+                assert_eq!(
+                    charge(start, net()),
+                    local_bytes() as i64,
+                    "after route {i} (n {n})"
+                );
+                let table = std::sync::Arc::clone(&tables[(next() % 5) as usize]);
+                let rows = table.len();
+                let weights: Vec<Option<usize>> = (0..rows)
+                    .map(|r| (next() % 3 != 0).then_some((r * 7 + i as usize) % 40))
+                    .collect();
+                let key = [owner, 2, i % 173];
+                let held = insertion(&key, limits, || {
+                    Ok((
+                        table,
+                        weights
+                            .iter()
+                            .map(|w| w.map(|j| values[j].clone()))
+                            .collect(),
+                    ))
+                })
+                .unwrap();
+                drop(held);
+                drop(weights);
+                assert_eq!(charge(start, net()), local_bytes() as i64, "after step {i}");
+            }
+            assert!(local_bytes() > 0);
+            clear();
+            assert_eq!(local_bytes(), 0);
+            assert_eq!(charge(start, net()), 0, "a reset frees what was charged");
+            end(counted);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]

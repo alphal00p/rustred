@@ -19,8 +19,6 @@
 //! weight. In the native Minkowski form of [`super`] the explicit `(-1)^j` is
 //! replaced by `(-1)^sigma`; the sign `(-1)^{n_r + n_3}` of the removed lines stays
 //! with the step.
-use std::collections::HashMap;
-use std::sync::RwLock;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use symbolica::prelude::Rational;
@@ -31,7 +29,7 @@ use crate::propagator::tag::GammaTag;
 
 use super::bubble::{LinePower, ghat, relative_tag};
 use super::gamma::{FactoredRational, algebra};
-use super::{MEMO_CAPACITY, MemoCounters, read_memo, write_memo};
+use super::{MEMO_CAPACITY, Memo, MemoCounters, read_memo, write_memo};
 
 fn binomial(n: i64, k: i64) -> Rational {
     (1..=k).fold(Rational::one(), |product, i| {
@@ -68,7 +66,7 @@ type WeightKey = (i64, i64, i64, i64, i64, i64);
 /// `(j_inner, j_r, n_inner, n_r, n, s)`.
 pub struct CarpetKernel {
     context: CoefficientContext,
-    weights: RwLock<HashMap<WeightKey, Coefficient>>,
+    weights: Memo<WeightKey, Coefficient>,
     hits: AtomicU64,
     misses: AtomicU64,
 }
@@ -77,7 +75,7 @@ impl CarpetKernel {
     pub fn new(context: &CoefficientContext) -> Self {
         Self {
             context: context.clone(),
-            weights: RwLock::default(),
+            weights: Memo::default(),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
         }
