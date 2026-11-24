@@ -62,7 +62,16 @@
 //! most one thread charges between two of its key boundaries (`max key
 //! inserts` in the report line; one request: N = 1); tables held by a
 //! running step or by the shared step memo of a multi-thread request are not
-//! evictable and lie outside it.
+//! evictable and lie outside it. A multi-thread request is outside the
+//! stated bound as a whole: its workers' inserts are charged to the covered
+//! total but not to C (C is folded at the scheduler thread's key boundaries
+//! only, so it reads 0 for such a request), and such a request alone has
+//! been measured above B + max(0.05 B, 64 MB). The B/4 share of the step
+//! memos is a trigger, not a cap, and one trigger for all threads: under N
+//! concurrent jobs in one process the same B (and the same B/4) is shared N
+//! ways, and the step memos together can exceed B/4 between two resets. A
+//! value of B measured with one job (N = 1, as on the heavy key) must be
+//! measured again, or scaled with the job count, for `--jobs N`.
 //! Every evicted entry is a pure function of its key: a later miss computes the
 //! same value, so the result terms and the recorded program (operation count)
 //! are those of the unbounded run. What the budget does not cover (the shared
