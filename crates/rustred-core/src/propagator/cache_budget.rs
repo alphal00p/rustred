@@ -583,6 +583,11 @@ fn key_boundary_budget(budget: u64, one_thread: bool) -> bool {
         let window = key_window();
         if thread.keys.is_multiple_of(window) {
             TICK.fetch_add(1, Relaxed);
+            // Pins a sweep skipped (a running step) may be gone: re-arm
+            // once per key window while over the budget (review fr L-a).
+            if covered() > budget {
+                rearm(budget);
+            }
         }
         if thread.keys == 1 {
             // A new thread acts on the epochs bumped from now on.
@@ -1356,6 +1361,59 @@ mod tests {
         assert_eq!(memo.len(), 0, "released: evicted");
         set_rearm_floor(None);
         set_tuning(None, None);
+    }
+
+    /// Review fr L-a (F2 with pins that are not a step memo): a running step
+    /// pins every table of a kernel memo, so a sweep leaves the total over B
+    /// and re-arms above it; then the pins go. Within one key window the key
+    /// boundaries re-arm the pressure and the next sweep evicts the released
+    /// slots, without waiting for a phase end, a step-memo reset or the
+    /// forward end. (Without the key-window re-arm all 5000 boundaries stay
+    /// over B with nothing pinned.)
+    #[test]
+    fn fr_stale_rearm_after_non_step_memo_pins_go() {
+        let _serial = tick_serial();
+        const B: u64 = 8_000_000;
+        set_rearm_floor(Some(0));
+        REARM_AT.store(0, Relaxed);
+        PRESSURE.store(false, Relaxed);
+        let _budget = TestBudget::set(B);
+        let memo: Memo<Box<[u32]>, Arc<NumeratorTable>> = Memo::default();
+        let tables: Vec<Arc<NumeratorTable>> = (0..8_u32)
+            .map(|t| {
+                Arc::new(NumeratorTable::for_test(
+                    (0..7_500_u32)
+                        .map(|r| (vec![r, t, 1, 2], vec![(0, Rational::from(i64::from(r) + 3))]))
+                        .collect(),
+                ))
+            })
+            .collect();
+        for (t, table) in tables.iter().enumerate() {
+            write_memo(&memo, vec![t as u32].into_boxed_slice(), table, usize::MAX).unwrap();
+        }
+        println!("covered {} B, B {B}, step bytes {}", covered(), STEP_BYTES.load(Relaxed));
+        assert!(PRESSURE.load(Relaxed));
+        let sweeps = SWEEPS.load(Relaxed);
+        assert!(!key_boundary(true));
+        assert!(SWEEPS.load(Relaxed) > sweeps, "swept");
+        assert_eq!(memo.len(), 8, "all pinned by the test (a running step)");
+        // The pins go.
+        drop(tables);
+        let mut stale_boundaries = 0;
+        for _ in 0..5000 {
+            key_boundary(true);
+            if memo.len() == 8 && covered() > B {
+                stale_boundaries += 1;
+            }
+        }
+        println!(
+            "pins released: {stale_boundaries} of 5000 key boundaries over B with nothing pinned; {} entries, covered {}",
+            memo.len(),
+            covered()
+        );
+        set_rearm_floor(None);
+        assert!(stale_boundaries < 5000, "re-armed within one key window");
+        assert!(memo.len() < 8, "the released slots were evicted");
     }
 
     /// `Size::map` follows the table layout of `std::collections::HashMap`.
