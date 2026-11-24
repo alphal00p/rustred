@@ -342,11 +342,13 @@ struct State {
 /// memo) gives its bytes back: `STEP_BYTES` counts live states only.
 impl Drop for State {
     fn drop(&mut self) {
+        let discharged = self.discharge();
         #[cfg(test)]
         if let Some(dropped) = &self.dropped {
-            dropped.store(self.bytes, Ordering::Relaxed);
+            dropped.store(discharged, Ordering::Relaxed);
         }
-        self.discharge();
+        #[cfg(not(test))]
+        let _ = discharged;
     }
 }
 
@@ -358,10 +360,13 @@ impl State {
         account(&STEP_BYTES, delta);
     }
 
-    /// Discharge everything this state holds (before a reset).
-    fn discharge(&mut self) {
-        account(&STEP_BYTES, -(self.bytes as i64));
+    /// Discharge everything this state holds (before a reset); returns the
+    /// bytes it gave back.
+    fn discharge(&mut self) -> u64 {
+        let bytes = self.bytes;
+        account(&STEP_BYTES, -(bytes as i64));
         self.bytes = 0;
+        bytes
     }
 
     /// Forget everything when the limits change; whether a new entry may be
@@ -1540,7 +1545,7 @@ mod tests {
         assert_eq!(
             dropped.load(Ordering::Relaxed),
             held,
-            "the drop discharged the state"
+            "the drop gave back what the state held"
         );
     }
 
