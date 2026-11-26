@@ -102,6 +102,10 @@ name = "application_api"
 required-features = ["cli"]
 
 [[test]]
+name = "p_eps_census"
+required-features = ["cli"]
+
+[[test]]
 name = "saved_application_layer"
 required-features = ["layer-test-support"]
 

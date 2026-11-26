@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 pub mod assemble;
+pub mod eps_census;
 pub mod format;
 pub mod generate;
 pub mod loader;

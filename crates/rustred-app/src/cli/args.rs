@@ -302,6 +302,7 @@ pub(crate) fn parse_args(
         "p-import-table" => Ok(Command::P(PSubcommand::ImportTable, arguments.collect())),
         "p-certify" => Ok(Command::P(PSubcommand::Certify, arguments.collect())),
         "p-recipes" => Ok(Command::P(PSubcommand::Recipes, arguments.collect())),
+        "p-eps-census" => Ok(Command::P(PSubcommand::EpsCensus, arguments.collect())),
         "litered-reduce" => Ok(Command::LiteRedReduce(arguments.collect())),
         "sector-box-reduce" => Ok(Command::SectorBoxReduce(arguments.collect())),
         "candidate-inspect" => candidate_inspect::parse(arguments),
