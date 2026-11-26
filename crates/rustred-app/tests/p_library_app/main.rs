@@ -8,6 +8,7 @@ mod cli;
 mod custom;
 mod diamond;
 mod eps;
+mod eps_bubbles;
 mod iface4;
 mod package;
 mod perf;
