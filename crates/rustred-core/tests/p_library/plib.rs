@@ -2035,8 +2035,19 @@ fn a_route_carries_eps_axes_at_every_power() {
             }],
             "{source:?}"
         );
-        // Route, Apply, nothing in between: never a subsector.
-        assert_eq!(reduced.statistics.progress.processed_keys, 2, "{source:?}");
+        // Route, Apply, nothing in between: never a subsector. With the
+        // staged route transport (RUSTRED_P_ROUTE_STAGED) a numerator of
+        // r >= 2 powers on slot 1 adds its r - 1 partial transports.
+        let staged = matches!(
+            std::env::var("RUSTRED_P_ROUTE_STAGED").as_deref(),
+            Ok("1" | "on" | "true")
+        );
+        let stages = if staged { (-source[1]).max(1) - 1 } else { 0 };
+        assert_eq!(
+            reduced.statistics.progress.processed_keys,
+            2 + stages as usize,
+            "{source:?}"
+        );
     }
     // A pinched integer line is a zero of the census, whatever the eps power.
     let reduced = library
