@@ -9,6 +9,7 @@ mod basis;
 mod canary;
 mod census;
 mod certify;
+mod content;
 mod eps_census;
 mod generate;
 mod import;
@@ -28,6 +29,7 @@ pub(crate) enum PSubcommand {
     Certify,
     Recipes,
     EpsCensus,
+    Content,
 }
 
 pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(), CliError> {
@@ -42,6 +44,7 @@ pub(super) fn run(subcommand: PSubcommand, arguments: Vec<OsString>) -> Result<(
         PSubcommand::Certify => certify::run(arguments),
         PSubcommand::Recipes => recipes::run(arguments),
         PSubcommand::EpsCensus => eps_census::run(arguments),
+        PSubcommand::Content => content::run(arguments),
     }
 }
 

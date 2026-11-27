@@ -4,7 +4,8 @@
 //! with its basis layer, [`attach_basis_layer`]); [`p_library_files`] renders
 //! an assembled library program as the files of the format of
 //! [`super::format`], in memory and in name order; [`write_p_library`]
-//! publishes them as one directory. Rendering is
+//! publishes them as one directory. The files end with `p-content.json`,
+//! the content digest of the others ([`super::content`]). Rendering is
 //! deterministic: JSON from ordered maps, binary records in library order.
 //! The Symbolica state inside a `.rrbin` file lists the symbols and variable
 //! maps known to the writing process, so the same command in a fresh process
@@ -42,6 +43,7 @@ use super::assemble::{
     AssembleOptions, AssembledLibrary, LpRecount, RecountProvidedLp, assemble_library,
     assemble_library_recounted,
 };
+use super::content::{P_CONTENT_FILE, hash_bytes, manifest_of_rendered};
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CustomRecord, EdgeMapRecord, FAMILIES_FILE, FamilyFileRecord,
     FilesRecord, LAYER_FILE, LIBRARY_FILE, LaneRecord, LibraryManifest, NodeRecord, OpenNodeRecord,
@@ -110,7 +112,8 @@ pub fn payload_save_format(bytes: &[u8], what: &str) -> Result<u16, PError> {
 }
 
 /// Every file of the package of `assembled`, `(relative name, bytes)` in name
-/// order; `layer/p-layer.json` when the library has a basis map. A library
+/// order; `layer/p-layer.json` when the library has a basis map;
+/// `p-content.json` (the content digest of the others). A library
 /// without a topology, or with a basis map whose rows are no valid layer
 /// (`PBasisLayer::new`), is refused.
 pub fn p_library_files(assembled: &AssembledLibrary) -> Result<Vec<(String, Vec<u8>)>, PError> {
@@ -141,10 +144,11 @@ fn file_payloads(assembled: &AssembledLibrary) -> Result<Vec<(String, CustomPayl
 }
 
 /// [`p_library_files`]; with `written`, the file payloads are already written
-/// and only recorded here with their stored lengths.
+/// and only recorded here with their stored lengths (and digests, for
+/// `p-content.json`).
 fn p_library_parts(
     assembled: &AssembledLibrary,
-    written: Option<&BTreeMap<String, u64>>,
+    written: Option<&BTreeMap<String, (u64, String)>>,
 ) -> Result<Vec<(String, Vec<u8>)>, PError> {
     let encoding = payload_encoding_for_write()?;
     let library = &assembled.library;
@@ -213,9 +217,10 @@ fn p_library_parts(
             // A file payload already written by `write_p_library`.
             Some(CustomPayloadRef::File(_)) if written.is_some() => {
                 let file = owner_file(&label)?;
-                let bytes = *written
+                let (bytes, _) = written
                     .and_then(|written| written.get(&file))
                     .ok_or_else(|| malformed(format!("the payload {file} was not written")))?;
+                let bytes = *bytes;
                 Some(PayloadRecord {
                     file,
                     bytes,
@@ -333,6 +338,9 @@ fn p_library_parts(
         LIBRARY_FILE.to_owned(),
         pretty_json(&manifest, LIBRARY_FILE)?,
     );
+    // The content digest of exactly these files (`super::content`).
+    let content = manifest_of_rendered(&files, written.unwrap_or(&BTreeMap::new()))?;
+    files.insert(P_CONTENT_FILE.to_owned(), content.to_json()?);
     Ok(files.into_iter().collect())
 }
 
@@ -362,7 +370,7 @@ pub fn write_p_library(library: &AssembledLibrary, directory: &Path) -> Result<(
             check_save_format(payload_save_format(&bytes, file)?, file)?;
             let stored = encode_payload_file(encoding.as_deref(), &bytes)?;
             fs::write(&path, &stored).map_err(|error| io_failure(&path, error))?;
-            written.insert(file.clone(), stored.len() as u64);
+            written.insert(file.clone(), hash_bytes(&stored));
         }
         let files = p_library_parts(library, Some(&written))?;
         write_files(partial, &files)

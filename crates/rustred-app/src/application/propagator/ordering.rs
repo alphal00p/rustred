@@ -29,6 +29,8 @@
 //! package stays loadable.
 //!
 //! [`write_ordering`] adds an ordering to a written package (in place).
+//! It, [`write_routes`] and [`write_orbits`] rewrite the package's
+//! `p-content.json` when it has one (`super::content`).
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -37,6 +39,7 @@ use rustred::propagator::error::PError;
 use rustred::propagator::{OwnerClassId, P_ORDERING_SCHEMA, P_ORDERING_VERSION};
 use serde::{Deserialize, Serialize};
 
+use super::content::refresh_p_content_if_present;
 use super::format::{LIBRARY_FILE, LibraryManifest, malformed, owner_file};
 
 /// File name of the ordering inside a package.
@@ -332,6 +335,7 @@ pub fn write_ordering(directory: &Path, heuristic: &str) -> Result<OrderingFile,
         .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
     out.push('\n');
     std::fs::write(&path, out).map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    refresh_p_content_if_present(directory)?;
     Ok(ordering)
 }
 
@@ -432,6 +436,7 @@ pub fn write_routes(directory: &Path) -> Result<(usize, usize), PError> {
         .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
     out.push('\n');
     std::fs::write(&path, out).map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    refresh_p_content_if_present(directory)?;
     Ok((saved, skipped))
 }
 
@@ -463,5 +468,6 @@ pub fn write_orbits(directory: &Path) -> Result<(usize, usize), PError> {
         .map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
     out.push('\n');
     std::fs::write(&path, out).map_err(|error| malformed(format!("{LIBRARY_FILE}: {error}")))?;
+    refresh_p_content_if_present(directory)?;
     Ok((saved, nontrivial))
 }

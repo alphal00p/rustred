@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 pub mod assemble;
+pub mod content;
 pub mod eps_census;
 pub mod format;
 pub mod generate;
@@ -14,8 +15,9 @@ pub mod package;
 pub mod seed;
 
 pub use assemble::{AssembleOptions, AssembledLibrary, assemble_library};
+pub use content::{P_CONTENT_CHECK_ENV, P_CONTENT_FILE, PContentCheck, PContentManifest};
 pub use generate::{CustomOwnerOptions, CustomOwnerPayload, generate_custom_owner};
-pub use loader::load_p_library;
+pub use loader::{load_p_library, load_p_library_checked};
 pub use package::{equivalent_p_libraries, write_p_library};
 
 /// Where a written library lives: a directory, or embedded `(name, bytes)` files.

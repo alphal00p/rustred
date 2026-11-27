@@ -444,6 +444,9 @@ pub struct PLibrary {
     /// vk5l WP1: where the library was loaded from (a package directory),
     /// for the reproduction line of a typed refusal.
     source: OnceLock<String>,
+    /// The content digest of the package it was loaded from (the loader's
+    /// record of `p-content.json`), see [`Self::content_digest`].
+    content: OnceLock<PContentDigest>,
     engine: OnceLock<Result<PEngine, PError>>,
     /// Orbit canonicalisation of Apply keys (M5 R0 A2); off by default
     /// (M5 batch 2: opt-in until the coordinator switches it on).
@@ -1004,6 +1007,24 @@ impl PLibrary {
     /// directory of the reproduction line); the first call wins.
     pub fn set_source(&self, source: impl Into<String>) {
         let _ = self.source.set(source.into());
+    }
+
+    /// Record the content digest of the package this library was loaded
+    /// from (the package loader); the first call wins.
+    pub fn set_content_digest(&self, digest: PContentDigest) {
+        let _ = self.content.set(digest);
+    }
+
+    /// The content digest of the package this library was loaded from: the
+    /// digest of every file that determines its presentations, ids, routes,
+    /// orderings, owner tables and relations (`p-content.json`, schema
+    /// `rustred.p-content.v1`, beside `library.json`). `None` when the
+    /// package has no such manifest (every package written before it) or the
+    /// library was not loaded from a package directory. Unlike
+    /// [`Self::identity`], which names versions and a revision label, two
+    /// packages with different tables have different digests.
+    pub fn content_digest(&self) -> Option<&PContentDigest> {
+        self.content.get()
     }
 
     /// vk5l WP1: the original request of a typed refusal and its
@@ -1925,6 +1946,18 @@ pub const RECIPE_CHAIN_BUDGET: usize = 200_000;
 /// p5l-library-6: the identity key of a package content revision.
 pub const P_PACKAGE_REVISION_KEY: &str = "P_PACKAGE_REVISION";
 
+/// The content digest of a package as its loader recorded it
+/// ([`PLibrary::content_digest`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PContentDigest {
+    /// `blake3:<64 hex digits>`.
+    pub digest: String,
+    /// `true`: the loader recomputed the digest from the package's files and
+    /// it equals the manifest's (the content check was on); `false`: the
+    /// digest the manifest records, not recomputed.
+    pub verified: bool,
+}
+
 fn malformed(detail: impl Into<String>) -> PError {
     PError::MalformedLibrary(detail.into())
 }
@@ -2216,6 +2249,7 @@ impl PLibraryBuilder {
             orbit_required: Default::default(),
             retained: Default::default(),
             source: OnceLock::new(),
+            content: OnceLock::new(),
             engine: OnceLock::new(),
             orbit_canonicalization: AtomicBool::new(orbit_default),
             route_canonicalization: AtomicBool::new(route_canonicalization_default()),

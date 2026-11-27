@@ -40,6 +40,9 @@
 //!    onto the masters of the scope: every row must be the one this program
 //!    derives). Without it, all three are the word of the writer.
 //!
+//! Before step 1, the optional content check of [`load_p_library_checked`]
+//! (`p-content.json`, [`super::content`]; off by default).
+//!
 //! [`read_custom_payloads`] reads the Custom payloads of a package, or of an
 //! owner directory of `rustred p-generate` records ([`read_owner_records`]),
 //! for `rustred p-package --reuse-custom`.
@@ -68,6 +71,7 @@ use rustred::propagator::{
     P_OWNER_LIBRARY_SEMANTICS, PTerminalId, PresentationId, p_versions,
 };
 
+use super::content::PContentCheck;
 use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CountsRecord, FAMILIES_FILE, LAYER_FILE, LIBRARY_FILE,
     LaneRecord, LibraryManifest, OwnerRecord, P_OPEN_NODE_RECORD_VERSION, SYMBOLICA_SAVE_FORMAT,
@@ -868,8 +872,40 @@ fn read_open_nodes(
         .collect()
 }
 
-/// Load a written p library, failing closed: see the module docs.
+/// Load a written p library, failing closed: see the module docs. The
+/// content check is the one `RUSTRED_P_CHECK_CONTENT` asks for, off unless
+/// it is set ([`PContentCheck::from_env`]); see [`load_p_library_checked`].
 pub fn load_p_library(
+    source: PLibrarySource,
+    options: &PLibraryOptions,
+) -> Result<Arc<PLibrary>, PError> {
+    load_p_library_checked(source, options, PContentCheck::from_env()?)
+}
+
+/// [`load_p_library`] with the content check `check`
+/// ([`super::content`]). Before the package is read, [`PContentCheck::Off`]
+/// notes the digest its `p-content.json` records, if any (never a refusal);
+/// [`PContentCheck::WhenPresent`] recomputes the digest from the package's
+/// files when it has a `p-content.json` and refuses the package
+/// ([`PError::MalformedLibrary`] naming the differing files) unless both
+/// agree; [`PContentCheck::Required`] also refuses a package without one. A
+/// package without `p-content.json` loads under `Off` and `WhenPresent`
+/// exactly as before. The digest is then available as
+/// `PLibrary::content_digest` (`verified` when it was recomputed).
+pub fn load_p_library_checked(
+    source: PLibrarySource,
+    options: &PLibraryOptions,
+    check: PContentCheck,
+) -> Result<Arc<PLibrary>, PError> {
+    let content = check.record(&source)?;
+    let library = load_unchecked(source, options)?;
+    if let Some(digest) = content {
+        library.set_content_digest(digest);
+    }
+    Ok(library)
+}
+
+fn load_unchecked(
     source: PLibrarySource,
     options: &PLibraryOptions,
 ) -> Result<Arc<PLibrary>, PError> {

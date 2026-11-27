@@ -5,6 +5,7 @@ mod assemble4;
 mod basis;
 mod basis4;
 mod cli;
+mod content;
 mod custom;
 mod diamond;
 mod eps;
