@@ -3156,6 +3156,9 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
     // (summed as the keys are read; the same sum as over the frontier).
     let mut monomials = 0usize;
     let n = r.item(|r| r.len(usize::MAX))?;
+    // (every entry takes at least two bytes: a count read from an unchecked
+    // v1 state reserves no more than its body can hold)
+    frontier.reserve(n.min(usize::try_from(body / 2).unwrap_or(usize::MAX)));
     for _ in 0..n {
         let (key, weight) = {
             let (kernel, weights) = (&*kernel, &*weights);

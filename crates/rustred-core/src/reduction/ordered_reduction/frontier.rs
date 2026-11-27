@@ -305,6 +305,96 @@ struct Bucket {
     heap: bool,
 }
 
+/// eng-mem: the slot store of a packed frontier in chunks of
+/// [`SLAB_CHUNK`] elements (the first chunk grows by doubling up to that
+/// size, every later one is allocated whole): growth adds a chunk and never
+/// moves or copies the store, and leaves no doubled capacity behind. Ids are
+/// positions, as in the `Vec` it replaces (same push order, same ids).
+#[derive(Clone)]
+struct Slab<T> {
+    chunks: Vec<Vec<T>>,
+    len: usize,
+}
+
+const SLAB_SHIFT: u32 = 16;
+const SLAB_CHUNK: usize = 1 << SLAB_SHIFT;
+
+impl<T> Slab<T> {
+    const fn new() -> Self {
+        Self {
+            chunks: Vec::new(),
+            len: 0,
+        }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.len
+    }
+
+    fn push(&mut self, value: T) {
+        match self.chunks.last_mut() {
+            Some(chunk) if chunk.len() < SLAB_CHUNK => {
+                if chunk.len() == chunk.capacity() {
+                    let target = (2 * chunk.capacity()).clamp(4, SLAB_CHUNK);
+                    chunk.reserve_exact(target - chunk.len());
+                }
+                chunk.push(value);
+            }
+            _ => {
+                let mut chunk =
+                    Vec::with_capacity(if self.chunks.is_empty() { 4 } else { SLAB_CHUNK });
+                chunk.push(value);
+                self.chunks.push(chunk);
+            }
+        }
+        self.len += 1;
+    }
+
+    /// Grow to `len` elements, the new ones `value`.
+    fn resize(&mut self, len: usize, value: T)
+    where
+        T: Clone,
+    {
+        while self.len < len {
+            self.push(value.clone());
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &T> + '_ {
+        self.chunks.iter().flatten()
+    }
+
+    /// Elements the chunks have room for.
+    fn capacity(&self) -> usize {
+        self.chunks.iter().map(Vec::capacity).sum()
+    }
+
+    /// Allocator bytes of the chunks and of the chunk list (diagnostics).
+    fn heap_bytes(&self) -> usize {
+        use super::memstats::block;
+        (self.chunks.iter())
+            .map(|chunk| block(chunk.as_ptr(), chunk.capacity()))
+            .sum::<usize>()
+            + block(self.chunks.as_ptr(), self.chunks.capacity())
+    }
+}
+
+impl<T> std::ops::Index<usize> for Slab<T> {
+    type Output = T;
+    #[inline]
+    fn index(&self, at: usize) -> &T {
+        &self.chunks[at >> SLAB_SHIFT][at & (SLAB_CHUNK - 1)]
+    }
+}
+
+impl<T> std::ops::IndexMut<usize> for Slab<T> {
+    #[inline]
+    fn index_mut(&mut self, at: usize) -> &mut T {
+        &mut self.chunks[at >> SLAB_SHIFT][at & (SLAB_CHUNK - 1)]
+    }
+}
+
 /// Interned priorities of a `Packed` frontier, reference counted by slots:
 /// many pending keys share one priority (owner rank and order key), and a
 /// slot then holds 4 bytes instead of the value. Interning is by `Eq` (and
@@ -317,7 +407,8 @@ struct Priorities<P> {
     /// fwd-opt: the priority id of every slot, by slot id (a dense copy of
     /// `Slot::priority`), so that a heap comparison reads two `u32`s instead
     /// of two slots; the slots are read only when the priorities tie.
-    of: Vec<u32>,
+    /// eng-mem: chunked like the slots.
+    of: Slab<u32>,
 }
 
 impl<P: Clone + Ord + Hash> Priorities<P> {
@@ -326,7 +417,7 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
             values: Vec::new(),
             free: Vec::new(),
             index: HashTable::new(),
-            of: Vec::new(),
+            of: Slab::new(),
         }
     }
 
@@ -420,7 +511,7 @@ impl<P: Clone + Ord + Hash> Priorities<P> {
 
 /// The packed layout (see the module docs).
 pub(crate) struct Packed<K: FrontierKey, P, W> {
-    slots: Vec<Option<Slot<K::Packed, W>>>,
+    slots: Slab<Option<Slot<K::Packed, W>>>,
     priorities: Priorities<P>,
     free: Vec<u32>,
     index: HashTable<u32>,
@@ -492,7 +583,7 @@ fn sift_down<T>(v: &mut [T], mut i: usize, cmp: &impl Fn(&T, &T) -> Ordering) {
 impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
     fn new(lazy: bool, hasher: FrontierHash) -> Self {
         Self {
-            slots: Vec::new(),
+            slots: Slab::new(),
             priorities: Priorities::new(),
             free: Vec::new(),
             index: HashTable::new(),
@@ -514,7 +605,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
 
     #[inline]
     fn cmp_ids(
-        slots: &[Option<Slot<K::Packed, W>>],
+        slots: &Slab<Option<Slot<K::Packed, W>>>,
         priorities: &Priorities<P>,
         a: u32,
         b: u32,
@@ -594,7 +685,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
     }
 
     fn heapify(
-        slots: &[Option<Slot<K::Packed, W>>],
+        slots: &Slab<Option<Slot<K::Packed, W>>>,
         priorities: &Priorities<P>,
         bucket: &mut Bucket,
     ) {
@@ -798,7 +889,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
             "packed_key_size": std::mem::size_of::<K::Packed>(),
             "slots": self.slots.len(),
             "slots_capacity": self.slots.capacity(),
-            "slots_bytes": block(self.slots.as_ptr(), self.slots.capacity()),
+            "slots_bytes": self.slots.heap_bytes(),
             "slots_clone_bytes": measure_clone(|| self.slots.clone()),
             "tombstones": tombstones,
             "free": self.free.len(),
@@ -823,7 +914,7 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
 /// The ids of a heap in pop order, lazily (an auxiliary heap of positions).
 struct HeapWalk<'h, K: FrontierKey, P, W> {
     heap: &'h [u32],
-    slots: &'h [Option<Slot<K::Packed, W>>],
+    slots: &'h Slab<Option<Slot<K::Packed, W>>>,
     priorities: &'h Priorities<P>,
     aux: Vec<usize>,
 }
@@ -831,7 +922,7 @@ struct HeapWalk<'h, K: FrontierKey, P, W> {
 impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
     fn new(
         heap: &'h [u32],
-        slots: &'h [Option<Slot<K::Packed, W>>],
+        slots: &'h Slab<Option<Slot<K::Packed, W>>>,
         priorities: &'h Priorities<P>,
     ) -> Self {
         Self {
@@ -848,7 +939,7 @@ impl<'h, K: FrontierKey, P: Clone + Ord + Hash, W> HeapWalk<'h, K, P, W> {
     /// of which is an ancestor of another), in pop order.
     fn from_roots(
         heap: &'h [u32],
-        slots: &'h [Option<Slot<K::Packed, W>>],
+        slots: &'h Slab<Option<Slot<K::Packed, W>>>,
         priorities: &'h Priorities<P>,
         mut roots: Vec<usize>,
     ) -> Self {
@@ -964,6 +1055,21 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
         match self {
             Self::Classic(c) => c.order.last().is_some_and(|node| node.phase.0 < phase),
             Self::Packed(p) => p.earlier_than(phase),
+        }
+    }
+
+    /// eng-mem: room in the key index for `additional` more keys (a
+    /// restore knows their number: the index is sized once instead of
+    /// growing, and copying itself, step by step). Changes no order.
+    pub(crate) fn reserve(&mut self, additional: usize) {
+        match self {
+            Self::Classic(c) => c.pending.reserve(additional),
+            Self::Packed(p) => {
+                let (slots, hasher) = (&p.slots, &p.hasher);
+                p.index.reserve(additional, |&x| {
+                    hasher.hash_one(&slots[x as usize].as_ref().expect("indexed slot").key)
+                });
+            }
         }
     }
 
@@ -1430,6 +1536,31 @@ mod tests {
                 _ => rng.random_range(-3..4),
             })
             .collect()
+    }
+
+    /// eng-mem: the chunked store indexes and iterates as a vector, keeps at
+    /// most one chunk of spare room, and its first chunk stays small.
+    #[test]
+    fn a_slab_is_a_vector_without_doubled_capacity() {
+        let mut slab = Slab::new();
+        let n = 3 * SLAB_CHUNK + 17;
+        for i in 0..n {
+            slab.push(i);
+            let room = if slab.len() <= SLAB_CHUNK {
+                (2 * slab.len()).max(4)
+            } else {
+                slab.len() + SLAB_CHUNK
+            };
+            assert!(slab.capacity() <= room, "{} for {}", slab.capacity(), slab.len());
+        }
+        assert_eq!(slab.len(), n);
+        assert!(slab.iter().copied().eq(0..n));
+        for i in (0..n).step_by(997) {
+            slab[i] += n;
+        }
+        assert!((0..n).all(|i| slab[i] == if i % 997 == 0 { i + n } else { i }));
+        slab.resize(n + 5, 7);
+        assert_eq!((slab.len(), slab[n + 4]), (n + 5, 7));
     }
 
     #[test]
