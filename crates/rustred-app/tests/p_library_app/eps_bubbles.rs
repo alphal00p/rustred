@@ -408,12 +408,13 @@ fn rank(rows: &[Vec<Rational>]) -> usize {
             continue;
         };
         m.swap(rank, pivot);
-        for r in 0..m.len() {
-            if r != rank && !m[r][col].is_zero() {
-                let f = &m[r][col] / &m[rank][col];
-                for c in 0..width {
-                    let sub = &f * &m[rank][c];
-                    m[r][c] -= &sub;
+        let pivot_row = m[rank].clone();
+        for (r, row) in m.iter_mut().enumerate() {
+            if r != rank && !row[col].is_zero() {
+                let f = &row[col] / &pivot_row[col];
+                for (x, p) in row.iter_mut().zip(&pivot_row) {
+                    let sub = &f * p;
+                    *x -= &sub;
                 }
             }
         }
@@ -439,12 +440,13 @@ fn inverse(columns: &[Vec<i64>]) -> Option<Vec<Vec<Rational>>> {
         for x in a[col].iter_mut() {
             *x = &*x / &p;
         }
-        for r in 0..n {
-            if r != col && !a[r][col].is_zero() {
-                let f = a[r][col].clone();
-                for k in 0..2 * n {
-                    let sub = &f * &a[col][k];
-                    a[r][k] -= &sub;
+        let pivot_row = a[col].clone();
+        for (r, row) in a.iter_mut().enumerate() {
+            if r != col && !row[col].is_zero() {
+                let f = row[col].clone();
+                for (x, p) in row.iter_mut().zip(&pivot_row) {
+                    let sub = &f * p;
+                    *x -= &sub;
                 }
             }
         }
@@ -537,11 +539,12 @@ fn determinant(columns: &[Vec<i64>]) -> i64 {
             det = -det;
         }
         det = &det * &a[col][col];
-        for r in col + 1..n {
-            let f = &a[r][col] / &a[col][col];
-            for c in col..n {
-                let sub = &f * &a[col][c];
-                a[r][c] -= &sub;
+        let pivot_row = a[col].clone();
+        for row in a.iter_mut().skip(col + 1) {
+            let f = &row[col] / &pivot_row[col];
+            for (x, p) in row.iter_mut().zip(&pivot_row).skip(col) {
+                let sub = &f * p;
+                *x -= &sub;
             }
         }
     }
