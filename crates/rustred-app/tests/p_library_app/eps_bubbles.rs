@@ -25,14 +25,24 @@
 //! Laurent series is vakint's (`crates/vakint/tests/p_integral_eps_bubble_tests.rs`
 //! in gammaloop), with the same cases.
 //!
-//! The tests need the one-to-five-loop package (r3) named by
-//! `RUSTRED_P_LIBRARY_1_5` and arity 20 (`--features runtime-arity-selection`,
-//! `RUSTRED_RUNTIME_ARITIES=1,...,16,20`); it loads once per process:
+//! Every test here is `#[ignore]`d by default: they need the one-to-five-loop
+//! package (r3) named by `RUSTRED_P_LIBRARY_1_5` (an ignored test run without
+//! it panics naming the variable) and arity 20 (`--features
+//! runtime-arity-selection`, `RUSTRED_RUNTIME_ARITIES` at build time). The
+//! package loads once per process (~35 s, ~6 GB). Run them with
 //!
 //! ```text
-//! RUSTRED_P_LIBRARY_1_5=<r3>/p_integral/p-library-1-5 RUSTRED_RUNTIME_ARITIES=1,2,...,16,20 \
-//!   cargo test --release -p rustred-app --features runtime-arity-selection --test p_library_app -- eps_bubbles --ignored --test-threads 10
+//! RUSTRED_RUNTIME_ARITIES=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,20 \
+//! RUSTRED_P_LIBRARY_1_5=<r3>/p_integral/p-library-1-5 \
+//!   cargo test --release -p rustred-app --features runtime-arity-selection --test p_library_app \
+//!   -- eps_bubbles --ignored --test-threads 10
 //! ```
+//!
+//! The fast set is every test but the two marked slow (`four_loop_one_unit_diamond`,
+//! `four_loop_one_unit_custom_off_corner`, minutes each): add `--skip
+//! four_loop_one_unit_diamond --skip four_loop_one_unit_custom_off_corner` for it.
+//! `RUSTRED_TEST_EPS_BUBBLES_ARITHMETIC=engine|exact` forces one arithmetic for
+//! every case (default: per test, exact where it is fast).
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
