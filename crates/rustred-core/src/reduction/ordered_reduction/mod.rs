@@ -648,10 +648,11 @@ pub(crate) trait OrderedWeights {
         Err(invariant("this arithmetic keeps no resume state"))
     }
     /// `digest`: the state is of format v3 (a 32-byte trace digest follows
-    /// the op count).
+    /// the op count). eng-mem: the section is read item by item
+    /// ([`resume::StateReader::item`]).
     fn resume_load(
         &mut self,
-        _r: &mut step_cache::codec::Reader<'_>,
+        _r: &mut resume::StateReader,
         _digest: bool,
     ) -> Result<(), ReductionError> {
         Err(invariant("this arithmetic keeps no resume state"))
@@ -3009,8 +3010,28 @@ fn resume_identity_digest<K: OrderedKernel>(kernel: &K) -> blake3::Hash {
     blake3::hash(&identity)
 }
 
+/// eng-mem: the BLAKE3 of the first `content` bytes of `file`, read in
+/// chunks (no whole-file buffer).
+fn digest_prefix(file: &mut std::fs::File, content: u64) -> std::io::Result<blake3::Hash> {
+    use std::io::{Read, Seek};
+    file.seek(std::io::SeekFrom::Start(0))?;
+    let mut hasher = blake3::Hasher::new();
+    let mut chunk = vec![0u8; 8 << 20];
+    let mut left = content;
+    while left > 0 {
+        let n = (chunk.len() as u64).min(left) as usize;
+        file.read_exact(&mut chunk[..n])?;
+        hasher.update(&chunk[..n]);
+        left -= n as u64;
+    }
+    Ok(hasher.finalize())
+}
+
 /// vk5l-physrun: the scheduler state saved by [`resume_save`] and the phase
-/// to continue with.
+/// to continue with. eng-mem: read as it is used (no whole-file buffer):
+/// one pass checks the state's own digest and the program identity (before
+/// anything of the file or the trace is used, as before), a second parses
+/// it item by item ([`resume::StateReader`]).
 fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
     kernel: &mut K,
     weights: &mut A,
@@ -3018,47 +3039,54 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
     dir: &std::path::Path,
     layout: FrontierLayout,
 ) -> Result<(Admitted<K, A>, usize), String> {
+    use std::os::unix::fs::FileExt;
     let path = dir.join("state.bin");
-    let file = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let io = |e: std::io::Error| format!("{}: {e}", path.display());
+    let mut file = std::fs::File::open(&path).map_err(io)?;
+    let size = file.metadata().map_err(io)?.len();
+    let mut head = vec![0u8; (resume::STATE_FORMAT.len() as u64).min(size) as usize];
+    file.read_exact_at(&mut head, 0).map_err(io)?;
     // 12d2 (format v3): the file ends with its own BLAKE3 and, before it, the
     // BLAKE3 of the program identity that saved it; both are checked before
     // anything of the file (or the trace) is used.
-    let current = file.starts_with(resume::STATE_FORMAT.as_bytes());
-    if !current && !file.starts_with(resume::RESUME_VERSION.as_bytes()) {
+    let current = head.starts_with(resume::STATE_FORMAT.as_bytes());
+    if !current && !head.starts_with(resume::RESUME_VERSION.as_bytes()) {
         return Err(format!(
             "{} is not a resume state of this format ({} expected)",
             path.display(),
             resume::STATE_FORMAT
         ));
     }
-    let bytes: &[u8] = if current {
-        let content = file
-            .len()
+    let body: u64 = if current {
+        let content = size
             .checked_sub(32)
-            .filter(|&n| n >= 32 + resume::STATE_FORMAT.len())
+            .filter(|&n| n >= 32 + resume::STATE_FORMAT.len() as u64)
             .ok_or_else(|| format!("{} is truncated", path.display()))?;
-        let own = blake3::hash(&file[..content]);
-        if file[content..] != *own.as_bytes() {
+        let own = digest_prefix(&mut file, content).map_err(io)?;
+        let mut recorded = [0u8; 32];
+        file.read_exact_at(&mut recorded, content).map_err(io)?;
+        if recorded != *own.as_bytes() {
             return Err(format!(
                 "the state file {} does not match its own digest ({} recorded, {} computed): it is damaged \
                  and nothing of it is used",
                 path.display(),
-                blake3::Hash::from_bytes(file[content..].try_into().expect("32 bytes")).to_hex(),
+                blake3::Hash::from_bytes(recorded).to_hex(),
                 own.to_hex()
             ));
         }
         let body = content - 32;
+        let mut saved = [0u8; 32];
+        file.read_exact_at(&mut saved, body).map_err(io)?;
         let expected = resume_identity_digest(kernel);
-        if file[body..content] != *expected.as_bytes() {
+        if saved != *expected.as_bytes() {
             return Err(format!(
                 "the saved state was made by another program, library or target selection \
                  (identity {} saved, {} now)",
-                blake3::Hash::from_bytes(file[body..content].try_into().expect("32 bytes"))
-                    .to_hex(),
+                blake3::Hash::from_bytes(saved).to_hex(),
                 expected.to_hex()
             ));
         }
-        &file[..body]
+        body
     } else {
         // A v1 state carries neither a trace digest nor a program identity:
         // it may come from a projected (target-selected) run of the same keys
@@ -3075,11 +3103,15 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
              it is NOT checked that this library without a target selection saved it",
             dir.display()
         );
-        &file
+        size
     };
-    let mut r = step_cache::codec::Reader::new(bytes);
+    {
+        use std::io::Seek;
+        file.seek(std::io::SeekFrom::Start(0)).map_err(io)?;
+    }
+    let mut r = resume::StateReader::new(file, body);
     // format v3 (trace digest) or v1 (none: the trace is length-checked only)
-    let magic = r.take(resume::STATE_FORMAT.len())?;
+    let magic = r.item(|r| r.take(resume::STATE_FORMAT.len()).map(<[u8]>::to_vec))?;
     let v2 = if magic == resume::STATE_FORMAT.as_bytes() {
         true
     } else if magic == resume::RESUME_VERSION.as_bytes() {
@@ -3087,20 +3119,22 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
     } else {
         return Err("another resume state version".to_owned());
     };
-    let phase = r.varint()? as usize;
+    let phase = r.item(|r| r.varint())? as usize;
     // The op count of the state (the trace must hold at least that many ops;
     // it is cut back to them) and, in v3, the digest of that trace prefix.
-    let mut peek = step_cache::codec::Reader::new(&bytes[r_position(bytes, &r)..]);
-    let ops = peek.varint()?;
-    let digest = if v2 {
-        let d: [u8; 32] = peek
-            .take(32)?
-            .try_into()
-            .map_err(|_| "a short trace digest".to_owned())?;
-        Some(d)
-    } else {
-        None
-    };
+    let (ops, digest) = r.peek(|r| {
+        let ops = r.varint()?;
+        let digest = if v2 {
+            let d: [u8; 32] = r
+                .take(32)?
+                .try_into()
+                .map_err(|_| "a short trace digest".to_owned())?;
+            Some(d)
+        } else {
+            None
+        };
+        Ok((ops, digest))
+    })?;
     weights
         .resume_bind(dir, Some((ops, digest)))
         .map_err(|e| e.to_string())?;
@@ -3108,9 +3142,9 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
     let template = kernel.context().zero();
     let mut guards = GuardIndex::new();
     let mut nonzero_conditions = Vec::new();
-    let n = r.len(usize::MAX)?;
+    let n = r.item(|r| r.len(usize::MAX))?;
     for _ in 0..n {
-        let condition = resume::get_coefficient(&mut r, &template)?;
+        let condition = r.item(|r| resume::get_coefficient(r, &template))?;
         guards
             .intern(&mut nonzero_conditions, &condition, |_| {
                 Ok::<(), ReductionError>(())
@@ -3118,16 +3152,23 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
             .map_err(|e| e.to_string())?;
     }
     let mut frontier = Frontier::new(layout);
-    let n = r.len(usize::MAX)?;
+    // As admit: the census of the resident coefficient size of the frontier
+    // (summed as the keys are read; the same sum as over the frontier).
+    let mut monomials = 0usize;
+    let n = r.item(|r| r.len(usize::MAX))?;
     for _ in 0..n {
-        let len = r.len(usize::MAX)?;
-        let encoded = r.take(len)?;
-        let key = kernel
-            .tail_key(encoded)
-            .ok_or("an undecodable pending key")?;
-        let weight = weights
-            .resume_get_weight(&mut r)
-            .map_err(|e| e.to_string())?;
+        let (key, weight) = {
+            let (kernel, weights) = (&*kernel, &*weights);
+            r.item(|r| {
+                let len = r.len(usize::MAX)?;
+                let encoded = r.take(len)?;
+                let key = kernel
+                    .tail_key(encoded)
+                    .ok_or("an undecodable pending key")?;
+                let weight = weights.resume_get_weight(r).map_err(|e| e.to_string())?;
+                Ok((key, weight))
+            })?
+        };
         let position = kernel
             .position(&key)
             .map_err(|_| "a pending key without a position".to_owned())?;
@@ -3139,30 +3180,28 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
                     .diagnostic_limit(kernel.limits().max_pending_frames),
             )
             .map_err(|e| e.to_string())?;
+        monomials = monomials.saturating_add(weights.monomials(&weight).map_err(|e| e.to_string())?);
         frontier.insert(key, Pending { position, weight });
     }
     let mut output = BTreeMap::new();
-    let n = r.len(usize::MAX)?;
-    for _ in 0..n {
-        let len = r.len(usize::MAX)?;
-        let powers = (0..len)
-            .map(|_| r.zigzag())
-            .collect::<Result<Vec<_>, _>>()?;
-        let key = IntegralKey::try_new(powers).map_err(|e| e.to_string())?;
-        let weight = weights
-            .resume_get_weight(&mut r)
-            .map_err(|e| e.to_string())?;
-        output.insert(key, weight);
-    }
-    // As admit: the census of the resident coefficient size of the frontier.
-    let mut monomials = 0usize;
-    for (_, weight) in frontier.iter() {
-        monomials = monomials.saturating_add(weights.monomials(weight).map_err(|e| e.to_string())?);
-    }
     let mut terminal_monomials = 0usize;
-    for weight in output.values() {
+    let n = r.item(|r| r.len(usize::MAX))?;
+    for _ in 0..n {
+        let (key, weight) = {
+            let weights = &*weights;
+            r.item(|r| {
+                let len = r.len(usize::MAX)?;
+                let powers = (0..len)
+                    .map(|_| r.zigzag())
+                    .collect::<Result<Vec<_>, _>>()?;
+                let key = IntegralKey::try_new(powers).map_err(|e| e.to_string())?;
+                let weight = weights.resume_get_weight(r).map_err(|e| e.to_string())?;
+                Ok((key, weight))
+            })?
+        };
         terminal_monomials = terminal_monomials
-            .saturating_add(weights.monomials(weight).map_err(|e| e.to_string())?);
+            .saturating_add(weights.monomials(&weight).map_err(|e| e.to_string())?);
+        output.insert(key, weight);
     }
     let progress = CandidateOrderedReductionProgress {
         terminal_coefficient_monomials: terminal_monomials,
@@ -3185,11 +3224,6 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
         },
         phase + 1,
     ))
-}
-
-/// Byte offset of a reader into `bytes`.
-fn r_position(bytes: &[u8], r: &step_cache::codec::Reader<'_>) -> usize {
-    bytes.len() - r.remaining()
 }
 
 #[cfg(test)]

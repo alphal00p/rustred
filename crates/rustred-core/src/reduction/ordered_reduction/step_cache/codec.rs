@@ -77,11 +77,37 @@ impl Writer {
 pub(crate) struct Reader<'a> {
     bytes: &'a [u8],
     position: usize,
+    /// The bound of byte-sized counts (integer magnitudes, polynomial
+    /// terms): the length of the whole data, which a window of a streamed
+    /// file ([`Self::window`]) is shorter than.
+    bound: usize,
+    /// eng-mem: a read went past the end of `bytes` (see [`Self::short`]).
+    short: bool,
 }
 
 impl<'a> Reader<'a> {
     pub(crate) fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
+        Self {
+            bytes,
+            position: 0,
+            bound: bytes.len(),
+            short: false,
+        }
+    }
+
+    /// eng-mem: a reader over `bytes`, a window of a longer stream of `bound`
+    /// bytes: counts are bounded as in a reader over the whole stream.
+    pub(crate) fn window(bytes: &'a [u8], bound: usize) -> Self {
+        Self {
+            bound,
+            ..Self::new(bytes)
+        }
+    }
+
+    /// eng-mem: whether a read failed for want of bytes (a window that more
+    /// of the stream may complete), as opposed to invalid data.
+    pub(crate) fn short(&self) -> bool {
+        self.short
     }
 
     /// Bytes not read yet.
@@ -94,11 +120,14 @@ impl<'a> Reader<'a> {
     }
 
     pub(crate) fn take(&mut self, count: usize) -> CodecResult<&'a [u8]> {
-        let end = self
+        let Some(end) = self
             .position
             .checked_add(count)
             .filter(|&end| end <= self.bytes.len())
-            .ok_or("truncated step-cache data")?;
+        else {
+            self.short = true;
+            return Err("truncated step-cache data".into());
+        };
         let slice = &self.bytes[self.position..end];
         self.position = end;
         Ok(slice)
@@ -158,7 +187,7 @@ impl<'a> Reader<'a> {
                     1 => true,
                     _ => return Err("invalid step-cache integer sign".into()),
                 };
-                let length = self.len(self.bytes.len())?;
+                let length = self.len(self.bound)?;
                 let magnitude = self.take(length)?;
                 if magnitude.last().is_none_or(|&byte| byte == 0) {
                     return Err("step-cache large integer is not minimal".into());
@@ -177,7 +206,7 @@ impl<'a> Reader<'a> {
     /// One polynomial in `template`'s variable map. Term order and nonzero
     /// coefficients are checked by the caller's coefficient validation.
     pub(crate) fn polynomial(&mut self, template: &Polynomial) -> CodecResult<Polynomial> {
-        let terms = self.len(self.bytes.len())?;
+        let terms = self.len(self.bound)?;
         let nvars = template.nvars();
         let mut polynomial = template.zero_with_capacity(terms);
         polynomial.exponents.reserve(terms.saturating_mul(nvars));

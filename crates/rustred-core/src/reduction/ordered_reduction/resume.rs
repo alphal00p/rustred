@@ -340,6 +340,108 @@ pub(crate) fn write_state<E>(
     }
 }
 
+/// eng-mem: the window a [`StateReader`] refills at least (and keeps
+/// filled ahead of every item).
+const STATE_WINDOW: usize = 8 << 20;
+
+/// eng-mem: a saved state read as it is parsed (no whole-file buffer): a
+/// window of the file's first `body` bytes, refilled and grown as items
+/// need it. [`Self::item`] parses one item with the codec [`Reader`]
+/// (counts bounded by the whole body, as a reader over the whole file);
+/// an item that runs past the window is parsed again from its start once
+/// the window holds more of the file, so `f` must have no effect when it
+/// fails.
+///
+/// [`Reader`]: super::step_cache::codec::Reader
+pub(crate) struct StateReader {
+    source: Box<dyn std::io::Read>,
+    window: Vec<u8>,
+    /// Consumed bytes of `window`.
+    at: usize,
+    /// Bytes of the body not read into `window` yet.
+    left: u64,
+    body: usize,
+    /// The least refill ([`STATE_WINDOW`]; smaller in tests).
+    chunk: usize,
+}
+
+impl StateReader {
+    /// The first `body` bytes of `source`.
+    pub(crate) fn new(source: impl std::io::Read + 'static, body: u64) -> Self {
+        Self::with_chunk(source, body, STATE_WINDOW)
+    }
+
+    fn with_chunk(source: impl std::io::Read + 'static, body: u64, chunk: usize) -> Self {
+        Self {
+            source: Box::new(source),
+            window: Vec::new(),
+            at: 0,
+            left: body,
+            body: usize::try_from(body).unwrap_or(usize::MAX),
+            chunk: chunk.max(1),
+        }
+    }
+
+    /// Read more of the body: at least `more` bytes beyond the unconsumed
+    /// ones (all that is left if less).
+    fn fill(&mut self, more: usize) -> Result<(), String> {
+        use std::io::Read;
+        self.window.drain(..self.at);
+        self.at = 0;
+        let want = (more.max(self.chunk) as u64).min(self.left) as usize;
+        let start = self.window.len();
+        self.window.resize(start + want, 0);
+        self.source
+            .read_exact(&mut self.window[start..])
+            .map_err(|e| format!("state read: {e}"))?;
+        self.left -= want as u64;
+        Ok(())
+    }
+
+    fn parse<T>(
+        &mut self,
+        advance: bool,
+        mut f: impl FnMut(&mut super::step_cache::codec::Reader<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        if self.left > 0 && self.window.len() - self.at < self.chunk / 2 {
+            self.fill(self.chunk)?;
+        }
+        loop {
+            let unread = &self.window[self.at..];
+            let mut r = super::step_cache::codec::Reader::window(unread, self.body);
+            match f(&mut r) {
+                Ok(value) => {
+                    if advance {
+                        self.at += unread.len() - r.remaining();
+                    }
+                    return Ok(value);
+                }
+                Err(_) if r.short() && self.left > 0 => {
+                    let more = 2 * unread.len();
+                    self.fill(more)?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    /// Parse and consume one item.
+    pub(crate) fn item<T>(
+        &mut self,
+        f: impl FnMut(&mut super::step_cache::codec::Reader<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.parse(true, f)
+    }
+
+    /// Parse the next item without consuming it.
+    pub(crate) fn peek<T>(
+        &mut self,
+        f: impl FnMut(&mut super::step_cache::codec::Reader<'_>) -> Result<T, String>,
+    ) -> Result<T, String> {
+        self.parse(false, f)
+    }
+}
+
 static STORAGE_STOP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 /// R-B2: a request stopped for a storage reason (a low-disk pause, a failed
@@ -447,4 +549,46 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// eng-mem: items read through a small window come back as written,
+    /// also items longer than the window and large integers whose length
+    /// exceeds the window (counts are bounded by the whole body); a peek
+    /// does not consume; past the body an item fails.
+    #[test]
+    fn a_state_reader_parses_items_across_its_window() {
+        use symbolica::domains::integer::Integer;
+        let big = Integer::from(u128::MAX) * Integer::from(u128::MAX) * Integer::from(u128::MAX);
+        let mut w = Writer::default();
+        let blob = |i: usize| -> Vec<u8> { (0..(i * 7) % 61).map(|j| (i + j) as u8).collect() };
+        for i in 0..400usize {
+            w.varint(i as u64);
+            w.len(blob(i).len());
+            w.raw(&blob(i));
+            if i % 50 == 0 {
+                w.integer(&big);
+            }
+        }
+        let bytes = w.bytes.clone();
+        for chunk in [1, 5, 16, 1 << 20] {
+            let mut r = StateReader::with_chunk(
+                std::io::Cursor::new(bytes.clone()),
+                bytes.len() as u64,
+                chunk,
+            );
+            for i in 0..400usize {
+                assert_eq!(r.peek(|r| r.varint()).unwrap(), i as u64);
+                let (n, b) = r
+                    .item(|r| {
+                        let n = r.varint()?;
+                        let len = r.len(usize::MAX)?;
+                        Ok((n, r.take(len)?.to_vec()))
+                    })
+                    .unwrap();
+                assert_eq!((n, b), (i as u64, blob(i)));
+                if i % 50 == 0 {
+                    assert_eq!(r.item(|r| r.integer()).unwrap(), big);
+                }
+            }
+            assert!(r.item(|r| r.u8()).is_err());
+        }
+    }
 }

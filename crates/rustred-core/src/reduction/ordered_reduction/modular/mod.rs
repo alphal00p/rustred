@@ -2113,24 +2113,28 @@ impl OrderedWeights for ModularRecorder {
 
     fn resume_load(
         &mut self,
-        r: &mut super::step_cache::codec::Reader<'_>,
+        r: &mut super::resume::StateReader,
         digest: bool,
     ) -> Result<(), ReductionError> {
         let e = |m: String| error(format!("resume state: {m}"));
-        let _ops = r.varint().map_err(e)?;
+        let _ops = r.item(|r| r.varint()).map_err(e)?;
         if digest {
-            r.take(32).map_err(e)?;
+            r.item(|r| r.take(32).map(|_| ())).map_err(e)?;
         }
         let template = self.context.zero();
-        let n = r.len(usize::MAX).map_err(e)?;
+        let n = r.item(|r| r.len(usize::MAX)).map_err(e)?;
         // the dictionary is empty here (bound before the load; a spill
         // enabled at bind is rebuilt from the state's entries)
         self.entry_refs = Vec::with_capacity(n);
         self.entry_hashes = Vec::with_capacity(n);
         self.table = HashTable::new();
         for index in 0..n {
-            let coefficient = super::resume::get_coefficient(r, &template).map_err(e)?;
-            let reference = CoefRef(r.varint().map_err(e)? as u32);
+            let (coefficient, reference) = r
+                .item(|r| {
+                    let coefficient = super::resume::get_coefficient(r, &template)?;
+                    Ok((coefficient, CoefRef(r.varint()? as u32)))
+                })
+                .map_err(e)?;
             let hash = FxBuild.hash_one(&coefficient);
             self.entries.push(&coefficient)?;
             self.entry_refs.push(reference);
@@ -2139,36 +2143,41 @@ impl OrderedWeights for ModularRecorder {
             self.table
                 .insert_unique(hash, index as u32, |&i| hashes[i as usize]);
         }
-        let n = r.len(usize::MAX).map_err(e)?;
+        let n = r.item(|r| r.len(usize::MAX)).map_err(e)?;
         self.constant_probe = (0..n)
-            .map(|_| r.varint().map(|v| self.probe_field.to_element(v)))
+            .map(|_| r.item(|r| r.varint().map(|v| self.probe_field.to_element(v))))
             .collect::<Result<_, _>>()
             .map_err(e)?;
-        let n = r.len(usize::MAX).map_err(e)?;
+        let n = r.item(|r| r.len(usize::MAX)).map_err(e)?;
         let mut probes = Vec::with_capacity(n);
         for _ in 0..n {
-            let mut values = [self.probe_field.zero(); PROBES];
-            for value in &mut values {
-                *value = self.probe_field.to_element(r.varint().map_err(e)?);
-            }
+            let values = r
+                .item(|r| {
+                    let mut values = [self.probe_field.zero(); PROBES];
+                    for value in &mut values {
+                        *value = self.probe_field.to_element(r.varint()?);
+                    }
+                    Ok(values)
+                })
+                .map_err(e)?;
             probes.push(values);
         }
         self.polynomial_probe = probes;
-        self.constant_count = r.varint().map_err(e)? as u32;
-        self.polynomial_count = r.varint().map_err(e)? as u32;
-        let n = r.len(usize::MAX).map_err(e)?;
+        self.constant_count = r.item(|r| r.varint()).map_err(e)? as u32;
+        self.polynomial_count = r.item(|r| r.varint()).map_err(e)? as u32;
+        let n = r.item(|r| r.len(usize::MAX)).map_err(e)?;
         self.free_slots = (0..n)
-            .map(|_| r.varint().map(|v| v as u32))
+            .map(|_| r.item(|r| r.varint().map(|v| v as u32)))
             .collect::<Result<_, _>>()
             .map_err(e)?;
-        self.next_slot = r.varint().map_err(e)? as u32;
-        self.terminal_slots = r.varint().map_err(e)? as u32;
-        let n = r.len(usize::MAX).map_err(e)?;
+        self.next_slot = r.item(|r| r.varint()).map_err(e)? as u32;
+        self.terminal_slots = r.item(|r| r.varint()).map_err(e)? as u32;
+        let n = r.item(|r| r.len(usize::MAX)).map_err(e)?;
         self.phase_starts = (0..n)
-            .map(|_| Ok((r.varint()? as usize, r.varint()? as usize)))
+            .map(|_| r.item(|r| Ok((r.varint()? as usize, r.varint()? as usize))))
             .collect::<Result<_, String>>()
             .map_err(e)?;
-        self.lookups = r.varint().map_err(e)? as usize;
+        self.lookups = r.item(|r| r.varint()).map_err(e)? as usize;
         Ok(())
     }
 
