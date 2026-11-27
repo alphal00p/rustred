@@ -59,7 +59,9 @@ use super::path_census::{
     PCensusAgg, PCensusKind, PCensusOwner, PPathCensus, PRouteRecord, PStepRecord,
 };
 use super::presentation::Presentation;
-use super::step::{PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, default_order_key};
+use super::step::{
+    OrderEntries, PChild, PKeyView, POrderKey, PStage, PStepContext, PStepOut, default_order_key,
+};
 use super::tag::GammaTag;
 use super::terminal::PTerminalCodec;
 use super::{OwnerClassId, P_GAMMA_TAG_WIDTH, PTerminalId, PresentationId};
@@ -150,7 +152,13 @@ impl std::hash::Hash for PView {
 }
 
 /// One scheduled identity of a p reduction.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+///
+/// eng-stage: `Stage` exists only with [`route_staged_requested`]: a Route
+/// key part-way through its staged transport (see [`StageCell`]). The
+/// variant order of the derived `Hash` keeps `Route` and `Apply` where they
+/// were; the order (`Ord`) is `Route < Stage < Apply`, as the packed form
+/// compares.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum PKey {
     Route {
         presentation: PresentationId,
@@ -160,14 +168,97 @@ pub(crate) enum PKey {
         class: OwnerClassId,
         view: PView,
     },
+    /// The routed sector `cell` (an index of the engine's census table,
+    /// [`PEngine::stage_source`]) with `view` = the owner presentation's
+    /// powers so far, then the exponents of the source's non-support slots
+    /// not substituted yet (in slot order), then the tag slots without their
+    /// trailing zeros. Never a terminal, a census sector or an orbit
+    /// element; never stored in a step cache or a resume state.
+    Stage {
+        cell: u32,
+        view: PView,
+    },
+}
+
+impl PKey {
+    /// The variant in the key order: Route, Stage, Apply.
+    fn order_rank(&self) -> u8 {
+        match self {
+            PKey::Route { .. } => 0,
+            PKey::Stage { .. } => 1,
+            PKey::Apply { .. } => 2,
+        }
+    }
+}
+
+impl PartialOrd for PKey {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PKey {
+    /// The variant (Route, Stage, Apply), then its id, then the powers: for
+    /// Route and Apply keys exactly the order derived before eng-stage.
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (
+                PKey::Route {
+                    presentation: a,
+                    view: x,
+                },
+                PKey::Route {
+                    presentation: b,
+                    view: y,
+                },
+            ) => a.cmp(b).then_with(|| x.cmp(y)),
+            (PKey::Apply { class: a, view: x }, PKey::Apply { class: b, view: y }) => {
+                a.cmp(b).then_with(|| x.cmp(y))
+            }
+            (PKey::Stage { cell: a, view: x }, PKey::Stage { cell: b, view: y }) => {
+                a.cmp(b).then_with(|| x.cmp(y))
+            }
+            _ => self.order_rank().cmp(&other.order_rank()),
+        }
+    }
+}
+
+/// eng-stage: the packed id of a Stage key of cell `c` is `STAGE_ID | c`;
+/// Route ids are presentation ids (`u32`), so the two never meet.
+const STAGE_ID: u64 = 1 << 32;
+
+/// eng-stage: `RUSTRED_P_ROUTE_STAGED=1|on|true` (default off): every Route
+/// step of a key with at least two numerator powers on a routed sector is
+/// done in stages, one power of one source numerator slot per stage over
+/// the whole population of its sector ([`StageCell`]); identical
+/// intermediates merge on the frontier. The children of every Route phase,
+/// with their weights, are those of the one-step transport; the recorded
+/// trace is not. Unset or any other value: the one-step transport, exactly.
+/// Read once per process.
+pub(crate) fn route_staged_requested() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| {
+        matches!(
+            std::env::var("RUSTRED_P_ROUTE_STAGED").as_deref(),
+            Ok("1" | "on" | "true")
+        )
+    })
 }
 
 /// `PKey` packed in a `Packed` frontier (rr-frontier): the presentation or
 /// class id, and the powers inline with the variant as the tag (`Apply`).
+/// eng-stage: a Stage key has no tag and the id `STAGE_ID | cell`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct PackedPKey {
     id: u64,
     view: CompactPowers,
+}
+
+impl PackedPKey {
+    /// eng-stage: whether this is a packed Stage key.
+    fn is_stage(&self) -> bool {
+        !self.view.tag() && self.id >= STAGE_ID
+    }
 }
 
 impl FrontierKey for PKey {
@@ -182,6 +273,10 @@ impl FrontierKey for PKey {
                 id: class.0,
                 view: view.packed.with_tag(true),
             },
+            PKey::Stage { cell, view } => PackedPKey {
+                id: STAGE_ID | u64::from(*cell),
+                view: view.packed.with_tag(false),
+            },
         }
     }
     fn unpack(packed: &PackedPKey) -> PKey {
@@ -194,6 +289,11 @@ impl FrontierKey for PKey {
                 class: OwnerClassId(packed.id),
                 view,
             }
+        } else if packed.is_stage() {
+            PKey::Stage {
+                cell: u32::try_from(packed.id - STAGE_ID).expect("a packed stage cell is a u32"),
+                view,
+            }
         } else {
             PKey::Route {
                 presentation: PresentationId(
@@ -203,8 +303,8 @@ impl FrontierKey for PKey {
             }
         }
     }
-    /// The derived order of `PKey`: `Route` before `Apply`, then the id, then
-    /// the powers.
+    /// The order of `PKey`: `Route` (ids below [`STAGE_ID`]) before `Stage`
+    /// before `Apply`, then the id, then the powers.
     fn cmp_packed(a: &PackedPKey, b: &PackedPKey) -> std::cmp::Ordering {
         a.view
             .tag()
@@ -438,6 +538,72 @@ pub(crate) struct PEngine {
     presentation_orbits: Vec<OrbitCell>,
     /// rr-alloc: the id of this engine in the per-thread route memo.
     uid: u64,
+    /// eng-stage: the tables of the staged route transport, `None` unless
+    /// [`route_staged_requested`].
+    stage: Option<StageTables>,
+}
+
+/// eng-stage: one term of one power of a source numerator slot's affine
+/// form in the owner's slots: `D'_slot` (or the constant, `slot: None`)
+/// with its exact coefficient and that coefficient's index in the engine's
+/// stage coefficient table (its light handle).
+struct StageTerm {
+    slot: Option<usize>,
+    coefficient: Coefficient,
+    index: u32,
+}
+
+/// eng-stage: the staged transport of one routed sector (a *cell*): a key
+/// `prod_{j in s} D_j^{a_j} prod_{v not in s} D_v^{-e_v}` of the sector is
+/// `base * prod_v F_v^{e_v}` in the owner's slots (`F_v` the affine form of
+/// source slot `v`, [`Prepared::factor_expansion`]); a stage multiplies by
+/// ONE power of the next variable, in `order` (fewest terms of `F_v` first,
+/// ties by slot), the top power first. A function of the route map only.
+struct StageCell {
+    class: OwnerClassId,
+    owner_presentation: PresentationId,
+    owner_support: u64,
+    owner_arity: usize,
+    /// The source slots outside the support, increasing: the variables.
+    vars: Box<[usize]>,
+    /// The substitution order (indices into `vars`).
+    order: Box<[usize]>,
+    /// One power of each variable (indexed like `vars`).
+    terms: Box<[Box<[StageTerm]>]>,
+}
+
+/// eng-stage: the subsets of an owner support that are census-Zero together
+/// with all their own subsets (the forced axes always present), as a bit set
+/// over the subsets of the support's other slots `free`.
+struct HereditaryZero {
+    free: Box<[usize]>,
+    set: Box<[u64]>,
+}
+
+impl HereditaryZero {
+    fn contains(&self, support: u64) -> bool {
+        let mut index = 0_usize;
+        for (bit, &slot) in self.free.iter().enumerate() {
+            index |= ((support >> slot & 1) as usize) << bit;
+        }
+        self.set[index >> 6] >> (index & 63) & 1 == 1
+    }
+}
+
+/// eng-stage: built in [`PEngine::new`] when the staged transport is
+/// requested; the cells and zero tables are filled on first use.
+struct StageTables {
+    /// The routed sector `(presentation, support)` of every cell, by the
+    /// index of its census fate in `PEngine::routed`.
+    sources: Vec<(PresentationId, u64)>,
+    cells: Vec<OnceLock<Arc<StageCell>>>,
+    hereditary: FastMap<OwnerClassId, OnceLock<Option<Arc<HereditaryZero>>>>,
+    /// The distinct coefficients of the cells' terms (light handles name
+    /// them by index); append-only for the engine's life.
+    coefficients: std::sync::RwLock<(
+        Vec<Coefficient>,
+        std::collections::HashMap<Coefficient, u32>,
+    )>,
 }
 
 impl PEngine {
@@ -470,10 +636,26 @@ impl PEngine {
         for cell in &mut self.presentation_orbits {
             dropped += usize::from(cell.take().is_some());
         }
+        // eng-stage: the cells and zero tables (rebuilt on use); the
+        // coefficient table stays (light handles of later requests).
+        if let Some(stage) = &mut self.stage {
+            for cell in &mut stage.cells {
+                dropped += usize::from(cell.take().is_some());
+            }
+            for cell in stage.hereditary.values_mut() {
+                dropped += usize::from(cell.take().is_some());
+            }
+        }
         dropped
     }
 
     pub(crate) fn new(library: &PLibrary) -> Result<Self, PError> {
+        Self::with_staging(library, route_staged_requested())
+    }
+
+    /// eng-stage: [`Self::new`] with the staged route transport's tables
+    /// (`staged`) or without them (today's engine).
+    pub(crate) fn with_staging(library: &PLibrary, staged: bool) -> Result<Self, PError> {
         let shapes: Vec<Shape> = library
             .presentations()
             .iter()
@@ -534,11 +716,15 @@ impl PEngine {
         let presentation_orbits = shapes.iter().map(|_| OnceLock::new()).collect();
         let mut fates = FastMap::default();
         let mut routed = Vec::new();
+        let mut sources = Vec::new();
         for (&sector, fate) in &census.sectors {
             let fate = match fate {
                 PSectorFate::Zero => None,
                 PSectorFate::Owner { class, map } => {
                     routed.push((*class, map.clone()));
+                    if staged {
+                        sources.push(sector);
+                    }
                     Some(u32::try_from(routed.len() - 1).map_err(|_| {
                         PError::MalformedLibrary("too many routed sectors".to_owned())
                     })?)
@@ -546,6 +732,15 @@ impl PEngine {
             };
             fates.insert(sector, fate);
         }
+        let stage = staged.then(|| StageTables {
+            cells: sources.iter().map(|_| OnceLock::new()).collect(),
+            sources,
+            hereditary: owners
+                .keys()
+                .map(|&class| (class, OnceLock::new()))
+                .collect(),
+            coefficients: Default::default(),
+        });
         Ok(Self {
             orbits,
             route_orbits,
@@ -560,7 +755,68 @@ impl PEngine {
             owner_sectors,
             routes,
             uid: super::step_memo::next_uid(),
+            stage,
         })
+    }
+
+    /// eng-stage: the cell of a routed sector (the index of its census fate),
+    /// `None` on an owner sector, a zero sector or a census gap.
+    fn routed_cell(&self, presentation: PresentationId, support: u64) -> Option<u32> {
+        if self.owner_sectors.contains_key(&(presentation, support)) {
+            return None;
+        }
+        self.fates.get(&(presentation, support)).copied().flatten()
+    }
+
+    /// eng-stage: the routed sector of `cell`.
+    fn stage_source(&self, cell: u32) -> Result<(PresentationId, u64), PError> {
+        self.stage
+            .as_ref()
+            .and_then(|stage| stage.sources.get(cell as usize).copied())
+            .ok_or_else(|| {
+                PError::MalformedLibrary(format!(
+                    "a staged Route key names the unknown cell {cell} (staged transport off?)"
+                ))
+            })
+    }
+
+    /// eng-stage: the coefficient behind a stage light handle's index.
+    fn stage_coefficient(&self, index: u32) -> Option<Coefficient> {
+        let stage = self.stage.as_ref()?;
+        let table = stage
+            .coefficients
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        table.0.get(index as usize).cloned()
+    }
+
+    /// eng-stage: the index of `coefficient` in the stage coefficient table.
+    fn stage_coefficient_index(&self, coefficient: &Coefficient) -> Result<u32, PError> {
+        let stage = self
+            .stage
+            .as_ref()
+            .ok_or_else(|| PError::Contract("staged transport off".to_owned()))?;
+        if let Some(&index) = stage
+            .coefficients
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .1
+            .get(coefficient)
+        {
+            return Ok(index);
+        }
+        let mut table = stage
+            .coefficients
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(&index) = table.1.get(coefficient) {
+            return Ok(index);
+        }
+        let index = u32::try_from(table.0.len())
+            .map_err(|_| PError::Contract("too many stage coefficients".to_owned()))?;
+        table.0.push(coefficient.clone());
+        table.1.insert(coefficient.clone(), index);
+        Ok(index)
     }
 
     fn shape(&self, presentation: PresentationId) -> Result<&Shape, PError> {
@@ -915,6 +1171,7 @@ impl PEngine {
                     PKey::Apply { class, .. } => {
                         self.owner(*class).ok().map(|slot| slot.presentation)
                     }
+                    PKey::Stage { .. } => None,
                 }),
                 canonical,
                 canonical_routes,
@@ -934,6 +1191,9 @@ impl PEngine {
                 prefer_high: library.orbit_prefer_high(),
                 zero_pruning: zero_pruning.as_ref(),
                 warm: &warm,
+                staged: self.stage.is_some()
+                    && !census.on
+                    && !crate::reduction::ordered_reduction::p_requests_run_the_adjoint_tail(),
                 counted,
                 retain,
             },
@@ -1061,6 +1321,16 @@ pub(crate) mod light {
 
     pub(crate) fn is_local(handle: u64) -> bool {
         handle >> 61 & 1 == 1
+    }
+
+    /// eng-stage: a handle of the engine's stage coefficient table (bit
+    /// 60; never local: valid for the engine's life).
+    pub(crate) fn stage(index: u32, negative: bool) -> u64 {
+        (1 << 63) | (u64::from(negative) << 62) | (1 << 60) | u64::from(index)
+    }
+
+    pub(crate) fn is_stage(handle: u64) -> bool {
+        handle >> 60 & 1 == 1
     }
 
     pub(super) fn put(children: Vec<(PKey, u64)>) {
@@ -1724,6 +1994,9 @@ pub(crate) struct PStepper<'l> {
     zero_pruning: Option<&'l ZeroPruningCounters>,
     /// fwd-opt: the request's setup tasks ([`OrderedStepper::warm`]).
     warm: &'l [WarmTask],
+    /// eng-stage: Route steps are staged ([`route_staged_requested`]; never
+    /// with the path census or the adjoint tail).
+    staged: bool,
     /// vk5l WP1: `PUncoveredPolicy::Retain`: an Apply key the library cannot
     /// reduce becomes a retained residual terminal instead of the error.
     retain: bool,
@@ -1763,6 +2036,7 @@ impl<'l> PStepper<'l> {
         match key {
             PKey::Route { presentation, .. } => (0, u64::from(presentation.0)),
             PKey::Apply { class, .. } => (1, class.0),
+            PKey::Stage { cell, .. } => (2, u64::from(*cell)),
         }
     }
 
@@ -1786,6 +2060,7 @@ impl<'l> PStepper<'l> {
                 self.engine.owner(*class).ok().map(|slot| slot.presentation),
                 view,
             ),
+            PKey::Stage { view, .. } => (None, view),
         };
         let parent_phase = self.phase(key).ok();
         let (mut lines, mut dots, mut rank) = (0_u32, 0_i64, 0_i64);
@@ -1810,6 +2085,7 @@ impl<'l> PStepper<'l> {
             match child {
                 PKey::Apply { class, .. } if kind == 1 && class.0 == id => agg.ch_same += 1,
                 PKey::Apply { .. } => agg.ch_apply += 1,
+                PKey::Stage { .. } => agg.ch_route += 1,
                 PKey::Route {
                     presentation: child_presentation,
                     view: child_view,
@@ -1863,7 +2139,7 @@ impl<'l> PStepper<'l> {
         };
         let route = match key {
             PKey::Route { presentation, view } => self.route_record(*presentation, view, step),
-            PKey::Apply { .. } => None,
+            PKey::Apply { .. } | PKey::Stage { .. } => None,
         };
         let phase = parent_phase.map_or(u32::MAX, |phase| u32::try_from(phase).unwrap_or(u32::MAX));
         PStepRecord {
@@ -1989,15 +2265,27 @@ impl<'l> PStepper<'l> {
                 Ok(phases.route(self.route_t(*presentation, view)?))
             }
             PKey::Apply { class, .. } => Ok(phases.apply(self.engine.owner(*class)?.t)),
+            // eng-stage: the Route phase of the cell's source sector.
+            PKey::Stage { cell, .. } => {
+                let (presentation, support) = self.engine.stage_source(*cell)?;
+                Ok(phases.route(self.engine.shape(presentation)?.line_count(support)))
+            }
         }
     }
 
     fn priority(&self, key: &PKey) -> Result<PPriority, PError> {
-        let PKey::Apply { class, view } = key else {
-            return Ok(PPriority {
-                rank: 0,
-                order: POrderKey::Lexicographic(Default::default()),
-            });
+        let (class, view) = match key {
+            PKey::Apply { class, view } => (class, view),
+            PKey::Route { presentation, view } if self.staged => {
+                return self.staged_route_priority(*presentation, view);
+            }
+            PKey::Stage { cell, view } => return self.stage_priority(*cell, view),
+            PKey::Route { .. } => {
+                return Ok(PPriority {
+                    rank: 0,
+                    order: POrderKey::Lexicographic(Default::default()),
+                });
+            }
         };
         order_cache::lookup(self.engine.uid, class.0, &view.packed, || {
             let slot = self.engine.owner(*class)?;
@@ -2014,6 +2302,461 @@ impl<'l> PStepper<'l> {
                 order,
             })
         })
+    }
+
+    /// eng-stage: the numerator power of a Route key outside its support.
+    fn staged_rank(powers: &[i64], support: u64) -> i64 {
+        powers
+            .iter()
+            .enumerate()
+            .filter(|&(slot, &power)| power < 0 && support >> slot & 1 == 0)
+            .map(|(_, &power)| -power)
+            .sum()
+    }
+
+    /// eng-stage: whether the step of a Route key is staged: a routed
+    /// sector and at least two numerator powers (one power is one stage:
+    /// today's step).
+    fn takes_stages(&self, presentation: PresentationId, view: &PView) -> bool {
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
+        let Ok((powers, _)) = self.engine.split(presentation, &slots) else {
+            return false;
+        };
+        let Ok(shape) = self.engine.shape(presentation) else {
+            return false;
+        };
+        let support = shape.support(powers);
+        self.engine.routed_cell(presentation, support).is_some()
+            && Self::staged_rank(powers, support) >= 2
+    }
+
+    /// eng-stage: the priority of a Route key in a staged run: the keys of
+    /// a routed sector form the group of its cell (larger cell first) and
+    /// come before the cell's Stage keys ([`Self::stage_priority`]); the
+    /// others keep today's (the least).
+    fn staged_route_priority(
+        &self,
+        presentation: PresentationId,
+        view: &PView,
+    ) -> Result<PPriority, PError> {
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
+        let (powers, _) = self.engine.split(presentation, &slots)?;
+        let support = self.engine.shape(presentation)?.support(powers);
+        let mut order = OrderEntries::new();
+        if let Some(cell) = self.engine.routed_cell(presentation, support) {
+            order.push(i64::from(cell));
+            order.push(i64::MAX);
+        }
+        Ok(PPriority {
+            rank: 0,
+            order: POrderKey::Lexicographic(order),
+        })
+    }
+
+    /// eng-stage: `(cell, -(k + 1), e)` for a Stage key whose next variable
+    /// is the `k`-th of its cell's order with `e` powers left: inside the
+    /// cell's group below its Route keys, the variables in order, the top
+    /// power first. Every child is strictly below its parent (one power
+    /// less, or a later variable), and equal keys have equal priorities, so
+    /// every contribution to an intermediate arrives before it is popped.
+    fn stage_priority(&self, cell: u32, view: &PView) -> Result<PPriority, PError> {
+        let data = self.stage_cell(cell)?;
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
+        let remaining = slots
+            .get(data.owner_arity..data.owner_arity + data.vars.len())
+            .ok_or_else(|| PError::MalformedLibrary("a staged Route key too short".to_owned()))?;
+        let (k, e) = data
+            .order
+            .iter()
+            .enumerate()
+            .find_map(|(k, &v)| (remaining[v] > 0).then_some((k, remaining[v])))
+            .ok_or_else(|| {
+                PError::MalformedLibrary(
+                    "a staged Route key with nothing left to expand".to_owned(),
+                )
+            })?;
+        let mut order = OrderEntries::new();
+        order.push(i64::from(cell));
+        order.push(-(k as i64) - 1);
+        order.push(e);
+        Ok(PPriority {
+            rank: 0,
+            order: POrderKey::Lexicographic(order),
+        })
+    }
+
+    /// The compiled route of a routed sector (as [`Self::route_step`]
+    /// compiles it).
+    fn prepared_route(
+        &self,
+        presentation: PresentationId,
+        support: u64,
+        map: &SignedAffineLoopMap,
+        owner: &OwnerSlot,
+    ) -> Result<&'l Prepared, PError> {
+        let engine: &'l PEngine = self.engine;
+        let source = self.library.presentation(presentation);
+        let target = self.library.presentation(owner.presentation);
+        engine
+            .routes
+            .get(&(presentation, support))
+            .ok_or_else(|| {
+                PError::MalformedLibrary(format!(
+                    "sector {support:#x} of presentation {} has no route cell",
+                    presentation.0
+                ))
+            })?
+            .get_or_init(|| {
+                crate::prof!(RouteCompile);
+                restored_route(self.library, source, target, map, support, owner.support)
+                    .unwrap_or_else(|| compile_route(source, target, map, support, owner.support))
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// eng-stage: the staged transport of `cell` (built on first use: one
+    /// [`Prepared::factor_expansion`] of one power per variable).
+    fn stage_cell(&self, cell: u32) -> Result<&'l StageCell, PError> {
+        let engine: &'l PEngine = self.engine;
+        let slot = engine
+            .stage
+            .as_ref()
+            .and_then(|stage| stage.cells.get(cell as usize))
+            .ok_or_else(|| {
+                PError::MalformedLibrary(format!(
+                    "a staged Route key names the unknown cell {cell} (staged transport off?)"
+                ))
+            })?;
+        if let Some(built) = slot.get() {
+            return Ok(built);
+        }
+        let (presentation, support) = engine.stage_source(cell)?;
+        let Sector::Routed { class, map } = engine.sector(self.library, presentation, support)?
+        else {
+            return Err(PError::MalformedLibrary(format!(
+                "stage cell {cell} (sector {support:#x} of presentation {}) is not routed",
+                presentation.0
+            )));
+        };
+        let owner = engine.owner(class)?;
+        let prepared = self.prepared_route(presentation, support, map, owner)?;
+        let source = engine.shape(presentation)?;
+        let limits = ExpansionLimits {
+            diagnostics_enabled: self.limits.diagnostics_enabled,
+            exact_algebra: self.limits.exact_algebra,
+            ..Default::default()
+        };
+        let vars: Vec<usize> = (0..source.arity)
+            .filter(|&slot| support >> slot & 1 == 0)
+            .collect();
+        let mut terms = Vec::with_capacity(vars.len());
+        for &axis in &vars {
+            let expansion = prepared.factor_expansion(axis, 1, limits)?;
+            let mut row = Vec::with_capacity(expansion.len());
+            for endpoint in expansion.iter() {
+                // One power of an affine form: the constant, or one D'_l
+                // (the key -1 on axis l).
+                let mut line = None;
+                for (target, &power) in endpoint.key().powers().iter().enumerate() {
+                    match power {
+                        0 => {}
+                        -1 if line.is_none() => line = Some(target),
+                        _ => {
+                            return Err(PError::MalformedLibrary(format!(
+                                "stage cell {cell}: one power of slot {axis} expands to {:?}",
+                                endpoint.key().powers()
+                            )));
+                        }
+                    }
+                }
+                let coefficient = endpoint.coefficient().clone();
+                if coefficient.is_zero() {
+                    continue;
+                }
+                let index = engine.stage_coefficient_index(&coefficient)?;
+                row.push(StageTerm {
+                    slot: line,
+                    coefficient,
+                    index,
+                });
+            }
+            terms.push(row.into_boxed_slice());
+        }
+        // Fewest terms first, ties by slot (lane stage's "small" order).
+        let mut order: Vec<usize> = (0..vars.len()).collect();
+        order.sort_by_key(|&v| (terms[v].len(), vars[v]));
+        let built = Arc::new(StageCell {
+            class,
+            owner_presentation: owner.presentation,
+            owner_support: owner.support,
+            owner_arity: engine.shape(owner.presentation)?.arity,
+            vars: vars.into_boxed_slice(),
+            order: order.into_boxed_slice(),
+            terms: terms.into_boxed_slice(),
+        });
+        let _ = slot.set(built);
+        slot.get()
+            .map(|built| &**built)
+            .ok_or_else(|| PError::Contract("a stage cell was not kept".to_owned()))
+    }
+
+    /// eng-stage: the hereditary zero subsets of the owner support of
+    /// `cell` (pruning of intermediates), `None` without pruning or for an
+    /// owner support of more than 24 non-forced slots.
+    fn hereditary_zero(&self, cell: &StageCell) -> Option<&'l HereditaryZero> {
+        if self.zero_pruning.is_none() || !raw_zero_enabled() {
+            return None;
+        }
+        let engine: &'l PEngine = self.engine;
+        let slot = engine.stage.as_ref()?.hereditary.get(&cell.class)?;
+        slot.get_or_init(|| {
+            let shape = engine.shape(cell.owner_presentation).ok()?;
+            let free: Vec<usize> = (0..64_usize)
+                .filter(|&slot| (cell.owner_support & !shape.forced) >> slot & 1 == 1)
+                .collect();
+            if free.len() > 24 {
+                return None;
+            }
+            let count = 1_usize << free.len();
+            let mut set = vec![0_u64; count.div_ceil(64)];
+            // Increasing order: every proper subset of `x` comes before it.
+            for x in 0..count {
+                let mut support = shape.forced;
+                for (bit, &slot) in free.iter().enumerate() {
+                    if x >> bit & 1 == 1 {
+                        support |= 1 << slot;
+                    }
+                }
+                let mut hereditary = matches!(
+                    engine.sector(self.library, cell.owner_presentation, support),
+                    Ok(Sector::Zero)
+                );
+                let mut rest = x;
+                while hereditary && rest != 0 {
+                    let bit = rest & rest.wrapping_neg();
+                    rest &= rest - 1;
+                    let below = x & !bit;
+                    hereditary = set[below >> 6] >> (below & 63) & 1 == 1;
+                }
+                if hereditary {
+                    set[x >> 6] |= 1 << (x & 63);
+                }
+            }
+            Some(Arc::new(HereditaryZero {
+                free: free.into_boxed_slice(),
+                set: set.into_boxed_slice(),
+            }))
+        })
+        .as_deref()
+    }
+
+    /// eng-stage: the first stage of a staged Route key: its base (positive
+    /// and forced powers on their owner slots) and its numerator exponents.
+    fn staged_route_step(
+        &self,
+        presentation: PresentationId,
+        support: u64,
+        prepared: &Prepared,
+        powers: &[i64],
+        tag_slots: &[i64],
+    ) -> Result<OrderedStep<PKey>, PError> {
+        let cell = self
+            .engine
+            .routed_cell(presentation, support)
+            .ok_or_else(|| PError::Contract("a staged Route key off a routed sector".to_owned()))?;
+        let data = self.stage_cell(cell)?;
+        let mut base = Vec::with_capacity(data.owner_arity);
+        prepared.layered_base_powers(powers, &mut base)?;
+        // Every positive power is in the support: the variables hold <= 0.
+        let mut remaining: SmallVec<[i64; 24]> =
+            data.vars.iter().map(|&axis| -powers[axis].min(0)).collect();
+        self.expand_stage(cell, data, &base, &mut remaining, tag_slots)
+    }
+
+    /// eng-stage: the step of a Stage key: its next power.
+    fn stage_step(&self, cell: u32, view: &PView) -> Result<OrderedStep<PKey>, PError> {
+        crate::prof!(RouteStep);
+        let data = self.stage_cell(cell)?;
+        let mut slots = ViewSlots::new();
+        view.slots_into(&mut slots);
+        let (arity, vars) = (data.owner_arity, data.vars.len());
+        if slots.len() < arity + vars || slots.len() > arity + vars + P_GAMMA_TAG_WIDTH {
+            return Err(PError::MalformedLibrary(format!(
+                "a staged Route key of cell {cell} has {} slots",
+                slots.len()
+            )));
+        }
+        let (owner, rest) = slots.split_at(arity);
+        let (remaining, tag) = rest.split_at(vars);
+        let mut remaining: SmallVec<[i64; 24]> = SmallVec::from_slice(remaining);
+        self.expand_stage(cell, data, owner, &mut remaining, tag)
+    }
+
+    /// eng-stage: one stage of the key `(owner, remaining, tag)` of `cell`:
+    /// one power of the next variable times the key. Before the last power
+    /// the children are Stage keys (an intermediate whose owner support is
+    /// hereditarily zero is dropped: every final child it reaches would be
+    /// dropped by [`Self::raw_known_zero`]); the last power emits the
+    /// children of [`Self::route_step`], through the same zero test and
+    /// canonicalisation.
+    #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
+    fn expand_stage(
+        &self,
+        cell: u32,
+        data: &StageCell,
+        owner: &[i64],
+        remaining: &mut SmallVec<[i64; 24]>,
+        tag: &[i64],
+    ) -> Result<OrderedStep<PKey>, PError> {
+        crate::prof!(RouteChildren);
+        let engine = self.engine;
+        let v = data
+            .order
+            .iter()
+            .copied()
+            .find(|&v| remaining[v] > 0)
+            .ok_or_else(|| {
+                PError::MalformedLibrary(
+                    "a staged Route key with nothing left to expand".to_owned(),
+                )
+            })?;
+        remaining[v] -= 1;
+        let last = remaining.iter().all(|&e| e == 0);
+        let tag = &tag[..tag
+            .iter()
+            .rposition(|&slot| slot != 0)
+            .map_or(0, |at| at + 1)];
+        let shape = engine.shape(data.owner_presentation)?;
+        if owner.len() != data.owner_arity || tag.len() > P_GAMMA_TAG_WIDTH {
+            return Err(PError::MalformedLibrary(
+                "a staged Route key of another owner arity".to_owned(),
+            ));
+        }
+        let light_on = light::enabled();
+        let mut step = OrderedStep::default();
+        let mut target: SmallVec<[i64; 24]> = SmallVec::from_slice(owner);
+        let place = |term: &StageTerm, target: &mut SmallVec<[i64; 24]>| {
+            target.clear();
+            target.extend_from_slice(owner);
+            if let Some(slot) = term.slot {
+                target[slot] -= 1;
+            }
+        };
+        if last {
+            let mut dense = [0_i64; P_GAMMA_TAG_WIDTH];
+            dense[..tag.len()].copy_from_slice(tag);
+            let tag = GammaTag::decode_dense(&dense)?;
+            let context = self.library.coefficient_context();
+            if light_on {
+                let mut pairs: Vec<(PKey, u64)> = Vec::with_capacity(data.terms[v].len());
+                for term in data.terms[v].iter() {
+                    place(term, &mut target);
+                    let support = shape.support(&target);
+                    if support != data.owner_support
+                        && self.raw_known_zero(data.owner_presentation, support)
+                    {
+                        continue;
+                    }
+                    let (child, negative) = if support == data.owner_support {
+                        self.apply_key_with(data.class, &target, &tag, false, |b| !b)?
+                    } else {
+                        self.route_child_with(data.owner_presentation, &target, &tag, false, |b| {
+                            !b
+                        })?
+                    };
+                    let keep = match self.zero_pruning {
+                        Some(counters) => self.keep_canonical_key(&child, counters)?,
+                        None => true,
+                    };
+                    if keep {
+                        pairs.push((child, light::stage(term.index, negative)));
+                    }
+                }
+                pairs.sort_by(|a, b| a.0.cmp(&b.0));
+                // Children met twice (canonical images) are materialised and
+                // summed, the others stay light (as in `route_step`).
+                let mut single = Vec::with_capacity(pairs.len());
+                let mut repeated: Vec<(PKey, Coefficient)> = Vec::new();
+                let mut pairs = pairs.into_iter().peekable();
+                while let Some((key, handle)) = pairs.next() {
+                    if pairs.peek().is_none_or(|(next, _)| *next != key) && {
+                        repeated.last().is_none_or(|(last, _)| *last != key)
+                    } {
+                        single.push((key, handle));
+                        continue;
+                    }
+                    let value = OrderedStepper::light_value(self, handle).ok_or_else(|| {
+                        PError::Contract("a stage handle names no coefficient".to_owned())
+                    })?;
+                    repeated.push((key, value));
+                }
+                step.terms = merge_all(context, &self.limits, repeated)?;
+                light::put(single);
+            } else {
+                let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(data.terms[v].len());
+                for term in data.terms[v].iter() {
+                    place(term, &mut target);
+                    let support = shape.support(&target);
+                    if support != data.owner_support
+                        && self.raw_known_zero(data.owner_presentation, support)
+                    {
+                        continue;
+                    }
+                    let (child, coefficient) = if support == data.owner_support {
+                        self.apply_key(data.class, &target, &tag, term.coefficient.clone())?
+                    } else {
+                        self.route_child(
+                            data.owner_presentation,
+                            &target,
+                            &tag,
+                            term.coefficient.clone(),
+                        )?
+                    };
+                    if self.keep_canonical_child(&child, &coefficient)? {
+                        pairs.push((child, coefficient));
+                    }
+                }
+                step.terms = merge_all(context, &self.limits, pairs)?;
+            }
+            return Ok(step);
+        }
+        let zero = self.hereditary_zero(data);
+        let mut slots = ViewSlots::new();
+        let mut light_children: Vec<(PKey, u64)> = Vec::new();
+        for term in data.terms[v].iter() {
+            place(term, &mut target);
+            let support = shape.support(&target);
+            if support != data.owner_support
+                && support & !data.owner_support == 0
+                && zero.is_some_and(|zero| zero.contains(support))
+            {
+                continue;
+            }
+            slots.clear();
+            slots.extend_from_slice(&target);
+            slots.extend_from_slice(remaining);
+            slots.extend_from_slice(tag);
+            let child = PKey::Stage {
+                cell,
+                view: PView::new(&slots),
+            };
+            if light_on {
+                light_children.push((child, light::stage(term.index, false)));
+            } else {
+                step.terms.insert(child, term.coefficient.clone());
+            }
+        }
+        if light_on {
+            // Distinct monomials: distinct children; sorted, as light
+            // children are handed over.
+            light_children.sort_by(|a, b| a.0.cmp(&b.0));
+            light::put(light_children);
+        }
+        Ok(step)
     }
 
     #[allow(clippy::mutable_key_type)] // PKey views cache their IntegralKey lazily; Hash/Ord read only the packed powers (rr-alloc)
@@ -2068,6 +2811,10 @@ impl<'l> PStepper<'l> {
             })
             .as_ref()
             .map_err(Clone::clone)?;
+        // eng-stage: two or more numerator powers go through the stages.
+        if self.staged && Self::staged_rank(powers, support) >= 2 {
+            return self.staged_route_step(presentation, support, prepared, powers, tag_slots);
+        }
         let limits = ExpansionLimits {
             diagnostics_enabled: self.limits.diagnostics_enabled,
             exact_algebra: self.limits.exact_algebra,
@@ -3170,6 +3917,14 @@ impl<'l> PStepper<'l> {
             return None;
         }
         let (stage, t, class) = match key {
+            // eng-stage: a staged step emits Stage keys, which no record
+            // encodes: neither recorded nor looked up.
+            PKey::Stage { .. } => return None,
+            PKey::Route { presentation, view }
+                if self.staged && self.takes_stages(*presentation, view) =>
+            {
+                return None;
+            }
             PKey::Route { presentation, view } => (
                 OrderedStepStage::Route,
                 self.route_t(*presentation, view).ok()?,
@@ -3249,6 +4004,7 @@ impl OrderedStepper for PStepper<'_> {
             PKey::Route { presentation, view } => {
                 (self.route_step(*presentation, view), PAccount::default())
             }
+            PKey::Stage { cell, view } => (self.stage_step(*cell, view), PAccount::default()),
             PKey::Apply { class, view } => {
                 if self.census.on {
                     super::custom::take_rule_hit();
@@ -3316,7 +4072,10 @@ impl OrderedStepper for PStepper<'_> {
 
     fn light_value(&self, handle: u64) -> Option<Coefficient> {
         let (index, negative) = light::split(handle);
-        let value = if light::is_local(handle) {
+        let value = if light::is_stage(handle) {
+            // eng-stage: the engine's stage coefficient table (append-only).
+            self.engine.stage_coefficient(index)
+        } else if light::is_local(handle) {
             // lane bytebound: a handle of an earlier memo generation names
             // nothing (the invariant error of the caller), never a value of
             // the new coefficient table.
@@ -3450,6 +4209,16 @@ impl OrderedKernel for PKernel<'_, '_> {
             }
         }
     }
+    /// eng-stage: a staged Route phase holds Stage keys, which a state cannot
+    /// store: no state is saved inside it.
+    fn inphase_save_refusal(&self, phase: usize) -> Option<String> {
+        (self.stepper.staged && phase.is_multiple_of(2)).then(|| {
+            format!(
+                "Route phase {phase} runs staged (RUSTRED_P_ROUTE_STAGED) and its partially substituted keys have no \
+                 saved form; the last saved state is kept and a restart from it redoes this phase"
+            )
+        })
+    }
     /// vk5l-physrun resume state: a pending key from its compact form.
     fn tail_key(&self, encoded: &[u8]) -> Option<PKey> {
         let (stage, integral) =
@@ -3505,7 +4274,9 @@ impl OrderedKernel for PKernel<'_, '_> {
 
     fn key_heap_bytes(key: &PKey) -> usize {
         match key {
-            PKey::Route { view, .. } | PKey::Apply { view, .. } => view.packed.heap_bytes(),
+            PKey::Route { view, .. } | PKey::Apply { view, .. } | PKey::Stage { view, .. } => {
+                view.packed.heap_bytes()
+            }
         }
     }
 
@@ -3526,6 +4297,9 @@ impl OrderedKernel for PKernel<'_, '_> {
     fn tail_encode_stored(key: StoredKey<'_, PKey>, out: &mut Vec<u8>) -> bool {
         match key {
             StoredKey::Key(key) => Self::tail_encode(key, out),
+            // eng-stage: a Stage key has no compact form (a state holding one
+            // is declined, never written with a Route header).
+            StoredKey::Packed(packed) if packed.is_stage() => false,
             StoredKey::Packed(packed) => {
                 let start = out.len();
                 crate::reduction::ordered_reduction::step_cache::codec::encode_class_header(
@@ -3555,6 +4329,8 @@ impl OrderedKernel for PKernel<'_, '_> {
                 OrderedKeyStage::ClassApply { class: class.0 },
                 view.integral(),
             ),
+            // eng-stage: no public view (never recorded nor saved).
+            PKey::Stage { .. } => return None,
         })
     }
 
@@ -4003,6 +4779,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: None,
             warm: &[],
+            staged: false,
             counted: false,
             retain: false,
         };
@@ -4080,6 +4857,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: None,
             warm: &[],
+            staged: false,
             counted: false,
             retain: false,
         };
@@ -4110,6 +4888,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: None,
             warm: &[],
+            staged: false,
             counted: false,
             retain: false,
         };
@@ -4183,6 +4962,7 @@ mod tests {
             prefer_high: false,
             zero_pruning: Some(&counters),
             warm: &[],
+            staged: false,
             counted: false,
             retain: false,
         };
@@ -4619,5 +5399,410 @@ mod tests {
         if keep.is_none() {
             std::fs::remove_dir_all(root).unwrap();
         }
+    }
+
+    // eng-stage: the staged route transport on one hand-checkable map.
+    //
+    // Source presentation 0: D1 = k1^2, D2 = k2^2, D3 = (k1-q)^2,
+    // D4 = (k2-q)^2, D5 = (k1-k2)^2; owner presentation 1: E1 = k1^2,
+    // E2 = k2^2, E3 = (k1-q)^2, E4 = (k2-q)^2, E5 = (k1+k2-q)^2. Sector
+    // {D1, D2, D3} is routed by the identity loop map onto the owner sector
+    // {E1, E2, E3}, every proper subset of which is a zero sector. With
+    // q^2 = -1: D4 = E4 (1 term) and D5 = E1 + E2 + E3 + E4 - E5 + 1
+    // (6 terms), so D4 is substituted first, then D5 one power at a time.
+    const STAGE_SOURCE: PresentationId = PresentationId(0);
+    const STAGE_OWNER: PresentationId = PresentationId(1);
+
+    fn staged_library() -> (PLibrary, OwnerClassId) {
+        let context = CoefficientContext::try_new(["d"]).unwrap();
+        let mut census = PCensus::default();
+        let class = census
+            .insert_class(PClassRecord {
+                key: OwnerClassKey {
+                    loops: 2,
+                    lines: 3,
+                    eps_lines: 0,
+                    canonical: Arc::from(&b"stage owner"[..]),
+                },
+                owner: (STAGE_OWNER, 0b111),
+                node: None,
+                nodes: Vec::new(),
+                t: 3,
+                eps_lines: 0,
+            })
+            .unwrap();
+        census.sectors.insert(
+            (STAGE_SOURCE, 0b111),
+            PSectorFate::Owner {
+                class,
+                map: SignedAffineLoopMap {
+                    loops_in: 2,
+                    loops_out: 2,
+                    loop_linear: Box::new([1, 0, 0, 1]),
+                    loop_external: Box::new([0, 0]),
+                    external_sign: 1,
+                },
+            },
+        );
+        for subset in 0..0b111 {
+            census
+                .sectors
+                .insert((STAGE_OWNER, subset), PSectorFate::Zero);
+        }
+        let mut builder = PLibrary::builder(context.clone(), 1..=2);
+        builder
+            .add_presentation(presentation(
+                &context,
+                0,
+                2,
+                &[
+                    &[1, 0, 0],
+                    &[0, 1, 0],
+                    &[1, 0, -1],
+                    &[0, 1, -1],
+                    &[1, -1, 0],
+                ],
+            ))
+            .unwrap();
+        builder
+            .add_presentation(presentation(
+                &context,
+                1,
+                2,
+                &[
+                    &[1, 0, 0],
+                    &[0, 1, 0],
+                    &[1, 0, -1],
+                    &[0, 1, -1],
+                    &[1, 1, -1],
+                ],
+            ))
+            .unwrap();
+        builder.set_census(census).unwrap();
+        builder
+            .add_owner_with_program(
+                POwnerSpec {
+                    class,
+                    lane: OwnerLane::Custom,
+                    presentation: STAGE_OWNER,
+                    node: None,
+                    roles: LaneRoles::None,
+                    edge_maps: Vec::new(),
+                    payload: None,
+                    custom: None,
+                    terminals: Vec::new(),
+                },
+                OwnerProgram::Missing { ledger: 0 },
+            )
+            .unwrap();
+        // Apply keys of the owner become named residuals under Retain.
+        builder
+            .declare_open_node(class, "TSTAGE", "a test owner")
+            .unwrap();
+        (builder.build().unwrap(), class)
+    }
+
+    fn stage_stepper<'l>(
+        library: &'l PLibrary,
+        engine: &'l PEngine,
+        staged: bool,
+        zero_pruning: Option<&'l ZeroPruningCounters>,
+    ) -> PStepper<'l> {
+        PStepper {
+            library,
+            engine,
+            limits: ReductionLimits::default(),
+            census: PCensusMode::OFF,
+            canonical: false,
+            canonical_routes: false,
+            prefer_high: false,
+            zero_pruning,
+            warm: &[],
+            staged,
+            counted: false,
+            retain: false,
+        }
+    }
+
+    /// The children of one step of `key` (its terms, then its light
+    /// children by value), each with its position.
+    #[allow(clippy::mutable_key_type)]
+    fn stage_children(
+        stepper: &PStepper<'_>,
+        key: &PKey,
+        light_on: bool,
+    ) -> Vec<(PKey, Coefficient)> {
+        light::set(light_on);
+        let step = OrderedStepper::step(stepper, key).0.unwrap();
+        let mut children: Vec<(PKey, Coefficient)> = step.terms.into_iter().collect();
+        for (child, handle) in OrderedStepper::take_light(stepper) {
+            children.push((child, OrderedStepper::light_value(stepper, handle).unwrap()));
+        }
+        light::set(false);
+        children
+    }
+
+    /// The Route phase of `root` as the scheduler runs it: the greatest
+    /// pending (priority, key) first, children of the same phase strictly
+    /// below their parent and merged before they are popped; the children of
+    /// later phases (the Route step's children) with their weights.
+    #[allow(clippy::mutable_key_type)]
+    fn staged_route(
+        stepper: &PStepper<'_>,
+        root: PKey,
+        light_on: bool,
+    ) -> (BTreeMap<PKey, Coefficient>, usize) {
+        let context = stepper.library.coefficient_context();
+        let limits = ReductionLimits::default();
+        let position = OrderedStepper::position(stepper, &root).unwrap();
+        let phase = position.phase;
+        let mut pending = BTreeMap::new();
+        pending.insert((position.priority, root), context.one());
+        let (mut out, mut steps) = (BTreeMap::new(), 0);
+        while let Some(((priority, key), weight)) = pending.pop_last() {
+            steps += 1;
+            for (child, coefficient) in stage_children(stepper, &key, light_on) {
+                let position = OrderedStepper::position(stepper, &child).unwrap();
+                assert!(
+                    position.phase > phase
+                        || (position.phase == phase && position.priority < priority),
+                    "{child:?} does not descend from {key:?}"
+                );
+                assert_eq!(position.phase == phase, matches!(child, PKey::Stage { .. }));
+                let value = context
+                    .try_mul(&weight, &coefficient, limits.exact_algebra)
+                    .unwrap();
+                if position.phase == phase {
+                    merge(
+                        context,
+                        &limits,
+                        &mut pending,
+                        (position.priority, child),
+                        value,
+                    )
+                    .unwrap();
+                } else {
+                    merge(context, &limits, &mut out, child, value).unwrap();
+                }
+            }
+        }
+        (out, steps)
+    }
+
+    #[test]
+    #[allow(clippy::mutable_key_type)]
+    fn a_staged_route_emits_the_one_step_children() {
+        let (library, class) = staged_library();
+        let staged_engine = PEngine::with_staging(&library, true).unwrap();
+        let engine = PEngine::with_staging(&library, false).unwrap();
+        let counters = ZeroPruningCounters::default();
+        let context = library.coefficient_context();
+        let tag = GammaTag::one();
+        let tagged = GammaTag::from_pairs([(1, 2)]).unwrap();
+        for pruning in [true, false] {
+            let pruning = pruning.then_some(&counters);
+            let one_step = stage_stepper(&library, &engine, false, pruning);
+            let staged = stage_stepper(&library, &staged_engine, true, pruning);
+            for tag in [&tag, &tagged] {
+                for powers in [
+                    [1, 1, 1, -1, -2],
+                    [1, 1, 1, 0, -3],
+                    [2, 1, 1, -2, -1],
+                    [1, 3, 1, -2, -2],
+                    [1, 1, 1, -1, 0],
+                    [1, 1, 1, 0, 0],
+                ] {
+                    let root = engine.route_key(STAGE_SOURCE, &powers, tag).unwrap();
+                    let PKey::Route { view, .. } = &root else {
+                        unreachable!()
+                    };
+                    let expected = one_step.route_step(STAGE_SOURCE, view).unwrap().terms;
+                    for light_on in [false, true] {
+                        let (children, _) = staged_route(&staged, root.clone(), light_on);
+                        assert_eq!(children, expected, "{powers:?} {tag:?} light {light_on}");
+                    }
+                }
+            }
+        }
+        // By hand, zero pruning on: E4 (E1 + E2 + E3 + E4 - E5 + 1)^2 keeps
+        // only the terms without E1, E2, E3 (each pinches a line of the owner
+        // sector: zero), E4 (E4 - E5 + 1)^2.
+        let staged = stage_stepper(&library, &staged_engine, true, Some(&counters));
+        let root = engine
+            .route_key(STAGE_SOURCE, &[1, 1, 1, -1, -2], &tag)
+            .unwrap();
+        let (children, steps) = staged_route(&staged, root.clone(), false);
+        let apply = |powers: [i64; 5], value: i64| {
+            (
+                PKey::Apply {
+                    class,
+                    view: engine.view(&powers, &tag).unwrap(),
+                },
+                context.integer(value),
+            )
+        };
+        let expected: BTreeMap<PKey, Coefficient> = [
+            apply([1, 1, 1, -3, 0], 1),
+            apply([1, 1, 1, -2, -1], -2),
+            apply([1, 1, 1, -1, -2], 1),
+            apply([1, 1, 1, -2, 0], 2),
+            apply([1, 1, 1, -1, -1], -2),
+            apply([1, 1, 1, -1, 0], 1),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(children, expected);
+        // The Route key (D4: one child), one intermediate (D5, first power:
+        // E4, -E5, 1 kept; E1, E2, E3 dropped as hereditarily zero), three
+        // intermediates for the last power.
+        assert_eq!(steps, 1 + 1 + 3);
+        let first = stage_children(&staged, &root, false);
+        assert_eq!(first.len(), 1);
+        let (stage, one) = &first[0];
+        assert_eq!(one, &context.one());
+        let PKey::Stage { view, .. } = stage else {
+            panic!("a Stage key: {stage:?}")
+        };
+        // Owner powers, then the exponents of D4 and D5 left, no tag slot.
+        assert_eq!(view.slots().as_slice(), [1, 1, 1, -1, 0, 0, 2]);
+        assert_eq!(stage_children(&staged, stage, false).len(), 3);
+        let unpruned = stage_stepper(&library, &staged_engine, true, None);
+        assert_eq!(stage_children(&unpruned, stage, false).len(), 6);
+        // The order inside the phase: cell, then (-(k + 1), e).
+        let cell = staged_engine.routed_cell(STAGE_SOURCE, 0b111).unwrap();
+        let lexicographic = |entries: &[i64]| PPriority {
+            rank: 0,
+            order: POrderKey::Lexicographic(entries.iter().copied().collect()),
+        };
+        assert_eq!(
+            OrderedStepper::position(&staged, &root).unwrap().priority,
+            lexicographic(&[i64::from(cell), i64::MAX])
+        );
+        assert_eq!(
+            OrderedStepper::position(&staged, stage).unwrap().priority,
+            lexicographic(&[i64::from(cell), -2, 2])
+        );
+        assert_eq!(
+            OrderedStepper::position(&one_step_of(&library, &engine), &root)
+                .unwrap()
+                .priority,
+            lexicographic(&[])
+        );
+        // A Route key with fewer than two numerator powers takes today's step.
+        let rank_one = engine
+            .route_key(STAGE_SOURCE, &[1, 1, 1, 0, -1], &tag)
+            .unwrap();
+        assert!(
+            stage_children(&staged, &rank_one, false)
+                .iter()
+                .all(|(child, _)| matches!(child, PKey::Apply { .. }))
+        );
+    }
+
+    fn one_step_of<'l>(library: &'l PLibrary, engine: &'l PEngine) -> PStepper<'l> {
+        stage_stepper(library, engine, false, None)
+    }
+
+    #[test]
+    #[allow(clippy::mutable_key_type)]
+    fn stage_keys_pack_in_key_order_and_have_no_saved_form() {
+        let (library, class) = staged_library();
+        let engine = PEngine::with_staging(&library, true).unwrap();
+        let tag = GammaTag::one();
+        let stage = |cell: u32, slots: &[i64]| PKey::Stage {
+            cell,
+            view: PView::new(slots),
+        };
+        let keys = [
+            engine
+                .route_key(STAGE_SOURCE, &[1, 1, 1, -1, -2], &tag)
+                .unwrap(),
+            engine
+                .route_key(STAGE_OWNER, &[1, 1, 0, 0, 0], &tag)
+                .unwrap(),
+            stage(0, &[1, 1, 1, -1, 0, 0, 2]),
+            stage(0, &[1, 1, 1, -1, 0, 0, 1]),
+            stage(7, &[1, 1, 1, -1, 0, 0, 2, 1]),
+            PKey::Apply {
+                class,
+                view: engine.view(&[1, 1, 1, 0, 0], &tag).unwrap(),
+            },
+        ];
+        for a in &keys {
+            assert_eq!(&PKey::unpack(&a.pack()), a);
+            for b in &keys {
+                assert_eq!(
+                    PKey::cmp_packed(&a.pack(), &b.pack()),
+                    a.cmp(b),
+                    "{a:?} {b:?}"
+                );
+                assert_eq!(a == b, a.pack() == b.pack());
+            }
+        }
+        // Route < Stage < Apply.
+        assert!(keys[1] < keys[2] && keys[2] < keys[5]);
+        let mut out = Vec::new();
+        for key in &keys {
+            let saved = PKernel::tail_encode_stored(StoredKey::Packed(&key.pack()), &mut out);
+            assert_eq!(saved, !matches!(key, PKey::Stage { .. }), "{key:?}");
+            assert_eq!(PKernel::tail_encode(key, &mut Vec::new()), saved);
+        }
+    }
+
+    /// A whole reduction (Exact, one thread, through the scheduler and its
+    /// frontier) gives the same terminals with the staged transport.
+    #[test]
+    #[allow(clippy::mutable_key_type)]
+    fn staged_and_one_step_reductions_agree() {
+        let (library, _) = staged_library();
+        let context = library.coefficient_context();
+        let d = context.parameter("d").unwrap();
+        let inputs: Vec<(PresentationId, IntegralKey, Coefficient)> = [
+            ([1, 1, 1, -1, -2], context.one()),
+            ([1, 1, 1, 0, -3], d.clone()),
+            ([2, 1, 1, -2, -1], context.integer(3)),
+            ([1, 3, 1, -2, -2], context.one()),
+            ([1, 1, 1, -1, 0], context.integer(-2)),
+            ([1, 1, 1, 0, 0], d),
+        ]
+        .into_iter()
+        .map(|(powers, coefficient)| {
+            (
+                STAGE_SOURCE,
+                IntegralKey::try_new(powers).unwrap(),
+                coefficient,
+            )
+        })
+        .collect();
+        let run = |staged: bool| {
+            let engine = PEngine::with_staging(&library, staged).unwrap();
+            let limits = ReductionLimits::default();
+            let initial = engine.initial(&library, inputs.clone(), &limits).unwrap();
+            let output = engine
+                .run_reporting(
+                    &library,
+                    initial,
+                    OrderedWeightArithmetic::Exact,
+                    OrderedSchedulerOptions {
+                        threads: 1,
+                        ..Default::default()
+                    },
+                    None,
+                    limits,
+                    None,
+                    true,
+                    &mut BTreeSet::new(),
+                    None,
+                    None,
+                )
+                .unwrap();
+            (output.terms, output.progress.processed_keys)
+        };
+        let (one_step, one_step_keys) = run(false);
+        let (staged, staged_keys) = run(true);
+        assert!(!one_step.is_empty());
+        assert_eq!(staged, one_step);
+        // The staged run pops its intermediates too.
+        assert!(staged_keys > one_step_keys, "{staged_keys} {one_step_keys}");
     }
 }

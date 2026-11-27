@@ -150,6 +150,12 @@ pub(crate) trait OrderedKernel {
     /// by design (a target selection). A non-empty selection also enters the
     /// request directory, so a projected and a full run never share one.
     fn resume_selection(&self, _out: &mut Vec<u8>) {}
+    /// eng-stage: why no state may be saved inside `phase` (its frontier
+    /// can hold keys without a compact form), or `None` (the default). A
+    /// refused in-phase save writes nothing: the last saved state stays.
+    fn inphase_save_refusal(&self, _phase: usize) -> Option<String> {
+        None
+    }
     /// stale memory: drop the step caches of this thread (the step memo with
     /// its coefficient table, prepared weights, zero certificates, canon /
     /// order caches): value-neutral, rebuilt on use. The caller drops the
@@ -2099,6 +2105,8 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     // 12d2: the phase of the last saved state (a final state is saved after
     // the last phase unless that phase was just saved).
     let mut saved_phase: Option<usize> = start_phase.checked_sub(1);
+    // eng-stage: the last phase whose in-phase saves the kernel refused.
+    let mut refused_phase: Option<usize> = None;
     let mut state = match restored {
         Some(state) => state,
         None => crate::prof_wrap!(
@@ -2506,40 +2514,57 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                 && steps.threads() <= 1
                 && (low_disk || resume::inphase_due(progress.processed_keys, &last_save))
             {
-                match resume_save_parts(
-                    kernel,
-                    weights,
-                    nonzero_conditions,
-                    frontier,
-                    output,
-                    phase - 1,
-                    &dir.join("state.bin"),
-                )
-                .map_err(|failure| save_failed(dir, phase, failure))?
-                {
-                    Ok(size) => {
-                        eprintln!(
-                            "rustred resume: state saved INSIDE phase {phase} ({size} bytes, {} keys processed): continues this phase",
-                            progress.processed_keys
-                        );
-                        last_save = std::time::Instant::now();
-                        if low_disk {
-                            let message = format!(
-                                "paused: low disk under {} (state saved inside phase {phase}; restart to continue)",
-                                dir.display()
-                            );
-                            resume::storage_stop(&message);
-                            return Err(modular::error(message).into());
-                        }
-                        if resume::stop_inphase() {
-                            let message =
-                                "stopped after a save inside a phase (RUSTRED_RESUME_STOP_INPHASE)";
-                            resume::storage_stop(message);
-                            return Err(invariant(message).into());
-                        }
+                // eng-stage: a phase whose frontier the state cannot hold
+                // (once per phase on stderr): nothing is written; low disk
+                // stops without a new state (the last one stays).
+                if let Some(reason) = kernel.inphase_save_refusal(phase) {
+                    if refused_phase != Some(phase) {
+                        eprintln!("rustred resume: no state inside phase {phase} ({reason})");
+                        refused_phase = Some(phase);
                     }
-                    Err(reason) => {
-                        eprintln!("rustred resume: no state inside phase {phase} ({reason})")
+                    if low_disk {
+                        let message = format!(
+                            "paused: low disk under {} (no state inside phase {phase}: {reason})",
+                            dir.display()
+                        );
+                        resume::storage_stop(&message);
+                        return Err(modular::error(message).into());
+                    }
+                } else {
+                    match resume_save_parts(
+                        kernel,
+                        weights,
+                        nonzero_conditions,
+                        frontier,
+                        output,
+                        phase - 1,
+                        &dir.join("state.bin"),
+                    )
+                    .map_err(|failure| save_failed(dir, phase, failure))?
+                    {
+                        Ok(size) => {
+                            eprintln!(
+                                "rustred resume: state saved INSIDE phase {phase} ({size} bytes, {} keys processed): continues this phase",
+                                progress.processed_keys
+                            );
+                            last_save = std::time::Instant::now();
+                            if low_disk {
+                                let message = format!(
+                                    "paused: low disk under {} (state saved inside phase {phase}; restart to continue)",
+                                    dir.display()
+                                );
+                                resume::storage_stop(&message);
+                                return Err(modular::error(message).into());
+                            }
+                            if resume::stop_inphase() {
+                                let message = "stopped after a save inside a phase (RUSTRED_RESUME_STOP_INPHASE)";
+                                resume::storage_stop(message);
+                                return Err(invariant(message).into());
+                            }
+                        }
+                        Err(reason) => {
+                            eprintln!("rustred resume: no state inside phase {phase} ({reason})")
+                        }
                     }
                 }
             }
@@ -3183,7 +3208,8 @@ fn resume_restore<K: OrderedKernel, A: OrderedWeights>(
                     .diagnostic_limit(kernel.limits().max_pending_frames),
             )
             .map_err(|e| e.to_string())?;
-        monomials = monomials.saturating_add(weights.monomials(&weight).map_err(|e| e.to_string())?);
+        monomials =
+            monomials.saturating_add(weights.monomials(&weight).map_err(|e| e.to_string())?);
         frontier.insert(key, Pending { position, weight });
     }
     let mut output = BTreeMap::new();
@@ -4321,9 +4347,8 @@ mod tests {
     fn the_streamed_pending_section_is_the_buffered_one() {
         use rand::{Rng, SeedableRng, rngs::StdRng};
         use step_cache::codec::{Writer, encode_node};
-        let encode_key = |key: &IntegralKey, out: &mut Vec<u8>| {
-            encode_node(OrderedKeyStage::Integral, key, out)
-        };
+        let encode_key =
+            |key: &IntegralKey, out: &mut Vec<u8>| encode_node(OrderedKeyStage::Integral, key, out);
         // the packed form encoded without unpacking (as the p library does)
         let encode = |key: StoredKey<'_, IntegralKey>, out: &mut Vec<u8>| match key {
             StoredKey::Key(key) => encode_key(key, out),
@@ -4396,7 +4421,13 @@ mod tests {
                         phase: 1 + rng.random_range(0..3),
                         priority: 0,
                     };
-                    frontier.insert(key, Pending { position, weight: 5 });
+                    frontier.insert(
+                        key,
+                        Pending {
+                            position,
+                            weight: 5,
+                        },
+                    );
                 }
             }
             let mut entries: Vec<(Vec<u8>, i64)> = frontier

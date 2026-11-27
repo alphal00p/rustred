@@ -591,6 +591,9 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
     fn resume_identity(&self, out: &mut Vec<u8>) {
         self.inner.resume_identity(out);
     }
+    fn inphase_save_refusal(&self, phase: usize) -> Option<String> {
+        self.inner.inphase_save_refusal(phase)
+    }
     fn resume_selection(&self, out: &mut Vec<u8>) {
         self.inner.resume_selection(out);
     }
