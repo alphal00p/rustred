@@ -1,20 +1,22 @@
 //! The content key of a presentation (`Presentation::content_key`): the
 //! content-derived name beside its numeric id, equal for equal content in
 //! two packages whose ids differ, different for other slots or families.
+//! (The 433 / 4 comparison of the staged 1-4 package against the 1-5 package
+//! r3 is a `rustred p-content --keys` run, not a test: it needs both packages.)
 use std::collections::BTreeMap;
 
 use rustred::propagator::library::PLibrary;
 use rustred::propagator::presentation::{PresentationKind, Slot};
 
-use super::package::{scope_three, scope_two};
+use super::package::{assemble, scope_two};
 
 /// Content keys: equal content gives equal keys across packages whose ids
-/// differ (the 1-2 nodes inside the 1-3 package); different slots give
+/// differ (the 1-1 nodes inside the 1-2 package); different slots give
 /// different keys; a top has no graph key.
 #[test]
 fn content_keys_name_presentations_across_packages() {
+    let one = &assemble(1).library;
     let two = &scope_two().library;
-    let three = &scope_three().library;
     let by_graph = |library: &PLibrary| -> BTreeMap<Vec<u8>, (u32, String)> {
         (library.presentations().iter())
             .filter_map(|p| {
@@ -23,11 +25,11 @@ fn content_keys_name_presentations_across_packages() {
             })
             .collect()
     };
-    let (in_two, in_three) = (by_graph(two), by_graph(three));
-    assert!(!in_two.is_empty());
+    let (in_one, in_two) = (by_graph(one), by_graph(two));
+    assert!(!in_one.is_empty());
     let mut moved = 0;
-    for (graph, (id, key)) in &in_two {
-        let (other_id, other_key) = &in_three[graph];
+    for (graph, (id, key)) in &in_one {
+        let (other_id, other_key) = &in_two[graph];
         assert_eq!(key, other_key, "node {graph:02x?}");
         moved += usize::from(id != other_id);
     }
@@ -36,19 +38,19 @@ fn content_keys_name_presentations_across_packages() {
         "the ids of the 1-2 nodes are the same in the 1-3 package"
     );
     // Tops: no node, keyed by their slots and family.
-    for top in two
+    for top in one
         .presentations()
         .iter()
         .filter(|p| matches!(p.kind, PresentationKind::Top { .. }))
     {
         let key = top.content_key();
         assert!(key.graph_key.is_empty());
-        let in_three = three
+        let in_two = two
             .presentations()
             .iter()
             .find(|p| p.family.name() == top.family.name())
             .unwrap();
-        assert_eq!(in_three.content_key(), key);
+        assert_eq!(in_two.content_key(), key);
     }
     // Another slot (momentum or eps units) is another key.
     let presentation = two
