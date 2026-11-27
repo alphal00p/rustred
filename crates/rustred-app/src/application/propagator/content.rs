@@ -68,7 +68,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::PLibrarySource;
-use super::format::{LIBRARY_FILE, malformed};
+use super::format::{LIBRARY_FILE, malformed, unique_memory_names};
 use super::loader::OPEN_NODES_FILE;
 
 /// File name of the content manifest inside a package (beside `library.json`).
@@ -408,6 +408,7 @@ pub fn compute_p_content(source: &PLibrarySource) -> Result<PContentManifest, PE
             manifest_from(&library, &names, |path| hash_file(&directory.join(path)))
         }
         PLibrarySource::Memory(files) => {
+            unique_memory_names(files)?;
             let map: BTreeMap<&str, &[u8]> = files.iter().copied().collect();
             let library = map
                 .get(LIBRARY_FILE)
@@ -434,6 +435,7 @@ pub fn read_p_content(source: &PLibrarySource) -> Result<Option<PContentManifest
             }
         }
         PLibrarySource::Memory(files) => {
+            unique_memory_names(files)?;
             match files.iter().find(|(name, _)| *name == P_CONTENT_FILE) {
                 Some((_, bytes)) => bytes.to_vec(),
                 None => return Ok(None),

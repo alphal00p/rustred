@@ -157,6 +157,48 @@ fn a_written_package_carries_its_content_digest() {
     );
 }
 
+/// An embedded package that names a file twice is refused by the digest and
+/// by the loader alike: the loader would read the first entry and the digest
+/// the last, so the package could verify against bytes it does not load.
+#[test]
+fn an_embedded_package_with_a_name_twice_is_refused() {
+    let assembled = scope_two();
+    let (_scratch, directory) = written(assembled, "content-twice");
+    let mut leaked: Vec<(&'static str, &'static [u8])> = tree(&directory)
+        .into_iter()
+        .map(|(name, bytes)| {
+            let name: &'static str = Box::leak(name.into_boxed_str());
+            let bytes: &'static [u8] = Box::leak(bytes.into_boxed_slice());
+            (name, bytes)
+        })
+        .collect();
+    let once = PLibrarySource::Memory(Box::leak(leaked.clone().into_boxed_slice()));
+    assert!(compute_p_content(&once).is_ok());
+    assert!(load_p_library_checked(once, &FAST, PContentCheck::Off).is_ok());
+    // A second library.json with other bytes, after the genuine one.
+    let (name, bytes) = *leaked
+        .iter()
+        .find(|(name, _)| *name == LIBRARY_FILE)
+        .unwrap();
+    let mut altered = bytes.to_vec();
+    altered.push(b'\n');
+    leaked.push((name, Box::leak(altered.into_boxed_slice())));
+    let twice = PLibrarySource::Memory(Box::leak(leaked.into_boxed_slice()));
+    let refused = |error: PError| {
+        let text = error.to_string();
+        assert!(text.contains("twice"), "{text}");
+    };
+    refused(compute_p_content(&twice).unwrap_err());
+    refused(read_p_content(&twice).unwrap_err());
+    for check in [
+        PContentCheck::Off,
+        PContentCheck::WhenPresent,
+        PContentCheck::Required,
+    ] {
+        refused(load_p_library_checked(twice.clone(), &FAST, check).unwrap_err());
+    }
+}
+
 /// The producer record and the revision label are no content; a changed
 /// table, family, relation or open-nodes sidecar is. The loader refuses a
 /// package whose files differ from its manifest only when the check is on.

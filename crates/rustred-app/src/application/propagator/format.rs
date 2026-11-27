@@ -107,6 +107,22 @@ pub(crate) fn malformed(detail: impl Into<String>) -> PError {
     PError::MalformedLibrary(detail.into())
 }
 
+/// Refuses an embedded package that names a file twice. The loader reads the
+/// first entry of a name and the content digest keeps one entry per name, so
+/// with two entries the digest could be verified against bytes that are not
+/// the ones loaded.
+pub(crate) fn unique_memory_names(files: &[(&str, &[u8])]) -> Result<(), PError> {
+    let mut seen = std::collections::BTreeSet::new();
+    for (name, _) in files {
+        if !seen.insert(*name) {
+            return Err(malformed(format!(
+                "the embedded p library names {name} twice"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn binary(what: &str) -> impl Fn(BinaryIoError) -> PError + '_ {
     move |error| malformed(format!("{what}: {error}"))
 }

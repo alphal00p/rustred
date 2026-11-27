@@ -76,7 +76,7 @@ use super::format::{
     CENSUS_FILE, CENSUS_JSON_FILE, CountsRecord, FAMILIES_FILE, LAYER_FILE, LIBRARY_FILE,
     LaneRecord, LibraryManifest, OwnerRecord, P_OPEN_NODE_RECORD_VERSION, SYMBOLICA_SAVE_FORMAT,
     TOPOLOGY_FILE, TerminalRecord, check_save_format, decode_census, decode_family_file,
-    decode_payload_file, decode_topology, family_file, malformed, owner_file,
+    decode_payload_file, decode_topology, family_file, malformed, owner_file, unique_memory_names,
 };
 use super::generate::CustomOwnerPayload;
 use super::ordering::{ORBITS_FILE, ORDERING_FILE, ROUTES_FILE, read_ordering};
@@ -87,6 +87,17 @@ use rustred::propagator::saved_routes::PSavedRoutes;
 
 /// The files of one package.
 struct Files<'a>(&'a PLibrarySource);
+
+impl<'a> Files<'a> {
+    /// The files of `source`; an embedded package must name each file once
+    /// (see [`unique_memory_names`]).
+    fn new(source: &'a PLibrarySource) -> Result<Self, PError> {
+        if let PLibrarySource::Memory(files) = source {
+            unique_memory_names(files)?;
+        }
+        Ok(Self(source))
+    }
+}
 
 impl Files<'_> {
     /// `name` is relative, `/`-separated, of plain components.
@@ -215,7 +226,7 @@ fn read_manifest(files: &Files<'_>) -> Result<LibraryManifest, PError> {
 
 /// The manifest of a package, after the version checks of [`load_p_library`].
 pub fn read_p_library_manifest(source: &PLibrarySource) -> Result<LibraryManifest, PError> {
-    read_manifest(&Files(source))
+    read_manifest(&Files::new(source)?)
 }
 
 /// The hard false knock-out guard on an owner record, before its payload is read.
@@ -419,7 +430,7 @@ pub fn read_custom_payloads(
     {
         return read_owner_records(directory);
     }
-    let files = Files(source);
+    let files = Files::new(source)?;
     let manifest = read_manifest(&files)?;
     let mut payloads = BTreeMap::new();
     for owner in &manifest.owners {
@@ -909,7 +920,7 @@ fn load_unchecked(
     source: PLibrarySource,
     options: &PLibraryOptions,
 ) -> Result<Arc<PLibrary>, PError> {
-    let files = Files(&source);
+    let files = Files::new(&source)?;
     let manifest = read_manifest(&files)?;
     let context = CoefficientContext::try_new(["d"]).map_err(|_| PError::ContextMismatch)?;
 
