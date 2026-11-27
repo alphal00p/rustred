@@ -276,8 +276,12 @@ impl PackageIndex {
     /// against the DAG of the topology file).
     pub fn from_manifest(path: &Path) -> Result<Self, String> {
         let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let value: Value =
-            serde_json::from_slice(&bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+        Self::from_manifest_bytes(&bytes).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
+    /// [`Self::from_manifest`] of the bytes of a `library.json`.
+    pub fn from_manifest_bytes(bytes: &[u8]) -> Result<Self, String> {
+        let value: Value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
         let text = |v: &Value| v.as_str().map(str::to_owned);
         let identity = value.get("identity").and_then(text).unwrap_or_default();
         let scope = value

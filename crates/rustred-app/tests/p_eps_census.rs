@@ -126,37 +126,125 @@ fn census_of_small_bounds_against_a_dag_of_tops() {
     );
 }
 
+fn run_census(arguments: &[&str]) -> std::process::Output {
+    Command::new(env!("CARGO_BIN_EXE_rustred"))
+        .arg("p-eps-census")
+        .args(arguments)
+        .output()
+        .unwrap()
+}
+
+/// A fresh scratch directory for one test.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let directory = std::env::temp_dir().join(format!("p-eps-census-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&directory);
+    std::fs::create_dir_all(&directory).unwrap();
+    directory
+}
+
 #[test]
-fn p_eps_census_refuses_bad_arguments() {
-    let run = |arguments: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_rustred"))
-            .arg("p-eps-census")
-            .args(arguments)
-            .output()
-            .unwrap()
-    };
+fn p_eps_census_prints_its_help_and_refuses_bad_arguments() {
+    for help in ["--help", "-h"] {
+        let output = run_census(&[help]);
+        assert_eq!(output.status.code(), Some(0));
+        let text = String::from_utf8(output.stdout).unwrap();
+        assert!(text.contains("USAGE:") && text.contains("EXIT STATUS:"), "{text}");
+    }
     for arguments in [
         &["--package", "p", "--out-dir", "o"][..],
         &["--package", "p", "--max-total", "7", "--out-dir", "o"],
         &["--package", "p", "--max-total", "0", "--out-dir", "o"],
         &["--unknown"],
+        &["--help", "--force"],
     ] {
-        let output = run(arguments);
-        assert!(!output.status.success(), "{arguments:?} was accepted");
+        let output = run_census(arguments);
+        assert_eq!(output.status.code(), Some(2), "{arguments:?}");
         assert!(!output.stderr.is_empty(), "{arguments:?}: no message");
     }
-    // a directory without library.json is an input error, not a census
-    let directory = std::env::temp_dir().join(format!("p-eps-census-{}", std::process::id()));
-    std::fs::create_dir_all(&directory).unwrap();
+    let directory = scratch("arguments");
+    let out = directory.join("out");
+    // a directory without library.json: exit 3 (input io), no census
     let missing = directory.join("no-package");
-    let output = run(&[
+    let output = run_census(&[
         "--package",
         missing.to_str().unwrap(),
         "--max-total",
         "2",
         "--out-dir",
-        directory.join("out").to_str().unwrap(),
+        out.to_str().unwrap(),
     ]);
-    assert!(!output.status.success());
+    assert_eq!(output.status.code(), Some(3));
+    // a malformed library.json: exit 4 (input)
+    let malformed = directory.join("malformed");
+    std::fs::create_dir_all(&malformed).unwrap();
+    std::fs::write(malformed.join("library.json"), "{\"scope\": [1, 2]}").unwrap();
+    let output = run_census(&[
+        "--package",
+        malformed.to_str().unwrap(),
+        "--max-total",
+        "2",
+        "--out-dir",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(4));
+    // an existing table without --force: exit 4 before anything is read
+    std::fs::write(out.join("eps-census-S2.tsv"), "").unwrap();
+    let output = run_census(&[
+        "--package",
+        missing.to_str().unwrap(),
+        "--max-total",
+        "2",
+        "--out-dir",
+        out.to_str().unwrap(),
+    ]);
+    assert_eq!(output.status.code(), Some(4));
+    std::fs::remove_dir_all(&directory).unwrap();
+}
+
+/// A `library.json` with the one-loop top and the node of the one-loop bubble (the index the census reads).
+fn one_loop_manifest() -> String {
+    let bubble = PTopo::new(2, 0, 1, [(0, 1, 0), (0, 1, 0)]);
+    let key = canonical(&bubble).0.to_hex();
+    let line = r#"{"line": {"eps_units": 0, "momentum": [1, 0]}}"#;
+    format!(
+        r#"{{"identity": "test", "scope": [1, 1], "presentations": [
+            {{"index": 0, "loops": 1, "kind": {{"top": {{"name": "P1L"}}}}, "slots": [{line}, {line}], "node": null}},
+            {{"index": 1, "loops": 1, "kind": "insertion_adapted", "slots": [{line}, {line}], "node": {{"index": 0, "key": "{key}"}}}}
+        ]}}"#
+    )
+}
+
+#[test]
+fn p_eps_census_exit_status_is_its_verdict() {
+    let directory = scratch("verdict");
+    let package = directory.join("package");
+    std::fs::create_dir_all(&package).unwrap();
+    std::fs::write(package.join("library.json"), one_loop_manifest()).unwrap();
+    let census = |s: &str, out: &str| {
+        run_census(&[
+            "--package",
+            package.to_str().unwrap(),
+            "--max-total",
+            s,
+            "--out-dir",
+            directory.join(out).to_str().unwrap(),
+        ])
+    };
+    // S = 1: the bubble without units is the package's node: complete, exit 0
+    let output = census("1", "s1");
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let report: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.join("s1/eps-census-S1.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!((report["rows"].as_u64(), report["missing"].as_u64()), (Some(1), Some(0)));
+    // S = 2: the bubble with one unit and the four two-loop graphs are missing: exit 1, tables written
+    let output = census("2", "s2");
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let report: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.join("s2/eps-census-S2.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!((report["rows"].as_u64(), report["missing"].as_u64()), (Some(6), Some(5)));
     std::fs::remove_dir_all(&directory).unwrap();
 }

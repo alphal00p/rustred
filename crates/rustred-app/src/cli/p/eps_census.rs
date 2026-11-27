@@ -30,8 +30,13 @@
 //!
 //! The index is read from `library.json` (the node keys the loader checks against the DAG); `--full-load`
 //! loads the package with `load_p_library` and takes the index from the loaded presentations instead,
-//! exactly as vakint's lookup does, and fails if the two indices differ. Exit status 1 when a row is missing
-//! or (with `--axes`) an eps axis is pinched, refused or not two-sided, 0 otherwise.
+//! exactly as vakint's lookup does, and fails if the two indices differ.
+//!
+//! `rustred p-eps-census --help` prints [`USAGE`], which also lists the exit statuses: 0 every row present (and,
+//! with `--axes`, every axis check passed), 1 a row missing or an axis check failed (the census verdict, outputs
+//! written), 2 usage, 3 `library.json` unreadable, 4 `library.json` malformed or an output file exists without
+//! `--force`, 5 the package does not load or its loaded index differs from `library.json`'s, 7 an output cannot
+//! be written.
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::io::Write;
@@ -47,6 +52,47 @@ use crate::application::propagator::{PLibraryOptions, PLibrarySource, load_p_lib
 use crate::cli::args::{ArgError, next_utf8_value, next_value, parse_positive_integer};
 use crate::cli::error::CliError;
 
+/// `rustred p-eps-census --help`.
+pub(crate) const USAGE: &str = "\
+rustred p-eps-census: census of eps-shifted families against a p-library package (diagnostic, changes nothing)
+
+USAGE:
+    rustred p-eps-census --package <dir> --max-total <S> --out-dir <dir> [--threads <n>] [--full-load]
+                         [--axes [--axes-threads <n>]] [--force]
+    rustred p-eps-census --help
+
+Lists every (two-point graph G with L loops, eps units u <= 4 per line) with L + sum(u) <= S, modulo the
+automorphisms of G, and whether the package has a presentation for it through the public lookup (normalise ->
+canonical -> graph key -> the presentation of that DAG node). The universe is generated, never read from the
+package.
+
+OPTIONS:
+    --package <dir>       the package directory (library.json and the files it names)
+    --max-total <S>       the bound L + sum(u), 1 to 6
+    --out-dir <dir>       where the tables go (created; existing tables are refused unless --force)
+    --threads <n>         worker threads [default: 1]
+    --full-load           load the package and take the index from the loaded presentations (checked against
+                          library.json's); without it the index is read from library.json alone
+    --axes                also check the eps axes (implies --full-load): no census sector of an eps presentation
+                          pinches an eps line, every Custom eps owner is two-sided exactly on them, and keys with
+                          integer power 0 and -1 on the eps lines trace through the package without a refusal
+                          (resumable: presentations already in eps-census-S<S>-axes-trace.tsv are skipped)
+    --axes-threads <n>    presentations traced at a time [default: 4]
+    --force               overwrite existing tables
+
+OUTPUT (in --out-dir): eps-census-S<S>.tsv (one row per graph key and unit assignment), -summary.tsv, -causes.tsv,
+-closure.tsv, eps-census-universe.tsv, eps-census-S<S>.json; with --axes -axes.tsv and -axes-trace.tsv.
+
+EXIT STATUS:
+    0  every row present (and, with --axes, every axis check passed)
+    1  a row is missing or an axis check failed (the census verdict; the tables are written)
+    2  usage error
+    3  library.json cannot be read
+    4  library.json is malformed, or an output table exists and --force was not given
+    5  the package does not load, or the loaded index differs from library.json's
+    7  an output cannot be written
+";
+
 #[derive(Debug, PartialEq, Eq)]
 struct Arguments {
     package: PathBuf,
@@ -59,7 +105,11 @@ struct Arguments {
     force: bool,
 }
 
-fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
+/// The arguments, `None` for `--help` / `-h` (alone).
+fn parse(arguments: Vec<OsString>) -> Result<Option<Arguments>, ArgError> {
+    if arguments.len() == 1 && (arguments[0] == "--help" || arguments[0] == "-h") {
+        return Ok(None);
+    }
     let mut arguments = arguments.into_iter();
     let (mut package, mut max_total, mut out_dir) = (None, None, None);
     let (mut threads, mut full_load, mut axes, mut force) = (1, false, false, false);
@@ -108,7 +158,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
             _ => force = true,
         }
     }
-    Ok(Arguments {
+    Ok(Some(Arguments {
         package: package.ok_or(ArgError::MissingRequiredOption("--package"))?,
         max_total: max_total.ok_or(ArgError::MissingRequiredOption("--max-total"))?,
         out_dir: out_dir.ok_or(ArgError::MissingRequiredOption("--out-dir"))?,
@@ -117,7 +167,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Arguments, ArgError> {
         axes,
         axes_threads,
         force,
-    })
+    }))
 }
 
 fn failed(message: impl std::fmt::Display) -> CliError {
@@ -146,8 +196,11 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
         )));
     }
     let started = Instant::now();
-    let mut index =
-        PackageIndex::from_manifest(&arguments.package.join("library.json")).map_err(failed)?;
+    let manifest = arguments.package.join("library.json");
+    let bytes = std::fs::read(&manifest)
+        .map_err(|e| CliError::InputIo(format!("{}: {e}", manifest.display())))?;
+    let mut index = PackageIndex::from_manifest_bytes(&bytes)
+        .map_err(|e| CliError::Input(format!("{}: {e}", manifest.display())))?;
     let manifest_seconds = started.elapsed().as_secs_f64();
     let mut load_seconds = None;
     let mut loaded_library = None;
@@ -297,14 +350,27 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
 }
 
 pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
-    let arguments = parse(arguments).map_err(CliError::Usage)?;
+    let Some(arguments) = parse(arguments).map_err(CliError::Usage)? else {
+        let mut stdout = std::io::stdout().lock();
+        return stdout
+            .write_all(USAGE.as_bytes())
+            .and_then(|()| stdout.flush())
+            .map_err(|e| CliError::OutputIo(e.to_string()));
+    };
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(arguments.threads)
         .build()
         .map_err(failed)?;
     let problems = pool.install(|| census(&arguments))?;
     if problems > 0 {
-        std::process::exit(1);
+        // Exit status 1: the census verdict (the tables are written).
+        return Err(CliError::Verdict {
+            incomplete: false,
+            message: format!(
+                "p eps census: {problems} missing rows or failed axis checks (tables in {})",
+                arguments.out_dir.display()
+            ),
+        });
     }
     Ok(())
 }
@@ -315,6 +381,7 @@ mod tests {
 
     fn parsed(arguments: &[&str]) -> Result<Arguments, ArgError> {
         parse(arguments.iter().map(OsString::from).collect())
+            .map(|parsed| parsed.expect("not --help"))
     }
 
     #[test]
@@ -346,5 +413,9 @@ mod tests {
             Err(ArgError::MissingRequiredOption("--max-total"))
         ));
         assert!(matches!(parsed(&["--x"]), Err(ArgError::UnknownOption(_))));
+        for help in ["--help", "-h"] {
+            assert_eq!(parse(vec![OsString::from(help)]).unwrap(), None);
+        }
+        assert!(parse(vec!["--help".into(), "--force".into()]).is_err());
     }
 }
