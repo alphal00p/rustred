@@ -2058,10 +2058,7 @@ impl OrderedWeights for ModularRecorder {
         Ok(true)
     }
 
-    fn resume_save(
-        &mut self,
-        w: &mut super::step_cache::codec::Writer,
-    ) -> Result<(), ReductionError> {
+    fn resume_save(&mut self, w: &mut super::resume::StateWriter) -> Result<(), ReductionError> {
         let spill = self
             .spill
             .as_ref()
@@ -2081,22 +2078,26 @@ impl OrderedWeights for ModularRecorder {
             let coefficient = &*self.entries.get(index)?;
             super::resume::put_coefficient(w, coefficient);
             w.varint(u64::from(reference.0));
+            w.drain();
         }
         w.len(self.constant_probe.len());
         for value in &self.constant_probe {
             w.varint(self.probe_field.from_element(value));
+            w.drain();
         }
         w.len(self.polynomial_probe.len());
         for values in &self.polynomial_probe {
             for value in values {
                 w.varint(self.probe_field.from_element(value));
             }
+            w.drain();
         }
         w.varint(u64::from(self.constant_count));
         w.varint(u64::from(self.polynomial_count));
         w.len(self.free_slots.len());
         for slot in &self.free_slots {
             w.varint(u64::from(*slot));
+            w.drain();
         }
         w.varint(u64::from(self.next_slot));
         w.varint(u64::from(self.terminal_slots));
@@ -2104,6 +2105,7 @@ impl OrderedWeights for ModularRecorder {
         for (phase, start) in &self.phase_starts {
             w.varint(*phase as u64);
             w.varint(*start as u64);
+            w.drain();
         }
         w.varint(self.lookups as u64);
         Ok(())

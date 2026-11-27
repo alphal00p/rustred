@@ -201,6 +201,29 @@ impl CompactPowers {
             Self::Wide { powers, .. } => super::memstats::block(powers.as_ptr(), powers.len()),
         }
     }
+
+    /// eng-mem: the powers appended to `out` as one signed byte each (the
+    /// step-cache identity form); `false` and `out` unchanged when a power
+    /// is outside `i8`.
+    pub(crate) fn encode_i8_into(&self, out: &mut Vec<u8>) -> bool {
+        match self {
+            Self::Inline { powers, .. } => {
+                out.extend(powers[..self.len()].iter().map(|&p| p as u8));
+                true
+            }
+            Self::Wide { powers, .. } => {
+                let start = out.len();
+                for &power in powers.iter() {
+                    let Ok(power) = i8::try_from(power) else {
+                        out.truncate(start);
+                        return false;
+                    };
+                    out.push(power as u8);
+                }
+                true
+            }
+        }
+    }
 }
 
 impl FrontierKey for IntegralKey {
@@ -1283,6 +1306,90 @@ impl<K: FrontierKey, P: Clone + Ord + Hash, W> Packed<K, P, W> {
             p.insert(hash, packed.into_owned(), pending);
         }
         Ok(None)
+    }
+}
+
+/// eng-mem: a pending key as the frontier stores it.
+pub(crate) enum StoredKey<'f, K: FrontierKey> {
+    Key(&'f K),
+    Packed(&'f K::Packed),
+}
+
+/// eng-mem: the pending entries of a frontier by handle: the entries that
+/// [`Frontier::iter`] yields (the caller checks their number against
+/// [`Frontier::len`]), without unpacking or cloning a key or a priority. A handle is a slot id of a packed frontier, a position
+/// in a list of references for the classic one.
+pub(crate) enum PendingTable<'f, K: FrontierKey, P, W> {
+    Classic(Vec<(&'f K, &'f W)>),
+    Packed(&'f Packed<K, P, W>),
+}
+
+impl<'f, K: FrontierKey, P: Clone + Ord + Hash, W> PendingTable<'f, K, P, W> {
+    /// Every pending entry once, in no particular order.
+    pub(crate) fn for_each(&self, mut f: impl FnMut(u32, StoredKey<'f, K>, &'f W)) {
+        match *self {
+            Self::Classic(ref entries) => {
+                for (handle, &(key, weight)) in entries.iter().enumerate() {
+                    f(handle as u32, StoredKey::Key(key), weight);
+                }
+            }
+            // In slot order (one sequential read of the slab): every live
+            // slot is scheduled in exactly one bucket entry (an entry is
+            // dropped only with its slot, at its pop; a cancelled key keeps
+            // its slot as a tombstone until then), so these are the entries
+            // `iter` yields; only a closing tail (`clear_order`, never with
+            // a resume state) unschedules live slots.
+            Self::Packed(p) => {
+                for (id, slot) in p.slots.iter().enumerate() {
+                    if let Some(slot) = slot
+                        && let Some(weight) = slot.weight.as_ref()
+                    {
+                        f(id as u32, StoredKey::Packed(&slot.key), weight);
+                    }
+                }
+            }
+        }
+    }
+
+    /// The entry of a handle given by [`Self::for_each`].
+    pub(crate) fn get(&self, handle: u32) -> (StoredKey<'f, K>, &'f W) {
+        match *self {
+            Self::Classic(ref entries) => {
+                let (key, weight) = entries[handle as usize];
+                (StoredKey::Key(key), weight)
+            }
+            Self::Packed(p) => {
+                let slot = p.slot(handle);
+                (
+                    StoredKey::Packed(&slot.key),
+                    slot.weight.as_ref().expect("a handle names a pending entry"),
+                )
+            }
+        }
+    }
+}
+
+impl<K: FrontierKey, P: Clone + Ord + Hash, W> Frontier<K, P, W> {
+    /// eng-mem: the pending entries by handle ([`PendingTable`]); `None`
+    /// for a classic frontier of more than `u32::MAX` keys.
+    pub(crate) fn pending_table(&self) -> Option<PendingTable<'_, K, P, W>> {
+        match self {
+            Self::Classic(c) => {
+                let entries: Vec<(&K, &W)> = c
+                    .order
+                    .iter()
+                    .rev()
+                    .filter_map(|scheduled| {
+                        let pending = c.pending.get(&scheduled.key)?;
+                        (pending.position.phase == scheduled.phase.0
+                            && pending.position.priority == scheduled.priority)
+                            .then_some((&scheduled.key, &pending.weight))
+                    })
+                    .collect();
+                (u32::try_from(entries.len()).is_ok()).then_some(PendingTable::Classic(entries))
+            }
+            Self::Packed(p) => Some(PendingTable::Packed(p)),
+        }
     }
 }
 

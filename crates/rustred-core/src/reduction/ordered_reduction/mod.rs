@@ -27,7 +27,7 @@ pub use composition::{
     OrderedTerminalComposerSlot,
 };
 use frontier::{Child, ChildAction, Frontier, FrontierLayout, FrontierMode};
-pub(crate) use frontier::{CompactPowers, FrontierKey};
+pub(crate) use frontier::{CompactPowers, FrontierKey, StoredKey};
 pub(crate) use modular::tadic::coefficient_valuation;
 pub use modular::tadic::{
     TADIC_PRECISION_FAILURE, TadicImage, TadicSeries, TadicTerminals, TadicVariants, add_series,
@@ -167,6 +167,17 @@ pub(crate) trait OrderedKernel {
     fn tail_encode(key: &Self::Key, out: &mut Vec<u8>) -> bool {
         Self::key_view(key)
             .is_some_and(|(stage, integral)| step_cache::codec::encode_node(stage, integral, out))
+    }
+    /// eng-mem: [`Self::tail_encode`] of a pending key as the frontier
+    /// stores it (the streaming state save). It must append exactly what
+    /// `tail_encode` appends for the key; the default unpacks a packed key.
+    fn tail_encode_stored(key: StoredKey<'_, Self::Key>, out: &mut Vec<u8>) -> bool {
+        match key {
+            StoredKey::Key(key) => Self::tail_encode(key, out),
+            StoredKey::Packed(packed) => {
+                Self::tail_encode(&<Self::Key as FrontierKey>::unpack(packed), out)
+            }
+        }
     }
     /// The caller's terminal composition for modular requests (compose
     /// before lift, `composition.rs`); `None` lifts the terminals.
@@ -631,7 +642,9 @@ pub(crate) trait OrderedWeights {
     ) -> Result<bool, ReductionError> {
         Ok(false)
     }
-    fn resume_save(&mut self, _w: &mut step_cache::codec::Writer) -> Result<(), ReductionError> {
+    /// The arithmetic's section of the state, streamed (eng-mem: call
+    /// [`resume::StateWriter::drain`] between items).
+    fn resume_save(&mut self, _w: &mut resume::StateWriter) -> Result<(), ReductionError> {
         Err(invariant("this arithmetic keeps no resume state"))
     }
     /// `digest`: the state is of format v3 (a 32-byte trace digest follows
@@ -2499,16 +2512,13 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
                     frontier,
                     output,
                     phase - 1,
+                    &dir.join("state.bin"),
                 )
-                .map_err(|e| checkpoint_failed(dir, phase, &e.to_string()))?
+                .map_err(|failure| save_failed(dir, phase, failure))?
                 {
-                    Ok(bytes) => {
-                        resume::write_atomic(&dir.join("state.bin"), &bytes).map_err(|e| {
-                            checkpoint_failed(dir, phase, &format!("state write: {e}"))
-                        })?;
+                    Ok(size) => {
                         eprintln!(
-                            "rustred resume: state saved INSIDE phase {phase} ({} bytes, {} keys processed): continues this phase",
-                            bytes.len(),
+                            "rustred resume: state saved INSIDE phase {phase} ({size} bytes, {} keys processed): continues this phase",
                             progress.processed_keys
                         );
                         last_save = std::time::Instant::now();
@@ -2570,17 +2580,11 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         if let Some(dir) = &resume_dir {
             let stop = resume::stop_after_phase() == Some(phase);
             if stop || last_save.elapsed().as_secs_f64() >= resume::interval() {
-                match resume_save(kernel, weights, &state, phase)
-                    .map_err(|e| checkpoint_failed(dir, phase, &e.to_string()))?
+                match resume_save(kernel, weights, &state, phase, &dir.join("state.bin"))
+                    .map_err(|failure| save_failed(dir, phase, failure))?
                 {
-                    Ok(bytes) => {
-                        resume::write_atomic(&dir.join("state.bin"), &bytes).map_err(|e| {
-                            checkpoint_failed(dir, phase, &format!("state write: {e}"))
-                        })?;
-                        eprintln!(
-                            "rustred resume: state saved after phase {phase} ({} bytes)",
-                            bytes.len()
-                        );
+                    Ok(size) => {
+                        eprintln!("rustred resume: state saved after phase {phase} ({size} bytes)");
                         last_save = std::time::Instant::now();
                         saved_phase = Some(phase);
                     }
@@ -2605,15 +2609,12 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
         && let Some(last) = state.progress.total_phases.checked_sub(1)
         && saved_phase != Some(last)
     {
-        match resume_save(kernel, weights, &state, last)
-            .map_err(|e| checkpoint_failed(dir, last, &e.to_string()))?
+        match resume_save(kernel, weights, &state, last, &dir.join("state.bin"))
+            .map_err(|failure| save_failed(dir, last, failure))?
         {
-            Ok(bytes) => {
-                resume::write_atomic(&dir.join("state.bin"), &bytes)
-                    .map_err(|e| checkpoint_failed(dir, last, &format!("state write: {e}")))?;
+            Ok(size) => {
                 eprintln!(
-                    "rustred resume: final state saved after phase {last} ({} bytes): kept until the replay ends",
-                    bytes.len()
+                    "rustred resume: final state saved after phase {last} ({size} bytes): kept until the replay ends"
                 );
             }
             // not a correctness issue: only the replay is then not resumable
@@ -2724,13 +2725,31 @@ fn checkpoint_failed(dir: &std::path::Path, phase: usize, detail: &str) -> Reduc
     modular::error(message)
 }
 
-/// vk5l-physrun: the saved scheduler state after `phase` (see `resume`).
+/// eng-mem: a streamed state save that failed: the error of the checkpoint
+/// (the previous state and its trace prefix are kept), with the messages of
+/// whole-state save.
+fn save_failed(
+    dir: &std::path::Path,
+    phase: usize,
+    failure: resume::StateFailure<ReductionError>,
+) -> ReductionError {
+    match failure {
+        resume::StateFailure::Content(error) => checkpoint_failed(dir, phase, &error.to_string()),
+        resume::StateFailure::Write(error) => {
+            checkpoint_failed(dir, phase, &format!("state write: {error}"))
+        }
+    }
+}
+
+/// vk5l-physrun: the saved scheduler state after `phase` (see `resume`),
+/// written to `path`.
 fn resume_save<K: OrderedKernel, A: OrderedWeights>(
     kernel: &K,
     weights: &mut A,
     state: &Admitted<K, A>,
     phase: usize,
-) -> Result<Result<Vec<u8>, String>, ReductionError> {
+    path: &std::path::Path,
+) -> Result<Result<u64, String>, resume::StateFailure<ReductionError>> {
     resume_save_parts(
         kernel,
         weights,
@@ -2738,14 +2757,18 @@ fn resume_save<K: OrderedKernel, A: OrderedWeights>(
         &state.frontier,
         &state.output,
         phase,
+        path,
     )
 }
 
 /// The saved state from its parts (`phase`: the last COMPLETED phase; a
-/// save inside phase `p` is written as after `p - 1`, see the phase loop).
-/// R-B2: `Ok(Err(reason))`: this state cannot be saved (no state, the run
-/// continues); `Err`: writing or syncing the trace prefix it covers failed
-/// (a hard error: the previous state and its prefix stay usable).
+/// save inside phase `p` is written as after `p - 1`, see the phase loop),
+/// streamed durably to `path` (eng-mem, `resume::write_state`: the same
+/// bytes as the whole-state buffer of before, never a partial file at
+/// `path`). R-B2: `Ok(Err(reason))`: this state cannot be saved (no state,
+/// the run continues); `Err`: writing or syncing the trace prefix it covers
+/// or the state itself failed (a hard error: the previous state and its
+/// prefix stay usable). `Ok(Ok(size))`: the state's size.
 fn resume_save_parts<K: OrderedKernel, A: OrderedWeights>(
     kernel: &K,
     weights: &mut A,
@@ -2753,50 +2776,230 @@ fn resume_save_parts<K: OrderedKernel, A: OrderedWeights>(
     frontier: &FrontierOf<K, A>,
     output: &BTreeMap<IntegralKey, A::Weight>,
     phase: usize,
-) -> Result<Result<Vec<u8>, String>, ReductionError> {
-    let mut w = step_cache::codec::Writer { bytes: Vec::new() };
-    w.raw(resume::STATE_FORMAT.as_bytes());
-    w.varint(phase as u64);
-    weights.resume_save(&mut w)?;
-    w.len(nonzero_conditions.len());
-    for condition in nonzero_conditions {
-        resume::put_coefficient(&mut w, condition);
-    }
-    // 4A: pending keys in the order of their compact form, so that the state
-    // file is a function of the request and the phase only, not of the
-    // frontier layout or hasher (which differ between one thread and the
-    // pipelined scheduler). The restore re-admits them in any order.
-    let mut entries = Vec::with_capacity(frontier.iter().count());
-    for (scheduled, weight) in frontier.iter() {
-        let mut bytes = Vec::new();
-        if !K::tail_encode(&scheduled.key, &mut bytes) || kernel.tail_key(&bytes).is_none() {
-            return Ok(Err("a pending key has no decodable compact form".to_owned()));
+    path: &std::path::Path,
+) -> Result<Result<u64, String>, resume::StateFailure<ReductionError>> {
+    resume::write_state(path, |w| {
+        w.raw(resume::STATE_FORMAT.as_bytes());
+        w.varint(phase as u64);
+        weights.resume_save(w)?;
+        w.len(nonzero_conditions.len());
+        for condition in nonzero_conditions {
+            resume::put_coefficient(w, condition);
+            w.drain();
         }
-        entries.push((bytes, weight));
-    }
-    entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-    w.len(entries.len());
-    for (bytes, weight) in entries {
-        w.len(bytes.len());
-        w.raw(&bytes);
-        weights.resume_put_weight(weight, &mut w);
-    }
-    w.len(output.len());
-    for (key, weight) in output {
-        w.len(key.powers().len());
-        for &power in key.powers() {
-            w.zigzag(power);
+        if let Err(reason) = save_pending(kernel, &*weights, frontier, w) {
+            return Ok(Err(reason));
         }
-        weights.resume_put_weight(weight, &mut w);
+        w.len(output.len());
+        for (key, weight) in output {
+            w.len(key.powers().len());
+            for &power in key.powers() {
+                w.zigzag(power);
+            }
+            weights.resume_put_weight(weight, w);
+            w.drain();
+        }
+        // 12d2: the program binding (trailer, so that the header read by
+        // ops/resume_check.py stays magic, phase, op count); the state's own
+        // digest over every preceding byte follows (`resume::write_state`).
+        w.raw(resume_identity_digest(kernel).as_bytes());
+        Ok(Ok(()))
+    })
+}
+
+/// eng-mem: leading bytes of a compact form that make its sort cell.
+const SAVE_CELL: usize = 11;
+/// eng-mem: bytes of a compact form after its cell kept in a sort record.
+const SAVE_PREFIX: usize = 20;
+
+/// eng-mem: the leading bytes (at most [`SAVE_CELL`]) of a compact form,
+/// ordered as byte strings.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SaveCell {
+    bytes: [u8; SAVE_CELL],
+    len: u8,
+}
+
+impl SaveCell {
+    fn of(encoded: &[u8]) -> Self {
+        let len = encoded.len().min(SAVE_CELL);
+        let mut bytes = [0; SAVE_CELL];
+        bytes[..len].copy_from_slice(&encoded[..len]);
+        Self {
+            bytes,
+            len: len as u8,
+        }
     }
-    // 12d2: the program binding (trailer, so that the header read by
-    // ops/resume_check.py stays magic, phase, op count).
-    w.raw(resume_identity_digest(kernel).as_bytes());
-    // 12d2: the state's own digest over every preceding byte (all sections
-    // and the identity), verified before anything of the file is used.
-    let own = blake3::hash(&w.bytes);
-    w.raw(own.as_bytes());
-    Ok(Ok(w.bytes))
+
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.len)]
+    }
+}
+
+impl PartialOrd for SaveCell {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SaveCell {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.as_slice().cmp(other.as_slice())
+    }
+}
+
+/// eng-mem: one pending key in the sort of a cell: the [`SAVE_PREFIX`]
+/// bytes of its compact form after the cell (zero padded) and its handle.
+/// Records order as their compact forms when their prefixes differ; equal
+/// prefixes are ordered by the whole forms.
+#[derive(Clone, Copy)]
+struct SaveRecord {
+    prefix: [u8; SAVE_PREFIX],
+    handle: u32,
+}
+
+impl SaveRecord {
+    fn new(encoded: &[u8], cell: usize, handle: u32) -> Self {
+        let rest = &encoded[cell..];
+        let n = rest.len().min(SAVE_PREFIX);
+        let mut prefix = [0; SAVE_PREFIX];
+        prefix[..n].copy_from_slice(&rest[..n]);
+        Self { prefix, handle }
+    }
+}
+
+/// eng-mem: keys per sort batch of the streaming save (cells of one batch
+/// are collected by one scan of the frontier; a larger cell is a batch of
+/// its own). `RUSTRED_RESUME_SAVE_BATCH=<keys>` (tests) overrides.
+fn save_batch_keys() -> usize {
+    static KEYS: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *KEYS.get_or_init(|| {
+        std::env::var("RUSTRED_RESUME_SAVE_BATCH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(1 << 26)
+    })
+}
+
+/// eng-mem: the pending section of a state (count, then every pending key's
+/// compact form and weight in the order of the compact forms, 4A), written
+/// without a buffer of the section and without unpacking a key: one pass
+/// encodes (and decodes, as a restore will) every key once and counts the
+/// keys of every cell (the first [`SAVE_CELL`] bytes of the form); then,
+/// batch by batch of consecutive cells, one scan collects a 24-byte record
+/// per key of the batch, every cell is sorted and written. `Err(reason)`:
+/// a key has no decodable compact form (no state).
+fn save_pending<K: OrderedKernel, A: OrderedWeights>(
+    kernel: &K,
+    weights: &A,
+    frontier: &FrontierOf<K, A>,
+    w: &mut resume::StateWriter,
+) -> Result<(), String> {
+    let table = frontier
+        .pending_table()
+        .ok_or_else(|| "more pending keys than a classic frontier state holds".to_owned())?;
+    write_pending(
+        &table,
+        frontier.len(),
+        K::tail_encode_stored,
+        |encoded| kernel.tail_key(encoded).is_some(),
+        |weight, w| weights.resume_put_weight(weight, w),
+        save_batch_keys(),
+        w,
+    )
+}
+
+/// eng-mem: [`save_pending`] for any key type: `encode` writes a stored
+/// key's compact form (`false`: none), `decodable` tells whether a restore
+/// can rebuild a key from it, `put_weight` writes a weight; `expected`
+/// pending keys (the frontier's count), `budget` keys per batch.
+fn write_pending<'f, Q: FrontierKey, P: Clone + Ord + std::hash::Hash, W>(
+    table: &frontier::PendingTable<'f, Q, P, W>,
+    expected: usize,
+    encode: impl Fn(StoredKey<'f, Q>, &mut Vec<u8>) -> bool,
+    decodable: impl Fn(&[u8]) -> bool,
+    put_weight: impl Fn(&W, &mut step_cache::codec::Writer),
+    budget: usize,
+    w: &mut resume::StateWriter,
+) -> Result<(), String> {
+    const UNDECODABLE: &str = "a pending key has no decodable compact form";
+    let mut scratch = Vec::new();
+    let mut cells: BTreeMap<SaveCell, usize> = BTreeMap::new();
+    let mut total = 0usize;
+    let mut all_decodable = true;
+    table.for_each(|_, key, _| {
+        if !all_decodable {
+            return;
+        }
+        scratch.clear();
+        if !encode(key, &mut scratch) || !decodable(&scratch) {
+            all_decodable = false;
+            return;
+        }
+        *cells.entry(SaveCell::of(&scratch)).or_insert(0) += 1;
+        total += 1;
+    });
+    if !all_decodable {
+        return Err(UNDECODABLE.to_owned());
+    }
+    if total != expected {
+        return Err(format!(
+            "{total} pending entries found for {expected} pending keys"
+        ));
+    }
+    w.len(total);
+    let cells: Vec<(SaveCell, usize)> = cells.into_iter().collect();
+    let (mut a, mut b) = (Vec::new(), Vec::new());
+    let mut start = 0;
+    while start < cells.len() {
+        let mut end = start + 1;
+        let mut size = cells[start].1;
+        while end < cells.len() && size + cells[end].1 <= budget {
+            size += cells[end].1;
+            end += 1;
+        }
+        let batch = &cells[start..end];
+        let (low, high) = (batch[0].0, batch[batch.len() - 1].0);
+        let mut records: Vec<Vec<SaveRecord>> =
+            batch.iter().map(|&(_, n)| Vec::with_capacity(n)).collect();
+        table.for_each(|handle, key, _| {
+            scratch.clear();
+            // encodable: checked by the first pass (a pure function)
+            encode(key, &mut scratch);
+            let cell = SaveCell::of(&scratch);
+            if cell < low || cell > high {
+                return;
+            }
+            let at = batch
+                .binary_search_by(|(c, _)| c.cmp(&cell))
+                .expect("every cell was counted by the first pass");
+            records[at].push(SaveRecord::new(&scratch, usize::from(cell.len), handle));
+        });
+        for cell in &mut records {
+            cell.sort_unstable_by(|x, y| {
+                x.prefix.cmp(&y.prefix).then_with(|| {
+                    a.clear();
+                    b.clear();
+                    encode(table.get(x.handle).0, &mut a);
+                    encode(table.get(y.handle).0, &mut b);
+                    a.cmp(&b)
+                })
+            });
+            for record in cell.iter() {
+                let (key, weight) = table.get(record.handle);
+                scratch.clear();
+                encode(key, &mut scratch);
+                w.len(scratch.len());
+                w.raw(&scratch);
+                put_weight(weight, &mut **w);
+                w.drain();
+            }
+            *cell = Vec::new();
+        }
+        start = end;
+    }
+    Ok(())
 }
 
 /// 12d2: BLAKE3 of the kernel's resume identity (the state trailer).
@@ -4068,5 +4271,153 @@ mod tests {
             assert!(statistics.composition_fallback_seconds > 0.0);
             assert_eq!(statistics.primes, raw_statistics.primes);
         }
+    }
+
+    /// eng-mem: the pending section written by the streaming save
+    /// (`write_pending`: cells, batches, 24-byte records, ties by the whole
+    /// form) is byte for byte the section of the buffered save it replaces
+    /// (every pending key unpacked and encoded into its own buffer, all
+    /// sorted by their compact forms), for both layouts, with tombstones,
+    /// reused slots, wide keys, ties beyond the record prefix and every
+    /// batch size; a key without a compact form leaves no state.
+    #[test]
+    fn the_streamed_pending_section_is_the_buffered_one() {
+        use rand::{Rng, SeedableRng, rngs::StdRng};
+        use step_cache::codec::{Writer, encode_node};
+        let encode_key = |key: &IntegralKey, out: &mut Vec<u8>| {
+            encode_node(OrderedKeyStage::Integral, key, out)
+        };
+        // the packed form encoded without unpacking (as the p library does)
+        let encode = |key: StoredKey<'_, IntegralKey>, out: &mut Vec<u8>| match key {
+            StoredKey::Key(key) => encode_key(key, out),
+            StoredKey::Packed(packed) => {
+                let start = out.len();
+                out.push(0);
+                out.extend_from_slice(&0u64.to_le_bytes());
+                packed.encode_i8_into(out) || {
+                    out.truncate(start);
+                    false
+                }
+            }
+        };
+        let dir = std::env::temp_dir().join(format!("rustred-pending-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.bin");
+        for (seed, mode) in [
+            (11, FrontierMode::Phased),
+            (12, FrontierMode::Compact),
+            (13, FrontierMode::Classic),
+        ] {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let mut frontier: Frontier<IntegralKey, i64, i64> = Frontier::new(mode);
+            let mut keys = Vec::new();
+            for _ in 0..3000 {
+                let len = match rng.random_range(0..10) {
+                    0 => rng.random_range(1..4),
+                    1 => rng.random_range(39..44),
+                    _ => 36,
+                };
+                // mostly 0 / 1: many forms share the first 31 bytes
+                let powers: Vec<i64> = (0..len)
+                    .map(|_| match rng.random_range(0..12) {
+                        0 => rng.random_range(-3..4),
+                        1 => -128,
+                        2 => 127,
+                        _ => rng.random_range(0..2),
+                    })
+                    .collect();
+                let key = IntegralKey::try_new(powers).unwrap();
+                let phase = (key.powers().iter().sum::<i64>().unsigned_abs() % 4) as usize;
+                let priority = key.powers()[0];
+                if frontier.remove(&key).is_some() {
+                    continue;
+                }
+                let weight = rng.random_range(1..1000);
+                frontier.insert(
+                    key.clone(),
+                    Pending {
+                        position: OrderedPosition { phase, priority },
+                        weight,
+                    },
+                );
+                keys.push(key);
+            }
+            // pops free slots, the inserts after them reuse ids; removals
+            // leave tombstones
+            for _ in 0..200 {
+                frontier.pop_in_phase(0);
+            }
+            for key in keys.iter().step_by(7) {
+                frontier.remove(key);
+            }
+            for _ in 0..300 {
+                let powers: Vec<i64> = (0..36).map(|_| rng.random_range(0..3)).collect();
+                let key = IntegralKey::try_new(powers).unwrap();
+                if frontier.remove(&key).is_none() {
+                    let position = OrderedPosition {
+                        phase: 1 + rng.random_range(0..3),
+                        priority: 0,
+                    };
+                    frontier.insert(key, Pending { position, weight: 5 });
+                }
+            }
+            let mut entries: Vec<(Vec<u8>, i64)> = frontier
+                .iter()
+                .map(|(scheduled, weight)| {
+                    let mut bytes = Vec::new();
+                    assert!(encode_key(&scheduled.key, &mut bytes));
+                    (bytes, *weight)
+                })
+                .collect();
+            entries.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+            let mut reference = Writer::default();
+            reference.len(entries.len());
+            for (bytes, weight) in &entries {
+                reference.len(bytes.len());
+                reference.raw(bytes);
+                reference.zigzag(*weight);
+            }
+            let table = frontier.pending_table().unwrap();
+            for budget in [1, 3, 100, 1000, usize::MAX] {
+                let written = resume::write_state::<()>(&path, |w| {
+                    Ok(write_pending(
+                        &table,
+                        frontier.len(),
+                        encode,
+                        |_| true,
+                        |weight, w| w.zigzag(*weight),
+                        budget,
+                        w,
+                    ))
+                });
+                assert!(matches!(written, Ok(Ok(_))), "{mode:?} budget {budget}");
+                let file = std::fs::read(&path).unwrap();
+                assert_eq!(
+                    file[..file.len() - 32],
+                    reference.bytes[..],
+                    "{mode:?} budget {budget}"
+                );
+            }
+            // a key that has no compact form: no state, the previous kept
+            let before = std::fs::read(&path).unwrap();
+            let refused = resume::write_state::<()>(&path, |w| {
+                Ok(write_pending(
+                    &table,
+                    frontier.len(),
+                    encode,
+                    |bytes| !bytes.ends_with(&[1, 1, 1]),
+                    |weight, w| w.zigzag(*weight),
+                    usize::MAX,
+                    w,
+                ))
+            });
+            assert!(
+                matches!(&refused, Ok(Err(reason)) if reason.contains("no decodable compact form")),
+                "{mode:?}"
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), before);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

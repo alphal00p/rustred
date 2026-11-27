@@ -38,7 +38,7 @@ use crate::reduction::ordered_reduction::step_cache::kernel::{
 use crate::reduction::ordered_reduction::{
     CompactPowers, ConcurrentOrderedKernel, FrontierKey, OrderedKernel, OrderedKeyStage,
     OrderedOutput, OrderedPhaseBoundary, OrderedPhaseDescriptor, OrderedPhaseEvent,
-    OrderedPosition, OrderedProfile, OrderedStep, OrderedStepper,
+    OrderedPosition, OrderedProfile, OrderedStep, OrderedStepper, StoredKey,
 };
 use crate::reduction::{
     OrderedSchedulerOptions, OrderedStepCache, OrderedStepShard, OrderedStepStage,
@@ -3517,6 +3517,29 @@ impl OrderedKernel for PKernel<'_, '_> {
             }
             POrderKey::Lexicographic(_) => [0, 0],
             POrderKey::Complexity(key) => [0, key.shared_heap_bytes()],
+        }
+    }
+
+    /// eng-mem: the compact form of a packed pending key straight from the
+    /// packed form (no unpack, no `IntegralKey`): exactly what
+    /// [`OrderedKernel::tail_encode`] writes for the unpacked key.
+    fn tail_encode_stored(key: StoredKey<'_, PKey>, out: &mut Vec<u8>) -> bool {
+        match key {
+            StoredKey::Key(key) => Self::tail_encode(key, out),
+            StoredKey::Packed(packed) => {
+                let start = out.len();
+                crate::reduction::ordered_reduction::step_cache::codec::encode_class_header(
+                    packed.view.tag(),
+                    packed.id,
+                    out,
+                );
+                if packed.view.encode_i8_into(out) {
+                    true
+                } else {
+                    out.truncate(start);
+                    false
+                }
+            }
         }
     }
 

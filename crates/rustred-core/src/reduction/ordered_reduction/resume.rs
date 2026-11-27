@@ -208,21 +208,136 @@ pub(crate) fn request_dir<K: OrderedKernel>(
     Some(root.join(hasher.finalize().to_hex().to_string()))
 }
 
-/// R-B2: `bytes` durably at `path`: written to `<path>.tmp`, fsynced,
-/// renamed over `path`, and the directory fsynced. On any error the previous
-/// `path` is untouched (the caller saves the trace prefix it covers first).
-pub(crate) fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    let tmp = path.with_extension("tmp");
-    let mut file = std::fs::File::create(&tmp)?;
-    file.write_all(bytes)?;
-    file.sync_all()?;
-    drop(file);
-    std::fs::rename(&tmp, path)?;
-    if let Some(parent) = path.parent() {
-        std::fs::File::open(parent)?.sync_all()?;
+/// eng-mem: the staged bytes of a [`StateWriter`] are moved to the file
+/// once they reach this size.
+const STATE_DRAIN: usize = 1 << 20;
+
+/// eng-mem: a state file written as it is produced (no whole-state buffer):
+/// the codec primitives write into a small staging [`Writer`] (`Deref`),
+/// which [`Self::drain`] moves into the file and into the BLAKE3 of the
+/// file's bytes (the state's own digest, appended by [`write_state`]). The
+/// first I/O error is kept and returned by [`write_state`]; later bytes
+/// are dropped.
+pub(crate) struct StateWriter {
+    staged: super::step_cache::codec::Writer,
+    file: std::fs::File,
+    hasher: blake3::Hasher,
+    written: u64,
+    error: Option<std::io::Error>,
+}
+
+impl StateWriter {
+    fn new(file: std::fs::File) -> Self {
+        Self {
+            staged: super::step_cache::codec::Writer {
+                bytes: Vec::with_capacity(STATE_DRAIN + (STATE_DRAIN >> 2)),
+            },
+            file,
+            hasher: blake3::Hasher::new(),
+            written: 0,
+            error: None,
+        }
     }
-    Ok(())
+
+    /// Move the staged bytes to the file when they reach [`STATE_DRAIN`].
+    #[inline]
+    pub(crate) fn drain(&mut self) {
+        if self.staged.bytes.len() >= STATE_DRAIN {
+            self.flush_staged();
+        }
+    }
+
+    fn flush_staged(&mut self) {
+        use std::io::Write;
+        let bytes = &self.staged.bytes;
+        self.hasher.update(bytes);
+        if self.error.is_none()
+            && let Err(error) = self.file.write_all(bytes)
+        {
+            self.error = Some(error);
+        }
+        self.written += bytes.len() as u64;
+        self.staged.bytes.clear();
+    }
+
+    /// The state's own digest appended (BLAKE3 of every byte before it),
+    /// everything written and the file synced: its size.
+    fn finish(mut self) -> std::io::Result<u64> {
+        self.flush_staged();
+        let own = self.hasher.finalize();
+        self.staged.bytes.extend_from_slice(own.as_bytes());
+        self.flush_staged();
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
+        self.file.sync_all()?;
+        Ok(self.written)
+    }
+}
+
+impl std::ops::Deref for StateWriter {
+    type Target = super::step_cache::codec::Writer;
+    fn deref(&self) -> &Self::Target {
+        &self.staged
+    }
+}
+
+impl std::ops::DerefMut for StateWriter {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.staged
+    }
+}
+
+/// eng-mem: why a streamed state was not written.
+pub(crate) enum StateFailure<E> {
+    /// The content could not be produced (`body`'s hard error).
+    Content(E),
+    /// Creating, writing, syncing or publishing the file failed.
+    Write(std::io::Error),
+}
+
+/// eng-mem: the state that `body` writes, durably at `path` (R-B2), as a
+/// whole-state buffer was before (`write_atomic`): streamed into
+/// `<path>.tmp` with the state's own digest last, fsynced, renamed over
+/// `path`, and the directory fsynced. On any failure, and when `body`
+/// declines (`Ok(Err(reason))`: no state), the temporary file is removed and
+/// the previous `path` is untouched, so a partial write is never published.
+/// Returns the size of the published state.
+pub(crate) fn write_state<E>(
+    path: &Path,
+    body: impl FnOnce(&mut StateWriter) -> Result<Result<(), String>, E>,
+) -> Result<Result<u64, String>, StateFailure<E>> {
+    let tmp = path.with_extension("tmp");
+    let file = std::fs::File::create(&tmp).map_err(StateFailure::Write)?;
+    let mut w = StateWriter::new(file);
+    let produced = body(&mut w);
+    let written = match produced {
+        Ok(Ok(())) => w.finish(),
+        Ok(Err(reason)) => {
+            drop(w);
+            let _ = std::fs::remove_file(&tmp);
+            return Ok(Err(reason));
+        }
+        Err(error) => {
+            drop(w);
+            let _ = std::fs::remove_file(&tmp);
+            return Err(StateFailure::Content(error));
+        }
+    };
+    let publish = written.and_then(|size| {
+        std::fs::rename(&tmp, path)?;
+        if let Some(parent) = path.parent() {
+            std::fs::File::open(parent)?.sync_all()?;
+        }
+        Ok(size)
+    });
+    match publish {
+        Ok(size) => Ok(Ok(size)),
+        Err(error) => {
+            let _ = std::fs::remove_file(&tmp);
+            Err(StateFailure::Write(error))
+        }
+    }
 }
 
 static STORAGE_STOP: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
@@ -284,4 +399,52 @@ mod tests {
         );
         assert!(r.is_empty());
     }
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("rustred-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// eng-mem: a streamed state is published only whole: its bytes are
+    /// what the body wrote followed by their BLAKE3; a body that declines or
+    /// fails leaves the previous state untouched and no temporary file.
+    #[test]
+    fn a_streamed_state_is_published_whole_or_not_at_all() {
+        let dir = scratch_dir("state-writer-test");
+        let path = dir.join("state.bin");
+        let size = write_state::<()>(&path, |w| {
+            for i in 0..(3 * STATE_DRAIN as u64 / 2) {
+                w.varint(i);
+                w.drain();
+            }
+            Ok(Ok(()))
+        });
+        let file = std::fs::read(&path).unwrap();
+        assert!(matches!(size, Ok(Ok(n)) if n == file.len() as u64));
+        let mut reference = Writer::default();
+        for i in 0..(3 * STATE_DRAIN as u64 / 2) {
+            reference.varint(i);
+        }
+        let body = file.len() - 32;
+        assert_eq!(file[..body], reference.bytes[..]);
+        assert_eq!(file[body..], *blake3::hash(&reference.bytes).as_bytes());
+        assert!(!dir.join("state.tmp").exists());
+        let declined = write_state::<()>(&path, |w| {
+            w.raw(b"half a state");
+            Ok(Err("no compact form".to_owned()))
+        });
+        assert!(matches!(declined, Ok(Err(reason)) if reason == "no compact form"));
+        let failed = write_state::<&str>(&path, |w| {
+            w.raw(&[7; 3 * STATE_DRAIN]);
+            w.drain();
+            Err("trace sync")
+        });
+        assert!(matches!(failed, Err(StateFailure::Content("trace sync"))));
+        assert_eq!(std::fs::read(&path).unwrap(), file);
+        assert!(!dir.join("state.tmp").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 }

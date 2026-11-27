@@ -598,6 +598,12 @@ impl<K: OrderedStepCacheKernel> OrderedKernel for CachedKernel<'_, '_, K> {
     fn tail_encode(key: &Self::Key, out: &mut Vec<u8>) -> bool {
         K::tail_encode(key, out)
     }
+    fn tail_encode_stored(
+        key: crate::reduction::ordered_reduction::StoredKey<'_, Self::Key>,
+        out: &mut Vec<u8>,
+    ) -> bool {
+        K::tail_encode_stored(key, out)
+    }
 }
 
 /// The adapter's stepper behind the cache, shared by the scheduler's

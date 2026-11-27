@@ -264,6 +264,14 @@ const CLASS_ROUTE_TAG: u8 = 4;
 /// the owner class id.
 const CLASS_APPLY_TAG: u8 = 5;
 
+/// eng-mem: the header of a propagator-library identity (stage and class,
+/// as [`encode_node`] writes it for `ClassRoute` / `ClassApply`); the powers
+/// follow, one signed byte each.
+pub(crate) fn encode_class_header(apply: bool, class: u64, out: &mut Vec<u8>) {
+    out.push(if apply { CLASS_APPLY_TAG } else { CLASS_ROUTE_TAG });
+    out.extend_from_slice(&class.to_le_bytes());
+}
+
 /// Append a partially transported Route key of source sector `source` with
 /// `powers` (owner powers so far, then the source numerator powers not yet
 /// expanded): stage [`PARTIAL_ROUTE_TAG`], the source mask (`u64`, little
