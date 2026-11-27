@@ -136,7 +136,8 @@ fn run_census(arguments: &[&str]) -> std::process::Output {
 
 /// A fresh scratch directory for one test.
 fn scratch(name: &str) -> std::path::PathBuf {
-    let directory = std::env::temp_dir().join(format!("p-eps-census-{name}-{}", std::process::id()));
+    let directory =
+        std::env::temp_dir().join(format!("p-eps-census-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&directory);
     std::fs::create_dir_all(&directory).unwrap();
     directory
@@ -148,7 +149,10 @@ fn p_eps_census_prints_its_help_and_refuses_bad_arguments() {
         let output = run_census(&[help]);
         assert_eq!(output.status.code(), Some(0));
         let text = String::from_utf8(output.stdout).unwrap();
-        assert!(text.contains("USAGE:") && text.contains("EXIT STATUS:"), "{text}");
+        assert!(
+            text.contains("USAGE:") && text.contains("EXIT STATUS:"),
+            "{text}"
+        );
     }
     for arguments in [
         &["--package", "p", "--out-dir", "o"][..],
@@ -233,18 +237,22 @@ fn p_eps_census_exit_status_is_its_verdict() {
     // S = 1: the bubble without units is the package's node: complete, exit 0
     let output = census("1", "s1");
     assert_eq!(output.status.code(), Some(0), "{output:?}");
-    let report: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(directory.join("s1/eps-census-S1.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!((report["rows"].as_u64(), report["missing"].as_u64()), (Some(1), Some(0)));
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("s1/eps-census-S1.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        (report["rows"].as_u64(), report["missing"].as_u64()),
+        (Some(1), Some(0))
+    );
     // S = 2: the bubble with one unit and the four two-loop graphs are missing: exit 1, tables written
     let output = census("2", "s2");
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    let report: serde_json::Value = serde_json::from_slice(
-        &std::fs::read(directory.join("s2/eps-census-S2.json")).unwrap(),
-    )
-    .unwrap();
-    assert_eq!((report["rows"].as_u64(), report["missing"].as_u64()), (Some(6), Some(5)));
+    let report: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(directory.join("s2/eps-census-S2.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        (report["rows"].as_u64(), report["missing"].as_u64()),
+        (Some(6), Some(5))
+    );
     std::fs::remove_dir_all(&directory).unwrap();
 }

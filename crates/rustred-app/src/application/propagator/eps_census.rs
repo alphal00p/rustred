@@ -836,6 +836,9 @@ pub struct AxesReport {
     pub trace_seconds: f64,
 }
 
+/// One presentation's trace in [`axes_report`]: keys stepped, refusals, the first refusal, seconds.
+type TraceResult = (usize, usize, String, f64);
+
 /// `bits` spread onto the set bits of `mask` (lowest first).
 fn deposit(bits: u64, mask: u64) -> u64 {
     let (mut out, mut m, mut k) = (0u64, mask, 0);
@@ -1009,7 +1012,7 @@ pub fn axes_report(
         .num_threads(threads.max(1))
         .build()
         .map_err(|e| rustred::propagator::error::PError::Unsupported(e.to_string()))?;
-    let results: Vec<Result<(u32, (usize, usize, String, f64)), rustred::propagator::error::PError>> =
+    let results: Vec<Result<(u32, TraceResult), rustred::propagator::error::PError>> =
         pool.install(|| {
             todo.par_iter()
                 .with_max_len(1)
