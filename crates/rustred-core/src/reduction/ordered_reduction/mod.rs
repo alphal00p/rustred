@@ -2038,6 +2038,7 @@ fn memstats_snapshot<K: OrderedKernel, A: OrderedWeights>(
 
 /// The sequential scheduler: pop the greatest pending key, apply its checked
 /// step and merge the weighted children and terminals, one key at a time.
+#[allow(clippy::too_many_arguments)]
 fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
     kernel: &mut K,
     weights: &mut A,
@@ -2571,7 +2572,7 @@ fn run_inner<K: OrderedKernel, A: OrderedWeights, S: StepSource<K>>(
             progress.frontier_keys = frontier.len();
             progress.peak_frontier_keys = progress.peak_frontier_keys.max(frontier.len());
             progress.terminal_keys = output.len();
-            kernel.observe(&progress, Some(&node.key))?;
+            kernel.observe(progress, Some(&node.key))?;
             if let Some(probe) = &mut mem_probe
                 && probe.due(frontier.len())
             {
@@ -3018,7 +3019,7 @@ fn write_pending<'f, Q: FrontierKey, P: Clone + Ord + std::hash::Hash, W>(
                 encode(key, &mut scratch);
                 w.len(scratch.len());
                 w.raw(&scratch);
-                put_weight(weight, &mut **w);
+                put_weight(weight, w);
                 w.drain();
             }
             *cell = Vec::new();

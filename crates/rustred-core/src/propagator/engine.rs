@@ -1201,6 +1201,7 @@ impl PEngine {
             outside: BTreeSet::new(),
             tadic,
             tadic_variants,
+            phase_stats: stage_stats::enabled().then(PhaseStats::default),
         };
         let output = run_with_step_cache_and_options(
             &mut kernel,
@@ -1399,6 +1400,103 @@ pub(crate) fn orbit_across_sectors() -> bool {
 /// `apply|route <TAB> owner class|presentation <TAB> key <TAB> image <TAB> sign`
 /// (a key evicted from the canonicalisation cache and met again is written
 /// again).
+/// eng-stage: counters of the staged route transport (process totals; one
+/// relaxed add per staged step, nothing on today's path) and the opt-in
+/// `RUSTRED_P_PHASE_STATS=1` (either mode): one stderr line per phase end and
+/// one every 2^20 popped keys with the scheduler's own counters.
+pub(crate) mod stage_stats {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// Route steps that took the stages.
+    pub(crate) static ROUTES: AtomicU64 = AtomicU64::new(0);
+    /// Steps of Stage keys.
+    pub(crate) static STEPS: AtomicU64 = AtomicU64::new(0);
+    /// Children of staged steps (the first stage of a Route key included),
+    /// after the zero filters.
+    pub(crate) static TERMS: AtomicU64 = AtomicU64::new(0);
+    /// Intermediates dropped as hereditarily zero.
+    pub(crate) static PRUNED: AtomicU64 = AtomicU64::new(0);
+
+    pub(crate) fn add(counter: &AtomicU64, n: usize) {
+        counter.fetch_add(n as u64, Ordering::Relaxed);
+    }
+
+    /// `[routes, steps, terms, pruned]`.
+    pub(crate) fn snapshot() -> [u64; 4] {
+        [&ROUTES, &STEPS, &TERMS, &PRUNED].map(|c| c.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn enabled() -> bool {
+        static ON: OnceLock<bool> = OnceLock::new();
+        *ON.get_or_init(|| std::env::var("RUSTRED_P_PHASE_STATS").as_deref() == Ok("1"))
+    }
+}
+
+/// eng-stage: the state of `RUSTRED_P_PHASE_STATS` lines of one request.
+#[derive(Default)]
+struct PhaseStats {
+    started: Option<std::time::Instant>,
+    phase: usize,
+    processed: usize,
+    emitted: usize,
+    merged: usize,
+    cancelled: usize,
+    staged: [u64; 4],
+    printed: usize,
+}
+
+impl PhaseStats {
+    fn start(&mut self, phase: usize, progress: &CandidateOrderedReductionProgress) {
+        *self = Self {
+            started: Some(std::time::Instant::now()),
+            phase,
+            processed: progress.processed_keys,
+            emitted: progress.emitted_terms,
+            merged: progress.merged_terms,
+            cancelled: progress.cancelled_terms,
+            staged: stage_stats::snapshot(),
+            printed: usize::MAX,
+        };
+    }
+
+    /// One line: `what` (`end` or `in`), the deltas since the phase start.
+    fn line(
+        &self,
+        what: &str,
+        progress: &CandidateOrderedReductionProgress,
+        support: Option<usize>,
+    ) {
+        let now = stage_stats::snapshot();
+        let delta = |i: usize| now[i] - self.staged[i];
+        let processed = progress.processed_keys - self.processed;
+        eprintln!(
+            "rustred phase-stats: {what} phase {} {} t={} s={:.1} processed={} route_keys={} stage_steps={} emitted={} \
+             stage_terms={} pruned={} staged_routes={} merged={} cancelled={} frontier={} peak_frontier={} rss_gb={:.2}",
+            self.phase,
+            if self.phase.is_multiple_of(2) {
+                "route"
+            } else {
+                "apply"
+            },
+            support.map_or(-1, |t| t as i64),
+            self.started.map_or(0.0, |t| t.elapsed().as_secs_f64()),
+            processed,
+            processed as u64 - delta(1),
+            delta(1),
+            progress.emitted_terms - self.emitted,
+            delta(2),
+            delta(3),
+            delta(0),
+            progress.merged_terms - self.merged,
+            progress.cancelled_terms - self.cancelled,
+            progress.frontier_keys,
+            progress.peak_frontier_keys,
+            crate::reduction::ordered_reduction::memstats::rss_bytes() as f64 / 1e9,
+        );
+    }
+}
+
 pub(crate) mod canon_counts {
     use std::io::Write;
     use std::sync::Mutex;
@@ -2569,6 +2667,7 @@ impl<'l> PStepper<'l> {
             .routed_cell(presentation, support)
             .ok_or_else(|| PError::Contract("a staged Route key off a routed sector".to_owned()))?;
         let data = self.stage_cell(cell)?;
+        stage_stats::add(&stage_stats::ROUTES, 1);
         let mut base = Vec::with_capacity(data.owner_arity);
         prepared.layered_base_powers(powers, &mut base)?;
         // Every positive power is in the support: the variables hold <= 0.
@@ -2581,6 +2680,7 @@ impl<'l> PStepper<'l> {
     fn stage_step(&self, cell: u32, view: &PView) -> Result<OrderedStep<PKey>, PError> {
         crate::prof!(RouteStep);
         let data = self.stage_cell(cell)?;
+        stage_stats::add(&stage_stats::STEPS, 1);
         let mut slots = ViewSlots::new();
         view.slots_into(&mut slots);
         let (arity, vars) = (data.owner_arity, data.vars.len());
@@ -2695,6 +2795,7 @@ impl<'l> PStepper<'l> {
                     repeated.push((key, value));
                 }
                 step.terms = merge_all(context, &self.limits, repeated)?;
+                stage_stats::add(&stage_stats::TERMS, step.terms.len() + single.len());
                 light::put(single);
             } else {
                 let mut pairs: Vec<(PKey, Coefficient)> = Vec::with_capacity(data.terms[v].len());
@@ -2721,6 +2822,7 @@ impl<'l> PStepper<'l> {
                     }
                 }
                 step.terms = merge_all(context, &self.limits, pairs)?;
+                stage_stats::add(&stage_stats::TERMS, step.terms.len());
             }
             return Ok(step);
         }
@@ -2734,6 +2836,7 @@ impl<'l> PStepper<'l> {
                 && support & !data.owner_support == 0
                 && zero.is_some_and(|zero| zero.contains(support))
             {
+                stage_stats::add(&stage_stats::PRUNED, 1);
                 continue;
             }
             slots.clear();
@@ -2754,7 +2857,10 @@ impl<'l> PStepper<'l> {
             // Distinct monomials: distinct children; sorted, as light
             // children are handed over.
             light_children.sort_by(|a, b| a.0.cmp(&b.0));
+            stage_stats::add(&stage_stats::TERMS, light_children.len());
             light::put(light_children);
+        } else {
+            stage_stats::add(&stage_stats::TERMS, step.terms.len());
         }
         Ok(step)
     }
@@ -4141,6 +4247,8 @@ struct PKernel<'l, 'r> {
     tadic: Option<Option<u8>>,
     /// helper-vh2 B3: seeds and weight vectors of the one recording.
     tadic_variants: Option<crate::reduction::TadicVariants>,
+    /// eng-stage: `RUSTRED_P_PHASE_STATS=1` lines (`None`: off).
+    phase_stats: Option<PhaseStats>,
 }
 
 impl PKernel<'_, '_> {
@@ -4341,6 +4449,16 @@ impl OrderedKernel for PKernel<'_, '_> {
         progress: &CandidateOrderedReductionProgress,
         current: Option<&PKey>,
     ) -> Result<(), PError> {
+        if let Some(stats) = &mut self.phase_stats
+            && current.is_some()
+            && progress.processed_keys.is_multiple_of(1 << 20)
+            && progress.processed_keys != stats.printed
+            && stats.started.is_some()
+        {
+            stats.printed = progress.processed_keys;
+            let support = self.stepper.engine.phases.describe(stats.phase).support;
+            stats.line("in", progress, support);
+        }
         if !self.stepper.census.on {
             return Ok(());
         }
@@ -4424,6 +4542,14 @@ impl OrderedKernel for PKernel<'_, '_> {
     }
 
     fn inspect_phase(&mut self, event: OrderedPhaseEvent<'_>) -> Result<(), PError> {
+        if let Some(stats) = &mut self.phase_stats {
+            if event.boundary == OrderedPhaseBoundary::Started {
+                stats.start(event.phase, &event.progress);
+            } else {
+                let support = self.stepper.engine.phases.describe(event.phase).support;
+                stats.line("end", &event.progress, support);
+            }
+        }
         if self.stepper.census.on {
             let stepper = self.stepper;
             let started = event.boundary == OrderedPhaseBoundary::Started;
