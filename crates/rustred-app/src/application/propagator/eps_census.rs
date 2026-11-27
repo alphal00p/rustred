@@ -974,7 +974,7 @@ pub fn axes_report(
             }
         }
     }
-    let fresh = done.is_empty();
+    let fresh = std::fs::metadata(stream).map_or(true, |m| m.len() == 0);
     let file = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
