@@ -160,6 +160,37 @@ fn p_eps_census_prints_its_help_and_refuses_bad_arguments() {
         &["--package", "p", "--max-total", "0", "--out-dir", "o"],
         &["--unknown"],
         &["--help", "--force"],
+        &[
+            "--package",
+            "p",
+            "--max-total",
+            "2",
+            "--out-dir",
+            "o",
+            "--axes",
+            "--axes-extended",
+        ],
+        &[
+            "--package",
+            "p",
+            "--max-total",
+            "2",
+            "--out-dir",
+            "o",
+            "--axes-max-loops",
+            "3",
+        ],
+        &[
+            "--package",
+            "p",
+            "--max-total",
+            "2",
+            "--out-dir",
+            "o",
+            "--axes",
+            "--axes-max-loops",
+            "0",
+        ],
     ] {
         let output = run_census(arguments);
         assert_eq!(output.status.code(), Some(2), "{arguments:?}");
@@ -255,4 +286,82 @@ fn p_eps_census_exit_status_is_its_verdict() {
         (Some(6), Some(5))
     );
     std::fs::remove_dir_all(&directory).unwrap();
+}
+
+/// The trace keys of `--axes` and `--axes-extended` on a two-loop sunset with one eps line (slots: lines k1, k2,
+/// k1+k2-q with one unit, ISPs k1.q, k2.q): plain = the eps line at 0 and -1; extended = at -2, and at 0, -1, -2
+/// with the numerator k1.q (first ISP at -1), alone and with a dot on the first integer line (k1 at power 2).
+#[test]
+fn the_axis_trace_keys_of_both_modes() {
+    use rustred::algebra::CoefficientContext;
+    use rustred::propagator::PresentationId;
+    use rustred::propagator::presentation::{
+        Presentation, PresentationKind, Slot, SlotIsp, SlotLine,
+    };
+    use rustred_app::propagator::eps_census::{AxesTrace, axis_trace_inputs};
+    let line = |momentum: [i64; 3], eps_units: u8| {
+        Slot::Line(SlotLine {
+            momentum: momentum.to_vec(),
+            eps_units,
+        })
+    };
+    let isp = |left: [i64; 3]| {
+        Slot::Isp(SlotIsp {
+            left: left.to_vec(),
+            right: vec![0, 0, 1],
+        })
+    };
+    let context = CoefficientContext::try_new(["d"]).unwrap();
+    let sunset = Presentation::from_slots(
+        PresentationId(7),
+        PresentationKind::EpsNode,
+        "sunset_eps",
+        2,
+        vec![
+            line([1, 0, 0], 0),
+            line([0, 1, 0], 0),
+            line([1, 1, -1], 1),
+            isp([1, 0, 0]),
+            isp([0, 1, 0]),
+        ],
+        &context,
+        None,
+    )
+    .unwrap();
+    let keys = |mode| -> Vec<Vec<i64>> {
+        axis_trace_inputs(&sunset, mode)
+            .into_iter()
+            .map(|(id, powers)| {
+                assert_eq!(id, PresentationId(7));
+                powers
+            })
+            .collect()
+    };
+    assert_eq!(
+        keys(AxesTrace::Plain),
+        [vec![1, 1, -1, 0, 0], vec![1, 1, 0, 0, 0]]
+    );
+    assert_eq!(
+        keys(AxesTrace::Extended),
+        [
+            vec![1, 1, -2, -1, 0],
+            vec![1, 1, -2, 0, 0],
+            vec![1, 1, -1, -1, 0],
+            vec![1, 1, 0, -1, 0],
+            vec![2, 1, -2, -1, 0],
+            vec![2, 1, -1, -1, 0],
+            vec![2, 1, 0, -1, 0],
+        ]
+    );
+}
+
+/// `--trace-keys` lines: `<presentation> TAB <powers>`, comments and blanks skipped, duplicates once; malformed lines refused.
+#[test]
+fn trace_key_files_parse() {
+    use rustred_app::propagator::eps_census::parse_trace_keys;
+    let keys = parse_trace_keys("# comment\n3\t1,1,-2,0\n\n3\t1,1,-2,0\n0\t1, 2\n").unwrap();
+    assert_eq!(keys, [(0, vec![1, 2]), (3, vec![1, 1, -2, 0])]);
+    for bad in ["3 1,1", "x\t1", "3\t1,a"] {
+        assert!(parse_trace_keys(bad).is_err(), "{bad:?}");
+    }
 }

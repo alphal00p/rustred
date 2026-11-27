@@ -2,7 +2,8 @@
 //!
 //! ```text
 //! rustred p-eps-census --package <dir> --max-total <S> --out-dir <dir> [--threads <n>] [--full-load]
-//!                      [--axes [--axes-threads <n>]] [--force]
+//!                      [--axes | --axes-extended] [--axes-threads <n>] [--axes-max-loops <L>]
+//!                      [--trace-keys <tsv>] [--force]
 //! ```
 //!
 //! Every (two-point graph `G` with `L` loops, eps units `u` on its lines) with `L + sum(u) <= S` and whether
@@ -26,7 +27,11 @@
 //!   (one trace per presentation, `--axes-threads` at a time, default 4, appended to
 //!   `eps-census-S<S>-axes-trace.tsv` as each ends: a rerun skips the presentations already there; delete
 //!   that file to trace again); also every Custom owner on an eps presentation checked two-sided exactly on its
-//!   forced axes.
+//!   forced axes;
+//! - with `--axes-extended` instead, the same checks and a trace of other keys
+//!   (`eps_census::AXIS_TRACE_EXTENDED_POWERS`: power -2, rank-1 numerators, dots), in `-axes-ext.tsv` and
+//!   `-axes-ext-trace.tsv`; `--axes-max-loops` limits either trace to the presentations of at most that many loops;
+//! - with `--trace-keys <tsv>`, `eps-census-keys.tsv`: the given keys traced the same way, per presentation.
 //!
 //! The index is read from `library.json` (the node keys the loader checks against the DAG); `--full-load`
 //! loads the package with `load_p_library` and takes the index from the loaded presentations instead,
@@ -45,8 +50,9 @@ use std::time::Instant;
 
 use crate::AppError;
 use crate::application::propagator::eps_census::{
-    LoopUniverse, PackageIndex, axes_report, axes_tsv, causes_tsv, census_rows, closure_tsv,
-    generated_top_dags, loop_universe, missing_closure, rows_tsv, summary_tsv, universe_table,
+    AxesTrace, LoopUniverse, PackageIndex, axes_report, axes_tsv, causes_tsv, census_rows,
+    closure_tsv, generated_top_dags, keys_trace, keys_tsv, loop_universe, missing_closure,
+    parse_trace_keys, rows_tsv, summary_tsv, universe_table,
 };
 use crate::application::propagator::{PLibraryOptions, PLibrarySource, load_p_library};
 use crate::cli::args::{ArgError, next_utf8_value, next_value, parse_positive_integer};
@@ -58,7 +64,8 @@ rustred p-eps-census: census of eps-shifted families against a p-library package
 
 USAGE:
     rustred p-eps-census --package <dir> --max-total <S> --out-dir <dir> [--threads <n>] [--full-load]
-                         [--axes [--axes-threads <n>]] [--force]
+                         [--axes | --axes-extended] [--axes-threads <n>] [--axes-max-loops <L>]
+                         [--trace-keys <tsv>] [--force]
     rustred p-eps-census --help
 
 Lists every (two-point graph G with L loops, eps units u <= 4 per line) with L + sum(u) <= S, modulo the
@@ -77,19 +84,30 @@ OPTIONS:
                           pinches an eps line, every Custom eps owner is two-sided exactly on them, and keys with
                           integer power 0 and -1 on the eps lines trace through the package without a refusal
                           (resumable: presentations already in eps-census-S<S>-axes-trace.tsv are skipped)
+    --axes-extended       --axes with other trace keys (resumable through eps-census-S<S>-axes-ext-trace.tsv):
+                          the eps lines at integer power -2, and at 0, -1 and -2 with a numerator of rank 1
+                          (the first ISP at -1) and with that numerator and a dot (power 2) on an integer line
     --axes-threads <n>    presentations traced at a time [default: 4]
+    --axes-max-loops <L>  trace only the presentations of at most L loops (the other axis checks cover all), e.g.
+                          the light ones on many threads first, then the rest on fewer (the trace file resumes)
+    --trace-keys <tsv>    also trace these keys (implies --full-load), one `<presentation id> TAB <comma-separated
+                          integer powers>` per line, slot order of the presentation, lines then ISPs (resumable
+                          through eps-census-keys-trace.tsv; refusals are counted in the exit status)
     --force               overwrite existing tables
 
 OUTPUT (in --out-dir): eps-census-S<S>.tsv (one row per graph key and unit assignment), -summary.tsv, -causes.tsv,
--closure.tsv, eps-census-universe.tsv, eps-census-S<S>.json; with --axes -axes.tsv and -axes-trace.tsv.
+-closure.tsv, eps-census-universe.tsv, eps-census-S<S>.json; with --axes -axes.tsv and -axes-trace.tsv, with
+--axes-extended -axes-ext.tsv and -axes-ext-trace.tsv; with --trace-keys eps-census-keys.tsv and -keys-trace.tsv.
 
 EXIT STATUS:
     0  every row present (and, with --axes, every axis check passed)
-    1  a row is missing or an axis check failed (the census verdict; the tables are written)
+    1  a row is missing, an axis check failed or a traced key was refused (the census verdict; the tables
+       are written)
     2  usage error
     3  library.json cannot be read
     4  library.json is malformed, or an output table exists and --force was not given
-    5  the package does not load, or the loaded index differs from library.json's
+    5  the package does not load, the loaded index differs from library.json's, or a --trace-keys line
+       is malformed or names no key of the package
     7  an output cannot be written
 ";
 
@@ -101,7 +119,10 @@ struct Arguments {
     threads: usize,
     full_load: bool,
     axes: bool,
+    axes_extended: bool,
     axes_threads: usize,
+    axes_max_loops: Option<u8>,
+    trace_keys: Option<PathBuf>,
     force: bool,
 }
 
@@ -113,6 +134,7 @@ fn parse(arguments: Vec<OsString>) -> Result<Option<Arguments>, ArgError> {
     let mut arguments = arguments.into_iter();
     let (mut package, mut max_total, mut out_dir) = (None, None, None);
     let (mut threads, mut full_load, mut axes, mut force) = (1, false, false, false);
+    let (mut axes_extended, mut axes_max_loops, mut trace_keys) = (false, None, None);
     let mut axes_threads = 4;
     let mut seen = BTreeSet::new();
     while let Some(argument) = arguments.next() {
@@ -124,7 +146,10 @@ fn parse(arguments: Vec<OsString>) -> Result<Option<Arguments>, ArgError> {
             "--threads" => "--threads",
             "--full-load" => "--full-load",
             "--axes" => "--axes",
+            "--axes-extended" => "--axes-extended",
             "--axes-threads" => "--axes-threads",
+            "--axes-max-loops" => "--axes-max-loops",
+            "--trace-keys" => "--trace-keys",
             "--force" => "--force",
             _ => return Err(ArgError::UnknownOption(argument)),
         };
@@ -151,6 +176,17 @@ fn parse(arguments: Vec<OsString>) -> Result<Option<Arguments>, ArgError> {
             }
             "--full-load" => full_load = true,
             "--axes" => axes = true,
+            "--axes-extended" => axes_extended = true,
+            "--trace-keys" => trace_keys = Some(PathBuf::from(next_value(&mut arguments, option)?)),
+            "--axes-max-loops" => {
+                let value = next_utf8_value(&mut arguments, option)?;
+                let loops = parse_positive_integer(option, value.clone())?;
+                axes_max_loops = Some(u8::try_from(loops).map_err(|_| ArgError::InvalidValue {
+                    option,
+                    value,
+                    expected: "a loop count below 256",
+                })?);
+            }
             "--axes-threads" => {
                 axes_threads =
                     parse_positive_integer(option, next_utf8_value(&mut arguments, option)?)?;
@@ -158,14 +194,28 @@ fn parse(arguments: Vec<OsString>) -> Result<Option<Arguments>, ArgError> {
             _ => force = true,
         }
     }
+    if axes && axes_extended {
+        return Err(ArgError::InvalidCombination(
+            "--axes and --axes-extended trace other keys: give one",
+        ));
+    }
+    let axes = axes || axes_extended;
+    if axes_max_loops.is_some() && !axes {
+        return Err(ArgError::InvalidCombination(
+            "--axes-max-loops limits the --axes trace: it needs --axes or --axes-extended",
+        ));
+    }
     Ok(Some(Arguments {
         package: package.ok_or(ArgError::MissingRequiredOption("--package"))?,
         max_total: max_total.ok_or(ArgError::MissingRequiredOption("--max-total"))?,
         out_dir: out_dir.ok_or(ArgError::MissingRequiredOption("--out-dir"))?,
         threads,
-        full_load: full_load || axes,
+        full_load: full_load || axes || trace_keys.is_some(),
         axes,
+        axes_extended,
         axes_threads,
+        axes_max_loops,
+        trace_keys,
         force,
     }))
 }
@@ -184,7 +234,12 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
         format!("eps-census-S{s}-closure.tsv"),
         "eps-census-universe.tsv".to_owned(),
         format!("eps-census-S{s}.json"),
-        format!("eps-census-S{s}-axes.tsv"),
+        if arguments.axes_extended {
+            format!("eps-census-S{s}-axes-ext.tsv")
+        } else {
+            format!("eps-census-S{s}-axes.tsv")
+        },
+        "eps-census-keys.tsv".to_owned(),
     ];
     std::fs::create_dir_all(&arguments.out_dir).map_err(|e| CliError::OutputIo(e.to_string()))?;
     if !arguments.force
@@ -235,15 +290,43 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
     let t = Instant::now();
     let closure = missing_closure(&rows, &index);
     let closure_seconds = t.elapsed().as_secs_f64();
+    let mode = if arguments.axes_extended {
+        AxesTrace::Extended
+    } else {
+        AxesTrace::Plain
+    };
     let axes = match (&loaded_library, arguments.axes) {
         (Some(library), true) => {
-            let stream = arguments
-                .out_dir
-                .join(format!("eps-census-S{s}-axes-trace.tsv"));
-            Some(axes_report(library, &rows, &stream, arguments.axes_threads).map_err(failed)?)
+            let stream = arguments.out_dir.join(match mode {
+                AxesTrace::Plain => format!("eps-census-S{s}-axes-trace.tsv"),
+                AxesTrace::Extended => format!("eps-census-S{s}-axes-ext-trace.tsv"),
+            });
+            Some(
+                axes_report(
+                    library,
+                    &rows,
+                    &stream,
+                    arguments.axes_threads,
+                    mode,
+                    arguments.axes_max_loops,
+                )
+                .map_err(failed)?,
+            )
         }
         _ => None,
     };
+    let traced_keys = match (&loaded_library, &arguments.trace_keys) {
+        (Some(library), Some(path)) => {
+            let text = std::fs::read_to_string(path)
+                .map_err(|e| CliError::InputIo(format!("{}: {e}", path.display())))?;
+            let keys =
+                parse_trace_keys(&text).map_err(|e| failed(format!("{}: {e}", path.display())))?;
+            let stream = arguments.out_dir.join("eps-census-keys-trace.tsv");
+            Some(keys_trace(library, &keys, &stream, arguments.axes_threads).map_err(failed)?)
+        }
+        _ => None,
+    };
+    let keys_problems = traced_keys.as_ref().map_or(0, |k| k.refused);
     let axes_problems = axes.as_ref().map_or(0, |a| {
         a.rows
             .values()
@@ -286,6 +369,13 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
             "trace_failures": a.trace_failures, "trace_samples": a.trace_samples, "trace_seconds": a.trace_seconds,
             "custom_eps_owners": a.custom_eps_owners, "custom_not_two_sided": a.custom_not_two_sided,
             "lane_eps_owners": a.lane_eps_owners, "problems": axes_problems,
+            "trace": mode.label(), "trace_max_loops": arguments.axes_max_loops,
+            "traced_presentations": a.rows.values().filter(|r| r.refused.is_some()).count(),
+        })),
+        "trace_keys": traced_keys.as_ref().map(|k| serde_json::json!({
+            "file": arguments.trace_keys.as_ref().map(|p| p.display().to_string()),
+            "presentations": k.rows.len(), "inputs": k.inputs, "trace_keys": k.keys,
+            "refused": k.refused, "samples": k.samples, "seconds": k.seconds,
         })),
         "universe": universe_json,
         "generated_top_dags": dags.iter().map(|(l, n, o, m)| serde_json::json!({
@@ -305,11 +395,19 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
         universe.clone(),
         serde_json::to_string_pretty(&report).map_err(failed)? + "\n",
     ];
-    let axes_text = axes.as_ref().map(axes_tsv);
-    let contents: Vec<&String> = contents.iter().chain(axes_text.as_ref()).collect();
+    let optional = [
+        axes.as_ref().map(axes_tsv),
+        traced_keys.as_ref().map(keys_tsv),
+    ];
+    let contents = contents
+        .iter()
+        .map(Some)
+        .chain(optional.iter().map(Option::as_ref));
     for (name, text) in names.iter().zip(contents) {
-        std::fs::write(arguments.out_dir.join(name), text)
-            .map_err(|e| CliError::OutputIo(e.to_string()))?;
+        if let Some(text) = text {
+            std::fs::write(arguments.out_dir.join(name), text)
+                .map_err(|e| CliError::OutputIo(e.to_string()))?;
+        }
     }
     let mut stdout = std::io::stdout().lock();
     let io = |e: std::io::Error| CliError::OutputIo(e.to_string());
@@ -333,7 +431,8 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
     if let Some(a) = &axes {
         writeln!(
             stdout,
-            "axes: {} eps presentations, {} census sectors, {} pinched; {} Custom eps owners, {} not two-sided; trace {} inputs, {} keys, failures {:?} ({:.1} s)",
+            "axes ({} trace): {} eps presentations, {} census sectors, {} pinched; {} Custom eps owners, {} not two-sided; trace {} inputs, {} keys, failures {:?} ({:.1} s)",
+            mode.label(),
             a.rows.len(),
             a.rows.values().map(|r| r.sectors).sum::<usize>(),
             a.rows.values().map(|r| r.pinched).sum::<usize>(),
@@ -346,7 +445,19 @@ fn census(arguments: &Arguments) -> Result<usize, CliError> {
         )
         .map_err(io)?;
     }
-    Ok(missing + axes_problems)
+    if let Some(k) = &traced_keys {
+        writeln!(
+            stdout,
+            "trace keys: {} keys on {} presentations, {} keys stepped, {} refused ({:.1} s)",
+            k.inputs,
+            k.rows.len(),
+            k.keys,
+            k.refused,
+            k.seconds
+        )
+        .map_err(io)?;
+    }
+    Ok(missing + axes_problems + keys_problems)
 }
 
 pub(super) fn run(arguments: Vec<OsString>) -> Result<(), CliError> {
@@ -396,7 +507,10 @@ mod tests {
                 threads: 1,
                 full_load: false,
                 axes: false,
+                axes_extended: false,
                 axes_threads: 4,
+                axes_max_loops: None,
+                trace_keys: None,
                 force: false,
             }
         );

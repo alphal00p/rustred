@@ -799,6 +799,86 @@ pub fn generated_top_dags(
 /// integer line at power 1, ISPs at 0 (2, 6, 14 inputs for 1, 2, 3 eps lines).
 pub const AXIS_TRACE_POWERS: [i64; 2] = [0, -1];
 
+/// Integer powers of the optional extended trace of [`axes_report`] ([`AxesTrace::Extended`], `--axes-extended`): for
+/// every non-empty subset of the eps lines of a presentation, the subset at -2 (other lines as in the plain trace),
+/// and at each of these powers the same key with a numerator of rank 1 (the first ISP slot at -1) and with that
+/// numerator and a dot (power 2) on the first integer line. A presentation without ISP slots gets the dot alone, one
+/// without integer lines no dot. The plain keys at 0 and -1 are the plain trace's and are not repeated.
+pub const AXIS_TRACE_EXTENDED_POWERS: [i64; 3] = [0, -1, -2];
+
+/// Which keys [`axes_report`] traces.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AxesTrace {
+    /// [`AXIS_TRACE_POWERS`] on every non-empty subset of the eps lines, no numerator, no dot.
+    Plain,
+    /// [`AXIS_TRACE_EXTENDED_POWERS`]: power -2, numerators of rank 1, dots on an integer line.
+    Extended,
+}
+
+impl AxesTrace {
+    pub fn label(self) -> &'static str {
+        match self {
+            AxesTrace::Plain => "plain",
+            AxesTrace::Extended => "extended",
+        }
+    }
+}
+
+/// The trace inputs of presentation `p` under `mode` (see [`AxesTrace`]).
+pub fn axis_trace_inputs(
+    p: &rustred::propagator::presentation::Presentation,
+    mode: AxesTrace,
+) -> Vec<(rustred::propagator::PresentationId, Vec<i64>)> {
+    use rustred::propagator::presentation::Slot;
+    let forced = p.forced_axes();
+    let eps_slots: Vec<usize> = (0..p.slots.len())
+        .filter(|&s| forced >> s & 1 == 1)
+        .collect();
+    let first_isp = p.slots.iter().position(|slot| matches!(slot, Slot::Isp(_)));
+    let first_integer_line =
+        (0..p.slots.len()).find(|&s| matches!(p.slots[s], Slot::Line(_)) && forced >> s & 1 == 0);
+    let base: Vec<i64> = (p.slots.iter())
+        .map(|slot| i64::from(matches!(slot, Slot::Line(_))))
+        .collect();
+    let mut inputs = Vec::new();
+    for subset in 1..1u64 << eps_slots.len() {
+        let at = |power: i64| {
+            let mut powers = base.clone();
+            for (k, &slot) in eps_slots.iter().enumerate() {
+                if subset >> k & 1 == 1 {
+                    powers[slot] = power;
+                }
+            }
+            powers
+        };
+        match mode {
+            AxesTrace::Plain => {
+                for &power in &AXIS_TRACE_POWERS {
+                    inputs.push(at(power));
+                }
+            }
+            AxesTrace::Extended => {
+                inputs.push(at(-2));
+                for &power in &AXIS_TRACE_EXTENDED_POWERS {
+                    let plain = at(power);
+                    let mut numerator = plain.clone();
+                    if let Some(isp) = first_isp {
+                        numerator[isp] = -1;
+                        inputs.push(numerator.clone());
+                    }
+                    if let Some(line) = first_integer_line {
+                        numerator[line] = 2;
+                        inputs.push(numerator);
+                    }
+                }
+            }
+        }
+    }
+    inputs.sort();
+    inputs.dedup();
+    inputs.into_iter().map(|powers| (p.id, powers)).collect()
+}
+
 /// The eps-axis checks of one presentation of a present eps row.
 #[derive(Clone, Debug, Default)]
 pub struct AxesRow {
@@ -859,16 +939,18 @@ fn deposit(bits: u64, mask: u64) -> u64 {
 /// (3) keys with eps lines at integer power 0 and -1 ([`AXIS_TRACE_POWERS`]) are traced through the library without
 /// coefficients (routes, owners, children down to terminals), one trace per presentation, and every refusal is
 /// counted; each presentation's result is appended to `stream` when it is done (resumable).
+///
+/// `mode` picks the traced keys ([`AxesTrace`]); `max_loops` traces only the presentations with at most that many loops
+/// (the checks (1) and (2) cover all), so that light and heavy presentations can run with other thread counts.
 pub fn axes_report(
     library: &rustred::propagator::library::PLibrary,
     rows: &[Row],
     stream: &Path,
     threads: usize,
+    mode: AxesTrace,
+    max_loops: Option<u8>,
 ) -> Result<AxesReport, rustred::propagator::error::PError> {
     use rustred::propagator::PresentationId;
-    use rustred::propagator::descent::trace;
-    use rustred::propagator::presentation::Slot;
-    use rustred::reduction::ReductionLimits;
 
     let mut report = AxesReport::default();
     let ids: BTreeSet<u32> = rows
@@ -877,7 +959,7 @@ pub fn axes_report(
         .filter_map(|r| r.presentation.as_ref().map(|p| p.0))
         .collect();
     let census = library.census();
-    let mut inputs_of: BTreeMap<u32, Vec<(PresentationId, Vec<i64>)>> = BTreeMap::new();
+    let mut inputs_of: TraceGroups = BTreeMap::new();
     for &id in &ids {
         let p = library.presentation(PresentationId(id));
         let forced = p.forced_axes();
@@ -905,25 +987,11 @@ pub fn axes_report(
                 row.pinched += 1;
             }
         }
-        let eps_slots: Vec<usize> = (0..p.slots.len())
-            .filter(|&s| forced >> s & 1 == 1)
-            .collect();
-        let mut inputs: Vec<(PresentationId, Vec<i64>)> = Vec::new();
-        for subset in 1..1u64 << eps_slots.len() {
-            for &power in &AXIS_TRACE_POWERS {
-                let mut powers: Vec<i64> = (p.slots.iter())
-                    .map(|slot| i64::from(matches!(slot, Slot::Line(_))))
-                    .collect();
-                for (k, &slot) in eps_slots.iter().enumerate() {
-                    if subset >> k & 1 == 1 {
-                        powers[slot] = power;
-                    }
-                }
-                inputs.push((PresentationId(id), powers));
-            }
-        }
+        let inputs = axis_trace_inputs(p, mode);
         row.inputs = inputs.len();
-        inputs_of.insert(id, inputs);
+        if max_loops.is_none_or(|max| p.loops <= max) {
+            inputs_of.insert(id, (p.loops, inputs));
+        }
         report.rows.insert(id, row);
     }
     for owner in library.owners() {
@@ -967,8 +1035,49 @@ pub fn axes_report(
             ));
         }
     }
-    // (3) one trace per presentation (its state is dropped after it), in a pool of `threads`, smallest loop count
-    // first; each result is appended to `stream` at once, and a presentation already in `stream` is not traced again.
+    // (3) one trace per presentation, streamed and resumable (trace_streamed).
+    let started = std::time::Instant::now();
+    let done = trace_streamed(library, &inputs_of, stream, threads)?;
+    report.trace_seconds = started.elapsed().as_secs_f64();
+    for row in report.rows.values_mut() {
+        if let Some((keys, refused, refusal, seconds)) = done.get(&row.id) {
+            row.keys = *keys;
+            row.refused = Some(*refused);
+            row.refusal = refusal.clone();
+            row.seconds = *seconds;
+            report.trace_inputs += row.inputs;
+            report.trace_distinct_keys += keys;
+            if *refused > 0 {
+                *report
+                    .trace_failures
+                    .entry(refusal.split(':').next().unwrap_or("").to_owned())
+                    .or_default() += refused;
+                if report.trace_samples.len() < 32 {
+                    report
+                        .trace_samples
+                        .push(format!("presentation {}: {refusal}", row.id));
+                }
+            }
+        }
+    }
+    Ok(report)
+}
+
+/// Traces of one presentation's inputs each: presentation -> (loop count, inputs).
+pub type TraceGroups = BTreeMap<u32, (u8, Vec<(rustred::propagator::PresentationId, Vec<i64>)>)>;
+
+/// One trace per group (its state is dropped after it), in a pool of `threads`, smallest loop count first; each result
+/// (keys stepped, refusals, first refusal, seconds) is appended to `stream` at once, and a presentation already in
+/// `stream` is not traced again (its recorded result is returned). Coefficient-free (`descent::trace`, the census
+/// routes, owner programs and children down to terminals, `ReductionLimits::default()`).
+pub fn trace_streamed(
+    library: &rustred::propagator::library::PLibrary,
+    groups: &TraceGroups,
+    stream: &Path,
+    threads: usize,
+) -> Result<BTreeMap<u32, TraceResult>, rustred::propagator::error::PError> {
+    use rustred::propagator::descent::trace;
+    use rustred::reduction::ReductionLimits;
     let mut done: BTreeMap<u32, (usize, usize, String, f64)> = BTreeMap::new();
     if let Ok(text) = std::fs::read_to_string(stream) {
         for line in text.lines().skip(1) {
@@ -1000,12 +1109,12 @@ pub fn axes_report(
         .ok();
         f.flush().ok();
     }
-    let mut todo: Vec<(u8, u32)> = (report.rows.values())
-        .filter(|r| !done.contains_key(&r.id))
-        .map(|r| (r.loops, r.id))
+    let mut todo: Vec<(u8, u32)> = (groups.iter())
+        .filter(|(id, _)| !done.contains_key(id))
+        .map(|(&id, (loops, _))| (*loops, id))
         .collect();
     todo.sort_unstable();
-    let total = report.rows.len();
+    let total = groups.len();
     let counter = std::sync::atomic::AtomicUsize::new(done.len());
     let started = std::time::Instant::now();
     let pool = rayon::ThreadPoolBuilder::new()
@@ -1018,7 +1127,7 @@ pub fn axes_report(
                 .with_max_len(1)
                 .map(|&(loops, id)| {
                     let t = std::time::Instant::now();
-                    let traced = trace(library, &inputs_of[&id], ReductionLimits::default())?;
+                    let traced = trace(library, &groups[&id].1, ReductionLimits::default())?;
                     let refused: usize = traced.failures.values().sum();
                     let refusal = traced
                         .samples
@@ -1040,7 +1149,7 @@ pub fn axes_report(
                     }
                     let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                     eprintln!(
-                        "axes {n}/{total} presentation {id} L{loops}: {} inputs, {keys} keys, {refused} refused, {seconds:.1} s ({:.0} s)",
+                        "trace {n}/{total} presentation {id} L{loops}: {} inputs, {keys} keys, {refused} refused, {seconds:.1} s ({:.0} s)",
                         traced.inputs,
                         started.elapsed().as_secs_f64()
                     );
@@ -1052,29 +1161,102 @@ pub fn axes_report(
         let (id, value) = result?;
         done.insert(id, value);
     }
-    report.trace_seconds = started.elapsed().as_secs_f64();
-    for row in report.rows.values_mut() {
-        if let Some((keys, refused, refusal, seconds)) = done.get(&row.id) {
-            row.keys = *keys;
-            row.refused = Some(*refused);
-            row.refusal = refusal.clone();
-            row.seconds = *seconds;
-            report.trace_inputs += row.inputs;
-            report.trace_distinct_keys += keys;
-            if *refused > 0 {
-                *report
-                    .trace_failures
-                    .entry(refusal.split(':').next().unwrap_or("").to_owned())
-                    .or_default() += refused;
-                if report.trace_samples.len() < 32 {
-                    report
-                        .trace_samples
-                        .push(format!("presentation {}: {refusal}", row.id));
-                }
-            }
+    done.retain(|id, _| groups.contains_key(id));
+    Ok(done)
+}
+
+/// What [`keys_trace`] found: per presentation (inputs, trace result), and the totals.
+#[derive(Clone, Debug, Default)]
+pub struct KeysTraceReport {
+    pub rows: BTreeMap<u32, (usize, TraceResult)>,
+    pub inputs: usize,
+    pub keys: usize,
+    pub refused: usize,
+    pub samples: Vec<String>,
+    pub seconds: f64,
+}
+
+/// The keys of a `--trace-keys` file: one `<presentation id> TAB <comma-separated integer powers>` per line (the
+/// powers in the presentation's slot order, lines then ISPs); empty lines and lines starting with `#` are skipped;
+/// repeated keys are traced once.
+pub fn parse_trace_keys(text: &str) -> Result<Vec<(u32, Vec<i64>)>, String> {
+    let mut keys = BTreeSet::new();
+    for (number, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
         }
+        let bad = || {
+            format!(
+                "line {}: {line:?} is not <presentation> TAB <powers>",
+                number + 1
+            )
+        };
+        let (id, powers) = line.split_once('\t').ok_or_else(bad)?;
+        let id: u32 = id.trim().parse().map_err(|_| bad())?;
+        let powers: Vec<i64> = (powers.trim().split(','))
+            .map(|x| x.trim().parse())
+            .collect::<Result<_, _>>()
+            .map_err(|_| bad())?;
+        keys.insert((id, powers));
+    }
+    Ok(keys.into_iter().collect())
+}
+
+/// Trace `keys` through the loaded library, one coefficient-free trace per presentation ([`trace_streamed`], resumable
+/// through `stream`), and count the refusals. A key that is no key of the library is an error, not a refusal.
+pub fn keys_trace(
+    library: &rustred::propagator::library::PLibrary,
+    keys: &[(u32, Vec<i64>)],
+    stream: &Path,
+    threads: usize,
+) -> Result<KeysTraceReport, rustred::propagator::error::PError> {
+    use rustred::propagator::PresentationId;
+    let mut groups: TraceGroups = BTreeMap::new();
+    for (id, powers) in keys {
+        let presentation = (library.presentations().get(*id as usize)).ok_or_else(|| {
+            rustred::propagator::error::PError::Unsupported(format!(
+                "trace key on presentation {id}, which the library does not have"
+            ))
+        })?;
+        groups
+            .entry(*id)
+            .or_insert_with(|| (presentation.loops, Vec::new()))
+            .1
+            .push((PresentationId(*id), powers.clone()));
+    }
+    let started = std::time::Instant::now();
+    let done = trace_streamed(library, &groups, stream, threads)?;
+    let mut report = KeysTraceReport {
+        seconds: started.elapsed().as_secs_f64(),
+        ..KeysTraceReport::default()
+    };
+    for (id, (_, inputs)) in &groups {
+        let Some(result) = done.get(id) else { continue };
+        report.inputs += inputs.len();
+        report.keys += result.0;
+        report.refused += result.1;
+        if result.1 > 0 && report.samples.len() < 32 {
+            report
+                .samples
+                .push(format!("presentation {id}: {}", result.2));
+        }
+        report.rows.insert(*id, (inputs.len(), result.clone()));
     }
     Ok(report)
+}
+
+/// The keys-trace report as TSV, one row per presentation.
+pub fn keys_tsv(report: &KeysTraceReport) -> String {
+    let mut out = String::from("presentation	inputs	trace_keys	refused	refusal	seconds\n");
+    for (id, (inputs, (keys, refused, refusal, seconds))) in &report.rows {
+        writeln!(
+            out,
+            "{id}\t{inputs}\t{keys}\t{refused}\t{refusal}\t{seconds:.3}"
+        )
+        .unwrap();
+    }
+    out
 }
 
 /// The axes report as TSV, one row per presentation.
