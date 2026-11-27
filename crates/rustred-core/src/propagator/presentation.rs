@@ -374,6 +374,95 @@ impl Presentation {
             .filter(|(_, line)| line.eps_units != 0)
             .fold(0, |mask, (index, _)| mask | 1 << index)
     }
+
+    /// The content key of this presentation, the content-derived name that
+    /// stands beside its numeric [`PresentationId`]: see
+    /// [`PresentationContentKey`].
+    pub fn content_key(&self) -> PresentationContentKey {
+        PresentationContentKey {
+            graph_key: self
+                .node
+                .as_ref()
+                .map_or_else(Vec::new, |node| node.graph_key.to_vec()),
+            loops: self.loops,
+            line_eps_units: self.lines().map(|(_, line)| line.eps_units).collect(),
+            slots: self.slots.clone(),
+            family_fingerprint: *blake3::hash(self.family.fingerprint().as_bytes()).as_bytes(),
+        }
+    }
+}
+
+/// Version of the byte encoding behind [`PresentationContentKey::digest`].
+pub const P_PRESENTATION_CONTENT_KEY_VERSION: u32 = 1;
+
+/// What an [`crate::family::IntegralKey`] of a presentation refers to,
+/// independently of its numeric id (which is a position in one package):
+/// - the canonical graph key of its DAG node (`rustred::propagator::topology`
+///   `normalise` + `canonical`; empty for a top, which has no node);
+/// - its loop count and the eps units of its line slots, in slot order;
+/// - its slots in order: line momenta with their eps units, then the ISP
+///   pairs, over `(k_1, .., k_L, q)`;
+/// - the blake3 digest of its family's fingerprint
+///   ([`IntegralFamily::fingerprint`]: the family's name and definition, the
+///   identity Custom owner tables are bound to).
+///
+/// Equal keys (in two packages, or before and after a regeneration) mean the
+/// same integrals under the same keys: a key stored against one presentation
+/// can be re-bound to the presentation with the equal content key in another
+/// package. Different keys of one graph key mean another presentation of the
+/// same node (other slots or family); then keys do not carry over. The key
+/// does not cover the tables that reduce the presentation: those are covered
+/// by the package's content digest (`PLibrary::content_digest`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PresentationContentKey {
+    pub graph_key: Vec<u8>,
+    pub loops: u8,
+    pub line_eps_units: Vec<u8>,
+    pub slots: Vec<Slot>,
+    pub family_fingerprint: [u8; 32],
+}
+
+impl PresentationContentKey {
+    /// `blake3:<64 hex digits>` of the key's parts (encoding version
+    /// [`P_PRESENTATION_CONTENT_KEY_VERSION`]): the form to store or compare.
+    pub fn digest(&self) -> String {
+        fn row(hasher: &mut blake3::Hasher, values: &[i64]) {
+            hasher.update(&(values.len() as u64).to_le_bytes());
+            for value in values {
+                hasher.update(&value.to_le_bytes());
+            }
+        }
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"rustred.p-presentation-content\0");
+        hasher.update(&P_PRESENTATION_CONTENT_KEY_VERSION.to_le_bytes());
+        hasher.update(&(self.graph_key.len() as u64).to_le_bytes());
+        hasher.update(&self.graph_key);
+        hasher.update(&[self.loops]);
+        hasher.update(&(self.line_eps_units.len() as u64).to_le_bytes());
+        hasher.update(&self.line_eps_units);
+        hasher.update(&(self.slots.len() as u64).to_le_bytes());
+        for slot in &self.slots {
+            match slot {
+                Slot::Line(line) => {
+                    hasher.update(&[0, line.eps_units]);
+                    row(&mut hasher, &line.momentum);
+                }
+                Slot::Isp(isp) => {
+                    hasher.update(&[1]);
+                    row(&mut hasher, &isp.left);
+                    row(&mut hasher, &isp.right);
+                }
+            }
+        }
+        hasher.update(&self.family_fingerprint);
+        format!("blake3:{}", hasher.finalize().to_hex())
+    }
+}
+
+impl fmt::Display for PresentationContentKey {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.digest())
+    }
 }
 
 /// Solve `matrix x = rhs` exactly by Gauss-Jordan elimination.

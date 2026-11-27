@@ -13,6 +13,7 @@ mod iface4;
 mod package;
 mod perf;
 mod portfolio;
+mod presentation_keys;
 mod twosided;
 mod validate4;
 
