@@ -175,8 +175,10 @@ impl<Key> Default for Light<Key> {
     }
 }
 
-/// Tag of a cache handle (adapter handles never set bit 60).
-const CACHE_HANDLE: u64 = (1 << 63) | (1 << 60);
+/// Tag of a cache handle. Adapter handles never set bit 60: this layer reads
+/// every handle before the adapter does and takes one with this tag for its
+/// own (the propagator engine asserts that its stage tag is disjoint).
+pub(crate) const CACHE_HANDLE: u64 = (1 << 63) | (1 << 60);
 
 fn light_replay_allowed() -> bool {
     static ALLOWED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();

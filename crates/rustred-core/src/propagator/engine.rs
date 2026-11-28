@@ -1324,14 +1324,26 @@ pub(crate) mod light {
         handle >> 61 & 1 == 1
     }
 
-    /// eng-stage: a handle of the engine's stage coefficient table (bit
-    /// 60; never local: valid for the engine's life).
+    /// Tag of a handle of the engine's stage coefficient table. Bits of a
+    /// light handle: 63 set, 62 the sign, 61 local, 60 the step cache's own
+    /// handles, 59 this tag, 40-55 the memo generation of a local handle,
+    /// 0-31 the index. The step cache reads a handle BEFORE the engine does
+    /// and takes everything with its tag for its own, so this tag must stay
+    /// clear of it (a shared bit gave another child's coefficient).
+    const STAGE: u64 = 1 << 59;
+    const _: () = assert!(
+        STAGE & crate::reduction::ordered_reduction::step_cache::kernel::CACHE_HANDLE == 0
+            && STAGE & (0xFFFF << 40 | 0xFFFF_FFFF) == 0
+    );
+
+    /// eng-stage: a handle of the engine's stage coefficient table (never
+    /// local: valid for the engine's life).
     pub(crate) fn stage(index: u32, negative: bool) -> u64 {
-        (1 << 63) | (u64::from(negative) << 62) | (1 << 60) | u64::from(index)
+        (1 << 63) | (u64::from(negative) << 62) | STAGE | u64::from(index)
     }
 
     pub(crate) fn is_stage(handle: u64) -> bool {
-        handle >> 60 & 1 == 1
+        handle & STAGE != 0
     }
 
     pub(super) fn put(children: Vec<(PKey, u64)>) {
@@ -5875,15 +5887,11 @@ mod tests {
         }
     }
 
-    /// A whole reduction (Exact, one thread, through the scheduler and its
-    /// frontier) gives the same terminals with the staged transport.
-    #[test]
-    #[allow(clippy::mutable_key_type)]
-    fn staged_and_one_step_reductions_agree() {
-        let (library, _) = staged_library();
+    /// The inputs of the whole-reduction tests of the staged transport.
+    fn staged_inputs(library: &PLibrary) -> Vec<(PresentationId, IntegralKey, Coefficient)> {
         let context = library.coefficient_context();
         let d = context.parameter("d").unwrap();
-        let inputs: Vec<(PresentationId, IntegralKey, Coefficient)> = [
+        [
             ([1, 1, 1, -1, -2], context.one()),
             ([1, 1, 1, 0, -3], d.clone()),
             ([2, 1, 1, -2, -1], context.integer(3)),
@@ -5899,36 +5907,112 @@ mod tests {
                 coefficient,
             )
         })
-        .collect();
-        let run = |staged: bool| {
-            let engine = PEngine::with_staging(&library, staged).unwrap();
-            let limits = ReductionLimits::default();
-            let initial = engine.initial(&library, inputs.clone(), &limits).unwrap();
-            let output = engine
-                .run_reporting(
-                    &library,
-                    initial,
-                    OrderedWeightArithmetic::Exact,
-                    OrderedSchedulerOptions {
-                        threads: 1,
-                        ..Default::default()
-                    },
-                    None,
-                    limits,
-                    None,
-                    true,
-                    &mut BTreeSet::new(),
-                    None,
-                    None,
-                )
-                .unwrap();
-            (output.terms, output.progress.processed_keys)
-        };
-        let (one_step, one_step_keys) = run(false);
-        let (staged, staged_keys) = run(true);
-        assert!(!one_step.is_empty());
-        assert_eq!(staged, one_step);
+        .collect()
+    }
+
+    /// One whole reduction of [`staged_inputs`] on one thread, through the
+    /// scheduler and its frontier.
+    fn staged_reduction(
+        library: &PLibrary,
+        staged: bool,
+        arithmetic: OrderedWeightArithmetic,
+        cache: Option<&OrderedStepCache>,
+    ) -> OrderedOutput {
+        let engine = PEngine::with_staging(library, staged).unwrap();
+        let limits = ReductionLimits::default();
+        let initial = engine
+            .initial(library, staged_inputs(library), &limits)
+            .unwrap();
+        engine
+            .run_reporting(
+                library,
+                initial,
+                arithmetic,
+                OrderedSchedulerOptions {
+                    threads: 1,
+                    ..Default::default()
+                },
+                cache,
+                limits,
+                None,
+                true,
+                &mut BTreeSet::new(),
+                None,
+                None,
+            )
+            .unwrap()
+    }
+
+    /// A whole reduction (Exact, one thread, through the scheduler and its
+    /// frontier) gives the same terminals with the staged transport.
+    #[test]
+    #[allow(clippy::mutable_key_type)]
+    fn staged_and_one_step_reductions_agree() {
+        let (library, _) = staged_library();
+        let exact = OrderedWeightArithmetic::Exact;
+        let one_step = staged_reduction(&library, false, exact, None);
+        let staged = staged_reduction(&library, true, exact, None);
+        assert!(!one_step.terms.is_empty());
+        assert_eq!(staged.terms, one_step.terms);
         // The staged run pops its intermediates too.
-        assert!(staged_keys > one_step_keys, "{staged_keys} {one_step_keys}");
+        assert!(
+            staged.progress.processed_keys > one_step.progress.processed_keys,
+            "{} {}",
+            staged.progress.processed_keys,
+            one_step.progress.processed_keys
+        );
+    }
+
+    /// The tags of the handle kinds are disjoint: the step cache, which
+    /// reads a handle first, takes no stage handle for one of its own, and
+    /// no memo handle (local, any generation, or shared) reads as a stage
+    /// handle.
+    #[test]
+    fn a_stage_handle_is_no_other_handle() {
+        use crate::reduction::ordered_reduction::step_cache::kernel::CACHE_HANDLE;
+        for negative in [false, true] {
+            let stage = light::stage(u32::MAX, negative);
+            assert!(light::is_stage(stage));
+            assert!(!light::is_local(stage));
+            assert_ne!(stage & CACHE_HANDLE, CACHE_HANDLE);
+            assert_eq!(light::split(stage), (u32::MAX, negative));
+            for local in [false, true] {
+                assert!(!light::is_stage(light::handle(u32::MAX, negative, local)));
+            }
+            assert!(!light::is_stage(
+                (1 << 63) | (u64::from(negative) << 62) | (1 << 61) | (0xFFFF << 40) | 0xFFFF_FFFF
+            ));
+        }
+        assert!(!light::is_stage(CACHE_HANDLE | 0xFFFF_FFFF));
+    }
+
+    /// With a step cache attached and light children on (modular arithmetic,
+    /// one thread) the staged transport gives the terminals of the one-step
+    /// reduction, on a cold cache and again on the warm one.
+    #[test]
+    #[allow(clippy::mutable_key_type)]
+    fn staged_reductions_agree_with_a_step_cache() {
+        let (library, _) = staged_library();
+        let modular =
+            || OrderedWeightArithmetic::ModularSampled(Default::default(), Default::default());
+        let exact = staged_reduction(&library, false, OrderedWeightArithmetic::Exact, None);
+        let one_step = staged_reduction(&library, false, modular(), None);
+        assert!(!one_step.terms.is_empty());
+        assert_eq!(one_step.terms, exact.terms);
+        let cache =
+            OrderedStepCache::in_memory(library.step_cache_binding().unwrap(), Default::default());
+        let cold = staged_reduction(&library, true, modular(), Some(&cache));
+        assert_eq!(cold.terms, one_step.terms);
+        assert!(cold.progress.step_cache_misses > 0);
+        let warm = staged_reduction(&library, true, modular(), Some(&cache));
+        assert_eq!(warm.terms, one_step.terms);
+        assert!(warm.progress.step_cache_hits > 0);
+        // A cache filled by the one-step transport serves the staged one too.
+        let other =
+            OrderedStepCache::in_memory(library.step_cache_binding().unwrap(), Default::default());
+        let filled = staged_reduction(&library, false, modular(), Some(&other));
+        assert_eq!(filled.terms, one_step.terms);
+        let mixed = staged_reduction(&library, true, modular(), Some(&other));
+        assert_eq!(mixed.terms, one_step.terms);
     }
 }
